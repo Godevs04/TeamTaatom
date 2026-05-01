@@ -121,36 +121,42 @@ export default function TripScoreContinentsScreen() {
 
             {/* Continents List */}
             <View style={[styles.continentsContainer, { backgroundColor: theme.colors.surface }]}>
-              {data.continents.map((continent, index) => (
-                <TouchableOpacity
-                  key={continent.name}
-                  style={[
-                    styles.continentItem,
-                    { backgroundColor: theme.colors.surface },
-                    index === data.continents.length - 1 && styles.lastItem
-                  ]}
-                  onPress={() => handleContinentPress(continent.name)}
-                >
-                  <View style={styles.continentContent}>
-                    <Text style={[styles.continentName, { color: theme.colors.text }]}>
-                      {continent.name}
-                    </Text>
-                    <Text style={[styles.continentScoreLabel, { color: theme.colors.textSecondary }]}>
-                      TRIPSCORE
-                    </Text>
-                    <Text style={[styles.continentScoreValue, { color: theme.colors.primary }]}>
-                      {continent.score.toString().padStart(2, '0')}
-                    </Text>
-                  </View>
-                  <View style={styles.continentRight}>
-                    {/* TODO: Distance display commented out temporarily */}
-                    {/* <Text style={[styles.continentDistance, { color: theme.colors.textSecondary }]}>
-                      {continent.distance} km
-                    </Text> */}
-                    <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
-                  </View>
-                </TouchableOpacity>
-              ))}
+              {data.continents.map((continent, index) => {
+                const isUnvisited = continent.score === 0;
+                return (
+                  <TouchableOpacity
+                    key={continent.name}
+                    style={[
+                      styles.continentItem,
+                      { backgroundColor: theme.colors.surface },
+                      isUnvisited && styles.unvisitedContinent,
+                      index === data.continents.length - 1 && styles.lastItem
+                    ]}
+                    onPress={() => handleContinentPress(continent.name)}
+                  >
+                    <View style={styles.continentContent}>
+                      <Text style={[styles.continentName, { color: theme.colors.text }]}>
+                        {continent.name}
+                      </Text>
+                      <Text style={[styles.continentScoreLabel, { color: theme.colors.textSecondary }]}>
+                        {isUnvisited ? 'NOT VISITED' : 'TRIPSCORE'}
+                      </Text>
+                      {!isUnvisited ? (
+                        <Text style={[styles.continentScoreValue, { color: theme.colors.primary }]}>
+                          {continent.score.toString().padStart(2, '0')}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <View style={styles.continentRight}>
+                      <Ionicons
+                        name="chevron-forward"
+                        size={20}
+                        color={isUnvisited ? theme.colors.textSecondary + '60' : theme.colors.textSecondary}
+                      />
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           </>
         )}
@@ -210,8 +216,8 @@ const styles = StyleSheet.create({
   },
   totalScoreNumber: {
     fontSize: isTablet ? 64 : 48,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: isTablet ? theme.spacing.sm : 8,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
@@ -240,6 +246,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.1)',
   },
+  unvisitedContinent: {
+    opacity: 0.4,
+  },
   lastItem: {
     borderBottomWidth: 0,
   },
@@ -248,8 +257,8 @@ const styles = StyleSheet.create({
   },
   continentName: {
     fontSize: isTablet ? theme.typography.h3.fontSize : 18,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: 4,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
@@ -266,8 +275,8 @@ const styles = StyleSheet.create({
   },
   continentScoreValue: {
     fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),

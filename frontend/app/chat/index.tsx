@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Image, Alert, Dimensions, Keyboard, Linking } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { useTheme } from '../../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import api from '../../services/api';
@@ -8,17 +9,27 @@ import { socketService } from '../../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
 import { io, Socket } from 'socket.io-client';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { callService } from '../../services/callService';
 import CallScreen from '../../components/CallScreen';
 import ThreeDotMenu from '../../components/ThreeDotMenu';
 import { toggleBlockUser, getBlockStatus } from '../../services/profile';
-import { clearChat, toggleMuteChat, getMuteStatus } from '../../services/chat';
+import { clearChat, toggleMuteChat, getMuteStatus, ChatAttachment } from '../../services/chat';
 import { theme } from '../../constants/theme';
 import logger from '../../utils/logger';
 import { sanitizeErrorForDisplay } from '../../utils/errorSanitizer';
 import { getPostById } from '../../services/posts';
+import ChatAttachmentPicker from '../../components/chat/ChatAttachmentPicker';
+import ChatAttachmentPreview from '../../components/chat/ChatAttachmentPreview';
+import MessageAttachment from '../../components/chat/MessageAttachment';
+
+// Clear push notification badge and dismiss tray notifications when messages are read.
+// Works for both Firebase (FCM) and Expo notification channels.
+const clearChatNotifications = () => {
+  Notifications.setBadgeCountAsync(0).catch(() => {});
+  Notifications.dismissAllNotificationsAsync().catch(() => {});
+};
 
 // Helper function to normalize IDs from various formats (string, ObjectId, Buffer)
 // Buffer objects in React Native appear as objects with numeric keys (e.g., { '0': 104, '1': 235, ... })
@@ -143,12 +154,15 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
   return 'Roboto';
 };
 
-function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoiceCall, onVideoCall, isCalling, showGlobalCallScreen, globalCallState, setShowGlobalCallScreen, setGlobalCallState, forceRender, setForceRender, router, onClearChat, onMessagesSeen }: {
+function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatType, connectPageId, participants, onVoiceCall, onVideoCall, isCalling, showGlobalCallScreen, globalCallState, setShowGlobalCallScreen, setGlobalCallState, forceRender, setForceRender, router, onClearChat, onMessagesSeen }: {
   otherUser: any,
   onClose: () => void,
   messages: any[],
   onSendMessage: (msg: any) => void,
   chatId: string,
+  chatType?: string,
+  connectPageId?: any,
+  participants?: any[],
   onVoiceCall: (user: any) => void,
   onVideoCall: (user: any) => void,
   isCalling: boolean,
@@ -165,10 +179,14 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   // Render logging removed - too verbose, use React DevTools for component tracking
   
   const { theme } = useTheme();
+  const insets = useSafeAreaInsets();
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
-  
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
+  const [showAttachmentPicker, setShowAttachmentPicker] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+
   // Check if this is Taatom Official user - using properties set by backend
   // Backend sets isVerified: true and fullName: 'Taatom Official' for Taatom Official user
   const isTaatomOfficial = otherUser?.isVerified === true && 
@@ -212,6 +230,34 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
       logger.error('Error parsing post share:', error);
     }
     return null;
+  };
+
+  // Parse journey share message
+  const parseJourneyShare = (text: string) => {
+    if (!text || !text.startsWith('[JOURNEY_SHARE]')) return null;
+    try {
+      const data = text.replace('[JOURNEY_SHARE]', '');
+      const parts = data.split('|');
+      if (parts.length >= 3) {
+        return {
+          journeyId: parts[0] || '',
+          shareUrl: parts[1] || '',
+          title: parts[2] || 'Journey',
+          distance: parts[3] || '',
+          status: parts[4] || 'completed',
+        };
+      }
+    } catch (error) {
+      logger.error('Error parsing journey share:', error);
+    }
+    return null;
+  };
+
+  // Handle journey preview click
+  const handleJourneyPreviewClick = (journeyId: string) => {
+    if (router && journeyId) {
+      router.push(`/navigate/detail?journeyId=${journeyId}`);
+    }
   };
 
   // Handle post preview click
@@ -518,9 +564,11 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   // This works alongside the parent's activeMessages state to ensure real-time updates
   const [localMessages, setLocalMessages] = useState<any[]>([]);
   
-  // Clear local messages when chat changes
+  // Clear local messages and reset scroll state when chat changes
   useEffect(() => {
     setLocalMessages([]);
+    isInitialLoadRef.current = true;
+    prevMessageCountRef.current = 0;
   }, [chatId]);
   
   // Track when messages prop changes (reduced logging)
@@ -540,6 +588,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   const localMessagesLength = Array.isArray(localMessages) ? localMessages.length : 0;
   const localMessagesFirstId = localMessages.length > 0 ? normalizeId(localMessages[0]?._id) : '';
   const localMessagesSeenCount = localMessages.filter(m => m.seen === true).length;
+  const messagesSeenCount = Array.isArray(messages) ? messages.filter((m: any) => m.seen === true).length : 0;
 
   const allMessages = React.useMemo(() => {
     // No logging here - useMemo recalculating is normal behavior
@@ -568,7 +617,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     });
     
     return sorted;
-  }, [messagesLength, messagesFirstId, localMessagesLength, localMessagesFirstId, localMessagesSeenCount]); // Use stable primitives
+  }, [messagesLength, messagesFirstId, localMessagesLength, localMessagesFirstId, localMessagesSeenCount, messagesSeenCount]); // Use stable primitives
   
   // Sort messages ascending by timestamp (oldest first)
   // Use allMessages which is already sorted
@@ -739,7 +788,41 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
       }
     };
     const onSeen = (payload: any) => {
-      if (normalizeId(payload.from) === normalizeId(otherUser._id)) {
+      const isGroupChat = chatType === 'connect_page';
+
+      if (isGroupChat) {
+        // Group chat: update seenBy array on the specific message
+        const messageId = payload.messageId;
+        const fromUserId = normalizeId(payload.from);
+        const incomingSeenBy = Array.isArray(payload.seenBy) ? payload.seenBy : [];
+
+        if (messageId && fromUserId) {
+          setLocalMessages(prev =>
+            prev.map(m => {
+              if (normalizeId(m._id) === normalizeId(messageId)) {
+                const currentSeenBy = Array.isArray(m.seenBy) ? m.seenBy.map((id: any) => normalizeId(id)).filter(Boolean) as string[] : [];
+                // Merge incoming seenBy with current
+                if (incomingSeenBy.length > 0) {
+                  for (const id of incomingSeenBy) {
+                    const nId = normalizeId(id);
+                    if (nId && !currentSeenBy.includes(nId)) currentSeenBy.push(nId);
+                  }
+                } else if (fromUserId && !currentSeenBy.includes(fromUserId)) {
+                  currentSeenBy.push(fromUserId);
+                }
+                return { ...m, seenBy: currentSeenBy };
+              }
+              return m;
+            })
+          );
+
+          // Also update parent activeMessages
+          if (onMessagesSeen && chatId) {
+            onMessagesSeen(chatId, [messageId]);
+          }
+        }
+      } else if (normalizeId(payload.from) === normalizeId(otherUser._id)) {
+        // 1:1 chat: existing behavior
         setLastSeenId(payload.messageId);
         const otherUserId = normalizeId(otherUser._id);
 
@@ -830,29 +913,34 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   // Use a ref to track previous length to prevent infinite loops
   const prevMessageCountRef = useRef(0);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
+  const isInitialLoadRef = useRef(true);
+  const hasScrolledToEndRef = useRef(false);
+
   useEffect(() => {
     const currentCount = allMessages.length;
-    
+
     // Only scroll if new messages were added (count increased)
     if (currentCount > prevMessageCountRef.current && flatListRef.current) {
-      if (__DEV__ && process.env.NODE_ENV === 'development') {
-        logger.debug('[ChatWindow] Auto-scrolling to end', { currentCount, prevCount: prevMessageCountRef.current });
+      const wasInitialLoad = isInitialLoadRef.current;
+      if (wasInitialLoad) {
+        isInitialLoadRef.current = false;
       }
       prevMessageCountRef.current = currentCount;
-      
+
       // Clear any existing timeout to prevent multiple scrolls
       if (scrollTimeoutRef.current) {
         clearTimeout(scrollTimeoutRef.current);
       }
-      
-      // Small delay to ensure FlatList has rendered
+
+      // Initial load: use longer delay + no animation to reliably reach the end.
+      // Subsequent messages: short delay + smooth animation.
+      const delay = wasInitialLoad ? 300 : 100;
       scrollTimeoutRef.current = setTimeout(() => {
         if (flatListRef.current) {
-          flatListRef.current.scrollToEnd({ animated: true });
+          flatListRef.current.scrollToEnd({ animated: !wasInitialLoad });
         }
         scrollTimeoutRef.current = null;
-      }, 100);
+      }, delay);
     } else if (currentCount !== prevMessageCountRef.current) {
       // Update ref even if we don't scroll
       prevMessageCountRef.current = currentCount;
@@ -894,44 +982,71 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   // Mark messages as seen only after user has had time to view them (3 seconds after chat window is visible)
   // This ensures unread count persists until user actually views the chat
   useEffect(() => {
+    const isGroupChat = chatType === 'connect_page';
     // Only mark as seen once per chat session, and only after a delay to ensure user has viewed messages
     if (sortedMessages.length > 0 && !hasMarkedAsSeenRef.current && chatId) {
+      const myId = normalizeId(currentUserId);
       const unseen = sortedMessages.filter(m => {
         const senderId = normalizeId(m.sender?._id || m.sender);
+        if (isGroupChat) {
+          // Group chat: unseen = not sent by me AND I'm not in seenBy
+          if (senderId === myId) return false;
+          if (Array.isArray(m.seenBy) && myId && m.seenBy.some((id: any) => normalizeId(id) === myId)) return false;
+          return true;
+        }
+        // 1:1 chat: existing logic
         const otherUserId = normalizeId(otherUser._id);
         return senderId && otherUserId && senderId === otherUserId && !m.seen;
       });
-      
+
       if (unseen.length > 0) {
         // Clear any existing timeout
         if (markSeenTimeoutRef.current) {
           clearTimeout(markSeenTimeoutRef.current);
         }
-        
+
         // Wait 3 seconds after chat window is visible before marking as seen
         // This gives user time to actually view the messages
         markSeenTimeoutRef.current = setTimeout(() => {
           if (!hasMarkedAsSeenRef.current) {
             logger.debug('[UNREAD DEBUG] Marking messages as seen after 3s delay', {
               chatId,
-              unseenCount: unseen.length
+              unseenCount: unseen.length,
+              isGroupChat
             });
-            
+
             // Mark as seen via socket (for real-time)
             unseen.forEach(msg => {
-              socketService.emit('seen', { to: otherUser._id, messageId: msg._id, chatId });
+              if (isGroupChat) {
+                // Group chat: emit with chatId, no specific 'to' user needed
+                socketService.emit('seen', { messageId: msg._id, chatId });
+              } else {
+                socketService.emit('seen', { to: otherUser._id, messageId: msg._id, chatId });
+              }
             });
-            
-            // Mark as seen in backend
-            api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(e => {
-              logger.debug('Failed to mark messages as seen in backend:', e);
-            });
-            
+
+            // Mark as seen in backend (REST call to persist)
+            if (isGroupChat) {
+              api.post(`/chat/room/${chatId}/mark-all-seen`).catch(e => {
+                logger.debug('Failed to mark group messages as seen in backend:', e);
+              });
+            } else {
+              api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(e => {
+                logger.debug('Failed to mark messages as seen in backend:', e);
+              });
+            }
+            clearChatNotifications();
+
             // Update local state
             setLocalMessages(prev => prev.map(m => {
               const msgId = normalizeId(m._id);
               const isUnseen = unseen.some(u => normalizeId(u._id) === msgId);
               if (isUnseen) {
+                if (isGroupChat && myId) {
+                  const currentSeenBy = Array.isArray(m.seenBy) ? [...m.seenBy] : [];
+                  if (!currentSeenBy.includes(myId)) currentSeenBy.push(myId);
+                  return { ...m, seenBy: currentSeenBy };
+                }
                 return { ...m, seen: true };
               }
               return m;
@@ -955,13 +1070,25 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
         markSeenTimeoutRef.current = null;
         // Fire immediately on close so the badge clears when returning to chat list
         if (!hasMarkedAsSeenRef.current && chatId) {
-          const otherUserIdNorm = normalizeId(otherUser._id);
-          const unseenNow = sortedMessagesRef.current.filter(m => {
+          const myId = normalizeId(currentUserId);
+          const isGroup = chatType === 'connect_page';
+          const unseenNow = sortedMessagesRef.current.filter((m: any) => {
             const senderId = normalizeId(m.sender?._id || m.sender);
+            if (isGroup) {
+              if (senderId === myId) return false;
+              if (Array.isArray(m.seenBy) && myId && m.seenBy.some((id: any) => normalizeId(id) === myId)) return false;
+              return true;
+            }
+            const otherUserIdNorm = normalizeId(otherUser._id);
             return senderId && otherUserIdNorm && senderId === otherUserIdNorm && !m.seen;
           });
           if (unseenNow.length > 0) {
-            api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(() => {});
+            if (isGroup) {
+              api.post(`/chat/room/${chatId}/mark-all-seen`).catch(() => {});
+            } else {
+              api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(() => {});
+            }
+            clearChatNotifications();
             if (onMessagesSeen && chatId) {
               onMessagesSeen(chatId, unseenNow.map((u: any) => normalizeId(u._id)));
             }
@@ -970,39 +1097,64 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
         }
       }
     };
-  }, [sortedMessages, otherUser, chatId]);
+  }, [sortedMessages, otherUser, chatId, chatType, currentUserId]);
 
   // Also mark as seen immediately when user sends a message (they're actively viewing the chat)
   const markMessagesAsSeenIfNeeded = useCallback(() => {
     if (hasMarkedAsSeenRef.current) return;
-    
+
+    const myId = normalizeId(currentUserId);
+    const isGroup = chatType === 'connect_page';
+
     const unseen = sortedMessages.filter(m => {
       const senderId = normalizeId(m.sender?._id || m.sender);
+      if (isGroup) {
+        if (senderId === myId) return false;
+        if (Array.isArray(m.seenBy) && myId && m.seenBy.some((id: any) => normalizeId(id) === myId)) return false;
+        return true;
+      }
       const otherUserId = normalizeId(otherUser._id);
       return senderId && otherUserId && senderId === otherUserId && !m.seen;
     });
-    
+
     if (unseen.length > 0) {
       logger.debug('[UNREAD DEBUG] Marking messages as seen (user sent message)', {
         chatId,
-        unseenCount: unseen.length
+        unseenCount: unseen.length,
+        isGroup
       });
-      
+
       // Mark as seen via socket
       unseen.forEach(msg => {
-        socketService.emit('seen', { to: otherUser._id, messageId: msg._id, chatId });
+        if (isGroup) {
+          socketService.emit('seen', { messageId: msg._id, chatId });
+        } else {
+          socketService.emit('seen', { to: otherUser._id, messageId: msg._id, chatId });
+        }
       });
-      
-      // Mark as seen in backend
-      api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(e => {
-        logger.debug('Failed to mark messages as seen in backend:', e);
-      });
-      
+
+      // Mark as seen in backend + clear push notification badge/tray
+      if (isGroup) {
+        api.post(`/chat/room/${chatId}/mark-all-seen`).catch(e => {
+          logger.debug('Failed to mark group messages as seen in backend:', e);
+        });
+      } else {
+        api.post(`/chat/${otherUser._id}/mark-all-seen`).catch(e => {
+          logger.debug('Failed to mark messages as seen in backend:', e);
+        });
+      }
+      clearChatNotifications();
+
       // Update local state
       setLocalMessages(prev => prev.map(m => {
         const msgId = normalizeId(m._id);
         const isUnseen = unseen.some(u => normalizeId(u._id) === msgId);
         if (isUnseen) {
+          if (isGroup && myId) {
+            const currentSeenBy = Array.isArray(m.seenBy) ? [...m.seenBy] : [];
+            if (!currentSeenBy.includes(myId)) currentSeenBy.push(myId);
+            return { ...m, seenBy: currentSeenBy };
+          }
           return { ...m, seen: true };
         }
         return m;
@@ -1025,9 +1177,10 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
 
   // In handleSend, update local state via onSendMessage
   const handleSend = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() && pendingAttachments.length === 0) return;
     const messageText = input;
-    logger.debug('Sending message:', messageText);
+    const attachmentsToSend = [...pendingAttachments];
+    logger.debug('Sending message', { messageText, attachmentCount: attachmentsToSend.length });
     
     // Mark messages as seen when user sends a message (they're actively viewing the chat)
     markMessagesAsSeenIfNeeded();
@@ -1047,15 +1200,17 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     const optimisticMessage = {
       _id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       text: messageText,
+      attachments: attachmentsToSend.length > 0 ? attachmentsToSend : undefined,
       sender: currentUserId,
       timestamp: new Date().toISOString(),
       seen: false,
       isOptimistic: true, // Flag to identify optimistic messages
     };
-    
+
     // Add optimistic message immediately to UI for instant feedback
     onSendMessage(optimisticMessage);
     setInput(''); // Clear input immediately for better UX
+    setPendingAttachments([]); // Clear attachments
     
     // Scroll to bottom after adding optimistic message
     setTimeout(() => {
@@ -1063,7 +1218,15 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     }, 100);
     
     try {
-      const res = await api.post(`/chat/${otherUser._id}/messages`, { text: messageText });
+      // Use room endpoint for connect_page group chats, user endpoint for 1:1 chats
+      const isGroupChat = chatType === 'connect_page';
+      const endpoint = isGroupChat
+        ? `/chat/room/${chatId}/messages`
+        : `/chat/${otherUser._id}/messages`;
+      const payload: { text?: string; attachments?: ChatAttachment[] } = {};
+      if (messageText) payload.text = messageText;
+      if (attachmentsToSend.length > 0) payload.attachments = attachmentsToSend;
+      const res = await api.post(endpoint, payload);
       logger.debug('Message sent successfully:', res.data.message);
       
       // Clear any existing fallback timeout
@@ -1115,76 +1278,76 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     chatHeader: {
       flexDirection: 'row',
       alignItems: 'center',
-      justifyContent: 'space-between',
-      paddingHorizontal: isTablet ? theme.spacing.xl : 20,
-      paddingVertical: isTablet ? theme.spacing.lg : 16,
-      backgroundColor: theme.colors.surface,
-      borderBottomWidth: 1,
+      paddingHorizontal: isTablet ? theme.spacing.lg : 8,
+      paddingVertical: isTablet ? 10 : 8,
+      backgroundColor: theme.colors.background,
+      borderBottomWidth: 0.5,
       borderBottomColor: theme.colors.border,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.1,
-      shadowRadius: 4,
-      elevation: 3,
     },
     headerBack: {
-      // Minimum touch target: 44x44 for iOS, 48x48 for Android
-      minWidth: isAndroid ? 48 : (isTablet ? 52 : 44),
-      minHeight: isAndroid ? 48 : (isTablet ? 52 : 44),
-      width: isTablet ? 52 : (isAndroid ? 48 : 44),
-      height: isTablet ? 52 : (isAndroid ? 48 : 44),
+      width: 36,
+      height: 36,
       alignItems: 'center',
       justifyContent: 'center',
-      borderRadius: isTablet ? 26 : (isAndroid ? 24 : 22),
-      backgroundColor: theme.colors.background,
-      ...(isWeb && {
-        cursor: 'pointer',
-        transition: 'all 0.2s ease',
-      } as any),
+      borderRadius: 18,
+    },
+    headerUserInfo: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginLeft: 4,
     },
     headerAvatarWrap: {
       position: 'relative',
-      width: isTablet ? 56 : 48,
-      height: isTablet ? 56 : 48,
+      width: isTablet ? 40 : 36,
+      height: isTablet ? 40 : 36,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    headerAvatar: {
+      width: isTablet ? 40 : 36,
+      height: isTablet ? 40 : 36,
+      borderRadius: isTablet ? 20 : 18,
+    },
+    headerAvatarPlaceholder: {
+      width: isTablet ? 40 : 36,
+      height: isTablet ? 40 : 36,
+      borderRadius: isTablet ? 20 : 18,
       alignItems: 'center',
       justifyContent: 'center',
     },
     onlineDot: {
       position: 'absolute',
-      bottom: 2,
-      right: 2,
-      width: isTablet ? 18 : 14,
-      height: isTablet ? 18 : 14,
-      borderRadius: isTablet ? 9 : 7,
+      bottom: 0,
+      right: 0,
+      width: isTablet ? 12 : 10,
+      height: isTablet ? 12 : 10,
+      borderRadius: isTablet ? 6 : 5,
       backgroundColor: '#4cd137',
-      borderWidth: 3,
-      borderColor: theme.colors.surface,
+      borderWidth: 2,
+      borderColor: theme.colors.background,
     },
     headerCenter: {
       flex: 1,
-      alignItems: 'center',
       justifyContent: 'center',
-      marginHorizontal: isTablet ? theme.spacing.md : 8,
+      marginLeft: isTablet ? 10 : 8,
       minWidth: 0,
     },
     chatName: {
-      fontSize: isTablet ? 22 : 18,
-      fontFamily: getFontFamily('700'),
-      fontWeight: '700',
+      fontSize: isTablet ? 17 : 16,
+      fontFamily: getFontFamily('600'),
+      fontWeight: '600',
       color: theme.colors.text,
-      textAlign: 'center',
-      maxWidth: '100%',
-      letterSpacing: isIOS ? 0.3 : 0.2,
+      flexShrink: 1,
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       } as any),
     },
     onlineStatus: {
-      fontSize: isTablet ? theme.typography.small.fontSize + 1 : 12,
-      fontFamily: getFontFamily('500'),
-      fontWeight: '500',
-      marginTop: 2,
-      textAlign: 'center',
+      fontSize: isTablet ? 12 : 11,
+      fontFamily: getFontFamily('400'),
+      fontWeight: '400',
+      marginTop: 1,
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       } as any),
@@ -1192,48 +1355,45 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     headerActions: {
       flexDirection: 'row',
       alignItems: 'center',
+      marginLeft: 8,
     },
     headerActionButton: {
-      width: 40,
-      height: 40,
-      borderRadius: 20,
-      backgroundColor: theme.colors.background,
+      width: 36,
+      height: 36,
+      borderRadius: 18,
       alignItems: 'center',
       justifyContent: 'center',
-      marginLeft: 8,
     },
     headerActionButtonDisabled: {
       opacity: 0.5,
     },
     messagesContainer: {
       flex: 1,
-      paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+      paddingHorizontal: isTablet ? theme.spacing.lg : 12,
       backgroundColor: theme.colors.background,
     },
     bubble: {
-      marginVertical: isTablet ? 6 : 4,
-      paddingHorizontal: isTablet ? theme.spacing.md : 14,
-      paddingVertical: isTablet ? theme.spacing.md : 10,
-      borderRadius: isTablet ? 22 : 18,
-      maxWidth: isTablet ? '70%' : '75%',
+      marginVertical: isTablet ? 3 : 2,
+      paddingHorizontal: isTablet ? 14 : 12,
+      paddingVertical: isTablet ? 8 : 7,
+      borderRadius: isTablet ? 18 : 16,
+      maxWidth: isTablet ? '70%' : '78%',
     },
     bubbleOwn: {
       alignSelf: 'flex-end',
       backgroundColor: theme.colors.primary,
-      borderBottomRightRadius: 6,
+      borderBottomRightRadius: 4,
     },
     bubbleOther: {
       alignSelf: 'flex-start',
       backgroundColor: theme.colors.surface,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      borderBottomLeftRadius: 6,
+      borderBottomLeftRadius: 4,
     },
     bubbleText: {
       color: theme.colors.text,
-      fontSize: isTablet ? theme.typography.body.fontSize + 1 : 15,
+      fontSize: isTablet ? 15 : 15,
       fontFamily: getFontFamily('400'),
-      lineHeight: isTablet ? 22 : 20,
+      lineHeight: isTablet ? 21 : 20,
       fontWeight: '400',
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
@@ -1243,11 +1403,11 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
       color: '#fff',
     },
     bubbleTime: {
-      fontSize: isTablet ? theme.typography.small.fontSize : 10,
+      fontSize: isTablet ? 10 : 10,
       fontFamily: getFontFamily('400'),
-      marginTop: 4,
+      marginTop: 2,
       textAlign: 'right',
-      opacity: 0.7,
+      opacity: 0.6,
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       } as any),
@@ -1261,67 +1421,70 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
     typingIndicator: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginLeft: 16,
-      marginBottom: 8,
-      paddingHorizontal: 16,
-      paddingVertical: 8,
+      marginLeft: 12,
+      marginBottom: 6,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
       backgroundColor: theme.colors.surface,
-      borderRadius: 16,
+      borderRadius: 14,
       alignSelf: 'flex-start',
-      borderWidth: 1,
-      borderColor: theme.colors.border,
     },
     typingText: {
       color: theme.colors.textSecondary,
-      fontSize: 13,
+      fontSize: 12,
       fontStyle: 'italic',
-      marginLeft: 8,
+      marginLeft: 6,
     },
     inputContainer: {
       flexDirection: 'row',
+      alignItems: 'flex-end',
+      paddingHorizontal: isTablet ? theme.spacing.lg : 8,
+      paddingTop: isTablet ? 8 : 6,
+      paddingBottom: Math.max(isTablet ? 10 : 10, insets.bottom > 0 ? insets.bottom : 12),
+      backgroundColor: theme.colors.background,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: theme.colors.border || 'rgba(0,0,0,0.08)',
+    },
+    attachButton: {
+      width: 38,
+      height: 38,
       alignItems: 'center',
-      paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
-      paddingVertical: isTablet ? theme.spacing.md : 12,
-      backgroundColor: theme.colors.surface,
-      borderTopWidth: 1,
-      borderTopColor: theme.colors.border,
+      justifyContent: 'center',
+      marginRight: 4,
     },
     inputWrapper: {
       flex: 1,
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: theme.colors.background,
-      borderRadius: isTablet ? 24 : 20,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      paddingHorizontal: isTablet ? theme.spacing.lg : 16,
-      paddingVertical: isTablet ? theme.spacing.sm : 8,
-      marginRight: isTablet ? theme.spacing.sm : 8,
-      minHeight: isTablet ? 50 : 40,
+      backgroundColor: theme.colors.surface,
+      borderRadius: isTablet ? 22 : 20,
+      paddingHorizontal: isTablet ? 14 : 14,
+      paddingVertical: isTablet ? 6 : 6,
+      marginRight: isTablet ? 8 : 6,
+      minHeight: isTablet ? 42 : 38,
     },
     input: {
       flex: 1,
       color: theme.colors.text,
-      fontSize: isTablet ? theme.typography.body.fontSize + 1 : 15,
+      fontSize: isTablet ? 15 : 15,
       fontFamily: getFontFamily('400'),
-      lineHeight: isTablet ? 22 : 20,
+      lineHeight: isTablet ? 20 : 20,
       maxHeight: 100,
-      paddingVertical: 2,
+      paddingVertical: 0,
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
         outlineStyle: 'none',
       } as any),
     },
     sendButton: {
-      width: isTablet ? 50 : 40,
-      height: isTablet ? 50 : 40,
-      borderRadius: isTablet ? 25 : 20,
+      width: isTablet ? 42 : 38,
+      height: isTablet ? 42 : 38,
+      borderRadius: isTablet ? 21 : 19,
       backgroundColor: theme.colors.primary,
       alignItems: 'center',
       justifyContent: 'center',
       ...(isWeb && {
         cursor: 'pointer',
-        transition: 'all 0.2s ease',
       } as any),
     },
     sendButtonDisabled: {
@@ -1332,10 +1495,10 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
       alignItems: 'center',
     },
     typingDot: {
-      width: 8,
-      height: 8,
-      borderRadius: 4,
-      marginHorizontal: 2,
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      marginHorizontal: 1.5,
     },
     postPreviewContainer: {
       width: '100%',
@@ -1466,87 +1629,77 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
   return (
     <>
       
-      <SafeAreaView style={styles.container}>
-        <KeyboardAvoidingView 
-          style={{ flex: 1 }} 
-          behavior={Platform.OS === 'ios' ? 'padding' : isWeb ? undefined : 'height'}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior="padding"
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
         >
-        {/* Enhanced Header */}
+        {/* Modern Header */}
         <View style={styles.chatHeader}>
-          <TouchableOpacity onPress={onClose} style={styles.headerBack}>
+          <TouchableOpacity
+            onPress={onClose}
+            style={styles.headerBack}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
             <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
           </TouchableOpacity>
-          
-          <View style={styles.headerAvatarWrap}>
-            {otherUser.profilePic ? (
-              <Image 
-                source={{ uri: otherUser.profilePic }} 
-                style={{ width: 48, height: 48, borderRadius: 24 }} 
-              />
-            ) : (
-              <Ionicons 
-                name="person-circle" 
-                size={48} 
-                color={isOnline ? theme.colors.primary : theme.colors.textSecondary} 
-              />
-            )}
-            {isTaatomOfficial && isOnline && <View style={styles.onlineDot} />}
-          </View>
-          
-          <View style={styles.headerCenter}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text 
-                style={styles.chatName} 
-                numberOfLines={1} 
-                ellipsizeMode="tail"
-              >
-                {otherUser.fullName}
-              </Text>
-              {isTaatomOfficial && (
-                <Ionicons 
-                  name="checkmark-circle" 
-                  size={18} 
-                  color={theme.colors.success || '#4CAF50'} 
+
+          <TouchableOpacity
+            style={styles.headerUserInfo}
+            activeOpacity={0.7}
+            onPress={() => {
+              if (chatType === 'connect_page' && connectPageId?._id && router) {
+                router.push(`/connect/page/${connectPageId._id}`);
+              } else if (otherUser?._id && router) {
+                router.push(`/profile/${otherUser._id}`);
+              }
+            }}
+          >
+            <View style={styles.headerAvatarWrap}>
+              {chatType === 'connect_page' && connectPageId?.profileImage ? (
+                <Image
+                  source={{ uri: connectPageId.profileImage }}
+                  style={styles.headerAvatar}
                 />
+              ) : otherUser.profilePic ? (
+                <Image
+                  source={{ uri: otherUser.profilePic }}
+                  style={styles.headerAvatar}
+                />
+              ) : chatType === 'connect_page' ? (
+                <View style={[styles.headerAvatarPlaceholder, { backgroundColor: theme.colors.primary + '15' }]}>
+                  <Ionicons name="people" size={18} color={theme.colors.primary} />
+                </View>
+              ) : (
+                <View style={[styles.headerAvatarPlaceholder, { backgroundColor: theme.colors.textSecondary + '15' }]}>
+                  <Ionicons name="person" size={18} color={theme.colors.textSecondary} />
+                </View>
               )}
+              {isOnline && <View style={styles.onlineDot} />}
             </View>
-            {isTaatomOfficial && (
-              <Text style={[
-                styles.onlineStatus,
-                { color: theme.colors.primary }
-              ]}>
-                Online
-              </Text>
-            )}
-          </View>
-          
+
+            <View style={styles.headerCenter}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={styles.chatName} numberOfLines={1} ellipsizeMode="tail">
+                  {otherUser.fullName}
+                </Text>
+                {isTaatomOfficial && (
+                  <Ionicons name="checkmark-circle" size={15} color={theme.colors.success || '#4CAF50'} />
+                )}
+              </View>
+              {isTaatomOfficial && (
+                <Text style={[styles.onlineStatus, { color: theme.colors.primary }]}>Online</Text>
+              )}
+              {chatType === 'connect_page' && connectPageId?.name ? (
+                <Text style={[styles.onlineStatus, { color: theme.colors.textSecondary }]}>{connectPageId.name}</Text>
+              ) : !isTaatomOfficial && otherUser?.username ? (
+                <Text style={[styles.onlineStatus, { color: theme.colors.textSecondary }]}>{otherUser.username}</Text>
+              ) : null}
+            </View>
+          </TouchableOpacity>
+
           <View style={styles.headerActions}>
-            {/* Call options commented out - will be available in next update */}
-            {/* <TouchableOpacity 
-              style={[styles.headerActionButton, isCalling && styles.headerActionButtonDisabled]}
-              onPress={() => onVoiceCall(otherUser)}
-              disabled={isCalling}
-            >
-              <Ionicons 
-                name="call" 
-                size={20} 
-                color={isCalling ? theme.colors.textSecondary : theme.colors.primary} 
-              />
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[styles.headerActionButton, isCalling && styles.headerActionButtonDisabled]}
-              onPress={() => onVideoCall(otherUser)}
-              disabled={isCalling}
-            >
-              <Ionicons 
-                name="videocam" 
-                size={20} 
-                color={isCalling ? theme.colors.textSecondary : theme.colors.primary} 
-              />
-            </TouchableOpacity> */}
-            
             <ThreeDotMenu
               items={[
                 {
@@ -1651,112 +1804,243 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
           <FlatList
             ref={flatListRef}
             data={sortedMessages}
-            keyExtractor={(_, idx) => idx.toString()}
+            keyExtractor={(item, idx) => item._id || idx.toString()}
+            removeClippedSubviews={true}
+            maxToRenderPerBatch={15}
+            windowSize={10}
+            initialNumToRender={20}
             renderItem={({ item, index }) => {
               // CRITICAL: Normalize sender IDs for proper comparison
               const senderId = normalizeId(item.sender?._id || item.sender);
               const otherUserId = normalizeId(otherUser?._id);
               const myUserId = normalizeId(currentUserId);
-              
-              // Message is "own" if sender matches current user, not other user
+
+              // Message is "own" if sender matches current user
+              // Primary check: sender === me (reliable when currentUserId is loaded)
+              // Fallback for 1:1 chats only: if myUserId not loaded yet, check sender !== otherUser
+              // Skip fallback for group/connect chats where otherUser._id is a chatRoomId
+              const isGroupChat = chatType === 'connect_page';
               const isOwn = Boolean(
-                (senderId && myUserId && senderId === myUserId) || 
-                (senderId && otherUserId && senderId !== otherUserId && !myUserId)
+                (senderId && myUserId && senderId === myUserId) ||
+                (!isGroupChat && senderId && otherUserId && senderId !== otherUserId && !myUserId)
               );
               const isLastOwn = isOwn && index === sortedMessages.length - 1;
-              
-              // Check if this is a post share
-              const postShare = parsePostShare(String(item.text || ''));
-              
-              // Debug logging for post share
-              if (postShare && __DEV__) {
-                logger.debug('Rendering post share:', {
-                  postId: postShare.postId,
-                  hasImageUrl: !!postShare.imageUrl,
-                  imageUrl: postShare.imageUrl ? postShare.imageUrl.substring(0, 50) + '...' : 'NO IMAGE',
-                  authorName: postShare.authorName,
-                });
+
+              // Group chat: resolve sender name and pic from participants if not on the message
+              let resolvedSenderName = item.senderName || '';
+              let resolvedSenderPic = item.senderProfilePic || '';
+              if (isGroupChat && !resolvedSenderName && senderId && participants) {
+                const senderParticipant = participants.find((p: any) => normalizeId(p?._id || p) === senderId);
+                if (senderParticipant) {
+                  resolvedSenderName = senderParticipant.fullName || '';
+                  if (!resolvedSenderPic) resolvedSenderPic = senderParticipant.profilePic || '';
+                }
               }
-              
+
+              // Group chat: determine if this is the first message in a sequence from the same sender
+              let showSenderInfo = false;
+              if (isGroupChat && !isOwn) {
+                if (index === 0) {
+                  showSenderInfo = true;
+                } else {
+                  const prevMsg = sortedMessages[index - 1];
+                  const prevSenderId = normalizeId(prevMsg?.sender?._id || prevMsg?.sender);
+                  showSenderInfo = prevSenderId !== senderId;
+                }
+              }
+
+              // Check if this is a post share or journey share
+              const messageTextStr = String(item.text || '');
+              const postShare = parsePostShare(messageTextStr);
+              const journeyShare = !postShare ? parseJourneyShare(messageTextStr) : null;
+
+              // Group chat read receipts: check seenBy array
+              // Double tick when all other participants have seen the message
+              const isSeenByAll = (() => {
+                if (!isOwn) return false;
+                if (!isGroupChat) return item.seen === true;
+                // For group chats: check seenBy includes all participants except sender
+                if (Array.isArray(item.seenBy) && participants && participants.length > 0) {
+                  const otherParticipantIds = participants
+                    .map((p: any) => normalizeId(p?._id || p))
+                    .filter((id: string | null) => id && id !== myUserId);
+                  return otherParticipantIds.length > 0 && otherParticipantIds.every((pId: string) => item.seenBy.some((id: any) => normalizeId(id) === pId));
+                }
+                // Fallback: use boolean seen
+                return item.seen === true;
+              })();
+
               return (
-                <View style={[
-                  styles.bubble, 
-                  isOwn ? styles.bubbleOwn : styles.bubbleOther
-                ]}>
-                  {postShare ? (
-                    // Render post share as attractive text message with small image thumbnail
-                    <TouchableOpacity
-                      activeOpacity={0.8}
-                      onPress={() => handlePostPreviewClick(postShare.shareUrl, postShare.postId)}
-                      style={styles.postShareMessageContainer}
-                    >
-                      <View style={[
-                        styles.postShareIconContainer,
-                        isOwn && { backgroundColor: 'rgba(255,255,255,0.2)' }
-                      ]}>
-                        <PostShareThumbnail
-                          imageUrl={postShare.imageUrl}
-                          postId={postShare.postId}
-                          isOwn={isOwn}
-                          theme={theme}
+                <View style={isGroupChat && !isOwn ? { flexDirection: 'row', alignItems: 'flex-end', marginBottom: showSenderInfo ? 6 : 2 } : undefined}>
+                  {/* Group chat: sender profile pic */}
+                  {isGroupChat && !isOwn && (
+                    showSenderInfo ? (
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={() => senderId && router.push(`/profile/${senderId}`)}
+                        style={{ marginRight: 8, marginBottom: 2 }}
+                      >
+                        <Image
+                          source={resolvedSenderPic ? { uri: resolvedSenderPic } : require('../../assets/avatars/male_avatar.png')}
+                          style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: theme.colors.border }}
                         />
-                      </View>
-                      <View style={styles.postShareTextContainer}>
-                        {postShare.authorName && (
-                          <Text style={[styles.postShareAuthor, isOwn ? styles.postShareAuthorOwn : {}]} numberOfLines={1}>
-                            {postShare.authorName}
-                          </Text>
-                        )}
-                        {postShare.caption && (
-                          <Text style={[styles.postShareCaption, isOwn ? styles.postShareCaptionOwn : {}]} numberOfLines={2}>
-                            {postShare.caption}
-                          </Text>
-                        )}
-                        <View style={styles.postShareFooter}>
-                          <Ionicons name="link-outline" size={14} color={isOwn ? 'rgba(255,255,255,0.8)' : theme.colors.primary} />
-                          <Text style={[styles.postShareLink, isOwn ? styles.postShareLinkOwn : {}]} numberOfLines={1}>
-                            View Post
-                          </Text>
-                        </View>
-                      </View>
-                    </TouchableOpacity>
-                  ) : (
-                    // Regular text message
-                    <Text style={[
-                      styles.bubbleText,
-                      isOwn ? styles.bubbleOwnText : {}
-                    ]}>
-                      {String(item.text || '')}
-                    </Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={{ width: 28, marginRight: 8 }} />
+                    )
                   )}
-                  
-                  <View style={{ 
-                    flexDirection: 'row', 
-                    alignItems: 'center', 
-                    justifyContent: 'flex-end', 
-                    marginTop: 4 
-                  }}>
-                    <Text style={[
-                      styles.bubbleTime,
-                      isOwn ? styles.bubbleOwnTime : styles.bubbleOtherTime
-                    ]}>
-                      {item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
-                    </Text>
-                    {isOwn && (
-                      <View style={{ marginLeft: 6 }}>
-                        {item.seen === true ? (
-                          <Ionicons name="checkmark-done" size={14} color="#fff" />
-                        ) : (
-                          <Ionicons name="checkmark" size={14} color="#fff" style={{ opacity: 0.7 }} />
+                  <View style={[
+                    styles.bubble,
+                    isOwn ? styles.bubbleOwn : styles.bubbleOther,
+                    isGroupChat && !isOwn ? { maxWidth: '75%' } : undefined
+                  ]}>
+                    {/* Group chat: sender name on first message in sequence */}
+                    {isGroupChat && !isOwn && showSenderInfo && (
+                      <TouchableOpacity
+                        activeOpacity={0.7}
+                        onPress={() => senderId && router.push(`/profile/${senderId}`)}
+                      >
+                        <Text style={{
+                          fontSize: 12,
+                          fontWeight: '600',
+                          color: theme.colors.primary,
+                          marginBottom: 3,
+                        }} numberOfLines={1}>
+                          {resolvedSenderName || 'Unknown'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                    {postShare ? (
+                      // Render post share as attractive text message with small image thumbnail
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => handlePostPreviewClick(postShare.shareUrl, postShare.postId)}
+                        style={styles.postShareMessageContainer}
+                      >
+                        <View style={[
+                          styles.postShareIconContainer,
+                          isOwn && { backgroundColor: 'rgba(255,255,255,0.2)' }
+                        ]}>
+                          <PostShareThumbnail
+                            imageUrl={postShare.imageUrl}
+                            postId={postShare.postId}
+                            isOwn={isOwn}
+                            theme={theme}
+                          />
+                        </View>
+                        <View style={styles.postShareTextContainer}>
+                          {postShare.authorName && (
+                            <Text style={[styles.postShareAuthor, isOwn ? styles.postShareAuthorOwn : {}]} numberOfLines={1}>
+                              {postShare.authorName}
+                            </Text>
+                          )}
+                          {postShare.caption && (
+                            <Text style={[styles.postShareCaption, isOwn ? styles.postShareCaptionOwn : {}]} numberOfLines={2}>
+                              {postShare.caption}
+                            </Text>
+                          )}
+                          <View style={styles.postShareFooter}>
+                            <Ionicons name="link-outline" size={14} color={isOwn ? 'rgba(255,255,255,0.8)' : theme.colors.primary} />
+                            <Text style={[styles.postShareLink, isOwn ? styles.postShareLinkOwn : {}]} numberOfLines={1}>
+                              View Post
+                            </Text>
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    ) : journeyShare ? (
+                      // Render journey share card
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => handleJourneyPreviewClick(journeyShare.journeyId)}
+                        style={styles.postShareMessageContainer}
+                      >
+                        <View style={[
+                          styles.postShareIconContainer,
+                          { backgroundColor: isOwn ? 'rgba(255,255,255,0.2)' : '#22C55E15' }
+                        ]}>
+                          <Ionicons name="navigate" size={28} color={isOwn ? '#fff' : '#22C55E'} />
+                        </View>
+                        <View style={styles.postShareTextContainer}>
+                          <Text style={[styles.postShareAuthor, isOwn ? styles.postShareAuthorOwn : {}]} numberOfLines={1}>
+                            {journeyShare.title}
+                          </Text>
+                          {journeyShare.distance ? (
+                            <Text style={[styles.postShareCaption, isOwn ? styles.postShareCaptionOwn : {}]} numberOfLines={1}>
+                              {journeyShare.distance} • {journeyShare.status.charAt(0).toUpperCase() + journeyShare.status.slice(1)}
+                            </Text>
+                          ) : null}
+                          <View style={styles.postShareFooter}>
+                            <Ionicons name="map-outline" size={14} color={isOwn ? 'rgba(255,255,255,0.8)' : '#22C55E'} />
+                            <Text style={[styles.postShareLink, isOwn ? styles.postShareLinkOwn : { color: '#22C55E' }]} numberOfLines={1}>
+                              View Journey
+                            </Text>
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    ) : (
+                      // Regular text message (with optional attachments)
+                      <View>
+                        {/* Render attachments if present */}
+                        {item.attachments && item.attachments.length > 0 && (
+                          <View style={{ marginBottom: item.text ? 6 : 0 }}>
+                            {item.attachments.map((att: any, attIdx: number) => (
+                              <MessageAttachment
+                                key={attIdx}
+                                attachment={att}
+                                isOwnMessage={isOwn}
+                              />
+                            ))}
+                          </View>
                         )}
+                        {/* Render text if present */}
+                        {item.text ? (
+                          <Text style={[
+                            styles.bubbleText,
+                            isOwn ? styles.bubbleOwnText : {}
+                          ]}>
+                            {String(item.text)}
+                          </Text>
+                        ) : null}
                       </View>
                     )}
+
+                    <View style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'flex-end',
+                      marginTop: 2,
+                      gap: 3,
+                    }}>
+                      <Text style={[
+                        styles.bubbleTime,
+                        isOwn ? styles.bubbleOwnTime : styles.bubbleOtherTime
+                      ]}>
+                        {item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                      </Text>
+                      {isOwn && (
+                        <View>
+                          {isSeenByAll ? (
+                            <Ionicons name="checkmark-done" size={13} color="#fff" style={{ opacity: 0.8 }} />
+                          ) : (
+                            <Ionicons name="checkmark" size={13} color="#fff" style={{ opacity: 0.6 }} />
+                          )}
+                        </View>
+                      )}
+                    </View>
                   </View>
                 </View>
               );
             }}
             contentContainerStyle={{ paddingVertical: 16 }}
-            onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+            onContentSizeChange={() => {
+              if (!hasScrolledToEndRef.current && allMessages.length > 0) {
+                // First content render — jump instantly so the last message is visible
+                hasScrolledToEndRef.current = true;
+                setTimeout(() => {
+                  flatListRef.current?.scrollToEnd({ animated: false });
+                }, 50);
+              }
+            }}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           />
@@ -1774,8 +2058,27 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
           </View>
         )}
 
+        {/* Attachment Preview */}
+        {pendingAttachments.length > 0 && (
+          <ChatAttachmentPreview
+            attachments={pendingAttachments}
+            onRemove={(index) => {
+              setPendingAttachments(prev => prev.filter((_, i) => i !== index));
+            }}
+          />
+        )}
+
         {/* Clean Input Bar */}
         <View style={styles.inputContainer}>
+          <TouchableOpacity
+            onPress={() => setShowAttachmentPicker(true)}
+            style={styles.attachButton}
+            accessibilityRole="button"
+            accessibilityLabel="Add attachment"
+          >
+            <Ionicons name="add-circle-outline" size={26} color={theme.colors.textSecondary} />
+          </TouchableOpacity>
+
           <View style={styles.inputWrapper}>
             <TextInput
               style={styles.input}
@@ -1787,25 +2090,34 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, onVoi
               textAlignVertical="center"
             />
           </View>
-          
-          {input.trim() && (
-            <TouchableOpacity 
-              onPress={handleSend} 
+
+          {(input.trim() || pendingAttachments.length > 0) && (
+            <TouchableOpacity
+              onPress={handleSend}
               style={styles.sendButton}
               accessibilityRole="button"
               accessibilityLabel="Send message"
               accessibilityHint="Sends the message in the input field"
             >
-              <Ionicons 
-                name="send" 
-                size={18} 
-                color="#fff" 
+              <Ionicons
+                name="send"
+                size={18}
+                color="#fff"
               />
             </TouchableOpacity>
           )}
         </View>
+
+        {/* Attachment Picker Modal */}
+        <ChatAttachmentPicker
+          visible={showAttachmentPicker}
+          onClose={() => setShowAttachmentPicker(false)}
+          onAttachmentsReady={(attachments) => {
+            setPendingAttachments(prev => [...prev, ...attachments]);
+          }}
+        />
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
     
     {/* Global Call Screen - Render within ChatWindow */}
     {showGlobalCallScreen && (
@@ -1898,6 +2210,7 @@ export default function ChatModal() {
   const [showGlobalCallScreen, setShowGlobalCallScreen] = useState(false);
   const [forceRender, setForceRender] = useState(0);
   const [isCalling, setIsCalling] = useState(false);
+  const chatIdModeRef = React.useRef(false);
 
   // Parse post share message (for chat list)
   const parsePostShare = (text: string) => {
@@ -2004,15 +2317,15 @@ export default function ChatModal() {
     );
   });
 
-  // Move handleNewMessage here with deduplication
-  const handleNewMessage = (msg: any) => {
+  // Move handleNewMessage here with deduplication — memoized to prevent socket resubscription churn
+  const handleNewMessage = useCallback((msg: any) => {
     if (!msg || !msg._id) {
       if (__DEV__) {
         logger.debug('[ChatWindow] handleNewMessage: Invalid message, returning');
       }
       return; // Guard against invalid messages
     }
-    
+
     setActiveMessages((prev: any[]) => {
       // Deduplicate by _id to prevent duplicate messages
       const exists = prev.some(m => {
@@ -2020,19 +2333,24 @@ export default function ChatModal() {
         const newId = normalizeId(msg._id);
         return prevId && newId && prevId === newId;
       });
-      
+
       if (exists) {
         logger.debug('Duplicate message detected, skipping:', msg._id);
         return prev;
       }
-      
+
       // If this is a real message (not optimistic), remove any optimistic messages with the same text and sender
       // This handles the case where optimistic message was added, then real message arrives
-      if (!msg.isOptimistic && msg.text) {
+      if (!msg.isOptimistic) {
         const filtered = prev.filter(m => {
-          // Remove optimistic messages that match this real message's text and sender
-          // Match by text content and sender to ensure we're replacing the right message
-          if (m.isOptimistic && m.text === msg.text && String(m.sender) === String(msg.sender)) {
+          if (!m.isOptimistic) return true;
+          // Remove optimistic messages that match this real message's sender
+          if (String(m.sender) !== String(msg.sender)) return true;
+          // Match by text content (including both empty for attachment-only messages)
+          const textsMatch = (m.text || '') === (msg.text || '');
+          // For attachment messages, also check attachment count matches
+          const attachmentsMatch = (m.attachments?.length || 0) === (msg.attachments?.length || 0);
+          if (textsMatch && (m.text || attachmentsMatch)) {
             logger.debug('Removing optimistic message, replacing with real message:', { optimisticId: m._id, realId: msg._id });
             return false;
           }
@@ -2042,13 +2360,13 @@ export default function ChatModal() {
         logger.debug('Updated messages after adding real message:', { prevCount: prev.length, newCount: newMessages.length, messageId: msg._id });
         return newMessages;
       }
-      
+
       // For optimistic messages, just add them
       const newMessages = [...prev, msg];
       logger.debug('Added message:', { messageId: msg._id, isOptimistic: msg.isOptimistic, totalMessages: newMessages.length });
       return newMessages;
     });
-  };
+  }, []);
 
   // Handle call functionality
   const handleVoiceCall = async (otherUser: any) => {
@@ -2237,7 +2555,7 @@ export default function ChatModal() {
     setError(null);
     try {
       // Normalize: accept id string (e.g. admin chat when participants are ObjectIds) or user object
-      let user: { _id: string; fullName?: string; profilePic?: string } | null = null;
+      let user: { _id: string; fullName?: string; profilePic?: string; username?: string } | null = null;
       if (userArg != null) {
         if (typeof userArg === 'string') {
           user = { _id: userArg };
@@ -2246,6 +2564,7 @@ export default function ChatModal() {
             _id: String(userArg._id ?? userArg.id),
             fullName: userArg.fullName,
             profilePic: userArg.profilePic,
+            username: userArg.username,
           };
         }
       }
@@ -2407,6 +2726,106 @@ export default function ChatModal() {
     }
   }, [params.userId]);
 
+  // If chatId param is present (from connect page group chat), fetch chat directly by ID
+  // Also checks connectChatBridge as fallback since Expo Router params can be unreliable
+  useEffect(() => {
+    if (params.userId) return;
+
+    // Check for pending chatRoomId synchronously (no async delay)
+    const { consumePendingChatRoomId } = require('../../utils/connectChatBridge');
+    const resolvedChatId = (params.chatId as string) || consumePendingChatRoomId();
+
+    if (!resolvedChatId) return;
+    chatIdModeRef.current = true;
+
+    let cancelled = false;
+    const loadChatById = async () => {
+      logger.debug('[CHAT] Opening chat by room ID:', resolvedChatId);
+
+      setLoading(true);
+      setChatLoading(true);
+      setError(null);
+      try {
+        const [chatRes, messagesRes] = await Promise.all([
+          api.get(`/chat/room/${resolvedChatId}`),
+          api.get(`/chat/room/${resolvedChatId}/messages`),
+        ]);
+
+        if (cancelled) return;
+        const chat = chatRes.data.chat;
+        if (!chat) throw new Error('No chat data received');
+
+        const messages = messagesRes.data.messages || [];
+        const pageInfo = chat.connectPageId;
+        const syntheticUser = pageInfo
+          ? { _id: resolvedChatId, fullName: pageInfo.name, profilePic: pageInfo.profileImage }
+          : { _id: resolvedChatId, fullName: 'Group Chat' };
+
+        setActiveChat(chat);
+        setActiveMessages(messages);
+        setSelectedUser(syntheticUser);
+      } catch (e: any) {
+        if (cancelled) return;
+        logger.error('Error opening chat by chatId:', e);
+        setError(`Failed to load chat: ${e.response?.data?.message || e.message || 'Unknown error'}`);
+        setShowErrorAlert(true);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+          setChatLoading(false);
+        }
+      }
+    };
+
+    loadChatById();
+    return () => { cancelled = true; };
+  }, [params.chatId]);
+
+  // Reusable function to refresh chat list (called on mount + when closing a chat window)
+  const refreshChatList = useCallback(async (showLoading = false) => {
+    if (showLoading) setLoading(true);
+    try {
+      const token = await AsyncStorage.getItem('authToken');
+      const userData = await AsyncStorage.getItem('userData');
+      let myUserId = '';
+      if (userData) {
+        try { myUserId = JSON.parse(userData)._id; } catch {}
+      }
+      const { getApiBaseUrl } = require('../../utils/config');
+      const API_BASE_URL = getApiBaseUrl();
+      const res = await fetch(`${API_BASE_URL}/chat`, {
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' }
+      });
+      const data = await res.json();
+      if (data?.success) {
+        let chats = (data.chats || []).map((chat: any) => ({ ...chat, me: myUserId }));
+        const chatMap = new Map<string, any>();
+        chats.forEach((chat: any) => {
+          let key;
+          if (chat.type === 'connect_page') {
+            key = `connect_page_${chat._id}`;
+          } else {
+            const participantIds = chat.participants
+              .map((p: any) => (p._id ? p._id.toString() : p.toString()))
+              .sort()
+              .join('_');
+            key = chat.type === 'admin_support' ? `admin_support_${myUserId}` : participantIds;
+          }
+          if (!chatMap.has(key) || new Date(chat.updatedAt) > new Date(chatMap.get(key).updatedAt)) {
+            chatMap.set(key, chat);
+          }
+        });
+        const uniqueChats = Array.from(chatMap.values());
+        uniqueChats.sort((a: any, b: any) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+        setConversations(uniqueChats);
+      }
+    } catch (err: any) {
+      logger.error('refreshChatList error:', err?.message || err);
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  }, []);
+
   // If no userId param, fetch chat conversations and following users
   useEffect(() => {
         logger.debug('Fetching chats useEffect running');
@@ -2424,24 +2843,23 @@ export default function ChatModal() {
       // Use dynamic API URL detection for web
       const { getApiBaseUrl } = require('../../utils/config');
       const API_BASE_URL = getApiBaseUrl();
-      const socket = io(API_BASE_URL, { path: '/socket.io', transports: ['websocket'] });
-      socket.on('connect', () => {
-        logger.debug('[SOCKET] connected to backend');
-        socket.emit('test', { hello: 'world' });
-      });
-      socket.on('connect_error', (err) => {
-        logger.debug('[SOCKET] connect_error:', err);
-      });
       fetch(`${API_BASE_URL}/chat`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Accept': 'application/json'
         }
       })
-        .then(res => res.json())
+        .then(res => {
+          if (!res.ok) {
+            logger.error('Fetch /chat failed with status:', res.status);
+          }
+          return res.json();
+        })
         .then(data => {
-          logger.debug('Fetch /chat data:', JSON.stringify(data, null, 2));
-          let chats = data.chats || [];
+          if (!data || !data.success) {
+            logger.error('Fetch /chat returned error:', data?.message || 'Unknown error');
+          }
+          let chats = data?.chats || [];
           chats = chats.map((chat: any) => ({
             ...chat,
             me: myUserId,
@@ -2450,14 +2868,21 @@ export default function ChatModal() {
           // Frontend deduplication as safety measure
           const chatMap = new Map<string, any>();
           chats.forEach((chat: any) => {
-            const participantIds = chat.participants
-              .map((p: any) => (p._id ? p._id.toString() : p.toString()))
-              .sort()
-              .join('_');
-            
-            if (!chatMap.has(participantIds) || 
-                new Date(chat.updatedAt) > new Date(chatMap.get(participantIds).updatedAt)) {
-              chatMap.set(participantIds, chat);
+            let key;
+            if (chat.type === 'connect_page') {
+              // Connect page chats: unique per chat
+              key = `connect_page_${chat._id}`;
+            } else {
+              const participantIds = chat.participants
+                .map((p: any) => (p._id ? p._id.toString() : p.toString()))
+                .sort()
+                .join('_');
+              key = chat.type === 'admin_support' ? `admin_support_${myUserId}` : participantIds;
+            }
+
+            if (!chatMap.has(key) ||
+                new Date(chat.updatedAt) > new Date(chatMap.get(key).updatedAt)) {
+              chatMap.set(key, chat);
             }
           });
           
@@ -2479,21 +2904,61 @@ export default function ChatModal() {
           }
         })
         .catch(err => {
-          logger.debug('Fetch /chat error:', err);
+          logger.error('Fetch /chat error:', err?.message || err);
           setConversations([]);
           setUsers([]);
           setLoading(false);
         });
     };
-    if (!params.userId) {
+    if (!params.userId && !params.chatId && !chatIdModeRef.current) {
       loadChats();
     }
-  }, [params.userId]);
+  }, [params.userId, params.chatId]);
+
+  // Listen for chat:update socket events to update chat list in real-time
+  // This handles: last message preview, sorting (most recent on top), new message indicators
+  useEffect(() => {
+    const handleChatUpdate = (payload: any) => {
+      if (!payload || !payload.chatId) return;
+      logger.debug('[ChatList] chat:update received', { chatId: payload.chatId, lastMessage: payload.lastMessage });
+
+      setConversations(prev => {
+        // Find the chat that was updated
+        const chatIndex = prev.findIndex(c => normalizeId(c._id) === normalizeId(payload.chatId));
+        if (chatIndex === -1) return prev; // Chat not in list, will appear on next reload
+
+        const updatedChat = { ...prev[chatIndex] };
+
+        // Append a synthetic last message for preview display
+        const syntheticMsg: any = {
+          _id: `chatupdate_${Date.now()}`,
+          text: payload.lastMessage || '',
+          timestamp: payload.timestamp || new Date().toISOString(),
+          seen: false,
+        };
+        updatedChat.messages = [...(updatedChat.messages || []), syntheticMsg];
+
+        // Update timestamp for sorting
+        updatedChat.updatedAt = payload.timestamp || new Date().toISOString();
+
+        // Remove from old position and put at the top
+        const newConversations = prev.filter((_: any, i: number) => i !== chatIndex);
+        return [updatedChat, ...newConversations];
+      });
+    };
+
+    socketService.subscribe('chat:update', handleChatUpdate);
+
+    return () => {
+      socketService.unsubscribe('chat:update', handleChatUpdate);
+    };
+  }, []);
 
   // When user is selected from inbox or search, fetch chat and messages.
   // Skip if we already have this chat open (e.g. opened from list tap) to avoid double-fetch and stuck loading.
+  // Skip if chatId param is present — the chatId effect already loaded the chat directly.
   useEffect(() => {
-    if (!selectedUser || params.userId) return;
+    if (!selectedUser || params.userId || params.chatId || chatIdModeRef.current) return;
     const otherId = normalizeId(selectedUser._id ?? (selectedUser as any).id);
     const chatAlreadyOpen = activeChat?.participants?.some((p: any) => normalizeId(p?._id ?? p) === otherId);
     if (chatAlreadyOpen) return;
@@ -2506,13 +2971,19 @@ export default function ChatModal() {
     // Count total unread messages
     const totalUnread = conversations.reduce((count, chat) => {
       const currentUserId = normalizeId(chat.me);
+      const isGroupChat = (chat as any).type === 'connect_page';
       const unreadCount = chat.messages?.filter((m: any) => {
         if (!m || !m.sender) return false;
-        if (m.seen === true) return false;
         const senderId = normalizeId(m.sender?._id || m.sender);
         if (!senderId || !currentUserId || senderId === currentUserId) return false;
-        const isUnseen = m.seen === false || m.seen === undefined || m.seen === null;
-        return isUnseen;
+        // Group chat: check seenBy
+        if (isGroupChat) {
+          if (Array.isArray(m.seenBy) && currentUserId && m.seenBy.some((id: any) => normalizeId(id) === currentUserId)) return false;
+          return true;
+        }
+        // 1:1 chat: check seen boolean
+        if (m.seen === true) return false;
+        return m.seen === false || m.seen === undefined || m.seen === null;
       }).length || 0;
       return count + unreadCount;
     }, 0);
@@ -2541,19 +3012,31 @@ export default function ChatModal() {
             try {
               // Mark all messages as seen in all conversations
               const updatePromises = conversations.map(async (chat) => {
-                const other = chat.participants.find((u: any) => {
-                  const uId = normalizeId(u?._id || u);
-                  const meId = normalizeId(chat.me);
-                  return uId && meId && uId !== meId;
-                });
-                
-                if (other) {
-                  const otherId = normalizeId(other?._id || other);
-                  if (otherId) {
-                    try {
-                      await api.post(`/chat/${otherId}/mark-all-seen`);
-                    } catch (error) {
-                      logger.debug(`Failed to mark messages as seen for chat ${chat._id}:`, error);
+                const isGroup = (chat as any).type === 'connect_page';
+
+                if (isGroup) {
+                  // Group chat: use room endpoint
+                  try {
+                    await api.post(`/chat/room/${chat._id}/mark-all-seen`);
+                  } catch (error) {
+                    logger.debug(`Failed to mark group messages as seen for chat ${chat._id}:`, error);
+                  }
+                } else {
+                  // 1:1 chat: use user endpoint
+                  const other = chat.participants.find((u: any) => {
+                    const uId = normalizeId(u?._id || u);
+                    const meId = normalizeId(chat.me);
+                    return uId && meId && uId !== meId;
+                  });
+
+                  if (other) {
+                    const otherId = normalizeId(other?._id || other);
+                    if (otherId) {
+                      try {
+                        await api.post(`/chat/${otherId}/mark-all-seen`);
+                      } catch (error) {
+                        logger.debug(`Failed to mark messages as seen for chat ${chat._id}:`, error);
+                      }
                     }
                   }
                 }
@@ -2563,11 +3046,23 @@ export default function ChatModal() {
 
               // Update local state - mark all messages as seen
               setConversations(prev => prev.map(chat => {
-                const currentUserId = normalizeId(chat.me);
+                const myId = normalizeId(chat.me);
+                const isGroup = (chat as any).type === 'connect_page';
                 const updatedMessages = (chat.messages || []).map((m: any) => {
                   const senderId = normalizeId(m.sender?._id || m.sender);
-                  // Mark as seen if it's from someone else and not already seen
-                  if (senderId && currentUserId && senderId !== currentUserId && (m.seen === false || m.seen === undefined || m.seen === null)) {
+                  if (!senderId || !myId || senderId === myId) return m;
+
+                  if (isGroup) {
+                    // Group chat: add me to seenBy
+                    const currentSeenBy = Array.isArray(m.seenBy)
+                      ? m.seenBy.map((id: any) => normalizeId(id)).filter(Boolean)
+                      : [];
+                    if (!currentSeenBy.includes(myId)) currentSeenBy.push(myId);
+                    return { ...m, seenBy: currentSeenBy };
+                  }
+
+                  // 1:1 chat: set seen = true
+                  if (m.seen === false || m.seen === undefined || m.seen === null) {
                     return { ...m, seen: true };
                   }
                   return m;
@@ -2596,18 +3091,28 @@ export default function ChatModal() {
   }, [conversations]);
 
   // Show ChatWindow if chat and messages are loaded
-  if ((params.userId || selectedUser) && (activeChat && !chatLoading)) {
-    return <ChatWindow 
-      otherUser={selectedUser} 
+  if ((params.userId || params.chatId || chatIdModeRef.current || selectedUser) && (activeChat && !chatLoading)) {
+    return <ChatWindow
+      otherUser={selectedUser}
       onClose={() => {
+        const shouldGoBack = !!(params.userId || params.chatId || chatIdModeRef.current);
+        chatIdModeRef.current = false;
         setSelectedUser(null);
         setActiveChat(null);
         setActiveMessages([]);
-        if (params.userId) router.back();
-      }} 
+        if (shouldGoBack) {
+          router.back();
+        } else {
+          // Refresh chat list when closing a chat to reflect latest messages and sorting
+          refreshChatList();
+        }
+      }}
       messages={activeMessages} 
       onSendMessage={handleNewMessage} 
-      chatId={activeChat?._id} 
+      chatId={activeChat?._id}
+      chatType={activeChat?.type}
+      connectPageId={activeChat?.connectPageId}
+      participants={activeChat?.participants}
       onVoiceCall={handleVoiceCall}
       onVideoCall={handleVideoCall}
       isCalling={isCalling}
@@ -2619,21 +3124,35 @@ export default function ChatModal() {
       setForceRender={setForceRender}
       router={router}
       onMessagesSeen={(seenChatId, seenIds) => {
+        const isGroup = activeChat?.type === 'connect_page';
         // Update badge count in conversations list
         setConversations(prev => prev.map(conv => {
           if (conv._id !== seenChatId) return conv;
+          const myId = normalizeId(conv.me);
           const updatedMessages = (conv.messages || []).map((m: any) => {
             const msgId = normalizeId(m._id);
-            if (seenIds.includes(msgId)) return { ...m, seen: true };
-            return m;
+            if (!seenIds.includes(msgId)) return m;
+            if (isGroup && myId) {
+              // Group chat: add current user to seenBy so unread count clears
+              const currentSeenBy = Array.isArray(m.seenBy) ? m.seenBy.map((id: any) => normalizeId(id)).filter(Boolean) : [];
+              if (!currentSeenBy.includes(myId)) currentSeenBy.push(myId);
+              return { ...m, seenBy: currentSeenBy };
+            }
+            return { ...m, seen: true };
           });
           return { ...conv, messages: updatedMessages };
         }));
         // Update activeMessages so the read receipt ticks survive recomputes
         setActiveMessages(prev => prev.map((m: any) => {
           const msgId = normalizeId(m._id);
-          if (seenIds.includes(msgId)) return { ...m, seen: true };
-          return m;
+          if (!seenIds.includes(msgId)) return m;
+          if (isGroup) {
+            const myId = normalizeId(activeChat?.me);
+            const currentSeenBy = Array.isArray(m.seenBy) ? [...m.seenBy] : [];
+            if (myId && !currentSeenBy.includes(myId)) currentSeenBy.push(myId);
+            return { ...m, seenBy: currentSeenBy };
+          }
+          return { ...m, seen: true };
         }));
       }}
       onClearChat={() => {
@@ -2703,7 +3222,6 @@ export default function ChatModal() {
         width: '100%',
         maxWidth: 360,
         alignItems: 'center',
-        ...theme.shadows.large,
         borderWidth: 1,
         borderColor: theme.colors.border,
       },
@@ -2890,8 +3408,13 @@ export default function ChatModal() {
   });
   const filtered = sortedConversations.filter(c => {
     if (!search.trim()) return true;
+    const q = search.trim().toLowerCase();
+    // Search connect page name for connect_page chats
+    if ((c as any).type === 'connect_page' && (c as any).connectPageId?.name) {
+      return (c as any).connectPageId.name.toLowerCase().includes(q);
+    }
     const other = c.participants.find((u: any) => u._id !== c.me);
-    return other?.fullName?.toLowerCase().includes(search.trim().toLowerCase());
+    return other?.fullName?.toLowerCase().includes(q);
   });
         logger.debug('Rendering chat inbox, conversations:', conversations);
 
@@ -2909,23 +3432,28 @@ export default function ChatModal() {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: isTablet ? theme.spacing.xl : 20,
-      paddingVertical: isTablet ? theme.spacing.lg : 16,
-      backgroundColor: theme.colors.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: theme.colors.border,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.1,
-      shadowRadius: 4,
-      elevation: 3,
+      paddingHorizontal: isTablet ? theme.spacing.xl : 16,
+      paddingVertical: isTablet ? theme.spacing.md : 12,
+      backgroundColor: theme.colors.background,
+    },
+    headerLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    backButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginRight: 4,
     },
     title: {
-      fontSize: isTablet ? theme.typography.h1.fontSize : 26,
-      fontFamily: getFontFamily('800'),
-      fontWeight: '800',
+      fontSize: isTablet ? 22 : 20,
+      fontFamily: getFontFamily('600'),
+      fontWeight: '600',
       color: theme.colors.text,
-      letterSpacing: isIOS ? -0.5 : 0,
+      letterSpacing: isIOS ? -0.3 : 0,
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       } as any),
@@ -2933,47 +3461,35 @@ export default function ChatModal() {
     headerActions: {
       flexDirection: 'row',
       alignItems: 'center',
+      gap: 4,
     },
     headerButton: {
-      width: isTablet ? 52 : 44,
-      height: isTablet ? 52 : 44,
-      borderRadius: isTablet ? 26 : 22,
-      backgroundColor: theme.colors.background,
+      width: isTablet ? 40 : 36,
+      height: isTablet ? 40 : 36,
+      borderRadius: isTablet ? 20 : 18,
       alignItems: 'center',
       justifyContent: 'center',
-      marginLeft: isTablet ? theme.spacing.md : 12,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.1,
-      shadowRadius: 2,
-      elevation: 2,
     },
     searchContainer: {
-      marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
-      marginVertical: isTablet ? theme.spacing.md : 12,
+      paddingHorizontal: isTablet ? theme.spacing.xl : 16,
+      paddingBottom: 8,
     },
     searchBar: {
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: theme.colors.surface,
-      borderRadius: isTablet ? theme.borderRadius.lg : 16,
-      paddingHorizontal: isTablet ? theme.spacing.lg : 16,
-      paddingVertical: isTablet ? theme.spacing.md : 12,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05,
-      shadowRadius: 2,
-      elevation: 1,
+      borderRadius: isTablet ? 12 : 10,
+      paddingHorizontal: isTablet ? 14 : 12,
+      height: isTablet ? 40 : 36,
     },
     searchInput: {
       flex: 1,
-      marginLeft: isTablet ? theme.spacing.md : 12,
+      marginLeft: isTablet ? 10 : 8,
       color: theme.colors.text,
-      fontSize: isTablet ? theme.typography.body.fontSize + 1 : 16,
-      fontFamily: getFontFamily('500'),
-      fontWeight: '500',
+      fontSize: 14,
+      fontFamily: getFontFamily('400'),
+      fontWeight: '400',
+      paddingVertical: 0,
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
         outlineStyle: 'none',
@@ -2985,86 +3501,110 @@ export default function ChatModal() {
     chatItem: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: isTablet ? theme.spacing.xl : 20,
-      paddingVertical: isTablet ? theme.spacing.lg : 16,
-      backgroundColor: theme.colors.surface,
-      marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
-      marginVertical: isTablet ? 8 : 6,
-      borderRadius: isTablet ? theme.borderRadius.lg : 16,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05,
-      shadowRadius: 2,
-      elevation: 1,
+      paddingHorizontal: isTablet ? theme.spacing.xl : 16,
+      paddingVertical: isTablet ? 14 : 12,
     },
     avatarContainer: {
       position: 'relative',
-      marginRight: isTablet ? theme.spacing.lg : 16,
+      marginRight: isTablet ? 14 : 12,
     },
     avatar: {
-      width: isTablet ? 64 : 52,
-      height: isTablet ? 64 : 52,
-      borderRadius: isTablet ? 32 : 26,
+      width: isTablet ? 56 : 50,
+      height: isTablet ? 56 : 50,
+      borderRadius: isTablet ? 28 : 25,
+    },
+    avatarPlaceholder: {
+      width: isTablet ? 56 : 50,
+      height: isTablet ? 56 : 50,
+      borderRadius: isTablet ? 28 : 25,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     onlineIndicator: {
       position: 'absolute',
-      bottom: 2,
-      right: 2,
-      width: isTablet ? 18 : 14,
-      height: isTablet ? 18 : 14,
-      borderRadius: isTablet ? 9 : 7,
+      bottom: 1,
+      right: 1,
+      width: isTablet ? 14 : 12,
+      height: isTablet ? 14 : 12,
+      borderRadius: isTablet ? 7 : 6,
       backgroundColor: '#4cd137',
-      borderWidth: 3,
-      borderColor: theme.colors.surface,
+      borderWidth: 2,
+      borderColor: theme.colors.background,
     },
     chatContent: {
       flex: 1,
       justifyContent: 'center',
     },
+    chatTopRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: 3,
+    },
+    chatBottomRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
     chatName: {
-      fontSize: isTablet ? theme.typography.body.fontSize + 3 : 17,
-      fontFamily: getFontFamily('700'),
-      fontWeight: '700',
+      fontSize: 15,
+      fontFamily: getFontFamily('600'),
+      fontWeight: '600',
       color: theme.colors.text,
-      marginBottom: 4,
+      flexShrink: 1,
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       } as any),
     },
-    lastMessage: {
-      fontSize: isTablet ? theme.typography.body.fontSize : 14,
-      fontFamily: getFontFamily('500'),
+    chatNameUnread: {
+      fontFamily: getFontFamily('600'),
+      fontWeight: '600',
+    },
+    chatTime: {
+      fontSize: isTablet ? 12 : 11,
+      fontFamily: getFontFamily('400'),
+      fontWeight: '400',
       color: theme.colors.textSecondary,
-      fontWeight: '500',
-      lineHeight: isTablet ? 20 : 18,
+      marginLeft: 8,
+    },
+    connectBadge: {
+      backgroundColor: theme.colors.primary + '15',
+      paddingHorizontal: 6,
+      paddingVertical: 1,
+      borderRadius: 4,
+    },
+    connectBadgeText: {
+      fontSize: 10,
+      fontWeight: '600',
+    },
+    lastMessage: {
+      fontSize: 13,
+      fontFamily: getFontFamily('400'),
+      color: theme.colors.textSecondary,
+      fontWeight: '400',
+      lineHeight: 17,
       ...(isWeb && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       } as any),
+    },
+    lastMessageUnread: {
+      fontFamily: getFontFamily('500'),
+      fontWeight: '500',
+      color: theme.colors.text,
     },
     unreadBadge: {
       backgroundColor: theme.colors.primary,
-      borderRadius: 12,
-      minWidth: 24,
-      height: 24,
+      borderRadius: 10,
+      minWidth: 20,
+      height: 20,
       alignItems: 'center',
       justifyContent: 'center',
       paddingHorizontal: 6,
-      paddingVertical: 2,
-      shadowColor: theme.colors.primary,
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.3,
-      shadowRadius: 2,
-      elevation: 2,
-    },
-    unreadBadgeDoubleDigit: {
-      minWidth: 44,
-      paddingHorizontal: 10,
-      width: 'auto',
+      marginLeft: 8,
     },
     unreadText: {
       color: '#fff',
-      fontSize: 12,
-      fontWeight: '700',
+      fontSize: 11,
+      fontWeight: '600',
       textAlign: 'center',
       includeFontPadding: false,
       textAlignVertical: 'center',
@@ -3073,23 +3613,24 @@ export default function ChatModal() {
       flex: 1,
       alignItems: 'center',
       justifyContent: 'center',
-      paddingHorizontal: 32,
+      paddingHorizontal: 40,
     },
     emptyIcon: {
-      marginBottom: 20,
+      marginBottom: 16,
+      opacity: 0.5,
     },
     emptyTitle: {
-      fontSize: 22,
-      fontWeight: '700',
+      fontSize: 16,
+      fontWeight: '600',
       color: theme.colors.text,
-      marginBottom: 8,
+      marginBottom: 6,
       textAlign: 'center',
     },
     emptyMessage: {
-      fontSize: 16,
+      fontSize: 14,
       color: theme.colors.textSecondary,
       textAlign: 'center',
-      lineHeight: 22,
+      lineHeight: 20,
     },
     newMessageOverlay: {
       position: 'absolute',
@@ -3103,41 +3644,30 @@ export default function ChatModal() {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: 20,
-      paddingVertical: 16,
-      backgroundColor: theme.colors.surface,
-      borderBottomWidth: 1,
-      borderBottomColor: theme.colors.border,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      backgroundColor: theme.colors.background,
     },
     newMessageTitle: {
-      fontSize: 20,
-      fontWeight: '700',
+      fontSize: 16,
+      fontWeight: '600',
       color: theme.colors.text,
     },
     userItem: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: 20,
-      paddingVertical: 16,
-      backgroundColor: theme.colors.surface,
-      marginHorizontal: 16,
-      marginVertical: 4,
-      borderRadius: 16,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.05,
-      shadowRadius: 2,
-      elevation: 1,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
     },
     userAvatar: {
-      width: 48,
-      height: 48,
-      borderRadius: 24,
-      marginRight: 16,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      marginRight: 12,
     },
     userName: {
-      fontSize: 16,
-      fontWeight: '600',
+      fontSize: 15,
+      fontWeight: '500',
       color: theme.colors.text,
     },
     chatListPostPreview: {
@@ -3280,49 +3810,59 @@ export default function ChatModal() {
       {__DEV__ && logger.debug('📞 Render check', { showGlobalCallScreen, otherUserId: globalCallState.otherUserId, forceRender })}
       
       <SafeAreaView style={styles.container}>
-      {/* Enhanced Header */}
+      {/* Modern Header */}
       <View style={styles.header}>
-        <Text style={styles.title}>Chats</Text>
-        
+        <View style={styles.headerLeft}>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={styles.backButton}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+          <Text style={styles.title}>Chats</Text>
+        </View>
+
         <View style={styles.headerActions}>
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => {
               logger.debug('[Mark All Read] Button pressed');
               handleMarkAllAsRead();
-            }} 
-            style={[styles.headerButton, { marginLeft: 0 }]}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="checkmark-done" size={22} color={theme.colors.primary || '#007AFF'} />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            onPress={() => setShowNewMessage(true)} 
+            }}
             style={styles.headerButton}
             activeOpacity={0.7}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
           >
-            <Ionicons name="create-outline" size={22} color={theme.colors.text} />
+            <Ionicons name="checkmark-done" size={20} color={theme.colors.primary || '#007AFF'} />
           </TouchableOpacity>
-          <TouchableOpacity 
-            onPress={() => router.back()} 
+          <TouchableOpacity
+            onPress={() => setShowNewMessage(true)}
             style={styles.headerButton}
             activeOpacity={0.7}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
           >
-            <Ionicons name="close" size={24} color={theme.colors.text} />
+            <Ionicons name="create-outline" size={20} color={theme.colors.text} />
           </TouchableOpacity>
         </View>
       </View>
 
-      {/* Enhanced Search Bar */}
+      {/* Compact Search Bar */}
       <View style={styles.searchContainer}>
         <View style={styles.searchBar}>
-          <Ionicons name="search" size={20} color={theme.colors.textSecondary} />
+          <Ionicons name="search" size={16} color={theme.colors.textSecondary} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Search chats..."
+            placeholder="Search"
             placeholderTextColor={theme.colors.textSecondary}
             value={search}
             onChangeText={setSearch}
           />
+          {search.length > 0 && (
+            <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close-circle" size={16} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
 
@@ -3330,7 +3870,7 @@ export default function ChatModal() {
       {filtered.length === 0 ? (
         <View style={styles.emptyContainer}>
           <View style={styles.emptyIcon}>
-            <Ionicons name="chatbubbles-outline" size={64} color={theme.colors.textSecondary} />
+            <Ionicons name="chatbubbles-outline" size={48} color={theme.colors.textSecondary} />
           </View>
           <Text style={styles.emptyTitle}>No conversations yet</Text>
           <Text style={styles.emptyMessage}>
@@ -3342,21 +3882,20 @@ export default function ChatModal() {
           style={styles.chatList}
           data={filtered}
           keyExtractor={item => item._id}
+          removeClippedSubviews={true}
+          maxToRenderPerBatch={10}
+          windowSize={7}
+          initialNumToRender={15}
           renderItem={({ item }) => {
-            if (__DEV__) {
-              logger.debug('Chat item', { 
-                chatId: item._id, 
-                messages: item.messages?.map((m: any) => ({ _id: m._id, sender: m.sender, seen: m.seen, text: m.text })) 
-              });
-            }
-            let other = item.participants.find((u: any) => {
+            const participants = (item.participants || []).filter((p: any) => p != null);
+            let other = participants.find((u: any) => {
               const uId = normalizeId(u?._id || u);
               const meId = normalizeId(item.me);
               return uId && meId && uId !== meId;
             });
             // If participants is array of ObjectIds, fallback
-            if (!other && Array.isArray(item.participants) && typeof item.participants[0] === 'string') {
-              other = item.participants.find((id: string) => {
+            if (!other && Array.isArray(participants) && typeof participants[0] === 'string') {
+              other = participants.find((id: string) => {
                 const idNormalized = normalizeId(id);
                 const meId = normalizeId(item.me);
                 return idNormalized && meId && idNormalized !== meId;
@@ -3365,29 +3904,32 @@ export default function ChatModal() {
             // Calculate unread count - handle Buffer objects from backend
             const otherUserId = normalizeId(other?._id || other);
             const currentUserId = normalizeId(item.me);
-            
+            const isGroupChat = (item as any).type === 'connect_page';
+
             // Calculate unread count: messages from other user (not from current user) that are not seen
             // This includes admin messages from Taatom Official (000000000000000000000001) to regular users
             // SIMPLIFIED: Count any message that is NOT from current user and NOT seen
             const unreadCount = item.messages?.filter((m: any) => {
               // Skip invalid messages
               if (!m || !m.sender) return false;
-              
-              // Skip if already seen (explicitly true)
-              if (m.seen === true) return false;
-              
+
               // Normalize sender ID - handle Buffer objects from backend
               const senderId = normalizeId(m.sender?._id || m.sender);
-              
+
               // Skip if sender is current user (messages from current user are never unread)
               if (!senderId || !currentUserId) return false;
               if (senderId === currentUserId) return false;
-              
-              // Message is unread if:
-              // 1. It's NOT from the current user (already checked above)
-              // 2. It's not seen (m.seen is false, undefined, or null - default to unread)
+
+              // For group chats: check if current user is in seenBy array
+              if (isGroupChat) {
+                if (Array.isArray(m.seenBy) && currentUserId && m.seenBy.some((id: any) => normalizeId(id) === currentUserId)) return false;
+                return true; // Not in seenBy = unread for this user
+              }
+
+              // For 1:1 chats: check seen boolean
+              if (m.seen === true) return false;
               const isUnseen = m.seen === false || m.seen === undefined || m.seen === null;
-              
+
               // Debug logging for admin messages (Taatom Official ID: 000000000000000000000001)
               if (__DEV__ && senderId === '000000000000000000000001') {
                 logger.debug('[UNREAD DEBUG] Admin message check', {
@@ -3401,71 +3943,203 @@ export default function ChatModal() {
                   participants: item.participants?.map((p: any) => normalizeId(p?._id || p))
                 });
               }
-              
+
               return isUnseen;
             }).length || 0;
             
             return (
               <TouchableOpacity
                 style={styles.chatItem}
-                onPress={() => openChatWithUser(other)}
+                onLongPress={() => {
+                  const chatName = (item as any).type === 'connect_page' && (item as any).connectPageId?.name
+                    ? (item as any).connectPageId.name
+                    : other?.fullName || 'this chat';
+                  Alert.alert(
+                    'Delete Chat',
+                    `Are you sure you want to delete the chat with "${chatName}"?`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Delete',
+                        style: 'destructive',
+                        onPress: async () => {
+                          try {
+                            await api.delete(`/chat/room/${item._id}`);
+                            setConversations(prev => prev.filter(c => c._id !== item._id));
+                          } catch (e: any) {
+                            logger.error('Error deleting chat:', e);
+                            Alert.alert('Error', 'Failed to delete chat. Please try again.');
+                          }
+                        },
+                      },
+                    ]
+                  );
+                }}
+                onPress={() => {
+                  if ((item as any).type === 'connect_page') {
+                    // For connect_page chats, open by chat room ID
+                    const chatId = item._id;
+                    // Set chatIdModeRef BEFORE state updates so the selectedUser effect skips
+                    chatIdModeRef.current = true;
+                    setLoading(true);
+                    setChatLoading(true);
+                    Promise.all([
+                      api.get(`/chat/room/${chatId}`),
+                      api.get(`/chat/room/${chatId}/messages`),
+                    ]).then(([chatRes, messagesRes]) => {
+                      const chat = chatRes.data.chat;
+                      const messages = messagesRes.data.messages || [];
+                      const pageInfo = chat?.connectPageId;
+                      const syntheticUser = pageInfo
+                        ? { _id: chatId, fullName: pageInfo.name, profilePic: pageInfo.profileImage }
+                        : { _id: chatId, fullName: 'Group Chat' };
+                      setActiveChat(chat);
+                      setActiveMessages(messages);
+                      setSelectedUser(syntheticUser);
+                    }).catch((e) => {
+                      logger.error('Error opening connect_page chat:', e);
+                      chatIdModeRef.current = false;
+                      setError('Failed to load chat');
+                      setShowErrorAlert(true);
+                    }).finally(() => {
+                      setLoading(false);
+                      setChatLoading(false);
+                    });
+                  } else {
+                    openChatWithUser(other);
+                  }
+                }}
                 activeOpacity={0.7}
               >
                 <View style={styles.avatarContainer}>
-                  {other && other.profilePic ? (
+                  {(item as any).type === 'connect_page' && (item as any).connectPageId?.profileImage ? (
+                    <Image source={{ uri: (item as any).connectPageId.profileImage }} style={styles.avatar} />
+                  ) : other && other.profilePic ? (
                     <Image source={{ uri: other.profilePic }} style={styles.avatar} />
+                  ) : (item as any).type === 'connect_page' ? (
+                    <View style={[styles.avatarPlaceholder, { backgroundColor: theme.colors.primary + '15' }]}>
+                      <Ionicons name="people" size={22} color={theme.colors.primary} />
+                    </View>
                   ) : (
-                    <Ionicons name="person-circle" size={52} color={theme.colors.textSecondary} />
+                    <View style={[styles.avatarPlaceholder, { backgroundColor: theme.colors.textSecondary + '15' }]}>
+                      <Ionicons name="person" size={22} color={theme.colors.textSecondary} />
+                    </View>
                   )}
                 </View>
-                
+
                 <View style={styles.chatContent}>
-                  <Text style={styles.chatName} numberOfLines={1}>
-                    {other ? String(other.fullName || other._id || other) : '[No other user found]'}
-                  </Text>
-                  {(() => {
-                    const lastMessage = item.messages?.[item.messages.length-1];
-                    const messageText = String(lastMessage?.text || '');
-                    const postShare = parsePostShare(messageText);
-                    
-                    if (postShare) {
-                      // Show post preview with thumbnail
-                      return (
-                        <ChatListPostThumbnail
-                          imageUrl={postShare.imageUrl}
-                          postId={postShare.postId}
-                          authorName={postShare.authorName}
-                          theme={theme}
-                        />
-                      );
-                    } else {
-                      // Regular text message
-                      return (
-                        <Text style={styles.lastMessage} numberOfLines={2}>
-                          {messageText}
-                        </Text>
-                      );
-                    }
-                  })()}
-                </View>
-                
-                {unreadCount > 0 && (
-                  <View style={[
-                    styles.unreadBadge,
-                    unreadCount > 9 && styles.unreadBadgeDoubleDigit,
-                    unreadCount > 9 && { minWidth: Math.max(44, String(unreadCount).length * 12 + 16) }
-                  ]}>
-                    <Text 
-                      style={styles.unreadText}
-                      numberOfLines={1}
-                    >
-                      {unreadCount > 99 ? '99+' : String(unreadCount)}
+                  <View style={styles.chatTopRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 6 }}>
+                      <Text style={[styles.chatName, unreadCount > 0 && styles.chatNameUnread]} numberOfLines={1}>
+                        {(item as any).type === 'connect_page' && (item as any).connectPageId?.name
+                          ? (item as any).connectPageId.name
+                          : other ? String(other.fullName || other._id || other) : '[No other user found]'}
+                      </Text>
+                      {(item as any).type === 'connect_page' && (
+                        <View style={styles.connectBadge}>
+                          <Text style={[styles.connectBadgeText, { color: theme.colors.primary }]}>Connect</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[styles.chatTime, unreadCount > 0 && { color: theme.colors.primary }]}>
+                      {(() => {
+                        const lastMsg = item.messages?.[item.messages.length - 1];
+                        if (!lastMsg?.timestamp) return '';
+                        const d = new Date(lastMsg.timestamp);
+                        const now = new Date();
+                        const diffMs = now.getTime() - d.getTime();
+                        const diffDays = Math.floor(diffMs / 86400000);
+                        if (diffDays === 0) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                        if (diffDays === 1) return 'Yesterday';
+                        if (diffDays < 7) return d.toLocaleDateString([], { weekday: 'short' });
+                        return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+                      })()}
                     </Text>
                   </View>
-                )}
+                  <View style={styles.chatBottomRow}>
+                    <View style={{ flex: 1 }}>
+                      {(item as any).type === 'connect_page' && (
+                        <Text style={[styles.lastMessage, { fontSize: 12, marginBottom: 1 }]} numberOfLines={1}>
+                          {((item as any).connectPageId?.followerCount || 0) + 1} {((item as any).connectPageId?.followerCount || 0) + 1 === 1 ? 'member' : 'members'}
+                        </Text>
+                      )}
+                      {(() => {
+                        const lastMessage = item.messages?.[item.messages.length-1];
+                        const messageText = String(lastMessage?.text || '');
+                        const postShare = parsePostShare(messageText);
+                        const journeyShare = !postShare && messageText.startsWith('[JOURNEY_SHARE]') ? (() => {
+                          try {
+                            const parts = messageText.replace('[JOURNEY_SHARE]', '').split('|');
+                            return parts.length >= 3 ? { title: parts[2], distance: parts[3] || '' } : null;
+                          } catch { return null; }
+                        })() : null;
+
+                        // Check for attachment-only messages
+                        const hasAttachments = lastMessage?.attachments && lastMessage.attachments.length > 0;
+                        const attachmentPreview = hasAttachments ? (() => {
+                          const att = lastMessage.attachments[0];
+                          const count = lastMessage.attachments.length;
+                          if (att.type === 'image') return count > 1 ? `📷 ${count} Photos` : '📷 Photo';
+                          if (att.type === 'video') return count > 1 ? `🎥 ${count} Videos` : '🎥 Video';
+                          if (att.type === 'post') return '📌 Shared Post';
+                          if (att.type === 'file') return `📎 ${att.fileName || 'File'}`;
+                          return '📎 Attachment';
+                        })() : null;
+
+                        if (postShare) {
+                          return (
+                            <ChatListPostThumbnail
+                              imageUrl={postShare.imageUrl}
+                              postId={postShare.postId}
+                              authorName={postShare.authorName}
+                              theme={theme}
+                            />
+                          );
+                        } else if (journeyShare) {
+                          return (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Ionicons name="navigate" size={14} color="#22C55E" />
+                              <Text style={[styles.lastMessage, unreadCount > 0 && styles.lastMessageUnread]} numberOfLines={1}>
+                                {journeyShare.title}{journeyShare.distance ? ` • ${journeyShare.distance}` : ''}
+                              </Text>
+                            </View>
+                          );
+                        } else if (!messageText && attachmentPreview) {
+                          return (
+                            <Text style={[styles.lastMessage, unreadCount > 0 && styles.lastMessageUnread]} numberOfLines={1}>
+                              {attachmentPreview}
+                            </Text>
+                          );
+                        } else if (messageText && attachmentPreview) {
+                          return (
+                            <Text style={[styles.lastMessage, unreadCount > 0 && styles.lastMessageUnread]} numberOfLines={1}>
+                              {attachmentPreview} {messageText}
+                            </Text>
+                          );
+                        } else {
+                          return (
+                            <Text style={[styles.lastMessage, unreadCount > 0 && styles.lastMessageUnread]} numberOfLines={1}>
+                              {messageText}
+                            </Text>
+                          );
+                        }
+                      })()}
+                    </View>
+                    {unreadCount > 0 && (
+                      <View style={styles.unreadBadge}>
+                        <Text style={styles.unreadText} numberOfLines={1}>
+                          {unreadCount > 99 ? '99+' : String(unreadCount)}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
               </TouchableOpacity>
             );
           }}
+          ItemSeparatorComponent={() => (
+            <View style={{ height: 0.5, backgroundColor: theme.colors.border, marginLeft: isTablet ? 86 : 78 }} />
+          )}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 20 }}
         />
@@ -3502,8 +4176,10 @@ export default function ChatModal() {
               <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 32 }} />
             ) : (
               <FlatList
-                data={users.filter(u => u.fullName.toLowerCase().includes(search.trim().toLowerCase()))}
+                data={search.trim() ? users.filter(u => u.fullName.toLowerCase().includes(search.trim().toLowerCase())) : users}
                 keyExtractor={item => item._id}
+                removeClippedSubviews={true}
+                initialNumToRender={15}
                 renderItem={({ item }) => (
                   <TouchableOpacity
                     style={styles.userItem}

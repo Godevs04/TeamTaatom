@@ -1,5 +1,5 @@
 const Locale = require('../models/Locale');
-const { uploadLocaleImage, deleteLocaleImage } = require('../config/cloudinary');
+const { deleteLocaleImage } = require('../config/cloudinary');
 const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
 const { generateSignedUrl } = require('../services/mediaService');
 const { sendSuccess, sendError } = require('../utils/errorCodes');
@@ -767,7 +767,7 @@ const getUniqueCountries = async (req, res) => {
     // Try aggregation first (no allowDiskUse - not supported on MongoDB Atlas M0/free tier)
     const matchStage = {
       isActive: true,
-      countryCode: { $exists: true, $ne: null, $ne: '' }
+      countryCode: { $exists: true, $nin: [null, ''] }
     };
     const aggregationPipeline = [
       { $match: matchStage },

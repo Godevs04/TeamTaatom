@@ -311,8 +311,8 @@ const styles = StyleSheet.create({
   navTitle: {
     flex: 1,
     fontSize: isTablet ? 24 : 20,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     color: theme.colors.text,
     textAlign: 'center',
     letterSpacing: 0.3,
@@ -343,7 +343,6 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: isWeb ? 480 : isTablet ? 600 : 500,
     alignSelf: 'center',
-    ...theme.shadows.large,
     ...(isWeb && {
       boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
     } as any),
@@ -353,9 +352,9 @@ const styles = StyleSheet.create({
     marginBottom: isTablet ? theme.spacing.xxl : theme.spacing.xl,
   },
   title: {
-    fontSize: isTablet ? 36 : isWeb ? 32 : 28,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: isTablet ? 28 : 24,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     color: theme.colors.text,
     marginBottom: theme.spacing.md,
     textAlign: 'center',
@@ -414,8 +413,8 @@ const styles = StyleSheet.create({
   },
   otpLabel: {
     fontSize: isTablet ? theme.typography.body.fontSize + 1 : theme.typography.body.fontSize,
-    fontFamily: getFontFamily('600'),
-    fontWeight: '600',
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
     color: theme.colors.text,
     textAlign: 'center',
     marginBottom: theme.spacing.lg,
@@ -438,11 +437,10 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.md,
     textAlign: 'center',
     fontSize: isTablet ? 28 : 24,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     color: theme.colors.text,
     backgroundColor: theme.colors.surfaceSecondary || theme.colors.surface,
-    ...theme.shadows.small,
     ...(isWeb && {
       fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
       outlineStyle: 'none',
@@ -474,7 +472,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: theme.spacing.lg,
     minHeight: isTablet ? 56 : 50,
-    ...theme.shadows.medium,
     ...(isWeb && {
       cursor: 'pointer',
       transition: 'all 0.2s ease',
@@ -490,8 +487,8 @@ const styles = StyleSheet.create({
   verifyButtonText: {
     color: '#FFFFFF',
     fontSize: isTablet ? theme.typography.body.fontSize + 2 : theme.typography.body.fontSize,
-    fontFamily: getFontFamily('600'),
-    fontWeight: '600',
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
     letterSpacing: 0.3,
     ...(isWeb && {
       fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
@@ -516,9 +513,9 @@ const styles = StyleSheet.create({
   },
   resendButtonText: {
     fontSize: theme.typography.body.fontSize,
-    fontFamily: getFontFamily('600'),
+    fontFamily: getFontFamily('500'),
     color: theme.colors.primary,
-    fontWeight: '600',
+    fontWeight: '500',
     ...(isWeb && {
       fontFamily: '"Poppins", -apple-system, BlinkMacSystemFont, sans-serif',
       cursor: 'pointer',

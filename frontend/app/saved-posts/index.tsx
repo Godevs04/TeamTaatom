@@ -251,8 +251,8 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   headerTitle: {
-    fontSize: isTablet ? 22 : 18,
-    fontWeight: '700',
+    fontSize: isTablet ? 22 : 17,
+    fontWeight: '600',
   },
   postsList: {
     flex: 1,
@@ -272,8 +272,8 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   emptyTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '600',
     marginBottom: 8,
   },
   emptyMessage: {

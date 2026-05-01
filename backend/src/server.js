@@ -249,7 +249,25 @@ process.on('unhandledRejection', async (reason, promise) => {
       const env = process.env.NODE_ENV || 'development';
       logger.info(`🚀 Server running on port ${PORT}`);
       logger.info(`📡 Environment: ${env}`);
-      
+
+      // Start journey auto-end background job
+      try {
+        const { startAutoEndJob } = require('./jobs/journeyAutoEnd');
+        startAutoEndJob();
+      } catch (err) {
+        logger.warn('Failed to start journey auto-end job:', err.message);
+      }
+
+      // Warm the FX rate cache so the first /api/v1/connect/page/* request
+      // doesn't pay the live-fetch latency. Non-fatal if it fails; the
+      // service falls back to hardcoded rates.
+      try {
+        const { warmCache } = require('./services/fxRateService');
+        warmCache();
+      } catch (err) {
+        logger.warn('Failed to warm FX rate cache:', err.message);
+      }
+
       // Log Brevo email service configuration status
       const brevoApiKey = process.env.BREVO_API_KEY;
       const smtpFrom = process.env.SMTP_FROM;

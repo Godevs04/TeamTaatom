@@ -8,6 +8,7 @@ import {
   Dimensions,
   Animated,
   Platform,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -38,6 +39,8 @@ interface Location {
     latitude: number;
     longitude: number;
   };
+  imageUrl?: string;
+  postType?: string;
 }
 
 interface TripScoreCountryResponse {
@@ -333,20 +336,81 @@ export default function CountryMapScreen() {
     const markers = locations.map((loc, i) => {
       const lat = loc.coordinates?.latitude || center.latitude;
       const lng = loc.coordinates?.longitude || center.longitude;
-      return `
-        new google.maps.Marker({
-          position: { lat: ${lat}, lng: ${lng} },
-          map: map,
-          icon: {
-            url: 'data:image/svg+xml;utf-8,<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="white" stroke="%23FF5722" stroke-width="2"/><text x="15" y="20" font-size="16" text-anchor="middle" fill="%23FF5722">🏳️</text></svg>',
-            scaledSize: new google.maps.Size(30, 30),
-          },
-          title: '${loc.name}',
-          label: '${loc.name}',
-        }).addListener('click', function() {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'marker', index: ${i} }));
-        });
-      `;
+      const hasImage = !!(loc as any).imageUrl;
+      const imageUrl = (loc as any).imageUrl || '';
+
+      if (hasImage) {
+        return `
+          (function() {
+            var marker = new google.maps.Marker({
+              position: { lat: ${lat}, lng: ${lng} },
+              map: map,
+              icon: {
+                url: '${imageUrl.replace(/'/g, "\\'")}',
+                scaledSize: new google.maps.Size(36, 36),
+                anchor: new google.maps.Point(18, 18),
+              },
+              title: '${loc.name.replace(/'/g, "\\'")}',
+              optimized: false,
+            });
+            marker.addListener('click', function() {
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'marker', index: ${i} }));
+            });
+            // Apply circular clip via overlay
+            var overlay = new google.maps.OverlayView();
+            overlay.onAdd = function() {
+              var div = document.createElement('div');
+              div.style.position = 'absolute';
+              div.style.width = '40px';
+              div.style.height = '40px';
+              div.style.borderRadius = '6px';
+              div.style.overflow = 'hidden';
+              div.style.border = '2px solid #FF5722';
+              div.style.boxShadow = '0 2px 6px rgba(0,0,0,0.3)';
+              div.style.cursor = 'pointer';
+              var img = document.createElement('img');
+              img.src = '${imageUrl.replace(/'/g, "\\'")}';
+              img.style.width = '100%';
+              img.style.height = '100%';
+              img.style.objectFit = 'cover';
+              div.appendChild(img);
+              div.addEventListener('click', function() {
+                window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'marker', index: ${i} }));
+              });
+              this.div = div;
+              var panes = this.getPanes();
+              panes.overlayMouseTarget.appendChild(div);
+            };
+            overlay.draw = function() {
+              var projection = this.getProjection();
+              var pos = projection.fromLatLngToDivPixel(new google.maps.LatLng(${lat}, ${lng}));
+              if (pos) {
+                this.div.style.left = (pos.x - 20) + 'px';
+                this.div.style.top = (pos.y - 20) + 'px';
+              }
+            };
+            overlay.onRemove = function() {
+              if (this.div) { this.div.parentNode.removeChild(this.div); }
+            };
+            overlay.setMap(map);
+            marker.setVisible(false);
+          })();
+        `;
+      } else {
+        return `
+          new google.maps.Marker({
+            position: { lat: ${lat}, lng: ${lng} },
+            map: map,
+            icon: {
+              url: 'data:image/svg+xml;utf-8,<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="white" stroke="%23FF5722" stroke-width="2"/><text x="15" y="20" font-size="16" text-anchor="middle" fill="%23FF5722">🏳️</text></svg>',
+              scaledSize: new google.maps.Size(30, 30),
+            },
+            title: '${loc.name.replace(/'/g, "\\'")}',
+          }).addListener('click', function() {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'marker', index: ${i} }));
+          });
+        `;
+      }
     }).join('');
 
     return `
@@ -532,7 +596,7 @@ export default function CountryMapScreen() {
               <Marker
                 key={stableKey}
                 zIndex={9999}
-                anchor={{ x: 0.5, y: 1 }}
+                anchor={{ x: 0.5, y: 0.5 }}
                 coordinate={{
                   latitude: location.coordinates!.latitude,
                   longitude: location.coordinates!.longitude,
@@ -557,9 +621,20 @@ export default function CountryMapScreen() {
                       ]}
                     />
                   )}
-                  <View style={styles.customMarker}>
-                    <Ionicons name="flag" size={20} color="#FF5722" />
-                  </View>
+                  {location.imageUrl ? (
+                    <View style={styles.thumbnailMarker}>
+                      <Image
+                        source={{ uri: location.imageUrl }}
+                        style={styles.thumbnailImage}
+                        resizeMode="cover"
+                      />
+                    </View>
+                  ) : (
+
+                    <View style={styles.customMarker}>
+                      <Ionicons name="flag" size={20} color="#FF5722" />
+                    </View>
+                  )}
                 </View>
               </Marker>
             );
@@ -626,7 +701,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     flex: 1,
-    fontSize: 18,
+    fontSize: isTablet ? 22 : 20,
     fontWeight: '600',
     textAlign: 'center',
   },
@@ -651,14 +726,25 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  thumbnailMarker: {
+    width: 40,
+    height: 40,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#FF5722',
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+    elevation: 4,
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    shadowRadius: 3,
+  },
+  thumbnailImage: {
+    width: '100%' as any,
+    height: '100%' as any,
+    borderRadius: 4,
   },
   pulseRing: {
     position: 'absolute',

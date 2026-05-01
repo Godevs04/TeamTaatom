@@ -108,7 +108,7 @@ export default function UserPostsScreen() {
     },
     headerTitle: {
       fontSize: theme.typography.h3.fontSize,
-      fontWeight: '700',
+      fontWeight: '600',
       color: theme.colors.text,
       flex: 1,
     },

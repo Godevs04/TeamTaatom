@@ -403,7 +403,9 @@ const styles = StyleSheet.create({
     padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   headerContainer: {
-    margin: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginTop: isTablet ? theme.spacing.md : 8,
+    marginBottom: isTablet ? theme.spacing.md : 12,
     padding: isTablet ? theme.spacing.xl : 20,
     borderRadius: theme.borderRadius.md,
   },
@@ -412,8 +414,8 @@ const styles = StyleSheet.create({
   },
   userName: {
     fontSize: isTablet ? theme.typography.h3.fontSize : 20,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: 4,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',

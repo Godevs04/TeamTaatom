@@ -2,7 +2,7 @@ const Notification = require('../models/Notification');
 const User = require('../models/User');
 const Post = require('../models/Post');
 const { getIO } = require('../socket');
-const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
+const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { generateSignedUrl, generateSignedUrls } = require('../services/mediaService');
 

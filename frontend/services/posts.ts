@@ -810,18 +810,36 @@ export const createShortWithProgress = async (
         }
       });
       
-      // Handle errors with better messaging for large files
+      // Handle errors with better messaging for large files.
+      // Capture xhr diagnostics so a generic "Network error" doesn't hide the
+      // actual signal — for short uploads this is often a connection reset
+      // mid-upload (status=0, readyState<DONE), which we want visible in
+      // Sentry and in the user message so the bug is diagnosable next time.
       xhr.addEventListener('error', () => {
-        // Clear intervals
-        if (progressCheckInterval) {
-          clearInterval(progressCheckInterval);
+        if (progressCheckInterval) clearInterval(progressCheckInterval);
+        if (uploadTimeout) clearTimeout(uploadTimeout);
+
+        const diag = {
+          status: xhr.status,
+          statusText: xhr.statusText,
+          readyState: xhr.readyState,
+          lastProgressPct: lastProgressValue,
+          msSinceLastProgress: Date.now() - lastProgressTime,
+          fileSizeMB: data?.video ? 'unknown-multipart' : 'n/a',
+        };
+        logger.error('[createShortWithProgress] xhr error', new Error(`xhr error status=${diag.status}`), diag);
+
+        let message: string;
+        if (diag.status === 0 && diag.lastProgressPct > 0) {
+          message = `Upload was interrupted at ${diag.lastProgressPct}%. Your network dropped — please reconnect and try again.`;
+        } else if (diag.status >= 500) {
+          message = `Server error during upload (HTTP ${diag.status}). Please try again in a moment.`;
+        } else if (diag.status === 413) {
+          message = 'File is too large for the server to accept. Please try a smaller file.';
+        } else {
+          message = 'Network error occurred during upload. Please check your internet connection and try again.';
         }
-        if (uploadTimeout) {
-          clearTimeout(uploadTimeout);
-        }
-        
-        // Provide more helpful error message
-        reject(new Error('Network error occurred during upload. Please check your internet connection and try again.'));
+        reject(new Error(message));
       });
       
       xhr.addEventListener('abort', () => {

@@ -1,6 +1,5 @@
 const User = require('../models/User');
 const Activity = require('../models/Activity');
-const mongoose = require('mongoose');
 const logger = require('../utils/logger');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 

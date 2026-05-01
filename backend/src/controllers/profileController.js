@@ -2,21 +2,51 @@ const { validationResult } = require('express-validator');
 const mongoose = require('mongoose');
 const User = require('../models/User');
 const Post = require('../models/Post');
-const { uploadImage, deleteImage } = require('../config/cloudinary');
-const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
-const { generateSignedUrl } = require('../services/mediaService');
+const { deleteImage } = require('../config/cloudinary');
+const { buildMediaKey, uploadObject, deleteObject, objectExists } = require('../services/storage');
+const { generateSignedUrl, resolveProfilePic } = require('../services/mediaService');
 const Notification = require('../models/Notification');
 const { getIO } = require('../socket');
 const { getFollowers } = require('../utils/socketBus');
-const { sendError, sendSuccess, ERROR_CODES } = require('../utils/errorCodes');
+const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } = require('../utils/cache');
 const Activity = require('../models/Activity');
 const TripVisit = require('../models/TripVisit');
-const { TRUSTED_TRUST_LEVELS, VERIFIED_STATUSES } = require('../config/tripScoreConfig');
+const { VERIFIED_STATUSES } = require('../config/tripScoreConfig');
 const { lookupByCoords } = require('../utils/coordsToCountry');
 const { sendNotificationToUser } = require('../utils/sendNotification');
 const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
+
+/**
+ * Check if viewer is allowed to access a target user's private content.
+ * Returns { allowed: true } or { allowed: false, reason: string }.
+ * Does NOT block the owner from viewing their own data.
+ */
+async function checkProfilePrivacy(targetUserId, viewerId) {
+  if (!targetUserId) return { allowed: false, reason: 'User not found' };
+  // Owner can always view their own data
+  if (viewerId && targetUserId.toString() === viewerId.toString()) {
+    return { allowed: true, showLocation: true };
+  }
+  const targetUser = await User.findById(targetUserId)
+    .select('settings.privacy.profileVisibility settings.privacy.showLocation followers')
+    .lean();
+  if (!targetUser) return { allowed: false, reason: 'User not found' };
+
+  const visibility = targetUser.settings?.privacy?.profileVisibility || 'public';
+  if (visibility === 'public') return { allowed: true, showLocation: targetUser.settings?.privacy?.showLocation !== false };
+
+  // For followers/private: check if viewer is in the target's followers array
+  const isFollower = viewerId
+    ? (targetUser.followers || []).some(f => f.toString() === viewerId.toString())
+    : false;
+
+  if (!isFollower) {
+    return { allowed: false, reason: 'This content is not available' };
+  }
+  return { allowed: true, showLocation: targetUser.settings?.privacy?.showLocation !== false };
+}
 
 // @desc    Get user profile
 // @route   GET /profile/:id
@@ -166,7 +196,7 @@ const getProfile = async (req, res) => {
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
     // This ensures multiple posts at the same location are grouped together
-    const roundCoordinate = (coord, precision = 2) => {
+    const roundCoordinate = (coord, _precision = 2) => {
       // Round to 2 decimal places (≈ 1.1km precision)
       return Math.round(coord * 100) / 100;
     };
@@ -346,20 +376,8 @@ const getProfile = async (req, res) => {
           profilePic: TAATOM_OFFICIAL_USER.profilePic 
         }).catch(err => logger.debug('Failed to update Taatom Official profilePic:', err));
       }
-    } else if (user.profilePicStorageKey) {
-      try {
-        profilePicUrl = await generateSignedUrl(user.profilePicStorageKey, 'PROFILE');
-      } catch (error) {
-        logger.warn('Failed to generate profile picture URL:', { 
-          userId: user._id, 
-          error: error.message 
-        });
-        // Fallback to legacy URL if available
-        profilePicUrl = user.profilePic || null;
-      }
-    } else if (user.profilePic) {
-      // Legacy: use existing profilePic if no storage key
-      profilePicUrl = user.profilePic;
+    } else {
+      profilePicUrl = await resolveProfilePic(user);
     }
 
     const profile = {
@@ -422,7 +440,6 @@ const updateProfile = async (req, res) => {
     }
 
     const { fullName, bio } = req.body;
-    let profilePicUrl = user.profilePic;
     let profilePicStorageKey = user.profilePicStorageKey; // Track storage key separately
 
     // Handle profile picture upload
@@ -453,10 +470,15 @@ const updateProfile = async (req, res) => {
         });
 
         await uploadObject(req.file.buffer, profilePicStorageKey, req.file.mimetype);
-        logger.debug('Profile picture uploaded successfully:', { profilePicStorageKey });
-        
-        // Generate signed URL for response (NOT stored in DB)
-        profilePicUrl = await generateSignedUrl(profilePicStorageKey, 'PROFILE');
+
+        // Defensive: confirm the object actually landed in the bucket before we
+        // persist the key. Prevents silent upload failures from poisoning the DB
+        // with phantom keys that 404 on every read forever after.
+        const exists = await objectExists(profilePicStorageKey);
+        if (!exists) {
+          throw new Error(`Upload verification failed — object not found in bucket: ${profilePicStorageKey}`);
+        }
+        logger.debug('Profile picture uploaded and verified:', { profilePicStorageKey });
       } catch (uploadError) {
         logger.error('Profile picture upload error:', uploadError);
         logger.error('Upload error details:', {
@@ -470,15 +492,17 @@ const updateProfile = async (req, res) => {
     }
 
     // Update user
+    // IMPORTANT: profilePic field must NEVER hold a signed URL (10-min TTL would expire in DB).
+    // Source of truth is profilePicStorageKey; profilePic is only retained for legacy CDN URLs.
     const updateData = {
       ...(fullName && { fullName }),
       ...(bio !== undefined && { bio }),
-      ...(profilePicUrl !== user.profilePic && { profilePic: profilePicUrl })
     };
-    
-    // Add profilePicStorageKey if it was set during upload
-    if (profilePicStorageKey && profilePicStorageKey !== user.profilePicStorageKey) {
+
+    if (req.file) {
+      // New upload: persist storage key, clear any stale URL in profilePic
       updateData.profilePicStorageKey = profilePicStorageKey;
+      updateData.profilePic = '';
     }
     
     const updatedUser = await User.findByIdAndUpdate(
@@ -939,7 +963,9 @@ const searchUsers = async (req, res) => {
             followers: 1,
             following: 1,
             totalLikes: 1,
-            matchScore: 1
+            matchScore: 1,
+            'settings.privacy.profileVisibility': 1,
+            'settings.privacy.showEmail': 1
           }
         },
         {
@@ -965,7 +991,7 @@ const searchUsers = async (req, res) => {
 
       // Remove matchScore from final results (keep profilePicStorageKey for URL generation outside cache)
       const cleanedUsers = users.map(user => {
-        const { matchScore, ...userWithoutScore } = user;
+        const { matchScore: _matchScore, ...userWithoutScore } = user;
         return userWithoutScore;
       });
 
@@ -990,59 +1016,47 @@ const searchUsers = async (req, res) => {
     }
 
     // Generate signed URLs for profile pictures AFTER cache (fresh URLs each time)
-    // Same pattern as getPosts - generate fresh signed URLs for each request
+    // Resolve fresh profile pic URL for every user (handles storage key, legacy CDN, stale URLs)
     const usersWithProfilePics = await Promise.all(users.map(async (user) => {
-      // Store original profilePic as fallback (same pattern as getPosts)
-      const originalProfilePic = user.profilePic;
-      
-      // Generate signed URL for profile picture (exact same pattern as getPosts line 234-249)
-      if (user.profilePicStorageKey) {
-        try {
-          user.profilePic = await generateSignedUrl(user.profilePicStorageKey, 'PROFILE');
-          logger.debug('Generated profile picture URL for search result:', {
-            userId: user._id?.toString(),
-            username: user.username,
-            hasUrl: !!user.profilePic
-          });
-        } catch (error) {
-          logger.warn('Failed to generate profile picture URL for search result:', { 
-            userId: user._id?.toString(),
-            username: user.username,
-            storageKey: user.profilePicStorageKey,
-            error: error.message 
-          });
-          // Fallback to legacy URL if available (same as getPosts)
-          user.profilePic = originalProfilePic || null;
-        }
-      } else if (user.profilePic) {
-        // Legacy: use existing profilePic if no storage key (same as getPosts line 246-249)
-        // Keep the existing profilePic value
-        logger.debug('Using legacy profilePic for search result:', {
-          userId: user._id?.toString(),
-          username: user.username
-        });
-      }
-      // Note: If no profilePicStorageKey and no profilePic, profilePic remains null/undefined
-      // This matches getPosts behavior
-      
-      // Remove profilePicStorageKey from response (not needed by frontend)
+      user.profilePic = await resolveProfilePic(user);
       delete user.profilePicStorageKey;
-      
       return user;
     }));
 
     const currentUserId = req.user?._id?.toString();
-    const usersWithFollowStatus = usersWithProfilePics.map(user => ({
-      ...user,
-      _id: user._id?.toString() || user._id,
-      // Keep profilePic as is (can be null/undefined/string - frontend handles it)
-      // Don't convert null to empty string - let frontend handle fallback
-      followersCount: user.followers ? user.followers.length : 0,
-      followingCount: user.following ? user.following.length : 0,
-      isFollowing: currentUserId && user.followers 
-        ? user.followers.some(follower => follower.toString() === currentUserId)
-        : false
-    }));
+    const usersWithFollowStatus = usersWithProfilePics.map(user => {
+      const visibility = user.settings?.privacy?.profileVisibility || 'public';
+      const showEmail = user.settings?.privacy?.showEmail !== false;
+      const isOwner = currentUserId && user._id?.toString() === currentUserId;
+      const isFollower = currentUserId && user.followers
+        ? user.followers.some(f => f.toString() === currentUserId)
+        : false;
+      const canSeeDetails = isOwner || visibility === 'public' || isFollower;
+
+      const result = {
+        _id: user._id?.toString() || user._id,
+        username: user.username,
+        fullName: user.fullName,
+        profilePic: user.profilePic,
+        followersCount: user.followers ? user.followers.length : 0,
+        followingCount: user.following ? user.following.length : 0,
+        isFollowing: currentUserId && user.followers
+          ? user.followers.some(follower => follower.toString() === currentUserId)
+          : false,
+        profileVisibility: visibility
+      };
+
+      // Only expose email if showEmail is true and viewer can see details
+      if (showEmail && canSeeDetails) {
+        result.email = user.email;
+      }
+      // Only expose totalLikes for accessible profiles
+      if (canSeeDetails) {
+        result.totalLikes = user.totalLikes;
+      }
+
+      return result;
+    });
 
     return sendSuccess(res, 200, 'Users found successfully', {
       users: usersWithFollowStatus,
@@ -1067,10 +1081,18 @@ const searchUsers = async (req, res) => {
 const getFollowersList = async (req, res) => {
   try {
     const { id } = req.params;
+    const viewerId = req.user?._id?.toString();
+
+    // Privacy check: only allow viewing followers if profile is accessible
+    const privacyCheck = await checkProfilePrivacy(id, viewerId);
+    if (!privacyCheck.allowed) {
+      return sendSuccess(res, 200, 'Followers list', { followers: [], totalFollowers: 0, page: 1, totalPages: 0 });
+    }
+
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
-    
+
     // First get the user to check if it exists and get total count
     const user = await User.findById(id).select('followers');
     if (!user) return sendError(res, 'RES_3001', 'User does not exist');
@@ -1096,23 +1118,10 @@ const getFollowersList = async (req, res) => {
       const isTaatomOfficial = f._id.toString() === TAATOM_OFFICIAL_USER_ID;
       if (isTaatomOfficial) {
         profilePicUrl = TAATOM_OFFICIAL_USER.profilePic;
-      } else if (f.profilePicStorageKey) {
-        // Generate signed URL for profile picture
-        try {
-          profilePicUrl = await generateSignedUrl(f.profilePicStorageKey, 'PROFILE');
-        } catch (error) {
-          logger.warn('Failed to generate profile picture URL for follower:', { 
-            userId: f._id, 
-            error: error.message 
-          });
-          // Fallback to legacy URL if available
-          profilePicUrl = f.profilePic || null;
-        }
-      } else if (f.profilePic) {
-        // Legacy: use existing profilePic if no storage key
-        profilePicUrl = f.profilePic;
+      } else {
+        profilePicUrl = await resolveProfilePic(f);
       }
-      
+
       const isFollowing = currentUserId ? f.followers.map(String).includes(currentUserId) : false;
       return {
         _id: f._id,
@@ -1126,7 +1135,7 @@ const getFollowersList = async (req, res) => {
         isFollowing,
       };
     }));
-    
+
     return sendSuccess(res, 200, 'Followers fetched successfully', {
       users: followersWithStatus,
       pagination: {
@@ -1149,10 +1158,18 @@ const getFollowersList = async (req, res) => {
 const getFollowingList = async (req, res) => {
   try {
     const { id } = req.params;
+    const viewerId = req.user?._id?.toString();
+
+    // Privacy check: only allow viewing following if profile is accessible
+    const privacyCheck = await checkProfilePrivacy(id, viewerId);
+    if (!privacyCheck.allowed) {
+      return sendSuccess(res, 200, 'Following list', { following: [], totalFollowing: 0, page: 1, totalPages: 0 });
+    }
+
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
-    
+
     // First get the user to check if it exists and get total count
     const user = await User.findById(id).select('following');
     if (!user) return sendError(res, 'RES_3001', 'User does not exist');
@@ -1178,21 +1195,8 @@ const getFollowingList = async (req, res) => {
       const isTaatomOfficial = f._id.toString() === TAATOM_OFFICIAL_USER_ID;
       if (isTaatomOfficial) {
         profilePicUrl = TAATOM_OFFICIAL_USER.profilePic;
-      } else if (f.profilePicStorageKey) {
-        // Generate signed URL for profile picture
-        try {
-          profilePicUrl = await generateSignedUrl(f.profilePicStorageKey, 'PROFILE');
-        } catch (error) {
-          logger.warn('Failed to generate profile picture URL for following user:', { 
-            userId: f._id, 
-            error: error.message 
-          });
-          // Fallback to legacy URL if available
-          profilePicUrl = f.profilePic || null;
-        }
-      } else if (f.profilePic) {
-        // Legacy: use existing profilePic if no storage key
-        profilePicUrl = f.profilePic;
+      } else {
+        profilePicUrl = await resolveProfilePic(f);
       }
       
       const isFollowing = currentUserId ? f.followers.map(String).includes(currentUserId) : false;
@@ -1570,6 +1574,7 @@ const calculateDistance = (lat1, lon1, lat2, lon2) => {
 };
 
 // Helper function to get continent from coordinates
+// eslint-disable-next-line no-unused-vars
 const getContinentFromCoordinates = (latitude, longitude) => {
   // Simplified logic for continent detection based on coordinates
   if (latitude >= -10 && latitude <= 80 && longitude >= 25 && longitude <= 180) return 'Asia';
@@ -1592,6 +1597,13 @@ const getTripScoreContinents = async (req, res) => {
       return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
+    // Privacy check: TripScore data is location-sensitive
+    const viewerId = req.user?._id?.toString();
+    const privacyCheck = await checkProfilePrivacy(id, viewerId);
+    if (!privacyCheck.allowed || !privacyCheck.showLocation) {
+      return sendSuccess(res, 200, 'TripScore continents', { continents: [], totalScore: 0, totalUniqueLocations: 0, totalDistanceKm: 0 });
+    }
+
     // Get verified visits (TripScore v2.1 - unique places only)
     const trustedVisits = await TripVisit.find({
       user: id,
@@ -1604,7 +1616,7 @@ const getTripScoreContinents = async (req, res) => {
     .limit(1000);
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
-    const roundCoordinate = (coord, precision = 2) => {
+    const roundCoordinate = (coord, _precision = 2) => {
       return Math.round(coord * 100) / 100;
     };
     
@@ -1748,6 +1760,13 @@ const getTripScoreCountries = async (req, res) => {
       return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
+    // Privacy check
+    const viewerId = req.user?._id?.toString();
+    const privacyCheck = await checkProfilePrivacy(id, viewerId);
+    if (!privacyCheck.allowed || !privacyCheck.showLocation) {
+      return sendSuccess(res, 200, 'TripScore countries', { countries: [], continent: decodeURIComponent(continent) });
+    }
+
     // URL decode continent name in case it has spaces or special characters
     const continentName = decodeURIComponent(continent).toUpperCase();
 
@@ -1763,7 +1782,7 @@ const getTripScoreCountries = async (req, res) => {
     .lean();
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
-    const roundCoordinate = (coord, precision = 2) => {
+    const roundCoordinate = (coord, _precision = 2) => {
       return Math.round(coord * 100) / 100;
     };
     
@@ -1865,6 +1884,13 @@ const getTripScoreCountryDetails = async (req, res) => {
     const { id } = req.params;
     const { country } = req.params;
 
+    // Privacy check
+    const viewerId = req.user?._id?.toString();
+    const privacyCheck = await checkProfilePrivacy(id, viewerId);
+    if (!privacyCheck.allowed || !privacyCheck.showLocation) {
+      return sendSuccess(res, 200, 'TripScore country details', { locations: [], country: decodeURIComponent(country) });
+    }
+
     const { generateSignedUrl } = require('../services/mediaService');
 
     // Country grouping is now driven by coords (matches the global map). The
@@ -1889,7 +1915,7 @@ const getTripScoreCountryDetails = async (req, res) => {
     });
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
-    const roundCoordinate = (coord, precision = 2) => {
+    const roundCoordinate = (coord, _precision = 2) => {
       return Math.round(coord * 100) / 100;
     };
     
@@ -2064,6 +2090,13 @@ const getTripScoreLocations = async (req, res) => {
       return sendError(res, 'VAL_2001', 'User id must be a valid ObjectId');
     }
 
+    // Privacy check
+    const viewerId = req.user?._id?.toString();
+    const privacyCheck = await checkProfilePrivacy(id, viewerId);
+    if (!privacyCheck.allowed || !privacyCheck.showLocation) {
+      return sendSuccess(res, 200, 'TripScore locations', { locations: [], country: decodeURIComponent(country) });
+    }
+
     const { generateSignedUrl } = require('../services/mediaService');
 
     // Country grouping is driven by coords (matches the global map). Fetch all
@@ -2087,7 +2120,7 @@ const getTripScoreLocations = async (req, res) => {
     });
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
-    const roundCoordinate = (coord, precision = 2) => {
+    const roundCoordinate = (coord, _precision = 2) => {
       return Math.round(coord * 100) / 100;
     };
     
@@ -2095,83 +2128,78 @@ const getTripScoreLocations = async (req, res) => {
       return `${roundCoordinate(lat)},${roundCoordinate(lng)}`;
     };
 
-    // Filter visits by country (unique places only)
-    const locations = [];
-    const uniqueLocations = new Set();
+    // Helper to extract signed image URL from a post object
+    const getPostImageUrl = async (p, contentType) => {
+      if (!p) return null;
+      const pType = p.type || (contentType === 'short' ? 'short' : 'photo');
+      if (pType === 'photo') {
+        if (p.storageKey) return await generateSignedUrl(p.storageKey, 'IMAGE');
+        if (p.storageKeys && p.storageKeys.length > 0) return await generateSignedUrl(p.storageKeys[0], 'IMAGE');
+        if (p.imageUrl) return p.imageUrl;
+        if (p.images && p.images.length > 0) return p.images[0];
+      } else {
+        if (p.imageUrl) return p.imageUrl;
+        if (p.images && p.images.length > 0) return p.images[0];
+        if (p.storageKey) return await generateSignedUrl(p.storageKey, 'VIDEO');
+        if (p.storageKeys && p.storageKeys.length > 0) return await generateSignedUrl(p.storageKeys[0], 'VIDEO');
+        if (p.videoUrl) return p.videoUrl;
+      }
+      return null;
+    };
+
+    // First pass: group all visits by location key so multiple TripVisits at the same
+    // coordinates (one per post, since dedup is disabled for admin review) are merged.
+    const locationGroupMap = new Map(); // locationKey -> { firstVisit, allPosts }
     let countryScore = 0;
 
     for (const visit of trustedVisits) {
-      // Use rounded coordinates to group nearby locations (same as deduplication logic)
       const locationKey = getLocationKey(visit.lat, visit.lng);
-      
-      // Only count/show each unique location once (groups nearby locations together)
-      if (!uniqueLocations.has(locationKey)) {
-        uniqueLocations.add(locationKey);
-        
-        // Count unique places visited
+      const postsForVisit = visit.posts && visit.posts.length > 0
+        ? visit.posts
+        : (visit.post ? [visit.post] : []);
+
+      if (!locationGroupMap.has(locationKey)) {
+        locationGroupMap.set(locationKey, { firstVisit: visit, allPosts: [...postsForVisit] });
         countryScore += 1;
-        
-        // Helper to extract signed image URL from a post object
-        const getPostImageUrl = async (p) => {
-          if (!p) return null;
-          const pType = p.type || (visit.contentType === 'short' ? 'short' : 'photo');
-          if (pType === 'photo') {
-            if (p.storageKey) return await generateSignedUrl(p.storageKey, 'IMAGE');
-            if (p.storageKeys && p.storageKeys.length > 0) return await generateSignedUrl(p.storageKeys[0], 'IMAGE');
-            if (p.imageUrl) return p.imageUrl;
-            if (p.images && p.images.length > 0) return p.images[0];
-          } else {
-            if (p.imageUrl) return p.imageUrl;
-            if (p.images && p.images.length > 0) return p.images[0];
-            if (p.storageKey) return await generateSignedUrl(p.storageKey, 'VIDEO');
-            if (p.storageKeys && p.storageKeys.length > 0) return await generateSignedUrl(p.storageKeys[0], 'VIDEO');
-            if (p.videoUrl) return p.videoUrl;
-          }
-          return null;
-        };
-
-        // Collect all photos from all posts at this location
-        // Use the posts array (all photos) falling back to single post for legacy visits
-        const allPostsAtLocation = visit.posts && visit.posts.length > 0
-          ? visit.posts
-          : (visit.post ? [visit.post] : []);
-
-        const photos = [];
-        for (const p of allPostsAtLocation) {
-          const url = await getPostImageUrl(p);
-          if (url) photos.push(url);
-        }
-
-        const imageUrl = photos[0] || null;
-        const postType = visit.post?.type || (visit.contentType === 'short' ? 'short' : 'photo');
-        
-        // Get spotType and travelInfo from TripVisit (copied from post) or post directly
-        const spotType = visit.spotType || visit.post?.spotType || 'General';
-        const travelInfo = visit.travelInfo || visit.post?.travelInfo || 'Drivable';
-        
-        // Get the date - prefer takenAt (when photo was taken) over uploadedAt (when uploaded)
-        // Convert to ISO string for consistent frontend parsing
-        const visitDate = visit.takenAt || visit.uploadedAt;
-        const dateString = visitDate ? (visitDate instanceof Date ? visitDate.toISOString() : new Date(visitDate).toISOString()) : new Date().toISOString();
-        
-        locations.push({
-          name: visit.address || 'Unknown Location',
-          score: 1, // Each unique location counts as 1
-          date: dateString, // ISO date string for consistent parsing
-          caption: visit.post?.caption || '', // Post caption
-          category: { 
-            fromYou: travelInfo, // From post dropdown
-            typeOfSpot: spotType // From post dropdown
-          },
-          imageUrl: imageUrl, // Primary image (first photo)
-          photos: photos, // All photos taken at this location
-          postType: postType, // 'photo' or 'short'
-          coordinates: {
-            latitude: visit.lat,
-            longitude: visit.lng
-          }
-        });
+      } else {
+        // Accumulate posts from additional TripVisits at the same location
+        locationGroupMap.get(locationKey).allPosts.push(...postsForVisit);
       }
+    }
+
+    // Second pass: build location entries with all accumulated photos
+    const locations = [];
+    for (const { firstVisit: visit, allPosts } of locationGroupMap.values()) {
+      const photos = [];
+      for (const p of allPosts) {
+        const url = await getPostImageUrl(p, visit.contentType);
+        if (url) photos.push(url);
+      }
+
+      const imageUrl = photos[0] || null;
+      const postType = visit.post?.type || (visit.contentType === 'short' ? 'short' : 'photo');
+      const spotType = visit.spotType || visit.post?.spotType || 'General';
+      const travelInfo = visit.travelInfo || visit.post?.travelInfo || 'Drivable';
+      const visitDate = visit.takenAt || visit.uploadedAt;
+      const dateString = visitDate ? (visitDate instanceof Date ? visitDate.toISOString() : new Date(visitDate).toISOString()) : new Date().toISOString();
+
+      locations.push({
+        name: visit.address || 'Unknown Location',
+        score: allPosts.length, // Actual number of posts at this location
+        date: dateString,
+        caption: visit.post?.caption || '',
+        category: {
+          fromYou: travelInfo,
+          typeOfSpot: spotType
+        },
+        imageUrl: imageUrl,
+        photos: photos,
+        postType: postType,
+        coordinates: {
+          latitude: visit.lat,
+          longitude: visit.lng
+        }
+      });
     }
 
     return sendSuccess(res, 200, 'TripScore locations fetched successfully', {
@@ -2244,16 +2272,17 @@ const getTravelMapData = async (req, res) => {
       user: id,
       isActive: true,
       verificationStatus: { $in: VERIFIED_STATUSES },
-      lat: { $exists: true, $ne: null, $ne: 0 },
-      lng: { $exists: true, $ne: null, $ne: 0 }
+      lat: { $exists: true, $nin: [null, 0] },
+      lng: { $exists: true, $nin: [null, 0] }
     })
-    .select('lat lng address takenAt uploadedAt')
+    .select('lat lng address takenAt uploadedAt post contentType')
+    .populate({ path: 'post', select: 'imageUrl thumbnailUrl storageKey storageKeys type' })
     .sort({ takenAt: 1, uploadedAt: 1 }) // Sort chronologically
     .lean()
     .limit(1000); // Limit for performance
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
-    const roundCoordinate = (coord, precision = 2) => {
+    const roundCoordinate = (coord, _precision = 2) => {
       return Math.round(coord * 100) / 100;
     };
     
@@ -2266,30 +2295,67 @@ const getTravelMapData = async (req, res) => {
     const locations = [];
     let locationCounter = 1;
 
-    trustedVisits.forEach(visit => {
+    // Pass 1: Build locations list with storage keys noted for batch signing
+    const pendingSignedUrls = []; // { index, storageKey }
+    for (const visit of trustedVisits) {
       if (!visit.lat || !visit.lng || visit.lat === 0 || visit.lng === 0) {
-        return; // Skip invalid coordinates
+        continue;
       }
 
       const locationKey = getLocationKey(visit.lat, visit.lng);
-      
-      // Only add unique locations (deduplicate nearby locations)
+
       if (!uniqueLocations.has(locationKey)) {
         uniqueLocations.set(locationKey, locationCounter);
-        
+
         const visitDate = visit.takenAt || visit.uploadedAt || new Date();
-        
+        const postDoc = visit.post;
+        const postId = postDoc ? postDoc._id.toString() : null;
+        const contentType = visit.contentType || (postDoc ? postDoc.type : 'post');
+
+        let photo = null;
+        let needsSignedUrl = null;
+        if (postDoc) {
+          const hasStorageKey = postDoc.storageKey || (postDoc.storageKeys && postDoc.storageKeys.length > 0);
+          if (hasStorageKey) {
+            needsSignedUrl = (postDoc.storageKeys && postDoc.storageKeys.length > 0) ? postDoc.storageKeys[0] : postDoc.storageKey;
+          } else if (postDoc.thumbnailUrl) {
+            photo = postDoc.thumbnailUrl;
+          } else if (postDoc.imageUrl) {
+            photo = postDoc.imageUrl;
+          }
+        }
+
+        const idx = locations.length;
         locations.push({
           number: locationCounter,
           latitude: visit.lat,
           longitude: visit.lng,
           address: visit.address || 'Unknown Location',
-          date: visitDate
+          date: visitDate,
+          photo,
+          postId,
+          contentType
         });
-        
+
+        if (needsSignedUrl) {
+          pendingSignedUrls.push({ index: idx, storageKey: needsSignedUrl });
+        }
+
         locationCounter++;
       }
-    });
+    }
+
+    // Pass 2: Generate all signed URLs in parallel (major perf win)
+    if (pendingSignedUrls.length > 0) {
+      const signedResults = await Promise.allSettled(
+        pendingSignedUrls.map(p => generateSignedUrl(p.storageKey, 'IMAGE'))
+      );
+      signedResults.forEach((result, i) => {
+        if (result.status === 'fulfilled' && result.value) {
+          locations[pendingSignedUrls[i].index].photo = result.value;
+        }
+      });
+    }
 
     // Calculate statistics
     const totalLocations = locations.length;
@@ -2331,6 +2397,7 @@ const getTravelMapData = async (req, res) => {
 };
 
 // Helper function to determine continent from location
+// eslint-disable-next-line no-unused-vars
 const getContinentFromLocation = (address) => {
   if (!address) return 'Unknown';
   
@@ -2371,6 +2438,7 @@ const getContinentFromLocation = (address) => {
 };
 
 // Helper function to determine country from location
+// eslint-disable-next-line no-unused-vars
 const getCountryFromLocation = (address) => {
   if (!address) return 'Unknown';
   
@@ -2615,6 +2683,7 @@ const getCountriesForContinent = (continent) => {
 };
 
 // Helper function to determine location category
+// eslint-disable-next-line no-unused-vars
 const getLocationCategory = (caption, address) => {
   if (!caption) return { fromYou: 'Unknown', typeOfSpot: 'Unknown' };
   
@@ -2768,7 +2837,7 @@ const getSuggestedUsers = async (req, res) => {
         _id: { $nin: followingIds },
         interests: { $in: userInterests },
       })
-        .select('username fullName profilePic bio followers isVerified createdAt interests')
+        .select('username fullName profilePic profilePicStorageKey bio followers isVerified createdAt interests')
         .limit(limit * 2)
         .lean();
 
@@ -2796,7 +2865,7 @@ const getSuggestedUsers = async (req, res) => {
         _id: { $nin: excludeIds },
         isVerified: true,
       })
-        .select('username fullName profilePic bio followers isVerified createdAt')
+        .select('username fullName profilePic profilePicStorageKey bio followers isVerified createdAt')
         .limit(need * 2)
         .sort({ followers: -1, createdAt: -1 })
         .lean();
@@ -2805,7 +2874,7 @@ const getSuggestedUsers = async (req, res) => {
         const more = await User.find({
           _id: { $nin: [...excludeIds, ...fillUsers.map((u) => u._id.toString())] },
         })
-          .select('username fullName profilePic bio followers isVerified createdAt')
+          .select('username fullName profilePic profilePicStorageKey bio followers isVerified createdAt')
           .limit(need * 2 - fillUsers.length)
           .sort({ followers: -1, createdAt: -1 })
           .lean();
@@ -2822,7 +2891,8 @@ const getSuggestedUsers = async (req, res) => {
           user: user._id,
           isActive: true,
         });
-        const { interests: _i, ...rest } = user;
+        user.profilePic = await resolveProfilePic(user);
+        const { interests: _i, profilePicStorageKey: _psk, ...rest } = user;
         return {
           ...rest,
           postsCount: postCount,

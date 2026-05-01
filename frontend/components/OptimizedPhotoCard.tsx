@@ -18,7 +18,6 @@ import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
 import { toggleLike, deletePost, archivePost, hidePost, toggleComments, updatePost } from '../services/posts';
 import { getUserFromStorage } from '../services/auth';
-import { loadImageWithFallback } from '../utils/imageLoader';
 import { useRouter } from 'expo-router';
 import CustomAlert from './CustomAlert';
 import PostComments from './post/PostComments';
@@ -38,6 +37,8 @@ import PostLikesCount from './post/PostLikesCount';
 import PostCaption from './post/PostCaption';
 import { createLogger } from '../utils/logger';
 import { sanitizeErrorForDisplay } from '../utils/errorSanitizer';
+import { shouldBlockDownload } from '../utils/networkUtils';
+import { useSettings } from '../context/SettingsContext';
 import { createReport } from '../services/report';
 import ReportReasonModal, { ReportReasonType } from './ReportReasonModal';
 import { enqueuePendingLike, clearPendingLike, setLocalLikedId } from '../utils/likePersistence';
@@ -65,6 +66,7 @@ function PhotoCard({
   const isWeb = Platform.OS === 'web';
   const logger = createLogger('OptimizedPhotoCard');
   const { theme } = useTheme();
+  const { settings } = useSettings();
   const router = useRouter();
   const [isLiked, setIsLiked] = useState(post.isLiked || false);
   const [likesCount, setLikesCount] = useState(post.likesCount || 0);
@@ -75,10 +77,10 @@ function PhotoCard({
   const [currentUser, setCurrentUser] = useState<any>(null);
   
   // Handle case where user might be undefined (from fallback user object)
-  const postUser = post.user || { 
-    _id: 'unknown', 
-    fullName: 'Unknown User', 
-    profilePic: 'https://via.placeholder.com/40' 
+  const postUser = post.user || {
+    _id: 'unknown',
+    fullName: 'Unknown User',
+    profilePic: ''
   };
   const [isSaved, setIsSaved] = useState(false); // Add save state
   const [showCommentModal, setShowCommentModal] = useState(false);
@@ -274,78 +276,15 @@ function PhotoCard({
     }
   }, [post.images, pulseAnim]);
 
-  // Robust image loading with multiple strategies
-  const [imageLoading, setImageLoading] = useState(true);
+  // expo-image handles caching, retries, dedup, and progressive display natively.
+  // We just pass the URL straight through and track error state for the fallback UI.
   const [imageError, setImageError] = useState(false);
-  const [imageUri, setImageUri] = useState<string | null>(null);
+  const imageUri = post.imageUrl || null;
+  const imageLoading = false; // expo-image manages its own loading state
 
   React.useEffect(() => {
-    if (!post.imageUrl) {
-      setImageLoading(false);
-      setImageError(true);
-      return;
-    }
-
-    // Reset retry count and flags when image URL changes
-    imageRetryCountRef.current = 0;
-    isRetryingRef.current = false;
-    
-    // Clear any pending retry timeout
-    if (retryTimeoutRef.current) {
-      clearTimeout(retryTimeoutRef.current);
-      retryTimeoutRef.current = null;
-    }
-
-    setImageLoading(true);
-    setImageError(false);
-    setImageUri(null);
-
-    // Progressive loading strategy
-    const loadImage = async () => {
-      try {
-        // For R2 URLs, skip prefetch and use directly
-        // For other URLs, try prefetch with fallback
-        if (post.imageUrl.includes('r2.cloudflarestorage.com') || post.imageUrl.includes('cloudflarestorage.com')) {
-          // R2 URLs: Use directly without prefetch
-          setImageUri(post.imageUrl);
-          setImageLoading(false);
-          setImageError(false);
-          return;
-        }
-
-        // Use progressive loading with multiple strategies for non-R2 URLs
-        // Web: Faster timeout, fewer retries for better UX
-        const timeout = isWeb ? 5000 : 8000;
-        const retries = isWeb ? 1 : 2;
-        
-        const optimizedUrl = await loadImageWithFallback(post.imageUrl, {
-          timeout,
-          retries,
-          retryDelay: 1000
-        });
-        
-        // Even if prefetch fails, set the URI and let Image component try loading directly
-        setImageUri(optimizedUrl);
-        setImageLoading(false);
-        setImageError(false);
-        
-      } catch (error) {
-        // Don't set error immediately - try using the original URL directly
-        // React Native's Image component can load images even if prefetch fails
-        if (process.env.NODE_ENV === 'development') {
-          logger.warn('Image prefetch failed, using direct URL', { postId: post._id, error });
-        }
-        
-        // Set the original URL and let Image component handle loading
-        // Only set error if Image component's onError is called
-        setImageUri(post.imageUrl);
-        setImageLoading(false);
-        setImageError(false);
-      }
-    };
-
-    loadImage();
-  }, [post.imageUrl, post._id, isWeb]);
+    setImageError(!post.imageUrl);
+  }, [post.imageUrl]);
 
   const handleLike = async () => {
     if (!currentUser) {
@@ -440,6 +379,12 @@ function PhotoCard({
 
   const handleShare = async () => {
     try {
+      const blocked = await shouldBlockDownload(settings?.account?.wifiOnlyDownloads ?? false);
+      if (blocked) {
+        showCustomAlertMessage('Wi-Fi Required', 'Wi-Fi only downloads is enabled. Please connect to Wi-Fi to share content.', 'error');
+        return;
+      }
+
       // Show loading alert
       showCustomAlertMessage('Sharing', 'Preparing post for sharing...', 'info');
 
@@ -449,7 +394,7 @@ function PhotoCard({
           // Download the image to local storage
           const filename = `post_${post._id}_${Date.now()}.jpg`;
           const localUri = `${FileSystem.cacheDirectory}${filename}`;
-          
+
           const downloadResult = await FileSystem.downloadAsync(post.imageUrl, localUri);
           
           if (downloadResult.status === 200) {
@@ -742,95 +687,15 @@ function PhotoCard({
     }
   }, [onPress, post._id, router]);
 
-  // Image loading safety: stop retrying failed image loads to prevent retry loops
-  const imageRetryCountRef = useRef(0);
-  const isRetryingRef = useRef(false);
-  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const MAX_IMAGE_RETRIES = 2; // Maximum retry attempts before giving up
-  
-  const handleImageRetry = useCallback(async () => {
-    // Prevent multiple simultaneous retries
-    if (isRetryingRef.current) {
-      return;
-    }
-    
-    // Check retry count before attempting
-    if (imageRetryCountRef.current >= MAX_IMAGE_RETRIES) {
-      setImageError(true);
-      setImageLoading(false);
-      isRetryingRef.current = false;
-      return;
-    }
-    
-    isRetryingRef.current = true;
-    setImageError(false);
-    setImageLoading(true);
-    
-    try {
-      const optimizedUrl = await loadImageWithFallback(post.imageUrl, {
-        timeout: 8000,
-        retries: 1,
-        retryDelay: 1000
-      });
-      setImageUri(optimizedUrl);
-      setImageLoading(false);
-      imageRetryCountRef.current = 0; // Reset on success
-      isRetryingRef.current = false;
-      setImageError(false);
-    } catch (error) {
-      // If retry fails, set the URI anyway and let Image component try
-      // The Image component's onError will handle if it still fails
-      setImageUri(post.imageUrl);
-      setImageLoading(false);
-      isRetryingRef.current = false;
-      // Don't set error here - let the Image component's onError handle it
-      // This prevents double error handling
-    }
-  }, [post.imageUrl, post._id]);
-
+  // expo-image retries network failures internally; we only need a manual reset
+  // hook for the user-facing "Retry" button on the error fallback UI.
   const handleImageError = useCallback(() => {
-    // Clear any pending retry timeout
-    if (retryTimeoutRef.current) {
-      clearTimeout(retryTimeoutRef.current);
-      retryTimeoutRef.current = null;
-    }
-    
-    // Stop retrying after max attempts to prevent retry loops
-    if (imageRetryCountRef.current >= MAX_IMAGE_RETRIES) {
-      // Only log once to prevent spam
-      if (!imageError) {
-        logger.warn(`Image failed after ${MAX_IMAGE_RETRIES} retries, showing fallback`, { postId: post._id });
-      }
-      setImageError(true);
-      setImageLoading(false);
-      isRetryingRef.current = false;
-      return;
-    }
-    
-    // Prevent multiple simultaneous error handlers
-    if (isRetryingRef.current) {
-      return;
-    }
-    
-    // Increment retry count and try again
-    imageRetryCountRef.current += 1;
-    logger.debug(`Image load error, retry attempt ${imageRetryCountRef.current}`, { postId: post._id });
-    
-    // Retry with exponential backoff
-    retryTimeoutRef.current = setTimeout(() => {
-      retryTimeoutRef.current = null;
-      handleImageRetry();
-    }, 1000 * imageRetryCountRef.current);
-  }, [post._id, handleImageRetry, imageError]);
-  
-  // Cleanup timeout on unmount
-  React.useEffect(() => {
-    return () => {
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
-        retryTimeoutRef.current = null;
-      }
-    };
+    setImageError(true);
+  }, []);
+
+  const handleImageRetry = useCallback(() => {
+    // Toggling the error flag remounts the ExpoImage and lets it try again.
+    setImageError(false);
   }, []);
 
   return (
@@ -845,27 +710,19 @@ function PhotoCard({
         />
       </View>
 
-      {/* Image - Conditional rendering: only render Image component when visible */}
-      {/* This drastically reduces memory usage for off-screen images without changing UX */}
-      {/* Only images within 2 indices of visible are rendered, others use lightweight placeholder */}
-      {isVisible ? (
-        <PostImage
-          post={post}
-          onPress={handlePress}
-          imageUri={imageUri}
-          imageLoading={imageLoading}
-          imageError={imageError}
-          onImageError={handleImageError}
-          onRetry={handleImageRetry}
-          pulseAnim={pulseAnim}
-          isCurrentlyVisible={isCurrentlyVisible}
-          onDoubleTap={handleLike}
-        />
-      ) : (
-        // Lightweight placeholder for unmounted images
-        // Maintains layout (same aspectRatio) without consuming image resources
-        <View style={{ width: '100%', aspectRatio: 1, backgroundColor: theme.colors.surface }} />
-      )}
+      {/* Image - Always mounted to prevent reload flicker on scroll */}
+      <PostImage
+        post={post}
+        onPress={handlePress}
+        imageUri={imageUri}
+        imageLoading={imageLoading}
+        imageError={imageError}
+        onImageError={handleImageError}
+        onRetry={handleImageRetry}
+        pulseAnim={pulseAnim}
+        isCurrentlyVisible={isCurrentlyVisible}
+        onDoubleTap={handleLike}
+      />
 
       {/* Actions - Must be above image to receive touches */}
       <View pointerEvents="box-none">
@@ -1235,7 +1092,6 @@ export default memo(PhotoCard, (prevProps, nextProps) => {
     prevProps.post.isLiked === nextProps.post.isLiked &&
     prevProps.post.likesCount === nextProps.post.likesCount &&
     prevProps.post.commentsCount === nextProps.post.commentsCount &&
-    prevProps.isVisible === nextProps.isVisible &&
     prevProps.isCurrentlyVisible === nextProps.isCurrentlyVisible
   );
 });

@@ -1,7 +1,5 @@
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
-const { getFollowers } = require('../utils/socketBus');
-const User = require('../models/User');
 const chatController = require('../controllers/chat.controller');
 const logger = require('../utils/logger');
 
@@ -64,7 +62,7 @@ function setupSocket(server) {
 
   nsp.on('connection', (socket) => {
     // Test event
-    socket.on('test', (data) => {
+    socket.on('test', (_data) => {
     });
     // Typing event
     socket.on('typing', ({ to }) => {
@@ -75,12 +73,31 @@ function setupSocket(server) {
       let chatIdToUse = chatId;
       if (!chatIdToUse && to && messageId) {
         const Chat = require('../models/Chat');
-        const chat = await Chat.findOne({ participants: { $all: [socket.userId, to] }, 'messages._id': messageId });
+        const chat = await Chat.findOne({ participants: { $all: [socket.userId, to] }, 'messages._id': messageId, type: { $ne: 'connect_page' } });
         if (chat) chatIdToUse = chat._id;
       }
       if (chatIdToUse && messageId) {
         await chatController.markMessageSeen(chatIdToUse, messageId, socket.userId);
+
+        // For group chats: emit seen to ALL participants so everyone's UI updates
+        const Chat = require('../models/Chat');
+        const chatDoc = await Chat.findById(chatIdToUse).select('type participants').lean();
+        if (chatDoc && chatDoc.type === 'connect_page') {
+          const msg = await Chat.findOne(
+            { _id: chatIdToUse, 'messages._id': messageId },
+            { 'messages.$': 1 }
+          ).lean();
+          const seenBy = msg && msg.messages && msg.messages[0] ? (msg.messages[0].seenBy || []).map(id => id.toString()) : [];
+          for (const pId of chatDoc.participants) {
+            const pid = pId.toString();
+            if (pid !== socket.userId) {
+              emitToUser(pid, 'seen', { from: socket.userId, messageId, chatId: chatIdToUse.toString(), seenBy });
+            }
+          }
+          return;
+        }
       }
+      // 1:1 chat: emit to the specific user (existing behavior)
       if (to) emitToUser(to, 'seen', { from: socket.userId, messageId });
     });
     // Join/Leave room handlers
@@ -103,9 +120,9 @@ function setupSocket(server) {
       if (!to || !text) return;
       try {
         const Chat = require('../models/Chat');
-        let chat = await Chat.findOne({ participants: { $all: [socket.userId, to] } });
+        let chat = await Chat.findOne({ participants: { $all: [socket.userId, to] }, type: { $ne: 'connect_page' } });
         if (!chat) {
-          chat = await Chat.create({ participants: [socket.userId, to], messages: [] });
+          chat = await Chat.create({ participants: [socket.userId, to], messages: [], type: 'user_chat' });
         }
         const message = { sender: socket.userId, text, timestamp: new Date() };
         chat.messages.push(message);
@@ -140,7 +157,6 @@ function setupSocket(server) {
         
         // For admin_support conversations, also emit to admin room
         if (chat.type === 'admin_support') {
-          const TAATOM_OFFICIAL_USER_ID = process.env.TAATOM_OFFICIAL_USER_ID || '000000000000000000000001';
           nsp.to('admin_support').emit('admin_support:message:new', { 
             chatId: chat._id, 
             message,

@@ -145,10 +145,15 @@ api.interceptors.request.use(
     // Ensure multipart uploads are not sent as JSON.
     // Let the browser set the proper multipart/form-data boundary for FormData bodies.
     if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
-      if (config.headers && typeof config.headers.delete === 'function') {
-        config.headers.delete('Content-Type')
-      } else if (config.headers) {
-        delete config.headers['Content-Type']
+      // Axios 1.x uses AxiosHeaders class — try multiple deletion strategies
+      if (config.headers) {
+        if (typeof config.headers.setContentType === 'function') {
+          config.headers.setContentType(false)
+        } else if (typeof config.headers.delete === 'function') {
+          config.headers.delete('Content-Type')
+        } else {
+          delete config.headers['Content-Type']
+        }
       }
     }
     

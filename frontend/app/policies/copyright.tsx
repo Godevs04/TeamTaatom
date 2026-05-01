@@ -251,8 +251,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 20,
-    fontWeight: '700',
-    fontFamily: getFontFamily('700'),
+    fontWeight: '600',
+    fontFamily: getFontFamily('600'),
   },
   lastUpdated: {
     fontSize: 12,
@@ -270,9 +270,9 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 22,
-    fontWeight: '700',
+    fontWeight: '600',
     marginBottom: theme.spacing.md,
-    fontFamily: getFontFamily('700'),
+    fontFamily: getFontFamily('600'),
   },
   sectionContent: {
     marginTop: theme.spacing.sm,
@@ -329,8 +329,8 @@ const styles = StyleSheet.create({
   numberText: {
     color: '#FFFFFF',
     fontSize: 14,
-    fontWeight: '700',
-    fontFamily: getFontFamily('700'),
+    fontWeight: '600',
+    fontFamily: getFontFamily('600'),
   },
   numberedText: {
     flex: 1,

@@ -20,6 +20,7 @@ import {
   Animated,
   Easing,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
@@ -37,6 +38,7 @@ import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { savedEvents } from '../../utils/savedEvents';
 import { theme } from '../../constants/theme';
+import { optimizeCloudinaryUrl } from '../../utils/imageCache';
 import axios from 'axios';
 import { getGoogleMapsApiKey } from '../../utils/maps';
 import { localeCache } from '../../cache/localeCache';
@@ -1067,33 +1069,65 @@ export default function LocaleScreen() {
       const BACKEND_LIMIT = 50; // Backend hard caps at 50
       
       if (shouldFetchAll) {
-        // Fetch all pages until exhausted
-        while (hasMorePages && isMountedRef.current) {
-      const response = await getLocales(
-            baseParams.search || '',
-            baseParams.countryCode || '',
-            baseParams.stateCode || '',
-        spotTypesParam,
-            currentPage,
-            BACKEND_LIMIT,
-            baseParams.includeInactive,
-            searchAbortControllerRef.current?.signal
-          );
-          
-          if (!isMountedRef.current) return;
-          
-          if (response && response.locales && response.locales.length > 0) {
-            allFetchedLocales = [...allFetchedLocales, ...response.locales];
-            
-            // Check if there are more pages
-            if (response.pagination) {
-              hasMorePages = currentPage < (response.pagination.totalPages || 1);
-              currentPage++;
-            } else {
-              hasMorePages = false;
-            }
-          } else {
-            hasMorePages = false;
+        // Fetch page 1 immediately so Stage 1 can render without waiting for all pages
+        const firstResponse = await getLocales(
+          baseParams.search || '',
+          baseParams.countryCode || '',
+          baseParams.stateCode || '',
+          spotTypesParam,
+          1,
+          BACKEND_LIMIT,
+          baseParams.includeInactive,
+          searchAbortControllerRef.current?.signal
+        );
+
+        if (!isMountedRef.current) return;
+
+        if (firstResponse?.locales?.length > 0) {
+          allFetchedLocales = firstResponse.locales;
+          const totalPagesCount = firstResponse.pagination?.totalPages || 1;
+
+          // Fetch remaining pages in background without blocking Stage 1 render
+          if (totalPagesCount > 1) {
+            const bgFetchKey = lastFetchKeyRef.current;
+            const bgSearch = baseParams.search || '';
+            const bgCountry = baseParams.countryCode || '';
+            const bgState = baseParams.stateCode || '';
+            const bgSpotTypes = spotTypesParam;
+            const bgIncludeInactive = baseParams.includeInactive;
+            ;(async () => {
+              const moreLocales: Locale[] = [];
+              for (let page = 2; page <= totalPagesCount; page++) {
+                if (!isMountedRef.current || lastFetchKeyRef.current !== bgFetchKey) return;
+                try {
+                  const res = await getLocales(bgSearch, bgCountry, bgState, bgSpotTypes, page, BACKEND_LIMIT, bgIncludeInactive);
+                  if (res?.locales?.length > 0) moreLocales.push(...res.locales);
+                  else break;
+                } catch { break; }
+              }
+              if (!isMountedRef.current || lastFetchKeyRef.current !== bgFetchKey || moreLocales.length === 0) return;
+              const existing = allLocalesSortedRef.current;
+              const existingIds = new Set(existing.map(l => l._id));
+              const novel = moreLocales.filter(l => !existingIds.has(l._id));
+              if (novel.length === 0) return;
+              const snapshot = createLocationSnapshot();
+              const uLat = userLocation?.latitude;
+              const uLon = userLocation?.longitude;
+              const novelWithDist = novel.map(l => {
+                if (l.latitude && l.longitude && uLat && uLon) {
+                  return { ...l, distanceKm: calculateDistance(uLat, uLon, l.latitude, l.longitude) };
+                }
+                return { ...l, distanceKm: null as number | null };
+              });
+              const merged = [...existing, ...novelWithDist];
+              const resorted = snapshot ? sortLocalesWithSnapshot(merged, snapshot) : merged;
+              allLocalesSortedRef.current = resorted;
+              if (isMountedRef.current) {
+                setAllLocalesWithDistances(resorted);
+                setHasMore(resorted.length > ITEMS_PER_PAGE);
+                setTotalPages(Math.ceil(resorted.length / ITEMS_PER_PAGE));
+              }
+            })().catch(() => {});
           }
         }
       } else {
@@ -1948,6 +1982,17 @@ export default function LocaleScreen() {
     return savedLocales;
   }, [savedLocales, filters, searchQuery, activeTab, applyFilters, userLocation, locationPermissionGranted, calculatingDistances]);
 
+  // Whether any user-applied filter is active (search query or filter modal selection).
+  // Lifted out of renderAdminLocales so the list renderer (FlatList) can read it
+  // directly to decide between filteredLocales and sortedAdminLocales.
+  const hasActiveFilters = useMemo(() => (
+    !!filters.countryCode ||
+    !!filters.stateCode ||
+    filters.spotTypes.length > 0 ||
+    !!(filters.searchRadius && filters.searchRadius.trim() !== '' && parseFloat(filters.searchRadius.trim()) > 0) ||
+    searchQuery.trim() !== ''
+  ), [filters, searchQuery]);
+
   // Memoized sorted admin locales - always sorted by distance (or createdAt if no location)
   // This ensures locales are always in the correct order for display
   // CRITICAL: Include userState in dependencies so sorting updates when state is detected
@@ -1974,6 +2019,13 @@ export default function LocaleScreen() {
     
     return sorted;
   }, [adminLocales, sortLocalesByDistance, userState, userCity, userCountryCode]);
+
+  // The list the locale-tab FlatList actually renders. Lifted from
+  // renderAdminLocales() so the FlatList can read it directly and so it
+  // doesn't re-allocate on every parent render.
+  const localesToShow = useMemo(() => (
+    (hasActiveFilters || filteredLocales.length > 0) ? filteredLocales : sortedAdminLocales
+  ), [hasActiveFilters, filteredLocales, sortedAdminLocales]);
 
   // Update filtered locales when adminLocales change (but NOT when filters/searchQuery change - handled in loadAdminLocales)
   // Also apply client-side filters for multiple spot types and search radius which require client-side processing
@@ -2162,16 +2214,15 @@ export default function LocaleScreen() {
   useFocusEffect(
     useCallback(() => {
       if (!isMountedRef.current) return;
-      
+
       // Only refresh saved locales (lightweight)
       loadSavedLocales();
-      
+
       // CACHE CHECK: Restore from cache if available (prevents refetch on back navigation)
       const snapshot = createLocationSnapshot();
       if (snapshot && localeCache.isValid(snapshot.snapshotKey)) {
         const cached = localeCache.get();
-        if (cached && adminLocales.length === 0) {
-          // Only restore if we don't have data in state (fresh mount)
+        if (cached && allLocalesSortedRef.current.length === 0) {
           logger.debug('✅ Restoring locales from cache on focus (instant restore)');
           allLocalesSortedRef.current = cached.locales;
           setAllLocalesWithDistances(cached.locales);
@@ -2185,28 +2236,17 @@ export default function LocaleScreen() {
           setLoading(false);
           const filtered = applyFilters(firstPage, false);
           setFilteredLocales(filtered);
-          return; // Skip fetch if cache restored
+          loadedOnceRef.current = true;
+          return;
         }
       }
-      
-      // Always load admin locales on focus if:
-      // 1. We have no data (initial load), OR
-      // 2. We have data but no distances calculated (user location became available)
-      const hasLocales = adminLocales.length > 0;
-      const hasDistances = adminLocales.some(locale => {
-        const localeWithDistance = locale as Locale & { distanceKm?: number | null };
-        return localeWithDistance.distanceKm !== undefined && localeWithDistance.distanceKm !== null;
-      });
-      const shouldLoad = (!hasLocales && !loadedOnceRef.current) || (hasLocales && !hasDistances && userLocation && locationPermissionGranted);
-      
-      // Guard: Prevent reload when only filters changed (load only on Search button or initial/focus restore)
-      if (shouldLoad && !isSearchingRef.current && !calculatingDistances) {
-        if (hasLocales && !hasDistances) {
-          loadedOnceRef.current = false;
-        }
+
+      // Only load on initial mount (not loaded yet). The useEffect watching
+      // userLocation handles the "location became available after load" case.
+      if (!loadedOnceRef.current && !isSearchingRef.current) {
         loadAdminLocalesRef.current(true);
       }
-    }, [loadSavedLocales, adminLocales, userLocation, locationPermissionGranted, createLocationSnapshot, applyFilters]) // Exclude loadAdminLocales so filter changes don't re-run effect
+    }, [loadSavedLocales, createLocationSnapshot, applyFilters]) // adminLocales intentionally excluded — using ref to avoid re-trigger loop
   );
 
   // Bookmark Stability: Atomic read-modify-write with deduplication
@@ -2934,7 +2974,6 @@ export default function LocaleScreen() {
               <View style={[styles.dropdownList, { 
                 backgroundColor: theme.colors.surface,
                 borderColor: theme.colors.border,
-                shadowColor: theme.colors.text,
               }]}>
                 <View style={[styles.countrySearchContainer, { 
                   backgroundColor: theme.colors.surface,
@@ -3040,7 +3079,6 @@ export default function LocaleScreen() {
               <View style={[styles.dropdownList, { 
                 backgroundColor: theme.colors.surface,
                 borderColor: theme.colors.border,
-                shadowColor: theme.colors.text,
               }]}>
                 <View style={[styles.countrySearchContainer, { 
                   backgroundColor: theme.colors.surface,
@@ -3236,6 +3274,7 @@ export default function LocaleScreen() {
                 description: locale.description || '',
                 spotTypes: locale.spotTypes?.join(', ') || '',
                 travelInfo: locale.travelInfo || 'Drivable',
+                distanceKm: d !== null && d !== undefined ? d.toString() : '',
               }
             });
           } catch (error) {
@@ -3248,10 +3287,12 @@ export default function LocaleScreen() {
         accessibilityHint="Opens locale details"
       >
         {locale.imageUrl ? (
-          <Image
-            source={{ uri: locale.imageUrl }}
+          <ExpoImage
+            source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: 400, height: 300 }) }}
             style={styles.cardImage as ImageStyle}
-            resizeMode="cover"
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={120}
           />
         ) : (
           <LinearGradient
@@ -3266,7 +3307,8 @@ export default function LocaleScreen() {
           </LinearGradient>
         )}
         <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.7)']}
+          colors={['transparent', 'rgba(0,0,0,0.45)', 'rgba(0,0,0,0.85)']}
+          locations={[0, 0.5, 1]}
           style={styles.cardGradient}
         />
         <View style={styles.cardContent}>
@@ -3364,6 +3406,23 @@ export default function LocaleScreen() {
     );
   };
 
+  // Stable callbacks for the locale-tab FlatList. Using a separate render
+  // function (not the useCallback'd renderAdminLocaleCard) keeps the FlatList
+  // happy with a `(item) =>` signature without re-allocating per render.
+  const renderAdminLocaleItem = useCallback(({ item, index }: { item: Locale; index: number }) => (
+    renderAdminLocaleCard({ locale: item, index })
+  ), [renderAdminLocaleCard]);
+
+  const localeKeyExtractor = useCallback((item: Locale, index: number) => item._id || `locale-${index}`, []);
+
+  const localeGetItemLayout = useCallback((_data: ArrayLike<Locale> | null | undefined, index: number) => {
+    // Card height comes from styles.wideCard: 200 on tablet, 160 on phone.
+    // Plus the inline marginBottom: 16 applied in renderAdminLocaleCard.
+    const cardHeight = isTabletLocal ? 200 : 160;
+    const totalHeight = cardHeight + 16;
+    return { length: totalHeight, offset: totalHeight * index, index };
+  }, []);
+
   const renderCustomLayout = useCallback(() => {
     return (
       <View style={{ paddingBottom: isTabletLocal ? 30 : 40 }}>
@@ -3413,6 +3472,7 @@ export default function LocaleScreen() {
                 description: locale.description || '',
                 spotTypes: locale.spotTypes?.join(', ') || '',
                 travelInfo: locale.travelInfo || 'Drivable',
+                distanceKm: d !== null && d !== undefined ? d.toString() : '',
               }
             });
           } catch (error) {
@@ -3425,10 +3485,12 @@ export default function LocaleScreen() {
         accessibilityHint="Opens locale details"
       >
         {locale.imageUrl ? (
-          <Image
-            source={{ uri: locale.imageUrl }}
+          <ExpoImage
+            source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: 400, height: 300 }) }}
             style={styles.cardImage as ImageStyle}
-            resizeMode="cover"
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={120}
           />
         ) : (
           <LinearGradient
@@ -3443,7 +3505,8 @@ export default function LocaleScreen() {
           </LinearGradient>
         )}
         <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.7)']}
+          colors={['transparent', 'rgba(0,0,0,0.45)', 'rgba(0,0,0,0.85)']}
+          locations={[0, 0.5, 1]}
           style={styles.cardGradient}
         />
         <View style={styles.cardContent}>
@@ -3797,13 +3860,13 @@ export default function LocaleScreen() {
 
   return (
     <ErrorBoundary level="route">
-    <SafeAreaView 
+    <SafeAreaView
       style={[styles.container, { backgroundColor: theme.colors.background }]}
       edges={['top']}
     >
-      <StatusBar 
-        barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
-        backgroundColor={theme.colors.background} 
+      <StatusBar
+        barStyle={mode === 'dark' ? 'light-content' : 'dark-content'}
+        backgroundColor={theme.colors.background}
       />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -3812,55 +3875,53 @@ export default function LocaleScreen() {
       >
         <TravelLoadingOverlay />
       {/* Elegant Top Navigation */}
-      <View style={[styles.topNavigation, { backgroundColor: theme.colors.background, borderBottomColor: theme.colors.border }]}>
-        <View style={styles.tabContainer}>
+      <View style={styles.topNavigation}>
+        <View style={[styles.tabContainer, { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }]}>
           <TouchableOpacity
             style={[
               styles.tabButton,
-              activeTab === 'locale' && [styles.activeTab, { backgroundColor: theme.colors.primary }]
+              activeTab === 'locale' && { backgroundColor: theme.colors.primary }
             ]}
             onPress={() => setActiveTab('locale')}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.7}
             accessibilityLabel="Locale tab"
             accessibilityRole="tab"
             accessibilityState={{ selected: activeTab === 'locale' }}
           >
-            <Ionicons 
-              name="location-outline" 
-              size={isTabletLocal ? 20 : 18} 
-              color={activeTab === 'locale' ? '#FFFFFF' : theme.colors.textSecondary} 
+            <Ionicons
+              name={activeTab === 'locale' ? "location" : "location-outline"}
+              size={20}
+              color={activeTab === 'locale' ? 'white' : theme.colors.textSecondary}
             />
             <Text style={[
-              styles.tabText, 
-              { color: activeTab === 'locale' ? '#FFFFFF' : theme.colors.textSecondary }
+              styles.tabText,
+              { color: activeTab === 'locale' ? 'white' : theme.colors.textSecondary }
             ]}>
-              LOCALE
+              Locale
             </Text>
           </TouchableOpacity>
-          
+
           <TouchableOpacity
             style={[
               styles.tabButton,
-              activeTab === 'saved' && [styles.activeTab, { backgroundColor: theme.colors.primary }]
+              activeTab === 'saved' && { backgroundColor: theme.colors.primary }
             ]}
             onPress={() => setActiveTab('saved')}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.7}
             accessibilityLabel="Saved tab"
             accessibilityRole="tab"
             accessibilityState={{ selected: activeTab === 'saved' }}
           >
-            <Ionicons 
-              name="bookmark-outline" 
-              size={isTabletLocal ? 20 : 18} 
-              color={activeTab === 'saved' ? '#FFFFFF' : theme.colors.textSecondary} 
+            <Ionicons
+              name={activeTab === 'saved' ? "bookmark" : "bookmark-outline"}
+              size={20}
+              color={activeTab === 'saved' ? 'white' : theme.colors.textSecondary}
             />
             <Text style={[
-              styles.tabText, 
-              { color: activeTab === 'saved' ? '#FFFFFF' : theme.colors.textSecondary }
+              styles.tabText,
+              { color: activeTab === 'saved' ? 'white' : theme.colors.textSecondary }
             ]}>
-              SAVED
+              Saved
             </Text>
           </TouchableOpacity>
         </View>
@@ -3878,12 +3939,12 @@ export default function LocaleScreen() {
             onChangeText={(text) => {
               // Update search query immediately for UI responsiveness
               setSearchQuery(text);
-              
+
               // Clear existing debounce timer
               if (searchDebounceTimerRef.current) {
                 clearTimeout(searchDebounceTimerRef.current);
               }
-              
+
               // Debounce the actual search/filter operation
               searchDebounceTimerRef.current = setTimeout(() => {
                 // Trigger filter update after debounce delay
@@ -3892,33 +3953,49 @@ export default function LocaleScreen() {
               }, SEARCH_DEBOUNCE_MS);
             }}
           />
-          <TouchableOpacity
-            style={styles.filterButton}
-            onPress={() => setShowFilterModal(true)}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            activeOpacity={0.7}
-            accessibilityLabel={activeFilterCount > 0 ? `Filters, ${activeFilterCount} active` : 'Filters'}
-            accessibilityRole="button"
-          >
-            <Ionicons name="options-outline" size={isTabletLocal ? 24 : 20} color={theme.colors.textSecondary} />
-            {activeFilterCount > 0 && (
-              <View style={[styles.filterButtonBadge, { backgroundColor: theme.colors.primary }]}>
-                <Text style={styles.filterButtonBadgeText}>{activeFilterCount}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
         </View>
+        <TouchableOpacity
+          style={[styles.filterButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
+          onPress={() => setShowFilterModal(true)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          activeOpacity={0.7}
+          accessibilityLabel={activeFilterCount > 0 ? `Filters, ${activeFilterCount} active` : 'Filters'}
+          accessibilityRole="button"
+        >
+          <Ionicons name="filter" size={isTabletLocal ? 22 : 20} color={theme.colors.text} />
+          {activeFilterCount > 0 && (
+            <View style={[styles.filterButtonBadge, { backgroundColor: theme.colors.primary }]}>
+              <Text style={styles.filterButtonBadgeText}>{activeFilterCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       {/* Content */}
       {activeTab === 'locale' ? (
-        <ScrollView 
+        // FlatList replaces the previous ScrollView+map: cards are virtualised
+        // (only ~6-10 mounted at a time) so scrolling stays smooth even with
+        // 100+ admin locales. ListHeader keeps the "Featured Locales" title
+        // sticky-ish at the top; ListFooter holds the Load More / loading
+        // indicator; ListEmpty handles both initial-loading and empty state.
+        <FlatList
+          data={localesToShow}
+          renderItem={renderAdminLocaleItem}
+          keyExtractor={localeKeyExtractor}
+          getItemLayout={localeGetItemLayout}
+          removeClippedSubviews
+          initialNumToRender={6}
+          maxToRenderPerBatch={4}
+          windowSize={7}
           showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
           scrollEventThrottle={16}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          contentContainerStyle={{ paddingBottom: isTabletLocal ? 80 : 100 }}
+          contentContainerStyle={{
+            paddingBottom: isTabletLocal ? 80 : 100,
+            paddingHorizontal: 0,
+          }}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -3927,9 +4004,57 @@ export default function LocaleScreen() {
               tintColor="#4A90E2"
             />
           }
-        >
-          {renderCustomLayout()}
-        </ScrollView>
+          ListHeaderComponent={
+            <View style={styles.adminLocalesSection}>
+              <Text style={[styles.sectionTitle, { color: theme.colors.text, marginBottom: 16 }]}>Featured Locales</Text>
+            </View>
+          }
+          ListEmptyComponent={
+            loadingLocales ? (
+              <View style={styles.adminLocalesSection}>
+                <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginVertical: 20 }} />
+              </View>
+            ) : (
+              <View style={styles.adminLocalesSection}>
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="location-outline" size={60} color={theme.colors.textSecondary} />
+                  <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Locales Found</Text>
+                  <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
+                    {hasActiveFilters
+                      ? 'Try adjusting your search or filters'
+                      : 'Check back later for exciting new destinations!'}
+                  </Text>
+                </View>
+              </View>
+            )
+          }
+          ListFooterComponent={
+            localesToShow.length > 0 ? (
+              <View>
+                {hasMore && !loadingMore && !loadingLocales && (
+                  <View style={styles.loadMoreButtonContainer}>
+                    <TouchableOpacity
+                      style={[styles.loadMoreButton, { backgroundColor: theme.colors.primary }]}
+                      onPress={handleLoadMore}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.loadMoreText, { color: '#FFFFFF' }]}>Load More</Text>
+                      <Ionicons name="chevron-down" size={20} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                    </TouchableOpacity>
+                  </View>
+                )}
+                {loadingMore && (
+                  <View style={styles.loadMoreContainer}>
+                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                    <Text style={[styles.loadMoreText, { color: theme.colors.textSecondary, marginLeft: 8 }]}>
+                      Loading more locales...
+                    </Text>
+                  </View>
+                )}
+              </View>
+            ) : null
+          }
+        />
       ) : (
         <FlatList
           data={filteredSavedLocales}
@@ -4017,92 +4142,70 @@ const createStyles = () => {
       } as any),
     },
     topNavigation: {
-      paddingHorizontal: isTabletLocal ? theme.spacing.xl : 24,
-      paddingTop: isAndroidLocal ? (isTabletLocal ? theme.spacing.xl + 8 : 20 + 8) : (isTabletLocal ? theme.spacing.xl : 20),
-      paddingBottom: isTabletLocal ? theme.spacing.xl : 20,
-      borderBottomWidth: 0.5,
-      minHeight: isAndroidLocal ? (isTabletLocal ? 80 : 64) : (isTabletLocal ? 72 : 60),
+      paddingHorizontal: isTabletLocal ? theme.spacing.xl : theme.spacing.md,
+      paddingTop: isTabletLocal ? theme.spacing.md : 12,
+      paddingBottom: isTabletLocal ? theme.spacing.md : 12,
+      borderBottomWidth: 0,
     },
     tabContainer: {
       flexDirection: 'row',
-      backgroundColor: 'rgba(0,0,0,0.08)',
-      borderRadius: isTabletLocal ? theme.borderRadius.lg : 16,
-      padding: isTabletLocal ? 8 : 6,
+      borderRadius: theme.borderRadius.xl,
+      padding: 4,
     },
     tabButton: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
-      paddingHorizontal: isTabletLocal ? theme.spacing.xl : 24,
-      paddingVertical: isTabletLocal ? theme.spacing.md : (isAndroidLocal ? 16 : 14),
-      borderRadius: theme.borderRadius.md,
+      paddingVertical: 10,
+      borderRadius: theme.borderRadius.lg,
       flex: 1,
-      marginHorizontal: isTabletLocal ? 4 : 3,
-      // Minimum touch target: 44x44 for iOS, 48x48 for Android
-      minHeight: isAndroidLocal ? 48 : 44,
-      ...(isWebLocal && {
-        cursor: 'pointer',
-        transition: 'all 0.2s ease',
-      } as any),
+      gap: 8,
     },
-  activeTab: {
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 4,
+    activeTab: {
+      // backgroundColor applied inline via theme from useTheme()
     },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 6,
-  },
     tabText: {
-      fontSize: isTabletLocal ? theme.typography.body.fontSize + 2 : 16,
+      fontSize: 15,
+      fontWeight: '600' as const,
       fontFamily: getFontFamily('600'),
-      fontWeight: '600',
-      marginLeft: isTabletLocal ? theme.spacing.md : 10,
-      letterSpacing: isIOSLocal ? 0.3 : 0.2,
-      ...(isWebLocal && {
-        fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
-      } as any),
     },
     searchContainer: {
-      paddingHorizontal: isTabletLocal ? theme.spacing.xl : 20,
-      paddingVertical: isTabletLocal ? theme.spacing.lg : 16,
-      alignItems: 'center',
-    },
-    searchBar: {
       flexDirection: 'row',
       alignItems: 'center',
-      borderRadius: theme.borderRadius.md,
-      paddingHorizontal: isTabletLocal ? theme.spacing.lg : 16,
-      paddingVertical: isTabletLocal ? theme.spacing.md : 10,
-      borderWidth: 0,
-      width: '100%',
-      maxWidth: isTabletLocal ? 800 : '100%',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
+      paddingHorizontal: isTabletLocal ? theme.spacing.xl : 14,
+      paddingVertical: isTabletLocal ? theme.spacing.md : 6,
+      gap: 10,
     },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
-  },
+    searchBar: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      borderRadius: 22,
+      paddingHorizontal: isTabletLocal ? theme.spacing.lg : 14,
+      paddingVertical: isTabletLocal ? theme.spacing.md : 8,
+      borderWidth: 0,
+      maxWidth: isTabletLocal ? 800 : undefined,
+      height: 38,
+    },
     searchInput: {
       flex: 1,
-      fontSize: isTabletLocal ? theme.typography.body.fontSize + 1 : 15,
+      fontSize: isTabletLocal ? 16 : 15,
       fontFamily: getFontFamily('400'),
-      marginLeft: isTabletLocal ? theme.spacing.md : 12,
+      marginLeft: isTabletLocal ? theme.spacing.md : 10,
       fontWeight: '400',
+      paddingVertical: 0,
       ...(isWebLocal && {
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
         outlineStyle: 'none',
       } as any),
     },
     filterButton: {
-      padding: isTabletLocal ? theme.spacing.sm : 6,
-      borderRadius: theme.borderRadius.sm,
-      backgroundColor: 'rgba(0,0,0,0.05)',
+      width: 38,
+      height: 38,
+      borderRadius: 19,
+      alignItems: 'center' as const,
+      justifyContent: 'center' as const,
+      borderWidth: 0,
       ...(isWebLocal && {
         cursor: 'pointer',
         transition: 'all 0.2s ease',
@@ -4126,18 +4229,11 @@ const createStyles = () => {
     locationCard: {
       borderRadius: isTabletLocal ? theme.borderRadius.lg : 16,
       overflow: 'hidden',
-      marginBottom: isTabletLocal ? theme.spacing.md : 12,
+      marginBottom: isTabletLocal ? theme.spacing.md : 10,
       position: 'relative',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
+      borderWidth: 0.5,
+      borderColor: 'rgba(0,0,0,0.08)',
     },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    backgroundColor: '#FFFFFF',
-  },
     halfCard: {
       width: isTabletLocal ? (screenWidth - theme.spacing.xxl * 2 - theme.spacing.md) / 2 : (screenWidth - 36) / 2,
       height: isTabletLocal ? 220 : 180,
@@ -4158,8 +4254,8 @@ const createStyles = () => {
   },
   mapPlaceholderText: {
     color: '#2C5530',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 14,
+    fontWeight: '500',
     marginTop: 8,
   },
   markerOverlay: {
@@ -4174,7 +4270,7 @@ const createStyles = () => {
     bottom: 0,
     left: 0,
     right: 0,
-    height: '50%',
+    height: '60%',
   },
   cardContent: {
     position: 'absolute',
@@ -4189,7 +4285,7 @@ const createStyles = () => {
       marginBottom: 4,
     },
     cardTitle: {
-      fontSize: isTabletLocal ? theme.typography.h3.fontSize : 18,
+      fontSize: isTabletLocal ? 18 : 16,
       fontFamily: getFontFamily('600'),
       fontWeight: '600',
       color: '#FFFFFF',
@@ -4207,7 +4303,7 @@ const createStyles = () => {
       position: 'absolute',
       top: isAndroidLocal ? 12 : 10,
       right: isAndroidLocal ? 12 : 10,
-      backgroundColor: 'rgba(0,0,0,0.7)',
+      backgroundColor: 'rgba(0,0,0,0.5)',
       borderRadius: isTabletLocal ? 16 : 14,
       padding: isTabletLocal ? 8 : (isAndroidLocal ? 8 : 6),
       // Minimum touch target: 44x44 for iOS, 48x48 for Android
@@ -4215,14 +4311,6 @@ const createStyles = () => {
       minHeight: isAndroidLocal ? 48 : 44,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3,
-    elevation: 3,
     zIndex: 10,
   },
   loadingIndicator: {
@@ -4232,14 +4320,6 @@ const createStyles = () => {
     backgroundColor: 'rgba(0,0,0,0.7)',
     borderRadius: 14,
     padding: 6,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3,
-    elevation: 3,
   },
   loadingContainer: {
     flex: 1,
@@ -4255,7 +4335,6 @@ const createStyles = () => {
     zIndex: 9999,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 9999, // For Android
   },
   travelLoadingGradient: {
     flex: 1,
@@ -4269,11 +4348,6 @@ const createStyles = () => {
     padding: 40,
     borderRadius: 32,
     backgroundColor: 'transparent',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 12,
     minWidth: 300,
     maxWidth: 340,
     overflow: 'hidden',
@@ -4347,20 +4421,20 @@ const createStyles = () => {
     zIndex: 2,
   },
   travelLoadingText: {
-    fontSize: 20,
-    fontFamily: getFontFamily('700'),
-    fontWeight: '700',
+    fontSize: 17,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     textAlign: 'center',
-    marginBottom: 8,
-    letterSpacing: 0.3,
+    marginBottom: 6,
+    letterSpacing: 0.1,
   },
   travelLoadingSubtext: {
-    fontSize: 15,
-    fontFamily: getFontFamily('500'),
-    fontWeight: '500',
+    fontSize: 14,
+    fontFamily: getFontFamily('400'),
+    fontWeight: '400',
     textAlign: 'center',
-    opacity: 0.75,
-    letterSpacing: 0.2,
+    opacity: 0.7,
+    letterSpacing: 0.1,
   },
   emptyContainer: {
     flex: 1,
@@ -4369,16 +4443,19 @@ const createStyles = () => {
     paddingHorizontal: 40,
   },
   emptyTitle: {
-    fontSize: 22,
+    fontSize: 18,
+    fontFamily: getFontFamily('600'),
     fontWeight: '600',
     marginTop: 20,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   emptyDescription: {
-    fontSize: 17,
+    fontSize: 15,
+    fontFamily: getFontFamily('400'),
+    fontWeight: '400',
     textAlign: 'center',
-    lineHeight: 26,
-    marginBottom: 32,
+    lineHeight: 22,
+    marginBottom: 28,
   },
   exploreButton: {
     paddingHorizontal: 24,
@@ -4387,8 +4464,9 @@ const createStyles = () => {
   },
   exploreButtonText: {
     color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
   },
   savedContainer: {
     flex: 1,
@@ -4397,7 +4475,8 @@ const createStyles = () => {
     paddingHorizontal: 32,
   },
   savedText: {
-    fontSize: 16,
+    fontSize: 15,
+    fontFamily: getFontFamily('400'),
     color: '#999999',
     textAlign: 'center',
   },
@@ -4407,8 +4486,9 @@ const createStyles = () => {
     paddingBottom: isTabletLocal ? 30 : 40, // Increased to ensure load more button is fully visible above bottom nav
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
+    fontSize: 17,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: 16,
     marginTop: 8,
   },
@@ -4432,20 +4512,12 @@ const createStyles = () => {
     paddingHorizontal: isTabletLocal ? theme.spacing.xl : 24,
     borderRadius: theme.borderRadius.md,
     minWidth: isTabletLocal ? 200 : 160,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
   },
   loadMoreText: {
-    fontSize: isTabletLocal ? theme.typography.body.fontSize + 1 : 16,
-    fontFamily: getFontFamily('600'),
-    fontWeight: '600',
-    letterSpacing: 0.3,
+    fontSize: isTabletLocal ? 16 : 15,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
+    letterSpacing: 0.2,
   },
   loadMoreContainer: {
     flexDirection: 'row',
@@ -4457,18 +4529,17 @@ const createStyles = () => {
   },
   cardSubtitle: {
     fontSize: 12,
-    marginTop: 4,
-    opacity: 0.9,
+    fontFamily: getFontFamily('400'),
+    marginTop: 3,
+    opacity: 1,
   },
   distanceBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   distanceBadgeAbsolute: {
     position: 'absolute',
@@ -4476,30 +4547,17 @@ const createStyles = () => {
     right: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 5,
     zIndex: 10,
   },
   distanceText: {
     fontSize: 11,
-    fontFamily: getFontFamily('600'),
-    fontWeight: '600',
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
     color: '#FFFFFF',
-    textShadowColor: 'rgba(0,0,0,0.5)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
     ...(isWebLocal && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
@@ -4520,9 +4578,10 @@ const createStyles = () => {
     padding: 8,
   },
   filterTitle: {
-    fontSize: 20,
-    fontWeight: '800',
-    letterSpacing: 1,
+    fontSize: 17,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
   filterTitleContainer: {
     flexDirection: 'row',
@@ -4540,14 +4599,15 @@ const createStyles = () => {
   filterBadgeText: {
     color: '#FFFFFF',
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   clearButton: {
     padding: 8,
   },
   clearButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
   },
   placeholder: {
     width: 40,
@@ -4563,10 +4623,11 @@ const createStyles = () => {
     marginTop: 24,
   },
   filterSectionTitle: {
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 15,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
     marginBottom: 12,
-    letterSpacing: 0.5,
+    letterSpacing: 0.2,
   },
   dropdownField: {
     flexDirection: 'row',
@@ -4579,7 +4640,8 @@ const createStyles = () => {
     minHeight: 56,
   },
   dropdownText: {
-    fontSize: 16,
+    fontSize: 15,
+    fontFamily: getFontFamily('400'),
     flex: 1,
   },
   dropdownIconContainer: {
@@ -4594,10 +4656,6 @@ const createStyles = () => {
     borderWidth: 1,
     maxHeight: 256,
     zIndex: 1000,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 8,
   },
   dropdownScrollView: {
     maxHeight: 200,
@@ -4611,7 +4669,8 @@ const createStyles = () => {
     borderBottomWidth: 1,
   },
   dropdownItemText: {
-    fontSize: 16,
+    fontSize: 15,
+    fontFamily: getFontFamily('400'),
     flex: 1,
   },
   spotTypeOption: {
@@ -4629,7 +4688,8 @@ const createStyles = () => {
     alignItems: 'center',
   },
   spotTypeText: {
-    fontSize: 16,
+    fontSize: 15,
+    fontFamily: getFontFamily('400'),
     flex: 1,
   },
   radiusContainer: {
@@ -4642,11 +4702,13 @@ const createStyles = () => {
     minHeight: 56,
   },
   radiusInput: {
-    fontSize: 16,
+    fontSize: 15,
+    fontFamily: getFontFamily('400'),
     flex: 1,
   },
   radiusUnit: {
-    fontSize: 16,
+    fontSize: 14,
+    fontFamily: getFontFamily('500'),
     marginLeft: 8,
     fontWeight: '500',
   },
@@ -4661,7 +4723,8 @@ const createStyles = () => {
     marginRight: 10,
   },
   countrySearchInput: {
-    fontSize: 16,
+    fontSize: 15,
+    fontFamily: getFontFamily('400'),
     flex: 1,
     paddingVertical: 8,
     paddingRight: 8,
@@ -4689,8 +4752,9 @@ const createStyles = () => {
     gap: 6,
   },
   resetButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
   },
   searchButton: {
     flex: 2,
@@ -4699,16 +4763,13 @@ const createStyles = () => {
     justifyContent: 'center',
     borderRadius: 12,
     paddingVertical: 16,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
   },
   searchButtonText: {
     color: 'white',
-    fontSize: 18,
-    fontWeight: '700',
-    letterSpacing: 0.5,
+    fontSize: 16,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
   filterButtonBadge: {
     position: 'absolute',
@@ -4726,7 +4787,7 @@ const createStyles = () => {
   filterButtonBadgeText: {
     color: '#FFFFFF',
     fontSize: 10,
-    fontWeight: '700',
+    fontWeight: '600',
   },
   clearFiltersButton: {
     marginTop: 16,
@@ -4738,8 +4799,9 @@ const createStyles = () => {
   },
   clearFiltersButtonText: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 15,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
   },
     saveButton: {
       position: 'absolute',

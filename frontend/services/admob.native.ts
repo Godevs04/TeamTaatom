@@ -85,13 +85,19 @@ export async function showConsentForm(): Promise<boolean> {
     }
 
     // Ensure latest consent state is available before trying to open privacy options.
-    for (let i = 0; i < 3; i += 1) {
-      await AdsConsent.requestInfoUpdate();
-      const info = await AdsConsent.getConsentInfo();
-      if (info.privacyOptionsRequirementStatus !== AdsConsentPrivacyOptionsRequirementStatus.UNKNOWN) {
-        break;
+    try {
+      for (let i = 0; i < 3; i += 1) {
+        await AdsConsent.requestInfoUpdate();
+        const info = await AdsConsent.getConsentInfo();
+        if (info.privacyOptionsRequirementStatus !== AdsConsentPrivacyOptionsRequirementStatus.UNKNOWN) {
+          break;
+        }
+        await sleep(350);
       }
-      await sleep(350);
+    } catch (infoError: unknown) {
+      const msg = infoError instanceof Error ? infoError.message : String(infoError);
+      logger.warn('[AdMob] Could not fetch consent info, skipping privacy form:', msg);
+      return;
     }
 
     const retryDelays = [400, 800, 1200];
@@ -118,8 +124,8 @@ export async function showConsentForm(): Promise<boolean> {
           return;
         }
 
-        logger.warn('[AdMob] Show consent form failed:', message);
-        throw error;
+        logger.warn('[AdMob] Show consent form failed (non-blocking):', message);
+        return;
       }
     }
   })();
