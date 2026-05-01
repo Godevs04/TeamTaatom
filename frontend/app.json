@@ -2,7 +2,7 @@
   "expo": {
     "name": "taatom",
     "slug": "taatom",
-    "version": "26.3.2",
+    "version": "26.3.3",
     "orientation": "portrait",
     "icon": "./assets/icon-1024.png",
     "userInterfaceStyle": "automatic",
@@ -20,7 +20,7 @@
       "supportsTablet": true,
       "icon": "./assets/icon-1024.png",
       "bundleIdentifier": "com.taatom.app",
-      "buildNumber": "16",
+      "buildNumber": "17",
       "infoPlist": {
         "CFBundleDisplayName": "Taatom",
         "NSPhotoLibraryUsageDescription": "This app needs access to your photo library to let you share photos with your friends.",
@@ -56,7 +56,7 @@
       "label": "Taatom",
       "icon": "./assets/icon-1024.png",
       "package": "com.taatom.app",
-      "versionCode": 16,
+      "versionCode": 17,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
