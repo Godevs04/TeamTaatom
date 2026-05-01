@@ -7,13 +7,13 @@ const { Schema, Types } = mongoose;
  * Commission structure (from BSD-Subscription):
  *   Domestic (India):
  *     Cashfree fee: ~2%
- *     Taatom commission: 15% of (payment - gateway fee)
+ *     Taatom commission: 20% of (payment - gateway fee)
  *     GST on commission: 18% of commission
  *     Creator gets: remaining
  *
  *   International:
  *     Cashfree fee: ~3.5% + FX ~1-2%
- *     Taatom commission: 15%
+ *     Taatom commission: 20%
  *     GST on commission: 18%
  *     Wise transfer fee: ~1%
  *     Creator gets: remaining
@@ -67,10 +67,10 @@ const PayoutSchema = new Schema({
     type: Number,
     default: 0
   },
-  // Taatom commission (15% of netAfterGateway)
+  // Taatom commission (20% of netAfterGateway)
   commissionPercent: {
     type: Number,
-    default: 15
+    default: 20
   },
   commissionAmount: {
     type: Number,
