@@ -53,7 +53,6 @@
       "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
-      "label": "Taatom",
       "icon": "./assets/icon-1024.png",
       "package": "com.taatom.app",
       "versionCode": 17,
@@ -154,7 +153,9 @@
           "iosAppId": "ca-app-pub-6362359854606661~9610954911",
           "delayAppMeasurementInit": true
         }
-      ]
+      ],
+      "expo-asset",
+      "expo-web-browser"
     ],
     "updates": {
       "enabled": true,
