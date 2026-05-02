@@ -23,31 +23,33 @@ const setAuthToken = (res, token, req) => {
   if (isWeb) {
     const isProduction = process.env.NODE_ENV === 'production';
     const origin = req.headers.origin || '';
-    
-    // Check if frontend and backend are on same origin (for cookie to work)
     const backendHost = req.get('host') || '';
-    const isSameOrigin = origin.includes(backendHost.split(':')[0]) || 
-                         origin.includes('localhost') && backendHost.includes('localhost');
-    
-    // For cross-origin in development, return token in response
-    // Browser won't accept sameSite: 'none' without secure: true (HTTPS)
+    const forwardedHost = (req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+
+    // The browser uses one host (e.g. 192.168.1.36:3001 via Next) while the API may see
+    // Host: localhost:3000 — that is *not* cross-site for the cookie: the response still
+    // returns to the browser on the page origin, so Set-Cookie applies to 192.168.1.36.
+    // Old logic skipped the cookie in that case and only returned JSON → 401 after redirect
+    // or when sessionStorage was empty.
+    const isSameOrigin =
+      (origin && backendHost && origin.includes(backendHost.split(':')[0])) ||
+      (origin.includes('localhost') && backendHost.includes('localhost')) ||
+      (forwardedHost && origin.includes(forwardedHost.split(':')[0]));
+
+    res.cookie('authToken', token, {
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'strict' : 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      path: '/',
+    });
+
+    // Dev: still return token body when origin/host disagree so axios sessionStorage fallback works
     if (!isProduction && !isSameOrigin) {
-      // Cross-origin in development - return token in response as fallback
-      // Frontend will store it in sessionStorage
-      logger.debug('Cross-origin request detected, returning token in response');
+      logger.debug('Dev proxied/LAN auth: cookie set; token also returned for sessionStorage fallback');
       return { token };
     }
-    
-    // Same origin or production - use httpOnly cookie
-    res.cookie('authToken', token, {
-      httpOnly: true, // Prevents JavaScript access (XSS protection)
-      secure: isProduction, // HTTPS only in production
-      sameSite: isProduction ? 'strict' : 'lax', // Use 'lax' for same-origin development
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      path: '/'
-    });
-    
-    // Don't send token in response body for web (same origin)
+
     return {};
   }
   

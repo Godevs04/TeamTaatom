@@ -584,4 +584,36 @@ export async function unblockUser(userId: string) {
   await api.delete(`/users/me/blocked/${userId}`);
 }
 
+/** Taatom music library (shorts audio) */
+export type TaatomSong = {
+  _id: string;
+  title: string;
+  artist?: string;
+  duration?: number;
+  thumbnailUrl?: string;
+  cloudinaryUrl?: string;
+  s3Url?: string;
+};
+
+export async function getTaatomSongs(params?: { search?: string; page?: number; limit?: number; genre?: string }) {
+  const search = new URLSearchParams();
+  if (params?.search) search.set("search", params.search);
+  if (params?.page) search.set("page", String(params.page));
+  if (params?.limit) search.set("limit", String(params.limit ?? 40));
+  if (params?.genre && params.genre !== "all") search.set("genre", params.genre);
+  const res = await api.get(`/songs?${search.toString()}`);
+  const d = res.data as { songs?: TaatomSong[] };
+  return d.songs ?? [];
+}
+
+export async function getTaatomSongById(id: string) {
+  const res = await api.get(`/songs/${id}`);
+  const d = res.data as { song?: TaatomSong };
+  return d.song ?? (res.data as TaatomSong);
+}
+
+/** Onboarding — persist interests (same endpoint as mobile) */
+export async function saveUserInterests(interests: string[]) {
+  await api.post("/profile/interests", { interests });
+}
 
