@@ -139,6 +139,7 @@ export async function connectFetchCurrencyConfig() {
   return res.data as Record<string, unknown>;
 }
 
+/** Order checkout only (`payment_session_id` from pay/orders). Not for subscription `sub_session_*` — use `openCashfreeSubscriptionCheckout`. */
 export function cashfreeCheckoutUrl(paymentSessionId: string): string {
   const prod =
     process.env.NEXT_PUBLIC_APP_ENV === "production" ||

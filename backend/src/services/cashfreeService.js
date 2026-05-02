@@ -141,10 +141,41 @@ const createPlan = async ({ planId, planName, amount }) => {
     logger.info(`Cashfree plan created: ${planId}`);
     return result.data;
   } catch (error) {
+    if (isCashfreePlanDuplicate(error)) {
+      logger.info(`Cashfree plan already exists, fetching: ${planId}`);
+      const existing = await getPlan(planId);
+      if (existing) return existing;
+    }
     logger.error('Cashfree createPlan error:', error.responseData || error.message);
     throw new Error(error.responseData?.message || 'Failed to create subscription plan');
   }
 };
+
+/**
+ * Cashfree returns missing-plan as 404 OR as 4xx with body { code: 'plan_not_found', message: '...' }.
+ */
+function isCashfreePlanMissing(error) {
+  if (!error) return false;
+  if (error.status === 404) return true;
+  const rd = error.responseData;
+  if (rd && typeof rd === 'object') {
+    if (rd.code === 'plan_not_found') return true;
+    const msg = typeof rd.message === 'string' ? rd.message : '';
+    if (/plan does not exist/i.test(msg)) return true;
+  }
+  const em = error.message || '';
+  if (/plan does not exist/i.test(em)) return true;
+  return false;
+}
+
+function isCashfreePlanDuplicate(error) {
+  const rd = error?.responseData;
+  if (!rd || typeof rd !== 'object') return false;
+  if (rd.code === 'plan_already_exists' || rd.code === 'duplicate_plan_id') return true;
+  const msg = (rd.message || '').toLowerCase();
+  if (msg.includes('already') && msg.includes('plan')) return true;
+  return false;
+}
 
 /**
  * Get a plan from Cashfree
@@ -156,9 +187,12 @@ const getPlan = async (planId) => {
     const result = await makeRequest('GET', `${config.baseUrl}/plans/${planId}`);
     return result.data;
   } catch (error) {
-    if (error.status === 404) return null;
+    if (isCashfreePlanMissing(error)) {
+      logger.info(`Cashfree plan not found (will create): ${planId}`);
+      return null;
+    }
     logger.error('Cashfree getPlan error:', error.responseData || error.message);
-    throw new Error('Failed to fetch plan');
+    throw new Error(error.responseData?.message || error.message || 'Failed to fetch plan');
   }
 };
 
@@ -173,24 +207,40 @@ const getPlan = async (planId) => {
  * @param {Object} params
  * @param {string} params.subscriptionId - Unique subscription ID (e.g., "sub_{userId}_{pageId}_{timestamp}")
  * @param {string} params.planId - Cashfree plan ID
+ * @param {number} params.authorizationAmount - Mandate / first-debit amount in INR (same unit as plan); must not be 0 for UPI/card
  * @param {Object} params.customer - { id, email, phone, name }
  * @param {string} params.returnUrl - URL to redirect after payment
  * @returns {Object} { subscriptionId, paymentSessionId }
  */
-const createSubscription = async ({ subscriptionId, planId, customer, returnUrl }) => {
+const createSubscription = async ({
+  subscriptionId,
+  planId,
+  authorizationAmount,
+  customer,
+  returnUrl,
+}) => {
   const config = getConfig();
+  const authAmt = Math.round(Number(authorizationAmount));
+  if (!Number.isFinite(authAmt) || authAmt < 1) {
+    throw new Error('Invalid subscription authorization amount');
+  }
   try {
+    // API expects plan_id under plan_details (not top-level plan_id)
     const result = await makeRequest('POST', `${config.baseUrl}/subscriptions`, {
       subscription_id: subscriptionId,
-      plan_id: planId,
+      plan_details: {
+        plan_id: planId,
+      },
       customer_details: {
         customer_id: customer.id,
         customer_email: customer.email,
         customer_phone: customer.phone,
         customer_name: customer.name,
       },
+      // 0 is invalid for UPI/card mandate flows; align with plan recurring amount (INR)
       authorization_details: {
-        authorization_amount: 0, // No auth amount for periodic
+        authorization_amount: authAmt,
+        authorization_amount_refund: false,
       },
       subscription_meta: {
         return_url: returnUrl,
