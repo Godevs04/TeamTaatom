@@ -37,8 +37,11 @@ export const config = {
 
   get webUrl(): string {
     const env = getServerEnv();
-    const url = env.NEXT_PUBLIC_WEB_URL ?? (typeof window !== "undefined" ? window.location.origin : "http://localhost:3001");
-    return url.replace(/\/$/, "");
+    const fromEnv = env.NEXT_PUBLIC_WEB_URL?.trim();
+    // `??` does not treat "" as missing — empty env would break `new URL("")` in metadata
+    if (fromEnv) return fromEnv.replace(/\/$/, "");
+    if (typeof window !== "undefined") return window.location.origin.replace(/\/$/, "");
+    return "http://localhost:3001";
   },
 
   get apiV1(): string {

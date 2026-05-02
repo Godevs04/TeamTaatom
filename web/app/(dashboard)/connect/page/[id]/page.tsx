@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -21,10 +21,10 @@ import {
   connectSubscribe,
   connectGetSubscriptionStatus,
   connectCancelSubscription,
-  cashfreeCheckoutUrl,
   connectDeletePage,
   connectGetPayoutPreview,
 } from "@/lib/connect-api";
+import { openCashfreeSubscriptionCheckout } from "@/lib/cashfree-client";
 import { getFriendlyErrorMessage } from "@/lib/auth-errors";
 import { ConnectContentBlocks } from "@/components/connect/connect-content-blocks";
 import { Button } from "@/components/ui/button";
@@ -36,6 +36,7 @@ type Tab = "website" | "subscription";
 export default function ConnectPageDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const id = typeof params?.id === "string" ? params.id : "";
   const qc = useQueryClient();
 
@@ -43,6 +44,7 @@ export default function ConnectPageDetailPage() {
   const [followBusy, setFollowBusy] = React.useState(false);
   const [subBusy, setSubBusy] = React.useState(false);
   const [payoutBreakdownOpen, setPayoutBreakdownOpen] = React.useState(false);
+  const cashfreeReturnDoneRef = React.useRef(false);
 
   const detailQ = useQuery({
     queryKey: ["connect-page", id],
@@ -88,6 +90,29 @@ export default function ConnectPageDetailPage() {
     if (id) void connectRecordView(id);
   }, [id]);
 
+  /** After Cashfree redirect: refresh subscription state and strip query params (avoids broken `{subscription_status}` macros). */
+  React.useEffect(() => {
+    if (!id || cashfreeReturnDoneRef.current) return;
+    const returned = searchParams.get("subscription_return");
+    const status = searchParams.get("subscription_status");
+    const brokenMacro = status?.includes("{");
+    if (returned !== "1" && !status && !brokenMacro) return;
+
+    cashfreeReturnDoneRef.current = true;
+    if (returned === "1" || (status && !brokenMacro)) {
+      toast.success("Payment completed. Refreshing your subscription…");
+    } else if (brokenMacro) {
+      toast.message("Back from checkout. Syncing subscription status…");
+    }
+    void qc.invalidateQueries({ queryKey: ["connect-sub-status", id] });
+    void qc.invalidateQueries({ queryKey: ["connect-page", id] });
+    router.replace(`/connect/page/${id}`, { scroll: false });
+  }, [id, searchParams, qc, router]);
+
+  React.useEffect(() => {
+    cashfreeReturnDoneRef.current = false;
+  }, [id]);
+
   React.useEffect(() => {
     if (page && !page.features?.website && page.features?.subscription) {
       setTab("subscription");
@@ -129,9 +154,8 @@ export default function ConnectPageDetailPage() {
     try {
       const res = await connectSubscribe(page._id);
       if (res.paymentSessionId) {
-        const url = cashfreeCheckoutUrl(res.paymentSessionId);
-        window.open(url, "_blank", "noopener,noreferrer");
-        toast.message("Complete payment in the new tab, then return here.");
+        await openCashfreeSubscriptionCheckout(res.paymentSessionId);
+        toast.message("Complete payment on the Cashfree page, then return here if needed.");
       }
       await qc.invalidateQueries({ queryKey: ["connect-sub-status", id] });
     } catch (e) {

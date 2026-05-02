@@ -32,7 +32,13 @@ export function createMetadata(overrides: {
   /** Alt for OG/Twitter image (e.g. post caption snippet). */
   ogImageAlt?: string;
 }): Metadata {
-  const base = config.webUrl;
+  const baseRaw = config.webUrl;
+  let base = baseRaw;
+  try {
+    base = new URL(baseRaw).origin;
+  } catch {
+    base = "http://localhost:3001";
+  }
   const path = overrides.path ?? "";
   const canonical = path ? `${base}${path.startsWith("/") ? path : `/${path}`}` : base;
   const title = overrides.title ? `${overrides.title} · ${APP_NAME}` : DEFAULT_TITLE;
