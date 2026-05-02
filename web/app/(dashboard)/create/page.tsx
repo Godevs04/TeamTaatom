@@ -6,7 +6,13 @@ import { toast } from "sonner";
 import { Button } from "../../../components/ui/button";
 import { Input } from "../../../components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../../components/ui/card";
-import { createPost, createShort, searchPlaceUser, type SearchPlaceResult } from "../../../lib/api";
+import {
+  createPost,
+  createShort,
+  searchPlaceUser,
+  type SearchPlaceResult,
+  type TaatomSong,
+} from "../../../lib/api";
 import { getFriendlyErrorMessage } from "../../../lib/auth-errors";
 import { useAuth } from "../../../context/auth-context";
 import { motion } from "framer-motion";
@@ -24,8 +30,10 @@ import {
   Upload,
   Sparkles,
   GripVertical,
+  Music,
 } from "lucide-react";
 import { ImageCropModal } from "../../../components/create/image-crop-modal";
+import { SongPickerModal } from "../../../components/create/song-picker-modal";
 
 const CAPTION_MAX = 500;
 const PLACE_NAME_MAX = 100;
@@ -110,6 +118,10 @@ export default function CreateTripPage() {
   const [videoFile, setVideoFile] = React.useState<File | null>(null);
   const [thumbnailFile, setThumbnailFile] = React.useState<File | null>(null);
   const [copyrightAccepted, setCopyrightAccepted] = React.useState(false);
+  const [songPickerOpen, setSongPickerOpen] = React.useState(false);
+  const [librarySong, setLibrarySong] = React.useState<TaatomSong | null>(null);
+  const [songStartSec, setSongStartSec] = React.useState("0");
+  const [songEndSec, setSongEndSec] = React.useState("");
   const [progress, setProgress] = React.useState<number | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const [spotType, setSpotType] = React.useState("");
@@ -135,6 +147,15 @@ export default function CreateTripPage() {
   const draftHydratedRef = React.useRef(false);
   const [exifHint, setExifHint] = React.useState<ExifHint | null>(null);
   const [isReadingExif, setIsReadingExif] = React.useState(false);
+
+  React.useEffect(() => {
+    if (mode !== "short") {
+      setLibrarySong(null);
+      setSongStartSec("0");
+      setSongEndSec("");
+      setSongPickerOpen(false);
+    }
+  }, [mode]);
 
   // Create and revoke object URLs for file previews to avoid memory leaks
   React.useEffect(() => {
@@ -264,11 +285,12 @@ export default function CreateTripPage() {
     !captionError &&
     !placeNameError &&
     !submitting;
+  const usingLibrarySong = !!librarySong;
   const canSubmitShort =
     !!videoFile &&
     !captionError &&
     !placeNameError &&
-    copyrightAccepted &&
+    (usingLibrarySong || copyrightAccepted) &&
     !submitting;
 
   const onSubmitPost = async () => {
@@ -330,7 +352,7 @@ export default function CreateTripPage() {
       toast.error("Please select a video first.");
       return;
     }
-    if (!copyrightAccepted) {
+    if (!usingLibrarySong && !copyrightAccepted) {
       toast.error("Please accept the copyright to use audio in your short.");
       return;
     }
@@ -345,9 +367,22 @@ export default function CreateTripPage() {
       fd.append("video", videoFile);
       if (thumbnailFile) fd.append("image", thumbnailFile);
       fd.append("caption", caption);
-      fd.append("audioSource", "user_original");
-      fd.append("copyrightAccepted", "true");
-      fd.append("copyrightAcceptedAt", new Date().toISOString());
+      if (usingLibrarySong && librarySong) {
+        fd.append("audioSource", "taatom_library");
+        fd.append("songId", librarySong._id);
+        fd.append("songStartTime", String(parseFloat(songStartSec) || 0));
+        const endParsed = parseFloat(songEndSec);
+        if (!Number.isNaN(endParsed) && endParsed > (parseFloat(songStartSec) || 0)) {
+          fd.append("songEndTime", String(endParsed));
+        }
+        fd.append("songVolume", "1");
+        fd.append("copyrightAccepted", "true");
+        fd.append("copyrightAcceptedAt", new Date().toISOString());
+      } else {
+        fd.append("audioSource", "user_original");
+        fd.append("copyrightAccepted", "true");
+        fd.append("copyrightAcceptedAt", new Date().toISOString());
+      }
       const usingExifGps = detectedPlace?.placeId === "exif";
       const address = placeName.trim() || (detectedPlace?.formattedAddress ?? "");
       if (address) fd.append("address", address);
@@ -804,18 +839,78 @@ export default function CreateTripPage() {
                   </div>
                 )}
               </div>
-              <div className="flex items-start gap-3 rounded-xl border border-slate-200/70 bg-slate-50/60 p-4 ring-1 ring-slate-100/80 transition-colors hover:bg-slate-50/90">
-                <input
-                  type="checkbox"
-                  id="copyright"
-                  checked={copyrightAccepted}
-                  onChange={(e) => setCopyrightAccepted(e.target.checked)}
-                  className="mt-1 h-4 w-4 rounded border-slate-300"
-                />
-                <label htmlFor="copyright" className="text-sm leading-relaxed text-slate-700">
-                  I have the rights to the audio in this short (or it is original / no music).
-                </label>
+              <div className="space-y-3 rounded-xl border border-slate-200/70 bg-slate-50/60 p-4 ring-1 ring-slate-100/80 dark:border-zinc-700 dark:bg-zinc-900/40">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" className="gap-2 rounded-xl" onClick={() => setSongPickerOpen(true)}>
+                    <Music className="h-4 w-4" />
+                    {librarySong ? "Change Taatom song" : "Use Taatom music"}
+                  </Button>
+                  {librarySong && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive"
+                      onClick={() => {
+                        setLibrarySong(null);
+                        setSongStartSec("0");
+                        setSongEndSec("");
+                      }}
+                    >
+                      Clear song
+                    </Button>
+                  )}
+                </div>
+                {librarySong && (
+                  <div className="space-y-2 text-sm">
+                    <p className="font-medium text-slate-900 dark:text-zinc-100">
+                      {librarySong.title}
+                      {librarySong.artist ? ` · ${librarySong.artist}` : ""}
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs font-semibold text-slate-600 dark:text-zinc-400">Start (sec)</label>
+                        <Input
+                          inputMode="decimal"
+                          value={songStartSec}
+                          onChange={(e) => setSongStartSec(e.target.value)}
+                          className="mt-1"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-semibold text-slate-600 dark:text-zinc-400">
+                          End (sec, optional)
+                        </label>
+                        <Input
+                          inputMode="decimal"
+                          placeholder={typeof librarySong.duration === "number" ? String(librarySong.duration) : ""}
+                          value={songEndSec}
+                          onChange={(e) => setSongEndSec(e.target.value)}
+                          className="mt-1"
+                        />
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-zinc-400">
+                      Taatom library tracks include licensing handled by the platform.
+                    </p>
+                  </div>
+                )}
               </div>
+
+              {!librarySong && (
+                <div className="flex items-start gap-3 rounded-xl border border-slate-200/70 bg-slate-50/60 p-4 ring-1 ring-slate-100/80 transition-colors hover:bg-slate-50/90 dark:border-zinc-700 dark:bg-zinc-900/40">
+                  <input
+                    type="checkbox"
+                    id="copyright"
+                    checked={copyrightAccepted}
+                    onChange={(e) => setCopyrightAccepted(e.target.checked)}
+                    className="mt-1 h-4 w-4 rounded border-slate-300"
+                  />
+                  <label htmlFor="copyright" className="text-sm leading-relaxed text-slate-700 dark:text-zinc-300">
+                    I have the rights to the audio in this short (or it is original / no music).
+                  </label>
+                </div>
+              )}
             </section>
           )}
 
@@ -1039,6 +1134,17 @@ export default function CreateTripPage() {
         title={cropSession?.kind === "thumb" ? "Crop thumbnail" : "Crop photo"}
         onClose={closeCropModal}
         onApply={onCroppedFile}
+      />
+
+      <SongPickerModal
+        open={songPickerOpen}
+        onClose={() => setSongPickerOpen(false)}
+        onSelect={(s) => {
+          setLibrarySong(s);
+          setSongStartSec("0");
+          setSongEndSec(typeof s.duration === "number" ? String(s.duration) : "");
+          setCopyrightAccepted(false);
+        }}
       />
 
       {/* Detect place modal (matches Admin: Place Found! section, details, map, Cancel / Use This Place) */}

@@ -83,6 +83,19 @@ const validateEnvironment = () => {
 // Validate environment before proceeding
 validateEnvironment();
 
+if (process.env.NODE_ENV === 'development') {
+  try {
+    const cashfreeService = require('./services/cashfreeService');
+    if (!cashfreeService.isCashfreeConfigured()) {
+      console.warn(
+        '⚠️  Cashfree: set CASHFREE_APP_ID and CASHFREE_SECRET_KEY (e.g. in .env.local) or Connect subscriptions return 503.',
+      );
+    }
+  } catch (e) {
+    /* ignore optional dev warning load errors */
+  }
+}
+
 // Initialize Sentry as early as possible (before any other imports)
 require('./instrument');
 
