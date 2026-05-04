@@ -140,7 +140,7 @@ const generateLocationVariations = (locationName: string): string[] => {
  * Get location suggestions from Google Places Autocomplete API
  * PRODUCTION-GRADE: Dynamic suggestions for misspelled locations
  */
-const getPlaceSuggestions = async (
+export const getPlaceSuggestions = async (
   input: string,
   countryCode?: string
 ): Promise<string[]> => {

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Dimensions,
   Image,
   ScrollView,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -31,6 +32,7 @@ import {
   ConnectPageType,
   GeoItem,
 } from '../../services/connect';
+import { getPlaceSuggestions } from '../../utils/locationUtils';
 import { toggleFollow } from '../../services/profile';
 import logger from '../../utils/logger';
 
@@ -66,6 +68,103 @@ const TRAVEL_STYLES = [
   { code: 'luxury', name: 'Luxury' },
 ];
 
+// Pulled out of the screen body so its `useState` for the search input
+// resets every time the modal mounts (i.e. each time a picker is opened).
+function PickerModal({
+  items,
+  selected,
+  onSelect,
+  onClose,
+  title,
+  theme,
+}: {
+  items: GeoItem[];
+  selected: string;
+  onSelect: (code: string) => void;
+  onClose: () => void;
+  title: string;
+  theme: any;
+}) {
+  const [query, setQuery] = useState('');
+  const trimmed = query.trim().toLowerCase();
+  const filtered = trimmed
+    ? items.filter(item =>
+        item.name.toLowerCase().includes(trimmed) ||
+        item.code.toLowerCase().includes(trimmed)
+      )
+    : items;
+
+  return (
+    <View style={[styles.pickerOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+      <View style={[styles.pickerModal, { backgroundColor: theme.colors.surface }]}>
+        <View style={styles.pickerHeader}>
+          <Text style={[styles.pickerTitle, { color: theme.colors.text }]}>{title}</Text>
+          <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="close" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Search input */}
+        <View style={[styles.pickerSearchWrap, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+          <Ionicons name="search" size={16} color={theme.colors.textSecondary} />
+          <TextInput
+            style={[styles.pickerSearchInput, { color: theme.colors.text }]}
+            value={query}
+            onChangeText={setQuery}
+            placeholder="Type to search…"
+            placeholderTextColor={theme.colors.textSecondary}
+            autoCorrect={false}
+            autoCapitalize="none"
+            returnKeyType="search"
+          />
+          {query.length > 0 && (
+            <TouchableOpacity onPress={() => setQuery('')} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+              <Ionicons name="close-circle" size={16} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <ScrollView style={styles.pickerList} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          {/* "Any" option always visible (only when not searching) */}
+          {!trimmed && (
+            <TouchableOpacity
+              style={[styles.pickerItem, !selected && { backgroundColor: theme.colors.primary + '15' }]}
+              onPress={() => { onSelect(''); onClose(); }}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.pickerItemText, { color: !selected ? theme.colors.primary : theme.colors.textSecondary }]}>
+                Any
+              </Text>
+            </TouchableOpacity>
+          )}
+          {filtered.map(item => (
+            <TouchableOpacity
+              key={item.code}
+              style={[styles.pickerItem, selected === item.code && { backgroundColor: theme.colors.primary + '15' }]}
+              onPress={() => { onSelect(item.code); onClose(); }}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.pickerItemText, { color: selected === item.code ? theme.colors.primary : theme.colors.text }]}>
+                {item.name}
+              </Text>
+              {selected === item.code && (
+                <Ionicons name="checkmark" size={20} color={theme.colors.primary} />
+              )}
+            </TouchableOpacity>
+          ))}
+          {trimmed && filtered.length === 0 && (
+            <View style={styles.pickerEmpty}>
+              <Text style={[styles.pickerItemText, { color: theme.colors.textSecondary }]}>
+                No matches
+              </Text>
+            </View>
+          )}
+        </ScrollView>
+      </View>
+    </View>
+  );
+}
+
 export default function ConnectHubScreen() {
   const { theme } = useTheme();
   const router = useRouter();
@@ -99,16 +198,28 @@ export default function ConnectHubScreen() {
   // Find tab state
   const [countries, setCountries] = useState<GeoItem[]>([]);
   const [languages, setLanguages] = useState<GeoItem[]>([]);
+  // selectedCountry holds the *target* (people-from) country — the variable
+  // name is kept to minimize churn; the request param is `target_country`.
   const [selectedCountry, setSelectedCountry] = useState<string>('');
+  const [selectedCurrentCountry, setSelectedCurrentCountry] = useState<string>('');
   const [selectedLanguage, setSelectedLanguage] = useState<string>('');
   const [selectedTravelStyle, setSelectedTravelStyle] = useState<string>('');
   const [showCountryPicker, setShowCountryPicker] = useState(false);
+  const [showCurrentCountryPicker, setShowCurrentCountryPicker] = useState(false);
   const [showLanguagePicker, setShowLanguagePicker] = useState(false);
   const [showTravelStylePicker, setShowTravelStylePicker] = useState(false);
   const [foundUsers, setFoundUsers] = useState<FoundUser[]>([]);
   const [findLoading, setFindLoading] = useState(false);
   const [findSearched, setFindSearched] = useState(false);
   const [geoLoaded, setGeoLoaded] = useState(false);
+
+  // User's own current location — text input + Google Places autocomplete.
+  // Stored as a free-form string (place name); not gated by the country list.
+  const [userLocation, setUserLocation] = useState<string>('');
+  const [userLocationInput, setUserLocationInput] = useState<string>('');
+  const [userLocationSuggestions, setUserLocationSuggestions] = useState<string[]>([]);
+  const [loadingUserLocation, setLoadingUserLocation] = useState(false);
+  const userLocationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load countries/languages for Find tab
   useEffect(() => {
@@ -216,6 +327,7 @@ export default function ConnectHubScreen() {
       setFindLoading(true);
       const response = await findUsers({
         target_country: selectedCountry || undefined,
+        current_country: selectedCurrentCountry || undefined,
         travel_style: selectedTravelStyle || undefined,
         lang: selectedLanguage,
         page: 1,
@@ -229,6 +341,47 @@ export default function ConnectHubScreen() {
       setFindLoading(false);
     }
   };
+
+  // User's own current location — debounced Places autocomplete.
+  const handleUserLocationChange = (text: string) => {
+    setUserLocationInput(text);
+    // Typing means the previously selected location is no longer authoritative.
+    if (userLocation) setUserLocation('');
+    if (userLocationDebounceRef.current) clearTimeout(userLocationDebounceRef.current);
+    const trimmed = text.trim();
+    if (trimmed.length < 2) {
+      setUserLocationSuggestions([]);
+      setLoadingUserLocation(false);
+      return;
+    }
+    setLoadingUserLocation(true);
+    userLocationDebounceRef.current = setTimeout(async () => {
+      try {
+        const suggestions = await getPlaceSuggestions(trimmed);
+        setUserLocationSuggestions(suggestions);
+      } catch (e) {
+        setUserLocationSuggestions([]);
+      } finally {
+        setLoadingUserLocation(false);
+      }
+    }, 350);
+  };
+
+  const handleUserLocationSelect = (place: string) => {
+    setUserLocation(place);
+    setUserLocationInput(place);
+    setUserLocationSuggestions([]);
+    if (userLocationDebounceRef.current) {
+      clearTimeout(userLocationDebounceRef.current);
+      userLocationDebounceRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (userLocationDebounceRef.current) clearTimeout(userLocationDebounceRef.current);
+    };
+  }, []);
 
   // Find tab: toggle profile follow
   const handleProfileFollowToggle = async (user: FoundUser) => {
@@ -365,42 +518,14 @@ export default function ConnectHubScreen() {
   ) => {
     if (!visible) return null;
     return (
-      <View style={[styles.pickerOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-        <View style={[styles.pickerModal, { backgroundColor: theme.colors.surface }]}>
-          <View style={styles.pickerHeader}>
-            <Text style={[styles.pickerTitle, { color: theme.colors.text }]}>{title}</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="close" size={24} color={theme.colors.text} />
-            </TouchableOpacity>
-          </View>
-          <ScrollView style={styles.pickerList} showsVerticalScrollIndicator={false}>
-            <TouchableOpacity
-              style={[styles.pickerItem, !selected && { backgroundColor: theme.colors.primary + '15' }]}
-              onPress={() => { onSelect(''); onClose(); }}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.pickerItemText, { color: !selected ? theme.colors.primary : theme.colors.textSecondary }]}>
-                Any
-              </Text>
-            </TouchableOpacity>
-            {items.map(item => (
-              <TouchableOpacity
-                key={item.code}
-                style={[styles.pickerItem, selected === item.code && { backgroundColor: theme.colors.primary + '15' }]}
-                onPress={() => { onSelect(item.code); onClose(); }}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.pickerItemText, { color: selected === item.code ? theme.colors.primary : theme.colors.text }]}>
-                  {item.name}
-                </Text>
-                {selected === item.code && (
-                  <Ionicons name="checkmark" size={20} color={theme.colors.primary} />
-                )}
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      </View>
+      <PickerModal
+        items={items}
+        selected={selected}
+        onSelect={onSelect}
+        onClose={onClose}
+        title={title}
+        theme={theme}
+      />
     );
   };
 
@@ -570,15 +695,83 @@ export default function ConnectHubScreen() {
           Discover travelers who speak your language
         </Text>
 
-        {/* Country Picker */}
+        {/* Your current location (free-form, Places autocomplete) */}
+        <Text style={[styles.filterFieldLabel, { color: theme.colors.text }]}>
+          Your current location
+        </Text>
+        <View style={[styles.filterSelect, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+          <Ionicons name="navigate-outline" size={18} color={theme.colors.textSecondary} />
+          <TextInput
+            style={[styles.filterTextInput, { color: theme.colors.text }]}
+            value={userLocationInput}
+            onChangeText={handleUserLocationChange}
+            placeholder="Type a city…"
+            placeholderTextColor={theme.colors.textSecondary}
+            autoCorrect={false}
+            autoCapitalize="words"
+            returnKeyType="search"
+          />
+          {loadingUserLocation ? (
+            <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+          ) : userLocationInput.length > 0 ? (
+            <TouchableOpacity
+              onPress={() => {
+                setUserLocation('');
+                setUserLocationInput('');
+                setUserLocationSuggestions([]);
+              }}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+              <Ionicons name="close-circle" size={18} color={theme.colors.textSecondary} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        {userLocationSuggestions.length > 0 && !userLocation && (
+          <View style={[styles.suggestionsList, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            {userLocationSuggestions.slice(0, 5).map((s, idx) => (
+              <TouchableOpacity
+                key={`${s}-${idx}`}
+                style={[styles.suggestionItem, idx < userLocationSuggestions.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.colors.border }]}
+                onPress={() => handleUserLocationSelect(s)}
+                activeOpacity={0.6}
+              >
+                <Ionicons name="location-outline" size={16} color={theme.colors.textSecondary} />
+                <Text style={[styles.suggestionText, { color: theme.colors.text }]} numberOfLines={1}>
+                  {s}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
+        {/* People-from country */}
+        <Text style={[styles.filterFieldLabel, { color: theme.colors.text }]}>
+          Which country&apos;s people would you like to connect with?
+        </Text>
         <TouchableOpacity
           style={[styles.filterSelect, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
           onPress={() => setShowCountryPicker(true)}
           activeOpacity={0.7}
         >
-          <Ionicons name="location-outline" size={18} color={theme.colors.textSecondary} />
+          <Ionicons name="flag-outline" size={18} color={theme.colors.textSecondary} />
           <Text style={[styles.filterSelectText, { color: selectedCountry ? theme.colors.text : theme.colors.textSecondary }]}>
-            {getSelectedLabel(countries, selectedCountry, 'Select Country (optional)')}
+            {getSelectedLabel(countries, selectedCountry, 'Select country (optional)')}
+          </Text>
+          <Ionicons name="chevron-down" size={18} color={theme.colors.textSecondary} />
+        </TouchableOpacity>
+
+        {/* Where they currently are */}
+        <Text style={[styles.filterFieldLabel, { color: theme.colors.text }]}>
+          Which country should they currently be in?
+        </Text>
+        <TouchableOpacity
+          style={[styles.filterSelect, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+          onPress={() => setShowCurrentCountryPicker(true)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="location-outline" size={18} color={theme.colors.textSecondary} />
+          <Text style={[styles.filterSelectText, { color: selectedCurrentCountry ? theme.colors.text : theme.colors.textSecondary }]}>
+            {getSelectedLabel(countries, selectedCurrentCountry, 'Select country (optional)')}
           </Text>
           <Ionicons name="chevron-down" size={18} color={theme.colors.textSecondary} />
         </TouchableOpacity>
@@ -752,7 +945,8 @@ export default function ConnectHubScreen() {
       {renderUserBottomSheet()}
 
       {/* Picker Modals */}
-      {renderPickerModal(showCountryPicker, countries, selectedCountry, setSelectedCountry, () => setShowCountryPicker(false), 'Select Country')}
+      {renderPickerModal(showCountryPicker, countries, selectedCountry, setSelectedCountry, () => setShowCountryPicker(false), 'People from')}
+      {renderPickerModal(showCurrentCountryPicker, countries, selectedCurrentCountry, setSelectedCurrentCountry, () => setShowCurrentCountryPicker(false), 'Currently in')}
       {renderPickerModal(showLanguagePicker, languages, selectedLanguage, setSelectedLanguage, () => setShowLanguagePicker(false), 'Select Language')}
       {renderPickerModal(showTravelStylePicker, TRAVEL_STYLES, selectedTravelStyle, setSelectedTravelStyle, () => setShowTravelStylePicker(false), 'Select Travel Style')}
     </SafeAreaView>
@@ -859,6 +1053,38 @@ const styles = StyleSheet.create({
   filterSelectText: {
     flex: 1,
     fontSize: isTablet ? 15 : 14,
+    fontFamily: getFontFamily('400'),
+  },
+  filterTextInput: {
+    flex: 1,
+    fontSize: isTablet ? 15 : 14,
+    fontFamily: getFontFamily('400'),
+    padding: 0,
+  },
+  filterFieldLabel: {
+    fontSize: isTablet ? 13 : 12,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+    marginTop: 6,
+    marginBottom: 6,
+  },
+  suggestionsList: {
+    borderWidth: 1,
+    borderRadius: themeConstants.borderRadius.sm,
+    marginTop: -6,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  suggestionText: {
+    flex: 1,
+    fontSize: isTablet ? 14 : 13,
     fontFamily: getFontFamily('400'),
   },
   findButton: {
@@ -976,6 +1202,27 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
+  },
+  pickerSearchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 6,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  pickerSearchInput: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: getFontFamily('400'),
+    padding: 0,
+  },
+  pickerEmpty: {
+    paddingVertical: 24,
+    alignItems: 'center',
   },
   pickerList: {
     paddingHorizontal: 8,

@@ -95,7 +95,7 @@ export default function ConnectCard({
             <View style={styles.stat}>
               <Ionicons name="people-outline" size={14} color={theme.colors.textSecondary} />
               <Text style={[styles.statText, { color: theme.colors.textSecondary }]}>
-                {(page.followerCount || 0) + 1}
+                {page.followerCount || 0}
               </Text>
             </View>
             {page.features?.website && (
