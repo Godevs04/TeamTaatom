@@ -2211,6 +2211,13 @@ export default function ChatModal() {
   const [forceRender, setForceRender] = useState(0);
   const [isCalling, setIsCalling] = useState(false);
   const chatIdModeRef = React.useRef(false);
+  // True only when /chat was *navigated into* with a target chat already
+  // chosen — i.e. via params.userId, params.chatId, or
+  // setPendingChatRoomId() from the Connect page. False when the user is
+  // already on /chat and just tapped a row in the chat list. Drives the
+  // close-button decision: external entry → router.back(), internal entry
+  // → just clear state and stay on the list.
+  const externalEntryRef = React.useRef(false);
 
   // Parse post share message (for chat list)
   const parsePostShare = (text: string) => {
@@ -2683,30 +2690,41 @@ export default function ChatModal() {
     }
   };
 
-  // Prevent back navigation when ChatWindow is open
-  // Intercept back action (both swipe and button) to close chat instead of navigating away
+  // Prevent back navigation when ChatWindow is open AND we're on the chat
+  // list (internal entry — user tapped a row). For that path "back" should
+  // just close the open chat and remain on the list.
+  //
+  // For EXTERNAL entries (Connect page → group chat, deep-link, profile
+  // → message), the back gesture must actually pop the navigation stack so
+  // the user lands on the screen they came from. Intercepting beforeRemove
+  // there left them stranded on an empty /chat showing the chat list — the
+  // exact bug the user reported.
   const navigation = useNavigation<any>();
   useFocusEffect(
     useCallback(() => {
       if (!activeChat) return; // Only intercept if chat is open
 
-      // Prevent default back behavior when chat is open
       const unsubscribe = navigation?.addListener('beforeRemove', (e: any) => {
-        // Prevent default back navigation
+        if (externalEntryRef.current || params.userId || params.chatId) {
+          // External entry — let the back-pop happen so we return to
+          // wherever the user came from.
+          return;
+        }
+        // Internal entry (chat-list tap) — close the chat in place.
         e.preventDefault();
-        // Close the chat instead
         setSelectedUser(null);
         setActiveChat(null);
         setActiveMessages([]);
       });
 
       return unsubscribe;
-    }, [activeChat, navigation])
+    }, [activeChat, navigation, params.userId, params.chatId])
   );
 
   // If userId param is present, fetch that user directly
   useEffect(() => {
     if (params.userId) {
+      externalEntryRef.current = true;
       setLoading(true);
       setError(null);
       api.get(`/profile/${params.userId}`)
@@ -2737,6 +2755,10 @@ export default function ChatModal() {
 
     if (!resolvedChatId) return;
     chatIdModeRef.current = true;
+    // This effect only fires on screen mount with an external chat target
+    // (deep-link params.chatId or pendingChatRoomId set by the Connect
+    // page). Mark the entry so onClose pops back to the previous screen.
+    externalEntryRef.current = true;
 
     let cancelled = false;
     const loadChatById = async () => {
@@ -3095,8 +3117,14 @@ export default function ChatModal() {
     return <ChatWindow
       otherUser={selectedUser}
       onClose={() => {
-        const shouldGoBack = !!(params.userId || params.chatId || chatIdModeRef.current);
+        // Pop the navigation stack only when the chat screen was *entered*
+        // with a chat target (Connect page, deep-link, profile message
+        // button, etc.). When the user was already on /chat and tapped a
+        // row in the chat list, just clear the open chat and remain on
+        // the list — that's the inbox-style UX users expect.
+        const shouldGoBack = !!(params.userId || params.chatId || externalEntryRef.current);
         chatIdModeRef.current = false;
+        externalEntryRef.current = false;
         setSelectedUser(null);
         setActiveChat(null);
         setActiveMessages([]);
@@ -3370,18 +3398,16 @@ export default function ChatModal() {
                 setError(null);
                 setBlockedUserId(null);
                 setIsBlockedError(false);
-                try {
-                  if (router && typeof router.back === 'function') {
-                    router.back();
-                  } else {
-                    setSelectedUser(null);
-                    setActiveChat(null);
-                    setActiveMessages([]);
-                  }
-                } catch (e) {
-                  setSelectedUser(null);
-                  setActiveChat(null);
-                  setActiveMessages([]);
+                // Stay on the chat screen and fall through to the inbox view
+                // instead of router.back(), which would pop /chat entirely
+                // (sending the user back to home/wherever they pushed from).
+                setSelectedUser(null);
+                setActiveChat(null);
+                setActiveMessages([]);
+                // If we arrived via a deep-link param, clear it so the lookup
+                // useEffects don't immediately re-fire and re-trigger the error.
+                if (params.userId || params.chatId) {
+                  try { router.replace('/chat'); } catch {}
                 }
               }}
               activeOpacity={0.8}

@@ -889,26 +889,36 @@ function PhotoCard({
                   </View>
                   <Text style={[styles.menuText, { color: theme.colors.text }]}>Report</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.menuItem, { borderBottomColor: theme.colors.border }]}
-                  onPress={() => {
-                    setShowMenu(false);
-                    showCustomAlertMessage(
-                      'Unfollow User',
-                      `Are you sure you want to unfollow ${postUser.fullName || 'Unknown User'}? You won't see their posts in your feed anymore.`,
-                      'warning',
-                      () => {
-                        // No success alert - silent update for better UX
-                      }
-                    );
-                  }}
-                  disabled={isMenuLoading}
-                >
-                  <View style={styles.menuIconContainer}>
-                    <Ionicons name="person-remove-outline" size={22} color={theme.colors.text} />
-                  </View>
-                  <Text style={[styles.menuText, { color: theme.colors.text }]}>Unfollow</Text>
-                </TouchableOpacity>
+                {(() => {
+                  const followingList = Array.isArray((currentUser as any)?.following) ? (currentUser as any).following : [];
+                  const isFollowingPostUser = followingList.some((f: any) => {
+                    const id = typeof f === 'string' ? f : f?._id?.toString?.();
+                    return id === postUser._id;
+                  });
+                  if (!isFollowingPostUser) return null;
+                  return (
+                    <TouchableOpacity
+                      style={[styles.menuItem, { borderBottomColor: theme.colors.border }]}
+                      onPress={() => {
+                        setShowMenu(false);
+                        showCustomAlertMessage(
+                          'Unfollow User',
+                          `Are you sure you want to unfollow ${postUser.fullName || 'Unknown User'}? You won't see their posts in your feed anymore.`,
+                          'warning',
+                          () => {
+                            // No success alert - silent update for better UX
+                          }
+                        );
+                      }}
+                      disabled={isMenuLoading}
+                    >
+                      <View style={styles.menuIconContainer}>
+                        <Ionicons name="person-remove-outline" size={22} color={theme.colors.text} />
+                      </View>
+                      <Text style={[styles.menuText, { color: theme.colors.text }]}>Unfollow</Text>
+                    </TouchableOpacity>
+                  );
+                })()}
                 <TouchableOpacity
                   style={[styles.menuItem, { borderBottomWidth: 0 }]}
                   onPress={() => {

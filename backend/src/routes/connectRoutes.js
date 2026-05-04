@@ -35,6 +35,7 @@ router.delete('/page/:pageId', authMiddleware, connectController.deletePage);
 // Discovery
 // ─────────────────────────────────────────────
 router.get('/communities', optionalAuth, connectController.getCommunities);
+router.get('/connect-pages', optionalAuth, connectController.getConnectPages);
 router.get('/search-by-name', optionalAuth, connectController.searchByName);
 router.get('/find-users', authMiddleware, connectController.findUsers);
 

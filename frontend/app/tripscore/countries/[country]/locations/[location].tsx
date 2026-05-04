@@ -175,6 +175,7 @@ export default function LocationDetailScreen() {
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [bookmarkLoading, setBookmarkLoading] = useState(false);
   const [localeData, setLocaleData] = useState<Locale | null>(null);
+  const [navigatingToMap, setNavigatingToMap] = useState(false);
   const [allCountryLocations, setAllCountryLocations] = useState<LocationDetail[]>([]); // Store all locations for nearby section
   const [nearbyLocations, setNearbyLocations] = useState<LocationDetail[]>([]); // Nearby locations sorted by distance
 
@@ -1197,28 +1198,57 @@ export default function LocationDetailScreen() {
                 <TouchableOpacity
                   style={[styles.quickInfoCard, styles.clickableCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
                   activeOpacity={0.7}
+                  disabled={navigatingToMap}
                   onPress={async () => {
+                    if (navigatingToMap) return;
+                    setNavigatingToMap(true);
+                    try {
                     // CRITICAL: For locale flow, use EXACT coordinates from database (localeData)
                     // For tripscore flow, use coordinates from data
                     let coords: { latitude: number; longitude: number } | undefined = undefined;
-                    
+
                     // Helper: validate coordinate sanity
                     const isValidCoord = (lat?: number, lng?: number) =>
                       !!lat && !!lng && lat !== 0 && lng !== 0 &&
                       !isNaN(lat) && !isNaN(lng) &&
                       lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 
+                    // Bound any geocoding call so a stalled fetch can never
+                    // freeze the button. Without this, a slow network or a
+                    // throttled / restricted Google API key leaves the user
+                    // staring at an unresponsive screen for tens of seconds
+                    // before falling back. 3s is enough for a healthy
+                    // connection and short enough to feel responsive.
+                    const GEOCODE_TIMEOUT_MS = 3000;
+                    const geocodeWithTimeout = (
+                      address: string,
+                      cc?: string
+                    ): Promise<{ latitude: number; longitude: number } | null> =>
+                      Promise.race([
+                        geocodeAddress(address, cc),
+                        new Promise<null>((resolve) =>
+                          setTimeout(() => resolve(null), GEOCODE_TIMEOUT_MS)
+                        ),
+                      ]);
+
                     if (isAdminLocale && localeData) {
-                      // Bug: stored DB coords sometimes don't match the locale name (e.g. Mysore Palace
-                      // pinned in Chennai). Always geocode by name+country first so the map matches the
-                      // displayed name. Fall back to DB coords only if geocoding fails.
+                      // Admin locales are curated, so trust the DB coords on the
+                      // happy path and navigate immediately. The previous
+                      // implementation always geocoded first to guard against
+                      // mis-pinned admin entries (Mysore Palace pinned in
+                      // Chennai), but the round-trip blocks the entire button
+                      // and was the user-visible "no response" symptom. Only
+                      // geocode when the DB row has no usable coords.
                       const dbHasCoords = isValidCoord(localeData.latitude, localeData.longitude);
                       const dbCoords = dbHasCoords ? {
                         latitude: localeData.latitude!,
                         longitude: localeData.longitude!
                       } : null;
 
-                      try {
+                      if (dbCoords) {
+                        coords = dbCoords;
+                      } else {
+                       try {
                         const nameQuery = [
                           localeData.name,
                           localeData.city,
@@ -1226,7 +1256,7 @@ export default function LocationDetailScreen() {
                           localeData.country
                         ].filter(Boolean).join(', ');
                         const ccForGeocode = (localeData.countryCode || countryParam || 'IN').toUpperCase();
-                        const geocoded = await geocodeAddress(nameQuery || localeData.name, ccForGeocode);
+                        const geocoded = await geocodeWithTimeout(nameQuery || localeData.name, ccForGeocode);
 
                         if (geocoded && isValidCoord(geocoded.latitude, geocoded.longitude)) {
                           // If DB has coords AND they're close to geocoded (<50km), trust the DB
@@ -1257,6 +1287,7 @@ export default function LocationDetailScreen() {
                           logger.warn('⚠️ Geocode threw, falling back to DB coords:', coords);
                         }
                       }
+                      }
                     } else if (data?.coordinates || data?.name) {
                       // Tripscore flow: some posts were saved with wrong coords (e.g. a photo
                       // tagged with the wrong place). Geocode the stored address first and
@@ -1268,7 +1299,7 @@ export default function LocationDetailScreen() {
                       if (data?.name) {
                         try {
                           const ccForGeocode = (countryParam && countryParam !== 'general' ? countryParam : 'IN').toUpperCase();
-                          const geocoded = await geocodeAddress(data.name, ccForGeocode);
+                          const geocoded = await geocodeWithTimeout(data.name, ccForGeocode);
 
                           if (geocoded && isValidCoord(geocoded.latitude, geocoded.longitude)) {
                             if (dbCoords) {
@@ -1307,7 +1338,7 @@ export default function LocationDetailScreen() {
                       try {
                         // Use country code for better geocoding accuracy
                         const countryCodeForGeocoding = countryParam && countryParam !== 'general' ? countryParam.toUpperCase() : 'IN';
-                        const geocodedCoords = await geocodeAddress(data.name, countryCodeForGeocoding);
+                        const geocodedCoords = await geocodeWithTimeout(data.name, countryCodeForGeocoding);
                         if (geocodedCoords && geocodedCoords.latitude && geocodedCoords.longitude &&
                             geocodedCoords.latitude !== 0 && geocodedCoords.longitude !== 0) {
                           coords = geocodedCoords;
@@ -1316,8 +1347,8 @@ export default function LocationDetailScreen() {
                           logger.warn('⚠️ Geocoding API returned invalid coordinates for:', data.name);
                         }
                       } catch (geocodeError) {
-                        const errorToLog = geocodeError instanceof Error 
-                          ? geocodeError 
+                        const errorToLog = geocodeError instanceof Error
+                          ? geocodeError
                           : new Error(String(geocodeError) || 'Geocoding API failed');
                         logger.error('❌ Geocoding API failed for:', errorToLog, { locationName: data.name });
                       }
@@ -1362,6 +1393,9 @@ export default function LocationDetailScreen() {
                       });
                       Alert.alert('Location Error', 'Unable to determine exact location coordinates. Please try again.');
                     }
+                    } finally {
+                      setNavigatingToMap(false);
+                    }
                   }}
                 >
                   <View style={styles.quickInfoHeader}>
@@ -1370,10 +1404,14 @@ export default function LocationDetailScreen() {
                       <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Explore on Map</Text>
                     </View>
                     <View style={styles.clickableIndicator}>
-                      <Ionicons name="chevron-forward" size={16} color="#4CAF50" />
+                      {navigatingToMap ? (
+                        <ActivityIndicator size="small" color="#4CAF50" />
+                      ) : (
+                        <Ionicons name="chevron-forward" size={16} color="#4CAF50" />
+                      )}
                     </View>
                   </View>
-                  <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>Navigate</Text>
+                  <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>{navigatingToMap ? 'Opening…' : 'Navigate'}</Text>
                   <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>View {data.name} location</Text>
                 </TouchableOpacity>
               </View>

@@ -506,6 +506,95 @@ const getCommunities = async (req, res) => {
 };
 
 /**
+ * Get user-created (non-admin) Connect pages for the Connect tab.
+ * For authenticated viewers, every page they follow is ranked above every
+ * page they don't, GLOBALLY across the whole collection — so a followed
+ * entry that would otherwise land on page 5 by recency still appears in
+ * batch 1. Pagination uses a stable two-key sort (isFollowing desc,
+ * createdAt desc) so consecutive fetches don't re-shuffle items.
+ * GET /api/v1/connect/connect-pages
+ */
+const getConnectPages = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Non-admin (community-built) pages only. Admin-created pages live on
+    // the Community tab via getCommunities.
+    const matchStage = { isAdminPage: { $ne: true }, status: 'active' };
+    const currentUserId = req.user?._id;
+
+    let pages;
+    let total;
+    if (currentUserId) {
+      // Resolve the viewer's follow set first so the aggregation can rank
+      // the entire collection (not just the fetched batch) by it.
+      const followDocs = await ConnectFollow.find({
+        followerId: currentUserId,
+        status: 'active'
+      }).select('connectPageId').lean();
+      // Stringify both sides of the comparisons for robustness against
+      // ObjectId vs string mismatches across Mongo driver versions.
+      const followedIdStrings = followDocs.map(f => f.connectPageId.toString());
+      const currentUserIdString = currentUserId.toString();
+
+      const aggPipeline = [
+        { $match: matchStage },
+        {
+          $addFields: {
+            isOwn: { $eq: [{ $toString: '$userId' }, currentUserIdString] },
+            isFollowing: { $in: [{ $toString: '$_id' }, followedIdStrings] }
+          }
+        },
+        // Sort: pages I created → pages I follow → everything else by recency.
+        // Without `isOwn` first, a user's own pages (which can't be followed)
+        // sank below every followed page and appeared "missing" to the user.
+        { $sort: { isOwn: -1, isFollowing: -1, createdAt: -1, _id: -1 } },
+        { $skip: skip },
+        { $limit: limit }
+      ];
+
+      [pages, total] = await Promise.all([
+        ConnectPage.aggregate(aggPipeline),
+        ConnectPage.countDocuments(matchStage)
+      ]);
+
+      // aggregate() bypasses Mongoose schema population — populate the
+      // creator separately on the resulting plain documents.
+      await ConnectPage.populate(pages, {
+        path: 'userId',
+        select: 'username fullName profilePic'
+      });
+    } else {
+      // Anonymous viewers have no follow set; recency-only ordering.
+      [pages, total] = await Promise.all([
+        ConnectPage.find(matchStage)
+          .populate('userId', 'username fullName profilePic')
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        ConnectPage.countDocuments(matchStage)
+      ]);
+    }
+
+    // Resolve storage keys to signed URLs for images
+    for (const p of pages) {
+      await resolvePageImages(p);
+    }
+
+    return sendSuccess(res, 200, 'Connect pages fetched', {
+      pages,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+    });
+  } catch (error) {
+    logger.error('Error fetching connect pages:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to fetch connect pages');
+  }
+};
+
+/**
  * Search Connect pages by name (for Search icon)
  * GET /api/v1/connect/search-by-name?q=...
  */
@@ -1374,6 +1463,7 @@ module.exports = {
   deletePage,
   // Discovery
   getCommunities,
+  getConnectPages,
   searchByName,
   findUsers,
   // Follow

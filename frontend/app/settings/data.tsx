@@ -56,6 +56,17 @@ export default function DataStorageSettingsScreen() {
   const { showError, showSuccess, showConfirm, showOptions } = useAlert();
   const { settings: contextSettings, updateSetting: updateContextSetting } = useSettings();
 
+  // The Switches on this screen are bound to local `settings`, but toggles
+  // call into the Context (which only updates the Context's copy via the
+  // optimistic-update path). Without this sync, the local `settings` stayed
+  // stale and the toggles visually didn't move until the app was restarted
+  // — the user-visible "changes only after restart" symptom.
+  useEffect(() => {
+    if (contextSettings) {
+      setSettings(contextSettings);
+    }
+  }, [contextSettings]);
+
   useEffect(() => {
     loadSettings();
     checkNetworkType();
