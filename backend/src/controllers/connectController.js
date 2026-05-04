@@ -215,6 +215,20 @@ const getPageDetail = async (req, res) => {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
     }
 
+    // Self-heal any existing drift from the historical $inc/$max bug
+    // (counts could go stale or even negative). Mutations now sync from
+    // the active follow set on every state change, but pre-existing rows
+    // still need this corrective read on first detail-view.
+    const liveFollowerCount = await ConnectFollow.countDocuments({
+      connectPageId: pageId,
+      status: 'active'
+    });
+    if (page.followerCount !== liveFollowerCount) {
+      page.followerCount = liveFollowerCount;
+      ConnectPage.findByIdAndUpdate(pageId, { $set: { followerCount: liveFollowerCount } })
+        .catch((e) => logger.warn('Failed to persist self-healed followerCount:', e));
+    }
+
     // Check if current user is the owner
     const currentUserId = req.user?._id;
     const pageOwnerId = page.userId?._id || page.userId;
@@ -733,6 +747,35 @@ const findUsers = async (req, res) => {
 // ─────────────────────────────────────────────
 
 /**
+ * Sync the cached `followerCount` on a ConnectPage with the actual count of
+ * active ConnectFollow records. Use this from every follow-state mutation
+ * (follow / unfollow / archive / unarchive) instead of $inc/$dec arithmetic.
+ *
+ * Why: the previous arithmetic approach drifted out of sync whenever the
+ * archive/unarchive paths skipped a counter update, then compounded with
+ * the re-follow-restore-archived branch double-incrementing. Combined with
+ * MongoDB's non-deterministic handling of `$inc + $max` on the same field
+ * across versions, some pages even ended up with a negative `followerCount`.
+ * Re-deriving from `countDocuments` is cheap (indexed lookup) and makes
+ * drift mathematically impossible.
+ */
+const syncFollowerCount = async (connectPageId) => {
+  try {
+    const liveCount = await ConnectFollow.countDocuments({
+      connectPageId,
+      status: 'active'
+    });
+    await ConnectPage.findByIdAndUpdate(connectPageId, {
+      $set: { followerCount: liveCount }
+    });
+    return liveCount;
+  } catch (e) {
+    logger.error('Failed to sync followerCount:', e);
+    return null;
+  }
+};
+
+/**
  * Follow a Connect page
  * POST /api/v1/connect/follow
  */
@@ -771,8 +814,10 @@ const followPage = async (req, res) => {
       await ConnectFollow.create({ followerId, connectPageId });
     }
 
-    // Increment follower count
-    await ConnectPage.findByIdAndUpdate(connectPageId, { $inc: { followerCount: 1 } });
+    // Re-derive the cached count from the active follow set instead of
+    // running an arithmetic increment. Bulletproof against drift / re-
+    // activation double-counts.
+    await syncFollowerCount(connectPageId);
 
     // If page has group chat, add follower to chat participants
     if (page.chatRoomId) {
@@ -808,11 +853,9 @@ const unfollowPage = async (req, res) => {
 
     await ConnectFollow.deleteOne({ _id: follow._id });
 
-    // Decrement follower count (never below 0)
-    await ConnectPage.findByIdAndUpdate(connectPageId, {
-      $inc: { followerCount: -1 },
-      $max: { followerCount: 0 }
-    });
+    // Re-derive the cached count from the active follow set. Always
+    // accurate, never negative.
+    await syncFollowerCount(connectPageId);
 
     // Remove from chat participants if page has group chat
     const page = await ConnectPage.findById(connectPageId).select('chatRoomId');
@@ -847,6 +890,9 @@ const archivePage = async (req, res) => {
     follow.archivedAt = new Date();
     await follow.save();
 
+    // Re-derive the cached count from the active follow set.
+    await syncFollowerCount(connectPageId);
+
     return sendSuccess(res, 200, 'Page archived');
   } catch (error) {
     logger.error('Error archiving page:', error);
@@ -871,6 +917,9 @@ const unarchivePage = async (req, res) => {
     follow.status = 'active';
     follow.archivedAt = null;
     await follow.save();
+
+    // Re-derive the cached count from the active follow set.
+    await syncFollowerCount(connectPageId);
 
     return sendSuccess(res, 200, 'Page unarchived');
   } catch (error) {
