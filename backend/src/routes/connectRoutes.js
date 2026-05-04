@@ -70,6 +70,12 @@ router.get('/page/:pageId/subscribers', authMiddleware, subscriptionController.g
 router.post('/subscription/webhook', subscriptionController.handleWebhook); // No auth — Cashfree calls this
 router.get('/subscription/payout-preview/:connectPageId', authMiddleware, subscriptionController.getPayoutPreview);
 
+// Dev-only simulators — the handlers themselves refuse to run when
+// NODE_ENV === 'production'. Lets you flip subscription state without
+// wiring up an ngrok tunnel for the Cashfree webhook on a local box.
+router.post('/subscription/_dev/manual-activate', authMiddleware, subscriptionController.devManualActivate);
+router.post('/subscription/_dev/manual-cancel', authMiddleware, subscriptionController.devManualCancel);
+
 // ─────────────────────────────────────────────
 // Currency Config (public)
 // ─────────────────────────────────────────────
