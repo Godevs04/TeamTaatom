@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native';
-import { GestureDetector, Gesture, GestureHandlerRootView } from 'react-native-gesture-handler';
+import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -172,39 +172,44 @@ export default function AspectImageCropper({
       }}
     >
       {viewportWidth === 0 ? (
-        <View style={{ width: '100%', aspectRatio, backgroundColor: '#000', borderRadius }} />
+        <View style={{ width: '100%', aspectRatio, backgroundColor: 'transparent', borderRadius }} />
       ) : (
-      <GestureHandlerRootView style={{ width: viewportWidth, height: viewportH }}>
-        <GestureDetector gesture={composedGesture}>
-          <View
-            style={{
-              width: viewportWidth,
-              height: viewportH,
-              backgroundColor: '#000',
-              overflow: 'hidden' as const,
-              borderRadius,
-            } as any}
-          >
-            <Animated.Image
-              source={{ uri }}
-              resizeMode="cover"
-              style={[
-                { width: viewportWidth, height: viewportH },
-                animatedImageStyle as any,
-              ]}
-            />
-            {showReset && (
-              <TouchableOpacity
-                onPress={resetTransform}
-                hitSlop={8}
-                style={styles.resetBtn}
-              >
-                <Text style={[styles.resetText, { color: resetColor }]}>Reset</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </GestureDetector>
-      </GestureHandlerRootView>
+      // No nested GestureHandlerRootView — the Expo app root already has one,
+      // and nesting another inside it on RN-gesture-handler v2+ causes the
+      // child to clip its content during the parent ScrollView's scroll,
+      // which is what surfaced as "half image, half black" on 1:1 preview.
+      <GestureDetector gesture={composedGesture}>
+        <View
+          style={{
+            width: viewportWidth,
+            height: viewportH,
+            // Transparent — if the source bitmap is briefly unloaded mid-
+            // transform, the page background shows through rather than a
+            // hard black panel.
+            backgroundColor: 'transparent',
+            overflow: 'hidden' as const,
+            borderRadius,
+          } as any}
+        >
+          <Animated.Image
+            source={{ uri }}
+            resizeMode="cover"
+            style={[
+              { width: viewportWidth, height: viewportH },
+              animatedImageStyle as any,
+            ]}
+          />
+          {showReset && (
+            <TouchableOpacity
+              onPress={resetTransform}
+              hitSlop={8}
+              style={styles.resetBtn}
+            >
+              <Text style={[styles.resetText, { color: resetColor }]}>Reset</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </GestureDetector>
       )}
       {showHint && viewportWidth > 0 && (
         <Text style={styles.hint}>Pinch to zoom · drag to reposition</Text>

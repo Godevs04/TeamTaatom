@@ -301,11 +301,26 @@ const getPageDetail = async (req, res) => {
       logger.warn('[connect.getPageDetail] FX display prices failed (non-fatal):', e.message);
     }
 
+    // Privacy gate: for private pages, redact gated fields when the viewer
+    // is neither the owner nor an active follower. The card / lock screen
+    // can still render (name, bio, profile image, follower count) but the
+    // body content, subscription content, and chat room id stay hidden.
+    // Without this, anyone hitting /api/v1/connect/page/:id could read every
+    // private page's full website + paid content directly from the response.
+    const isPrivateLocked = page.type === 'private' && !isOwner && !isFollowing;
+    if (isPrivateLocked) {
+      page.websiteContent = [];
+      page.subscriptionContent = [];
+      page.chatRoomId = null;
+      page.buyItems = [];
+    }
+
     return sendSuccess(res, 200, 'Page detail fetched', {
       page,
       isOwner,
       isFollowing,
-      subscriptionDisplayPrices,
+      isPrivateLocked,
+      subscriptionDisplayPrices: isPrivateLocked ? null : subscriptionDisplayPrices,
     });
   } catch (error) {
     logger.error('Error fetching page detail:', error);
@@ -1049,14 +1064,34 @@ const getPageFollowers = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // Get the page to find the creator
+    // Get the page to find the creator AND check privacy.
     const connectPage = await ConnectPage.findById(pageId)
       .populate('userId', 'username fullName profilePic profilePicStorageKey')
-      .select('userId')
+      .select('userId type')
       .lean();
 
     if (!connectPage) {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
+    }
+
+    // Privacy gate: private pages don't expose their follower roster to
+    // non-followers / non-owners. Match the rest of the connect surface.
+    if (connectPage.type === 'private') {
+      const currentUserId = req.user?._id;
+      const ownerId = connectPage.userId?._id || connectPage.userId;
+      const isOwner = !!(currentUserId && ownerId && ownerId.toString() === currentUserId.toString());
+      let isFollower = false;
+      if (currentUserId && !isOwner) {
+        const follow = await ConnectFollow.findOne({
+          followerId: currentUserId,
+          connectPageId: pageId,
+          status: 'active'
+        }).lean();
+        isFollower = !!follow;
+      }
+      if (!isOwner && !isFollower) {
+        return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Followers are private for this page');
+      }
     }
 
     const [follows, total] = await Promise.all([
