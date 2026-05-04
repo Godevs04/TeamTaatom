@@ -117,6 +117,29 @@ export type ShortsScreenProps = {
   initialShortId?: string;
 };
 
+/**
+ * Memo wrapper around a single shorts cell. The parent computes a small
+ * `cacheKey` string of every state slice that affects this cell's rendered
+ * output (visibility, isPlaying, isMuted, isSaved, isFollowing, like state,
+ * pause-button overlay, like-animation overlay, source-version key, etc.)
+ * and passes the cell's JSX as a thunk via `render`.
+ *
+ * React.memo's custom comparator only checks `cacheKey`. When a sibling
+ * cell's state changes, that sibling's cacheKey changes but THIS cell's
+ * doesn't, so React.memo skips re-rendering this cell entirely — even
+ * though the parent's `renderShortItem` ran with a fresh closure. That's
+ * what stops the "tap Like on cell A also re-renders cells B and C" cost
+ * that was the dominant remaining stutter source after the in-cell state-
+ * coalescing pass.
+ *
+ * If we ever need to invalidate every visible cell at once (e.g. on theme
+ * change), include the relevant value in the cacheKey.
+ */
+const ShortCellMemo = React.memo(
+  ({ render }: { render: () => React.ReactElement; cacheKey: string }) => render(),
+  (prev, next) => prev.cacheKey === next.cacheKey
+);
+
 export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [shorts, setShorts] = useState<PostType[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1887,7 +1910,25 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
     }
 
+    // Pipe-separated key of every state slice that affects this cell's
+    // output. ShortCellMemo skips re-render if this string is identical to
+    // its previous value — meaning a state change for a different cell
+    // doesn't pay the cost of re-rendering this one. Pipe-string is cheap
+    // to build and compare; deliberately avoiding JSON.stringify per cell.
+    const isOwn = item.user._id === currentUser?._id;
+    const isVisibleNow = index === currentVisibleIndex;
+    const cacheKey =
+      `${item._id}|${index}|${isVisibleNow ? 1 : 0}|` +
+      `${isVideoPlaying ? 1 : 0}|${mutedShorts.has(item._id) ? 1 : 0}|` +
+      `${isSaved ? 1 : 0}|${isFollowing ? 1 : 0}|` +
+      `${actionLoading === item._id ? 1 : 0}|` +
+      `${shouldShowPauseButton ? 1 : 0}|${shouldShowLikeAnimation ? 1 : 0}|` +
+      `${sourceVersions[item._id] ?? 0}|` +
+      `${item.likesCount ?? 0}|${item.commentsCount ?? 0}|${isLiked ? 1 : 0}|${item.viewsCount ?? 0}|` +
+      `${isOwn ? 1 : 0}|${isScreenFocused ? 1 : 0}`;
+
     return (
+      <ShortCellMemo cacheKey={cacheKey} render={() => (
       <View style={styles.shortItem}>
           {/* Video Player with Gesture Handling */}
           <View
@@ -2433,6 +2474,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             </View>
           </View>
       </View>
+      )} />
     );
     // swipeAnimation / fadeAnimation are Animated.Value refs from useRef ---
     // their identity never changes, so they don't belong in the deps array.

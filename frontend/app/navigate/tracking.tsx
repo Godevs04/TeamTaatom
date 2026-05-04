@@ -15,7 +15,7 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { WebView } from 'react-native-webview';
-import { useJourneyTracking } from '../../hooks/useJourneyTracking';
+import { useJourney } from '../../context/JourneyContext';
 import { MapView, Marker, useWebViewFallback } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import PolylineRenderer from '../../components/PolylineRenderer';
@@ -54,7 +54,7 @@ export default function TrackingScreen() {
     currentCoordinate,
     pauseJourneyRecording,
     stopJourneyRecording,
-  } = useJourneyTracking();
+  } = useJourney();
 
   const [mapReady, setMapReady] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
