@@ -68,6 +68,11 @@ export async function initializeAds(): Promise<void> {
 
 export async function showConsentForm(): Promise<boolean> {
   if (Platform.OS === 'web') return false;
+  // initializeAds() bails out in Expo Go because the native AdMob/UMP module
+  // isn't linked there. Without the same guard here we'd still fall through to
+  // `AdsConsent.requestInfoUpdate()` against a stub module and trigger a
+  // native-side crash that JS can't catch.
+  if (Constants.appOwnership === 'expo') return false;
   if (showPrivacyOptionsPromise) {
     await showPrivacyOptionsPromise;
     return true;

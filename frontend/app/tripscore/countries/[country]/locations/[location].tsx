@@ -504,8 +504,12 @@ export default function LocationDetailScreen() {
         }
         
         const locationName = data?.name || (Array.isArray(location) ? location[0] : location);
+        if (!locationName) {
+          // No identifier available yet — skip silently; will re-run when data loads.
+          return;
+        }
         const locationSlug = locationName.toLowerCase().replace(/\s+/g, '-');
-        
+
         if (isMountedRef.current) {
           setIsBookmarked(saved.some((loc: any) => loc && (loc.slug === locationSlug || loc.name === locationName)));
         }
@@ -525,10 +529,20 @@ export default function LocationDetailScreen() {
     }
     
     if (!isMountedRef.current) return;
-    
+
+    // Admin-locale flow needs `localeData` to know which entry to toggle.
+    // If a user taps before the locale fetch resolves (or after it failed),
+    // falling through to the regular-location branch would (a) write to the
+    // wrong AsyncStorage key and (b) crash on `locationName.toLowerCase()`
+    // when neither `data.name` nor the URL param is populated yet.
+    if (isAdminLocale && !localeData) {
+      Alert.alert('Please wait', 'Still loading locale details — try again in a moment.');
+      return;
+    }
+
     bookmarkingRef.current = true;
     setBookmarkLoading(true);
-    
+
     try {
       if (isAdminLocale && localeData) {
         // Handle admin locale bookmarking - Atomic read-modify-write
@@ -570,6 +584,10 @@ export default function LocationDetailScreen() {
       } else {
         // Handle regular location bookmarking - Atomic read-modify-write
         const locationName = data?.name || (Array.isArray(location) ? location[0] : location);
+        if (!locationName) {
+          Alert.alert('Please wait', 'Location details are still loading — try again in a moment.');
+          return;
+        }
         const locationSlug = locationName.toLowerCase().replace(/\s+/g, '-');
         
         const savedLocations = await AsyncStorage.getItem('savedLocations');
