@@ -7,6 +7,8 @@ const Collection = require('../models/Collection');
 const Report = require('../models/Report');
 const Chat = require('../models/Chat');
 const Comment = require('../models/Comment');
+const ConnectPage = require('../models/ConnectPage');
+const ConnectFollow = require('../models/ConnectFollow');
 const { deleteImage } = require('../config/cloudinary');
 const { deleteObject } = require('../services/storage');
 const { deleteTripVisitForContent } = require('../services/tripVisitService');
@@ -295,6 +297,55 @@ const cascadeDeleteUser = async (userId) => {
       { $pull: { blockedUsers: userId } }
     );
     logger.debug(`Removed user ${userId} from blocked users lists`);
+
+    // Connect-page cleanup. Without this, deleted users left two classes of
+    // orphaned data behind:
+    //   1. ConnectFollow rows pointing to pages they followed — these
+    //      inflated `ConnectPage.followerCount` past the live active count
+    //      and cycled through the self-heal logic forever.
+    //   2. Their own ConnectPages remained alive with a now-dangling
+    //      `userId` reference, surfacing in lists with no creator.
+    try {
+      // Pages they OWN — collect ids first so we can resync their
+      // follower counts (none after delete) AND drop both follows + pages.
+      const ownedPages = await ConnectPage.find({ userId }).select('_id').lean();
+      const ownedPageIds = ownedPages.map((p) => p._id);
+      if (ownedPageIds.length > 0) {
+        await ConnectFollow.deleteMany({ connectPageId: { $in: ownedPageIds } });
+        await ConnectPage.deleteMany({ _id: { $in: ownedPageIds } });
+        logger.debug(`Deleted ${ownedPageIds.length} ConnectPages owned by ${userId} and all their follows`);
+      }
+
+      // Pages they FOLLOW — drop their follow records, then resync
+      // followerCount on each affected page so list views catch up.
+      const followedPages = await ConnectFollow.find({ followerId: userId })
+        .select('connectPageId')
+        .lean();
+      const affectedPageIds = [...new Set(followedPages.map((f) => f.connectPageId.toString()))];
+      if (affectedPageIds.length > 0) {
+        await ConnectFollow.deleteMany({ followerId: userId });
+        // Recompute follower counts. Each is an indexed countDocuments —
+        // cheap, runs once per page.
+        await Promise.all(
+          affectedPageIds.map(async (pageId) => {
+            try {
+              const liveCount = await ConnectFollow.countDocuments({
+                connectPageId: pageId,
+                status: 'active'
+              });
+              await ConnectPage.findByIdAndUpdate(pageId, { $set: { followerCount: liveCount } });
+            } catch (e) {
+              logger.warn(`Failed to resync followerCount for page ${pageId}:`, e);
+            }
+          })
+        );
+        logger.debug(`Removed ${userId} from ${affectedPageIds.length} ConnectFollows and resynced counts`);
+      }
+    } catch (e) {
+      logger.error(`ConnectPage / ConnectFollow cascade cleanup failed for user ${userId}:`, e);
+      // Don't throw — keep cascading the other steps so the user's account
+      // can still be deleted even if connect cleanup partially failed.
+    }
 
     logger.info(`Successfully cascade deleted user ${userId}`);
   } catch (error) {

@@ -327,17 +327,35 @@ const getPageSubscribers = async (req, res) => {
 
 const handleWebhook = async (req, res) => {
   try {
-    // Verify webhook signature
+    // Verify webhook signature. Both headers MUST be present and the
+    // signature MUST validate, otherwise we reject. Previously this gate
+    // was `if (timestamp && signature) { … verify }` which silently let
+    // through any request that omitted either header — an attacker could
+    // POST `{ type: 'SUBSCRIPTION_ACTIVE', data: { subscription: { ... } } }`
+    // without headers and force subscription-state changes.
     const timestamp = req.headers['x-webhook-timestamp'];
     const signature = req.headers['x-webhook-signature'];
-    const rawBody = req.rawBody || JSON.stringify(req.body);
+    const rawBody = req.rawBody;
 
-    if (timestamp && signature) {
-      const isValid = cashfreeService.verifyWebhookSignature(rawBody, timestamp, signature);
-      if (!isValid) {
-        logger.warn('Invalid Cashfree webhook signature');
-        return res.status(400).json({ error: 'Invalid signature' });
-      }
+    if (!timestamp || !signature) {
+      logger.warn('Cashfree webhook rejected: missing timestamp/signature headers', {
+        hasTimestamp: !!timestamp,
+        hasSignature: !!signature,
+        ip: req.ip
+      });
+      return res.status(400).json({ error: 'Missing signature' });
+    }
+    if (!rawBody) {
+      // rawBody is captured by the express.json verify hook (see app.js).
+      // If it's missing, parsing changed the byte stream and verification
+      // can't succeed — fail closed rather than try to re-stringify.
+      logger.warn('Cashfree webhook rejected: rawBody unavailable', { ip: req.ip });
+      return res.status(400).json({ error: 'Bad request' });
+    }
+    const isValid = cashfreeService.verifyWebhookSignature(rawBody, timestamp, signature);
+    if (!isValid) {
+      logger.warn('Invalid Cashfree webhook signature', { ip: req.ip });
+      return res.status(400).json({ error: 'Invalid signature' });
     }
 
     const event = req.body;
