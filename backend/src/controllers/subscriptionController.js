@@ -499,6 +499,101 @@ const getPayoutPreview = async (req, res) => {
   }
 };
 
+// ─────────────────────────────────────────────
+// Dev-only: simulate webhook events without ngrok
+// POST /api/v1/connect/subscription/_dev/manual-activate
+// POST /api/v1/connect/subscription/_dev/manual-cancel
+//
+// Both refuse to run when NODE_ENV === 'production'. Useful when the local
+// backend isn't reachable from Cashfree (no public tunnel) and you just
+// want to flip a `status: initialized` row to `active` (or vice versa)
+// to exercise the rest of the code paths.
+// ─────────────────────────────────────────────
+
+const refuseInProduction = (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Dev-only endpoint is disabled in production');
+    return true;
+  }
+  return false;
+};
+
+const findOwnedSubscription = async (req, res) => {
+  const { subscriptionId } = req.body;
+  if (!subscriptionId || !mongoose.Types.ObjectId.isValid(subscriptionId)) {
+    sendError(res, 'VALIDATION_FAILED', 'Valid subscriptionId is required');
+    return null;
+  }
+  // Match the caller's userId so devs can only flip their own test rows.
+  const subscription = await Subscription.findOne({
+    _id: subscriptionId,
+    userId: req.user._id,
+  });
+  if (!subscription) {
+    sendError(res, 'RESOURCE_NOT_FOUND', 'Subscription not found for this user');
+    return null;
+  }
+  return subscription;
+};
+
+const devManualActivate = async (req, res) => {
+  if (refuseInProduction(req, res)) return;
+  try {
+    const subscription = await findOwnedSubscription(req, res);
+    if (!subscription) return;
+
+    // Mirror the SUBSCRIPTION_ACTIVE branch of handleWebhook exactly.
+    const now = new Date();
+    const periodEnd = new Date(now);
+    periodEnd.setMonth(periodEnd.getMonth() + 1);
+
+    subscription.status = 'active';
+    subscription.activatedAt = subscription.activatedAt || now;
+    subscription.currentPeriodStart = now;
+    subscription.currentPeriodEnd = periodEnd;
+    await subscription.save();
+
+    logger.info(`[DEV] Manually activated subscription ${subscription._id}`);
+    return sendSuccess(res, 200, 'Subscription activated (dev)', {
+      subscription: {
+        _id: subscription._id,
+        status: subscription.status,
+        activatedAt: subscription.activatedAt,
+        currentPeriodStart: subscription.currentPeriodStart,
+        currentPeriodEnd: subscription.currentPeriodEnd,
+      },
+    });
+  } catch (error) {
+    logger.error('Error in devManualActivate:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to activate subscription');
+  }
+};
+
+const devManualCancel = async (req, res) => {
+  if (refuseInProduction(req, res)) return;
+  try {
+    const subscription = await findOwnedSubscription(req, res);
+    if (!subscription) return;
+
+    // Mirror the cancelled branch of the SUBSCRIPTION_STATUS_CHANGE handler.
+    subscription.status = 'cancelled';
+    subscription.cancelledAt = new Date();
+    await subscription.save();
+
+    logger.info(`[DEV] Manually cancelled subscription ${subscription._id}`);
+    return sendSuccess(res, 200, 'Subscription cancelled (dev)', {
+      subscription: {
+        _id: subscription._id,
+        status: subscription.status,
+        cancelledAt: subscription.cancelledAt,
+      },
+    });
+  } catch (error) {
+    logger.error('Error in devManualCancel:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to cancel subscription');
+  }
+};
+
 module.exports = {
   createSubscription,
   getSubscriptionStatus,
@@ -507,4 +602,7 @@ module.exports = {
   getPageSubscribers,
   handleWebhook,
   getPayoutPreview,
+  // Dev-only — registered behind a NODE_ENV guard inside the handlers.
+  devManualActivate,
+  devManualCancel,
 };
