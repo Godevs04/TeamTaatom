@@ -22,6 +22,24 @@ const logger = {
 
 const BATCH_SEND_INTERVAL = 60000; // Send coordinates every 60 seconds (battery optimization)
 const MIN_LOCATION_DISTANCE = 10; // Minimum 10 meters between tracked points
+// AsyncStorage prefix for the unsent-coords queue. Each in-memory push to
+// batchCoordinatesRef also writes here so a crash mid-journey doesn't lose
+// the path between the last successful 60s sync and the crash.
+const PENDING_COORDS_KEY_PREFIX = 'pendingJourneyCoords:';
+
+// Module-level pub/sub so every live instance of useJourneyTracking can stay
+// in sync. The hook is currently called from multiple components
+// (root _layout, navigate/index, navigate/tracking, navigate/detail, …) and
+// each call has its own React state. Without this, ending a journey on the
+// tracking screen left the root-layout's <JourneyStatusBar> stuck in
+// "tracking" mode because the root instance never learned the journey ended.
+type JourneyStateListener = () => void;
+const journeyStateListeners: Set<JourneyStateListener> = new Set();
+const broadcastJourneyStateChanged = () => {
+  journeyStateListeners.forEach((listener) => {
+    try { listener(); } catch (e) { /* ignore listener failures */ }
+  });
+};
 
 interface UseJourneyTrackingReturn {
   initialized: boolean;
@@ -32,6 +50,11 @@ interface UseJourneyTrackingReturn {
   distance: number;
   duration: number;
   accuracy: number | null;
+  // Latest GPS reading, updated on every watcher emission regardless of
+  // whether the point was significant enough to append to the polyline.
+  // The marker UI should bind to this so it tracks the user even when
+  // they're stationary or moving slowly.
+  currentCoordinate: Coordinate | null;
   error: string | null;
   startJourneyRecording: (title?: string) => Promise<void>;
   pauseJourneyRecording: () => Promise<void>;
@@ -58,6 +81,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   const [distance, setDistance] = useState(0);
   const [duration, setDuration] = useState(0);
   const [accuracy, setAccuracy] = useState<number | null>(null);
+  const [currentCoordinate, setCurrentCoordinate] = useState<Coordinate | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Use refs to avoid stale closures
@@ -72,6 +96,87 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
   // Note: Background task registration removed (expo-task-manager not installed)
   // Foreground tracking via watchPositionAsync is used instead
+
+  // Persist the in-memory pending-batch to AsyncStorage so an app crash mid
+  // -journey doesn't lose the path between the last 60s sync and the crash.
+  // Fire-and-forget — the watcher fires every 2s and we don't want to block
+  // it on disk I/O. AsyncStorage serializes writes internally so the latest
+  // call wins.
+  const persistPendingCoords = useCallback(() => {
+    const id = journeyIdRef.current;
+    if (!id) return;
+    AsyncStorage.setItem(
+      PENDING_COORDS_KEY_PREFIX + id,
+      JSON.stringify(batchCoordinatesRef.current)
+    ).catch(() => {});
+  }, []);
+
+  const clearPersistedCoords = useCallback((journeyId: string | null) => {
+    if (!journeyId) return;
+    AsyncStorage.removeItem(PENDING_COORDS_KEY_PREFIX + journeyId).catch(() => {});
+  }, []);
+
+  // Single source of truth for spinning up the foreground location watcher.
+  // Called from startJourneyRecording, resumeJourneyRecording, AND
+  // initializeJourney (on screens that mount mid-journey, like tracking.tsx).
+  // distanceInterval is 0 so emissions are purely time-based — that way the
+  // marker and accuracy chip update even when the user is stationary; we
+  // still gate polyline appends on MIN_LOCATION_DISTANCE to keep the path clean.
+  const startLocationWatcher = useCallback(async () => {
+    if (Platform.OS === 'web') return;
+    if (locationWatcherRef.current) return; // already running on this instance
+    locationWatcherRef.current = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.High,
+        distanceInterval: 0,
+        timeInterval: 2000,
+      },
+      (location) => {
+        const coord: Coordinate = {
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          timestamp: location.timestamp,
+          accuracy: location.coords.accuracy || 0,
+        };
+        setAccuracy(coord.accuracy);
+        setCurrentCoordinate(coord);
+
+        // Only grow the polyline / running distance when movement is
+        // significant. First emission seeds lastCoordinateRef.
+        if (lastCoordinateRef.current) {
+          const dist = calculateCoordinateDistance(
+            lastCoordinateRef.current.latitude,
+            lastCoordinateRef.current.longitude,
+            coord.latitude,
+            coord.longitude
+          );
+          if (dist >= MIN_LOCATION_DISTANCE) {
+            lastCoordinateRef.current = coord;
+            setPolyline((prev) => [...prev, coord]);
+            setDistance((prev) => prev + dist);
+            batchCoordinatesRef.current.push(coord);
+            persistPendingCoords();
+          }
+        } else {
+          lastCoordinateRef.current = coord;
+        }
+      }
+    );
+  }, [persistPendingCoords]);
+
+  // Cleanup the foreground watcher on unmount so the leaked native subscription
+  // doesn't keep firing into a dead component (and burning battery) after a
+  // screen that mounted this hook is replaced.
+  useEffect(() => {
+    return () => {
+      if (locationWatcherRef.current) {
+        locationWatcherRef.current.remove();
+        locationWatcherRef.current = null;
+      }
+      if (durationTimerRef.current) clearInterval(durationTimerRef.current);
+      if (batchSendTimerRef.current) clearInterval(batchSendTimerRef.current);
+    };
+  }, []);
 
   // Initialize journey from storage if exists
   useEffect(() => {
@@ -90,12 +195,56 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
               setJourney(fetchedJourney);
               setPolyline(fetchedJourney.polyline || []);
               setDistance(fetchedJourney.distanceTraveled || 0);
-              // Calculate duration from startedAt
+              // Set startTimeRef so the duration useEffect can spin up its
+              // 1s ticker. Before this fix, the ref stayed null on screens
+              // that mounted mid-journey (e.g. tracking.tsx after a
+              // router.replace) so the duration never advanced live.
               if (fetchedJourney.startedAt) {
-                const elapsed = Math.floor((Date.now() - new Date(fetchedJourney.startedAt).getTime()) / 1000);
+                const startedAtMs = new Date(fetchedJourney.startedAt).getTime();
+                startTimeRef.current = startedAtMs;
+                const elapsed = Math.floor((Date.now() - startedAtMs) / 1000);
                 setDuration(Math.max(0, elapsed));
               }
-              setIsPaused(fetchedJourney.status === 'paused');
+              const isPausedJourney = fetchedJourney.status === 'paused';
+              setIsPaused(isPausedJourney);
+
+              // Seed lastCoordinateRef from the tail of the restored polyline
+              // so further emissions compute deltas against the right base.
+              const restored = fetchedJourney.polyline || [];
+              if (restored.length > 0) {
+                lastCoordinateRef.current = restored[restored.length - 1];
+              }
+
+              // Recover any points that were pushed but not yet sent (e.g.
+              // app was force-quit between two 60s syncs). Replay them into
+              // the in-memory polyline / batch so they ride out on the next
+              // batch send or the final flush at journey end.
+              try {
+                const persistedKey = PENDING_COORDS_KEY_PREFIX + storedJourneyId;
+                const persistedRaw = await AsyncStorage.getItem(persistedKey);
+                if (persistedRaw) {
+                  const persisted = JSON.parse(persistedRaw);
+                  if (Array.isArray(persisted) && persisted.length > 0) {
+                    batchCoordinatesRef.current = [...persisted];
+                    setPolyline((prev) => [...prev, ...persisted]);
+                    lastCoordinateRef.current = persisted[persisted.length - 1];
+                    logger.debug(`[Journey] Recovered ${persisted.length} unsent coords from storage`);
+                  }
+                }
+              } catch (e) {
+                logger.warn('[Journey] Failed to recover unsent coords:', e);
+              }
+
+              // CRITICAL: restart the foreground watcher on this fresh
+              // hook instance. Without this, screens mounted mid-journey
+              // (router.replace from index → tracking) had no live GPS
+              // pipe — the polyline never grew and the marker stayed at
+              // the start point.
+              if (!isPausedJourney) {
+                try { await startLocationWatcher(); } catch (e) {
+                  logger.warn('[Journey] Failed to start watcher on restore:', e);
+                }
+              }
               logger.debug('[Journey] Restored active journey from backend:', fetchedJourney._id);
             }
           } catch (err) {
@@ -109,7 +258,62 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       }
     };
 
+    // Re-sync this instance against the storage / backend source of truth.
+    // Called on mount AND on every cross-instance broadcast (e.g. when the
+    // tracking screen ends the journey, the root-layout instance hears the
+    // broadcast, sees activeJourneyId is gone, and clears its own state so
+    // the JourneyStatusBar disappears).
+    const syncFromSource = async () => {
+      try {
+        const storedJourneyId = await AsyncStorage.getItem('activeJourneyId');
+        if (!storedJourneyId) {
+          // Journey ended elsewhere — wipe local live state.
+          if (locationWatcherRef.current) {
+            locationWatcherRef.current.remove();
+            locationWatcherRef.current = null;
+          }
+          if (durationTimerRef.current) {
+            clearInterval(durationTimerRef.current);
+            durationTimerRef.current = null;
+          }
+          if (batchSendTimerRef.current) {
+            clearInterval(batchSendTimerRef.current);
+            batchSendTimerRef.current = null;
+          }
+          // Clear our local copy of the persisted batch (if any) — the
+          // initiating instance is responsible for removing the AsyncStorage
+          // entry, but this instance's in-memory ref may still be holding
+          // points pushed before the broadcast arrived.
+          journeyIdRef.current = null;
+          startTimeRef.current = null;
+          lastCoordinateRef.current = null;
+          batchCoordinatesRef.current = [];
+          setIsTracking(false);
+          setIsPaused(false);
+          setJourney(null);
+          setPolyline([]);
+          setDistance(0);
+          setDuration(0);
+          setAccuracy(null);
+          setCurrentCoordinate(null);
+          return;
+        }
+        // Active journey still exists — re-run init flow to pick up
+        // status changes (e.g. pause/resume from another instance).
+        await initializeJourney();
+      } catch (err) {
+        logger.error('[Journey] syncFromSource failed:', err);
+      }
+    };
+
     initializeJourney();
+
+    // Subscribe to cross-instance broadcasts so this hook's state stays in
+    // sync with whatever screen actually called start/pause/resume/stop.
+    journeyStateListeners.add(syncFromSource);
+    return () => {
+      journeyStateListeners.delete(syncFromSource);
+    };
   }, []);
 
   // Duration timer - updates every second
@@ -128,30 +332,41 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     }
   }, [isTracking, isPaused]);
 
-  // Batch send coordinates every 30 seconds
+  // Batch send coordinates every BATCH_SEND_INTERVAL ms.
+  // Previously this effect's outer guard included
+  // `batchCoordinatesRef.current.length > 0`, but at the moment isTracking
+  // flips to true the batch is empty, so the setInterval was never created
+  // and incremental syncs never fired. Now we always start the timer when
+  // tracking becomes active and let the interval body decide whether to POST.
   useEffect(() => {
-    if (isTracking && !isPaused && journeyIdRef.current && batchCoordinatesRef.current.length > 0) {
-      batchSendTimerRef.current = setInterval(async () => {
-        if (batchCoordinatesRef.current.length > 0) {
-          try {
-            const coords = batchCoordinatesRef.current.splice(0);
-            await updateJourneyLocation(journeyIdRef.current!, coords);
-            logger.debug(`[Journey] Sent ${coords.length} coordinates to backend`);
-          } catch (err) {
-            logger.error('[Journey] Failed to update location:', err);
-            // Re-add to batch for retry
-            batchCoordinatesRef.current.unshift(...(err as any).coords || []);
-          }
-        }
-      }, BATCH_SEND_INTERVAL);
+    if (!isTracking || isPaused) return;
+    batchSendTimerRef.current = setInterval(async () => {
+      const id = journeyIdRef.current;
+      if (!id) return;
+      if (batchCoordinatesRef.current.length === 0) return;
+      // Take ownership of the current batch atomically; on failure we
+      // re-prepend so they ride out on the next attempt.
+      const coords = batchCoordinatesRef.current.splice(0);
+      try {
+        await updateJourneyLocation(id, coords);
+        logger.debug(`[Journey] Sent ${coords.length} coordinates to backend`);
+        // Persisted-batch matches the (now empty) in-memory batch.
+        clearPersistedCoords(id);
+      } catch (err) {
+        logger.error('[Journey] Failed to update location, requeuing:', err);
+        batchCoordinatesRef.current.unshift(...coords);
+        // Re-persist so a subsequent crash still keeps the queued points.
+        persistPendingCoords();
+      }
+    }, BATCH_SEND_INTERVAL);
 
-      return () => {
-        if (batchSendTimerRef.current) {
-          clearInterval(batchSendTimerRef.current);
-        }
-      };
-    }
-  }, [isTracking, isPaused]);
+    return () => {
+      if (batchSendTimerRef.current) {
+        clearInterval(batchSendTimerRef.current);
+        batchSendTimerRef.current = null;
+      }
+    };
+  }, [isTracking, isPaused, persistPendingCoords, clearPersistedCoords]);
 
   // Listen to app state changes
   useEffect(() => {
@@ -211,6 +426,8 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
         // Save to local storage
         await AsyncStorage.setItem('activeJourneyId', newJourney._id);
+        // Wipe any stale persisted batch from a prior journey on this device.
+        clearPersistedCoords(newJourney._id);
 
         // Initialize polyline with start location
         const initialCoord: Coordinate = {
@@ -222,6 +439,8 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         lastCoordinateRef.current = initialCoord;
         setPolyline([initialCoord]);
         setAccuracy(location.coords.accuracy);
+        setCurrentCoordinate(initialCoord);
+        batchCoordinatesRef.current = [];
 
         // Set state
         setJourney(newJourney);
@@ -230,49 +449,13 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         setDistance(0);
         setDuration(0);
 
-        // Start foreground location watching
-        if (Platform.OS !== 'web') {
-          locationWatcherRef.current = await Location.watchPositionAsync(
-            {
-              accuracy: Location.Accuracy.High,
-              distanceInterval: MIN_LOCATION_DISTANCE,
-              timeInterval: 5000,
-            },
-            (location) => {
-              const coord: Coordinate = {
-                latitude: location.coords.latitude,
-                longitude: location.coords.longitude,
-                timestamp: location.timestamp,
-                accuracy: location.coords.accuracy || 0,
-              };
-
-              setAccuracy(coord.accuracy);
-
-              // Only add to polyline if far enough from last point
-              if (lastCoordinateRef.current) {
-                const dist = calculateCoordinateDistance(
-                  lastCoordinateRef.current.latitude,
-                  lastCoordinateRef.current.longitude,
-                  coord.latitude,
-                  coord.longitude
-                );
-
-                if (dist >= MIN_LOCATION_DISTANCE) {
-                  lastCoordinateRef.current = coord;
-                  setPolyline((prev) => [...prev, coord]);
-
-                  // Update distance
-                  setDistance((prev) => prev + dist);
-
-                  // Add to batch
-                  batchCoordinatesRef.current.push(coord);
-                }
-              }
-            }
-          );
-        }
+        // Start foreground location watching via the centralized helper so
+        // every entry path uses the same watcher settings AND persists the
+        // batch on each push.
+        await startLocationWatcher();
 
         logger.debug('[Journey] Started journey recording:', newJourney._id);
+        broadcastJourneyStateChanged();
       } catch (err: any) {
         const errorMsg = err?.message || 'Failed to start journey';
         setError(errorMsg);
@@ -312,8 +495,12 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         const coords = batchCoordinatesRef.current.splice(0);
         try {
           await updateJourneyLocation(journeyIdRef.current, coords);
+          clearPersistedCoords(journeyIdRef.current);
         } catch (err) {
           logger.error('[Journey] Failed to send final coordinates:', err);
+          // Re-queue + re-persist so resume / next foreground session can flush.
+          batchCoordinatesRef.current.unshift(...coords);
+          persistPendingCoords();
         }
       }
 
@@ -323,6 +510,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       setIsPaused(true);
 
       logger.debug('[Journey] Paused journey:', journeyIdRef.current);
+      broadcastJourneyStateChanged();
     } catch (err: any) {
       const errorMsg = err?.message || 'Failed to pause journey';
       setError(errorMsg);
@@ -355,49 +543,11 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       // Reset duration timer
       startTimeRef.current = Date.now() - resumedJourney.duration * 1000;
 
-      // Restart location watcher
-      if (Platform.OS !== 'web') {
-        locationWatcherRef.current = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.High,
-            distanceInterval: MIN_LOCATION_DISTANCE,
-            timeInterval: 5000,
-          },
-          (location) => {
-            const coord: Coordinate = {
-              latitude: location.coords.latitude,
-              longitude: location.coords.longitude,
-              timestamp: location.timestamp,
-              accuracy: location.coords.accuracy || 0,
-            };
-
-            setAccuracy(coord.accuracy);
-
-            // Only add to polyline if far enough from last point
-            if (lastCoordinateRef.current) {
-              const dist = calculateCoordinateDistance(
-                lastCoordinateRef.current.latitude,
-                lastCoordinateRef.current.longitude,
-                coord.latitude,
-                coord.longitude
-              );
-
-              if (dist >= MIN_LOCATION_DISTANCE) {
-                lastCoordinateRef.current = coord;
-                setPolyline((prev) => [...prev, coord]);
-
-                // Update distance
-                setDistance((prev) => prev + dist);
-
-                // Add to batch
-                batchCoordinatesRef.current.push(coord);
-              }
-            }
-          }
-        );
-      }
+      // Restart location watcher via the centralized helper.
+      await startLocationWatcher();
 
       logger.debug('[Journey] Resumed journey:', journeyIdRef.current);
+      broadcastJourneyStateChanged();
     } catch (err: any) {
       const errorMsg = err?.message || 'Failed to resume journey';
       setError(errorMsg);
@@ -430,18 +580,32 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         clearInterval(batchSendTimerRef.current);
       }
 
-      // Send final coordinates
+      // Send final coordinates. If the network is bad at exactly this
+      // moment we don't lose them — the persisted-batch entry stays on disk
+      // and the next time the user opens the app with this journey id, the
+      // init flow recovers them.
+      const completingJourneyId = journeyIdRef.current;
       if (batchCoordinatesRef.current.length > 0) {
         const coords = batchCoordinatesRef.current.splice(0);
         try {
-          await updateJourneyLocation(journeyIdRef.current, coords);
+          await updateJourneyLocation(completingJourneyId, coords);
+          clearPersistedCoords(completingJourneyId);
         } catch (err) {
           logger.error('[Journey] Failed to send final coordinates:', err);
+          batchCoordinatesRef.current.unshift(...coords);
+          persistPendingCoords();
+          // Don't proceed to completeJourney — surface the error so the
+          // user can retry from the End Journey button.
+          throw err;
         }
+      } else {
+        // Even if the in-memory batch is empty the persisted-batch entry
+        // could still be present from a prior failed send. Clear it.
+        clearPersistedCoords(completingJourneyId);
       }
 
       // Call API
-      const { journey: completedJourney } = await completeJourney(journeyIdRef.current);
+      const { journey: completedJourney } = await completeJourney(completingJourneyId);
       setJourney(completedJourney);
       setIsTracking(false);
       setIsPaused(false);
@@ -449,9 +613,16 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       // Clear from storage
       await AsyncStorage.removeItem('activeJourneyId');
 
-      logger.debug('[Journey] Completed journey:', journeyIdRef.current);
+      logger.debug('[Journey] Completed journey:', completingJourneyId);
       journeyIdRef.current = null;
       startTimeRef.current = null;
+      lastCoordinateRef.current = null;
+      batchCoordinatesRef.current = [];
+      // Notify other live instances of useJourneyTracking (root layout's
+      // JourneyStatusBar etc.) so they wipe their own copies of the journey
+      // state. Without this the recording popup persisted because the root
+      // instance's isTracking was never updated.
+      broadcastJourneyStateChanged();
     } catch (err: any) {
       const errorMsg = err?.message || 'Failed to stop journey';
       setError(errorMsg);
@@ -469,6 +640,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     distance,
     duration,
     accuracy,
+    currentCoordinate,
     error,
     startJourneyRecording,
     pauseJourneyRecording,

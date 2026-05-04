@@ -2195,13 +2195,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   logger.warn('Profile picture failed to load for user:', item.user._id);
                 }}
               />
-              {/* Follow Button - Only show if not own user */}
-              {item.user._id !== currentUser?._id && (
+              {/* Follow Button - Only show if currentUser is loaded AND not own post.
+                  If currentUser hasn't resolved yet, hide the button instead of
+                  defaulting to visible (which previously flashed Follow on the
+                  user's own shorts during the load race). */}
+              {!!currentUser?._id && String(item.user._id) !== String(currentUser._id) && (
                 <View style={[styles.followButton, isFollowing && styles.followingButton]}>
-                  <Ionicons 
-                    name={isFollowing ? "checkmark" : "add"} 
-                    size={12} 
-                    color="white" 
+                  <Ionicons
+                    name={isFollowing ? "checkmark" : "add"}
+                    size={12}
+                    color="white"
                   />
                 </View>
               )}

@@ -447,6 +447,11 @@ export default function LocaleScreen() {
   const [isGeocoding, setIsGeocoding] = useState<string | null>(null);
   const [calculatingDistances, setCalculatingDistances] = useState(false);
   const [activeTab, setActiveTab] = useState<'locale' | 'saved'>('locale');
+  // searchInput drives the TextInput value (immediate); searchQuery is the
+  // debounced/applied value that all search and filter effects key off. Splitting
+  // them keeps typing from triggering loadAdminLocales / applyFilters on every
+  // keystroke (which previously caused a loading flash on each character).
+  const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
@@ -1874,7 +1879,11 @@ export default function LocaleScreen() {
       logger.error('Error loading saved locales', error);
       setSavedLocales([]);
     }
-  }, [sortLocalesByDistance]);
+    // userLocation/locationPermissionGranted MUST be deps. Without them the
+    // closure captures whatever values existed at first render (typically
+    // null userLocation), so saved-tab distances stay stale even after the
+    // device location resolves.
+  }, [sortLocalesByDistance, userLocation, locationPermissionGranted]);
   
   // Apply client-side filters (for spot types that API doesn't support and saved locales)
   const applyFilters = useCallback((locales: Locale[], isSavedTab = false) => {
@@ -2193,11 +2202,14 @@ export default function LocaleScreen() {
   }, [activeTab, createLocationSnapshot, applyFilters, adminLocales.length]);
 
   useEffect(() => {
-    // Reload saved locales when tab changes
+    // Reload saved locales when the user opens the Saved tab AND whenever
+    // loadSavedLocales updates (it re-creates when userLocation /
+    // locationPermissionGranted change), so distances reflect the latest
+    // device location instead of the stale captured snapshot.
     if (activeTab === 'saved') {
       loadSavedLocales();
     }
-  }, [activeTab]);
+  }, [activeTab, loadSavedLocales]);
 
   // Listen for bookmark changes from detail page
   useEffect(() => {
@@ -2759,6 +2771,7 @@ export default function LocaleScreen() {
       
       // Reset filters to empty state (not default country)
       dispatchFilter({ type: 'RESET' });
+      setSearchInput('');
       setSearchQuery('');
       
       // CACHE: Invalidate cache when filters are cleared
@@ -2848,34 +2861,36 @@ export default function LocaleScreen() {
     }
   }, [loadAdminLocales, activeTab]);
   
-  // Search Input Stability: Debounced search with request cancellation
+  // Debounce upstream: searchInput (TextInput value) → searchQuery (applied).
+  // Only after the user pauses typing does searchQuery change, which lets every
+  // downstream effect that depends on searchQuery run exactly once per pause.
   useEffect(() => {
-    // Clear previous debounce timer
     if (searchDebounceTimerRef.current) {
       clearTimeout(searchDebounceTimerRef.current);
     }
-    
-    // Cancel previous search request
-    if (searchAbortControllerRef.current) {
-      searchAbortControllerRef.current.abort();
-    }
-    
-    // Set up new debounce timer - always trigger on searchQuery change
     searchDebounceTimerRef.current = setTimeout(() => {
-      if (isMountedRef.current && !isSearchingRef.current) {
-        // Reset pagination on new search
-        currentPageRef.current = 1;
-        // Reset fetch key to force new fetch
-        lastFetchKeyRef.current = null;
-        loadAdminLocalesRef.current(true);
-      }
+      if (!isMountedRef.current) return;
+      setSearchQuery(searchInput);
     }, SEARCH_DEBOUNCE_MS);
-
     return () => {
       if (searchDebounceTimerRef.current) {
         clearTimeout(searchDebounceTimerRef.current);
       }
     };
+  }, [searchInput]);
+
+  // When the (already-debounced) searchQuery changes, cancel any in-flight
+  // request and refetch immediately. No inner timer here — the debounce above
+  // is the only one.
+  useEffect(() => {
+    if (searchAbortControllerRef.current) {
+      searchAbortControllerRef.current.abort();
+    }
+    if (isMountedRef.current && !isSearchingRef.current) {
+      currentPageRef.current = 1;
+      lastFetchKeyRef.current = null;
+      loadAdminLocalesRef.current(true);
+    }
   }, [searchQuery]);
 
   const filteredCountriesForFilter = useMemo(() => {
@@ -3669,6 +3684,24 @@ export default function LocaleScreen() {
           useNativeDriver: true,
         }).start();
       }
+
+      // Cleanup: stop every looping animation on unmount. Without this, the
+      // overlay being defined inline (a new component identity per parent
+      // render) means it remounts on each re-render, but the prior loops keep
+      // running and reference Animated.Values that have been torn down. On
+      // heavy re-render flows (e.g. switching the activeTab), that has caused
+      // native animation handles to be dereferenced after free → app crash.
+      return () => {
+        rotateAnim.stopAnimation();
+        pulseAnim.stopAnimation();
+        fadeAnim.stopAnimation();
+        floatAnim.stopAnimation();
+        globeRotateAnim.stopAnimation();
+        shimmerAnim.stopAnimation();
+        dot1Anim.stopAnimation();
+        dot2Anim.stopAnimation();
+        dot3Anim.stopAnimation();
+      };
     }, [calculatingDistances, rotateAnim, pulseAnim, fadeAnim, floatAnim, globeRotateAnim, shimmerAnim, dot1Anim, dot2Anim, dot3Anim]);
 
     const rotation = rotateAnim.interpolate({
@@ -3935,23 +3968,8 @@ export default function LocaleScreen() {
             style={[styles.searchInput, { color: theme.colors.text }]}
             placeholder="Search"
             placeholderTextColor={theme.colors.textSecondary}
-            value={searchQuery}
-            onChangeText={(text) => {
-              // Update search query immediately for UI responsiveness
-              setSearchQuery(text);
-
-              // Clear existing debounce timer
-              if (searchDebounceTimerRef.current) {
-                clearTimeout(searchDebounceTimerRef.current);
-              }
-
-              // Debounce the actual search/filter operation
-              searchDebounceTimerRef.current = setTimeout(() => {
-                // Trigger filter update after debounce delay
-                // The filteredLocales will update automatically via useEffect
-                logger.debug(`Debounced search query: "${text}"`);
-              }, SEARCH_DEBOUNCE_MS);
-            }}
+            value={searchInput}
+            onChangeText={setSearchInput}
           />
         </View>
         <TouchableOpacity

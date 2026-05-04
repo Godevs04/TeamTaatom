@@ -63,6 +63,10 @@ export interface ConnectPageType {
   buyItems: BuyItem[];
   status: string;
   isFollowing?: boolean;
+  // True for pages created by the current viewer. Set server-side by
+  // /connect-pages so the client can hide the Follow button without an
+  // extra getMyPages round-trip.
+  isOwn?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -210,6 +214,18 @@ export const deleteConnectPage = async (pageId: string): Promise<void> => {
 export const getCommunities = async (page = 1, limit = 20): Promise<ConnectPagesResponse> => {
   try {
     const response = await api.get(`/api/v1/connect/communities?page=${page}&limit=${limit}`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+// User-created (non-admin) Connect pages — drives the Connect tab. Backend
+// places followed entries first per fetched page so pagination stays stable.
+export const getConnectPages = async (page = 1, limit = 20): Promise<ConnectPagesResponse> => {
+  try {
+    const response = await api.get(`/api/v1/connect/connect-pages?page=${page}&limit=${limit}`);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);

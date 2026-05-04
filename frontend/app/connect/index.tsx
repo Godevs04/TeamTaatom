@@ -22,6 +22,7 @@ import EmptyState from '../../components/EmptyState';
 import {
   getMyPages,
   getCommunities,
+  getConnectPages,
   followConnectPage,
   unfollowConnectPage,
   findUsers,
@@ -78,9 +79,18 @@ export default function ConnectHubScreen() {
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  // Connect tab state (my created pages)
+  // Connect tab state. `myPages` holds every user-created (non-admin) page;
+  // the backend orders followed entries first GLOBALLY across the whole
+  // collection (not just per fetched batch). `ownedPageIds` remembers which
+  // entries were created by the current user so the card hides the Follow
+  // button on those.
   const [myPages, setMyPages] = useState<ConnectPageType[]>([]);
   const [myPagesLoading, setMyPagesLoading] = useState(false);
+  const [ownedPageIds, setOwnedPageIds] = useState<Set<string>>(new Set());
+  const [connectPageNum, setConnectPageNum] = useState(1);
+  const [connectHasMore, setConnectHasMore] = useState(true);
+  const [connectLoadingMore, setConnectLoadingMore] = useState(false);
+  const [connectRefreshing, setConnectRefreshing] = useState(false);
 
   // Bottom sheet state (Find tab user popup)
   const [selectedUser, setSelectedUser] = useState<FoundUser | null>(null);
@@ -113,18 +123,49 @@ export default function ConnectHubScreen() {
     }
   }, [geoLoaded]);
 
-  // Fetch my created pages (Connect tab)
-  const fetchMyPages = useCallback(async () => {
+  // Fetch the Connect tab list — every user-created (non-admin) page on the
+  // platform. The backend ranks followed entries first across the whole
+  // collection, so pagination just appends successive batches. `/my-pages`
+  // is fetched alongside the first batch only, purely to mark which entries
+  // belong to the current user (so we can hide the Follow button on them).
+  const fetchMyPages = useCallback(async (pNum = 1, isRefresh = false) => {
     try {
-      setMyPagesLoading(true);
-      const response = await getMyPages();
-      setMyPages(response.pages);
+      if (pNum === 1) {
+        if (isRefresh) setConnectRefreshing(true);
+        else setMyPagesLoading(true);
+      } else {
+        setConnectLoadingMore(true);
+      }
+
+      if (pNum === 1) {
+        const [allRes, mineRes] = await Promise.all([
+          getConnectPages(1, 20),
+          getMyPages().catch((e) => { logger.error('getMyPages failed:', e); return { pages: [] }; }),
+        ]);
+        setMyPages(allRes.pages || []);
+        setOwnedPageIds(new Set((mineRes.pages || []).map((p) => p._id)));
+        setConnectHasMore(allRes.pagination.page < allRes.pagination.totalPages);
+        setConnectPageNum(1);
+      } else {
+        const allRes = await getConnectPages(pNum, 20);
+        setMyPages((prev) => [...prev, ...(allRes.pages || [])]);
+        setConnectHasMore(allRes.pagination.page < allRes.pagination.totalPages);
+        setConnectPageNum(pNum);
+      }
     } catch (error) {
-      logger.error('Error fetching my pages:', error);
+      logger.error('Error fetching connect tab pages:', error);
     } finally {
       setMyPagesLoading(false);
+      setConnectRefreshing(false);
+      setConnectLoadingMore(false);
     }
   }, []);
+
+  const handleLoadMoreConnect = useCallback(() => {
+    if (!connectLoadingMore && connectHasMore && !myPagesLoading) {
+      fetchMyPages(connectPageNum + 1);
+    }
+  }, [connectLoadingMore, connectHasMore, myPagesLoading, connectPageNum, fetchMyPages]);
 
   // Fetch pages for Community tab
   const fetchPages = useCallback(async (pNum = 1, isRefresh = false) => {
@@ -207,25 +248,34 @@ export default function ConnectHubScreen() {
 
   // Page follow toggle (Archived/Community tabs)
   const handlePageFollowToggle = async (pageItem: ConnectPageType) => {
-    try {
-      const wasFollowing = pageItem.isFollowing;
-      setPages(prev =>
-        prev.map(p =>
-          p._id === pageItem._id
-            ? { ...p, isFollowing: !wasFollowing, followerCount: p.followerCount + (wasFollowing ? -1 : 1) }
-            : p
-        )
+    // Defensive: never POST follow/unfollow against the user's own page.
+    // Backend rejects it with "Cannot follow your own page", which surfaced
+    // as a confusing toggle error when isOwn / ownedPageIds momentarily
+    // weren't in sync with the rendered card.
+    if (pageItem.isOwn || ownedPageIds.has(pageItem._id)) return;
+    const wasFollowing = pageItem.isFollowing;
+    // Optimistic update for both the Community list and the Connect-tab list
+    // (they can both contain this page).
+    const applyOptimistic = (list: ConnectPageType[]) =>
+      list.map((p) =>
+        p._id === pageItem._id
+          ? { ...p, isFollowing: !wasFollowing, followerCount: p.followerCount + (wasFollowing ? -1 : 1) }
+          : p
       );
+    const rollback = (list: ConnectPageType[]) =>
+      list.map((p) =>
+        p._id === pageItem._id
+          ? { ...p, isFollowing: pageItem.isFollowing, followerCount: pageItem.followerCount }
+          : p
+      );
+    setPages(applyOptimistic);
+    setMyPages(applyOptimistic);
+    try {
       if (wasFollowing) await unfollowConnectPage(pageItem._id);
       else await followConnectPage(pageItem._id);
     } catch (error) {
-      setPages(prev =>
-        prev.map(p =>
-          p._id === pageItem._id
-            ? { ...p, isFollowing: pageItem.isFollowing, followerCount: pageItem.followerCount }
-            : p
-        )
-      );
+      setPages(rollback);
+      setMyPages(rollback);
       logger.error('Error toggling follow:', error);
     }
   };
@@ -354,7 +404,8 @@ export default function ConnectHubScreen() {
     );
   };
 
-  // Connect tab — user's own created pages
+  // Connect tab — every user-created (non-admin) page on the platform,
+  // followed entries first (global ranking from the backend), paginated.
   const renderConnectTab = () => {
     if (myPagesLoading) {
       return (
@@ -377,21 +428,36 @@ export default function ConnectHubScreen() {
     return (
       <FlashList
         data={myPages}
-        renderItem={({ item }: { item: ConnectPageType }) => (
-          <ConnectCard
-            page={item}
-            onPress={() => router.push(`/connect/page/${item._id}`)}
-            onFollowPress={() => {}}
-            isFollowing={false}
-            showFollowButton={false}
-          />
-        )}
+        renderItem={({ item }: { item: ConnectPageType }) => {
+          // Trust the backend's isOwn flag first; fall back to the
+          // ownedPageIds set populated from getMyPages in case isOwn isn't
+          // present (older backend, anonymous fetch path, etc.).
+          const isOwned = !!item.isOwn || ownedPageIds.has(item._id);
+          return (
+            <ConnectCard
+              page={item}
+              onPress={() => router.push(`/connect/page/${item._id}`)}
+              onFollowPress={() => handlePageFollowToggle(item)}
+              isFollowing={!!item.isFollowing}
+              showFollowButton={!isOwned}
+            />
+          );
+        }}
         keyExtractor={(item: ConnectPageType) => item._id}
         contentContainerStyle={{ padding: isTablet ? themeConstants.spacing.md : 8 } as any}
+        onEndReached={handleLoadMoreConnect}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={
+          connectLoadingMore ? (
+            <View style={{ paddingVertical: 16, alignItems: 'center' }}>
+              <ActivityIndicator color={theme.colors.primary} />
+            </View>
+          ) : null
+        }
         refreshControl={
           <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => { setRefreshing(true); fetchMyPages().finally(() => setRefreshing(false)); }}
+            refreshing={connectRefreshing}
+            onRefresh={() => fetchMyPages(1, true)}
             tintColor={theme.colors.primary}
             colors={[theme.colors.primary]}
           />
