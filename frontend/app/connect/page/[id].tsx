@@ -290,7 +290,10 @@ export default function ConnectPageDetailScreen() {
     setFollowersLoading(true);
     try {
       const response = await getPageFollowers(id);
-      setFollowers(response.followers || []);
+      // The backend prepends the page creator with role 'admin' so the chat
+      // member roster includes them. The members modal here is the list of
+      // people who actually followed the page, so drop that entry.
+      setFollowers((response.followers || []).filter(f => f && f.role !== 'admin'));
     } catch (error) {
       logger.error('Error loading followers:', error);
     } finally {
@@ -537,7 +540,7 @@ export default function ConnectPageDetailScreen() {
             >
               <Ionicons name="people-outline" size={16} color={theme.colors.primary} />
               <Text style={[styles.statsButtonText, { color: theme.colors.text }]}>
-                {(page.followerCount || 0) + 1}
+                {page.followerCount || 0}
               </Text>
               <Text style={[styles.statsButtonLabel, { color: theme.colors.textSecondary }]}>
                 Members
@@ -675,7 +678,7 @@ export default function ConnectPageDetailScreen() {
                 <View>
                   <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Group Chat</Text>
                   <Text style={[styles.chatDescription, { color: theme.colors.textSecondary }]}>
-                    {(page.followerCount || 0) + 1} members active
+                    {page.followerCount || 0} members active
                   </Text>
                 </View>
               </View>

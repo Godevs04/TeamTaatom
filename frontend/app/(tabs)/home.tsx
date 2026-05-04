@@ -562,7 +562,7 @@ export default function HomeScreen() {
               // Handle participants - can be array of user objects or array of IDs
               // Also handle case where participants might be serialized as array-indexed objects
               let participants = chat.participants;
-              
+
               // If participants looks like an array-indexed object (e.g., { '0': {...}, '1': {...} })
               if (participants && typeof participants === 'object' && !Array.isArray(participants)) {
                 const keys = Object.keys(participants);
@@ -571,12 +571,34 @@ export default function HomeScreen() {
                   participants = keys.map(k => participants[k]);
                 }
               }
-              
+
               if (!Array.isArray(participants) || participants.length === 0) {
                 return;
               }
-              
-              // Find the other user (not me) - handle Buffer objects from backend
+
+              const isGroupChat = chat.type === 'connect_page';
+
+              if (isGroupChat) {
+                // Group chats: msg.seen only flips true once ALL participants
+                // have read it, so it's not a per-viewer flag. Count messages
+                // where I'm not the sender and I'm not in seenBy.
+                const unseen = chat.messages.filter((msg: any) => {
+                  try {
+                    const senderId = normalizeId(msg.sender?._id || msg.sender);
+                    if (!senderId || senderId === normalizedMyUserId) return false;
+                    if (Array.isArray(msg.seenBy) && msg.seenBy.some((id: any) => normalizeId(id) === normalizedMyUserId)) {
+                      return false;
+                    }
+                    return true;
+                  } catch (e) {
+                    return false;
+                  }
+                }).length;
+                totalUnseen += unseen;
+                return;
+              }
+
+              // 1:1 chat — find the other user and use msg.seen
               const otherUser = participants.find((p: any) => {
                 try {
                   // Handle both populated participants (with _id) and direct IDs
@@ -587,18 +609,18 @@ export default function HomeScreen() {
                   return false;
                 }
               });
-              
+
               if (otherUser) {
                 try {
                   const otherUserId = normalizeId(otherUser._id || otherUser);
-                  
+
                   if (otherUserId) {
                     const unseen = chat.messages.filter((msg: any) => {
                       try {
                         // Normalize sender ID - handle Buffer objects from backend
                         // Sender can be: string, ObjectId, or { _id: ObjectId }
                         const senderId = normalizeId(msg.sender?._id || msg.sender);
-                        
+
                         // Message is unseen if:
                         // 1. It's from the other user (not me)
                         // 2. It hasn't been seen
@@ -608,7 +630,7 @@ export default function HomeScreen() {
                         return false;
                       }
                     }).length;
-                    
+
                     totalUnseen += unseen;
                   }
                 } catch (e) {
