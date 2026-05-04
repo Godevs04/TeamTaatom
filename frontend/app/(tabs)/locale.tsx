@@ -32,7 +32,7 @@ import { geocodeAddress, calculateDistance, invalidateDistanceCacheIfMoved, dist
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getCountries, getStatesByCountry, Country, State } from '../../services/location';
-import { getLocales, Locale } from '../../services/locale';
+import { getLocales, getLocaleById, Locale } from '../../services/locale';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
@@ -1810,10 +1810,10 @@ export default function LocaleScreen() {
   // Bookmark Stability: Load saved locales with defensive parsing
   const loadSavedLocales = useCallback(async () => {
     if (!isMountedRef.current) return;
-    
+
     try {
       const saved = await AsyncStorage.getItem('savedLocales');
-      
+
       // Defensive JSON parsing with recovery
       let locales: Locale[] = [];
       try {
@@ -1829,23 +1829,112 @@ export default function LocaleScreen() {
         } catch {}
         locales = [];
       }
-      
-      // Deduplicate by locale ID
+
+      // Normalize every entry into a guaranteed-shape Locale so the saved-tab
+      // renderer never sees objects where strings are expected (older app
+      // versions occasionally persisted Buffer/ObjectId for `_id` or signed-
+      // URL objects for `imageUrl`, which crashed the render). Anything that
+      // can't be coerced to a usable string ID is dropped.
+      const normalize = (raw: any): Locale | null => {
+        if (!raw || typeof raw !== 'object') return null;
+        const idStr =
+          typeof raw._id === 'string'
+            ? raw._id
+            : raw._id && typeof raw._id.toString === 'function'
+              ? String(raw._id)
+              : '';
+        if (!idStr) return null;
+        const asString = (v: any): string => (typeof v === 'string' ? v : '');
+        const asNumber = (v: any): number | undefined => {
+          if (typeof v === 'number' && !Number.isNaN(v)) return v;
+          if (typeof v === 'string' && v.trim() !== '') {
+            const n = parseFloat(v);
+            return Number.isNaN(n) ? undefined : n;
+          }
+          return undefined;
+        };
+        const imageUrls = Array.isArray(raw.imageUrls)
+          ? raw.imageUrls.filter((u: any) => typeof u === 'string' && u)
+          : [];
+        const spotTypes = Array.isArray(raw.spotTypes)
+          ? raw.spotTypes.filter((s: any) => typeof s === 'string' && s)
+          : [];
+        return {
+          _id: idStr,
+          name: asString(raw.name),
+          country: asString(raw.country),
+          countryCode: asString(raw.countryCode),
+          stateProvince: asString(raw.stateProvince),
+          stateCode: asString(raw.stateCode),
+          city: asString(raw.city),
+          description: asString(raw.description),
+          imageUrl: asString(raw.imageUrl),
+          imageUrls,
+          spotTypes,
+          travelInfo: asString(raw.travelInfo),
+          latitude: asNumber(raw.latitude),
+          longitude: asNumber(raw.longitude),
+          isActive: raw.isActive !== false,
+          createdAt: asString(raw.createdAt) || new Date(0).toISOString(),
+        } as Locale;
+      };
+
+      const normalized = locales
+        .map(normalize)
+        .filter((l): l is Locale => l !== null);
+
+      // Deduplicate by locale ID (now guaranteed to be a string)
       const localeMap = new Map<string, Locale>();
-      locales.forEach(locale => {
-        if (locale && locale._id) {
-          localeMap.set(locale._id, locale);
-        }
+      normalized.forEach(locale => {
+        localeMap.set(locale._id, locale);
       });
       const uniqueLocales = Array.from(localeMap.values());
       
+      // Refresh signed URLs from the API. Saved locales persist `imageUrl` in
+      // AsyncStorage, but admin locale images are served via short-lived
+      // signed URLs (per CLAUDE.md: "R2/S3 URLs expire after 5 min — never
+      // cache them"), so the URL stored at bookmark-time is usually expired
+      // by the time the user opens the Saved tab. Fetch each saved locale by
+      // id in parallel and overlay fresh image / gallery / signed-url fields
+      // onto the persisted record. Fall back to the persisted data if the
+      // refresh fails (offline, deleted, etc.) — the worst case is then the
+      // same broken-image we had before, never worse.
+      const refreshedLocales = await Promise.all(
+        uniqueLocales.map(async (locale) => {
+          if (!locale._id || locale._id.startsWith('admin-')) {
+            // Synthetic id assigned to non-server locales — nothing to refresh.
+            return locale;
+          }
+          try {
+            const fresh = await getLocaleById(locale._id);
+            if (!fresh || typeof fresh !== 'object') return locale;
+            return {
+              ...locale,
+              ...fresh,
+              // Preserve imageUrls only if API gave a non-empty array; same
+              // for imageUrl. This guards against an API response that's
+              // partially populated and would otherwise blank the card.
+              imageUrl: typeof fresh.imageUrl === 'string' && fresh.imageUrl
+                ? fresh.imageUrl
+                : locale.imageUrl,
+              imageUrls: Array.isArray(fresh.imageUrls) && fresh.imageUrls.length > 0
+                ? fresh.imageUrls
+                : locale.imageUrls,
+              _id: locale._id, // keep persisted id stable
+            } as Locale;
+          } catch {
+            return locale;
+          }
+        })
+      );
+
       // Calculate driving distances for saved locales if user location is available
-      let localesWithDistances = uniqueLocales;
+      let localesWithDistances = refreshedLocales;
       if (userLocation && locationPermissionGranted) {
         const userLat = roundCoord(userLocation.latitude);
         const userLon = roundCoord(userLocation.longitude);
         localesWithDistances = await Promise.all(
-          uniqueLocales.map(async (locale) => {
+          refreshedLocales.map(async (locale) => {
             const distanceKm = await getLocaleDistanceKm(
               locale._id.toString(),
               userLat,
@@ -1867,8 +1956,10 @@ export default function LocaleScreen() {
       
       if (isMountedRef.current) {
         setSavedLocales(sortedLocales);
-        
-        // Update AsyncStorage if duplicates were found
+
+        // Update AsyncStorage if duplicates / bad-shape entries were dropped
+        // during normalization. This self-heals legacy storage so the next
+        // load is fast and no longer hits the normalize() filter.
         if (uniqueLocales.length !== locales.length) {
           try {
             await AsyncStorage.setItem('savedLocales', JSON.stringify(sortedLocales));
@@ -1927,10 +2018,10 @@ export default function LocaleScreen() {
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(locale =>
-        locale.name.toLowerCase().includes(query) ||
-        locale.description?.toLowerCase().includes(query) ||
-        locale.countryCode.toLowerCase().includes(query) ||
-        locale.stateProvince?.toLowerCase().includes(query)
+        locale?.name?.toLowerCase?.().includes(query) ||
+        locale?.description?.toLowerCase?.().includes(query) ||
+        locale?.countryCode?.toLowerCase?.().includes(query) ||
+        locale?.stateProvince?.toLowerCase?.().includes(query)
       );
     }
     
@@ -2061,18 +2152,44 @@ export default function LocaleScreen() {
         const localeWithDistance = locale as Locale & { distanceKm?: number | null };
         return localeWithDistance.distanceKm !== undefined && localeWithDistance.distanceKm !== null;
       });
-      
-      // If user location just became available and we don't have distances, reload to calculate them
-      // Guard: Only reload if not currently calculating and not searching
+
+      // If user location just became available and we don't have distances,
+      // do an instant in-place straight-line calculation instead of triggering
+      // a full reload from the API. The full reload was the source of the
+      // "sometimes the distance only appears after switching tabs" symptom —
+      // it required the page to refocus to fire, and even when it did fire it
+      // refetched every locale unnecessarily. Haversine here is synchronous
+      // and runs in <5ms for hundreds of locales, so the badges populate
+      // immediately. The Stage 2 driving-distance refinement still runs in
+      // the background on next tab focus / pagination via the existing path.
       if (userLocation && locationPermissionGranted && !hasDistances && !isSearchingRef.current && !calculatingDistances) {
-        logger.debug('User location available but distances missing, reloading locales to calculate distances');
-        loadedOnceRef.current = false; // Reset guard to allow reload
-        loadAdminLocales(true).catch(err => {
-          logger.error('Error reloading locales for distance calculation:', err);
+        const userLat = roundCoord(userLocation.latitude);
+        const userLon = roundCoord(userLocation.longitude);
+        const withDistances = adminLocales.map((locale) => {
+          const lat = locale.latitude;
+          const lng = locale.longitude;
+          if (!lat || !lng || lat === 0 || lng === 0 ||
+              Number.isNaN(lat) || Number.isNaN(lng) ||
+              lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+            return { ...locale, distanceKm: null } as Locale & { distanceKm?: number | null };
+          }
+          const distanceKm = calculateDistance(userLat, userLon, roundCoord(lat), roundCoord(lng));
+          return { ...locale, distanceKm } as Locale & { distanceKm?: number | null };
         });
-        return;
+        setAdminLocales(withDistances);
+        // Also update the master sorted ref + paged caches so subsequent
+        // sort/pagination paths read the populated distances.
+        if (allLocalesSortedRef.current.length > 0) {
+          const distanceMap = new Map(withDistances.map(l => [l._id, (l as any).distanceKm]));
+          allLocalesSortedRef.current = allLocalesSortedRef.current.map((l) => {
+            const d = distanceMap.get(l._id);
+            return d !== undefined ? ({ ...l, distanceKm: d } as Locale & { distanceKm?: number | null }) : l;
+          });
+          setAllLocalesWithDistances(allLocalesSortedRef.current);
+        }
+        // Don't return — let the filter re-application below run too.
       }
-      
+
       // Re-apply filters to trigger distance-based sorting when location becomes available
       // This will re-sort using the updated userLocation (or fallback to createdAt if not available)
       // Use sortedAdminLocales to ensure proper sorting
@@ -3421,7 +3538,7 @@ export default function LocaleScreen() {
     renderAdminLocaleCard({ locale: item, index })
   ), [renderAdminLocaleCard]);
 
-  const localeKeyExtractor = useCallback((item: Locale, index: number) => item._id || `locale-${index}`, []);
+  const localeKeyExtractor = useCallback((item: Locale, index: number) => String(item?._id ?? `locale-${index}`), []);
 
   const localeGetItemLayout = useCallback((_data: ArrayLike<Locale> | null | undefined, index: number) => {
     // Card height comes from styles.wideCard: 200 on tablet, 160 on phone.
@@ -3442,8 +3559,17 @@ export default function LocaleScreen() {
 
   // List Rendering Performance: Memoize render functions
   const renderSavedLocaleCard = useCallback(({ locale, index }: { locale: Locale; index: number }) => {
+    // Defensive: AsyncStorage data can be malformed (older app versions, corrupt
+    // entries). Coerce every field we render or pass into router params to a
+    // safe primitive so the card render never throws "Objects are not valid as
+    // a React child" or "Cannot read property 'toLowerCase' of undefined".
+    const safeName = typeof locale?.name === 'string' ? locale.name : '';
+    const safeCountryCode = typeof locale?.countryCode === 'string' ? locale.countryCode : '';
+    const safeDescription = typeof locale?.description === 'string' ? locale.description : '';
+    const safeImageUrl = typeof locale?.imageUrl === 'string' && locale.imageUrl ? locale.imageUrl : '';
+
     // Use distanceKm from locale object (always available if coordinates exist)
-    const d = (locale as Locale & { distanceKm?: number | null }).distanceKm ?? 
+    const d = (locale as Locale & { distanceKm?: number | null }).distanceKm ??
               (userLocation && locationPermissionGranted ? getLocaleDistance(locale) : null);
     // Fix distance display formatting - ensure correct units
     const distanceText = d !== null && d !== undefined
@@ -3451,7 +3577,7 @@ export default function LocaleScreen() {
         ? `${Math.round(d * 1000)} m`
         : `${d.toFixed(1)} km`
       : '–';
-    
+
     return (
       <TouchableOpacity
         style={[
@@ -3466,20 +3592,20 @@ export default function LocaleScreen() {
             router.push({
               pathname: '/tripscore/countries/[country]/locations/[location]',
               params: {
-                country: locale.countryCode.toLowerCase(),
-                location: locale.name.toLowerCase().replace(/\s+/g, '-'),
+                country: safeCountryCode.toLowerCase(),
+                location: safeName.toLowerCase().replace(/\s+/g, '-'),
                 userId: 'admin-locale',
-                localeId: String(locale._id),
-                imageUrl: locale.imageUrl || '',
+                localeId: String(locale._id || ''),
+                imageUrl: safeImageUrl,
                 galleryUrls:
                   Array.isArray(locale.imageUrls) && locale.imageUrls.length > 0
-                    ? locale.imageUrls.join('|||')
+                    ? locale.imageUrls.filter(u => typeof u === 'string').join('|||')
                     : '',
                 latitude: (locale.latitude && locale.latitude !== 0) ? locale.latitude.toString() : '',
                 longitude: (locale.longitude && locale.longitude !== 0) ? locale.longitude.toString() : '',
-                description: locale.description || '',
-                spotTypes: locale.spotTypes?.join(', ') || '',
-                travelInfo: locale.travelInfo || 'Drivable',
+                description: safeDescription,
+                spotTypes: Array.isArray(locale.spotTypes) ? locale.spotTypes.filter(s => typeof s === 'string').join(', ') : '',
+                travelInfo: typeof locale.travelInfo === 'string' ? locale.travelInfo : 'Drivable',
                 distanceKm: d !== null && d !== undefined ? d.toString() : '',
               }
             });
@@ -3488,13 +3614,13 @@ export default function LocaleScreen() {
             showError('Failed to open locale details');
           }
         }}
-        accessibilityLabel={`${locale.name}, ${locale.countryCode}${distanceText && distanceText !== '–' ? `, ${distanceText} away` : ''}`}
+        accessibilityLabel={`${safeName}, ${safeCountryCode}${distanceText && distanceText !== '–' ? `, ${distanceText} away` : ''}`}
         accessibilityRole="button"
         accessibilityHint="Opens locale details"
       >
-        {locale.imageUrl ? (
+        {safeImageUrl ? (
           <ExpoImage
-            source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: 400, height: 300 }) }}
+            source={{ uri: optimizeCloudinaryUrl(safeImageUrl, { width: 400, height: 300 }) }}
             style={styles.cardImage as ImageStyle}
             contentFit="cover"
             cachePolicy="memory-disk"
@@ -3519,16 +3645,16 @@ export default function LocaleScreen() {
         />
         <View style={styles.cardContent}>
           <View style={styles.cardTitleRow}>
-            <Text style={styles.cardTitle}>{locale.name}</Text>
+            <Text style={styles.cardTitle}>{safeName}</Text>
           </View>
           <Text style={[styles.cardSubtitle, { color: '#FFFFFF' }]}>
-            {locale.countryCode}
+            {safeCountryCode}
           </Text>
-          {locale.description && (
+          {safeDescription ? (
             <Text style={[styles.cardSubtitle, { color: '#FFFFFF', marginTop: 4 }]} numberOfLines={1}>
-              {locale.description}
+              {safeDescription}
             </Text>
-          )}
+          ) : null}
         </View>
         {distanceText && (
           <View style={styles.distanceBadgeAbsolute}>
@@ -3539,10 +3665,10 @@ export default function LocaleScreen() {
         <TouchableOpacity
           style={styles.saveButton}
           onPress={(e) => {
-            e.stopPropagation();
-            unsaveLocale(locale._id);
+            e?.stopPropagation?.();
+            if (locale?._id) unsaveLocale(locale._id);
           }}
-          accessibilityLabel={`Remove ${locale.name} from saved`}
+          accessibilityLabel={`Remove ${safeName} from saved`}
           accessibilityRole="button"
         >
           <Ionicons
@@ -3689,13 +3815,18 @@ export default function LocaleScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Content */}
-      {activeTab === 'locale' ? (
-        // FlatList replaces the previous ScrollView+map: cards are virtualised
-        // (only ~6-10 mounted at a time) so scrolling stays smooth even with
-        // 100+ admin locales. ListHeader keeps the "Featured Locales" title
-        // sticky-ish at the top; ListFooter holds the Load More / loading
-        // indicator; ListEmpty handles both initial-loading and empty state.
+      {/* Content
+          Permanent fix for the saved-tab crash: previously this was
+          `activeTab === 'locale' ? <FlatList /> : <FlatList />` which
+          unmounted the locale FlatList (and all its native cells —
+          ExpoImage + LinearGradient + RefreshControl) every time the
+          user tapped Saved. On Android / Expo Go that mass-unmount of
+          native views during one render frame was the source of the
+          instant native crash. Both lists now stay mounted and we just
+          toggle visibility via `display`. The off-screen list pays
+          essentially zero render cost (no items virtualised, no scroll
+          handlers active), so this is also fine for performance. */}
+      <View style={[styles.listSlot, activeTab === 'locale' ? null : styles.hidden]} pointerEvents={activeTab === 'locale' ? 'auto' : 'none'}>
         <FlatList
           data={localesToShow}
           renderItem={renderAdminLocaleItem}
@@ -3723,11 +3854,6 @@ export default function LocaleScreen() {
             />
           }
           ListHeaderComponent={
-            // adminLocalesSection's default paddingBottom (30/40) was meant
-            // for content blocks that sit above the bottom nav; as a list
-            // header it just wedged a big gap between the title and the
-            // first card. Override to 0 — the title's own marginBottom
-            // gives enough breathing room.
             <View style={[styles.adminLocalesSection, { paddingBottom: 0 }]}>
               <Text style={[styles.sectionTitle, { color: theme.colors.text, marginBottom: 12 }]}>Featured Locales</Text>
             </View>
@@ -3778,27 +3904,22 @@ export default function LocaleScreen() {
             ) : null
           }
         />
-      ) : (
+      </View>
+
+      <View style={[styles.listSlot, activeTab === 'saved' ? null : styles.hidden]} pointerEvents={activeTab === 'saved' ? 'auto' : 'none'}>
         <FlatList
           data={filteredSavedLocales}
           renderItem={({ item, index }) => renderSavedLocaleCard({ locale: item, index })}
-          keyExtractor={(item, index) => item._id || `locale-${index}`}
-          // List Rendering Performance: FlatList optimization
-          removeClippedSubviews={true}
+          keyExtractor={(item, index) => String(item?._id ?? `locale-${index}`)}
           initialNumToRender={6}
           maxToRenderPerBatch={4}
           windowSize={7}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          getItemLayout={(data, index) => ({
-            length: 200 + 16, // card height + margin
-            offset: (200 + 16) * index,
-            index,
-          })}
           ListEmptyComponent={
-            savedLocales.length === 0 
-              ? renderEmptySavedState() 
-              : filteredSavedLocales.length === 0 
+            savedLocales.length === 0
+              ? renderEmptySavedState()
+              : filteredSavedLocales.length === 0
                 ? (
                     <View style={styles.emptyContainer}>
                       <Ionicons name="filter-outline" size={60} color={theme.colors.textSecondary} />
@@ -3806,7 +3927,7 @@ export default function LocaleScreen() {
                       <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
                         Try adjusting your filters or search query
                       </Text>
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         style={[styles.clearFiltersButton, { backgroundColor: theme.colors.primary }]}
                         onPress={handleClearFilters}
                       >
@@ -3837,7 +3958,7 @@ export default function LocaleScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[styles.listContainer, { paddingHorizontal: 20, paddingTop: 20 }]}
         />
-      )}
+      </View>
 
       {/* Filter Modal */}
       {renderFilterModal()}
@@ -3938,6 +4059,15 @@ const createStyles = () => {
       paddingHorizontal: isTabletLocal ? theme.spacing.md : 12,
       // Add padding for tab bar (88px mobile, 70px web) + extra spacing for load more button
       paddingBottom: isWebLocal ? 140 : (isTabletLocal ? 160 : 150),
+    },
+    // Wraps each tab's FlatList. Both wrappers stay mounted; only one is
+    // visible at a time (controlled via display:none) so toggling tabs
+    // never unmounts the native cells inside the off-screen list.
+    listSlot: {
+      flex: 1,
+    },
+    hidden: {
+      display: 'none',
     },
     row: {
       justifyContent: 'space-between',

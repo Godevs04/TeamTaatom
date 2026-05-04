@@ -13,6 +13,7 @@ import {
   Dimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  StatusBar,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -1526,10 +1527,15 @@ const createStyles = () => {
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: isTabletLocal ? 24 : 20,
-      paddingTop: isAndroidLocal ? (isTabletLocal ? 20 : 18) : (isTabletLocal ? 16 : 14),
+      // Extra breathing room above the back / title / bookmark / close row.
+      // On Android, SafeAreaView doesn't handle the status bar inset, so we
+      // add StatusBar.currentHeight to keep the header below the notification bar.
+      paddingTop: isAndroidLocal
+        ? (StatusBar.currentHeight || 0) + (isTabletLocal ? 12 : 8)
+        : (isTabletLocal ? 28 : 24),
       paddingBottom: isTabletLocal ? 18 : 14,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      minHeight: isAndroidLocal ? (isTabletLocal ? 72 : 64) : (isTabletLocal ? 64 : 56),
+      minHeight: isAndroidLocal ? (isTabletLocal ? 84 : 76) : (isTabletLocal ? 76 : 68),
     },
     backButton: {
       // Minimum touch target: 44x44 for iOS, 48x48 for Android
