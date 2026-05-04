@@ -93,6 +93,16 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   const batchSendTimerRef = useRef<NodeJS.Timeout | null>(null);
   const appStateRef = useRef(AppState.currentState);
   const startTimeRef = useRef<number | null>(null);
+  // Tracks whether this hook instance is still mounted. Async paths (API
+  // awaits, location callbacks fired after subscription removal on some
+  // Android OEMs, late timer ticks) check this before calling setState so
+  // we never get the "Can't perform a React state update on an unmounted
+  // component" warning that surfaces in Sentry as JS errors on RN 0.81+.
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
 
   // Note: Background task registration removed (expo-task-manager not installed)
   // Foreground tracking via watchPositionAsync is used instead
@@ -132,9 +142,18 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         timeInterval: 2000,
       },
       (location) => {
+        // Some Android OEMs deliver one more emission after the
+        // subscription has been removed. Guard against a setState on an
+        // unmounted instance.
+        if (!isMountedRef.current) return;
+        // Defensive: invalid coords from the OS would propagate NaN into
+        // the polyline and crash distance math / map renderers.
+        const lat = location?.coords?.latitude;
+        const lng = location?.coords?.longitude;
+        if (typeof lat !== 'number' || typeof lng !== 'number' || isNaN(lat) || isNaN(lng)) return;
         const coord: Coordinate = {
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
+          latitude: lat,
+          longitude: lng,
           timestamp: location.timestamp,
           accuracy: location.coords.accuracy || 0,
         };
@@ -218,17 +237,38 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
               // Recover any points that were pushed but not yet sent (e.g.
               // app was force-quit between two 60s syncs). Replay them into
               // the in-memory polyline / batch so they ride out on the next
-              // batch send or the final flush at journey end.
+              // batch send or the final flush at journey end. Validate each
+              // entry — a corrupted blob (write interrupted by force-quit)
+              // would otherwise propagate NaNs into the polyline and crash
+              // calculateCoordinateDistance / map renderers downstream.
               try {
                 const persistedKey = PENDING_COORDS_KEY_PREFIX + storedJourneyId;
                 const persistedRaw = await AsyncStorage.getItem(persistedKey);
                 if (persistedRaw) {
                   const persisted = JSON.parse(persistedRaw);
-                  if (Array.isArray(persisted) && persisted.length > 0) {
-                    batchCoordinatesRef.current = [...persisted];
-                    setPolyline((prev) => [...prev, ...persisted]);
-                    lastCoordinateRef.current = persisted[persisted.length - 1];
-                    logger.debug(`[Journey] Recovered ${persisted.length} unsent coords from storage`);
+                  const valid: Coordinate[] = Array.isArray(persisted)
+                    ? persisted.filter((c: any) =>
+                        c &&
+                        typeof c === 'object' &&
+                        typeof c.latitude === 'number' &&
+                        typeof c.longitude === 'number' &&
+                        !isNaN(c.latitude) && !isNaN(c.longitude) &&
+                        c.latitude >= -90 && c.latitude <= 90 &&
+                        c.longitude >= -180 && c.longitude <= 180
+                      )
+                    : [];
+                  if (valid.length > 0) {
+                    batchCoordinatesRef.current = [...valid];
+                    setPolyline((prev) => [...prev, ...valid]);
+                    lastCoordinateRef.current = valid[valid.length - 1];
+                    logger.debug(`[Journey] Recovered ${valid.length} unsent coords from storage` +
+                      (Array.isArray(persisted) && persisted.length !== valid.length
+                        ? ` (${persisted.length - valid.length} dropped as malformed)`
+                        : ''));
+                  } else if (Array.isArray(persisted) && persisted.length > 0) {
+                    // Entire blob was malformed — clear it so we don't keep
+                    // re-loading the same corrupt data on every mount.
+                    AsyncStorage.removeItem(persistedKey).catch(() => {});
                   }
                 }
               } catch (e) {
@@ -266,6 +306,10 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     const syncFromSource = async () => {
       try {
         const storedJourneyId = await AsyncStorage.getItem('activeJourneyId');
+        // Component may have unmounted while we awaited the storage read
+        // (rapid navigation). Bail before any setState fires on a dead
+        // instance.
+        if (!isMountedRef.current) return;
         if (!storedJourneyId) {
           // Journey ended elsewhere — wipe local live state.
           if (locationWatcherRef.current) {
@@ -320,7 +364,8 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   useEffect(() => {
     if (isTracking && !isPaused && startTimeRef.current) {
       durationTimerRef.current = setInterval(() => {
-        const elapsed = Math.floor((Date.now() - startTimeRef.current!) / 1000);
+        if (!isMountedRef.current || !startTimeRef.current) return;
+        const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000);
         setDuration(elapsed);
       }, 1000);
 
@@ -341,6 +386,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   useEffect(() => {
     if (!isTracking || isPaused) return;
     batchSendTimerRef.current = setInterval(async () => {
+      if (!isMountedRef.current) return;
       const id = journeyIdRef.current;
       if (!id) return;
       if (batchCoordinatesRef.current.length === 0) return;

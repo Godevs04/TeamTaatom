@@ -569,17 +569,41 @@ const getConnectPages = async (req, res) => {
         { $limit: limit }
       ];
 
-      [pages, total] = await Promise.all([
-        ConnectPage.aggregate(aggPipeline),
-        ConnectPage.countDocuments(matchStage)
-      ]);
+      try {
+        [pages, total] = await Promise.all([
+          ConnectPage.aggregate(aggPipeline),
+          ConnectPage.countDocuments(matchStage)
+        ]);
 
-      // aggregate() bypasses Mongoose schema population — populate the
-      // creator separately on the resulting plain documents.
-      await ConnectPage.populate(pages, {
-        path: 'userId',
-        select: 'username fullName profilePic'
-      });
+        // aggregate() bypasses Mongoose schema population — populate the
+        // creator separately on the resulting plain documents.
+        await ConnectPage.populate(pages, {
+          path: 'userId',
+          select: 'username fullName profilePic'
+        });
+      } catch (aggErr) {
+        // Defensive fallback: $toString / $in / $eq inside $addFields
+        // require MongoDB 4.0+. If we hit an older server (e.g. mirror,
+        // staging, version downgrade) the aggregation throws — fall back
+        // to recency-only sort and tag isFollowing/isOwn in JS so the
+        // client still gets a usable list rather than a 500.
+        logger.warn('Connect-pages aggregation failed, falling back to recency sort:', aggErr?.message || aggErr);
+        [pages, total] = await Promise.all([
+          ConnectPage.find(matchStage)
+            .populate('userId', 'username fullName profilePic')
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean(),
+          ConnectPage.countDocuments(matchStage)
+        ]);
+        const followedIdSet = new Set(followedIdStrings);
+        pages.forEach((p) => {
+          p.isFollowing = followedIdSet.has(p._id.toString());
+          const ownerId = p.userId?._id?.toString?.() || (typeof p.userId === 'string' ? p.userId : '');
+          p.isOwn = ownerId === currentUserIdString;
+        });
+      }
     } else {
       // Anonymous viewers have no follow set; recency-only ordering.
       [pages, total] = await Promise.all([
