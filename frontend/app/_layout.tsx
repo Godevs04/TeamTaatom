@@ -24,7 +24,7 @@ import { crashReportingService } from '../services/crashReporting';
 import { ErrorBoundary } from '../utils/errorBoundary';
 import { registerServiceWorker } from '../utils/serviceWorker';
 import JourneyStatusBar from '../components/JourneyStatusBar';
-import { useJourneyTracking } from '../hooks/useJourneyTracking';
+import { JourneyProvider, useJourney } from '../context/JourneyContext';
 import * as Sentry from '@sentry/react-native';
 // Note: expo-av is deprecated but still needed for Audio.setAudioModeAsync
 // Will migrate to expo-audio in future SDK update
@@ -102,7 +102,9 @@ function RootLayoutInner() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === 'web' ? 0 : insets.top;
 
-  // Journey tracking hook
+  // Journey tracking — reads from the shared provider mounted in
+  // RootLayout below, so every consumer (this layout, navigate/*,
+  // map/current-location) shares one GPS watcher.
   const {
     isTracking,
     isPaused,
@@ -110,7 +112,7 @@ function RootLayoutInner() {
     duration,
     pauseJourneyRecording,
     stopJourneyRecording,
-  } = useJourneyTracking();
+  } = useJourney();
 
   // Apply web optimizations
   useWebOptimizations();
@@ -973,9 +975,15 @@ export default Sentry.wrap(function RootLayout() {
           <SettingsProvider>
             <AlertProvider>
               <ScrollProvider>
-                <View style={styles.rootContainer}>
-                  <RootLayoutInner />
-                </View>
+                {/* JourneyProvider must wrap RootLayoutInner so it (and
+                    every other screen) reads the SAME journey instance —
+                    one GPS watcher, one batch-send timer for the whole
+                    app tree. */}
+                <JourneyProvider>
+                  <View style={styles.rootContainer}>
+                    <RootLayoutInner />
+                  </View>
+                </JourneyProvider>
               </ScrollProvider>
             </AlertProvider>
           </SettingsProvider>

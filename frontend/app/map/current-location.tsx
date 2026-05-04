@@ -25,7 +25,7 @@ import * as Location from 'expo-location';
 import { MapView, Marker, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import { calculateDistance, openDirections } from '../../utils/locationUtils';
-import { useJourneyTracking } from '../../hooks/useJourneyTracking';
+import { useJourney } from '../../context/JourneyContext';
 import logger from '../../utils/logger';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -190,7 +190,7 @@ export default function CurrentLocationMap() {
     pauseJourneyRecording,
     resumeJourneyRecording,
     stopJourneyRecording,
-  } = useJourneyTracking();
+  } = useJourney();
 
   const formatJourneyDistance = () => {
     if (journeyDistance < 1000) return `${Math.round(journeyDistance)} m`;
