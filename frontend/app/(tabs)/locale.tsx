@@ -2861,22 +2861,14 @@ export default function LocaleScreen() {
     }
   }, [loadAdminLocales, activeTab]);
   
-  // Debounce upstream: searchInput (TextInput value) → searchQuery (applied).
-  // Only after the user pauses typing does searchQuery change, which lets every
-  // downstream effect that depends on searchQuery run exactly once per pause.
-  useEffect(() => {
-    if (searchDebounceTimerRef.current) {
-      clearTimeout(searchDebounceTimerRef.current);
-    }
-    searchDebounceTimerRef.current = setTimeout(() => {
-      if (!isMountedRef.current) return;
-      setSearchQuery(searchInput);
-    }, SEARCH_DEBOUNCE_MS);
-    return () => {
-      if (searchDebounceTimerRef.current) {
-        clearTimeout(searchDebounceTimerRef.current);
-      }
-    };
+  // Manual-trigger search: searchInput is the live TextInput value, but
+  // searchQuery only flips when the user explicitly taps the search icon
+  // (or hits return on the keyboard). No auto-debounce — typing stays local
+  // and the network/filter pipeline runs only on submit.
+  const handleSearchSubmit = useCallback(() => {
+    if (!isMountedRef.current) return;
+    const next = searchInput.trim();
+    setSearchQuery(next);
   }, [searchInput]);
 
   // When the (already-debounced) searchQuery changes, cancel any in-flight
@@ -3963,13 +3955,23 @@ export default function LocaleScreen() {
       {/* Search Bar */}
       <View style={[styles.searchContainer, { backgroundColor: theme.colors.background }]}>
         <View style={[styles.searchBar, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-          <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} />
+          <TouchableOpacity
+            onPress={handleSearchSubmit}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Search"
+            accessibilityRole="button"
+            activeOpacity={0.7}
+          >
+            <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} />
+          </TouchableOpacity>
           <TextInput
             style={[styles.searchInput, { color: theme.colors.text }]}
             placeholder="Search"
             placeholderTextColor={theme.colors.textSecondary}
             value={searchInput}
             onChangeText={setSearchInput}
+            returnKeyType="search"
+            onSubmitEditing={handleSearchSubmit}
           />
         </View>
         <TouchableOpacity
@@ -4023,8 +4025,13 @@ export default function LocaleScreen() {
             />
           }
           ListHeaderComponent={
-            <View style={styles.adminLocalesSection}>
-              <Text style={[styles.sectionTitle, { color: theme.colors.text, marginBottom: 16 }]}>Featured Locales</Text>
+            // adminLocalesSection's default paddingBottom (30/40) was meant
+            // for content blocks that sit above the bottom nav; as a list
+            // header it just wedged a big gap between the title and the
+            // first card. Override to 0 — the title's own marginBottom
+            // gives enough breathing room.
+            <View style={[styles.adminLocalesSection, { paddingBottom: 0 }]}>
+              <Text style={[styles.sectionTitle, { color: theme.colors.text, marginBottom: 12 }]}>Featured Locales</Text>
             </View>
           }
           ListEmptyComponent={

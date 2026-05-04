@@ -170,7 +170,27 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
   const flatListRef = useRef<FlatList>(null);
   const videoRefs = useRef<{ [key: string]: Video | null }>({});
+  // Two timeout namespaces. Previously a single `pauseTimeoutRefs[id]` slot was
+  // shared by the pause-button hide timer AND the like-animation hide timer,
+  // so a tap-then-like (or vice versa) on the same cell within 1.5s overwrote
+  // the slot and orphaned the first timer. Splitting them prevents stale
+  // callbacks from setting state on stale data.
   const pauseTimeoutRefs = useRef<{ [key: string]: NodeJS.Timeout }>({});
+  const likeAnimTimeoutRefs = useRef<{ [key: string]: NodeJS.Timeout }>({});
+
+  // Helpers that no-op when the per-id value hasn't changed. The previous
+  // pattern `setState(prev => ({ ...prev, [id]: value }))` always allocated a
+  // new object reference, even when value === prev[id], which churned
+  // renderShortItem's deps and re-rendered every visible cell on every video
+  // load/play/pause/viewability event. Coalescing eliminates the redundant
+  // re-renders entirely.
+  const updateKeyedBool = useCallback((
+    setter: React.Dispatch<React.SetStateAction<{ [key: string]: boolean }>>,
+    key: string,
+    value: boolean
+  ) => {
+    setter((prev) => (prev[key] === value ? prev : { ...prev, [key]: value }));
+  }, []);
   const likeAnimationRefs = useRef<{ [key: string]: Animated.Value }>({});
   const likeParticleRefs = useRef<{ [key: string]: ParticleAnimations }>({});
   const swipeAnimation = useRef(new Animated.Value(0)).current;
@@ -246,7 +266,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       if (video) {
         try {
           await video.pauseAsync();
-          setVideoStates(prev => ({ ...prev, [activeVideoIdRef.current!]: false }));
+          updateKeyedBool(setVideoStates, activeVideoIdRef.current!, false);
           logger.debug(`Paused current video: ${activeVideoIdRef.current}`);
         } catch (error) {
           logger.warn(`Error pausing current video:`, error);
@@ -322,28 +342,31 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
       // Remove from refs
       delete videoRefs.current[videoId];
-      
-      // Update state
+
+      // Update state — coalesce: skip the new-object allocation when the key
+      // wasn't there to begin with.
       setVideoStates(prev => {
+        if (!(videoId in prev)) return prev;
         const newState = { ...prev };
         delete newState[videoId];
         return newState;
       });
-      
+
       logger.debug(`Stopped and unloaded video: ${videoId}`);
     } catch (error) {
       // Safely handle and log errors
-      const errorMessage = error instanceof Error 
-        ? error.message 
-        : typeof error === 'string' 
-        ? error 
+      const errorMessage = error instanceof Error
+        ? error.message
+        : typeof error === 'string'
+        ? error
         : 'Unknown video cleanup error';
-      
+
       logger.warn(`Error stopping/unloading video ${videoId}:`, errorMessage);
-      
+
       // Still remove from refs even if cleanup fails to prevent memory leaks
       delete videoRefs.current[videoId];
       setVideoStates(prev => {
+        if (!(videoId in prev)) return prev;
         const newState = { ...prev };
         delete newState[videoId];
         return newState;
@@ -390,11 +413,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       });
       videoRefs.current = {};
       
-      // Clear all pause timeouts
-      Object.values(pauseTimeoutRefs.current).forEach(timeout => {
-        clearTimeout(timeout);
-      });
+      // Clear all pause timeouts AND like-anim timeouts (separate namespaces).
+      Object.values(pauseTimeoutRefs.current).forEach(timeout => clearTimeout(timeout));
+      Object.values(likeAnimTimeoutRefs.current).forEach(timeout => clearTimeout(timeout));
       pauseTimeoutRefs.current = {};
+      likeAnimTimeoutRefs.current = {};
+
+      // Drop animated-value refs so we don't leak Animated.Value instances.
+      likeAnimationRefs.current = {};
+      likeParticleRefs.current = {};
       
       // Clear video cache
       if (videoCacheRef.current) {
@@ -1050,13 +1077,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       if (videoId !== activeVideoId && videoRefs.current[videoId]) {
         try {
           await videoRefs.current[videoId]?.pauseAsync();
-          setVideoStates(prev => ({ ...prev, [videoId]: false }));
+          updateKeyedBool(setVideoStates, videoId, false);
         } catch (error) {
           logger.warn(`Error pausing video ${videoId}:`, error);
         }
       }
     });
-  }, []);
+  }, [updateKeyedBool]);
 
   const toggleVideoPlayback = useCallback((videoId: string) => {
     const video = videoRefs.current[videoId];
@@ -1072,8 +1099,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       if (newPlayState) {
         pauseAllVideosExcept(videoId);
         activeVideoIdRef.current = videoId;
-        // Update video state immediately for music sync
-        setVideoStates(prev => ({ ...prev, [videoId]: true }));
+        // Update video state immediately for music sync (coalesced)
+        updateKeyedBool(setVideoStates, videoId, true);
         
         // Set video audio based on music presence
         if (hasMusic) {
@@ -1090,31 +1117,31 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           activeVideoIdRef.current = null;
         }
         // Update video state immediately for music sync
-        setVideoStates(prev => ({ ...prev, [videoId]: false }));
+        updateKeyedBool(setVideoStates, videoId, false);
       }
-      
+
       video.setStatusAsync({
         shouldPlay: newPlayState,
       }).catch(() => {});
     }
-  }, [videoStates, pauseAllVideosExcept, shorts]);
+  }, [videoStates, pauseAllVideosExcept, shorts, updateKeyedBool]);
 
   const showPauseButtonTemporarily = (videoId: string) => {
     // Don't show pause button if like animation is showing
     if (showLikeAnimation[videoId]) {
       return;
     }
-    
-    setShowPauseButton(prev => ({ ...prev, [videoId]: true }));
-    
-    // Clear existing timeout
+
+    updateKeyedBool(setShowPauseButton, videoId, true);
+
+    // Clear existing pause-button timeout (separate slot from like-anim).
     if (pauseTimeoutRefs.current[videoId]) {
       clearTimeout(pauseTimeoutRefs.current[videoId]);
     }
-    
+
     // Set new timeout
     pauseTimeoutRefs.current[videoId] = setTimeout(() => {
-      setShowPauseButton(prev => ({ ...prev, [videoId]: false }));
+      updateKeyedBool(setShowPauseButton, videoId, false);
     }, 2000);
   };
 
@@ -1128,12 +1155,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     
     // Reset animation
     animValue.setValue(0);
-    
-    // Show like animation
-    setShowLikeAnimation(prev => ({ ...prev, [shortId]: true }));
-    
-    // Hide pause button while animation is showing
-    setShowPauseButton(prev => ({ ...prev, [shortId]: false }));
+
+    // Show like animation (coalesced — no-op if already true)
+    updateKeyedBool(setShowLikeAnimation, shortId, true);
+
+    // Hide pause button while animation is showing (coalesced)
+    updateKeyedBool(setShowPauseButton, shortId, false);
     
     // Clear existing timeout
     if (pauseTimeoutRefs.current[shortId]) {
@@ -1253,10 +1280,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }, index * 30); // Stagger particles
     });
     
-    // Hide animation after 1.5 seconds
-    pauseTimeoutRefs.current[shortId] = setTimeout(() => {
-      setShowLikeAnimation(prev => ({ ...prev, [shortId]: false }));
+    // Hide animation after 1.5 seconds.
+    // Use the separate likeAnim slot so a follow-up tap-to-pause on the same
+    // cell within 1.5s doesn't orphan this timer.
+    if (likeAnimTimeoutRefs.current[shortId]) {
+      clearTimeout(likeAnimTimeoutRefs.current[shortId]);
+    }
+    likeAnimTimeoutRefs.current[shortId] = setTimeout(() => {
+      updateKeyedBool(setShowLikeAnimation, shortId, false);
       setLikeAnimationParticles(prev => {
+        if (!prev[shortId]) return prev;
         const newState = { ...prev };
         delete newState[shortId];
         return newState;
@@ -1731,14 +1764,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           }
           if (!status.isPlaying) {
             currentVideo.playAsync().then(() => {
-              setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
+              updateKeyedBool(setVideoStates, currentShortId, true);
               logger.debug(`Video ${currentShortId} started playing via useEffect`);
             }).catch((error) => {
               logger.error(`Video ${currentShortId} failed to play via useEffect:`, error);
               setTimeout(() => { currentVideo.playAsync().catch(() => {}); }, 500);
             });
           } else {
-            setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
+            updateKeyedBool(setVideoStates, currentShortId, true);
           }
         } else {
           logger.debug(`Video ${currentShortId} not loaded yet, waiting for onLoad`);
@@ -1749,10 +1782,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       });
     } else {
       activeVideoIdRef.current = currentShortId;
-      setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
+      updateKeyedBool(setVideoStates, currentShortId, true);
       logger.debug(`Video ref not available for ${currentShortId}, will play when mounted`);
     }
-  }, [currentVisibleIndex, shortsData]);
+  }, [currentVisibleIndex, shortsData, updateKeyedBool]);
 
   // Preload next reel and track video views (reels only; skip when visible item is ad)
   useEffect(() => {
@@ -1929,7 +1962,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   // unmounts the old player and remounts a clean one with the new URL.
                   logger.error(`Video ${item._id} failed to load:`, error);
                   videoCacheRef.current.delete(item._id);
-                  setVideoStates(prev => ({ ...prev, [item._id]: false }));
+                  updateKeyedBool(setVideoStates, item._id, false);
 
                   const errorMessage = typeof error === 'string' ? error : (error as any)?.message || '';
                   const errorCode = (error as any)?.code;
@@ -2018,10 +2051,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     // to avoid unnecessary re-renders (onPlaybackStatusUpdate fires ~30x/sec)
                     if (wasPlaying !== isNowPlaying) {
                       logger.debug(`Video ${item._id} ${isNowPlaying ? 'playing' : 'paused'}`);
-                      setVideoStates(prev => ({
-                        ...prev,
-                        [item._id]: isNowPlaying
-                      }));
+                      updateKeyedBool(setVideoStates, item._id, isNowPlaying);
                     }
                   } else if ((status as any).error) {
                     // Handle playback errors
@@ -2036,12 +2066,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   // CRITICAL: Ensure video plays after it fully loads, especially for subsequent videos
                   if (status.isLoaded) {
                     logger.debug(`Video ${item._id} loaded successfully, isPlaying: ${status.isPlaying}, shouldPlay: ${index === currentVisibleIndex}`);
-                    
-                    // Initialize video state when video loads
-                    setVideoStates(prev => ({
-                      ...prev,
-                      [item._id]: status.isPlaying || false
-                    }));
+
+                    // Initialize video state when video loads (coalesced)
+                    updateKeyedBool(setVideoStates, item._id, !!status.isPlaying);
                     
                     // CRITICAL FIX: Ensure video plays when it becomes visible and is loaded
                     // This fixes the black screen issue for subsequent videos
@@ -2062,10 +2089,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                             if (!currentStatus.isPlaying) {
                               activeVideoIdRef.current = item._id;
                               video.playAsync().then(() => {
-                                setVideoStates(prev => ({
-                                  ...prev,
-                                  [item._id]: true
-                                }));
+                                updateKeyedBool(setVideoStates, item._id, true);
                                 logger.debug(`Video ${item._id} started playing after load`);
                               }).catch((error) => {
                                 logger.error(`Video ${item._id} failed to play after load:`, error);
@@ -2410,7 +2434,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           </View>
       </View>
     );
-  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, swipeAnimation, fadeAnimation, isScreenFocused, sourceVersions]);
+    // swipeAnimation / fadeAnimation are Animated.Value refs from useRef ---
+    // their identity never changes, so they don't belong in the deps array.
+    // Including them was harmless but signaled false volatility.
+  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions]);
 
   const keyExtractor = useCallback((item: ShortsItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;
@@ -2459,10 +2486,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       if (previousVideo) {
         previousVideo.pauseAsync()
           .then(() => {
-            setVideoStates(prev => ({ ...prev, [previousVideoId]: false }));
+            updateKeyedBool(setVideoStates, previousVideoId, false);
           })
           .catch(() => {
-            setVideoStates(prev => ({ ...prev, [previousVideoId]: false }));
+            updateKeyedBool(setVideoStates, previousVideoId, false);
           });
         // Do NOT call stopAndUnloadVideo here: the Video component may still
         // be mounted in the FlatList window, and unloadAsync leaves it in a
@@ -2479,11 +2506,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // If new visible item is a reel, mark it active for playback; if ad, leave video paused
     if (item && !isAdItem(item)) {
       activeVideoIdRef.current = item._id;
-      setVideoStates(prev => ({ ...prev, [item._id]: true }));
+      updateKeyedBool(setVideoStates, item._id, true);
     } else {
       activeVideoIdRef.current = null;
     }
-  }, [shortsData, stopAndUnloadVideo, currentVisibleIndex]);
+  }, [shortsData, stopAndUnloadVideo, currentVisibleIndex, updateKeyedBool]);
 
   const viewabilityConfig = useRef({
     itemVisiblePercentThreshold: 80, // Item is considered visible when 80% is on screen
