@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import * as Location from 'expo-location';
+import * as TaskManager from 'expo-task-manager';
+import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, Platform } from 'react-native';
+
+// True when running inside Expo Go. The native bits behind expo-task-manager
+// + the iOS background-location capability aren't bundled there, so any
+// startLocationUpdatesAsync call against our task throws. We bail out of
+// background-tracking work on this branch — the foreground watcher still
+// runs as before, just without bg coverage.
+const isExpoGo = Constants.appOwnership === 'expo';
+
 import {
   startJourney,
   pauseJourney,
@@ -26,6 +36,61 @@ const MIN_LOCATION_DISTANCE = 10; // Minimum 10 meters between tracked points
 // batchCoordinatesRef also writes here so a crash mid-journey doesn't lose
 // the path between the last successful 60s sync and the crash.
 const PENDING_COORDS_KEY_PREFIX = 'pendingJourneyCoords:';
+// AsyncStorage prefix for the *background-only* queue. When the app is
+// suspended the foreground watchPositionAsync stops firing, but the
+// TaskManager task below keeps writing locations here. On the next
+// foreground transition we drain this into the polyline + send batch.
+const BG_QUEUE_KEY_PREFIX = 'bgJourneyCoords:';
+// TaskManager task name. Defined at module scope so it's registered on
+// every JS bundle load (required by TaskManager's API contract — it must
+// be reachable before `startLocationUpdatesAsync` is called).
+const BG_LOCATION_TASK = 'taatom-journey-bg-location';
+
+// Background location task. Runs in a headless JS context when the app is
+// backgrounded / locked. Cannot touch React state — only persists incoming
+// coordinates to AsyncStorage so the next foreground transition can replay
+// them into the polyline.
+TaskManager.defineTask(BG_LOCATION_TASK, async (taskBody: any) => {
+  const { data, error } = taskBody || {};
+  if (error) return;
+  if (!data) return;
+  const locations = data?.locations as Location.LocationObject[] | undefined;
+  if (!Array.isArray(locations) || locations.length === 0) return;
+
+  try {
+    const journeyId = await AsyncStorage.getItem('activeJourneyId');
+    if (!journeyId) return; // Stale task firing after a stop — drop.
+
+    const valid: Coordinate[] = [];
+    for (const loc of locations) {
+      const lat = loc?.coords?.latitude;
+      const lng = loc?.coords?.longitude;
+      if (typeof lat !== 'number' || typeof lng !== 'number') continue;
+      if (Number.isNaN(lat) || Number.isNaN(lng)) continue;
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
+      valid.push({
+        latitude: lat,
+        longitude: lng,
+        timestamp: loc.timestamp,
+        accuracy: loc.coords?.accuracy || 0,
+      });
+    }
+    if (valid.length === 0) return;
+
+    const queueKey = BG_QUEUE_KEY_PREFIX + journeyId;
+    const existingRaw = await AsyncStorage.getItem(queueKey);
+    let existing: Coordinate[] = [];
+    if (existingRaw) {
+      try {
+        const parsed = JSON.parse(existingRaw);
+        if (Array.isArray(parsed)) existing = parsed;
+      } catch { /* keep existing empty */ }
+    }
+    await AsyncStorage.setItem(queueKey, JSON.stringify([...existing, ...valid]));
+  } catch {
+    // Background task must never throw — silent on error.
+  }
+});
 
 // Module-level pub/sub so every live instance of useJourneyTracking can stay
 // in sync. The hook is currently called from multiple components
@@ -352,6 +417,29 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
     initializeJourney();
 
+    // One-shot sweep of stale bg-queue entries. If the user ended a
+    // journey while the app was force-quit and the activeJourneyId was
+    // cleared, but the bg task captured a few coords on the next OS-
+    // delivered emission before stopLocationUpdatesAsync took effect, the
+    // queue entry would linger forever. Drop any bg-queue keys that don't
+    // match the current activeJourneyId. Cheap (one AsyncStorage scan)
+    // and runs once per mount.
+    (async () => {
+      try {
+        const allKeys = await AsyncStorage.getAllKeys();
+        const bgKeys = allKeys.filter(k => k.startsWith(BG_QUEUE_KEY_PREFIX));
+        if (bgKeys.length === 0) return;
+        const activeId = await AsyncStorage.getItem('activeJourneyId');
+        const stale = bgKeys.filter(k => k.slice(BG_QUEUE_KEY_PREFIX.length) !== activeId);
+        if (stale.length > 0) {
+          await AsyncStorage.multiRemove(stale).catch(() => {});
+          logger.debug(`[Journey] Swept ${stale.length} stale bg-queue entries`);
+        }
+      } catch {
+        // Silent — sweep is best-effort cleanup, not critical.
+      }
+    })();
+
     // Subscribe to cross-instance broadcasts so this hook's state stays in
     // sync with whatever screen actually called start/pause/resume/stop.
     journeyStateListeners.add(syncFromSource);
@@ -414,11 +502,173 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     };
   }, [isTracking, isPaused, persistPendingCoords, clearPersistedCoords]);
 
-  // Listen to app state changes
+  // Track the latest polyline timestamps in a ref so the AppState handler
+  // can dedupe coords drained from the background queue without subscribing
+  // to polyline changes (which would re-create the AppState listener on
+  // every emission).
+  const polylineRef = useRef<Coordinate[]>([]);
   useEffect(() => {
-    const subscription = AppState.addEventListener('change', handleAppStateChange);
-    return () => subscription.remove();
-  }, [isTracking, isPaused]);
+    polylineRef.current = polyline;
+  }, [polyline]);
+
+  // Helper: start background location updates via TaskManager. Idempotent —
+  // safe to call when already running. Returns true on success / already-
+  // running so the caller can decide whether to keep the foreground watcher
+  // running as a fallback.
+  const startBackgroundUpdates = useCallback(async (): Promise<boolean> => {
+    if (Platform.OS === 'web') return false;
+    if (isExpoGo) {
+      logger.debug('[Journey] Skipping background updates in Expo Go (native module unavailable)');
+      return false;
+    }
+    try {
+      const already = await Location.hasStartedLocationUpdatesAsync(BG_LOCATION_TASK).catch(() => false);
+      if (already) return true;
+      await Location.startLocationUpdatesAsync(BG_LOCATION_TASK, {
+        accuracy: Location.Accuracy.High,
+        timeInterval: 5000,
+        distanceInterval: 10,
+        // iOS: omit the blue indicator bar; the journey UI itself signals
+        // recording. Set true if the App Store reviewer asks for it.
+        showsBackgroundLocationIndicator: false,
+        // Android: required foreground service for background location
+        // post-Android 8. The notification is what keeps the OS from
+        // killing the task.
+        foregroundService: {
+          notificationTitle: 'Recording your journey',
+          notificationBody: 'Path is being tracked while the app is in the background',
+        },
+        // Android: don't pause when device is stationary — we want full
+        // coverage even at rest stops.
+        pausesUpdatesAutomatically: false,
+      });
+      logger.debug('[Journey] Background location updates started');
+      return true;
+    } catch (e) {
+      logger.warn('[Journey] Failed to start background updates (non-blocking):', e);
+      return false;
+    }
+  }, []);
+
+  const stopBackgroundUpdates = useCallback(async () => {
+    if (Platform.OS === 'web') return;
+    if (isExpoGo) return;
+    try {
+      const running = await Location.hasStartedLocationUpdatesAsync(BG_LOCATION_TASK).catch(() => false);
+      if (running) {
+        await Location.stopLocationUpdatesAsync(BG_LOCATION_TASK);
+        logger.debug('[Journey] Background location updates stopped');
+      }
+    } catch (e) {
+      logger.warn('[Journey] Failed to stop background updates:', e);
+    }
+  }, []);
+
+  // Drain coords accumulated by the background task while the app was
+  // suspended. Called on app-foreground and on hook init for recovery.
+  const drainBackgroundQueue = useCallback(async () => {
+    const id = journeyIdRef.current;
+    if (!id) return;
+    const queueKey = BG_QUEUE_KEY_PREFIX + id;
+    try {
+      const raw = await AsyncStorage.getItem(queueKey);
+      if (!raw) return;
+      let parsed: any;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        await AsyncStorage.removeItem(queueKey).catch(() => {});
+        return;
+      }
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        await AsyncStorage.removeItem(queueKey).catch(() => {});
+        return;
+      }
+
+      // Validate + dedupe against current polyline by timestamp.
+      // Use a 500ms tolerance window because the OS occasionally replays a
+      // sample on the fg→bg handoff edge with a slightly different
+      // timestamp; an exact-match Set would let it through and double-
+      // count a single physical fix. Sorted-by-timestamp existing list
+      // lets the lookup short-circuit.
+      const TS_TOLERANCE_MS = 500;
+      const existingSorted = polylineRef.current
+        .map(c => c.timestamp)
+        .filter((t): t is number => typeof t === 'number')
+        .sort((a, b) => a - b);
+      const isDuplicateTimestamp = (ts: number): boolean => {
+        if (typeof ts !== 'number') return false;
+        // Linear scan is fine — polyline is small (<~few thousand even on
+        // a multi-day journey) and we only call this on bg-queue drain.
+        for (const e of existingSorted) {
+          if (Math.abs(e - ts) <= TS_TOLERANCE_MS) return true;
+          if (e > ts + TS_TOLERANCE_MS) break;
+        }
+        return false;
+      };
+      const valid: Coordinate[] = parsed.filter((c: any) =>
+        c &&
+        typeof c === 'object' &&
+        typeof c.latitude === 'number' &&
+        typeof c.longitude === 'number' &&
+        !Number.isNaN(c.latitude) && !Number.isNaN(c.longitude) &&
+        c.latitude >= -90 && c.latitude <= 90 &&
+        c.longitude >= -180 && c.longitude <= 180 &&
+        !isDuplicateTimestamp(c.timestamp)
+      );
+
+      // Apply the same MIN_LOCATION_DISTANCE filter the foreground watcher
+      // uses, walking from the last known polyline tail forward, so a row
+      // of background coords doesn't introduce a denser-than-foreground
+      // segment of the path.
+      let lastCoord = lastCoordinateRef.current;
+      const accepted: Coordinate[] = [];
+      let addedDistance = 0;
+      for (const c of valid) {
+        if (!lastCoord) {
+          accepted.push(c);
+          lastCoord = c;
+          continue;
+        }
+        const d = calculateCoordinateDistance(
+          lastCoord.latitude, lastCoord.longitude,
+          c.latitude, c.longitude
+        );
+        if (d >= MIN_LOCATION_DISTANCE) {
+          accepted.push(c);
+          addedDistance += d;
+          lastCoord = c;
+        }
+      }
+
+      if (accepted.length > 0) {
+        lastCoordinateRef.current = accepted[accepted.length - 1];
+        setPolyline(prev => [...prev, ...accepted]);
+        setDistance(prev => prev + addedDistance);
+        // Push into the send batch so the next 60s sync ships them.
+        batchCoordinatesRef.current.push(...accepted);
+        persistPendingCoords();
+        // Update accuracy display to the latest sample.
+        const latest = accepted[accepted.length - 1];
+        setAccuracy(latest.accuracy ?? null);
+        setCurrentCoordinate(latest);
+        logger.debug(`[Journey] Drained ${accepted.length} background coords (+${Math.round(addedDistance)}m)`);
+      }
+
+      await AsyncStorage.removeItem(queueKey).catch(() => {});
+    } catch (e) {
+      logger.warn('[Journey] drainBackgroundQueue failed:', e);
+    }
+  }, [persistPendingCoords]);
+
+  // Hold the latest isTracking/isPaused in refs so handleAppStateChange's
+  // identity stays stable across pause/resume. Without this, the AppState
+  // listener was being torn down and re-added on every state flip — if
+  // AppState happened to fire in that window the event vanished.
+  const isTrackingRef = useRef(isTracking);
+  const isPausedRef = useRef(isPaused);
+  useEffect(() => { isTrackingRef.current = isTracking; }, [isTracking]);
+  useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
 
   const handleAppStateChange = useCallback(
     async (nextAppState: any) => {
@@ -427,32 +677,73 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
       // App went to background
       if (currentAppState.match(/active/) && nextAppState === 'background') {
-        if (isTracking && !isPaused) {
-          logger.debug('[Journey] App backgrounded - foreground watcher continues while app is in recent apps');
-          // Note: Without expo-task-manager, tracking relies on foreground watcher
-          // which continues briefly in background on most devices
+        if (isTrackingRef.current && !isPausedRef.current) {
+          logger.debug('[Journey] App backgrounded — handing off to TaskManager');
+          // Start the background task FIRST. If it succeeds, only then tear
+          // down the foreground watcher. If the bg start fails (Expo Go,
+          // permission denied, OS suspended us mid-flight), keep the
+          // foreground watcher running — it'll continue firing for a few
+          // seconds in background on most devices, which is better than
+          // having no source at all during the handoff window.
+          const bgStarted = await startBackgroundUpdates();
+          if (bgStarted && locationWatcherRef.current) {
+            try { locationWatcherRef.current.remove(); } catch { /* noop */ }
+            locationWatcherRef.current = null;
+          }
         }
       }
 
       // App came to foreground
       if (nextAppState === 'active' && currentAppState.match(/inactive|background/)) {
-        logger.debug('[Journey] App foregrounded');
+        if (isTrackingRef.current && !isPausedRef.current) {
+          logger.debug('[Journey] App foregrounded — draining bg queue, restarting watcher');
+          await stopBackgroundUpdates();
+          await drainBackgroundQueue();
+          // Restart the foreground watcher so live UI updates resume.
+          try { await startLocationWatcher(); } catch (e) {
+            logger.warn('[Journey] Failed to restart foreground watcher:', e);
+          }
+        }
       }
     },
-    [isTracking, isPaused]
+    // Deps are intentionally only the (stable) helper callbacks. State
+    // values are read through refs above so the handler identity stays
+    // stable across pause/resume — no listener tear-down/rebind churn.
+    [startBackgroundUpdates, stopBackgroundUpdates, drainBackgroundQueue, startLocationWatcher]
   );
+
+  // Listen to app state changes. handleAppStateChange identity is now
+  // stable across pause/resume, so this useEffect runs once per mount.
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    return () => subscription.remove();
+  }, [handleAppStateChange]);
 
   const startJourneyRecording = useCallback(
     async (title?: string) => {
       try {
         setError(null);
 
-        // Request location permissions
+        // Request foreground location permission (always required first).
         const foregroundPermission = await Location.requestForegroundPermissionsAsync();
         if (!foregroundPermission.granted) {
           const err = 'Location permission denied';
           setError(err);
           throw new Error(err);
+        }
+
+        // Request background ("Always") permission so the path keeps
+        // recording when the phone is locked or the app is backgrounded.
+        // Treat denial as a soft failure — the journey still works in the
+        // foreground; the user just won't get the full path if they leave
+        // the app. iOS surfaces this as a separate "Allow Always" prompt
+        // shortly after the first foreground prompt.
+        if (Platform.OS !== 'web') {
+          try {
+            await Location.requestBackgroundPermissionsAsync();
+          } catch (e) {
+            logger.warn('[Journey] Background permission request failed (non-blocking):', e);
+          }
         }
 
         // Get current location
@@ -526,7 +817,10 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         locationWatcherRef.current = null;
       }
 
-      // Note: No background tracking to stop (expo-task-manager not installed)
+      // Stop the background TaskManager updates if they're running and
+      // drain anything it managed to capture before pause was hit.
+      await stopBackgroundUpdates();
+      await drainBackgroundQueue();
 
       // Stop timers
       if (durationTimerRef.current) {
@@ -563,7 +857,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       logger.error('[Journey] pauseJourneyRecording failed:', err);
       throw err;
     }
-  }, []);
+  }, [stopBackgroundUpdates, drainBackgroundQueue, persistPendingCoords, clearPersistedCoords]);
 
   const resumeJourneyRecording = useCallback(async () => {
     try {
@@ -616,7 +910,10 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         locationWatcherRef.current = null;
       }
 
-      // Note: No background tracking to stop (expo-task-manager not installed)
+      // Stop background updates and absorb anything the bg task captured
+      // since the last drain so the final batch includes them.
+      await stopBackgroundUpdates();
+      await drainBackgroundQueue();
 
       // Stop timers
       if (durationTimerRef.current) {
@@ -649,6 +946,11 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         // could still be present from a prior failed send. Clear it.
         clearPersistedCoords(completingJourneyId);
       }
+      // Final clean-up of the bg-only queue (drainBackgroundQueue removed
+      // it on success above, but if drain failed silently the key could
+      // linger and feed into a *future* journey with the same id — which
+      // shouldn't happen, but the guard is cheap).
+      await AsyncStorage.removeItem(BG_QUEUE_KEY_PREFIX + completingJourneyId).catch(() => {});
 
       // Call API
       const { journey: completedJourney } = await completeJourney(completingJourneyId);
@@ -675,7 +977,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       logger.error('[Journey] stopJourneyRecording failed:', err);
       throw err;
     }
-  }, []);
+  }, [stopBackgroundUpdates, drainBackgroundQueue, persistPendingCoords, clearPersistedCoords]);
 
   return {
     initialized,
