@@ -28,6 +28,31 @@ const ContentBlockSchema = new Schema({
   }
 }, { _id: true });
 
+const CanvasElementSchema = new Schema({
+  type: {
+    type: String,
+    enum: ['text', 'image', 'video'],
+    required: true
+  },
+  // text: the string. image/video: storage key (or signed URL transiently from client).
+  content: {
+    type: String,
+    required: true
+  },
+  // Position/size are normalized to the 9:16 frame: 0..1 of frame width / height.
+  x: { type: Number, default: 0.5 },
+  y: { type: Number, default: 0.5 },
+  w: { type: Number, default: 0.4 },
+  h: { type: Number, default: 0.25 },
+  rotation: { type: Number, default: 0 },
+  zIndex: { type: Number, default: 0 },
+  // Text-only styling
+  fontSize: { type: Number, default: 24 },
+  color: { type: String, default: '#FFFFFF' },
+  fontWeight: { type: String, default: '600' },
+  backgroundColor: { type: String, default: 'transparent' }
+}, { _id: true });
+
 const BuyItemSchema = new Schema({
   name: {
     type: String,
@@ -95,6 +120,11 @@ const ConnectPageSchema = new Schema({
   },
   websiteContent: [ContentBlockSchema],
   subscriptionContent: [ContentBlockSchema],
+  canvasContent: [CanvasElementSchema],
+  canvasBackground: {
+    type: String,
+    default: '#000000'
+  },
   subscriptionPrice: {
     type: Number,
     default: null

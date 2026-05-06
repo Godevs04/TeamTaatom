@@ -522,6 +522,12 @@ export default function LocaleScreen() {
   
   // Bookmark Stability: Track in-flight bookmark operations
   const bookmarkingKeysRef = useRef<Set<string>>(new Set());
+
+  // Stale-while-revalidate cache for the saved-tab background URL refresh.
+  // Maps localeId → last fetch timestamp (ms). loadSavedLocales skips
+  // re-fetching a locale within 60s of the previous successful fetch.
+  // Without this the user could thrash the backend by tab-switching.
+  const bgRefreshCacheRef = useRef<Map<string, number>>(new Map());
   
   const { theme, mode } = useTheme();
   const router = useRouter();
@@ -1889,82 +1895,91 @@ export default function LocaleScreen() {
         localeMap.set(locale._id, locale);
       });
       const uniqueLocales = Array.from(localeMap.values());
-      
-      // Refresh signed URLs from the API. Saved locales persist `imageUrl` in
-      // AsyncStorage, but admin locale images are served via short-lived
-      // signed URLs (per CLAUDE.md: "R2/S3 URLs expire after 5 min — never
-      // cache them"), so the URL stored at bookmark-time is usually expired
-      // by the time the user opens the Saved tab. Fetch each saved locale by
-      // id in parallel and overlay fresh image / gallery / signed-url fields
-      // onto the persisted record. Fall back to the persisted data if the
-      // refresh fails (offline, deleted, etc.) — the worst case is then the
-      // same broken-image we had before, never worse.
-      const refreshedLocales = await Promise.all(
-        uniqueLocales.map(async (locale) => {
-          if (!locale._id || locale._id.startsWith('admin-')) {
-            // Synthetic id assigned to non-server locales — nothing to refresh.
-            return locale;
-          }
-          try {
-            const fresh = await getLocaleById(locale._id);
-            if (!fresh || typeof fresh !== 'object') return locale;
-            return {
-              ...locale,
-              ...fresh,
-              // Preserve imageUrls only if API gave a non-empty array; same
-              // for imageUrl. This guards against an API response that's
-              // partially populated and would otherwise blank the card.
-              imageUrl: typeof fresh.imageUrl === 'string' && fresh.imageUrl
-                ? fresh.imageUrl
-                : locale.imageUrl,
-              imageUrls: Array.isArray(fresh.imageUrls) && fresh.imageUrls.length > 0
-                ? fresh.imageUrls
-                : locale.imageUrls,
-              _id: locale._id, // keep persisted id stable
-            } as Locale;
-          } catch {
-            return locale;
-          }
-        })
-      );
 
-      // Calculate driving distances for saved locales if user location is available
-      let localesWithDistances = refreshedLocales;
+      // Render the persisted data IMMEDIATELY so the Saved tab is
+      // responsive. The previous flow awaited N parallel getLocaleById
+      // calls + N getLocaleDistanceKm calls before calling setSavedLocales,
+      // which on a slow connection or with 10+ saves blocked the list
+      // from rendering for several seconds. Now we paint the cached data
+      // first, then patch in fresh URLs / distances as they arrive.
+      const cachedSorted = sortLocalesByDistance(uniqueLocales);
+      if (isMountedRef.current) {
+        setSavedLocales(cachedSorted);
+        if (uniqueLocales.length !== locales.length) {
+          // Self-heal AsyncStorage if normalization dropped bad entries.
+          AsyncStorage.setItem('savedLocales', JSON.stringify(cachedSorted)).catch(() => {});
+        }
+      }
+
+      // Background refresh: signed URLs from the API. Each fetch resolves
+      // independently and patches that single locale into state via a
+      // functional setState — no await on the full set, so a slow API
+      // response on one entry doesn't block the others.
+      // Skip locales with synthetic ids (`admin-…`) — no server record.
+      uniqueLocales.forEach((locale) => {
+        if (!locale._id || locale._id.startsWith('admin-')) return;
+        // Use a stale-while-revalidate cache to avoid hammering the API
+        // when the user toggles tabs rapidly. Keyed by locale id, fresh
+        // for 60s.
+        const lastFetchAt = bgRefreshCacheRef.current.get(locale._id) || 0;
+        if (Date.now() - lastFetchAt < 60_000) return;
+        bgRefreshCacheRef.current.set(locale._id, Date.now());
+
+        getLocaleById(locale._id)
+          .then((fresh) => {
+            if (!isMountedRef.current) return;
+            if (!fresh || typeof fresh !== 'object') return;
+            setSavedLocales((prev) => prev.map((existing) => {
+              if (existing._id !== locale._id) return existing;
+              return {
+                ...existing,
+                ...fresh,
+                imageUrl: typeof fresh.imageUrl === 'string' && fresh.imageUrl
+                  ? fresh.imageUrl
+                  : existing.imageUrl,
+                imageUrls: Array.isArray(fresh.imageUrls) && fresh.imageUrls.length > 0
+                  ? fresh.imageUrls
+                  : existing.imageUrls,
+                _id: existing._id,
+                distanceKm: (existing as any).distanceKm,
+              } as Locale;
+            }));
+          })
+          .catch(() => {
+            // Drop the cache so we'll retry on next load. Persisted URL
+            // stays as the visible fallback meanwhile.
+            bgRefreshCacheRef.current.delete(locale._id);
+          });
+      });
+
+      // Background distance calc — only when user location is available.
+      // Same pattern: per-locale promises that patch state as they finish.
       if (userLocation && locationPermissionGranted) {
         const userLat = roundCoord(userLocation.latitude);
         const userLon = roundCoord(userLocation.longitude);
-        localesWithDistances = await Promise.all(
-          refreshedLocales.map(async (locale) => {
-            const distanceKm = await getLocaleDistanceKm(
-              locale._id.toString(),
-              userLat,
-              userLon,
-              locale.latitude,
-              locale.longitude
-            );
-            return {
-              ...locale,
-              distanceKm: distanceKm,
-            };
-          })
-        );
-      }
-      
-      // PRODUCTION-GRADE: Sort saved locales by distance (nearest first)
-      // This ensures consistent sorting across all locale lists
-      const sortedLocales = sortLocalesByDistance(localesWithDistances);
-      
-      if (isMountedRef.current) {
-        setSavedLocales(sortedLocales);
-
-        // Update AsyncStorage if duplicates / bad-shape entries were dropped
-        // during normalization. This self-heals legacy storage so the next
-        // load is fast and no longer hits the normalize() filter.
-        if (uniqueLocales.length !== locales.length) {
-          try {
-            await AsyncStorage.setItem('savedLocales', JSON.stringify(sortedLocales));
-          } catch {}
-        }
+        uniqueLocales.forEach((locale) => {
+          getLocaleDistanceKm(
+            locale._id.toString(),
+            userLat,
+            userLon,
+            locale.latitude,
+            locale.longitude
+          )
+            .then((distanceKm) => {
+              if (!isMountedRef.current) return;
+              setSavedLocales((prev) => {
+                let changed = false;
+                const next = prev.map((existing) => {
+                  if (existing._id !== locale._id) return existing;
+                  if ((existing as any).distanceKm === distanceKm) return existing;
+                  changed = true;
+                  return { ...existing, distanceKm } as Locale;
+                });
+                return changed ? next : prev;
+              });
+            })
+            .catch(() => { /* leave previous distance as-is */ });
+        });
       }
     } catch (error) {
       if (!isMountedRef.current) return;
@@ -2144,25 +2159,26 @@ export default function LocaleScreen() {
 
   // Re-sort locales when user location becomes available or changes
   // This ensures sorting works even if location becomes available after locales are loaded
-  // Also recalculates distances if they're missing
+  // Also recalculates distances if any are missing OR if userLocation changed
   useEffect(() => {
     if (activeTab === 'locale' && adminLocales.length > 0) {
-      // Check if we have locales but no distances, and user location is now available
-      const hasDistances = adminLocales.some(locale => {
+      // Recalc when ANY locale is missing a distance (was: skip when any ONE
+      // had a distance, which left newly-loaded locales without km
+      // forever once a single legacy entry was present). Haversine is
+      // <5ms for hundreds of locales so even rerunning unconditionally
+      // is fine — but we still gate on at-least-one-missing to avoid
+      // a no-op render on every userLocation tick.
+      const allHaveDistances = adminLocales.every(locale => {
         const localeWithDistance = locale as Locale & { distanceKm?: number | null };
         return localeWithDistance.distanceKm !== undefined && localeWithDistance.distanceKm !== null;
       });
 
-      // If user location just became available and we don't have distances,
-      // do an instant in-place straight-line calculation instead of triggering
-      // a full reload from the API. The full reload was the source of the
-      // "sometimes the distance only appears after switching tabs" symptom —
-      // it required the page to refocus to fire, and even when it did fire it
-      // refetched every locale unnecessarily. Haversine here is synchronous
-      // and runs in <5ms for hundreds of locales, so the badges populate
-      // immediately. The Stage 2 driving-distance refinement still runs in
-      // the background on next tab focus / pagination via the existing path.
-      if (userLocation && locationPermissionGranted && !hasDistances && !isSearchingRef.current && !calculatingDistances) {
+      // If user location is available and at least one locale is missing
+      // its km, do an instant in-place straight-line calculation. No
+      // refetch — purely client-side Haversine. The Stage 2 driving-
+      // distance refinement still runs in the background on next tab
+      // focus / pagination via the existing path.
+      if (userLocation && locationPermissionGranted && !allHaveDistances && !isSearchingRef.current && !calculatingDistances) {
         const userLat = roundCoord(userLocation.latitude);
         const userLon = roundCoord(userLocation.longitude);
         const withDistances = adminLocales.map((locale) => {
@@ -2329,16 +2345,25 @@ export default function LocaleScreen() {
     }
   }, [activeTab, loadSavedLocales]);
 
-  // Listen for bookmark changes from detail page
+  // Listen for bookmark changes from detail page.
+  //
+  // The listener used to depend on `loadSavedLocales`, which re-creates
+  // its identity whenever userLocation / locationPermissionGranted change.
+  // That re-binding tore down and re-subscribed the savedEvents listener
+  // on every location tick; if the detail page emitted in that 1-tick
+  // window the event vanished and the new bookmark only showed up after
+  // the user manually reloaded. Pin the latest loadSavedLocales in a ref
+  // so the subscription is registered exactly once on mount.
+  const loadSavedLocalesRef = useRef(loadSavedLocales);
+  useEffect(() => { loadSavedLocalesRef.current = loadSavedLocales; }, [loadSavedLocales]);
+
   useEffect(() => {
     const unsubscribe = savedEvents.addListener(() => {
-      // Reload saved locales (lightweight operation)
-      loadSavedLocales();
-      // DO NOT reload admin locales here - it causes loops
-      // Bookmark status is handled client-side, no need to refetch
+      // Reload saved locales via the latest version of the callback.
+      loadSavedLocalesRef.current?.();
     });
     return unsubscribe;
-  }, [loadSavedLocales]);
+  }, []);
 
   // Navigation & Lifecycle Safety: Refresh bookmark status on focus (prevent refetch loops)
   useFocusEffect(

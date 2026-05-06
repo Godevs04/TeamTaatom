@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { PostType } from '../../types/post';
 import { generateBlurUpUrl } from '../../utils/imageLoader';
+import { applyCloudinaryFilter } from '../../utils/imageCache';
 import { Platform } from 'react-native';
 import SongPlayer from '../SongPlayer';
 import { audioManager } from '../../utils/audioManager';
@@ -284,7 +285,10 @@ export default function PostImage({
                     style={{ width: screenWidth, height: '100%' }}
                   >
                     <ExpoImage
-                      source={{ uri: item, cacheKey: getStableCacheKey(item) }}
+                      source={{
+                        uri: applyCloudinaryFilter(item, post.filter),
+                        cacheKey: getStableCacheKey(item) ? `${getStableCacheKey(item)}:${post.filter || 'original'}` : undefined,
+                      }}
                       cachePolicy="memory-disk"
                       contentFit="cover"
                       transition={250}
@@ -342,7 +346,10 @@ export default function PostImage({
                   style={StyleSheet.absoluteFill}
                 >
                   <ExpoImage
-                    source={{ uri: imageUri, cacheKey: getStableCacheKey(imageUri) }}
+                    source={{
+                      uri: applyCloudinaryFilter(imageUri, post.filter),
+                      cacheKey: getStableCacheKey(imageUri) ? `${getStableCacheKey(imageUri)}:${post.filter || 'original'}` : undefined,
+                    }}
                     placeholder={blurUpUri ? { uri: blurUpUri } : undefined}
                     placeholderContentFit="cover"
                     cachePolicy="memory-disk"

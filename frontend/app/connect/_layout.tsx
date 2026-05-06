@@ -19,6 +19,7 @@ export default function ConnectLayout() {
       <Stack.Screen name="editContent" />
       <Stack.Screen name="dashboard" />
       <Stack.Screen name="preview" />
+      <Stack.Screen name="canvas" />
     </Stack>
   );
 }

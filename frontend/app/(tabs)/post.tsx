@@ -1652,6 +1652,11 @@ export default function PostScreen() {
         spotType: spotType || undefined,
         travelInfo: travelInfo || undefined,
         aspectRatio: selectedAspectRatio,
+        // The chosen photo filter is applied at render time via Cloudinary
+        // URL transformations — see optimizeCloudinaryUrl in
+        // utils/imageCache. Storing the token (not the rendered bytes)
+        // means the user can change the filter later without re-uploading.
+        filter: selectedFilter,
         // Include detected place data for admin review
         detectedPlace: detectedPlaceData ? {
           name: detectedPlaceData.name,

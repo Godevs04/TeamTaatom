@@ -70,7 +70,10 @@ export default function ImageEditModal({
     };
   }, []);
 
-  const isFilterSupported = (id: ImageFilterType) => id === 'original';
+  // All filters are now applied server-side via Cloudinary URL
+  // transformations, so every chip is selectable. The chosen filter is
+  // stored on the post and re-applied on every render.
+  const isFilterSupported = (_id: ImageFilterType) => true;
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>

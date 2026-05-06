@@ -1043,7 +1043,13 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
               const isUnseen = unseen.some(u => normalizeId(u._id) === msgId);
               if (isUnseen) {
                 if (isGroupChat && myId) {
-                  const currentSeenBy = Array.isArray(m.seenBy) ? [...m.seenBy] : [];
+                  // Normalize the array to plain strings before pushing — server-side
+                  // entries can arrive as ObjectIds or Buffer-shaped objects, which
+                  // would defeat the .includes(myId) dedup check below and produce
+                  // duplicate entries (one ObjectId + one string for the same user).
+                  const currentSeenBy = Array.isArray(m.seenBy)
+                    ? (m.seenBy.map((id: any) => normalizeId(id)).filter(Boolean) as string[])
+                    : [];
                   if (!currentSeenBy.includes(myId)) currentSeenBy.push(myId);
                   return { ...m, seenBy: currentSeenBy };
                 }
@@ -1151,7 +1157,11 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
         const isUnseen = unseen.some(u => normalizeId(u._id) === msgId);
         if (isUnseen) {
           if (isGroup && myId) {
-            const currentSeenBy = Array.isArray(m.seenBy) ? [...m.seenBy] : [];
+            // Same dedup hazard as the timer-driven path above: normalize first
+            // so server-side ObjectId/Buffer entries don't cause duplicate pushes.
+            const currentSeenBy = Array.isArray(m.seenBy)
+              ? (m.seenBy.map((id: any) => normalizeId(id)).filter(Boolean) as string[])
+              : [];
             if (!currentSeenBy.includes(myId)) currentSeenBy.push(myId);
             return { ...m, seenBy: currentSeenBy };
           }
@@ -2715,6 +2725,12 @@ export default function ChatModal() {
         setSelectedUser(null);
         setActiveChat(null);
         setActiveMessages([]);
+        // Detach immediately so a rapid second iOS swipe-back actually pops
+        // the chat list. Without this, the old listener stays attached until
+        // the next render's cleanup runs — long enough for users on iOS to
+        // fire a follow-up swipe that gets preventDefault()-ed too, making
+        // back navigation appear to "break" until they release and retry.
+        unsubscribe?.();
       });
 
       return unsubscribe;

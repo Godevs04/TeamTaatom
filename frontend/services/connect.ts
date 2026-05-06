@@ -15,6 +15,25 @@ export interface ContentBlock {
   embedType?: 'youtube' | 'map' | 'custom' | '';
 }
 
+export interface CanvasElement {
+  _id?: string;
+  type: 'text' | 'image' | 'video';
+  // text: the string. image/video: signed URL on read, storage key on persist (server handles).
+  content: string;
+  // Normalized to canvas frame: 0..1 of frame width/height.
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rotation: number;
+  zIndex: number;
+  // Text-only
+  fontSize?: number;
+  color?: string;
+  fontWeight?: string;
+  backgroundColor?: string;
+}
+
 export interface BuyItem {
   _id?: string;
   name: string;
@@ -52,6 +71,8 @@ export interface ConnectPageType {
   };
   websiteContent: ContentBlock[];
   subscriptionContent: ContentBlock[];
+  canvasContent?: CanvasElement[];
+  canvasBackground?: string;
   subscriptionPrice: number | null;
   subscriptionCurrency: string;
   subscriptionApproval?: SubscriptionApproval;
@@ -393,6 +414,56 @@ export const updateSubscriptionContent = async (pageId: string, content: Content
 export const getSubscriptionContent = async (pageId: string): Promise<{ subscriptionContent: ContentBlock[] }> => {
   try {
     const response = await api.get(`/api/v1/connect/page/${pageId}/subscription`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+export const getCanvasContent = async (
+  pageId: string
+): Promise<{ canvasContent: CanvasElement[]; canvasBackground: string }> => {
+  try {
+    const response = await api.get(`/api/v1/connect/page/${pageId}/canvas`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+export const updateCanvasContent = async (
+  pageId: string,
+  content: CanvasElement[],
+  background?: string
+): Promise<{ canvasContent: CanvasElement[]; canvasBackground: string }> => {
+  try {
+    const response = await api.put(`/api/v1/connect/page/${pageId}/canvas`, { content, background });
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+export const uploadContentVideo = async (
+  pageId: string,
+  videoUri: string
+): Promise<{ storageKey: string; signedUrl: string }> => {
+  try {
+    const formData = new FormData();
+    const ext = (videoUri.split('.').pop() || 'mp4').toLowerCase();
+    const mime = ext === 'mov' ? 'video/quicktime' : 'video/mp4';
+    formData.append('video', {
+      uri: videoUri,
+      type: mime,
+      name: `canvas_${Date.now()}.${ext}`,
+    } as any);
+
+    const response = await api.post(`/api/v1/connect/page/${pageId}/content-video`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);

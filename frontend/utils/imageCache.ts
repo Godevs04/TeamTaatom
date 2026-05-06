@@ -242,6 +242,26 @@ export const useCachedImage = (url: string | null) => {
   return { cachedUri, loading, error };
 };
 
+/** Photo filter token. Mirrors the union in components/ImageEditModal so
+ * any change to the chip list stays type-checked against the URL builder. */
+export type CloudinaryFilter = 'original' | 'vivid' | 'warm' | 'cool' | 'bw';
+
+/** Cloudinary effect chain for each chip. Order matters — `e_grayscale`
+ * then a tint, etc. Values chosen by eye on a few sample photos; tweak
+ * here, every post that uses the filter updates instantly with no
+ * re-upload. */
+const FILTER_EFFECTS: Record<CloudinaryFilter, string[]> = {
+  original: [],
+  // Punch up saturation + a touch of contrast.
+  vivid: ['e_saturation:60', 'e_contrast:15'],
+  // Warm ↑ amber, ↓ blue.
+  warm: ['e_red:25', 'e_yellow:15', 'e_blue:-15'],
+  // Cool ↑ blue, ↓ amber.
+  cool: ['e_blue:25', 'e_cyan:15', 'e_red:-10'],
+  // Pure greyscale.
+  bw: ['e_grayscale'],
+};
+
 /**
  * Optimize Cloudinary URLs for mobile
  */
@@ -250,6 +270,7 @@ export const optimizeCloudinaryUrl = (url: string, options: {
   height?: number;
   quality?: 'auto' | 'auto:low' | 'auto:best' | number;
   format?: 'auto' | 'jpg' | 'png' | 'webp';
+  filter?: CloudinaryFilter;
 } = {}): string => {
   if (!url.includes('cloudinary.com')) {
     return url;
@@ -259,19 +280,43 @@ export const optimizeCloudinaryUrl = (url: string, options: {
     width = 400,
     height = 400,
     quality = 'auto:low',
-    format = 'auto'
+    format = 'auto',
+    filter = 'original',
   } = options;
 
   const baseUrl = url.split('/upload/')[0];
   const path = url.split('/upload/')[1];
-  
+
   const transformations = [
     `w_${width}`,
     `h_${height}`,
     'c_limit',
     `q_${quality}`,
-    `f_${format}`
+    `f_${format}`,
+    ...(FILTER_EFFECTS[filter] || []),
   ].join(',');
 
   return `${baseUrl}/upload/${transformations}/${path}`;
+};
+
+/**
+ * Apply ONLY the Cloudinary filter effect to an existing URL.
+ *
+ * Use this when the URL already has its own resize / quality / format
+ * transformations baked in (e.g. signed URLs from the backend) and you
+ * just want to overlay the user's chosen photo filter on top. Returns
+ * the input untouched for `original`, non-Cloudinary URLs, or unknown
+ * filter tokens — safe to call on any URL.
+ */
+export const applyCloudinaryFilter = (url: string, filter?: CloudinaryFilter | string | null): string => {
+  if (!url) return url;
+  if (!filter || filter === 'original') return url;
+  if (!url.includes('cloudinary.com')) return url;
+  const effects = FILTER_EFFECTS[filter as CloudinaryFilter];
+  if (!effects || effects.length === 0) return url;
+  const idx = url.indexOf('/upload/');
+  if (idx < 0) return url;
+  const baseUrl = url.slice(0, idx);
+  const path = url.slice(idx + '/upload/'.length);
+  return `${baseUrl}/upload/${effects.join(',')}/${path}`;
 };
