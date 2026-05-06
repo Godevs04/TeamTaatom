@@ -45,6 +45,7 @@ import ShareModal from '../../components/ShareModal';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { ShortsNativeAd } from '../../components/ads/ShortsNativeAd';
 import { useAdCap, recordGoogleAdImpression } from '../../services/adCap';
+import Constants from 'expo-constants';
 
 /** Shorts list item: either a reel (PostType) or a full-screen native ad slot. */
 export type ShortsItem = PostType | { type: 'ad'; adIndex: number };
@@ -62,6 +63,12 @@ const isTablet = SCREEN_WIDTH >= 768;
 const isWeb = Platform.OS === 'web';
 const isIOS = Platform.OS === 'ios';
 const isAndroid = Platform.OS === 'android';
+// Expo Go can't load the react-native-google-mobile-ads native module —
+// ShortsNativeAd would mount, fail synchronously in its first effect, and
+// the parent slot would render a SHORTS_ITEM_HEIGHT-tall black void at
+// position 6 before onLoadFailed could propagate. Skip ad insertion entirely
+// in this environment so dev builds in Expo Go don't show the blank slot.
+const isExpoGo = (Constants as any)?.appOwnership === 'expo';
 const logger = createLogger('ShortsScreen');
 
 // Tab bar height from (tabs)/_layout - content must sit above it
@@ -201,6 +208,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // existing per-session counter above stays in place as defense-in-depth;
   // the persistent cap is the authoritative limit across app restarts.
   const adCap = useAdCap();
+  // When an ad slot can't render (Expo Go, no AdMob fill, network error,
+  // placeholder unit ID, …), ShortsNativeAd returns null but its parent
+  // wrapper still occupies a SHORTS_ITEM_HEIGHT-tall cell with the black
+  // shortItem background — the user sees a blank dark screen at that
+  // position. ShortsNativeAd's onLoadFailed callback flips this flag, and
+  // shortsData below excludes ad slots once it's true. Session-scoped: a
+  // single failure stops further ad insertion until next app launch (per
+  // CLAUDE.md "stability first" — better to lose ads than show black slots).
+  const [shortsAdsBroken, setShortsAdsBroken] = useState(false);
 
   const flatListRef = useRef<FlatList>(null);
   const videoRefs = useRef<{ [key: string]: Video | null }>({});
@@ -1743,7 +1759,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   //   2. Per-session counter (defense-in-depth, resets on app restart).
   //   3. Persistent 3-per-8h cap (adCap, shared with home feed).
   // Whichever is most restrictive wins.
-  const showShortsAds = !isWeb && hasWatchedFiveReels && adsAllowedAfter20s && !adCap.isCapped;
+  const showShortsAds = !isWeb && !isExpoGo && hasWatchedFiveReels && adsAllowedAfter20s && !adCap.isCapped && !shortsAdsBroken;
   const shortsData = useMemo((): ShortsItem[] => {
     if (!showShortsAds || shorts.length === 0) return shorts as ShortsItem[];
     const maxSlots = Math.min(
@@ -1922,6 +1938,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               // Persistent 3-per-8h cap, shared with the home feed. Fire-and-forget;
               // adCap handles AsyncStorage write + listener notification internally.
               recordGoogleAdImpression();
+            }}
+            onLoadFailed={() => {
+              // Stop inserting ad slots for the rest of this session — see the
+              // shortsAdsBroken declaration above. The cell currently rendering
+              // this null ad will still occupy its slot until the next render,
+              // but no NEW broken slots will appear after the data array
+              // recomputes.
+              setShortsAdsBroken(true);
             }}
           />
         </View>

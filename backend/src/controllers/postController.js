@@ -1323,6 +1323,11 @@ const getUserShorts = async (req, res) => {
         $match: {
           user: userIdObj,
           isActive: true,
+          // Same rule as getUserPosts: hidden / archived shorts must not appear
+          // on the profile for anyone, including the owner. They live in
+          // Settings → Manage Posts.
+          isHidden: { $ne: true },
+          isArchived: { $ne: true },
           type: 'short',
           $or: [{ status: 'active' }, { status: { $exists: false } }]
         }
@@ -1808,6 +1813,14 @@ const getUserPosts = async (req, res) => {
           $match: {
             user: userIdObj,
             isActive: true,
+            // Hidden / archived posts must not appear on the profile —
+            // not for the owner (they live in Settings → Manage Posts) and
+            // definitely not for other users viewing the profile. Without
+            // these, hide/archive only removed the post from the home feed
+            // (getPosts already filters them) but it stayed visible on the
+            // author's profile to everyone, defeating the feature.
+            isHidden: { $ne: true },
+            isArchived: { $ne: true },
             type: 'photo',
             $or: [{ status: 'active' }, { status: { $exists: false } }]
           }
@@ -2525,11 +2538,14 @@ const getArchivedPosts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
+    // No `type` filter — archived shorts must appear here too. The 3-dot menu
+    // sets isArchived on both photos and shorts, but until the filter was
+    // removed only photos came back, so users saw an empty list when they'd
+    // archived shorts. The single Post collection holds both.
     const posts = await Post.find({
       user: req.user._id,
       isArchived: true,
-      isActive: true,
-      type: 'photo'
+      isActive: true
     })
       .populate('user', 'fullName profilePic profilePicStorageKey')
       .populate('comments.user', 'fullName profilePic profilePicStorageKey')
@@ -2638,11 +2654,12 @@ const getHiddenPosts = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
+    // No `type` filter — hidden shorts must appear here too. See note in
+    // getArchivedPosts above for the full reasoning.
     const posts = await Post.find({
       user: req.user._id,
       isHidden: true,
-      isActive: true,
-      type: 'photo'
+      isActive: true
     })
       .populate('user', 'fullName profilePic profilePicStorageKey')
       .populate('comments.user', 'fullName profilePic profilePicStorageKey')
