@@ -34,6 +34,11 @@ const isExpoGo = Constants.appOwnership === 'expo';
 export type NativeAdCardProps = {
   /** Unique key for list stability; used to avoid re-loading same slot on re-mount */
   adIndex: number;
+  /** Fired exactly once when the ad finishes loading and is about to render.
+   *  Used by the home-feed cap tracker to count Google ad impressions toward
+   *  the 3-per-8h limit. Does NOT fire if the ad fails to load (no impression
+   *  to count in that case). */
+  onImpression?: () => void;
 };
 
 type AdsModule = {
@@ -44,7 +49,7 @@ type AdsModule = {
   NativeAssetType: typeof import('react-native-google-mobile-ads').NativeAssetType;
 };
 
-function NativeAdCardComponent({ adIndex }: NativeAdCardProps) {
+function NativeAdCardComponent({ adIndex, onImpression }: NativeAdCardProps) {
   const { theme } = useTheme();
   const [adsModule, setAdsModule] = useState<AdsModule | null>(null);
   const [moduleError, setModuleError] = useState(false);
@@ -52,6 +57,9 @@ function NativeAdCardComponent({ adIndex }: NativeAdCardProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const destroyedRef = useRef(false);
+  // Fire onImpression at most once per ad load. Cleared when the ad is
+  // destroyed (effect cleanup) so a re-load fires it again.
+  const impressionFiredRef = useRef(false);
 
   const unitId = Platform.OS === 'android' ? ADMOB.android.native : ADMOB.ios.native;
 
@@ -98,6 +106,13 @@ function NativeAdCardComponent({ adIndex }: NativeAdCardProps) {
         }
         setNativeAd(ad);
         setLoading(false);
+        // Fire impression for the cap tracker as soon as the ad is loaded
+        // and accepted (not destroyed). Guarded so a render thrash can't
+        // double-count the same load.
+        if (!impressionFiredRef.current) {
+          impressionFiredRef.current = true;
+          try { onImpression?.(); } catch { /* swallow */ }
+        }
       })
       .catch(() => {
         if (!destroyedRef.current) {
@@ -108,6 +123,7 @@ function NativeAdCardComponent({ adIndex }: NativeAdCardProps) {
 
     return () => {
       destroyedRef.current = true;
+      impressionFiredRef.current = false;
       setNativeAd((prev: any) => {
         if (prev) {
           prev.destroy();
@@ -115,6 +131,10 @@ function NativeAdCardComponent({ adIndex }: NativeAdCardProps) {
         return null;
       });
     };
+    // onImpression deliberately NOT a dep — including it would re-run the
+    // ad load every time the parent re-creates the callback, leaking ad
+    // requests and double-counting impressions.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adsModule, unitId, adIndex]);
 
   if (isWeb || moduleError) {

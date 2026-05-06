@@ -44,6 +44,7 @@ import { socketService } from '../../services/socket';
 import ShareModal from '../../components/ShareModal';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { ShortsNativeAd } from '../../components/ads/ShortsNativeAd';
+import { useAdCap, recordGoogleAdImpression } from '../../services/adCap';
 
 /** Shorts list item: either a reel (PostType) or a full-screen native ad slot. */
 export type ShortsItem = PostType | { type: 'ad'; adIndex: number };
@@ -150,6 +151,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [isScreenFocused, setIsScreenFocused] = useState(true);
   const isScreenFocusedRef = useRef(true);
   const [videoStates, setVideoStates] = useState<{ [key: string]: boolean }>({});
+  // Per-reel "first frame is ready to display" gate. Set when expo-av fires
+  // onReadyForDisplay; cleared when the Video element re-mounts (onLoadStart).
+  // Drives Video opacity so the thumbnail backdrop stays visible until the
+  // native player actually has a frame to paint — without this, the swap from
+  // placeholder→Video shows expo-av's pre-frame black surface for ~one frame.
+  const [readyShorts, setReadyShorts] = useState<Set<string>>(new Set());
   const [showPauseButton, setShowPauseButton] = useState<{ [key: string]: boolean }>({});
   const [showLikeAnimation, setShowLikeAnimation] = useState<{ [key: string]: boolean }>({});
   const [likeAnimationParticles, setLikeAnimationParticles] = useState<{ [key: string]: Array<{ id: string; x: number; y: number }> }>({});
@@ -190,6 +197,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // Hard cap: track ads shown this session; never insert more than 3 ad slots total
   const adsShownThisSessionRef = useRef(0);
   const [adsShownThisSession, setAdsShownThisSession] = useState(0);
+  // Persistent 3-per-8h Google AdMob cap, shared with the home feed. The
+  // existing per-session counter above stays in place as defense-in-depth;
+  // the persistent cap is the authoritative limit across app restarts.
+  const adCap = useAdCap();
 
   const flatListRef = useRef<FlatList>(null);
   const videoRefs = useRef<{ [key: string]: Video | null }>({});
@@ -892,19 +903,27 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               }
             }).catch((loadError) => {
               logger.error(`Video ${videoId} retry load failed:`, loadError);
+              // Bump source version to force a clean remount with a fresh URL fetch on next render.
+              // Without this, the Video sits in a broken state showing a black surface forever
+              // until the user scrolls away and back.
+              setSourceVersions(prev => ({ ...prev, [videoId]: (prev[videoId] ?? 0) + 1 }));
             });
           }
         }).catch(() => {
           // If unload fails, try to reload directly (re-check video ref)
           const videoAfterError = videoRefs.current[videoId];
           if (videoAfterError && typeof videoAfterError.loadAsync === 'function') {
-            videoAfterError.loadAsync({ uri: videoUrl }).catch(() => {});
+            videoAfterError.loadAsync({ uri: videoUrl }).catch(() => {
+              setSourceVersions(prev => ({ ...prev, [videoId]: (prev[videoId] ?? 0) + 1 }));
+            });
           }
         });
       } else {
         // If unloadAsync doesn't exist, try to reload directly
         if (typeof video.loadAsync === 'function') {
-          video.loadAsync({ uri: videoUrl }).catch(() => {});
+          video.loadAsync({ uri: videoUrl }).catch(() => {
+            setSourceVersions(prev => ({ ...prev, [videoId]: (prev[videoId] ?? 0) + 1 }));
+          });
         }
       }
     }, delay);
@@ -1718,11 +1737,21 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     swipeStartYRef.current = null;
   };
 
-  // Interleave full-screen native ad after every SHORTS_ADS_AFTER_EVERY reels. Hard cap: max 3 slots per session.
-  const showShortsAds = !isWeb && hasWatchedFiveReels && adsAllowedAfter20s;
+  // Interleave full-screen native ad after every SHORTS_ADS_AFTER_EVERY reels.
+  // Three independent caps must all permit a slot:
+  //   1. UX gates: hasWatchedFiveReels + adsAllowedAfter20s.
+  //   2. Per-session counter (defense-in-depth, resets on app restart).
+  //   3. Persistent 3-per-8h cap (adCap, shared with home feed).
+  // Whichever is most restrictive wins.
+  const showShortsAds = !isWeb && hasWatchedFiveReels && adsAllowedAfter20s && !adCap.isCapped;
   const shortsData = useMemo((): ShortsItem[] => {
     if (!showShortsAds || shorts.length === 0) return shorts as ShortsItem[];
-    const maxSlots = Math.min(MAX_SHORTS_ADS, Math.max(0, 3 - adsShownThisSession));
+    const maxSlots = Math.min(
+      MAX_SHORTS_ADS,
+      Math.max(0, 3 - adsShownThisSession),
+      adCap.remainingSlots,
+    );
+    if (maxSlots <= 0) return shorts as ShortsItem[];
     const result: ShortsItem[] = [];
     let adCount = 0;
     shorts.forEach((reel, i) => {
@@ -1732,14 +1761,18 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
     });
     return result;
-  }, [shorts, showShortsAds, adsShownThisSession]);
+  }, [shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots]);
 
   // Deep link: scroll to specific short when effectiveShortId is set (URL or props). dataIndex accounts for ad slots when showShortsAds.
   useEffect(() => {
     if (!effectiveShortId || shorts.length === 0) return;
     const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
     if (reelIndex === -1) return;
-    const maxSlots = Math.min(MAX_SHORTS_ADS, Math.max(0, 3 - adsShownThisSession));
+    const maxSlots = Math.min(
+      MAX_SHORTS_ADS,
+      Math.max(0, 3 - adsShownThisSession),
+      adCap.remainingSlots,
+    );
     const dataIndex = showShortsAds
       ? reelIndex + Math.min(Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY), maxSlots)
       : reelIndex;
@@ -1760,7 +1793,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }, 100 * (attempt + 1));
     };
     attemptScroll();
-  }, [effectiveShortId, shorts, showShortsAds, adsShownThisSession]);
+  }, [effectiveShortId, shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots]);
 
   // Enhanced: Ensure video playback syncs with currentVisibleIndex (uses shortsData; ad = pause all, reel = play)
   useEffect(() => {
@@ -1886,6 +1919,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             onImpression={() => {
               adsShownThisSessionRef.current += 1;
               setAdsShownThisSession((prev) => Math.min(3, prev + 1));
+              // Persistent 3-per-8h cap, shared with the home feed. Fire-and-forget;
+              // adCap handles AsyncStorage write + listener notification internally.
+              recordGoogleAdImpression();
             }}
           />
         </View>
@@ -1905,7 +1941,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const shouldRenderVideo = distanceFromVisible === 0;
 
     const videoState = videoStates[item._id];
-    const isVideoPlaying = videoState !== undefined ? videoState : (index === currentVisibleIndex);
+    // Only treat the video as "playing" once it has actually reported playback
+    // (via onLoad / onPlaybackStatusUpdate). The previous optimistic fallback
+    // (`index === currentVisibleIndex` when state is undefined) caused SongPlayer
+    // to autoplay the (smaller, faster-loading) audio file before the video had
+    // finished buffering — so the user heard music before seeing the reel, and
+    // a tap-pause during that gap couldn't sync the two streams.
+    const isVideoPlaying = videoState === true;
     const isFollowing = followStates[item.user._id] || false;
     const isSaved = savedShorts.has(item._id);
     const isLiked = item.isLiked || false;
@@ -1934,6 +1976,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // to build and compare; deliberately avoiding JSON.stringify per cell.
     const isOwn = item.user._id === currentUser?._id;
     const isVisibleNow = index === currentVisibleIndex;
+    const isVideoReady = readyShorts.has(item._id);
     const cacheKey =
       `${item._id}|${index}|${isVisibleNow ? 1 : 0}|` +
       `${isVideoPlaying ? 1 : 0}|${mutedShorts.has(item._id) ? 1 : 0}|` +
@@ -1942,7 +1985,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       `${shouldShowPauseButton ? 1 : 0}|${shouldShowLikeAnimation ? 1 : 0}|` +
       `${sourceVersions[item._id] ?? 0}|` +
       `${item.likesCount ?? 0}|${item.commentsCount ?? 0}|${isLiked ? 1 : 0}|${item.viewsCount ?? 0}|` +
-      `${isOwn ? 1 : 0}|${isScreenFocused ? 1 : 0}`;
+      `${isOwn ? 1 : 0}|${isScreenFocused ? 1 : 0}|${isVideoReady ? 1 : 0}`;
 
     return (
       <ShortCellMemo cacheKey={cacheKey} render={() => (
@@ -1969,21 +2012,50 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               accessibilityLabel="Tap to play or pause video"
               accessibilityRole="button"
             >
+              {/* TouchableWithoutFeedback uses React.Children.only — wrap the backdrop
+                  + Video pair in a single View so it sees one child. The wrapper fills
+                  the parent so taps still hit anywhere. */}
+              <View style={styles.shortVideo}>
+              {/* Backdrop — ALWAYS rendered. The Video element below stacks on top
+                  via absoluteFillObject and is invisible (opacity 0) until expo-av
+                  fires onReadyForDisplay. That keeps the user looking at the
+                  thumbnail through the whole mount → buffer → first-frame window
+                  instead of expo-av's black native surface. */}
+              {item.imageUrl ? (
+                <ExpoImage
+                  source={{ uri: item.imageUrl }}
+                  style={[styles.shortVideo, StyleSheet.absoluteFillObject]}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={0}
+                />
+              ) : (
+                <View style={[styles.shortVideo, StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center' }]}>
+                  <ActivityIndicator size="small" color="rgba(255,255,255,0.6)" />
+                </View>
+              )}
+
               {/* Conditional rendering: Only mount Video component if within 1 index of visible */}
               {/* This ensures previous videos are fully unmounted, preventing memory leaks */}
-              {shouldRenderVideo ? (
+              {shouldRenderVideo && (
                 <Video
                 key={`video-${item._id}-${sourceVersions[item._id] ?? 0}`}
                 ref={(ref) => {
                   videoRefs.current[item._id] = ref;
                 }}
                 source={{ uri: handlersRef.current.getVideoUrl(item) }}
-                style={styles.shortVideo}
+                style={[styles.shortVideo, StyleSheet.absoluteFillObject, { opacity: isVideoReady ? 1 : 0 }]}
                 resizeMode={ResizeMode.COVER}
                 // Autoplay behavior: only play if this is the current visible index
                 // Force play when index matches currentVisibleIndex to ensure consistent playback
                 shouldPlay={index === currentVisibleIndex}
                 isLooping
+                // Cut status callback rate from default ~500ms to 1s. The callback runs
+                // setState (videoStates) and mute-enforcement on every fire; halving its
+                // rate halves the per-reel bridge work and re-render trigger frequency
+                // during steady playback. Pause/play state transitions still propagate
+                // immediately because expo-av fires the callback on state change too.
+                progressUpdateIntervalMillis={1000}
                 // CRITICAL: Mute video when music is playing
                 // If song exists with valid s3Url, video must be muted so only music plays
                 // Also mute videos that are not in focus to save audio resources
@@ -1992,9 +2064,28 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   const hasMusic = !!(item.song?.songId?._id);
                   return hasMusic ? 0.0 : 1.0;
                 })()}
+                // Reset the ready gate whenever this Video instance starts a fresh load
+                // (initial mount, source-version bump after error, etc.). Without this,
+                // a remounted Video would inherit `isVideoReady=true` from the previous
+                // instance and show its still-black native surface at full opacity until
+                // the new first frame decoded.
+                onReadyForDisplay={() => {
+                  setReadyShorts(prev => {
+                    if (prev.has(item._id)) return prev;
+                    const next = new Set(prev);
+                    next.add(item._id);
+                    return next;
+                  });
+                }}
                 // Use onLoadStart to ensure video starts playing when it loads and is properly muted
                 onLoadStart={() => {
                   logger.debug(`Video ${item._id} load started, index: ${index}, currentVisible: ${currentVisibleIndex}`);
+                  setReadyShorts(prev => {
+                    if (!prev.has(item._id)) return prev;
+                    const next = new Set(prev);
+                    next.delete(item._id);
+                    return next;
+                  });
                   if (index === currentVisibleIndex) {
                     const video = videoRefs.current[item._id];
                     if (video) {
@@ -2163,24 +2254,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   }
                 }}
               />
-              ) : (
-                // Lightweight placeholder for unmounted videos. Show the
-                // poster/thumbnail (cached on disk by expo-image) so the user
-                // sees the next reel's frame instead of a black void during
-                // the brief mount window. No native decoder allocated — image
-                // bitmap is cheap (~3MB) compared to a Video instance (50-400MB).
-                item.imageUrl ? (
-                  <ExpoImage
-                    source={{ uri: item.imageUrl }}
-                    style={styles.shortVideo as any}
-                    contentFit="cover"
-                    cachePolicy="memory-disk"
-                    transition={0}
-                  />
-                ) : (
-                  <View style={styles.shortVideo} />
-                )
               )}
+              </View>
             </TouchableWithoutFeedback>
           </View>
           
@@ -2496,7 +2571,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // swipeAnimation / fadeAnimation are Animated.Value refs from useRef ---
     // their identity never changes, so they don't belong in the deps array.
     // Including them was harmless but signaled false volatility.
-  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions]);
+  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions, readyShorts]);
 
   const keyExtractor = useCallback((item: ShortsItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;
@@ -2529,6 +2604,22 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
     const previousIndex = currentVisibleIndex;
     const previousItem = shortsData[previousIndex] as ShortsItem | undefined;
+
+    // Clear the ready-flag for the reel about to become visible so its Video
+    // remounts with opacity:0. Otherwise a re-visit (Video unmounted on scroll
+    // away, mounting again now) would inherit the previous instance's
+    // ready=true and flash its black native surface for ~one frame before
+    // onLoadStart resets the flag.
+    if (item && !isAdItem(item)) {
+      const incomingId = (item as PostType)._id;
+      setReadyShorts(prev => {
+        if (!prev.has(incomingId)) return prev;
+        const next = new Set(prev);
+        next.delete(incomingId);
+        return next;
+      });
+    }
+
     setCurrentVisibleIndex(newVisibleIndex);
     setCurrentIndex(newVisibleIndex);
 
@@ -2692,6 +2783,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         snapToInterval={SHORTS_ITEM_HEIGHT}
         snapToAlignment="start"
         decelerationRate="fast"
+        // Stops a fast flick from carrying past one page and snapping back —
+        // user lands on the next reel exactly, no overshoot.
+        disableIntervalMomentum={true}
         onScrollToIndexFailed={(info) => {
           const wait = new Promise(resolve => setTimeout(resolve, 500));
           wait.then(() => {
