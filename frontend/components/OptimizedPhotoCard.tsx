@@ -16,7 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
-import { toggleLike, deletePost, archivePost, hidePost, toggleComments, updatePost } from '../services/posts';
+import { toggleLike, deletePost, archivePost, unarchivePost, hidePost, unhidePost, toggleComments, updatePost } from '../services/posts';
 import { getUserFromStorage } from '../services/auth';
 import { useRouter } from 'expo-router';
 import CustomAlert from './CustomAlert';
@@ -673,6 +673,44 @@ function PhotoCard({
     }
   };
 
+  const handleUnarchivePost = async () => {
+    try {
+      setIsMenuLoading(true);
+      setShowCustomAlert(false);
+      await unarchivePost(post._id);
+      setShowMenu(false);
+      setIsMenuLoading(false);
+      if (onRefresh) onRefresh();
+      setTimeout(() => {
+        showCustomAlertMessage('Success', 'Post restored from archive!', 'success');
+      }, 300);
+    } catch (error: any) {
+      logger.error('Error unarchiving post', error);
+      setIsMenuLoading(false);
+      setShowMenu(false);
+      showCustomAlertMessage('Error', sanitizeErrorForDisplay(error, 'PhotoCard.unarchivePost') || 'Failed to unarchive post.', 'error');
+    }
+  };
+
+  const handleUnhidePost = async () => {
+    try {
+      setIsMenuLoading(true);
+      setShowCustomAlert(false);
+      await unhidePost(post._id);
+      setShowMenu(false);
+      setIsMenuLoading(false);
+      if (onRefresh) onRefresh();
+      setTimeout(() => {
+        showCustomAlertMessage('Success', 'Post is visible again!', 'success');
+      }, 300);
+    } catch (error: any) {
+      logger.error('Error unhiding post', error);
+      setIsMenuLoading(false);
+      setShowMenu(false);
+      showCustomAlertMessage('Error', sanitizeErrorForDisplay(error, 'PhotoCard.unhidePost') || 'Failed to unhide post.', 'error');
+    }
+  };
+
   const handleToggleComments = async () => {
     try {
       setIsMenuLoading(true);
@@ -813,41 +851,63 @@ function PhotoCard({
             {currentUser && currentUser._id === postUser._id ? (
               // Own post options
               <>
+                {/* Archive ↔ Unarchive — flips based on the post's current state.
+                    The post still renders (e.g. shown via Manage Posts → tap to
+                    open detail) so the menu must support reverting from here. */}
                 <TouchableOpacity
                   style={[styles.menuItem, { borderBottomColor: theme.colors.border }]}
                   onPress={() => {
                     setShowMenu(false);
-                    showCustomAlertMessage(
-                      'Archive Post',
-                      'Are you sure you want to archive this post? It will be hidden from your profile but can be restored later.',
-                      'warning',
-                      handleArchivePost
-                    );
+                    if (post.isArchived) {
+                      showCustomAlertMessage(
+                        'Unarchive Post',
+                        'Restore this post to your profile?',
+                        'warning',
+                        handleUnarchivePost
+                      );
+                    } else {
+                      showCustomAlertMessage(
+                        'Archive Post',
+                        'Are you sure you want to archive this post? It will be hidden from your profile but can be restored later.',
+                        'warning',
+                        handleArchivePost
+                      );
+                    }
                   }}
                   disabled={isMenuLoading}
                 >
                   <View style={styles.menuIconContainer}>
                     <Ionicons name="archive-outline" size={22} color={theme.colors.text} />
                   </View>
-                  <Text style={[styles.menuText, { color: theme.colors.text }]}>Archive</Text>
+                  <Text style={[styles.menuText, { color: theme.colors.text }]}>{post.isArchived ? 'Unarchive' : 'Archive'}</Text>
                 </TouchableOpacity>
+                {/* Hide ↔ Unhide — same pattern. */}
                 <TouchableOpacity
                   style={[styles.menuItem, { borderBottomColor: theme.colors.border }]}
                   onPress={() => {
                     setShowMenu(false);
-                    showCustomAlertMessage(
-                      'Hide Post',
-                      'Are you sure you want to hide this post? It will be hidden from your feed.',
-                      'warning',
-                      handleHidePost
-                    );
+                    if (post.isHidden) {
+                      showCustomAlertMessage(
+                        'Unhide Post',
+                        'Make this post visible again?',
+                        'warning',
+                        handleUnhidePost
+                      );
+                    } else {
+                      showCustomAlertMessage(
+                        'Hide Post',
+                        'Are you sure you want to hide this post? It will be hidden from your feed.',
+                        'warning',
+                        handleHidePost
+                      );
+                    }
                   }}
                   disabled={isMenuLoading}
                 >
                   <View style={styles.menuIconContainer}>
-                    <Ionicons name="eye-off-outline" size={22} color={theme.colors.text} />
+                    <Ionicons name={post.isHidden ? 'eye-outline' : 'eye-off-outline'} size={22} color={theme.colors.text} />
                   </View>
-                  <Text style={[styles.menuText, { color: theme.colors.text }]}>Hide</Text>
+                  <Text style={[styles.menuText, { color: theme.colors.text }]}>{post.isHidden ? 'Unhide' : 'Hide'}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.menuItem, { borderBottomColor: theme.colors.border }]}
