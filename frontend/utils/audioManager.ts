@@ -23,6 +23,14 @@ class AudioManager {
     this.frozenUntil = Date.now() + windowMs;
   }
 
+  /**
+   * Cancel any active freeze. Called by Shorts on focus return so the
+   * next song can play immediately after the user comes back to the tab.
+   */
+  unfreeze(): void {
+    this.frozenUntil = 0;
+  }
+
   isFrozen(): boolean {
     return Date.now() < this.frozenUntil;
   }

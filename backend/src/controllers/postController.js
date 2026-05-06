@@ -893,6 +893,7 @@ const createPost = async (req, res) => {
       spotType,
       travelInfo,
       aspectRatio,
+      filter,
       // Detected place data from Google Maps API
       detectedPlaceName,
       detectedPlaceCountry,
@@ -1000,6 +1001,7 @@ const createPost = async (req, res) => {
       mentions: mentionUserIds,
       type: 'photo',
       aspectRatio: aspectRatio === '16:9' ? '16:9' : aspectRatio === 'full' ? 'full' : '1:1',
+      filter: ['vivid', 'warm', 'cool', 'bw'].includes(filter) ? filter : 'original',
       location: {
         address: address || 'Unknown Location',
         coordinates: {

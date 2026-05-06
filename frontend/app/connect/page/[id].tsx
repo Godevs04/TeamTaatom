@@ -36,10 +36,12 @@ import {
   getCurrencySymbol,
   ConnectPageType,
   ContentBlock,
+  CanvasElement,
   PayoutPreview,
   ConnectFollowerUser,
   SubscriptionStatus,
 } from '../../../services/connect';
+import CanvasElementView from '../../../components/CanvasElementView';
 import { crashReportingService } from '../../../services/crashReporting';
 import { setPendingChatRoomId } from '../../../utils/connectChatBridge';
 import { optimizeCloudinaryUrl } from '../../../utils/imageCache';
@@ -597,7 +599,7 @@ export default function ConnectPageDetailScreen() {
           )}
         </View>
 
-        {/* Website Section */}
+        {/* Website Section — canvas-based free-form layout */}
         {page.features?.website && (
           <View style={[styles.section, { backgroundColor: theme.colors.surface, marginTop: isTablet ? 14 : 12 }]}>
             <View style={styles.sectionHeader}>
@@ -609,54 +611,59 @@ export default function ConnectPageDetailScreen() {
               </View>
             </View>
             <View style={styles.sectionContent}>
-              {page.websiteContent && page.websiteContent.length > 0 ? (
-                page.websiteContent
-                  .sort((a, b) => a.order - b.order)
-                  .slice(0, isOwner ? undefined : 2)
-                  .map((block, idx) => renderContentBlock(block, idx))
+              {page.canvasContent && page.canvasContent.length > 0 ? (
+                (() => {
+                  const previewW = Math.min(screenWidth - (isTablet ? 96 : 64), 240);
+                  const previewH = (previewW * 16) / 9;
+                  return (
+                    <View style={{ alignSelf: 'center' }}>
+                      <View
+                        style={{
+                          width: previewW,
+                          height: previewH,
+                          backgroundColor: page.canvasBackground || '#000000',
+                          borderRadius: 10,
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {(page.canvasContent as CanvasElement[])
+                          .slice()
+                          .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
+                          .map((el, idx) => (
+                            <CanvasElementView
+                              key={el._id || `c_${idx}`}
+                              element={el}
+                              isSelected={false}
+                              editable={false}
+                              frameWidth={previewW}
+                              frameHeight={previewH}
+                            />
+                          ))}
+                      </View>
+                    </View>
+                  );
+                })()
               ) : (
                 <Text style={[styles.placeholderText, { color: theme.colors.textSecondary }]}>
-                  {isOwner ? 'Add content to your website.' : 'No content yet.'}
+                  {isOwner ? 'Build your website on a free-form canvas with text, images, and videos.' : 'No content yet.'}
                 </Text>
-              )}
-              {!isOwner && page.websiteContent && page.websiteContent.length > 0 && (
-                <TouchableOpacity
-                  onPress={() => router.push(`/connect/preview?pageId=${id}&section=website&pageName=${encodeURIComponent(page.name)}`)}
-                  activeOpacity={0.7}
-                  style={[styles.viewButton, { borderColor: theme.colors.primary }]}
-                >
-                  <Ionicons name="eye-outline" size={16} color={theme.colors.primary} />
-                  <Text style={[styles.viewButtonText, { color: theme.colors.primary }]}>
-                    View Website
-                  </Text>
-                </TouchableOpacity>
               )}
             </View>
             {isOwner && (
               <View style={styles.sectionBottomActions}>
                 <TouchableOpacity
-                  onPress={() => {
-                    if (page.websiteContent && page.websiteContent.length > 0) {
-                      router.push(`/connect/preview?pageId=${id}&section=website&pageName=${encodeURIComponent(page.name)}`);
-                    }
-                  }}
-                  activeOpacity={page.websiteContent && page.websiteContent.length > 0 ? 0.7 : 1}
-                  style={[
-                    styles.sectionBottomButton,
-                    { backgroundColor: theme.colors.primary },
-                    !(page.websiteContent && page.websiteContent.length > 0) && { opacity: 0.4 },
-                  ]}
-                >
-                  <Ionicons name="eye-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.sectionBottomButtonText}>Preview</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => router.push(`/connect/editContent?pageId=${id}&section=website`)}
+                  onPress={() => router.push(`/connect/canvas?pageId=${id}`)}
                   activeOpacity={0.7}
                   style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
                 >
-                  <Ionicons name="create-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.sectionBottomButtonText}>Edit</Text>
+                  <Ionicons
+                    name={page.canvasContent && page.canvasContent.length > 0 ? 'create-outline' : 'add-outline'}
+                    size={16}
+                    color="#FFFFFF"
+                  />
+                  <Text style={styles.sectionBottomButtonText}>
+                    {page.canvasContent && page.canvasContent.length > 0 ? 'Edit Website' : 'Build Website'}
+                  </Text>
                 </TouchableOpacity>
               </View>
             )}

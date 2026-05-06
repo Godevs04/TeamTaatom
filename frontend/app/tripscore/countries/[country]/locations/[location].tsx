@@ -207,12 +207,26 @@ export default function LocationDetailScreen() {
     }
   }, [data?.name, localeData, isAdminLocale]);
 
-  // Listen for bookmark changes from other screens
+  // Listen for bookmark changes from other screens.
+  //
+  // The listener used to have empty deps and capture `checkBookmarkStatus`
+  // from the first render — at which point `localeData` was still null
+  // and the captured callback fell into the regular-location branch
+  // (reading `savedLocations` instead of `savedLocales`). When the user
+  // first tapped Save, the optimistic `setIsBookmarked(true)` was
+  // immediately reverted by this stale listener reading the wrong key.
+  // The second tap only "worked" because the deduplication path skipped
+  // emitChanged and the buggy listener never fired.
+  //
+  // Pin the live callback in a ref so the listener always invokes the
+  // latest version (with the correct localeData closure). The ref is
+  // null on the first render — checkBookmarkStatus is defined further
+  // down — and gets wired up by the sync effect below `checkBookmarkStatus`.
+  const checkBookmarkStatusRef = useRef<(() => Promise<void>) | null>(null);
   useEffect(() => {
     const unsubscribe = savedEvents.addListener(() => {
-      // Refresh bookmark status when saved locales change
       if (isMountedRef.current) {
-        checkBookmarkStatus();
+        checkBookmarkStatusRef.current?.();
       }
     });
     return unsubscribe;
@@ -520,6 +534,13 @@ export default function LocationDetailScreen() {
       logger.error('Error checking bookmark status:', error);
     }
   }, [isAdminLocale, localeData, data?.name, location]);
+
+  // Keep the savedEvents listener pointed at the latest checkBookmarkStatus,
+  // so it always uses the current isAdminLocale / localeData / data closure
+  // — without re-binding the listener on every dep change.
+  useEffect(() => {
+    checkBookmarkStatusRef.current = checkBookmarkStatus;
+  }, [checkBookmarkStatus]);
 
   // Bookmark Stability: Atomic read-modify-write with deduplication
   const handleBookmark = useCallback(async () => {

@@ -45,6 +45,43 @@ import { enqueuePendingLike, clearPendingLike, setLocalLikedId } from '../utils/
 
 const LIKED_POSTS_STORAGE_KEY = 'taatom_posts_liked_ids';
 const PENDING_LIKES_STORAGE_KEY = 'taatom_pending_post_likes';
+const SAVED_POSTS_STORAGE_KEY = 'savedPosts';
+
+// Module-level cache of saved post ids. The bookmark icon was reading
+// AsyncStorage on every card mount, so saved posts briefly rendered as
+// unsaved (outline → fill flicker) every time a card scrolled back into
+// view in the virtualized list. This cache is loaded once on the first
+// card mount and kept in sync via writes from handleSave + the
+// savedEvents bus, so subsequent mounts read it synchronously and the
+// initial render is already correct.
+const savedPostsCache: { ids: Set<string> | null; loading: Promise<void> | null } = {
+  ids: null,
+  loading: null,
+};
+
+const ensureSavedPostsCache = (): Promise<void> => {
+  if (savedPostsCache.ids) return Promise.resolve();
+  if (savedPostsCache.loading) return savedPostsCache.loading;
+  savedPostsCache.loading = (async () => {
+    try {
+      const stored = await AsyncStorage.getItem(SAVED_POSTS_STORAGE_KEY);
+      const arr = stored ? JSON.parse(stored) : [];
+      savedPostsCache.ids = new Set(Array.isArray(arr) ? arr.filter((x: any) => typeof x === 'string') : []);
+    } catch {
+      savedPostsCache.ids = new Set();
+    } finally {
+      savedPostsCache.loading = null;
+    }
+  })();
+  return savedPostsCache.loading;
+};
+
+const isSavedSync = (postId: string): boolean => savedPostsCache.ids?.has(postId) ?? false;
+const setSavedInCache = (postId: string, saved: boolean) => {
+  if (!savedPostsCache.ids) return;
+  if (saved) savedPostsCache.ids.add(postId);
+  else savedPostsCache.ids.delete(postId);
+};
 
 interface PhotoCardProps {
   post: PostType;
@@ -82,7 +119,11 @@ function PhotoCard({
     fullName: 'Unknown User',
     profilePic: ''
   };
-  const [isSaved, setIsSaved] = useState(false); // Add save state
+  // Initialize from the module-level cache so re-mounts (FlashList recycle,
+  // back-navigation, etc.) render the bookmark in the correct state on the
+  // first paint. The async loader below seeds the cache the first time
+  // the app starts.
+  const [isSaved, setIsSaved] = useState<boolean>(() => isSavedSync(post._id));
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [showCustomAlert, setShowCustomAlert] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -110,16 +151,18 @@ function PhotoCard({
     loadUser();
   }, []);
 
-  // Load saved state on mount
+  // Seed the module-level saved-posts cache the first time any card
+  // mounts. Subsequent card mounts read it synchronously via the
+  // useState initializer above — no flicker. Once loaded, sync local
+  // state from the cache in case it changed since this card last mounted.
   React.useEffect(() => {
-    const loadSavedState = async () => {
-      try {
-        const stored = await AsyncStorage.getItem('savedPosts');
-        const arr = stored ? JSON.parse(stored) : [];
-        setIsSaved(Array.isArray(arr) && arr.includes(post._id));
-      } catch {}
-    };
-    loadSavedState();
+    let cancelled = false;
+    ensureSavedPostsCache().then(() => {
+      if (cancelled) return;
+      const next = isSavedSync(post._id);
+      setIsSaved(prev => (prev === next ? prev : next));
+    });
+    return () => { cancelled = true; };
   }, [post._id]);
 
   // Note: realtimePostsService.initialize() is now called automatically when subscribing
@@ -215,6 +258,7 @@ function PhotoCard({
     const unsubscribeSaves = realtimePostsService.subscribeToSaves((data) => {
       if (data.postId === post._id) {
         setIsSaved(data.isSaved);
+        setSavedInCache(post._id, data.isSaved);
       }
     });
 
@@ -242,6 +286,7 @@ function PhotoCard({
           case 'save':
           case 'unsave':
             setIsSaved(data.isBookmarked);
+            setSavedInCache(post._id, !!data.isBookmarked);
             break;
           case 'comment':
             // Update comments count if needed
@@ -454,12 +499,13 @@ function PhotoCard({
     const newSaveState = !isSaved;
 
     try {
-      // Toggle save state
+      // Toggle local + module cache so any other card on screen showing
+      // this same post id flips immediately on the next render.
       setIsSaved(newSaveState);
-      
+      setSavedInCache(post._id, newSaveState);
+
       // Persist to AsyncStorage for Saved tab
-      const key = 'savedPosts';
-      const stored = await AsyncStorage.getItem(key);
+      const stored = await AsyncStorage.getItem(SAVED_POSTS_STORAGE_KEY);
       const arr = stored ? JSON.parse(stored) : [];
       let next: string[] = Array.isArray(arr) ? arr : [];
       if (newSaveState) {
@@ -467,9 +513,9 @@ function PhotoCard({
       } else {
         next = next.filter(id => id !== post._id);
       }
-      await AsyncStorage.setItem(key, JSON.stringify(next));
+      await AsyncStorage.setItem(SAVED_POSTS_STORAGE_KEY, JSON.stringify(next));
       logger.debug(newSaveState ? 'Post saved' : 'Post unsaved', { postId: post._id });
-      
+
       // Emit events to notify other pages
       savedEvents.emitChanged();
       savedEvents.emitPostAction(post._id, newSaveState ? 'save' : 'unsave', {
@@ -479,6 +525,7 @@ function PhotoCard({
       logger.error('Error saving post', error);
       // Revert on error
       setIsSaved(previousSaveState);
+      setSavedInCache(post._id, previousSaveState);
       showCustomAlertMessage('Error', 'Failed to save post', 'error');
     } finally {
       setActionLoading(prev => {

@@ -285,6 +285,25 @@ const getPageDetail = async (req, res) => {
         }
       }
     }
+    // Canvas elements: resolve image/video keys to signed URLs.
+    for (const el of (page.canvasContent || [])) {
+      if ((el.type === 'image' || el.type === 'video') && el.content) {
+        if (!el.content.startsWith('http')) {
+          try {
+            const url = await generateSignedUrl(el.content, 'DEFAULT');
+            if (url) el.content = url;
+          } catch { /* keep key */ }
+        } else if (isSignedUrl(el.content)) {
+          const key = extractStorageKeyFromUrl(el.content);
+          if (key) {
+            try {
+              const url = await generateSignedUrl(key, 'DEFAULT');
+              if (url) el.content = url;
+            } catch { /* keep existing */ }
+          }
+        }
+      }
+    }
 
     // Compute localized display prices for the subscription, if priced.
     // INR stays the source of truth (Cashfree only charges INR); the rest are
@@ -1381,6 +1400,178 @@ const getSubscriptionContent = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────
+// CANVAS CONTENT (Stories/Shorts-style free-form layout)
+// ─────────────────────────────────────────────
+
+/**
+ * Update canvas content (owner only)
+ * PUT /api/v1/connect/page/:pageId/canvas
+ * Body: { content: CanvasElement[], background?: string }
+ */
+const updateCanvasContent = async (req, res) => {
+  try {
+    const { pageId } = req.params;
+    const userId = req.user._id;
+    const { content, background } = req.body;
+
+    const page = await ConnectPage.findById(pageId);
+    if (!page) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
+    }
+    if (page.userId.toString() !== userId.toString()) {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the owner can edit canvas content');
+    }
+
+    if (!Array.isArray(content)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Content must be an array of elements');
+    }
+
+    // Sanitize: drop incomplete elements; convert any signed image/video URL back to a storage key
+    // so signed URLs never end up persisted (they expire).
+    const clamp01 = (n) => Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0));
+    const sanitized = content
+      .filter(el => el && el.type && typeof el.content === 'string' && el.content.trim() !== '')
+      .map((el, idx) => {
+        let elContent = el.content;
+        if ((el.type === 'image' || el.type === 'video') && elContent && isSignedUrl(elContent)) {
+          const storageKey = extractStorageKeyFromUrl(elContent);
+          if (storageKey) elContent = storageKey;
+        }
+        return {
+          type: el.type,
+          content: elContent,
+          x: clamp01(el.x),
+          y: clamp01(el.y),
+          w: clamp01(el.w),
+          h: clamp01(el.h),
+          rotation: Number.isFinite(el.rotation) ? el.rotation : 0,
+          zIndex: Number.isFinite(el.zIndex) ? el.zIndex : idx,
+          fontSize: Number.isFinite(el.fontSize) ? el.fontSize : 24,
+          color: typeof el.color === 'string' ? el.color : '#FFFFFF',
+          fontWeight: typeof el.fontWeight === 'string' ? el.fontWeight : '600',
+          backgroundColor: typeof el.backgroundColor === 'string' ? el.backgroundColor : 'transparent'
+        };
+      });
+
+    page.canvasContent = sanitized;
+    if (typeof background === 'string') {
+      page.canvasBackground = background;
+    }
+    await page.save();
+
+    return sendSuccess(res, 200, 'Canvas content updated', {
+      canvasContent: page.canvasContent,
+      canvasBackground: page.canvasBackground
+    });
+  } catch (error) {
+    logger.error('Error updating canvas content:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to update canvas content');
+  }
+};
+
+/**
+ * Get canvas content
+ * GET /api/v1/connect/page/:pageId/canvas
+ */
+const getCanvasContent = async (req, res) => {
+  try {
+    const { pageId } = req.params;
+
+    const page = await ConnectPage.findById(pageId)
+      .select('canvasContent canvasBackground type userId')
+      .lean();
+    if (!page) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
+    }
+
+    // Private page: only owner / active follower can read
+    if (page.type === 'private') {
+      const currentUserId = req.user?._id;
+      const isOwner = currentUserId && page.userId.toString() === currentUserId.toString();
+      if (!isOwner) {
+        const follow = await ConnectFollow.findOne({
+          followerId: currentUserId,
+          connectPageId: pageId,
+          status: 'active'
+        });
+        if (!follow) {
+          return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'This content is private');
+        }
+      }
+    }
+
+    // Resolve image/video storage keys → signed URLs for transit.
+    for (const el of (page.canvasContent || [])) {
+      if ((el.type === 'image' || el.type === 'video') && el.content) {
+        if (!el.content.startsWith('http')) {
+          try {
+            const url = await generateSignedUrl(el.content, 'DEFAULT');
+            if (url) el.content = url;
+          } catch { /* keep key */ }
+        } else if (isSignedUrl(el.content)) {
+          const key = extractStorageKeyFromUrl(el.content);
+          if (key) {
+            try {
+              const url = await generateSignedUrl(key, 'DEFAULT');
+              if (url) el.content = url;
+            } catch { /* keep existing */ }
+          }
+        }
+      }
+    }
+
+    return sendSuccess(res, 200, 'Canvas content fetched', {
+      canvasContent: page.canvasContent || [],
+      canvasBackground: page.canvasBackground || '#000000'
+    });
+  } catch (error) {
+    logger.error('Error fetching canvas content:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to fetch canvas content');
+  }
+};
+
+/**
+ * Upload a video for canvas elements (owner only)
+ * POST /api/v1/connect/page/:pageId/content-video
+ * Body: multipart with field 'video'
+ */
+const uploadContentVideo = async (req, res) => {
+  try {
+    const { pageId } = req.params;
+    const userId = req.user._id;
+
+    const page = await ConnectPage.findById(pageId).select('userId');
+    if (!page) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
+    }
+    if (page.userId.toString() !== userId.toString()) {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the owner can upload videos');
+    }
+
+    const file = req.file;
+    if (!file) {
+      return sendError(res, 'VALIDATION_FAILED', 'No video file provided');
+    }
+
+    const extension = file.originalname?.split('.').pop() || 'mp4';
+    const storageKey = buildMediaKey({
+      type: 'connect-content',
+      userId: userId.toString(),
+      filename: file.originalname || 'content.mp4',
+      extension
+    });
+    await uploadObject(file.buffer, storageKey, file.mimetype);
+
+    const signedUrl = await generateSignedUrl(storageKey, 'DEFAULT');
+
+    return sendSuccess(res, 200, 'Video uploaded', { storageKey, signedUrl });
+  } catch (error) {
+    logger.error('Error uploading canvas video:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to upload video');
+  }
+};
+
+// ─────────────────────────────────────────────
 // VIEWS
 // ─────────────────────────────────────────────
 
@@ -1588,6 +1779,10 @@ module.exports = {
   updateSubscriptionContent,
   getSubscriptionContent,
   uploadContentImage,
+  // Canvas
+  updateCanvasContent,
+  getCanvasContent,
+  uploadContentVideo,
   // Views
   recordView,
   // Analytics

@@ -505,6 +505,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       isScreenFocusedRef.current = true;
       setIsScreenFocused(true);
 
+      // Lift any audio freeze left over from the previous tab-blur cleanup.
+      // Without this, the next song the user lands on could be silently
+      // blocked if the freeze window was set long enough to cover slow
+      // network loads (see cleanup below).
+      audioManager.unfreeze();
+
       // CRITICAL: Set audio mode for shorts playback (main speaker, not earpiece)
       // This ensures audio plays through main speaker even if call service changed it
       Audio.setAudioModeAsync({
@@ -539,10 +545,21 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         // Freeze audioManager BEFORE the cleanup teardown. Any SongPlayer load
         // that's mid-flight will resolve, attempt audioManager.playSound, and
         // get rejected — the in-flight Audio.Sound is unloaded instead of
-        // starting playback in the background. This is the fix for "song
-        // keeps playing after I switch from shorts to home". The freeze
-        // auto-clears after 400ms, well after any reasonable load completes.
-        audioManager.freeze(400);
+        // starting playback in the background. This is the fix for
+        // "switching tabs we can also hear the song".
+        //
+        // 400ms (the previous value) was too short — slow-network streaming
+        // loads regularly resolved after that window expired, slipped past
+        // the freeze, and started playing on the next tab. 3000ms covers
+        // those. The focus path above explicitly unfreezes when the user
+        // returns to shorts, so coming back doesn't stall.
+        //
+        // Trade-off: if the user switches Shorts → Home and immediately
+        // taps a home post that auto-plays a song, the home-tab audio
+        // could be blocked for up to ~3s. Acceptable — the cure is far
+        // less annoying than the disease (orphaned shorts audio playing
+        // while the user is on a different tab).
+        audioManager.freeze(3000);
 
         // Screen unfocused (user switched tab or navigated away) - pause video and audio
         pauseCurrentVideo();
