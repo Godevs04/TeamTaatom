@@ -47,7 +47,7 @@ import { setPendingChatRoomId } from '../../../utils/connectChatBridge';
 import { optimizeCloudinaryUrl } from '../../../utils/imageCache';
 import logger from '../../../utils/logger';
 
-const { width: screenWidth } = Dimensions.get('window');
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
 const isWeb = Platform.OS === 'web';
 const isIOS = Platform.OS === 'ios';
@@ -100,6 +100,7 @@ export default function ConnectPageDetailScreen() {
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [subscribing, setSubscribing] = useState(false);
   const [showPriceModal, setShowPriceModal] = useState(false);
+  const [showCanvasPreview, setShowCanvasPreview] = useState(false);
   const [priceInput, setPriceInput] = useState('');
   const [showPayoutInfo, setShowPayoutInfo] = useState(false);
   const [payoutPreview, setPayoutPreview] = useState<PayoutPreview | null>(null);
@@ -651,6 +652,16 @@ export default function ConnectPageDetailScreen() {
             </View>
             {isOwner && (
               <View style={styles.sectionBottomActions}>
+                {page.canvasContent && page.canvasContent.length > 0 && (
+                  <TouchableOpacity
+                    onPress={() => setShowCanvasPreview(true)}
+                    activeOpacity={0.7}
+                    style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
+                  >
+                    <Ionicons name="eye-outline" size={16} color="#FFFFFF" />
+                    <Text style={styles.sectionBottomButtonText}>Preview</Text>
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity
                   onPress={() => router.push(`/connect/canvas?pageId=${id}`)}
                   activeOpacity={0.7}
@@ -664,6 +675,18 @@ export default function ConnectPageDetailScreen() {
                   <Text style={styles.sectionBottomButtonText}>
                     {page.canvasContent && page.canvasContent.length > 0 ? 'Edit Website' : 'Build Website'}
                   </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {!isOwner && page.canvasContent && page.canvasContent.length > 0 && (
+              <View style={styles.sectionBottomActions}>
+                <TouchableOpacity
+                  onPress={() => setShowCanvasPreview(true)}
+                  activeOpacity={0.7}
+                  style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
+                >
+                  <Ionicons name="eye-outline" size={16} color="#FFFFFF" />
+                  <Text style={styles.sectionBottomButtonText}>View full</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -952,6 +975,56 @@ export default function ConnectPageDetailScreen() {
         {/* Bottom Spacer */}
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Full-screen canvas preview */}
+      {page.canvasContent && page.canvasContent.length > 0 && (() => {
+        const targetRatio = 9 / 16;
+        const screenRatio = screenWidth / screenHeight;
+        const previewW = screenRatio > targetRatio ? screenHeight * targetRatio : screenWidth;
+        const previewH = screenRatio > targetRatio ? screenHeight : screenWidth / targetRatio;
+        return (
+          <Modal
+            visible={showCanvasPreview}
+            animationType="fade"
+            presentationStyle="fullScreen"
+            onRequestClose={() => setShowCanvasPreview(false)}
+            statusBarTranslucent
+          >
+            <View style={canvasPreviewStyles.root}>
+              <View
+                style={{
+                  width: previewW,
+                  height: previewH,
+                  backgroundColor: page.canvasBackground || '#000000',
+                  overflow: 'hidden',
+                }}
+              >
+                {(page.canvasContent as CanvasElement[])
+                  .slice()
+                  .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
+                  .map((el, idx) => (
+                    <CanvasElementView
+                      key={el._id || `cp_${idx}`}
+                      element={el}
+                      isSelected={false}
+                      editable={false}
+                      frameWidth={previewW}
+                      frameHeight={previewH}
+                    />
+                  ))}
+              </View>
+              <TouchableOpacity
+                style={canvasPreviewStyles.close}
+                onPress={() => setShowCanvasPreview(false)}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={26} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+          </Modal>
+        );
+      })()}
 
       {/* Bio Edit Modal */}
       <Modal
@@ -2078,6 +2151,26 @@ const styles = StyleSheet.create({
     fontSize: isTablet ? 16 : 15,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
+  },
+});
+
+const canvasPreviewStyles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#000000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  close: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 50 : 20,
+    right: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

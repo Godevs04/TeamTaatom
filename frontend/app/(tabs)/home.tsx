@@ -38,6 +38,7 @@ import { createLogger } from '../../utils/logger';
 import { audioManager } from '../../utils/audioManager';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { NativeAdCard } from '../../components/ads/NativeAdCard';
+import { useAdCap, recordGoogleAdImpression } from '../../services/adCap';
 import { flushPendingLikes } from '../../utils/likePersistence';
 import type { FeedMode } from '../../services/posts';
 
@@ -222,6 +223,10 @@ export default function HomeScreen() {
   // Frequency control: only show native ads after user has scrolled past 5 posts and session > 30s (retention-friendly).
   const [hasScrolledPastFifthPost, setHasScrolledPastFifthPost] = useState(false);
   const [adsAllowedAfter30s, setAdsAllowedAfter30s] = useState(false);
+  // Persistent 3-per-8h Google AdMob cap, shared with the shorts feed. Once
+  // capped, no ad slots are inserted into the feed (per spec: posts/reels show
+  // no ads after the cap is reached).
+  const adCap = useAdCap();
   const hasSetScrollThresholdRef = useRef(false);
   useEffect(() => {
     const t = setTimeout(() => setAdsAllowedAfter30s(true), 30000);
@@ -1099,21 +1104,30 @@ export default function HomeScreen() {
     },
   });
 
-  // Interleave native ad slots every ADS_AFTER_EVERY posts. Frequency control: only after scroll past 5 + session > 30s.
+  // Interleave native ad slots every ADS_AFTER_EVERY posts. Frequency control:
+  //   1. UX gates: scroll past 5 + session > 30s.
+  //   2. Hard cap: max remainingSlots Google ads in the current 8h window (shared with shorts).
+  // Once the cap is reached, no ad slots are inserted at all.
   const feedData = useMemo((): FeedItem[] => {
     if (isWeb || posts.length === 0) return posts as FeedItem[];
-    const showAds = hasScrolledPastFifthPost && adsAllowedAfter30s;
+    const showAds = hasScrolledPastFifthPost && adsAllowedAfter30s && !adCap.isCapped;
     if (!showAds) return posts as FeedItem[];
+    const maxAdsInFeed = adCap.remainingSlots;
+    if (maxAdsInFeed <= 0) return posts as FeedItem[];
     const result: FeedItem[] = [];
     let adIndex = 0;
     posts.forEach((post, i) => {
       result.push(post);
-      if ((i + 1) % ADS_AFTER_EVERY === 0 && i < posts.length - 1) {
+      if (
+        (i + 1) % ADS_AFTER_EVERY === 0 &&
+        i < posts.length - 1 &&
+        adIndex < maxAdsInFeed
+      ) {
         result.push({ type: 'ad', adIndex: adIndex++ });
       }
     });
     return result;
-  }, [posts, hasScrolledPastFifthPost, adsAllowedAfter30s]);
+  }, [posts, hasScrolledPastFifthPost, adsAllowedAfter30s, adCap.isCapped, adCap.remainingSlots]);
 
   const renderTopHeader = () => (
     <AnimatedHeader
@@ -1208,7 +1222,7 @@ export default function HomeScreen() {
 
   const renderItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => {
     if (isAdItem(item)) {
-      return <NativeAdCard adIndex={item.adIndex} />;
+      return <NativeAdCard adIndex={item.adIndex} onImpression={recordGoogleAdImpression} />;
     }
     return (
       <OptimizedPhotoCard

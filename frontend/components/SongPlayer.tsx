@@ -39,6 +39,13 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
   // newer load was started or the component unmounted, and this stale load
   // should silently unload and bail.
   const loadTokenRef = useRef(0);
+  // True after a preload (loadAsync with shouldPlay:false) completes and
+  // before audioManager.playSound has been called for this sound. Lets the
+  // effect tell apart "loaded but never played" (preload — start it) from
+  // "was playing, audioManager stopped externally" (the existing reload path).
+  // Without this guard the reload-detection branch would unload our preloaded
+  // sound on the very render that flips autoPlay true, defeating the preload.
+  const preloadedRef = useRef(false);
 
   // Get song data from post
   const song = post.song?.songId;
@@ -112,6 +119,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         // the component is already unmounted, calling state setters is a no-op
         // at best and a "can't update unmounted" warning at worst.
       }
+      preloadedRef.current = false;
       isInitializedRef.current = false;
     };
   }, [post._id, onPlayingChange]);
@@ -242,6 +250,13 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         }
         await audioManager.playSound(newSound, post._id.toString());
         onPlayingChange?.(newSound);
+        preloadedRef.current = false;
+      } else {
+        // Preload path: sound is loaded with shouldPlay:false and is not yet
+        // wired into audioManager. The visibility/autoPlay effect uses this
+        // flag to skip the reload-detection branch and call playSound on the
+        // existing sound the moment autoPlay flips true.
+        preloadedRef.current = true;
       }
       
       // Set up playback status listener
@@ -353,13 +368,19 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       if (autoPlay) {
         // Should play - play song
         const currentPostId = audioManager.getCurrentPostId();
-        
+        // Capture-and-clear: if this sound was preloaded (loaded with shouldPlay:false
+        // while the video was buffering), the reload-detection branch below would
+        // mistake it for an externally-stopped sound and reload it. Skip that branch
+        // and let the normal "wire sound into audioManager" path start playback.
+        const wasPreloaded = preloadedRef.current;
+        preloadedRef.current = false;
+
         // Critical check: If soundRef exists but audioManager has no current sound,
         // it means stopAll() was called and the sound was unloaded externally.
         // Only reload if the sound was truly unloaded (mute toggle case).
         // Do NOT reload if stopAll() was called as cleanup (leaving screen) —
         // detect this by checking if the sound object is still loaded.
-        if (soundRef.current && currentPostId === null) {
+        if (soundRef.current && currentPostId === null && !wasPreloaded) {
           // Check if sound is actually still loaded before reloading
           soundRef.current.getStatusAsync()
             .then((status) => {
@@ -464,15 +485,38 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
           }
         }
       } else {
-        // autoPlay is false - pause song immediately (muted or not visible)
-        if (soundRef.current) {
+        // autoPlay is false
+        if (!soundRef.current) {
+          // PRELOAD: load the song silently in parallel with the video buffer.
+          // shouldPlayNow inside loadAndPlaySong derives from autoPlay (false here),
+          // so the sound loads with shouldPlay:false. The moment the video reports
+          // isPlaying:true and autoPlay flips, the autoPlay branch above starts
+          // playback on this already-loaded sound — within a frame instead of
+          // trailing the video by the song's load latency (~200-500ms).
+          loadAndPlaySong();
+        } else {
+          // Sound exists — pause it (muted, paused, or about to lose focus).
           // Check if sound is actually loaded before pausing — loadAsync may
           // still be in-flight, and calling pauseAsync on a loading sound throws.
           soundRef.current.getStatusAsync()
             .then((status) => {
               if (status.isLoaded && soundRef.current) {
                 soundRef.current.pauseAsync().catch(err => {
-                  logger.error('Error pausing:', err);
+                  // pauseAsync routinely rejects when the sound was unloaded
+                  // between the status check above and this call (race with
+                  // the visibility effect's cleanup branch) or when the native
+                  // op was cancelled (-1102). isPlaying state is already set
+                  // false synchronously below, so these are cosmetic noise.
+                  const code = err?.code;
+                  const msg = err?.message || '';
+                  const isExpected =
+                    code === -1102 ||
+                    msg.includes('-1102') ||
+                    msg.includes('NSURLErrorCancelled') ||
+                    msg.includes('cancelled') ||
+                    msg.includes('unloaded') ||
+                    msg.includes('not loaded');
+                  if (!isExpected) logger.error('Error pausing:', err);
                 });
               }
             })
@@ -489,6 +533,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       // Bump the load token so any in-flight loadAndPlaySong sees a stale
       // token when its loadAsync resolves and unloads instead of playing.
       loadTokenRef.current += 1;
+      preloadedRef.current = false;
       if (soundRef.current) {
         onPlayingChange?.(null);
         // Stop + unload instantly to prevent audio bleeding

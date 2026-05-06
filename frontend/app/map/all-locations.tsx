@@ -23,7 +23,6 @@ import { useAlert } from '../../context/AlertContext';
 import { useJourney } from '../../context/JourneyContext';
 import { MapView, Marker, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
 import PolylineRenderer from '../../components/PolylineRenderer';
-import PhotoOverlay from '../../components/PhotoOverlay';
 import { getTravelMapData } from '../../services/profile';
 import { getUserJourneys } from '../../services/journey';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
@@ -549,6 +548,18 @@ function initMap(){
   });
 
   var markers=${JSON.stringify(markersData)};
+  // Dedupe by ~11m precision (4 decimal places) so multiple posts taken at
+  // the exact same spot (or within GPS noise) collapse to one marker. Without
+  // this, a single venue with 3 posts shows as a "+3" cluster badge when
+  // zoomed out, then snaps to overlapping pins (looks like 1) on full zoom-in.
+  (function(){
+    var seen={},deduped=[];
+    markers.forEach(function(m){
+      var key=m.lat.toFixed(4)+','+m.lng.toFixed(4);
+      if(!seen[key]){seen[key]=true;deduped.push(m);}
+    });
+    markers=deduped;
+  })();
   markers.forEach(function(m){bounds.extend(new google.maps.LatLng(m.lat,m.lng));});
 
   // Zoom-aware grid size: smaller grid = less clustering when zoomed in
@@ -600,27 +611,14 @@ function initMap(){
       var pos=new google.maps.LatLng(cluster.lat,cluster.lng);
       var main=cluster.items[0],extra=cluster.items.length-1;
       var div=document.createElement('div');
-      div.style.cssText='position:relative;width:'+sz+'px;height:'+sz+'px;cursor:pointer;';
+      div.style.cssText='position:relative;width:'+sz+'px;height:'+sz+'px;cursor:pointer;display:flex;align-items:center;justify-content:center;';
 
-      if(main.photo){
-        var img=document.createElement('img');
-        img.src=main.photo;
-        img.crossOrigin='anonymous';
-        img.style.cssText='width:'+sz+'px;height:'+sz+'px;border-radius:10px;border:3px solid white;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.3);background:#E5E7EB;';
-        img.onerror=function(){
-          this.style.display='none';
-          var fb=document.createElement('div');
-          fb.style.cssText='width:'+sz+'px;height:'+sz+'px;border-radius:10px;border:3px solid white;background:${GROWTH_GREEN};display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
-          fb.innerHTML='<span style="color:white;font-weight:bold;font-size:14px;">#'+main.number+'</span>';
-          div.insertBefore(fb,div.firstChild);
-        };
-        div.appendChild(img);
-      }else{
-        var ph=document.createElement('div');
-        ph.style.cssText='width:'+sz+'px;height:'+sz+'px;border-radius:10px;border:3px solid white;background:${GROWTH_GREEN};display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
-        ph.innerHTML='<span style="color:white;font-weight:bold;font-size:14px;">#'+main.number+'</span>';
-        div.appendChild(ph);
-      }
+      // Always render a red teardrop pin for post locations (replacing the
+      // previous photo-tile / number-circle marker). Cluster overflow stays
+      // on the +N badge below.
+      var pin=document.createElement('div');
+      pin.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 24 28"><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 16 12 16s12-7 12-16C24 5.4 18.6 0 12 0z" fill="${ALERT_RED}" stroke="white" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="white"/></svg>';
+      div.appendChild(pin);
 
       if(extra>0){
         var badge=document.createElement('div');
@@ -821,15 +819,7 @@ function initMap(){
             description={`Visit #${location.number}`}
           >
             <View style={styles.markerContainer}>
-              {location.photo ? (
-                <View style={{ marginBottom: 4 }}>
-                  <PhotoOverlay imageUrl={location.photo} label={`${location.number}`} onPress={() => {}} />
-                </View>
-              ) : (
-                <View style={[styles.markerCircle, { backgroundColor: ALERT_RED }]}>
-                  <Text style={styles.markerText}>{location.number}</Text>
-                </View>
-              )}
+              <Ionicons name="location" size={36} color={ALERT_RED} />
             </View>
           </Marker>
         ))}

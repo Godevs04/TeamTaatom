@@ -61,17 +61,6 @@ const PRESET_TEXT_COLORS = [
   '#E8C547', '#FF3B30', '#6B4F8A', '#D4A373',
 ];
 
-// Approx perceived luminance from a hex color → choose a contrasting grid tint.
-const isDarkColor = (hex: string): boolean => {
-  const s = hex.replace('#', '');
-  if (s.length !== 6) return true;
-  const r = parseInt(s.slice(0, 2), 16);
-  const g = parseInt(s.slice(2, 4), 16);
-  const b = parseInt(s.slice(4, 6), 16);
-  // Rec. 601 luma
-  return (0.299 * r + 0.587 * g + 0.114 * b) < 140;
-};
-
 export default function CanvasEditorScreen() {
   const { theme } = useTheme();
   const router = useRouter();
@@ -90,7 +79,6 @@ export default function CanvasEditorScreen() {
   const [pendingNewTextId, setPendingNewTextId] = useState<string | null>(null);
   const [showBgPicker, setShowBgPicker] = useState(false);
   const [showTextColorPicker, setShowTextColorPicker] = useState(false);
-  const [showGrid, setShowGrid] = useState(true);
   const [showPreview, setShowPreview] = useState(false);
 
   const frame = useMemo(() => computeFrame(), []);
@@ -395,17 +383,6 @@ export default function CanvasEditorScreen() {
             <Ionicons name="eye-outline" size={22} color={theme.colors.text} />
           </TouchableOpacity>
           <TouchableOpacity
-            style={styles.iconBtn}
-            onPress={() => setShowGrid((v) => !v)}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Ionicons
-              name={showGrid ? 'grid' : 'grid-outline'}
-              size={22}
-              color={showGrid ? theme.colors.primary : theme.colors.textSecondary}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity
             style={[styles.saveBtn, { backgroundColor: theme.colors.primary }, (!hasChanges || saving) && { opacity: 0.5 }]}
             onPress={onSave}
             disabled={!hasChanges || saving}
@@ -419,23 +396,6 @@ export default function CanvasEditorScreen() {
           <View
             style={[styles.frame, { width: frame.w, height: frame.h, backgroundColor: background }]}
           >
-            {showGrid && (() => {
-              const dark = isDarkColor(background);
-              const subtle = dark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.35)';
-              const strong = dark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)';
-              return (
-                <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                  {/* Rule-of-thirds */}
-                  <View style={[styles.gridLineV, { left: '33.333%', backgroundColor: subtle }]} />
-                  <View style={[styles.gridLineV, { left: '66.666%', backgroundColor: subtle }]} />
-                  <View style={[styles.gridLineH, { top: '33.333%', backgroundColor: subtle }]} />
-                  <View style={[styles.gridLineH, { top: '66.666%', backgroundColor: subtle }]} />
-                  {/* Center crosshair */}
-                  <View style={[styles.gridLineV, { left: '50%', backgroundColor: strong }]} />
-                  <View style={[styles.gridLineH, { top: '50%', backgroundColor: strong }]} />
-                </View>
-              );
-            })()}
             {elements
               .slice()
               .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
@@ -720,23 +680,6 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: 11,
     borderWidth: 1,
-  },
-  gridLineV: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    width: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(255,255,255,0.35)',
-  },
-  gridLineH: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(255,255,255,0.35)',
-  },
-  gridLineCenter: {
-    backgroundColor: 'rgba(255,255,255,0.55)',
   },
   previewRoot: {
     flex: 1,
