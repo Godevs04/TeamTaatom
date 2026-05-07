@@ -108,6 +108,13 @@ export default function ConnectPageDetailScreen() {
   const [bioInput, setBioInput] = useState('');
   const [savingBio, setSavingBio] = useState(false);
 
+  // Category-based labels
+  const isCommunity = page?.category === 'community';
+  const subLabel = isCommunity ? 'Buy' : 'Subscription';
+  const subButtonText = isCommunity ? 'Buy' : 'Subscribe';
+  const subscriberLabel = isCommunity ? 'Buyer' : 'Subscriber';
+  const subscribersLabel = isCommunity ? 'Buyers' : 'Subscribers';
+
   const loadPageDetail = useCallback(async () => {
     if (!id) return;
     try {
@@ -178,12 +185,14 @@ export default function ConnectPageDetailScreen() {
   const handleCancelSubscription = () => {
     if (!subscriptionStatus?.subscription?._id) return;
     Alert.alert(
-      'Cancel Subscription',
-      'Are you sure you want to cancel your subscription? You will retain access until the end of the current billing period.',
+      isCommunity ? 'Cancel Purchase' : 'Cancel Subscription',
+      isCommunity
+        ? 'Are you sure you want to cancel? You will retain access until the end of the current billing period.'
+        : 'Are you sure you want to cancel your subscription? You will retain access until the end of the current billing period.',
       [
         { text: 'Keep', style: 'cancel' },
         {
-          text: 'Cancel Subscription',
+          text: isCommunity ? 'Cancel Purchase' : 'Cancel Subscription',
           style: 'destructive',
           onPress: async () => {
             try {
@@ -195,7 +204,7 @@ export default function ConnectPageDetailScreen() {
                   status: 'cancelled',
                 },
               });
-              Alert.alert('Cancelled', 'Your subscription has been cancelled.');
+              Alert.alert('Cancelled', isCommunity ? 'Your purchase has been cancelled.' : 'Your subscription has been cancelled.');
             } catch (error: any) {
               Alert.alert('Error', error.message || 'Failed to cancel subscription.');
             }
@@ -550,7 +559,7 @@ export default function ConnectPageDetailScreen() {
             {isOwner && (
               <TouchableOpacity
                 style={[styles.statsButton, { borderColor: theme.colors.border }]}
-                onPress={() => router.push(`/connect/dashboard?pageId=${id}`)}
+                onPress={() => router.push(`/connect/dashboard?pageId=${id}&category=${page.category || 'connect'}`)}
                 activeOpacity={0.7}
               >
                 <Ionicons name="analytics-outline" size={16} color={theme.colors.primary} />
@@ -724,7 +733,7 @@ export default function ConnectPageDetailScreen() {
                 <View style={[styles.sectionIconWrap, { backgroundColor: theme.colors.primary + '12' }]}>
                   <Ionicons name="star-outline" size={18} color={theme.colors.primary} />
                 </View>
-                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Subscription</Text>
+                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{subLabel}</Text>
               </View>
             </View>
 
@@ -765,7 +774,7 @@ export default function ConnectPageDetailScreen() {
                 >
                   <Ionicons name="eye-outline" size={16} color={theme.colors.primary} />
                   <Text style={[styles.viewButtonText, { color: theme.colors.primary }]}>
-                    View Subscription
+                    View {subLabel}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -810,7 +819,7 @@ export default function ConnectPageDetailScreen() {
 
                     {approvalStatus === 'approved' && (
                       <Text style={[styles.ownerPriceNote, { color: theme.colors.textSecondary }]}>
-                        Subscribers pay {currSym}{approvedPrice}/month
+                        {subscribersLabel} pay {currSym}{approvedPrice}/month
                       </Text>
                     )}
 
@@ -846,7 +855,7 @@ export default function ConnectPageDetailScreen() {
                     <View style={[styles.subscriptionPriceSection, { borderTopColor: theme.colors.border }]}>
                       <View style={[styles.subscribedBadge, { backgroundColor: theme.colors.success + '15' }]}>
                         <Ionicons name="checkmark-circle" size={18} color={theme.colors.success} />
-                        <Text style={[styles.subscribedText, { color: theme.colors.success }]}>Subscribed</Text>
+                        <Text style={[styles.subscribedText, { color: theme.colors.success }]}>{isCommunity ? 'Purchased' : 'Subscribed'}</Text>
                       </View>
                       {subscriptionStatus.subscription?.currentPeriodEnd && (
                         <Text style={[styles.renewsText, { color: theme.colors.textSecondary }]}>
@@ -859,7 +868,7 @@ export default function ConnectPageDetailScreen() {
                         style={styles.cancelLink}
                       >
                         <Text style={[styles.cancelLinkText, { color: theme.colors.error }]}>
-                          Cancel subscription
+                          Cancel {isCommunity ? 'purchase' : 'subscription'}
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -906,7 +915,7 @@ export default function ConnectPageDetailScreen() {
                   <Text style={styles.sectionBottomButtonText}>Preview</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() => router.push(`/connect/editContent?pageId=${id}&section=subscription`)}
+                  onPress={() => router.push(`/connect/editContent?pageId=${id}&section=subscription&category=${page.category || 'connect'}`)}
                   activeOpacity={0.7}
                   style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
                 >
@@ -1187,7 +1196,7 @@ export default function ConnectPageDetailScreen() {
             {payoutPreview ? (
               <View style={styles.payoutDetails}>
                 <View style={styles.payoutRow}>
-                  <Text style={[styles.payoutLabel, { color: theme.colors.textSecondary }]}>Subscriber pays</Text>
+                  <Text style={[styles.payoutLabel, { color: theme.colors.textSecondary }]}>{subscriberLabel} pays</Text>
                   <Text style={[styles.payoutValue, { color: theme.colors.text }]}>{payoutPreview.currencySymbol || currSym}{payoutPreview.grossAmount}</Text>
                 </View>
                 <View style={[styles.payoutDivider, { backgroundColor: theme.colors.border }]} />
@@ -1268,7 +1277,7 @@ export default function ConnectPageDetailScreen() {
               <View style={styles.payoutEmpty}>
                 <Ionicons name="information-circle-outline" size={32} color={theme.colors.textSecondary} />
                 <Text style={[styles.payoutEmptyText, { color: theme.colors.textSecondary }]}>
-                  Set a subscription price to see your payout breakdown.
+                  Set a price to see your payout breakdown.
                 </Text>
               </View>
             )}
@@ -1297,7 +1306,7 @@ export default function ConnectPageDetailScreen() {
               style={[styles.priceModalBox, { backgroundColor: theme.colors.surface }]}
             >
               <Text style={[styles.priceModalTitle, { color: theme.colors.text }]}>
-                Set Subscription Price
+                Set {subLabel} Price
               </Text>
               <Text style={[styles.priceModalSubtitle, { color: theme.colors.textSecondary }]}>
                 Monthly price in {currSym}

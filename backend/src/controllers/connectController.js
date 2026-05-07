@@ -43,7 +43,7 @@ const resolvePageImages = async (page) => {
 const createPage = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { name, type, bio, features, subscriptionPrice, subscriptionCurrency, country, payoutInfo } = req.body;
+    const { name, type, category, bio, features, subscriptionPrice, subscriptionCurrency, country, payoutInfo } = req.body;
     const { getCurrencyFromCountry, validatePrice } = require('../utils/currencyConfig');
 
     if (!name || name.trim().length < 3 || name.trim().length > 50) {
@@ -96,6 +96,7 @@ const createPage = async (req, res) => {
     const pageData = {
       userId,
       name: name.trim(),
+      category: category === 'community' ? 'community' : 'connect',
       type: type || 'public',
       bio: bio ? bio.trim() : '',
       profileImage: profileImageStorageKey,
@@ -364,7 +365,7 @@ const updatePage = async (req, res) => {
       return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the owner can edit this page');
     }
 
-    const allowedFields = ['name', 'type', 'bio', 'profileImage', 'features', 'creatorPayoutInfo'];
+    const allowedFields = ['name', 'type', 'category', 'bio', 'profileImage', 'features', 'creatorPayoutInfo'];
     const updates = {};
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) {

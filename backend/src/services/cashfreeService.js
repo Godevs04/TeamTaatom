@@ -123,12 +123,24 @@ const makeRequest = (method, url, body = null) => {
  * @param {number} params.amount - Monthly amount in INR
  * @returns {Object} Cashfree plan object
  */
+// Cashfree API field limits (enforced server-side by Cashfree).
+// Keep these here so every caller is protected — never rely on callers to truncate.
+const CASHFREE_PLAN_NAME_MAX = 40;
+const CASHFREE_PLAN_NOTE_MAX = 100;
+
+const truncate = (value, max) => {
+  const s = String(value == null ? '' : value);
+  return s.length > max ? s.slice(0, max).trim() : s;
+};
+
 const createPlan = async ({ planId, planName, amount }) => {
   const config = getConfig();
+  const safePlanName = truncate(planName, CASHFREE_PLAN_NAME_MAX);
+  const safePlanNote = truncate(`Subscription plan for Connect page: ${safePlanName}`, CASHFREE_PLAN_NOTE_MAX);
   try {
     const result = await makeRequest('POST', `${config.baseUrl}/plans`, {
       plan_id: planId,
-      plan_name: planName,
+      plan_name: safePlanName,
       plan_type: 'PERIODIC',
       plan_currency: 'INR',
       plan_recurring_amount: amount,
@@ -136,7 +148,7 @@ const createPlan = async ({ planId, planName, amount }) => {
       plan_max_cycles: 0, // 0 = unlimited cycles
       plan_intervals: 1,
       plan_interval_type: 'MONTH',
-      plan_note: `Subscription plan for Connect page: ${planName}`,
+      plan_note: safePlanNote,
     });
     logger.info(`Cashfree plan created: ${planId}`);
     return result.data;

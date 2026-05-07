@@ -254,6 +254,19 @@ const userSchema = new mongoose.Schema({
         type: String,
         enum: ['low', 'medium', 'high'],
         default: 'medium'
+      },
+      wifiOnlyDownloads: {
+        type: Boolean,
+        default: false
+      },
+      autoSync: {
+        type: Boolean,
+        default: true
+      },
+      fontSize: {
+        type: String,
+        enum: ['small', 'medium', 'large'],
+        default: 'medium'
       }
     }
   }

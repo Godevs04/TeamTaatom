@@ -90,11 +90,14 @@ export default function ContentPreviewScreen() {
 
   const isWebsite = section === 'website';
   const isSubscription = section === 'subscription';
+  const isCommunity = pageData?.category === 'community';
+  const subLabel = isCommunity ? 'Buy' : 'Subscription';
+  const subButtonText = isCommunity ? 'Buy' : 'Subscribe';
   const title = pageName
     ? decodeURIComponent(pageName)
     : isWebsite
     ? 'Website'
-    : 'Subscription';
+    : subLabel;
 
   useEffect(() => {
     const load = async () => {
@@ -152,12 +155,12 @@ export default function ContentPreviewScreen() {
   const handleCancelSubscription = async () => {
     if (!subscriptionStatus?.subscription?._id) return;
     Alert.alert(
-      'Cancel Subscription',
-      'Are you sure you want to cancel your subscription?',
+      isCommunity ? 'Cancel Purchase' : 'Cancel Subscription',
+      isCommunity ? 'Are you sure you want to cancel?' : 'Are you sure you want to cancel your subscription?',
       [
         { text: 'Keep', style: 'cancel' },
         {
-          text: 'Cancel Subscription',
+          text: isCommunity ? 'Cancel Purchase' : 'Cancel Subscription',
           style: 'destructive',
           onPress: async () => {
             try {
@@ -324,9 +327,9 @@ export default function ContentPreviewScreen() {
               return (
                 <View style={[styles.subscribeSection, { borderTopColor: theme.colors.border }]}>
                   <View style={[styles.subscribeButton, { backgroundColor: theme.colors.primary }]}>
-                    <Ionicons name="star" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    <Ionicons name={isCommunity ? 'cart-outline' : 'star'} size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
                     <Text style={styles.subscribeButtonText}>
-                      Subscribe · {currSym}{displayPrice}/month
+                      {subButtonText} · {currSym}{displayPrice}/month
                     </Text>
                   </View>
                   <Text style={[styles.subscribeNote, { color: theme.colors.textSecondary }]}>
@@ -376,9 +379,9 @@ export default function ContentPreviewScreen() {
                       <ActivityIndicator size="small" color="#FFFFFF" />
                     ) : (
                       <>
-                        <Ionicons name="star" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                        <Ionicons name={isCommunity ? 'cart-outline' : 'star'} size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
                         <Text style={styles.subscribeButtonText}>
-                          Subscribe · {currSym}{approvedPrice}/month
+                          {subButtonText} · {currSym}{approvedPrice}/month
                         </Text>
                       </>
                     )}

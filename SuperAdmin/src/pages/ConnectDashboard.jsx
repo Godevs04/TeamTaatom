@@ -130,46 +130,39 @@ const ConnectDashboard = () => {
         </div>
       </div>
 
-      {/* Filters */}
-      <Card className="mb-4">
-        <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row gap-3">
-            <form onSubmit={onSearchSubmit} className="flex-1 flex items-center gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="text"
-                  value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="Search by page name..."
-                  className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <button
-                type="submit"
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
-              >
-                Search
-              </button>
-            </form>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-3 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">All statuses</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="suspended">Suspended</option>
-            </select>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Table */}
       <Card>
         <CardHeader>
-          <CardTitle>All Connect Pages</CardTitle>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <CardTitle>All Connect Pages</CardTitle>
+            <div className="flex items-center gap-2">
+              <form onSubmit={onSearchSubmit} className="flex items-center gap-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                  <input
+                    type="text"
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    placeholder="Search pages..."
+                    className="w-48 pl-8 pr-3 py-1.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </form>
+              {['all', 'active', 'inactive', 'suspended'].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStatusFilter(s)}
+                  className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                    statusFilter === s
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  {s.charAt(0).toUpperCase() + s.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
@@ -177,7 +170,7 @@ const ConnectDashboard = () => {
               <TableRow>
                 <TableHead>Page</TableHead>
                 <TableHead>Owner</TableHead>
-                <TableHead>Type</TableHead>
+                <TableHead>Category</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Price</TableHead>
                 <TableHead className="text-right">Subscribers</TableHead>
@@ -226,10 +219,15 @@ const ConnectDashboard = () => {
                       </div>
                     </TableCell>
                     <TableCell>
-                      <span className="inline-flex items-center gap-1 text-xs text-gray-700">
-                        {p.type === 'private' ? <Lock className="w-3 h-3" /> : <Globe className="w-3 h-3" />}
-                        {p.type || 'public'}
-                      </span>
+                      <div className="flex flex-col gap-0.5">
+                        <span className={`inline-flex items-center gap-1 text-xs font-medium ${p.category === 'community' ? 'text-purple-700' : 'text-blue-700'}`}>
+                          {p.category === 'community' ? 'Community' : 'Connect'}
+                        </span>
+                        <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                          {p.type === 'private' ? <Lock className="w-3 h-3" /> : <Globe className="w-3 h-3" />}
+                          {p.type || 'public'}
+                        </span>
+                      </div>
                     </TableCell>
                     <TableCell><StatusBadge status={p.status} /></TableCell>
                     <TableCell className="text-right text-sm">
