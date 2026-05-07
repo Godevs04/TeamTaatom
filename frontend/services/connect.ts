@@ -647,6 +647,73 @@ export const getPayoutPreview = async (connectPageId: string): Promise<{ preview
 };
 
 // ─────────────────────────────────────────────
+// My Payouts (creator-facing payout history)
+// ─────────────────────────────────────────────
+
+export type PayoutStatus = 'calculated' | 'pending' | 'processing' | 'completed' | 'failed';
+
+export interface MyPayout {
+  _id: string;
+  periodMonth: number;
+  periodYear: number;
+  pageId: string;
+  pageName: string;
+  pageCategory: string;
+  currency: string;
+  isInternational: boolean;
+  // Full breakdown
+  grossAmount: number;
+  gatewayFee: number;
+  gatewayFeePercent: number;
+  fxCharge: number;
+  netAfterGateway: number;
+  commissionPercent: number;
+  commissionAmount: number;
+  gstPercent: number;
+  gstAmount: number;
+  wiseFee: number;
+  wiseFeePercent: number;
+  creatorPayout: number;
+  subscriberCount: number;
+  // State
+  status: PayoutStatus;
+  payoutMethod: 'cashfree_bank' | 'cashfree_upi' | 'wise';
+  payoutReference: string;
+  processedAt: string | null;
+  failureReason: string;
+  createdAt: string;
+}
+
+export interface MyPayoutsResponse {
+  payouts: MyPayout[];
+  summary: {
+    totalEarned: number;
+    totalPending: number;
+    payoutCount: number;
+  };
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export const getMyPayouts = async (
+  { page = 1, limit = 20, status }: { page?: number; limit?: number; status?: PayoutStatus } = {}
+): Promise<MyPayoutsResponse> => {
+  try {
+    const params: Record<string, any> = { page, limit };
+    if (status) params.status = status;
+    const response = await api.get('/api/v1/connect/my-payouts', { params });
+    return response.data?.data || response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+// ─────────────────────────────────────────────
 // Currency Config
 // ─────────────────────────────────────────────
 

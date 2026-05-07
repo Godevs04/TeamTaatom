@@ -309,9 +309,104 @@ const handlePayoutWebhook = async (req, res) => {
   }
 };
 
+/**
+ * GET /api/v1/connect/my-payouts
+ * Creator-facing list of their own payouts, across all their Connect pages.
+ * Query: ?page=N&limit=N&status=
+ */
+const getMyPayouts = async (req, res) => {
+  try {
+    const userId = req.user?._id;
+    if (!userId) return sendError(res, 'AUTH_REQUIRED', 'Not authenticated');
+
+    const pageNum = Math.max(parseInt(req.query.page) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 50);
+    const skip = (pageNum - 1) * limit;
+
+    const filter = { creatorId: userId };
+    if (req.query.status) filter.status = String(req.query.status);
+
+    const [payouts, total, summary] = await Promise.all([
+      Payout.find(filter)
+        .sort({ periodYear: -1, periodMonth: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .populate('connectPageId', 'name category')
+        .lean(),
+      Payout.countDocuments(filter),
+      Payout.aggregate([
+        { $match: { creatorId: new mongoose.Types.ObjectId(userId) } },
+        {
+          $group: {
+            _id: null,
+            totalEarned: {
+              $sum: { $cond: [{ $eq: ['$status', 'completed'] }, '$creatorPayout', 0] },
+            },
+            totalPending: {
+              $sum: {
+                $cond: [
+                  { $in: ['$status', ['calculated', 'processing']] },
+                  '$creatorPayout',
+                  0,
+                ],
+              },
+            },
+            payoutCount: { $sum: 1 },
+          },
+        },
+      ]),
+    ]);
+
+    return sendSuccess(res, 200, 'Payouts fetched', {
+      payouts: payouts.map((p) => ({
+        _id: p._id,
+        periodMonth: p.periodMonth,
+        periodYear: p.periodYear,
+        pageId: p.connectPageId?._id || p.connectPageId,
+        pageName: p.connectPageId?.name || '',
+        pageCategory: p.connectPageId?.category || '',
+        currency: p.currency || 'INR',
+        isInternational: !!p.isInternational,
+        // Full breakdown
+        grossAmount: p.grossAmount,
+        gatewayFee: p.gatewayFee,
+        gatewayFeePercent: p.gatewayFeePercent,
+        fxCharge: p.fxCharge,
+        netAfterGateway: p.netAfterGateway,
+        commissionPercent: p.commissionPercent,
+        commissionAmount: p.commissionAmount,
+        gstPercent: p.gstPercent,
+        gstAmount: p.gstAmount,
+        wiseFee: p.wiseFee,
+        wiseFeePercent: p.wiseFeePercent,
+        creatorPayout: p.creatorPayout,
+        subscriberCount: p.subscriberCount,
+        // State
+        status: p.status,
+        payoutMethod: p.payoutMethod,
+        payoutReference: p.payoutReference || '',
+        processedAt: p.processedAt,
+        failureReason: p.failureReason || '',
+        createdAt: p.createdAt,
+      })),
+      summary: summary[0] || { totalEarned: 0, totalPending: 0, payoutCount: 0 },
+      pagination: {
+        page: pageNum,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    logger.error('getMyPayouts error:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to fetch payouts');
+  }
+};
+
 module.exports = {
   processPayout,
   markPayoutPaid,
   refreshPayoutStatus,
   handlePayoutWebhook,
+  getMyPayouts,
 };
