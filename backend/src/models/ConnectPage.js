@@ -94,6 +94,11 @@ const ConnectPageSchema = new Schema({
     minlength: [3, 'Name must be at least 3 characters'],
     maxlength: [50, 'Name cannot exceed 50 characters']
   },
+  category: {
+    type: String,
+    enum: ['connect', 'community'],
+    default: 'connect'
+  },
   type: {
     type: String,
     enum: ['public', 'private'],
@@ -222,6 +227,7 @@ const ConnectPageSchema = new Schema({
 
 // Indexes
 ConnectPageSchema.index({ type: 1, status: 1, isAdminPage: 1 });
+ConnectPageSchema.index({ category: 1, status: 1 });
 ConnectPageSchema.index({ isDefault: 1 });
 ConnectPageSchema.index({ name: 'text' });
 ConnectPageSchema.index({ status: 1, createdAt: -1 });

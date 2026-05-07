@@ -257,24 +257,39 @@ export default function DataStorageSettingsScreen() {
 
   const handleClearCache = () => {
     showConfirm(
-      'This will clear all cached data. You may need to re-download some content.',
+      'This will clear all cached images and thumbnails. You may need to re-download some content.',
       async () => {
         try {
           // Clear cache-related keys (keep auth and settings)
           const keys = await AsyncStorage.getAllKeys();
-          const cacheKeys = keys.filter(key => 
-            key.includes('cache') || 
-            key.includes('image') || 
+          const cacheKeys = keys.filter(key =>
+            key.includes('cache') ||
+            key.includes('image') ||
+            key.includes('thumb') ||
             key.includes('temp')
           );
           await AsyncStorage.multiRemove(cacheKeys);
+
+          // Also clear FileSystem cache directory
+          try {
+            const cacheDir = (FileSystem as any).cacheDirectory || null;
+            if (cacheDir) {
+              const cacheInfo = await FileSystem.getInfoAsync(cacheDir);
+              if (cacheInfo.exists) {
+                await FileSystem.deleteAsync(cacheDir, { idempotent: true });
+              }
+            }
+          } catch (fsError) {
+            logger.debug('Error clearing FileSystem cache', fsError);
+          }
+
           await calculateStorageUsage();
           showSuccess('Cache cleared successfully');
         } catch (error) {
           showError('Failed to clear cache');
         }
       },
-      'Clear Cache',
+      'Clear Images',
       'Clear',
       'Cancel'
     );
@@ -287,12 +302,35 @@ export default function DataStorageSettingsScreen() {
         try {
           // Clear download-related keys
           const keys = await AsyncStorage.getAllKeys();
-          const downloadKeys = keys.filter(key => 
-            key.includes('download') || 
+          const downloadKeys = keys.filter(key =>
+            key.includes('download') ||
             key.includes('offline') ||
             key.includes('video')
           );
           await AsyncStorage.multiRemove(downloadKeys);
+
+          // Also clear downloaded files from FileSystem cache
+          try {
+            const cacheDir = (FileSystem as any).cacheDirectory || null;
+            if (cacheDir) {
+              const cacheInfo = await FileSystem.getInfoAsync(cacheDir);
+              if (cacheInfo.exists && cacheInfo.isDirectory) {
+                const files = await FileSystem.readDirectoryAsync(cacheDir);
+                for (const file of files) {
+                  if (file.includes('download') || file.includes('video') || file.includes('offline')) {
+                    try {
+                      await FileSystem.deleteAsync(`${cacheDir}${file}`, { idempotent: true });
+                    } catch (err) {
+                      logger.debug(`Error deleting download file ${file}`, err);
+                    }
+                  }
+                }
+              }
+            }
+          } catch (fsError) {
+            logger.debug('Error clearing FileSystem downloads', fsError);
+          }
+
           await calculateStorageUsage();
           showSuccess('Downloads cleared successfully');
         } catch (error) {
@@ -465,9 +503,44 @@ export default function DataStorageSettingsScreen() {
                 style={[styles.clearButton, { backgroundColor: theme.colors.error + '20' }]}
                 onPress={() => {
                   showConfirm(
-                    'This will clear app documents. Continue?',
-                    () => {
-                      showSuccess('Documents cleared successfully');
+                    'This will clear app documents and data. You may need to re-login or re-download some content.',
+                    async () => {
+                      try {
+                        // Clear document-related AsyncStorage keys (keep auth token and user data)
+                        const keys = await AsyncStorage.getAllKeys();
+                        const docKeys = keys.filter(key =>
+                          !key.includes('token') &&
+                          !key.includes('userData') &&
+                          !key.includes('settings') &&
+                          !key.includes('auth')
+                        );
+                        await AsyncStorage.multiRemove(docKeys);
+
+                        // Clear FileSystem document directory contents
+                        try {
+                          const documentDir = (FileSystem as any).documentDirectory || null;
+                          if (documentDir) {
+                            const docInfo = await FileSystem.getInfoAsync(documentDir);
+                            if (docInfo.exists && docInfo.isDirectory) {
+                              const files = await FileSystem.readDirectoryAsync(documentDir);
+                              for (const file of files) {
+                                try {
+                                  await FileSystem.deleteAsync(`${documentDir}${file}`, { idempotent: true });
+                                } catch (err) {
+                                  logger.debug(`Error deleting document file ${file}`, err);
+                                }
+                              }
+                            }
+                          }
+                        } catch (fsError) {
+                          logger.debug('Error clearing FileSystem documents', fsError);
+                        }
+
+                        await calculateStorageUsage();
+                        showSuccess('Documents cleared successfully');
+                      } catch (error) {
+                        showError('Failed to clear documents');
+                      }
                     },
                     'Clear Documents',
                     'Clear',

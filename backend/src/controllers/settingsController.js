@@ -95,6 +95,15 @@ const updateSettings = async (req, res) => {
       if (settings.account.dataUsage && ['low', 'medium', 'high'].includes(settings.account.dataUsage)) {
         validSettings['settings.account.dataUsage'] = settings.account.dataUsage;
       }
+      if (typeof settings.account.wifiOnlyDownloads === 'boolean') {
+        validSettings['settings.account.wifiOnlyDownloads'] = settings.account.wifiOnlyDownloads;
+      }
+      if (typeof settings.account.autoSync === 'boolean') {
+        validSettings['settings.account.autoSync'] = settings.account.autoSync;
+      }
+      if (settings.account.fontSize && ['small', 'medium', 'large'].includes(settings.account.fontSize)) {
+        validSettings['settings.account.fontSize'] = settings.account.fontSize;
+      }
     }
 
     const updatedUser = await User.findByIdAndUpdate(
@@ -141,7 +150,10 @@ const resetSettings = async (req, res) => {
       account: {
         language: 'en',
         theme: 'auto',
-        dataUsage: 'medium'
+        dataUsage: 'medium',
+        wifiOnlyDownloads: false,
+        autoSync: true,
+        fontSize: 'medium'
       }
     };
 

@@ -60,6 +60,7 @@ export interface ConnectPageType {
     profilePic: string;
   } | string;
   name: string;
+  category?: 'connect' | 'community';
   type: 'public' | 'private';
   profileImage: string;
   bannerImage: string;
@@ -587,13 +588,16 @@ export const getMySubscriptions = async (): Promise<{ subscriptions: any[] }> =>
   }
 };
 
-export const getPageSubscribers = async (pageId: string): Promise<{
+export const getPageSubscribers = async (pageId: string, status?: string): Promise<{
   subscribers: any[];
   totalActiveSubscribers: number;
   monthlyRevenue: number;
+  stats?: { total: number; active: number; initialized: number; cancelled: number; expired: number };
 }> => {
   try {
-    const response = await api.get(`/api/v1/connect/page/${pageId}/subscribers`);
+    const params: any = {};
+    if (status && status !== 'all') params.status = status;
+    const response = await api.get(`/api/v1/connect/page/${pageId}/subscribers`, { params });
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);

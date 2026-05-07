@@ -4815,7 +4815,7 @@ router.get('/payouts', checkPermission('canManageContent'), async (req, res) => 
 // GET /api/v1/superadmin/subscription-stats — Overview stats + monthly chart data
 router.get('/subscription-stats', checkPermission('canManageContent'), async (req, res) => {
   try {
-    const [pendingCount, activeSubCount, totalSubCount, totalRevenue, monthlyPayouts] = await Promise.all([
+    const [pendingCount, activeSubCount, totalSubCount, totalRevenue, monthlyPayouts, recentSubs] = await Promise.all([
       ConnectPage.countDocuments({ 'subscriptionApproval.status': 'pending' }),
       Subscription.countDocuments({ status: 'active' }),
       Subscription.countDocuments({ status: { $in: ['active', 'cancelled', 'completed'] } }),
@@ -4838,7 +4838,14 @@ router.get('/subscription-stats', checkPermission('canManageContent'), async (re
         { $sort: { '_id.year': -1, '_id.month': -1 } },
         { $limit: 12 },
         { $sort: { '_id.year': 1, '_id.month': 1 } },
-      ])
+      ]),
+      // 5 most recent active subscribers with user + page info
+      Subscription.find({ status: 'active' })
+        .sort({ activatedAt: -1, createdAt: -1 })
+        .limit(5)
+        .populate('userId', 'fullName username profilePic email')
+        .populate('connectPageId', 'name')
+        .lean()
     ])
 
     // Format monthly data for chart
@@ -4853,12 +4860,26 @@ router.get('/subscription-stats', checkPermission('canManageContent'), async (re
       subscribers: p.subscriberCount,
     }))
 
+    // Format recent subscribers for dashboard
+    const recentSubscribers = recentSubs.map(s => ({
+      _id: s._id,
+      fullName: s.userId?.fullName || 'Unknown',
+      username: s.userId?.username || '',
+      profilePic: s.userId?.profilePic || '',
+      email: s.userId?.email || '',
+      pageName: s.connectPageId?.name || 'Unknown Page',
+      amount: s.amount || 0,
+      currency: s.currency || 'INR',
+      activatedAt: s.activatedAt || s.createdAt,
+    }))
+
     return sendSuccess(res, 200, 'Subscription stats fetched', {
       pendingApprovals: pendingCount,
       activeSubscriptions: activeSubCount,
       totalSubscribers: totalSubCount,
       monthlyRecurringRevenue: totalRevenue[0]?.total || 0,
       monthlyChart,
+      recentSubscribers,
     })
   } catch (error) {
     logger.error('Error fetching subscription stats:', error)
@@ -5128,6 +5149,7 @@ router.post('/community-pages', authenticateSuperAdmin, (req, res, next) => {
       profileImage: profileImageStorageKey,
       bannerImage: bannerImageStorageKey,
       isAdminPage: true,
+      category: 'community',
       features: {
         website: parsedFeatures?.website === true || parsedFeatures?.website === 'true' || false,
         groupChat: parsedFeatures?.groupChat === true || parsedFeatures?.groupChat === 'true' || false,

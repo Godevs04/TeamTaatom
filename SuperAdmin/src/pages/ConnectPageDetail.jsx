@@ -58,9 +58,14 @@ const ConnectPageDetail = () => {
 
   useEffect(() => { load() }, [load])
 
+  const [statusFilter, setStatusFilter] = useState('all')
+
   const page = data?.page
-  const subscriptions = data?.subscriptions || []
+  const allSubscriptions = data?.subscriptions || []
   const stats = data?.stats || { total: 0, active: 0, cancelled: 0, initialized: 0, monthlyRevenue: 0 }
+  const subscriptions = statusFilter === 'all'
+    ? allSubscriptions
+    : allSubscriptions.filter(s => s.status === statusFilter)
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto">
@@ -74,8 +79,13 @@ const ConnectPageDetail = () => {
             Back
           </button>
           <div className="min-w-0">
-            <h1 className="text-2xl font-bold text-gray-900 truncate">
+            <h1 className="text-2xl font-bold text-gray-900 truncate flex items-center gap-2">
               {page?.name || (loading ? 'Loading...' : 'Page')}
+              {page?.category && (
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${page.category === 'community' ? 'bg-purple-50 text-purple-700' : 'bg-blue-50 text-blue-700'}`}>
+                  {page.category === 'community' ? 'Community' : 'Connect'}
+                </span>
+              )}
             </h1>
             <p className="text-sm text-gray-500 truncate">
               Owned by {page?.userId?.fullName || page?.userId?.username || '—'} ({page?.userId?.email || 'no email'})
@@ -136,7 +146,30 @@ const ConnectPageDetail = () => {
       {/* Subscribers table */}
       <Card>
         <CardHeader>
-          <CardTitle>Subscribers</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle>Subscribers</CardTitle>
+            <div className="flex items-center gap-2">
+              {[
+                { value: 'all', label: 'All', count: stats.total },
+                { value: 'active', label: 'Active', count: stats.active },
+                { value: 'initialized', label: 'Pending', count: stats.initialized },
+                { value: 'cancelled', label: 'Cancelled', count: stats.cancelled },
+                { value: 'expired', label: 'Expired', count: allSubscriptions.filter(s => s.status === 'expired').length },
+              ].map(f => (
+                <button
+                  key={f.value}
+                  onClick={() => setStatusFilter(f.value)}
+                  className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                    statusFilter === f.value
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  {f.label} ({f.count})
+                </button>
+              ))}
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
@@ -161,7 +194,7 @@ const ConnectPageDetail = () => {
               ) : subscriptions.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={7} className="text-center py-8 text-gray-500">
-                    No subscribers yet
+                    {statusFilter === 'all' ? 'No subscribers yet' : `No ${statusFilter} subscribers`}
                   </TableCell>
                 </TableRow>
               ) : (

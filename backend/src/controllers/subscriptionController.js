@@ -95,13 +95,15 @@ const createSubscription = async (req, res) => {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'User not found');
     }
 
-    // Ensure Cashfree plan exists for this page
+    // Ensure Cashfree plan exists for this page.
+    // Cashfree caps plan_name at 40 chars; cashfreeService truncates defensively,
+    // but we use a short suffix so the displayed name stays readable for typical page names.
     const planId = `taatom_connect_${connectPageId}`;
     let plan = await cashfreeService.getPlan(planId);
     if (!plan) {
       plan = await cashfreeService.createPlan({
         planId,
-        planName: `${page.name} Monthly Subscription`,
+        planName: `${page.name} (Monthly)`,
         amount: page.subscriptionPrice,
       });
     }
@@ -186,6 +188,57 @@ const getSubscriptionStatus = async (req, res) => {
         isSubscribed: false,
         subscription: null,
       });
+    }
+
+    // ── Fallback: if still initialized, poll Cashfree directly ──
+    // The webhook may not have arrived (sandbox, network issues, etc.).
+    // Check Cashfree for the real status and sync our DB if it changed.
+    if (
+      subscription.status === 'initialized' &&
+      subscription.cashfreeSubscriptionId &&
+      cashfreeService.isCashfreeConfigured()
+    ) {
+      try {
+        const cfSub = await cashfreeService.getSubscription(subscription.cashfreeSubscriptionId);
+        const cfStatus = (cfSub?.subscription_status || cfSub?.status || '').toLowerCase();
+
+        if (cfStatus === 'active') {
+          const now = new Date();
+          const periodEnd = new Date(now);
+          periodEnd.setMonth(periodEnd.getMonth() + 1);
+
+          subscription.status = 'active';
+          subscription.activatedAt = subscription.activatedAt || now;
+          subscription.currentPeriodStart = now;
+          subscription.currentPeriodEnd = periodEnd;
+
+          // Record initial payment if none exists — the webhook may have been missed
+          const hasSuccessPayment = subscription.payments.some(p => p.status === 'success');
+          if (!hasSuccessPayment) {
+            subscription.payments.push({
+              cashfreePaymentId: `fallback_${subscription.cashfreeSubscriptionId}`,
+              amount: subscription.amount,
+              status: 'success',
+              paidAt: now,
+            });
+          }
+          await subscription.save();
+          logger.info(`Fallback: synced subscription ${subscription._id} to active from Cashfree`);
+        } else if (cfStatus === 'cancelled' || cfStatus === 'canceled') {
+          subscription.status = 'cancelled';
+          subscription.cancelledAt = new Date();
+          await subscription.save();
+          logger.info(`Fallback: synced subscription ${subscription._id} to cancelled from Cashfree`);
+        } else if (cfStatus === 'completed') {
+          subscription.status = 'completed';
+          await subscription.save();
+          logger.info(`Fallback: synced subscription ${subscription._id} to completed from Cashfree`);
+        }
+        // For other statuses (e.g. 'initialized' on Cashfree side too), do nothing.
+      } catch (fallbackErr) {
+        // Don't block the response if Cashfree poll fails — just log and continue.
+        logger.warn('Fallback Cashfree status check failed:', fallbackErr.message);
+      }
     }
 
     return sendSuccess(res, 200, 'Subscription status fetched', {
@@ -299,20 +352,40 @@ const getPageSubscribers = async (req, res) => {
       return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the owner can view subscribers');
     }
 
-    const subscribers = await Subscription.find({
-      connectPageId: pageId,
-      status: 'active',
-    })
+    // Optional status filter via query param (default: all)
+    const statusFilter = req.query.status;
+    const query = { connectPageId: pageId };
+    if (statusFilter && statusFilter !== 'all') {
+      query.status = statusFilter;
+    }
+
+    const subscribers = await Subscription.find(query)
       .populate('userId', 'username fullName profilePic')
-      .sort({ activatedAt: -1 })
+      .sort({ activatedAt: -1, createdAt: -1 })
       .lean();
 
-    const totalRevenue = subscribers.reduce((sum, s) => sum + (s.amount || 0), 0);
+    // Always compute stats across all statuses for the filter counts
+    const allSubs = statusFilter && statusFilter !== 'all'
+      ? await Subscription.find({ connectPageId: pageId }).lean()
+      : subscribers;
+
+    const stats = {
+      total: allSubs.length,
+      active: allSubs.filter(s => s.status === 'active').length,
+      initialized: allSubs.filter(s => s.status === 'initialized').length,
+      cancelled: allSubs.filter(s => s.status === 'cancelled').length,
+      expired: allSubs.filter(s => s.status === 'expired').length,
+    };
+
+    const activeRevenue = allSubs
+      .filter(s => s.status === 'active')
+      .reduce((sum, s) => sum + (s.amount || 0), 0);
 
     return sendSuccess(res, 200, 'Subscribers fetched', {
       subscribers,
-      totalActiveSubscribers: subscribers.length,
-      monthlyRevenue: totalRevenue,
+      totalActiveSubscribers: stats.active,
+      monthlyRevenue: activeRevenue,
+      stats,
     });
   } catch (error) {
     logger.error('Error fetching subscribers:', error);
@@ -381,13 +454,28 @@ const handleWebhook = async (req, res) => {
       case 'SUBSCRIPTION_ACTIVE': {
         const newStatus = data?.subscription?.subscription_status?.toLowerCase();
         if (newStatus === 'active') {
+          const now = new Date();
           subscription.status = 'active';
-          subscription.activatedAt = subscription.activatedAt || new Date();
-          subscription.currentPeriodStart = new Date();
+          subscription.activatedAt = subscription.activatedAt || now;
+          subscription.currentPeriodStart = now;
           // Set period end to 1 month from now
-          const periodEnd = new Date();
+          const periodEnd = new Date(now);
           periodEnd.setMonth(periodEnd.getMonth() + 1);
           subscription.currentPeriodEnd = periodEnd;
+
+          // Record initial payment if none exists yet — the SUBSCRIPTION_PAYMENT_SUCCESS
+          // event may arrive later or not at all (sandbox, network issues), so we record
+          // the first payment here to avoid 0-payment active subscriptions.
+          const hasSuccessPayment = subscription.payments.some(p => p.status === 'success');
+          if (!hasSuccessPayment) {
+            const payment = data?.payment || {};
+            subscription.payments.push({
+              cashfreePaymentId: payment?.cf_payment_id || payment?.payment_id || `activation_${subscription.cashfreeSubscriptionId}`,
+              amount: payment?.payment_amount || subscription.amount,
+              status: 'success',
+              paidAt: now,
+            });
+          }
         } else if (newStatus === 'cancelled' || newStatus === 'canceled') {
           subscription.status = 'cancelled';
           subscription.cancelledAt = new Date();
@@ -551,6 +639,17 @@ const devManualActivate = async (req, res) => {
     subscription.activatedAt = subscription.activatedAt || now;
     subscription.currentPeriodStart = now;
     subscription.currentPeriodEnd = periodEnd;
+
+    // Record initial payment if none exists
+    const hasSuccessPayment = subscription.payments.some(p => p.status === 'success');
+    if (!hasSuccessPayment) {
+      subscription.payments.push({
+        cashfreePaymentId: `dev_manual_${subscription._id}`,
+        amount: subscription.amount,
+        status: 'success',
+        paidAt: now,
+      });
+    }
     await subscription.save();
 
     logger.info(`[DEV] Manually activated subscription ${subscription._id}`);
