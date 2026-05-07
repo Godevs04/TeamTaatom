@@ -64,3 +64,40 @@ export const getPayouts = async ({ status, month, year, page = 1, limit = 20 } =
     throw error
   }
 }
+
+// Initiate domestic payout via Cashfree Payouts API
+export const processPayout = async (payoutId) => {
+  try {
+    const response = await api.post(`${BASE}/payouts/${payoutId}/process`)
+    return response.data?.data || response.data
+  } catch (error) {
+    logger.error('Failed to process payout:', error)
+    throw error
+  }
+}
+
+// Manually mark a payout as paid (Wise / fallback)
+export const markPayoutPaid = async (payoutId, { reference, notes, paidAt } = {}) => {
+  try {
+    const response = await api.post(`${BASE}/payouts/${payoutId}/mark-paid`, {
+      reference,
+      notes,
+      paidAt,
+    })
+    return response.data?.data || response.data
+  } catch (error) {
+    logger.error('Failed to mark payout as paid:', error)
+    throw error
+  }
+}
+
+// Pull current Cashfree transfer status (fallback for missed webhooks)
+export const refreshPayoutStatus = async (payoutId) => {
+  try {
+    const response = await api.post(`${BASE}/payouts/${payoutId}/refresh-status`)
+    return response.data?.data || response.data
+  } catch (error) {
+    logger.error('Failed to refresh payout status:', error)
+    throw error
+  }
+}
