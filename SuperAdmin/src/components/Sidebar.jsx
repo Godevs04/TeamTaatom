@@ -21,6 +21,7 @@ import {
   MessageSquare,
   Star,
   Compass,
+  Layers,
 } from 'lucide-react'
 
 const navItems = [
@@ -34,6 +35,7 @@ const navItems = [
   { name: 'Songs', href: '/songs', icon: Music, permission: 'canManageContent' },
   { name: 'Locales', href: '/locales', icon: MapPin, permission: 'canManageContent' },
   { name: 'Subscriptions', href: '/connect-subscriptions', icon: Star, permission: 'canManageContent' },
+  { name: 'Connect', href: '/connect-dashboard', icon: Layers, permission: 'canManageContent' },
   { name: 'Community Pages', href: '/community-pages', icon: Compass, permission: 'canManageContent' },
   { name: 'Reports', href: '/reports', icon: Flag, permission: 'canManageReports' },
   { name: 'Support Inbox', href: '/support-inbox', icon: MessageSquare, permission: 'canViewAnalytics' },
