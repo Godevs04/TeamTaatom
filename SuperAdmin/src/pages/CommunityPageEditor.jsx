@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Globe, Star, Save, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ContentBuilder from '../components/ContentBuilder'
+import CanvasEditor from '../components/CanvasEditor'
 import {
   getCommunityPageContent,
   updateCommunityPageContent,
@@ -140,22 +141,24 @@ export default function CommunityPageEditor() {
           </div>
         </div>
 
-        <button
-          onClick={handleSave}
-          disabled={saving || !dirty}
-          className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-            dirty
-              ? 'bg-blue-600 text-white hover:bg-blue-700'
-              : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-          }`}
-        >
-          {saving ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Save className="w-4 h-4" />
-          )}
-          {saving ? 'Saving...' : 'Save Changes'}
-        </button>
+        {activeTab !== 'website' && (
+          <button
+            onClick={handleSave}
+            disabled={saving || !dirty}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+              dirty
+                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+            }`}
+          >
+            {saving ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Save className="w-4 h-4" />
+            )}
+            {saving ? 'Saving...' : 'Save Changes'}
+          </button>
+        )}
       </div>
 
       {/* Tabs */}
@@ -183,27 +186,35 @@ export default function CommunityPageEditor() {
       </div>
 
       {/* Builder area */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <div className="mb-4">
-          <h2 className="text-sm font-semibold text-gray-700">
-            {activeTab === 'website' ? 'Website Content' : 'Subscription Content'}
-          </h2>
-          <p className="text-xs text-gray-400 mt-1">
-            {activeTab === 'website'
-              ? 'This content is visible to everyone who visits the page.'
-              : 'This content is only visible to paying subscribers.'}
-          </p>
+      {activeTab === 'website' ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="mb-4">
+            <h2 className="text-sm font-semibold text-gray-700">Website</h2>
+            <p className="text-xs text-gray-400 mt-1">
+              Free-form canvas. Add text, images, and videos and position them anywhere on a 9:16 frame. This is what visitors see.
+            </p>
+          </div>
+          <CanvasEditor pageId={pageId} />
         </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 p-6">
+          <div className="mb-4">
+            <h2 className="text-sm font-semibold text-gray-700">Subscription Content</h2>
+            <p className="text-xs text-gray-400 mt-1">
+              This content is only visible to paying subscribers.
+            </p>
+          </div>
 
-        <ContentBuilder
-          blocks={currentBlocks}
-          onChange={currentOnChange}
-          onImageUpload={handleImageUpload}
-        />
-      </div>
+          <ContentBuilder
+            blocks={currentBlocks}
+            onChange={currentOnChange}
+            onImageUpload={handleImageUpload}
+          />
+        </div>
+      )}
 
-      {/* Unsaved changes warning */}
-      {dirty && (
+      {/* Unsaved changes warning (subscription only; website canvas has its own save) */}
+      {dirty && activeTab !== 'website' && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-amber-50 border border-amber-200 text-amber-800 px-5 py-2.5 rounded-full shadow-lg text-sm font-medium">
           You have unsaved changes
         </div>
