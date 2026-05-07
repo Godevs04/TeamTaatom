@@ -266,7 +266,14 @@ export default function ConnectDashboardScreen() {
           <Ionicons name="arrow-back" size={isTablet ? 28 : 24} color={theme.colors.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Dashboard</Text>
-        <View style={styles.headerRight} />
+        <TouchableOpacity
+          style={styles.headerRight}
+          onPress={() => router.push('/connect/payouts' as any)}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="wallet-outline" size={isTablet ? 26 : 22} color={theme.colors.text} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -474,6 +481,9 @@ const styles = StyleSheet.create({
   },
   headerRight: {
     width: isTablet ? 48 : 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
   },
   loadingContainer: {
     flex: 1,

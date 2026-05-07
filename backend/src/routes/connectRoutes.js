@@ -91,6 +91,7 @@ router.get('/page/:pageId/subscribers', authMiddleware, subscriptionController.g
 router.post('/subscription/webhook', subscriptionController.handleWebhook); // No auth — Cashfree calls this
 router.post('/payout/webhook', payoutController.handlePayoutWebhook); // No auth — Cashfree Payouts calls this
 router.get('/subscription/payout-preview/:connectPageId', authMiddleware, subscriptionController.getPayoutPreview);
+router.get('/my-payouts', authMiddleware, payoutController.getMyPayouts);
 
 // Dev-only simulators — the handlers themselves refuse to run when
 // NODE_ENV === 'production'. Lets you flip subscription state without
