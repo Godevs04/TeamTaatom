@@ -29,6 +29,9 @@ import {
   approveSubscription,
   rejectSubscription,
   getPayouts,
+  processPayout,
+  markPayoutPaid,
+  refreshPayoutStatus,
 } from '../services/subscriptionService'
 
 // ─────────────────────────────────────────────
@@ -137,6 +140,14 @@ export default function ConnectSubscriptions() {
   const [rejectModal, setRejectModal] = useState({ open: false, pageId: null, pageName: '' })
   const [rejectReason, setRejectReason] = useState('')
 
+  // Mark-as-Paid modal (for Wise / manual payouts)
+  const [markPaidModal, setMarkPaidModal] = useState({ open: false, payoutId: null, payoutMethod: '', creator: '', amount: 0, currency: 'INR' })
+  const [markPaidForm, setMarkPaidForm] = useState({ reference: '', notes: '', paidAt: '' })
+  const [markPaidSubmitting, setMarkPaidSubmitting] = useState(false)
+
+  // Per-row processing state (so other rows stay clickable)
+  const [processingPayoutId, setProcessingPayoutId] = useState(null)
+
   // ── Fetch stats ──
   const loadStats = useCallback(async () => {
     try {
@@ -223,6 +234,72 @@ export default function ConnectSubscriptions() {
       loadStats()
     } catch (err) {
       toast.error(handleError(err) || 'Failed to reject')
+    }
+  }
+
+  // ── Payout handlers ──
+  const handleProcessPayout = async (payout) => {
+    const creatorName = payout.creatorId?.fullName || payout.creatorId?.username || 'creator'
+    const amt = `${sym(payout.currency || 'INR')}${(payout.creatorPayout || 0).toLocaleString()}`
+    if (!window.confirm(`Push ${amt} to ${creatorName} via Cashfree? This will move real money in production.`)) return
+    try {
+      setProcessingPayoutId(payout._id)
+      const result = await processPayout(payout._id)
+      toast.success(`Payout initiated — ${result?.status || 'processing'}`)
+      loadPayouts(payoutPagination.page)
+    } catch (err) {
+      toast.error(handleError(err) || 'Failed to process payout')
+    } finally {
+      setProcessingPayoutId(null)
+    }
+  }
+
+  const handleOpenMarkPaid = (payout) => {
+    setMarkPaidModal({
+      open: true,
+      payoutId: payout._id,
+      payoutMethod: payout.payoutMethod || 'wise',
+      creator: payout.creatorId?.fullName || payout.creatorId?.username || '—',
+      amount: payout.creatorPayout || 0,
+      currency: payout.currency || 'INR',
+    })
+    setMarkPaidForm({ reference: '', notes: '', paidAt: new Date().toISOString().slice(0, 10) })
+  }
+
+  const handleMarkPaidSubmit = async () => {
+    if (!markPaidModal.payoutId) return
+    const reference = markPaidForm.reference.trim()
+    if (!reference) {
+      toast.error('Reference number is required')
+      return
+    }
+    try {
+      setMarkPaidSubmitting(true)
+      await markPayoutPaid(markPaidModal.payoutId, {
+        reference,
+        notes: markPaidForm.notes.trim(),
+        paidAt: markPaidForm.paidAt || undefined,
+      })
+      toast.success('Payout marked as paid')
+      setMarkPaidModal({ open: false, payoutId: null, payoutMethod: '', creator: '', amount: 0, currency: 'INR' })
+      loadPayouts(payoutPagination.page)
+    } catch (err) {
+      toast.error(handleError(err) || 'Failed to mark payout')
+    } finally {
+      setMarkPaidSubmitting(false)
+    }
+  }
+
+  const handleRefreshPayoutStatus = async (payout) => {
+    try {
+      setProcessingPayoutId(payout._id)
+      const result = await refreshPayoutStatus(payout._id)
+      toast.success(`Status: ${result?.status || 'unknown'}`)
+      loadPayouts(payoutPagination.page)
+    } catch (err) {
+      toast.error(handleError(err) || 'Failed to refresh status')
+    } finally {
+      setProcessingPayoutId(null)
     }
   }
 
@@ -459,6 +536,7 @@ export default function ConnectSubscriptions() {
                       <th className="px-4 py-3 text-right">Creator Payout</th>
                       <th className="px-4 py-3 text-center">Method</th>
                       <th className="px-4 py-3 text-center">Status</th>
+                      <th className="px-4 py-3 text-center">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -500,6 +578,60 @@ export default function ConnectSubscriptions() {
                           </td>
                           <td className="px-4 py-3 text-center">
                             <StatusBadge status={payout.status} />
+                          </td>
+                          <td className="px-4 py-3 text-center whitespace-nowrap">
+                            {(() => {
+                              const isBusy = processingPayoutId === payout._id
+                              const isWise = payout.payoutMethod === 'wise' || payout.isInternational
+                              const canStart = payout.status === 'calculated' || payout.status === 'failed'
+                              const canRefresh = payout.status === 'processing' && !!payout.cashfreePayoutId
+
+                              if (canStart && isWise) {
+                                return (
+                                  <button
+                                    onClick={() => handleOpenMarkPaid(payout)}
+                                    disabled={isBusy}
+                                    className="px-3 py-1 text-xs font-medium text-purple-700 bg-purple-50 border border-purple-200 rounded-md hover:bg-purple-100 disabled:opacity-50"
+                                  >
+                                    Mark as Paid
+                                  </button>
+                                )
+                              }
+                              if (canStart && !isWise) {
+                                return (
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <button
+                                      onClick={() => handleProcessPayout(payout)}
+                                      disabled={isBusy}
+                                      className="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded-md hover:bg-green-700 disabled:opacity-50"
+                                    >
+                                      {isBusy ? 'Pushing…' : 'Push Payout'}
+                                    </button>
+                                    <button
+                                      onClick={() => handleOpenMarkPaid(payout)}
+                                      disabled={isBusy}
+                                      title="Override: mark paid manually"
+                                      className="px-2 py-1 text-xs text-gray-600 border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                                    >
+                                      …
+                                    </button>
+                                  </div>
+                                )
+                              }
+                              if (canRefresh) {
+                                return (
+                                  <button
+                                    onClick={() => handleRefreshPayoutStatus(payout)}
+                                    disabled={isBusy}
+                                    className="inline-flex items-center gap-1 px-3 py-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 disabled:opacity-50"
+                                  >
+                                    <RefreshCw className={`w-3 h-3 ${isBusy ? 'animate-spin' : ''}`} />
+                                    Refresh
+                                  </button>
+                                )
+                              }
+                              return <span className="text-xs text-gray-400">—</span>
+                            })()}
                           </td>
                         </tr>
                       )
@@ -543,6 +675,69 @@ export default function ConnectSubscriptions() {
             className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700"
           >
             Reject
+          </button>
+        </ModalFooter>
+      </Modal>
+
+      {/* ─────── MARK AS PAID MODAL ─────── */}
+      <Modal
+        isOpen={markPaidModal.open}
+        onClose={() => !markPaidSubmitting && setMarkPaidModal({ open: false, payoutId: null, payoutMethod: '', creator: '', amount: 0, currency: 'INR' })}
+      >
+        <ModalHeader onClose={() => !markPaidSubmitting && setMarkPaidModal({ open: false, payoutId: null, payoutMethod: '', creator: '', amount: 0, currency: 'INR' })}>
+          Mark Payout as Paid
+        </ModalHeader>
+        <ModalContent>
+          <p className="text-sm text-gray-600 mb-3">
+            Recording manual payout of{' '}
+            <strong>{sym(markPaidModal.currency)}{(markPaidModal.amount || 0).toLocaleString()}</strong> to{' '}
+            <strong>{markPaidModal.creator}</strong>
+            {markPaidModal.payoutMethod === 'wise' ? ' via Wise' : ' (manual override)'}.
+            This does <strong>not</strong> move money — only marks it as paid in our records.
+          </p>
+
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Reference number <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            value={markPaidForm.reference}
+            onChange={(e) => setMarkPaidForm((f) => ({ ...f, reference: e.target.value }))}
+            placeholder={markPaidModal.payoutMethod === 'wise' ? 'Wise transaction id' : 'UTR / UPI ref no'}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+          />
+
+          <label className="block text-sm font-medium text-gray-700 mb-1">Paid on</label>
+          <input
+            type="date"
+            value={markPaidForm.paidAt}
+            onChange={(e) => setMarkPaidForm((f) => ({ ...f, paidAt: e.target.value }))}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+          />
+
+          <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+          <textarea
+            value={markPaidForm.notes}
+            onChange={(e) => setMarkPaidForm((f) => ({ ...f, notes: e.target.value }))}
+            placeholder="Any context for this payout"
+            rows={2}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+          />
+        </ModalContent>
+        <ModalFooter>
+          <button
+            onClick={() => setMarkPaidModal({ open: false, payoutId: null, payoutMethod: '', creator: '', amount: 0, currency: 'INR' })}
+            disabled={markPaidSubmitting}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleMarkPaidSubmit}
+            disabled={markPaidSubmitting || !markPaidForm.reference.trim()}
+            className="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 disabled:opacity-50"
+          >
+            {markPaidSubmitting ? 'Saving…' : 'Confirm'}
           </button>
         </ModalFooter>
       </Modal>

@@ -4,6 +4,7 @@ const multer = require('multer');
 const { authMiddleware, optionalAuth } = require('../middleware/authMiddleware');
 const connectController = require('../controllers/connectController');
 const subscriptionController = require('../controllers/subscriptionController');
+const payoutController = require('../controllers/payoutController');
 
 // Multer config for connect page image uploads
 const storage = multer.memoryStorage();
@@ -88,6 +89,7 @@ router.post('/subscription/cancel', authMiddleware, subscriptionController.cance
 router.get('/my-subscriptions', authMiddleware, subscriptionController.getMySubscriptions);
 router.get('/page/:pageId/subscribers', authMiddleware, subscriptionController.getPageSubscribers);
 router.post('/subscription/webhook', subscriptionController.handleWebhook); // No auth — Cashfree calls this
+router.post('/payout/webhook', payoutController.handlePayoutWebhook); // No auth — Cashfree Payouts calls this
 router.get('/subscription/payout-preview/:connectPageId', authMiddleware, subscriptionController.getPayoutPreview);
 
 // Dev-only simulators — the handlers themselves refuse to run when

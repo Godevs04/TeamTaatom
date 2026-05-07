@@ -4644,6 +4644,7 @@ router.get('/analytics/engagement', authenticateSuperAdmin, async (req, res) => 
 const ConnectPage = require('../models/ConnectPage')
 const Payout = require('../models/Payout')
 const Subscription = require('../models/Subscription')
+const payoutController = require('../controllers/payoutController')
 
 // GET /api/v1/superadmin/subscription-approvals — List pages pending subscription approval
 router.get('/subscription-approvals', checkPermission('canManageContent'), async (req, res) => {
@@ -4811,6 +4812,15 @@ router.get('/payouts', checkPermission('canManageContent'), async (req, res) => 
     return sendError(res, 'SRV_6001', 'Failed to fetch payouts')
   }
 })
+
+// POST /api/v1/superadmin/payouts/:id/process — Push a calculated domestic payout via Cashfree Payouts
+router.post('/payouts/:id/process', checkPermission('canManageContent'), payoutController.processPayout)
+
+// POST /api/v1/superadmin/payouts/:id/mark-paid — Manually record a completed payout (Wise / fallback)
+router.post('/payouts/:id/mark-paid', checkPermission('canManageContent'), payoutController.markPayoutPaid)
+
+// POST /api/v1/superadmin/payouts/:id/refresh-status — Pull latest Cashfree transfer status
+router.post('/payouts/:id/refresh-status', checkPermission('canManageContent'), payoutController.refreshPayoutStatus)
 
 // GET /api/v1/superadmin/subscription-stats — Overview stats + monthly chart data
 router.get('/subscription-stats', checkPermission('canManageContent'), async (req, res) => {
