@@ -4867,6 +4867,123 @@ router.get('/subscription-stats', checkPermission('canManageContent'), async (re
 })
 
 // ─────────────────────────────────────────────
+// Connect Pages (user-created) — list + drill-in subscribers
+// ─────────────────────────────────────────────
+
+// GET /api/v1/superadmin/connect-pages — list user-created Connect pages with subscriber counts
+router.get('/connect-pages', checkPermission('canManageContent'), async (req, res) => {
+  try {
+    const pageNum = Math.max(parseInt(req.query.page) || 1, 1)
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100)
+    const skip = (pageNum - 1) * limit
+    const search = (req.query.search || '').trim()
+    const status = req.query.status
+
+    const match = { isAdminPage: { $ne: true } }
+    if (status && status !== 'all') match.status = status
+    if (search) match.name = { $regex: search, $options: 'i' }
+
+    const [pages, total] = await Promise.all([
+      ConnectPage.aggregate([
+        { $match: match },
+        { $sort: { createdAt: -1 } },
+        { $skip: skip },
+        { $limit: limit },
+        {
+          $lookup: {
+            from: 'subscriptions',
+            let: { pageId: '$_id' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ['$connectPageId', '$$pageId'] },
+                      { $eq: ['$status', 'active'] }
+                    ]
+                  }
+                }
+              }
+            ],
+            as: 'activeSubs'
+          }
+        },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'userId',
+            foreignField: '_id',
+            as: 'owner'
+          }
+        },
+        {
+          $addFields: {
+            subscriberCount: { $size: '$activeSubs' },
+            monthlyRevenue: { $sum: '$activeSubs.amount' },
+            owner: { $arrayElemAt: ['$owner', 0] }
+          }
+        },
+        {
+          $project: {
+            activeSubs: 0,
+            'owner.password': 0,
+            'owner.refreshTokens': 0,
+            'owner.fcmTokens': 0
+          }
+        }
+      ]),
+      ConnectPage.countDocuments(match)
+    ])
+
+    return sendSuccess(res, 200, 'Connect pages fetched', {
+      pages,
+      pagination: { page: pageNum, limit, total, totalPages: Math.ceil(total / limit) }
+    })
+  } catch (error) {
+    logger.error('Error fetching connect pages:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch connect pages')
+  }
+})
+
+// GET /api/v1/superadmin/connect-pages/:pageId/subscribers — drill-in: who subscribed, when, how much
+router.get('/connect-pages/:pageId/subscribers', checkPermission('canManageContent'), async (req, res) => {
+  try {
+    const mongoose = require('mongoose')
+    const { pageId } = req.params
+    if (!mongoose.Types.ObjectId.isValid(pageId)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Invalid page ID')
+    }
+
+    const page = await ConnectPage.findById(pageId)
+      .populate('userId', 'username fullName profilePic email')
+      .lean()
+    if (!page) {
+      return sendError(res, 'RES_3001', 'Connect page not found')
+    }
+
+    const subscriptions = await Subscription.find({ connectPageId: pageId })
+      .populate('userId', 'username fullName profilePic email')
+      .sort({ createdAt: -1 })
+      .lean()
+
+    const stats = {
+      total: subscriptions.length,
+      active: subscriptions.filter(s => s.status === 'active').length,
+      cancelled: subscriptions.filter(s => s.status === 'cancelled').length,
+      initialized: subscriptions.filter(s => s.status === 'initialized').length,
+      monthlyRevenue: subscriptions
+        .filter(s => s.status === 'active')
+        .reduce((sum, s) => sum + (s.amount || 0), 0)
+    }
+
+    return sendSuccess(res, 200, 'Subscribers fetched', { page, subscriptions, stats })
+  } catch (error) {
+    logger.error('Error fetching connect page subscribers:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch subscribers')
+  }
+})
+
+// ─────────────────────────────────────────────
 // Community Pages (admin-created Connect pages)
 // ─────────────────────────────────────────────
 // ConnectPage already required above (subscription stats section)
