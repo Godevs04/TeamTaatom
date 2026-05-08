@@ -540,8 +540,12 @@ export default function ConnectPageDetailPage() {
                           </p>
                         )}
                       </div>
-                    ) : (
+                    ) : page.subscriptionContent && page.subscriptionContent.length > 0 ? (
                       <ConnectContentBlocks blocks={page.subscriptionContent} />
+                    ) : (
+                      <p className="text-sm text-slate-500 dark:text-zinc-400">
+                        {isOwner ? "No content added yet." : "No services listed yet."}
+                      </p>
                     )}
                   </>
                 )}
