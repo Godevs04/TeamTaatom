@@ -302,8 +302,7 @@ app.use((req, res, next) => {
       '/api/v1/superadmin/create',
       '/api/v1/superadmin/csrf-token',
       // Cashfree-called webhooks (signature-verified, no CSRF token possible)
-      '/api/v1/connect/subscription/webhook',
-      '/api/v1/connect/payout/webhook'
+      '/api/v1/connect/subscription/webhook'
     ];
     
     // Check if path matches exactly or starts with any public auth path

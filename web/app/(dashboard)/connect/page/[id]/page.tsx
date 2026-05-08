@@ -12,6 +12,9 @@ import {
   Trash2,
   ExternalLink,
   Info,
+  MessageCircle,
+  X,
+  User,
 } from "lucide-react";
 import {
   connectGetPageDetail,
@@ -23,10 +26,13 @@ import {
   connectCancelSubscription,
   connectDeletePage,
   connectGetPayoutPreview,
+  connectGetPageFollowers,
 } from "@/lib/connect-api";
+import type { ConnectFollower } from "@/lib/connect-api";
 import { openCashfreeSubscriptionCheckout } from "@/lib/cashfree-client";
 import { getFriendlyErrorMessage } from "@/lib/auth-errors";
 import { ConnectContentBlocks } from "@/components/connect/connect-content-blocks";
+import { ConnectCanvasView } from "@/components/connect/connect-canvas-view";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -44,6 +50,7 @@ export default function ConnectPageDetailPage() {
   const [followBusy, setFollowBusy] = React.useState(false);
   const [subBusy, setSubBusy] = React.useState(false);
   const [payoutBreakdownOpen, setPayoutBreakdownOpen] = React.useState(false);
+  const [followersOpen, setFollowersOpen] = React.useState(false);
   const cashfreeReturnDoneRef = React.useRef(false);
 
   const detailQ = useQuery({
@@ -82,9 +89,16 @@ export default function ConnectPageDetailPage() {
       priceApprovedEarly,
   });
 
+  const followersQ = useQuery({
+    queryKey: ["connect-page-followers", id],
+    queryFn: () => connectGetPageFollowers(id, 1, 50),
+    enabled: !!id && followersOpen,
+  });
+
   const page = detailQ.data?.page;
   const isOwner = detailQ.data?.isOwner ?? false;
   const isFollowing = detailQ.data?.isFollowing ?? page?.isFollowing ?? false;
+  const isCommunityPage = page?.category === "community" || page?.isAdminPage === true;
 
   React.useEffect(() => {
     if (id) void connectRecordView(id);
@@ -168,10 +182,10 @@ export default function ConnectPageDetailPage() {
   const handleCancelSub = async () => {
     const subId = subQ.data?.subscription?._id;
     if (!subId) return;
-    if (!confirm("Cancel subscription at end of billing period?")) return;
+    if (!confirm("Are you sure you want to cancel? You will retain access until the end of the current billing period.")) return;
     try {
       await connectCancelSubscription(subId);
-      toast.success("Subscription cancelled.");
+      toast.success(isCommunityPage ? "Your purchase has been cancelled." : "Your subscription has been cancelled.");
       await qc.invalidateQueries({ queryKey: ["connect-sub-status", id] });
     } catch (e) {
       toast.error(getFriendlyErrorMessage(e));
@@ -216,7 +230,7 @@ export default function ConnectPageDetailPage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 pb-28 lg:pb-10">
       <Link href="/connect" className="text-sm font-medium text-primary hover:underline">
-        ← Connect
+        ← {isCommunityPage ? "Community" : "Connect"}
       </Link>
 
       <div className="overflow-hidden rounded-3xl border border-slate-200/80 bg-white shadow-premium dark:border-zinc-800 dark:bg-zinc-900/70">
@@ -249,7 +263,13 @@ export default function ConnectPageDetailPage() {
                   </p>
                 )}
                 <div className="mt-2 flex flex-wrap gap-3 text-xs text-slate-500">
-                  <span>{page.followerCount ?? 0} followers</span>
+                  <button
+                    type="button"
+                    onClick={() => setFollowersOpen((v) => !v)}
+                    className="underline decoration-slate-300 underline-offset-2 transition hover:text-primary hover:decoration-primary dark:decoration-zinc-600"
+                  >
+                    {(page.followerCount ?? 0) + 1} Members
+                  </button>
                   <span>{page.viewCount ?? 0} views</span>
                   {hasPrice && priceApproved && (
                     <span className="font-semibold text-primary">
@@ -293,11 +313,11 @@ export default function ConnectPageDetailPage() {
                     <>
                       {subQ.data?.isSubscribed && subQ.data.subscription?.status === "active" ? (
                         <Button size="sm" variant="outline" onClick={handleCancelSub}>
-                          Cancel subscription
+                          {isCommunityPage ? "Cancel purchase" : "Cancel subscription"}
                         </Button>
                       ) : (
                         <Button size="sm" disabled={subBusy} onClick={handleSubscribe}>
-                          {subBusy ? "…" : "Subscribe"}
+                          {subBusy ? "…" : isCommunityPage ? "Buy" : "Subscribe"}
                         </Button>
                       )}
                     </>
@@ -312,6 +332,84 @@ export default function ConnectPageDetailPage() {
               {page.bio}
             </p>
           ) : null}
+
+          {followersOpen && (
+            <Card className="mt-6 border-slate-200 dark:border-zinc-700">
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-base">Members</CardTitle>
+                <button
+                  type="button"
+                  onClick={() => setFollowersOpen(false)}
+                  className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                {followersQ.isLoading ? (
+                  <div className="flex justify-center py-6">
+                    <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  </div>
+                ) : followersQ.isError ? (
+                  <p className="text-sm text-destructive">Could not load followers.</p>
+                ) : (followersQ.data?.followers ?? []).length === 0 ? (
+                  <p className="text-sm text-slate-500 dark:text-zinc-400">No followers yet.</p>
+                ) : (
+                  (followersQ.data?.followers ?? []).map((f: ConnectFollower) => (
+                    <Link
+                      key={f._id}
+                      href={`/profile/${f._id}`}
+                      className="flex items-center gap-3 rounded-xl p-2 transition hover:bg-slate-50 dark:hover:bg-zinc-800/50"
+                    >
+                      <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800">
+                        {f.profilePic ? (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img src={f.profilePic} alt="" className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-slate-400 dark:text-zinc-500">
+                            <User className="h-4 w-4" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-slate-900 dark:text-white">
+                          {f.fullName ?? f.username ?? "User"}
+                        </p>
+                        {f.username && (
+                          <p className="truncate text-xs text-slate-500 dark:text-zinc-400">@{f.username}</p>
+                        )}
+                      </div>
+                      {f.role === "admin" && (
+                        <span className="shrink-0 rounded-md bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                          Admin
+                        </span>
+                      )}
+                    </Link>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {page.features?.groupChat && page.chatRoomId && (
+            <Link
+              href={`/chat/room/${page.chatRoomId}`}
+              className="mt-6 flex items-center gap-4 rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4 transition hover:border-primary/30 hover:shadow-md dark:border-zinc-700 dark:bg-zinc-800/50 dark:hover:border-primary/30"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 dark:bg-primary/20">
+                <MessageCircle className="h-5 w-5 text-primary" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="font-medium text-slate-900 dark:text-white">Group Chat</p>
+                <p className="text-xs text-slate-500 dark:text-zinc-400">
+                  {(page.followerCount ?? 0) + 1} members active
+                </p>
+              </div>
+              <svg className="h-4 w-4 text-slate-400 dark:text-zinc-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </Link>
+          )}
 
           {isOwner && payoutBreakdownOpen && showSubTab && hasPrice && priceApproved && (
             <Card className="mt-6 border-slate-200 bg-slate-50/90 dark:border-zinc-700 dark:bg-zinc-800/50">
@@ -353,7 +451,7 @@ export default function ConnectPageDetailPage() {
                     );
                     return (
                       <>
-                        {row(`Subscriber pays (${p.currency})`, p.grossAmount)}
+                        {row(`${isCommunityPage ? "Buyer" : "Subscriber"} pays (${p.currency})`, p.grossAmount)}
                         {row(`Payment gateway (${p.gatewayFeePercent}%)`, p.gatewayFee, { deduct: true })}
                         {p.fxCharge > 0
                           ? row(
@@ -407,24 +505,33 @@ export default function ConnectPageDetailPage() {
                     onClick={() => setTab("subscription")}
                   >
                     <Users className="mr-1 inline h-4 w-4" />
-                    Subscriber content
+                    {isCommunityPage ? "Premium content" : "Subscription"}
                   </button>
                 )}
               </div>
               <div className="pt-6">
                 {tab === "website" && page.features?.website && (
-                  <ConnectContentBlocks blocks={page.websiteContent} />
+                  page.canvasContent && page.canvasContent.length > 0 ? (
+                    <ConnectCanvasView
+                      elements={page.canvasContent}
+                      background={page.canvasBackground}
+                    />
+                  ) : (
+                    <ConnectContentBlocks blocks={page.websiteContent} />
+                  )
                 )}
                 {tab === "subscription" && showSubTab && (
                   <>
                     {!canViewSubscriptionContent ? (
                       <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 p-8 text-center dark:border-zinc-700 dark:bg-zinc-800/40">
                         <p className="text-sm text-slate-600 dark:text-zinc-300">
-                          Subscribe to unlock exclusive content from this creator.
+                          {isCommunityPage
+                            ? "Buy to unlock exclusive content from this community."
+                            : "Subscribe to unlock exclusive content from this creator."}
                         </p>
                         {!isOwner && hasPrice && priceApproved && !(subQ.data?.isSubscribed && subQ.data.subscription?.status === "active") && (
                           <Button className="mt-4" disabled={subBusy} onClick={handleSubscribe}>
-                            Subscribe now
+                            {isCommunityPage ? "Buy now" : "Subscribe now"}
                           </Button>
                         )}
                         {subQ.data?.subscription?.status === "initialized" && (

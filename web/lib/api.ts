@@ -443,6 +443,28 @@ export async function markChatMessagesSeen(otherUserId: string) {
   return res.data as { success?: boolean };
 }
 
+/* ─── Room-based chat (group / connect-page chats) ─── */
+
+export async function getChatByRoomId(roomId: string) {
+  const res = await api.get(`/chat/room/${roomId}`);
+  return res.data as { chat: Chat };
+}
+
+export async function getRoomMessages(roomId: string, page = 1, limit = 50) {
+  const res = await api.get(`/chat/room/${roomId}/messages`, { params: { page, limit } });
+  return res.data as { messages: ChatMessage[] };
+}
+
+export async function sendRoomMessage(roomId: string, text: string) {
+  const res = await api.post(`/chat/room/${roomId}/messages`, { text });
+  return res.data as { message: ChatMessage };
+}
+
+export async function markRoomMessagesSeen(roomId: string) {
+  const res = await api.post(`/chat/room/${roomId}/mark-all-seen`);
+  return res.data as { success?: boolean };
+}
+
 export async function clearChat(otherUserId: string) {
   const res = await api.delete(`/chat/${otherUserId}/messages`);
   return res.data as { success?: boolean };

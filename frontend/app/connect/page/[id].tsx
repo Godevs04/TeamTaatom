@@ -109,8 +109,9 @@ export default function ConnectPageDetailScreen() {
   const [savingBio, setSavingBio] = useState(false);
 
   // Category-based labels
-  const isCommunity = page?.category === 'community';
-  const subLabel = isCommunity ? 'Buy' : 'Subscription';
+  const isCommunity = page?.category === 'community' || page?.isAdminPage === true;
+  const subLabel = isCommunity ? 'Premium content' : 'Subscription';
+  const subPriceLabel = isCommunity ? 'Buy' : 'Subscription';
   const subButtonText = isCommunity ? 'Buy' : 'Subscribe';
   const subscriberLabel = isCommunity ? 'Buyer' : 'Subscriber';
   const subscribersLabel = isCommunity ? 'Buyers' : 'Subscribers';
@@ -1306,7 +1307,7 @@ export default function ConnectPageDetailScreen() {
               style={[styles.priceModalBox, { backgroundColor: theme.colors.surface }]}
             >
               <Text style={[styles.priceModalTitle, { color: theme.colors.text }]}>
-                Set {subLabel} Price
+                Set {subPriceLabel} Price
               </Text>
               <Text style={[styles.priceModalSubtitle, { color: theme.colors.textSecondary }]}>
                 Monthly price in {currSym}

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/index.jsx'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/Tables/index.jsx'
+import { Modal, ModalHeader, ModalContent, ModalFooter } from '../components/Modals/index.jsx'
 import { formatDate } from '../utils/formatDate'
 import logger from '../utils/logger'
 import { handleError } from '../utils/errorCodes'
@@ -14,9 +15,33 @@ import {
   Clock,
   RefreshCw,
   CreditCard,
+  Banknote,
+  Globe,
+  Copy,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getConnectPageSubscribers } from '../services/connectAdminService'
+import { getConnectPagePayouts, markPayoutPaid } from '../services/subscriptionService'
+
+const CURRENCY_SYM = { INR: '₹', USD: '$', EUR: '€', GBP: '£' }
+const sym = (c) => CURRENCY_SYM[c] || c || ''
+const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+const PayoutStatusPill = ({ status }) => {
+  const map = {
+    calculated: { cls: 'bg-amber-50 text-amber-700 border-amber-200', label: 'Awaiting payout' },
+    pending: { cls: 'bg-amber-50 text-amber-700 border-amber-200', label: 'Pending' },
+    processing: { cls: 'bg-blue-50 text-blue-700 border-blue-200', label: 'Processing' },
+    completed: { cls: 'bg-green-50 text-green-700 border-green-200', label: 'Paid' },
+    failed: { cls: 'bg-red-50 text-red-700 border-red-200', label: 'Failed' },
+  }
+  const m = map[status] || map.pending
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium border rounded-full ${m.cls}`}>
+      {m.label}
+    </span>
+  )
+}
 
 const StatusPill = ({ status }) => {
   const map = {
@@ -43,6 +68,14 @@ const ConnectPageDetail = () => {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(false)
 
+  // Payouts state
+  const [payouts, setPayouts] = useState([])
+  const [payoutsSummary, setPayoutsSummary] = useState(null)
+  const [payoutsLoading, setPayoutsLoading] = useState(false)
+  const [markPaidModal, setMarkPaidModal] = useState({ open: false, payoutId: null, payoutMethod: '', creator: '', amount: 0, currency: 'INR' })
+  const [markPaidForm, setMarkPaidForm] = useState({ reference: '', notes: '', paidAt: '' })
+  const [markPaidSubmitting, setMarkPaidSubmitting] = useState(false)
+
   const load = useCallback(async () => {
     try {
       setLoading(true)
@@ -56,7 +89,73 @@ const ConnectPageDetail = () => {
     }
   }, [pageId])
 
+  const loadPayouts = useCallback(async () => {
+    try {
+      setPayoutsLoading(true)
+      const res = await getConnectPagePayouts(pageId, { page: 1, limit: 50 })
+      setPayouts(res.payouts || [])
+      setPayoutsSummary(res.summary || null)
+    } catch (err) {
+      logger.error('Payouts fetch error:', err)
+      toast.error(handleError(err) || 'Failed to load payouts')
+    } finally {
+      setPayoutsLoading(false)
+    }
+  }, [pageId])
+
   useEffect(() => { load() }, [load])
+  useEffect(() => { loadPayouts() }, [loadPayouts])
+
+  const handleOpenMarkPaid = (payout) => {
+    setMarkPaidModal({
+      open: true,
+      payoutId: payout._id,
+      payoutMethod: payout.payoutMethod || (payout.isInternational ? 'wise' : 'cashfree_bank'),
+      creator: payout.creatorId?.fullName || payout.creatorId?.username || '—',
+      amount: payout.creatorPayout || 0,
+      currency: payout.currency || 'INR',
+    })
+    setMarkPaidForm({ reference: '', notes: '', paidAt: new Date().toISOString().slice(0, 10) })
+  }
+
+  const closeMarkPaid = () => {
+    if (markPaidSubmitting) return
+    setMarkPaidModal({ open: false, payoutId: null, payoutMethod: '', creator: '', amount: 0, currency: 'INR' })
+  }
+
+  const handleMarkPaidSubmit = async () => {
+    if (!markPaidModal.payoutId) return
+    const reference = markPaidForm.reference.trim()
+    if (!reference) {
+      toast.error('Reference number is required')
+      return
+    }
+    try {
+      setMarkPaidSubmitting(true)
+      await markPayoutPaid(markPaidModal.payoutId, {
+        reference,
+        notes: markPaidForm.notes.trim(),
+        paidAt: markPaidForm.paidAt || undefined,
+      })
+      toast.success('Payout marked as paid')
+      closeMarkPaid()
+      loadPayouts()
+    } catch (err) {
+      toast.error(handleError(err) || 'Failed to mark payout')
+    } finally {
+      setMarkPaidSubmitting(false)
+    }
+  }
+
+  const copyToClipboard = (text, label) => {
+    if (!text) return
+    try {
+      navigator.clipboard.writeText(String(text))
+      toast.success(`${label} copied`)
+    } catch {
+      toast.error('Copy failed')
+    }
+  }
 
   const [statusFilter, setStatusFilter] = useState('all')
 
@@ -242,6 +341,239 @@ const ConnectPageDetail = () => {
           </Table>
         </CardContent>
       </Card>
+
+      {/* ─────── BENEFICIARY DETAILS ─────── */}
+      {page?.creatorPayoutInfo && (
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Banknote className="w-5 h-5 text-gray-600" />
+              Where to send the payout
+              {page.creatorPayoutInfo.isInternational && (
+                <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">
+                  <Globe className="w-3 h-3" /> International (Wise)
+                </span>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-gray-500 mb-3">
+              All payouts are sent manually. Use these details from the creator, then click <strong>Mark as Paid</strong> below with the reference number.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              {page.creatorPayoutInfo.isInternational ? (
+                <>
+                  <BeneficiaryField label="Wise email" value={page.creatorPayoutInfo.wiseEmail} onCopy={copyToClipboard} />
+                  <BeneficiaryField label="Wise currency" value={page.creatorPayoutInfo.wiseCurrency} onCopy={copyToClipboard} />
+                </>
+              ) : (
+                <>
+                  <BeneficiaryField label="Account holder" value={page.creatorPayoutInfo.bankAccountName} onCopy={copyToClipboard} />
+                  <BeneficiaryField label="Bank account" value={page.creatorPayoutInfo.bankAccountNumber} onCopy={copyToClipboard} />
+                  <BeneficiaryField label="IFSC" value={page.creatorPayoutInfo.bankIfsc} onCopy={copyToClipboard} />
+                  <BeneficiaryField label="UPI ID" value={page.creatorPayoutInfo.upiId} onCopy={copyToClipboard} />
+                </>
+              )}
+              <BeneficiaryField label="Country" value={page.creatorPayoutInfo.country} onCopy={copyToClipboard} />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ─────── PAYOUTS ─────── */}
+      <Card className="mt-6">
+        <CardHeader>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <CardTitle className="flex items-center gap-2">
+              <CreditCard className="w-5 h-5 text-gray-600" />
+              Payouts
+            </CardTitle>
+            <button
+              onClick={loadPayouts}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs border rounded-lg hover:bg-gray-50"
+              disabled={payoutsLoading}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${payoutsLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+          {payoutsSummary && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
+              <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
+                <div className="text-xs text-gray-500 mb-1">Total gross</div>
+                <div className="text-base font-bold text-gray-800">
+                  {sym(payouts[0]?.currency || 'INR')}{(payoutsSummary.totalGross || 0).toLocaleString()}
+                </div>
+              </div>
+              <div className="bg-green-50 rounded-lg p-3 border border-gray-100">
+                <div className="text-xs text-gray-500 mb-1">Paid out</div>
+                <div className="text-base font-bold text-green-700">
+                  {sym(payouts[0]?.currency || 'INR')}{(payoutsSummary.totalPaid || 0).toLocaleString()}
+                </div>
+              </div>
+              <div className="bg-amber-50 rounded-lg p-3 border border-gray-100">
+                <div className="text-xs text-gray-500 mb-1">Pending</div>
+                <div className="text-base font-bold text-amber-700">
+                  {sym(payouts[0]?.currency || 'INR')}{(payoutsSummary.totalPending || 0).toLocaleString()}
+                </div>
+              </div>
+              <div className="bg-blue-50 rounded-lg p-3 border border-gray-100">
+                <div className="text-xs text-gray-500 mb-1">Records</div>
+                <div className="text-base font-bold text-blue-700">{payoutsSummary.count || 0}</div>
+              </div>
+            </div>
+          )}
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Period</TableHead>
+                <TableHead className="text-right">Gross</TableHead>
+                <TableHead className="text-right">Creator payout</TableHead>
+                <TableHead>Method</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Reference</TableHead>
+                <TableHead className="text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {payoutsLoading && payouts.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-gray-500">Loading...</TableCell>
+                </TableRow>
+              ) : payouts.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8 text-gray-500">
+                    No payouts yet. Records appear at the end of each month once subscribers have paid.
+                  </TableCell>
+                </TableRow>
+              ) : (
+                payouts.map((p) => {
+                  const isWise = p.payoutMethod === 'wise' || p.isInternational
+                  const methodLabel = isWise
+                    ? 'Wise'
+                    : p.payoutMethod === 'cashfree_upi' ? 'UPI' : 'Bank'
+                  const canMark = p.status === 'calculated' || p.status === 'failed' || p.status === 'pending' || p.status === 'processing'
+                  return (
+                    <TableRow key={p._id}>
+                      <TableCell className="text-sm whitespace-nowrap">
+                        {MONTH_NAMES[p.periodMonth] || p.periodMonth} {p.periodYear}
+                      </TableCell>
+                      <TableCell className="text-right text-sm font-medium">
+                        {sym(p.currency || 'INR')}{(p.grossAmount || 0).toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-right text-sm font-semibold text-green-700">
+                        {sym(p.currency || 'INR')}{(p.creatorPayout || 0).toLocaleString()}
+                      </TableCell>
+                      <TableCell className="text-xs text-gray-600">{methodLabel}</TableCell>
+                      <TableCell><PayoutStatusPill status={p.status} /></TableCell>
+                      <TableCell className="text-xs text-gray-600 truncate max-w-[160px]">
+                        {p.payoutReference || '—'}
+                        {p.processedAt && p.status === 'completed' ? (
+                          <div className="text-[10px] text-gray-400">{formatDate(p.processedAt)}</div>
+                        ) : null}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {canMark ? (
+                          <button
+                            onClick={() => handleOpenMarkPaid(p)}
+                            className="px-3 py-1 text-xs font-medium text-purple-700 bg-purple-50 border border-purple-200 rounded-md hover:bg-purple-100"
+                          >
+                            Mark as Paid
+                          </button>
+                        ) : (
+                          <span className="text-xs text-gray-400">—</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+
+      {/* ─────── MARK AS PAID MODAL ─────── */}
+      <Modal isOpen={markPaidModal.open} onClose={closeMarkPaid}>
+        <ModalHeader onClose={closeMarkPaid}>Mark Payout as Paid</ModalHeader>
+        <ModalContent>
+          <p className="text-sm text-gray-600 mb-3">
+            Recording manual payout of{' '}
+            <strong>{sym(markPaidModal.currency)}{(markPaidModal.amount || 0).toLocaleString()}</strong> to{' '}
+            <strong>{markPaidModal.creator}</strong>
+            {markPaidModal.payoutMethod === 'wise' ? ' via Wise' : markPaidModal.payoutMethod === 'cashfree_upi' ? ' via UPI' : ' via bank transfer'}.
+            This does <strong>not</strong> move money — only marks it as paid in our records after you&apos;ve sent the transfer.
+          </p>
+
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Reference number <span className="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            value={markPaidForm.reference}
+            onChange={(e) => setMarkPaidForm((f) => ({ ...f, reference: e.target.value }))}
+            placeholder={markPaidModal.payoutMethod === 'wise' ? 'Wise transaction id' : 'UTR / UPI ref no'}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+          />
+
+          <label className="block text-sm font-medium text-gray-700 mb-1">Paid on</label>
+          <input
+            type="date"
+            value={markPaidForm.paidAt}
+            onChange={(e) => setMarkPaidForm((f) => ({ ...f, paidAt: e.target.value }))}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-3"
+          />
+
+          <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
+          <textarea
+            value={markPaidForm.notes}
+            onChange={(e) => setMarkPaidForm((f) => ({ ...f, notes: e.target.value }))}
+            placeholder="Any context for this payout"
+            rows={2}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+          />
+        </ModalContent>
+        <ModalFooter>
+          <button
+            onClick={closeMarkPaid}
+            disabled={markPaidSubmitting}
+            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleMarkPaidSubmit}
+            disabled={markPaidSubmitting || !markPaidForm.reference.trim()}
+            className="px-4 py-2 text-sm font-medium text-white bg-purple-600 rounded-lg hover:bg-purple-700 disabled:opacity-50"
+          >
+            {markPaidSubmitting ? 'Saving…' : 'Confirm'}
+          </button>
+        </ModalFooter>
+      </Modal>
+    </div>
+  )
+}
+
+const BeneficiaryField = ({ label, value, onCopy }) => {
+  const display = value && String(value).trim() ? String(value) : '—'
+  const hasValue = display !== '—'
+  return (
+    <div className="flex items-start justify-between gap-2 bg-gray-50 rounded-lg px-3 py-2 border border-gray-100">
+      <div className="min-w-0">
+        <div className="text-xs text-gray-500">{label}</div>
+        <div className="text-sm font-medium text-gray-800 truncate">{display}</div>
+      </div>
+      {hasValue && (
+        <button
+          onClick={() => onCopy(value, label)}
+          className="text-gray-400 hover:text-gray-700"
+          title={`Copy ${label}`}
+        >
+          <Copy className="w-4 h-4" />
+        </button>
+      )}
     </div>
   )
 }

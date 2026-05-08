@@ -5,6 +5,7 @@ export type ChatParticipant = {
   fullName?: string;
   username?: string;
   profilePic?: string;
+  isVerified?: boolean;
 };
 
 export type ChatMessage = {
@@ -14,6 +15,18 @@ export type ChatMessage = {
   timestamp?: string;
   createdAt?: string;
   seen?: boolean;
+  /** Group chat: sender display name (populated by backend for connect_page chats) */
+  senderName?: string;
+  /** Group chat: sender profile picture URL */
+  senderProfilePic?: string;
+  seenBy?: string[];
+};
+
+export type ConnectPageRef = {
+  _id: string;
+  name: string;
+  profileImage?: string;
+  followerCount?: number;
 };
 
 export type Chat = {
@@ -23,4 +36,6 @@ export type Chat = {
   lastMessage?: ChatMessage;
   updatedAt?: string;
   createdAt?: string;
+  type?: "user_chat" | "admin_support" | "connect_page";
+  connectPageId?: ConnectPageRef | string | null;
 };
