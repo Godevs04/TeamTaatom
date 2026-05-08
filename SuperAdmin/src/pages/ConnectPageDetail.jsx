@@ -93,8 +93,8 @@ const ConnectPageDetail = () => {
     try {
       setPayoutsLoading(true)
       const res = await getConnectPagePayouts(pageId, { page: 1, limit: 50 })
-      setPayouts(res.payouts || [])
-      setPayoutsSummary(res.summary || null)
+      setPayouts(Array.isArray(res?.payouts) ? res.payouts : [])
+      setPayoutsSummary(res?.summary || null)
     } catch (err) {
       logger.error('Payouts fetch error:', err)
       toast.error(handleError(err) || 'Failed to load payouts')
