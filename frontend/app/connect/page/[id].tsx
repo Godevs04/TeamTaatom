@@ -757,27 +757,39 @@ export default function ConnectPageDetailScreen() {
             )}
 
             <View style={styles.sectionContent}>
-              {page.subscriptionContent && page.subscriptionContent.length > 0 ? (
-                page.subscriptionContent
-                  .sort((a, b) => a.order - b.order)
-                  .slice(0, isOwner ? undefined : 2)
-                  .map((block, idx) => renderContentBlock(block, idx))
-              ) : (
-                <Text style={[styles.placeholderText, { color: theme.colors.textSecondary }]}>
-                  {isOwner ? 'Tap the edit icon to list your services.' : 'No services listed yet.'}
-                </Text>
-              )}
-              {!isOwner && page.subscriptionContent && page.subscriptionContent.length > 0 && (
-                <TouchableOpacity
-                  onPress={() => router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`)}
-                  activeOpacity={0.7}
-                  style={[styles.viewButton, { borderColor: theme.colors.primary }]}
-                >
-                  <Ionicons name="eye-outline" size={16} color={theme.colors.primary} />
-                  <Text style={[styles.viewButtonText, { color: theme.colors.primary }]}>
-                    View {subLabel}
+              {isOwner || subscriptionStatus?.isSubscribed ? (
+                page.subscriptionContent && page.subscriptionContent.length > 0 ? (
+                  <>
+                    {page.subscriptionContent
+                      .sort((a, b) => a.order - b.order)
+                      .map((block, idx) => renderContentBlock(block, idx))}
+                    {!isOwner && (
+                      <TouchableOpacity
+                        onPress={() => router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`)}
+                        activeOpacity={0.7}
+                        style={[styles.viewButton, { borderColor: theme.colors.primary }]}
+                      >
+                        <Ionicons name="eye-outline" size={16} color={theme.colors.primary} />
+                        <Text style={[styles.viewButtonText, { color: theme.colors.primary }]}>
+                          View {subLabel}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
+                ) : (
+                  <Text style={[styles.placeholderText, { color: theme.colors.textSecondary }]}>
+                    {isOwner ? 'Tap the edit icon to list your services.' : 'No services listed yet.'}
                   </Text>
-                </TouchableOpacity>
+                )
+              ) : (
+                <View style={{ alignItems: 'center', paddingVertical: 16 }}>
+                  <Ionicons name="lock-closed-outline" size={28} color={theme.colors.textSecondary} style={{ marginBottom: 8 }} />
+                  <Text style={[styles.placeholderText, { color: theme.colors.textSecondary, textAlign: 'center' }]}>
+                    {isCommunity
+                      ? 'Buy to unlock exclusive content from this community.'
+                      : 'Subscribe to unlock exclusive content from this creator.'}
+                  </Text>
+                </View>
               )}
             </View>
 
@@ -1270,8 +1282,8 @@ export default function ConnectPageDetailScreen() {
 
                 <Text style={[styles.payoutNote, { color: theme.colors.textSecondary }]}>
                   {payoutPreview.isInternational
-                    ? 'International payouts are processed via Wise. An additional ~1% Wise transfer fee applies. Payouts are sent monthly.'
-                    : 'Domestic payouts are sent monthly to your bank account or UPI via Cashfree.'}
+                    ? 'International payouts are sent monthly via Wise. An additional ~1% Wise transfer fee applies.'
+                    : 'Payouts are sent monthly to your bank account or UPI.'}
                 </Text>
               </View>
             ) : (

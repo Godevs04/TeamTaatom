@@ -4825,16 +4825,18 @@ router.get('/connect-pages/:pageId/payouts', checkPermission('canManageContent')
       return sendError(res, 'VALIDATION_FAILED', 'Invalid page id')
     }
 
-    const { status, page = 1, limit = 20 } = req.query
+    const { status, page, limit } = req.query
+    const pageNum = Math.max(1, parseInt(page, 10) || 1)
+    const limitNum = Math.min(Math.max(1, parseInt(limit, 10) || 20), 100)
     const filter = { connectPageId: new mongoose.Types.ObjectId(pageId) }
-    if (status) filter.status = status
+    if (status) filter.status = String(status)
 
     const [payouts, total, summaryAgg] = await Promise.all([
       Payout.find(filter)
         .populate('creatorId', 'username fullName email')
         .sort({ periodYear: -1, periodMonth: -1, createdAt: -1 })
-        .skip((parseInt(page) - 1) * parseInt(limit))
-        .limit(parseInt(limit))
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum)
         .lean(),
       Payout.countDocuments(filter),
       Payout.aggregate([
@@ -4872,10 +4874,10 @@ router.get('/connect-pages/:pageId/payouts', checkPermission('canManageContent')
         count: 0,
       },
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: pageNum,
+        limit: limitNum,
         total,
-        totalPages: Math.ceil(total / parseInt(limit)),
+        totalPages: Math.max(1, Math.ceil(total / limitNum)),
       },
     })
   } catch (error) {
