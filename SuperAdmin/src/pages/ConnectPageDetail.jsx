@@ -83,7 +83,8 @@ const ConnectPageDetail = () => {
       setData(res)
     } catch (err) {
       logger.error('Subscribers fetch error:', err)
-      toast.error(handleError(err) || 'Failed to load subscribers')
+      const parsed = handleError(err)
+      toast.error(parsed?.adminMessage || parsed?.message || 'Failed to load subscribers')
     } finally {
       setLoading(false)
     }
@@ -97,7 +98,8 @@ const ConnectPageDetail = () => {
       setPayoutsSummary(res?.summary || null)
     } catch (err) {
       logger.error('Payouts fetch error:', err)
-      toast.error(handleError(err) || 'Failed to load payouts')
+      const parsed = handleError(err)
+      toast.error(parsed?.adminMessage || parsed?.message || 'Failed to load payouts')
     } finally {
       setPayoutsLoading(false)
     }
@@ -141,7 +143,8 @@ const ConnectPageDetail = () => {
       closeMarkPaid()
       loadPayouts()
     } catch (err) {
-      toast.error(handleError(err) || 'Failed to mark payout')
+      const parsed = handleError(err)
+      toast.error(parsed?.adminMessage || parsed?.message || 'Failed to mark payout')
     } finally {
       setMarkPaidSubmitting(false)
     }
@@ -160,8 +163,15 @@ const ConnectPageDetail = () => {
   const [statusFilter, setStatusFilter] = useState('all')
 
   const page = data?.page
-  const allSubscriptions = data?.subscriptions || []
-  const stats = data?.stats || { total: 0, active: 0, cancelled: 0, initialized: 0, monthlyRevenue: 0 }
+  const allSubscriptions = Array.isArray(data?.subscriptions) ? data.subscriptions : []
+  const rawStats = data?.stats
+  const stats = {
+    total: Number(rawStats?.total) || 0,
+    active: Number(rawStats?.active) || 0,
+    cancelled: Number(rawStats?.cancelled) || 0,
+    initialized: Number(rawStats?.initialized) || 0,
+    monthlyRevenue: Number(rawStats?.monthlyRevenue) || 0,
+  }
   const subscriptions = statusFilter === 'all'
     ? allSubscriptions
     : allSubscriptions.filter(s => s.status === statusFilter)
@@ -298,9 +308,10 @@ const ConnectPageDetail = () => {
                 </TableRow>
               ) : (
                 subscriptions.map((s) => {
-                  const successPayments = (s.payments || []).filter(p => p.status === 'success')
+                  const paymentsArr = Array.isArray(s.payments) ? s.payments : []
+                  const successPayments = paymentsArr.filter(p => p?.status === 'success')
                   const lastPaid = successPayments.length
-                    ? successPayments[successPayments.length - 1].paidAt
+                    ? successPayments[successPayments.length - 1]?.paidAt
                     : null
                   return (
                     <TableRow key={s._id}>
@@ -399,28 +410,35 @@ const ConnectPageDetail = () => {
           </div>
           {payoutsSummary && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4">
-              <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
-                <div className="text-xs text-gray-500 mb-1">Total gross</div>
-                <div className="text-base font-bold text-gray-800">
-                  {sym(payouts[0]?.currency || 'INR')}{(payoutsSummary.totalGross || 0).toLocaleString()}
-                </div>
-              </div>
-              <div className="bg-green-50 rounded-lg p-3 border border-gray-100">
-                <div className="text-xs text-gray-500 mb-1">Paid out</div>
-                <div className="text-base font-bold text-green-700">
-                  {sym(payouts[0]?.currency || 'INR')}{(payoutsSummary.totalPaid || 0).toLocaleString()}
-                </div>
-              </div>
-              <div className="bg-amber-50 rounded-lg p-3 border border-gray-100">
-                <div className="text-xs text-gray-500 mb-1">Pending</div>
-                <div className="text-base font-bold text-amber-700">
-                  {sym(payouts[0]?.currency || 'INR')}{(payoutsSummary.totalPending || 0).toLocaleString()}
-                </div>
-              </div>
-              <div className="bg-blue-50 rounded-lg p-3 border border-gray-100">
-                <div className="text-xs text-gray-500 mb-1">Records</div>
-                <div className="text-base font-bold text-blue-700">{payoutsSummary.count || 0}</div>
-              </div>
+              {(() => {
+                const cur = sym(payouts?.[0]?.currency || 'INR')
+                return (
+                  <>
+                    <div className="bg-gray-50 rounded-lg p-3 border border-gray-100">
+                      <div className="text-xs text-gray-500 mb-1">Total gross</div>
+                      <div className="text-base font-bold text-gray-800">
+                        {cur}{Number(payoutsSummary.totalGross || 0).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="bg-green-50 rounded-lg p-3 border border-gray-100">
+                      <div className="text-xs text-gray-500 mb-1">Paid out</div>
+                      <div className="text-base font-bold text-green-700">
+                        {cur}{Number(payoutsSummary.totalPaid || 0).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="bg-amber-50 rounded-lg p-3 border border-gray-100">
+                      <div className="text-xs text-gray-500 mb-1">Pending</div>
+                      <div className="text-base font-bold text-amber-700">
+                        {cur}{Number(payoutsSummary.totalPending || 0).toLocaleString()}
+                      </div>
+                    </div>
+                    <div className="bg-blue-50 rounded-lg p-3 border border-gray-100">
+                      <div className="text-xs text-gray-500 mb-1">Records</div>
+                      <div className="text-base font-bold text-blue-700">{payoutsSummary.count || 0}</div>
+                    </div>
+                  </>
+                )
+              })()}
             </div>
           )}
         </CardHeader>
