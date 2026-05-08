@@ -9,6 +9,12 @@ function sortedElements(elements: CanvasElement[] | undefined): CanvasElement[] 
   return [...elements].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0));
 }
 
+/**
+ * Canvas coordinate system (matching mobile CanvasElementView):
+ * - x, y = normalized CENTER of the element (0..1 of frame)
+ * - Text: auto-sizes to content, centered at (x, y)
+ * - Image/Video: explicit w, h; positioned so center is at (x, y)
+ */
 function CanvasElementView({
   element,
   frameWidth,
@@ -18,11 +24,45 @@ function CanvasElementView({
   frameWidth: number;
   frameHeight: number;
 }) {
-  const left = element.x * frameWidth;
-  const top = element.y * frameHeight;
+  const isText = element.type === "text";
+  const rotation = element.rotation ?? 0;
+
+  if (isText) {
+    // Text: auto-sized, centered at (x, y) using transform translate(-50%, -50%)
+    const centerX = element.x * frameWidth;
+    const centerY = element.y * frameHeight;
+    return (
+      <div
+        style={{
+          position: "absolute",
+          left: centerX,
+          top: centerY,
+          transform: `translate(-50%, -50%)${rotation ? ` rotate(${rotation}deg)` : ""}`,
+          zIndex: element.zIndex ?? 0,
+          fontSize: element.fontSize ?? 24,
+          color: element.color ?? "#FFFFFF",
+          fontWeight: (element.fontWeight as React.CSSProperties["fontWeight"]) ?? "600",
+          backgroundColor: element.backgroundColor ?? "transparent",
+          textAlign: "center",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
+          lineHeight: 1.2,
+          paddingLeft: 6,
+          paddingRight: 6,
+          paddingTop: 2,
+          paddingBottom: 2,
+        }}
+      >
+        {element.content}
+      </div>
+    );
+  }
+
+  // Image / Video: center at (x, y), explicit width & height
   const width = element.w * frameWidth;
   const height = element.h * frameHeight;
-  const rotation = element.rotation ?? 0;
+  const left = (element.x - element.w / 2) * frameWidth;
+  const top = (element.y - element.h / 2) * frameHeight;
 
   const style: React.CSSProperties = {
     position: "absolute",
@@ -32,60 +72,21 @@ function CanvasElementView({
     height,
     transform: rotation ? `rotate(${rotation}deg)` : undefined,
     zIndex: element.zIndex ?? 0,
+    objectFit: "cover",
+    borderRadius: 4,
   };
 
-  switch (element.type) {
-    case "text":
-      return (
-        <div
-          style={{
-            ...style,
-            fontSize: element.fontSize ?? 24,
-            color: element.color ?? "#FFFFFF",
-            fontWeight: (element.fontWeight as React.CSSProperties["fontWeight"]) ?? "600",
-            backgroundColor: element.backgroundColor ?? "transparent",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            textAlign: "center",
-            overflow: "hidden",
-            wordBreak: "break-word",
-            lineHeight: 1.2,
-            padding: 4,
-          }}
-        >
-          {element.content}
-        </div>
-      );
-    case "image":
-      return (
-        /* eslint-disable-next-line @next/next/no-img-element */
-        <img
-          src={element.content}
-          alt=""
-          style={{
-            ...style,
-            objectFit: "cover",
-            borderRadius: 4,
-          }}
-        />
-      );
-    case "video":
-      return (
-        <video
-          src={element.content}
-          muted
-          playsInline
-          style={{
-            ...style,
-            objectFit: "cover",
-            borderRadius: 4,
-          }}
-        />
-      );
-    default:
-      return null;
+  if (element.type === "image") {
+    return (
+      /* eslint-disable-next-line @next/next/no-img-element */
+      <img src={element.content} alt="" style={style} />
+    );
   }
+
+  // video
+  return (
+    <video src={element.content} muted playsInline autoPlay loop style={style} />
+  );
 }
 
 export function ConnectCanvasView({
