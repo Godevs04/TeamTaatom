@@ -6,8 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { listChats } from "../../../lib/api";
 import { formatChatMessagePreview } from "../../../lib/post-share-chat";
 import { useAuth } from "../../../context/auth-context";
-import type { Chat, ChatParticipant } from "../../../types/chat";
-import { MessageCircle, User } from "lucide-react";
+import type { Chat, ChatParticipant, ConnectPageRef } from "../../../types/chat";
+import { MessageCircle, User, Users } from "lucide-react";
 import { Skeleton } from "../../../components/ui/skeleton";
 
 function getOtherParticipant(chat: Chat, myId: string): ChatParticipant | undefined {
@@ -98,11 +98,56 @@ export default function ChatListPage() {
       ) : (
         <div className="space-y-2">
           {chats.map((chat) => {
-            const other = getOtherParticipant(chat, myId);
             const lastMsg = chat.lastMessage ?? chat.messages?.[chat.messages.length - 1];
             const rawPreview = lastMsg?.text ?? "No messages yet";
             const preview = rawPreview === "No messages yet" ? rawPreview : formatChatMessagePreview(rawPreview);
             const time = formatTime(lastMsg?.timestamp ?? lastMsg?.createdAt ?? chat.updatedAt);
+
+            // Connect page group chats
+            if (chat.type === "connect_page") {
+              const cpRef =
+                chat.connectPageId && typeof chat.connectPageId === "object"
+                  ? (chat.connectPageId as ConnectPageRef)
+                  : null;
+              const groupName = cpRef?.name ?? "Group Chat";
+              const groupImage = cpRef?.profileImage;
+              return (
+                <Link
+                  key={chat._id}
+                  href={`/chat/room/${chat._id}`}
+                  className="flex items-center gap-4 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-premium transition-shadow hover:shadow-premium-hover dark:border-zinc-800/80 dark:bg-zinc-900/90 dark:hover:shadow-premium-hover"
+                >
+                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-primary/10 ring-1 ring-slate-200/80 dark:bg-primary/20 dark:ring-zinc-700/80">
+                    {groupImage ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img src={groupImage} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-primary">
+                        <Users className="h-7 w-7" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-[15px] font-semibold text-slate-900 dark:text-zinc-50">
+                        {groupName}
+                      </span>
+                      <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                        Connect
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-400 dark:text-zinc-500">
+                      {(cpRef?.followerCount ?? 0) + 1} members
+                    </div>
+                    <div className="truncate text-sm text-slate-500 dark:text-zinc-400">{preview}</div>
+                  </div>
+                  {time ? <span className="shrink-0 text-xs text-slate-400 dark:text-zinc-500">{time}</span> : null}
+                </Link>
+              );
+            }
+
+            // Regular 1-on-1 chats
+            const other = getOtherParticipant(chat, myId);
             if (!other) return null;
             const otherId = other._id ?? (other as unknown as { _id?: string })._id ?? "";
             return (

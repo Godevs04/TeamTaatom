@@ -89,7 +89,6 @@ router.post('/subscription/cancel', authMiddleware, subscriptionController.cance
 router.get('/my-subscriptions', authMiddleware, subscriptionController.getMySubscriptions);
 router.get('/page/:pageId/subscribers', authMiddleware, subscriptionController.getPageSubscribers);
 router.post('/subscription/webhook', subscriptionController.handleWebhook); // No auth — Cashfree calls this
-router.post('/payout/webhook', payoutController.handlePayoutWebhook); // No auth — Cashfree Payouts calls this
 router.get('/subscription/payout-preview/:connectPageId', authMiddleware, subscriptionController.getPayoutPreview);
 router.get('/my-payouts', authMiddleware, payoutController.getMyPayouts);
 

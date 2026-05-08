@@ -4813,14 +4813,76 @@ router.get('/payouts', checkPermission('canManageContent'), async (req, res) => 
   }
 })
 
-// POST /api/v1/superadmin/payouts/:id/process — Push a calculated domestic payout via Cashfree Payouts
-router.post('/payouts/:id/process', checkPermission('canManageContent'), payoutController.processPayout)
-
-// POST /api/v1/superadmin/payouts/:id/mark-paid — Manually record a completed payout (Wise / fallback)
+// POST /api/v1/superadmin/payouts/:id/mark-paid — Manually record a completed payout (all payouts are sent manually)
 router.post('/payouts/:id/mark-paid', checkPermission('canManageContent'), payoutController.markPayoutPaid)
 
-// POST /api/v1/superadmin/payouts/:id/refresh-status — Pull latest Cashfree transfer status
-router.post('/payouts/:id/refresh-status', checkPermission('canManageContent'), payoutController.refreshPayoutStatus)
+// GET /api/v1/superadmin/connect-pages/:pageId/payouts — Payouts scoped to one Connect page
+router.get('/connect-pages/:pageId/payouts', checkPermission('canManageContent'), async (req, res) => {
+  try {
+    const mongoose = require('mongoose')
+    const { pageId } = req.params
+    if (!mongoose.Types.ObjectId.isValid(pageId)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Invalid page id')
+    }
+
+    const { status, page = 1, limit = 20 } = req.query
+    const filter = { connectPageId: new mongoose.Types.ObjectId(pageId) }
+    if (status) filter.status = status
+
+    const [payouts, total, summaryAgg] = await Promise.all([
+      Payout.find(filter)
+        .populate('creatorId', 'username fullName email')
+        .sort({ periodYear: -1, periodMonth: -1, createdAt: -1 })
+        .skip((parseInt(page) - 1) * parseInt(limit))
+        .limit(parseInt(limit))
+        .lean(),
+      Payout.countDocuments(filter),
+      Payout.aggregate([
+        { $match: { connectPageId: new mongoose.Types.ObjectId(pageId) } },
+        {
+          $group: {
+            _id: null,
+            totalGross: { $sum: '$grossAmount' },
+            totalCreatorPayout: { $sum: '$creatorPayout' },
+            totalPaid: {
+              $sum: { $cond: [{ $eq: ['$status', 'completed'] }, '$creatorPayout', 0] },
+            },
+            totalPending: {
+              $sum: {
+                $cond: [
+                  { $in: ['$status', ['calculated', 'processing']] },
+                  '$creatorPayout',
+                  0,
+                ],
+              },
+            },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
+    ])
+
+    return sendSuccess(res, 200, 'Page payouts fetched', {
+      payouts,
+      summary: summaryAgg[0] || {
+        totalGross: 0,
+        totalCreatorPayout: 0,
+        totalPaid: 0,
+        totalPending: 0,
+        count: 0,
+      },
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        totalPages: Math.ceil(total / parseInt(limit)),
+      },
+    })
+  } catch (error) {
+    logger.error('Error fetching page payouts:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch page payouts')
+  }
+})
 
 // GET /api/v1/superadmin/subscription-stats — Overview stats + monthly chart data
 router.get('/subscription-stats', checkPermission('canManageContent'), async (req, res) => {

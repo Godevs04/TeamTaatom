@@ -23,6 +23,11 @@ export async function connectGetCommunities(page = 1, limit = 20) {
   return unwrapPagesPayload(res.data as Record<string, unknown>);
 }
 
+export async function connectGetConnectPages(page = 1, limit = 20) {
+  const res = await api.get("/connect/connect-pages", { params: { page, limit } });
+  return unwrapPagesPayload(res.data as Record<string, unknown>);
+}
+
 export async function connectSearchByName(q: string, page = 1, limit = 20) {
   const res = await api.get("/connect/search-by-name", {
     params: { q, page, limit },
@@ -125,6 +130,23 @@ export async function connectGetPageSubscribers(pageId: string) {
     totalActiveSubscribers?: number;
     monthlyRevenue?: number;
   };
+}
+
+export type ConnectFollower = {
+  _id: string;
+  username?: string;
+  fullName?: string;
+  profilePic?: string;
+  role: "admin" | "member";
+};
+
+export async function connectGetPageFollowers(pageId: string, page = 1, limit = 20) {
+  const res = await api.get(`/connect/page/${pageId}/followers`, { params: { page, limit } });
+  const d = res.data as {
+    followers?: ConnectFollower[];
+    pagination?: { page: number; limit: number; total: number; totalPages: number };
+  };
+  return { followers: d.followers ?? [], pagination: d.pagination };
 }
 
 export async function connectGetPageAnalytics(pageId: string) {
