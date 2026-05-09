@@ -51,11 +51,9 @@ import { NativeModules } from 'react-native';
 import {
   CFErrorResponse,
   CFPaymentGatewayService,
-} from 'react-native-cashfree-pg-sdk';
-import {
   CFEnvironment,
   CFSubscriptionSession,
-} from 'cashfree-pg-api-contract';
+} from '../../../utils/cashfreeShim';
 
 // The Cashfree SDK ships a Proxy that throws "package not linked" the moment
 // any method is called when the native module is absent (Expo Go, web). Gate

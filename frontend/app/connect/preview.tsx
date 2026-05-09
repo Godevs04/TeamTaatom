@@ -38,11 +38,9 @@ import { NativeModules } from 'react-native';
 import {
   CFErrorResponse,
   CFPaymentGatewayService,
-} from 'react-native-cashfree-pg-sdk';
-import {
   CFEnvironment,
   CFSubscriptionSession,
-} from 'cashfree-pg-api-contract';
+} from '../../utils/cashfreeShim';
 
 // In Expo Go / web the Cashfree native module is absent and the SDK throws
 // "package not linked" the moment any method is called. Gate every SDK call
