@@ -35,7 +35,8 @@ export function createMetadata(overrides: {
   const baseRaw = config.webUrl;
   let base = baseRaw;
   try {
-    base = new URL(baseRaw).origin;
+    const u = new URL(baseRaw.startsWith("http") ? baseRaw : `http://${baseRaw}`);
+    base = u.origin;
   } catch {
     base = "http://localhost:3001";
   }
@@ -56,7 +57,13 @@ export function createMetadata(overrides: {
     authors: [{ name: APP_NAME, url: base }],
     creator: APP_NAME,
     publisher: APP_NAME,
-    metadataBase: new URL(base),
+    metadataBase: (() => {
+      try {
+        return new URL(base.startsWith("http") ? base : `http://${base}`);
+      } catch {
+        return new URL("http://localhost:3001");
+      }
+    })(),
     alternates: { canonical },
     openGraph: {
       title,
