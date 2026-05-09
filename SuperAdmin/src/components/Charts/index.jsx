@@ -67,14 +67,21 @@ export const LineChartComponent = memo(({ data, dataKey, dataKeys, name, xAxisKe
 
 LineChartComponent.displayName = 'LineChartComponent'
 
-export const AreaChartComponent = memo(({ data, dataKey, name }) => {
+export const AreaChartComponent = memo(({ data, dataKey, name, xAxisKey = "name", height = 300 }) => {
   return (
-    <ResponsiveContainer width="100%" height={300}>
+    <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={data}>
-        <CartesianGrid strokeDasharray="3 3" />
-        <XAxis dataKey="name" />
-        <YAxis />
-        <Tooltip />
+        <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+        <XAxis dataKey={xAxisKey} stroke="#6b7280" tick={{ fontSize: 12 }} />
+        <YAxis stroke="#6b7280" tick={{ fontSize: 12 }} />
+        <Tooltip
+          contentStyle={{
+            backgroundColor: 'white',
+            border: '1px solid #e5e7eb',
+            borderRadius: '8px',
+            boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)'
+          }}
+        />
         <Legend />
         <Area 
           type="monotone" 

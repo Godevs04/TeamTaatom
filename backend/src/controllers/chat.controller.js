@@ -12,6 +12,43 @@ const { buildMediaKey, uploadObject, getDownloadUrl } = require('../services/sto
 // Use dynamic import for fetch to handle CommonJS compatibility
 const fetch = (...args) => import("node-fetch").then(m => m.default(...args));
 
+/**
+ * Refresh signed download URLs for chat attachments before sending them to the
+ * client. The upload path stores `storageKey` on each attachment alongside a
+ * URL signed at upload time (chat.controller.js uploadChatMedia uses 7-day
+ * expiry). After 7 days the stored URL 403s, so we re-sign on every read using
+ * the persisted storageKey — the same pattern profile pictures use via
+ * generateSignedUrl(profilePicStorageKey, 'PROFILE'). 1-hour signed URLs are
+ * plenty for the user to view the chat once it's open.
+ *
+ * Skips post-share attachments (no storageKey, the postPreview thumbnail is
+ * a separate concern handled by the post controller). Falls back to the
+ * stored URL if signing fails so a transient storage error doesn't blank the
+ * whole message.
+ */
+const ATTACHMENT_URL_TTL_SECONDS = 3600;
+async function refreshAttachmentUrls(attachments) {
+  if (!Array.isArray(attachments) || attachments.length === 0) return attachments || [];
+  return Promise.all(attachments.map(async (att) => {
+    if (!att || typeof att !== 'object') return att;
+    const type = att.type;
+    // Storage-backed types only — shared posts use a different shape.
+    if ((type === 'image' || type === 'video' || type === 'file') && att.storageKey) {
+      try {
+        const url = await getDownloadUrl(att.storageKey, ATTACHMENT_URL_TTL_SECONDS);
+        return { ...att, url };
+      } catch (err) {
+        logger.warn('[chat] Failed to refresh attachment URL', {
+          storageKey: att.storageKey,
+          error: err && err.message,
+        });
+        return att;
+      }
+    }
+    return att;
+  }));
+}
+
 // Function to get socket instance - will be called when needed
 const getSocketInstance = () => {
   try {
@@ -92,7 +129,14 @@ exports.listChats = async (req, res) => {
   // Generate signed URLs for profile pictures
   for (const chat of chats) {
     if (Array.isArray(chat.messages)) {
-      chat.messages = chat.messages.map(msg => ({ ...msg, seen: typeof msg.seen === 'boolean' ? msg.seen : false }));
+      // Re-sign attachment URLs for the last-message preview shown in the chat
+      // list. Stored URLs are signed at upload time and 403 after 7 days; without
+      // this, the chat list shows broken thumbnails for old conversations.
+      chat.messages = await Promise.all(chat.messages.map(async (msg) => ({
+        ...msg,
+        seen: typeof msg.seen === 'boolean' ? msg.seen : false,
+        attachments: await refreshAttachmentUrls(msg.attachments),
+      })));
     }
     
     // Generate signed URLs for participant profile pictures
@@ -628,13 +672,14 @@ exports.getMessagesByRoomId = async (req, res) => {
 
     const rawMessages = chat.messages || [];
     const isGroupChat = chat.type === 'connect_page';
-    const messages = rawMessages.map((msg) => {
+    const messages = await Promise.all(rawMessages.map(async (msg) => {
       const senderId = msg.sender ? (msg.sender._id ? msg.sender._id.toString() : msg.sender.toString()) : null;
       const formatted = {
         _id: msg._id ? msg._id.toString() : null,
         sender: senderId,
         text: msg.text || '',
-        attachments: msg.attachments || [],
+        // Re-sign storage URLs on read — same fix as 1:1 getMessages above.
+        attachments: await refreshAttachmentUrls(msg.attachments),
         timestamp: msg.timestamp || new Date(),
         seen: typeof msg.seen === 'boolean' ? msg.seen : false,
       };
@@ -646,7 +691,7 @@ exports.getMessagesByRoomId = async (req, res) => {
         formatted.seenBy = Array.isArray(msg.seenBy) ? msg.seenBy.map(id => id.toString()) : [];
       }
       return formatted;
-    });
+    }));
 
     logger.info('✅ [getMessagesByRoomId] Returning messages', { chatId, messageCount: messages.length });
     return sendSuccess(res, 200, 'Messages fetched successfully', { messages });
@@ -907,12 +952,15 @@ exports.getMessages = async (req, res) => {
       } : null
     });
     
-    const messages = rawMessages.map((msg, index) => {
+    const messages = await Promise.all(rawMessages.map(async (msg, index) => {
       const formatted = {
         _id: msg._id ? msg._id.toString() : null,
         sender: msg.sender ? (msg.sender._id ? msg.sender._id.toString() : msg.sender.toString()) : null,
         text: msg.text || '',
-        attachments: msg.attachments || [],
+        // Re-sign storage URLs from the persisted storageKey on every read.
+        // The URL stored at upload time expires after 7 days; without this,
+        // older chat images/videos return 403 and won't load.
+        attachments: await refreshAttachmentUrls(msg.attachments),
         timestamp: msg.timestamp || new Date(),
         seen: typeof msg.seen === 'boolean' ? msg.seen : false
       };
@@ -922,7 +970,7 @@ exports.getMessages = async (req, res) => {
       }
 
       return formatted;
-    });
+    }));
     
     logger.info('✅ [getMessages] Returning messages', { 
       chatId: chat._id.toString(), 

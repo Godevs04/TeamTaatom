@@ -40,13 +40,14 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' = '400') => {
 export default function EditContentScreen() {
   const { theme } = useTheme();
   const router = useRouter();
-  const { pageId, section } = useLocalSearchParams<{ pageId: string; section: 'website' | 'subscription' }>();
+  const { pageId, section, category } = useLocalSearchParams<{ pageId: string; section: 'website' | 'subscription'; category?: string }>();
   const [blocks, setBlocks] = useState<ContentBlock[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
-  const sectionTitle = section === 'website' ? 'Website' : 'Subscription';
+  const isCommunity = category === 'community';
+  const sectionTitle = section === 'website' ? 'Website' : (isCommunity ? 'Buy' : 'Subscription');
 
   useEffect(() => {
     loadContent();

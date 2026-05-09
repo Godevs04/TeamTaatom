@@ -38,6 +38,19 @@ const FILTER_OPTIONS: { id: ImageFilterType; label: string; icon: string }[] = [
   { id: 'bw', label: 'B&W', icon: 'contrast' },
 ];
 
+// Approximate overlays for the in-modal preview. The real filter is a
+// Cloudinary effect chain applied server-side (utils/imageCache.ts:253) and
+// can't run on a local file URI; these tints are a rough visual cue so the
+// user can confirm a filter was selected. B&W especially is heavily faked —
+// a true desaturation needs a native image-filter library.
+export const FILTER_PREVIEW_OVERLAY: Record<ImageFilterType, string | null> = {
+  original: null,
+  vivid: 'rgba(255, 200, 100, 0.15)',
+  warm: 'rgba(255, 140, 50, 0.22)',
+  cool: 'rgba(70, 130, 220, 0.22)',
+  bw: 'rgba(128, 128, 128, 0.55)',
+};
+
 interface ImageEditModalProps {
   visible: boolean;
   onClose: () => void;
@@ -70,7 +83,10 @@ export default function ImageEditModal({
     };
   }, []);
 
-  const isFilterSupported = (id: ImageFilterType) => id === 'original';
+  // All filters are now applied server-side via Cloudinary URL
+  // transformations, so every chip is selectable. The chosen filter is
+  // stored on the post and re-applied on every render.
+  const isFilterSupported = (_id: ImageFilterType) => true;
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -128,6 +144,32 @@ export default function ImageEditModal({
                 <Image key={`${img.uri}-${index}`} source={{ uri: img.uri }} style={styles.thumbSmall} />
               ))}
             </View>
+
+            {/* Filter preview — first selected image with approximate overlay. */}
+            {images.length > 0 && (
+              <>
+                <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary, marginTop: theme.spacing.lg }]}>
+                  Preview
+                </Text>
+                <View style={styles.previewContainer}>
+                  <Image source={{ uri: images[0].uri }} style={styles.previewImage} />
+                  {FILTER_PREVIEW_OVERLAY[selectedFilter] && (
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        StyleSheet.absoluteFillObject,
+                        { backgroundColor: FILTER_PREVIEW_OVERLAY[selectedFilter]! },
+                      ]}
+                    />
+                  )}
+                </View>
+                {selectedFilter !== 'original' && (
+                  <Text style={[styles.previewHint, { color: theme.colors.textSecondary }]}>
+                    Approximate preview — exact filter applies after posting.
+                  </Text>
+                )}
+              </>
+            )}
 
             {/* Filters */}
             <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary, marginTop: theme.spacing.lg }]}>
@@ -192,7 +234,7 @@ const styles = StyleSheet.create({
   container: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    maxHeight: '85%',
+    height: '75%',
     paddingBottom: Platform.OS === 'ios' ? 34 : 24,
   },
   header: {
@@ -211,7 +253,7 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   scroll: {
-    maxHeight: 400,
+    flex: 1,
     paddingHorizontal: 20,
     paddingTop: 16,
   },
@@ -252,6 +294,25 @@ const styles = StyleSheet.create({
     height: 64,
     borderRadius: 8,
     backgroundColor: '#eee',
+  },
+  previewContainer: {
+    width: '100%',
+    height: 180,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#000',
+    marginBottom: 6,
+  },
+  previewImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  previewHint: {
+    fontSize: 11,
+    fontStyle: 'italic',
+    marginBottom: 4,
+    textAlign: 'center',
   },
   filterScroll: {
     marginBottom: 20,

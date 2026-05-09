@@ -43,9 +43,15 @@ export type ShortsNativeAdProps = {
   fillParent?: boolean;
   /** Called when the ad fires an impression (observe-only; e.g. analytics). */
   onImpression?: () => void;
+  /** Fired when this slot cannot render an ad (Expo Go / web stub, module load
+   *  failure, no-fill, ad request rejection, or placeholder unit ID). The
+   *  parent should remove the slot from its data array — otherwise the slot
+   *  occupies a SHORTS_ITEM_HEIGHT cell with the black `shortItem` background
+   *  and the user sees a blank dark screen at that scroll position. */
+  onLoadFailed?: () => void;
 };
 
-function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onImpression }: ShortsNativeAdProps) {
+function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onImpression, onLoadFailed }: ShortsNativeAdProps) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const [adsModule, setAdsModule] = useState<AdsModule | null>(null);
@@ -60,10 +66,23 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
   const TAB_BAR = Platform.OS === 'web' ? 70 : 88;
   const height = propHeight ?? windowHeight - TAB_BAR;
 
+  // Refs to fire onLoadFailed at most once per slot, regardless of which
+  // failure path triggered it. Without these, the parent could be told to
+  // remove the slot multiple times (re-render churn) or get stuck in a loop.
+  const failureFiredRef = useRef(false);
+  const onLoadFailedRef = useRef(onLoadFailed);
+  onLoadFailedRef.current = onLoadFailed;
+  const fireLoadFailed = () => {
+    if (failureFiredRef.current) return;
+    failureFiredRef.current = true;
+    try { onLoadFailedRef.current?.(); } catch { /* swallow */ }
+  };
+
   useEffect(() => {
     if (isWeb || isExpoGo) {
       setLoading(false);
       setModuleError(true);
+      fireLoadFailed();
       return;
     }
     try {
@@ -79,6 +98,7 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
     } catch {
       setModuleError(true);
       setLoading(false);
+      fireLoadFailed();
     }
   }, []);
 
@@ -87,6 +107,9 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
       if (adsModule === null && !moduleError) return;
       setLoading(false);
       setError(true);
+      // Placeholder unit ID is a permanent misconfiguration, not transient —
+      // tell the parent so it stops trying to insert ad slots this session.
+      if (unitId && unitId.includes('XXXXXXXXXX')) fireLoadFailed();
       return;
     }
 
@@ -113,6 +136,8 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
         if (!destroyedRef.current) {
           setError(true);
           setLoading(false);
+          // No-fill / network / SDK error — bubble up so parent can drop the slot.
+          fireLoadFailed();
         }
       });
 

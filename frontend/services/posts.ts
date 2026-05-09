@@ -35,6 +35,7 @@ export interface CreatePostData {
   spotType?: string;
   travelInfo?: string;
   aspectRatio?: '1:1' | '16:9' | 'full';
+  filter?: 'original' | 'vivid' | 'warm' | 'cool' | 'bw';
   detectedPlace?: {          // Detected place data for admin review
     name?: string;
     country?: string;
@@ -239,6 +240,7 @@ export const createPostWithProgress = async (
     if (data.spotType) formData.append('spotType', data.spotType);
     if (data.travelInfo) formData.append('travelInfo', data.travelInfo);
     if ((data as any).aspectRatio) formData.append('aspectRatio', (data as any).aspectRatio);
+    if ((data as any).filter && (data as any).filter !== 'original') formData.append('filter', (data as any).filter);
     
     // Add detected place data for admin review
     // Always send all fields if detectedPlace exists (even if some are empty strings)
@@ -360,6 +362,7 @@ export const createPost = async (data: CreatePostData): Promise<{ message: strin
     if (data.spotType) formData.append('spotType', data.spotType);
     if (data.travelInfo) formData.append('travelInfo', data.travelInfo);
     if ((data as any).aspectRatio) formData.append('aspectRatio', (data as any).aspectRatio);
+    if ((data as any).filter && (data as any).filter !== 'original') formData.append('filter', (data as any).filter);
     
     // Add detected place data for admin review
     // Always send all fields if detectedPlace exists (even if some are empty strings)
@@ -959,6 +962,7 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     if (data.spotType) formData.append('spotType', data.spotType);
     if (data.travelInfo) formData.append('travelInfo', data.travelInfo);
     if ((data as any).aspectRatio) formData.append('aspectRatio', (data as any).aspectRatio);
+    if ((data as any).filter && (data as any).filter !== 'original') formData.append('filter', (data as any).filter);
     
     // Add copyright compliance fields
     if (data.audioSource) {

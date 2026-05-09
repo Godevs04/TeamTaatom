@@ -15,6 +15,25 @@ export interface ContentBlock {
   embedType?: 'youtube' | 'map' | 'custom' | '';
 }
 
+export interface CanvasElement {
+  _id?: string;
+  type: 'text' | 'image' | 'video';
+  // text: the string. image/video: signed URL on read, storage key on persist (server handles).
+  content: string;
+  // Normalized to canvas frame: 0..1 of frame width/height.
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rotation: number;
+  zIndex: number;
+  // Text-only
+  fontSize?: number;
+  color?: string;
+  fontWeight?: string;
+  backgroundColor?: string;
+}
+
 export interface BuyItem {
   _id?: string;
   name: string;
@@ -41,6 +60,7 @@ export interface ConnectPageType {
     profilePic: string;
   } | string;
   name: string;
+  category?: 'connect' | 'community';
   type: 'public' | 'private';
   profileImage: string;
   bannerImage: string;
@@ -52,6 +72,8 @@ export interface ConnectPageType {
   };
   websiteContent: ContentBlock[];
   subscriptionContent: ContentBlock[];
+  canvasContent?: CanvasElement[];
+  canvasBackground?: string;
   subscriptionPrice: number | null;
   subscriptionCurrency: string;
   subscriptionApproval?: SubscriptionApproval;
@@ -63,6 +85,10 @@ export interface ConnectPageType {
   buyItems: BuyItem[];
   status: string;
   isFollowing?: boolean;
+  // True for pages created by the current viewer. Set server-side by
+  // /connect-pages so the client can hide the Follow button without an
+  // extra getMyPages round-trip.
+  isOwn?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -210,6 +236,18 @@ export const deleteConnectPage = async (pageId: string): Promise<void> => {
 export const getCommunities = async (page = 1, limit = 20): Promise<ConnectPagesResponse> => {
   try {
     const response = await api.get(`/api/v1/connect/communities?page=${page}&limit=${limit}`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+// User-created (non-admin) Connect pages — drives the Connect tab. Backend
+// places followed entries first per fetched page so pagination stays stable.
+export const getConnectPages = async (page = 1, limit = 20): Promise<ConnectPagesResponse> => {
+  try {
+    const response = await api.get(`/api/v1/connect/connect-pages?page=${page}&limit=${limit}`);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
@@ -384,6 +422,56 @@ export const getSubscriptionContent = async (pageId: string): Promise<{ subscrip
   }
 };
 
+export const getCanvasContent = async (
+  pageId: string
+): Promise<{ canvasContent: CanvasElement[]; canvasBackground: string }> => {
+  try {
+    const response = await api.get(`/api/v1/connect/page/${pageId}/canvas`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+export const updateCanvasContent = async (
+  pageId: string,
+  content: CanvasElement[],
+  background?: string
+): Promise<{ canvasContent: CanvasElement[]; canvasBackground: string }> => {
+  try {
+    const response = await api.put(`/api/v1/connect/page/${pageId}/canvas`, { content, background });
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+export const uploadContentVideo = async (
+  pageId: string,
+  videoUri: string
+): Promise<{ storageKey: string; signedUrl: string }> => {
+  try {
+    const formData = new FormData();
+    const ext = (videoUri.split('.').pop() || 'mp4').toLowerCase();
+    const mime = ext === 'mov' ? 'video/quicktime' : 'video/mp4';
+    formData.append('video', {
+      uri: videoUri,
+      type: mime,
+      name: `canvas_${Date.now()}.${ext}`,
+    } as any);
+
+    const response = await api.post(`/api/v1/connect/page/${pageId}/content-video`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
 // ─────────────────────────────────────────────
 // Views
 // ─────────────────────────────────────────────
@@ -500,13 +588,16 @@ export const getMySubscriptions = async (): Promise<{ subscriptions: any[] }> =>
   }
 };
 
-export const getPageSubscribers = async (pageId: string): Promise<{
+export const getPageSubscribers = async (pageId: string, status?: string): Promise<{
   subscribers: any[];
   totalActiveSubscribers: number;
   monthlyRevenue: number;
+  stats?: { total: number; active: number; initialized: number; cancelled: number; expired: number };
 }> => {
   try {
-    const response = await api.get(`/api/v1/connect/page/${pageId}/subscribers`);
+    const params: any = {};
+    if (status && status !== 'all') params.status = status;
+    const response = await api.get(`/api/v1/connect/page/${pageId}/subscribers`, { params });
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
@@ -549,6 +640,73 @@ export const getPayoutPreview = async (connectPageId: string): Promise<{ preview
   try {
     const response = await api.get(`/api/v1/connect/subscription/payout-preview/${connectPageId}`);
     return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+// ─────────────────────────────────────────────
+// My Payouts (creator-facing payout history)
+// ─────────────────────────────────────────────
+
+export type PayoutStatus = 'calculated' | 'pending' | 'processing' | 'completed' | 'failed';
+
+export interface MyPayout {
+  _id: string;
+  periodMonth: number;
+  periodYear: number;
+  pageId: string;
+  pageName: string;
+  pageCategory: string;
+  currency: string;
+  isInternational: boolean;
+  // Full breakdown
+  grossAmount: number;
+  gatewayFee: number;
+  gatewayFeePercent: number;
+  fxCharge: number;
+  netAfterGateway: number;
+  commissionPercent: number;
+  commissionAmount: number;
+  gstPercent: number;
+  gstAmount: number;
+  wiseFee: number;
+  wiseFeePercent: number;
+  creatorPayout: number;
+  subscriberCount: number;
+  // State
+  status: PayoutStatus;
+  payoutMethod: 'cashfree_bank' | 'cashfree_upi' | 'wise';
+  payoutReference: string;
+  processedAt: string | null;
+  failureReason: string;
+  createdAt: string;
+}
+
+export interface MyPayoutsResponse {
+  payouts: MyPayout[];
+  summary: {
+    totalEarned: number;
+    totalPending: number;
+    payoutCount: number;
+  };
+  pagination: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export const getMyPayouts = async (
+  { page = 1, limit = 20, status }: { page?: number; limit?: number; status?: PayoutStatus } = {}
+): Promise<MyPayoutsResponse> => {
+  try {
+    const params: Record<string, any> = { page, limit };
+    if (status) params.status = status;
+    const response = await api.get('/api/v1/connect/my-payouts', { params });
+    return response.data?.data || response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
     throw new Error(parsedError.userMessage);

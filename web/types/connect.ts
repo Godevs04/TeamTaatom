@@ -18,6 +18,22 @@ export type ContentBlock = {
   embedType?: "youtube" | "map" | "custom" | "";
 };
 
+export type CanvasElement = {
+  _id?: string;
+  type: "text" | "image" | "video";
+  content: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  rotation?: number;
+  zIndex?: number;
+  fontSize?: number;
+  color?: string;
+  fontWeight?: string;
+  backgroundColor?: string;
+};
+
 export type ConnectPageOwner = {
   _id: string;
   username?: string;
@@ -40,12 +56,17 @@ export type ConnectPage = {
   };
   websiteContent?: ContentBlock[];
   subscriptionContent?: ContentBlock[];
+  canvasContent?: CanvasElement[];
+  canvasBackground?: string;
   subscriptionPrice?: number | null;
   subscriptionCurrency?: string;
   subscriptionApproval?: {
     status: "none" | "pending" | "approved" | "rejected";
     requestedPrice?: number | null;
   };
+  category?: "connect" | "community";
+  isAdminPage?: boolean;
+  chatRoomId?: string | null;
   followerCount?: number;
   viewCount?: number;
   isFollowing?: boolean;

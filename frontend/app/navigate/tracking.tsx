@@ -15,7 +15,7 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { WebView } from 'react-native-webview';
-import { useJourneyTracking } from '../../hooks/useJourneyTracking';
+import { useJourney } from '../../context/JourneyContext';
 import { MapView, Marker, useWebViewFallback } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import PolylineRenderer from '../../components/PolylineRenderer';
@@ -51,19 +51,26 @@ export default function TrackingScreen() {
     distance,
     duration,
     accuracy,
+    currentCoordinate,
     pauseJourneyRecording,
     stopJourneyRecording,
-  } = useJourneyTracking();
+  } = useJourney();
 
   const [mapReady, setMapReady] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Derive current location from polyline's latest point (no duplicate watcher needed)
+  // Prefer the live GPS reading from the hook (updated every 2s regardless
+  // of polyline growth) over the polyline tail — the latter only advances
+  // when the user has moved more than MIN_LOCATION_DISTANCE, so it stayed
+  // pinned to the start point during slow walking or stationary periods.
   const currentLocation = useMemo(() => {
+    if (currentCoordinate) {
+      return { latitude: currentCoordinate.latitude, longitude: currentCoordinate.longitude };
+    }
     if (polyline.length === 0) return null;
     const last = polyline[polyline.length - 1];
     return { latitude: last.latitude, longitude: last.longitude };
-  }, [polyline]);
+  }, [currentCoordinate, polyline]);
 
   // Redirect to home if no journey (only after hook has initialized)
   useEffect(() => {

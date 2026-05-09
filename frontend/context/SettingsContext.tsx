@@ -1,7 +1,35 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode, useRef, useCallback } from 'react';
 import { Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSettings, updateSettings, updateSettingCategory, resetSettings, UserSettings } from '../services/settings';
 import logger from '../utils/logger';
+
+/**
+ * Mirror the latest settings into the cached `userData` blob in AsyncStorage.
+ *
+ * Several screens (profile, search, post-cards, etc.) hydrate user state via
+ * `getUserFromStorage()`, which reads the `userData` JSON blob written at
+ * sign-in. Without this sync, toggling a setting (e.g. privacy.showEmail)
+ * updated the SettingsContext correctly but those AsyncStorage-backed
+ * consumers kept rendering the stale value until the next app launch.
+ *
+ * Fire-and-forget — UI doesn't need to await disk I/O for the sync to be
+ * eventually consistent.
+ */
+const syncSettingsIntoUserData = (next: UserSettings) => {
+  AsyncStorage.getItem('userData')
+    .then((raw) => {
+      if (!raw) return;
+      try {
+        const parsed = JSON.parse(raw);
+        parsed.settings = next;
+        return AsyncStorage.setItem('userData', JSON.stringify(parsed));
+      } catch {
+        // userData blob is corrupt — leave it; sign-in will rewrite it.
+      }
+    })
+    .catch(() => { /* fire-and-forget */ });
+};
 
 interface SettingsContextType {
   settings: UserSettings | null;
@@ -46,9 +74,15 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       const settingsData = await getSettings();
       
       if (!isMountedRef.current) return;
-      
+
       setSettings(settingsData.settings);
-      
+      if (settingsData.settings) {
+        // Mirror server-truth into the cached userData blob on first load too
+        // so consumers reading getUserFromStorage() pick up settings updates
+        // applied on a different device or just refreshed from the server.
+        syncSettingsIntoUserData(settingsData.settings);
+      }
+
       // Store last known server values for all settings
       if (settingsData.settings) {
         const map = new Map<string, any>();
@@ -149,7 +183,8 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       
       // Update with server response (single source of truth)
       setSettings(response.settings);
-      
+      syncSettingsIntoUserData(response.settings);
+
       // Update last known server value
       lastKnownServerValuesRef.current.set(settingKey, value);
     } catch (error: any) {
@@ -184,7 +219,8 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       const response = await updateSettings(newSettings);
       if (!isMountedRef.current) return;
       setSettings(response.settings);
-      
+      syncSettingsIntoUserData(response.settings);
+
       // Update last known server values
       Object.keys(newSettings).forEach(category => {
         const categorySettings = newSettings[category as keyof UserSettings];
@@ -212,6 +248,7 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       const response = await resetSettings();
       if (!isMountedRef.current) return;
       setSettings(response.settings);
+      syncSettingsIntoUserData(response.settings);
       
       // Reset last known server values
       lastKnownServerValuesRef.current.clear();

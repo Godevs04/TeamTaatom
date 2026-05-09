@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { PostType } from '../../types/post';
 import { generateBlurUpUrl } from '../../utils/imageLoader';
+import { applyCloudinaryFilter } from '../../utils/imageCache';
 import { Platform } from 'react-native';
 import SongPlayer from '../SongPlayer';
 import { audioManager } from '../../utils/audioManager';
@@ -22,6 +23,12 @@ const getStableCacheKey = (url?: string | null): string | undefined => {
   const q = url.indexOf('?');
   return q >= 0 ? url.slice(0, q) : url;
 };
+
+// Module-level cache of measured natural aspect ratios for `aspectRatio: 'full'`
+// posts. Without this, every FlashList recycle of the same image re-runs
+// RNImage.getSize and the card snaps from a square placeholder to the real
+// aspect — visible as feed jitter, especially when scrolling pauses.
+const naturalAspectCache: Map<string, number> = new Map();
 
 interface PostImageProps {
   post: PostType;
@@ -210,13 +217,30 @@ export default function PostImage({
   }, [post._id, post.song?.songId, post.song?.volume]); // Removed isCurrentlyVisible - not needed in deps
 
   // Measure natural aspect for 'full' display mode (only when needed).
-  const [naturalAspect, setNaturalAspect] = useState<number | null>(null);
+  // Seed from the module-level cache so recycled FlashList cells skip the
+  // square→actual snap that causes scroll jitter.
+  const [naturalAspect, setNaturalAspect] = useState<number | null>(() => {
+    if (post.aspectRatio !== 'full') return null;
+    const key = getStableCacheKey(imageUri);
+    return key ? (naturalAspectCache.get(key) ?? null) : null;
+  });
   useEffect(() => {
     if (post.aspectRatio !== 'full' || !imageUri) return;
+    const key = getStableCacheKey(imageUri);
+    if (key && naturalAspectCache.has(key)) {
+      const cached = naturalAspectCache.get(key)!;
+      if (cached !== naturalAspect) setNaturalAspect(cached);
+      return;
+    }
     let cancelled = false;
     RNImage.getSize(
       imageUri,
-      (w, h) => { if (!cancelled && w && h) setNaturalAspect(w / h); },
+      (w, h) => {
+        if (cancelled || !w || !h) return;
+        const ratio = w / h;
+        if (key) naturalAspectCache.set(key, ratio);
+        setNaturalAspect(ratio);
+      },
       () => { /* ignore — falls back to 1 */ },
     );
     return () => { cancelled = true; };
@@ -261,7 +285,10 @@ export default function PostImage({
                     style={{ width: screenWidth, height: '100%' }}
                   >
                     <ExpoImage
-                      source={{ uri: item, cacheKey: getStableCacheKey(item) }}
+                      source={{
+                        uri: applyCloudinaryFilter(item, post.filter),
+                        cacheKey: getStableCacheKey(item) ? `${getStableCacheKey(item)}:${post.filter || 'original'}` : undefined,
+                      }}
                       cachePolicy="memory-disk"
                       contentFit="cover"
                       transition={250}
@@ -319,7 +346,10 @@ export default function PostImage({
                   style={StyleSheet.absoluteFill}
                 >
                   <ExpoImage
-                    source={{ uri: imageUri, cacheKey: getStableCacheKey(imageUri) }}
+                    source={{
+                      uri: applyCloudinaryFilter(imageUri, post.filter),
+                      cacheKey: getStableCacheKey(imageUri) ? `${getStableCacheKey(imageUri)}:${post.filter || 'original'}` : undefined,
+                    }}
                     placeholder={blurUpUri ? { uri: blurUpUri } : undefined}
                     placeholderContentFit="cover"
                     cachePolicy="memory-disk"

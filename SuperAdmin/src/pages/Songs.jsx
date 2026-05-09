@@ -466,7 +466,36 @@ const Songs = () => {
     }
   }
 
-  const handleFileChange = (e) => {
+  // Read duration from an audio File using a hidden HTMLAudioElement.
+  // The browser parses just enough of the container to expose `.duration`,
+  // so we don't have to ship a metadata-parsing dependency. Resolves to
+  // a number (seconds) or null if the browser can't read the file.
+  const extractAudioDuration = (file) => new Promise((resolve) => {
+    try {
+      const url = URL.createObjectURL(file)
+      const audio = new Audio()
+      let settled = false
+      const finish = (val) => {
+        if (settled) return
+        settled = true
+        try { URL.revokeObjectURL(url) } catch {}
+        resolve(val)
+      }
+      audio.preload = 'metadata'
+      audio.onloadedmetadata = () => {
+        const d = audio.duration
+        finish(typeof d === 'number' && isFinite(d) && d > 0 ? d : null)
+      }
+      audio.onerror = () => finish(null)
+      // Hard timeout so a corrupt header doesn't hang the UI forever.
+      setTimeout(() => finish(null), 8000)
+      audio.src = url
+    } catch {
+      resolve(null)
+    }
+  })
+
+  const handleFileChange = async (e) => {
     const file = e.target.files[0]
     if (file) {
       // Validate file size (100MB)
@@ -474,7 +503,19 @@ const Songs = () => {
         toast.error('File size must be less than 100MB')
         return
       }
-      setFormData({ ...formData, file })
+      // Stage the file immediately so the rest of the UI is responsive,
+      // then auto-fill duration in the background. If the admin had a
+      // value typed already, leave it alone.
+      setFormData((prev) => ({ ...prev, file }))
+      const seconds = await extractAudioDuration(file)
+      if (seconds && seconds > 0) {
+        setFormData((prev) => {
+          if (prev.file !== file) return prev // user already swapped files
+          if (prev.durationMinutes && parseFloat(prev.durationMinutes) > 0) return prev
+          const minutes = (seconds / 60).toFixed(2)
+          return { ...prev, durationMinutes: minutes }
+        })
+      }
     }
   }
 

@@ -32,7 +32,6 @@ import { socketService } from '../../services/socket';
 import { UserType } from '../../types/user';
 import { PostType } from '../../types/post';
 import EditProfile from '../../components/EditProfile';
-import RotatingGlobe from '../../components/RotatingGlobe';
 import BioDisplay from '../../components/BioDisplay';
 import KebabMenu from '../../components/common/KebabMenu';
 import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
@@ -1364,15 +1363,13 @@ export default function ProfileScreen() {
                   </Text>
                 ) : null}
               </View>
-              <View style={styles.locationGlobeContainer}>
-                {globeLocations.length > 0 ? (
-                  <RotatingGlobe locations={globeLocations} size={140} />
-                ) : (
+              {globeLocations.length === 0 ? (
+                <View style={styles.locationGlobeContainer}>
                   <View style={[styles.emptyGlobeContainer, { backgroundColor: profileTheme.accent + '10' }]}>
                     <Ionicons name="globe-outline" size={64} color={profileTheme.accent} />
                   </View>
-                )}
-              </View>
+                </View>
+              ) : null}
 
             </Pressable>
 

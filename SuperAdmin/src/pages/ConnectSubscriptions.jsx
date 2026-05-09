@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, memo } from 'react'
+import { Link } from 'react-router-dom'
 import { Card, CardContent, CardHeader, CardTitle } from '../components/Cards/index.jsx'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/Tables/index.jsx'
 import { Modal, ModalHeader, ModalContent, ModalFooter } from '../components/Modals/index.jsx'
@@ -459,6 +460,7 @@ export default function ConnectSubscriptions() {
                       <th className="px-4 py-3 text-right">Creator Payout</th>
                       <th className="px-4 py-3 text-center">Method</th>
                       <th className="px-4 py-3 text-center">Status</th>
+                      <th className="px-4 py-3 text-center">Page</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -500,6 +502,18 @@ export default function ConnectSubscriptions() {
                           </td>
                           <td className="px-4 py-3 text-center">
                             <StatusBadge status={payout.status} />
+                          </td>
+                          <td className="px-4 py-3 text-center whitespace-nowrap">
+                            {page._id || payout.connectPageId ? (
+                              <Link
+                                to={`/connect-dashboard/${page._id || payout.connectPageId}`}
+                                className="inline-flex items-center gap-1 px-3 py-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100"
+                              >
+                                Manage payout
+                              </Link>
+                            ) : (
+                              <span className="text-xs text-gray-400">—</span>
+                            )}
                           </td>
                         </tr>
                       )
@@ -546,6 +560,7 @@ export default function ConnectSubscriptions() {
           </button>
         </ModalFooter>
       </Modal>
+
     </div>
   )
 }
