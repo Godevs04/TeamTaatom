@@ -1,14 +1,60 @@
 // Native platform wrapper for Cashfree PG SDK.
-// Metro picks cashfreeShim.web.ts automatically for web builds, so the native
-// SDK (which transitively imports `../package.json` and breaks Metro's web
-// bundler) is never reached on web.
+// Metro picks cashfreeShim.web.ts for web builds.
+//
+// Do not static-import `react-native-cashfree-pg-sdk`: it constructs
+// `CFPaymentGatewayService` at module load, whose constructor uses
+// `NativeEventEmitter(NativeModules.CashfreeEventEmitter)` and throws in Expo Go
+// before any screen can export a default component.
 
-export {
-  CFErrorResponse,
-  CFPaymentGatewayService,
-} from 'react-native-cashfree-pg-sdk';
+import { NativeModules } from 'react-native';
+import type { CFSubscriptionSession } from 'cashfree-pg-api-contract';
 
-export {
-  CFEnvironment,
-  CFSubscriptionSession,
-} from 'cashfree-pg-api-contract';
+export { CFEnvironment, CFSubscriptionSession } from 'cashfree-pg-api-contract';
+
+export type CFErrorResponse = {
+  getMessage?: () => string;
+  getCode?: () => string;
+  getStatus?: () => string;
+};
+
+type CashfreeCallback = {
+  onVerify(orderID: string): void;
+  onError(error: CFErrorResponse, orderID: string): void;
+};
+
+type NativePaymentService = {
+  setCallback: (cb: CashfreeCallback) => void;
+  removeCallback: () => void;
+  doSubscriptionPayment: (session: CFSubscriptionSession) => void;
+};
+
+function getNativePaymentService(): NativePaymentService | null {
+  if (!NativeModules.CashfreePgApi) return null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('react-native-cashfree-pg-sdk') as {
+      CFPaymentGatewayService: NativePaymentService;
+    };
+    return mod.CFPaymentGatewayService;
+  } catch {
+    return null;
+  }
+}
+
+export const CFPaymentGatewayService = {
+  setCallback(cb: CashfreeCallback) {
+    const s = getNativePaymentService();
+    if (s) s.setCallback(cb);
+  },
+  removeCallback() {
+    const s = getNativePaymentService();
+    if (s) s.removeCallback();
+  },
+  doSubscriptionPayment(session: CFSubscriptionSession) {
+    const s = getNativePaymentService();
+    if (!s) {
+      throw new Error('Cashfree native SDK is not linked');
+    }
+    s.doSubscriptionPayment(session);
+  },
+};
