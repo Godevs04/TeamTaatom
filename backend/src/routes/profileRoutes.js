@@ -22,6 +22,7 @@ const {
   getBlockStatus,
   getSuggestedUsers,
   saveInterests,
+  completeProfileOnboarding,
 } = require('../controllers/profileController');
 
 const router = express.Router();
@@ -171,14 +172,10 @@ router.get('/suggested-users', authMiddleware, getSuggestedUsers);
  * @swagger
  * /api/v1/profile/interests:
  *   post:
- *     summary: Save user interests
+ *     summary: Save user interests and onboarding preferences
  *     description: |
- *       Saves or updates user interests. Used for personalized content recommendations and user matching.
- *       
- *       **Interest Categories:**
- *       - Travel destinations (beach, mountains, cities, etc.)
- *       - Activities (adventure, photography, food, etc.)
- *       - Hobbies and preferences
+ *       Saves or updates user interests, languages known, and/or nationality.
+ *       Send any subset; omitted fields are left unchanged. At least one field must be present.
  *     tags: [Profile]
  *     security:
  *       - bearerAuth: []
@@ -189,20 +186,30 @@ router.get('/suggested-users', authMiddleware, getSuggestedUsers);
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - interests
+ *             minProperties: 1
  *             properties:
  *               interests:
  *                 type: array
  *                 items:
  *                   type: string
- *                 minItems: 1
  *                 maxItems: 20
- *                 description: Array of interest tags
+ *                 description: Interest tag ids (e.g. adventure, beach)
  *                 example: ["adventure", "beach", "mountains", "photography", "food"]
+ *               languagesKnown:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 maxItems: 20
+ *                 description: Languages the user speaks
+ *                 example: ["english", "hindi", "spanish"]
+ *               nationality:
+ *                 type: string
+ *                 maxLength: 100
+ *                 description: Country or nationality label
+ *                 example: "India"
  *     responses:
  *       200:
- *         description: Interests saved successfully
+ *         description: Preferences saved successfully
  *         content:
  *           application/json:
  *             schema:
@@ -213,7 +220,7 @@ router.get('/suggested-users', authMiddleware, getSuggestedUsers);
  *                   example: true
  *                 message:
  *                   type: string
- *                   example: "Interests saved successfully"
+ *                   example: "Profile preferences saved successfully"
  *                 user:
  *                   $ref: '#/components/schemas/User'
  *       400:
@@ -224,6 +231,7 @@ router.get('/suggested-users', authMiddleware, getSuggestedUsers);
  *         $ref: '#/components/responses/InternalServerError'
  */
 router.post('/interests', authMiddleware, saveInterests);
+router.post('/onboarding/complete', authMiddleware, completeProfileOnboarding);
 /**
  * @swagger
  * /api/v1/profile/follow-requests:

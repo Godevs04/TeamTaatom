@@ -25,8 +25,8 @@ import { signIn } from '../../services/auth';
 import { track } from '../../services/analytics';
 import Constants from 'expo-constants';
 import { LOGO_IMAGE } from '../../utils/config';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import logger from '../../utils/logger';
+import { PROFILE_ONBOARDING_VERSION } from '../../constants/profileOnboarding';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -305,25 +305,13 @@ export default function SignInScreen() {
         user_id: response.user?._id,
       });
       
-      // Check onboarding status - only show for fresh signups, not existing users
-      const onboardingCompleted = await AsyncStorage.getItem('onboarding_completed');
-      
-      // Check if user was just created (within last 15 minutes) - indicates fresh signup
-      const userCreatedAt = response.user?.createdAt ? new Date(response.user.createdAt) : null;
-      const userAge = userCreatedAt ? Date.now() - userCreatedAt.getTime() : null;
-      const isFreshSignup = userAge !== null && userAge < 15 * 60 * 1000; // 15 minutes
-      
-      if (!onboardingCompleted && isFreshSignup) {
-        // Fresh signup (user created within last 15 minutes) - navigate to onboarding
-        logger.debug(`[SignIn] Fresh signup detected (user age: ${Math.round(userAge / 1000)}s), navigating to onboarding`);
+      const profileVersion =
+        typeof response.user?.profileOnboardingVersion === 'number'
+          ? response.user.profileOnboardingVersion
+          : 0;
+      if (profileVersion < PROFILE_ONBOARDING_VERSION) {
         router.replace('/onboarding/welcome');
       } else {
-        // Existing user or onboarding already completed - navigate to home
-        // If flag is missing for existing user, set it to prevent future checks
-        if (!onboardingCompleted) {
-          await AsyncStorage.setItem('onboarding_completed', 'true');
-          logger.debug(`[SignIn] Existing user detected (user age: ${userAge ? Math.round(userAge / 1000) : 'unknown'}s), setting onboarding flag and navigating to home`);
-        }
         router.replace('/(tabs)/home');
       }
     } catch (error: any) {

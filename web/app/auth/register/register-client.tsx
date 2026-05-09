@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { authSignUp, checkUsernameAvailability } from "@/lib/api";
+import { STORAGE_KEYS } from "@/lib/constants";
 import { getFriendlyAuthErrorMessage } from "@/lib/auth-errors";
 import { AuthPageShell } from "@/components/auth/auth-page-shell";
 import { X, Eye, EyeOff } from "lucide-react";
@@ -221,6 +222,9 @@ export default function RegisterClient() {
         termsAccepted: true,
       });
       toast.success("Verification code sent. Please check your inbox and spam folder.");
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem(STORAGE_KEYS.webOnboardingAfterVerify, "1");
+      }
       router.replace(`/auth/verify-otp?email=${encodeURIComponent(values.email)}`);
     } catch (e: unknown) {
       toast.error(getFriendlyAuthErrorMessage(e));

@@ -18,6 +18,10 @@ export type User = {
   followingCount?: number;
   postsCount?: number;
   interests?: string[];
+  languagesKnown?: string[];
+  nationality?: string;
+  /** Server-driven: bump when onboarding must run again for all users below this version */
+  profileOnboardingVersion?: number;
   /** When viewing another user's profile */
   isFollowing?: boolean;
   followRequestSent?: boolean;

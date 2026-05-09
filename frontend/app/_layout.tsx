@@ -4,7 +4,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { initializeAuth, getLastAuthError, getUserFromStorage, refreshAuthState } from '../services/auth';
+import { initializeAuth, getLastAuthError, getUserFromStorage, refreshAuthState, getCurrentUser } from '../services/auth';
+import { PROFILE_ONBOARDING_VERSION } from '../constants/profileOnboarding';
 import { updateFCMPushToken, saveExpoPushToken } from '../services/profile';
 import { fcmService } from '../services/fcm';
 import { registerForPushNotificationsAsync } from '../services/pushNotifications';
@@ -628,21 +629,30 @@ function RootLayoutInner() {
       }
       
       if (isAuthenticated && hasAuthData) {
+        let user = await getUserFromStorage();
+        if (user && !('profileOnboardingVersion' in user)) {
+          const fresh = await getCurrentUser();
+          if (fresh && fresh !== 'network-error') {
+            user = fresh;
+          }
+        }
+        const profileVersion =
+          typeof user?.profileOnboardingVersion === 'number' ? user.profileOnboardingVersion : 0;
+        const needsProfileOnboarding = profileVersion < PROFILE_ONBOARDING_VERSION;
+        const onOnboardingRoute = segments[0] === 'onboarding';
+
+        if (needsProfileOnboarding && !onOnboardingRoute && !isOnAuthScreen) {
+          logger.debug('[Navigation] Profile onboarding required', { profileVersion });
+          router.replace('/onboarding/welcome');
+          return;
+        }
+
         // If already on a valid authenticated route, don't navigate (prevents flash during refresh)
         if (isOnValidRoute && !isOnAuthScreen) {
           logger.debug('[Navigation] Already on valid route, skipping navigation', { currentPath, segments });
           return;
         }
-        
-        // Check if onboarding is completed
-        // For existing users, if flag is missing, set it automatically (they signed up before onboarding)
-        const onboardingCompleted = await AsyncStorage.getItem('onboarding_completed');
-        if (!onboardingCompleted) {
-          // Set flag for existing users to prevent showing onboarding
-          await AsyncStorage.setItem('onboarding_completed', 'true');
-          logger.debug('[Navigation] Onboarding flag missing for existing user, setting flag and continuing');
-        }
-        
+
         // Only navigate to home if we're not already on a valid route
         if (!isOnValidRoute) {
           logger.debug('[Navigation] User authenticated, navigating to home', { currentPath, segments, isOnValidRoute });

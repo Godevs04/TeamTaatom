@@ -150,6 +150,21 @@ const userSchema = new mongoose.Schema({
     type: [String],
     default: []
   },
+  languagesKnown: {
+    type: [String],
+    default: []
+  },
+  nationality: {
+    type: String,
+    default: '',
+    trim: true,
+    maxlength: 100
+  },
+  profileOnboardingVersion: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
   travelStyle: {
     type: String,
     enum: ['solo', 'couple', 'group', 'backpacker', 'luxury', ''],
@@ -323,7 +338,8 @@ userSchema.methods.getPublicProfile = function() {
     totalLikes: this.totalLikes,
     isVerified: this.isVerified,
     createdAt: this.createdAt,
-    lastLogin: this.lastLogin
+    lastLogin: this.lastLogin,
+    profileOnboardingVersion: typeof this.profileOnboardingVersion === 'number' ? this.profileOnboardingVersion : 0
   };
 };
 

@@ -36,7 +36,18 @@ export default function VerifyOtpClient({ email: emailProp }: { email?: string }
         sessionStorage.setItem(STORAGE_KEYS.webFallbackToken, res.token);
       }
       toast.success("Account verified");
-      router.replace("/feed");
+      const runOnboarding =
+        typeof window !== "undefined" && sessionStorage.getItem(STORAGE_KEYS.webOnboardingAfterVerify) === "1";
+      if (runOnboarding) {
+        sessionStorage.removeItem(STORAGE_KEYS.webOnboardingAfterVerify);
+        const next = encodeURIComponent("/onboarding/welcome");
+        const loginQs = email
+          ? `next=${next}&email=${encodeURIComponent(email)}`
+          : `next=${next}`;
+        router.replace(`/auth/login?${loginQs}`);
+      } else {
+        router.replace("/feed");
+      }
     } catch (e: unknown) {
       toast.error(getFriendlyAuthErrorMessage(e));
     }
