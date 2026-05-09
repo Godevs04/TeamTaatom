@@ -20,6 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../../context/ThemeContext';
+import { useAlert } from '../../../context/AlertContext';
 import { theme as themeConstants } from '../../../constants/theme';
 import {
   getPageDetail,
@@ -36,16 +37,31 @@ import {
   getCurrencySymbol,
   ConnectPageType,
   ContentBlock,
+  CanvasElement,
   PayoutPreview,
   ConnectFollowerUser,
   SubscriptionStatus,
 } from '../../../services/connect';
+import CanvasElementView from '../../../components/CanvasElementView';
 import { crashReportingService } from '../../../services/crashReporting';
 import { setPendingChatRoomId } from '../../../utils/connectChatBridge';
 import { optimizeCloudinaryUrl } from '../../../utils/imageCache';
 import logger from '../../../utils/logger';
+import { NativeModules } from 'react-native';
+import {
+  CFErrorResponse,
+  CFPaymentGatewayService,
+  CFEnvironment,
+  CFSubscriptionSession,
+} from '../../../utils/cashfreeShim';
 
-const { width: screenWidth } = Dimensions.get('window');
+// The Cashfree SDK ships a Proxy that throws "package not linked" the moment
+// any method is called when the native module is absent (Expo Go, web). Gate
+// every SDK call on the real native module so the screen doesn't crash; the
+// dev-client build links the module and this becomes true.
+const isCashfreeNativeAvailable = !!NativeModules.CashfreePgApi;
+
+const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
 const isWeb = Platform.OS === 'web';
 const isIOS = Platform.OS === 'ios';
@@ -85,6 +101,7 @@ function ContentImage({ uri }: { uri: string }) {
 
 export default function ConnectPageDetailScreen() {
   const { theme } = useTheme();
+  const { showSuccess } = useAlert();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [loading, setLoading] = useState(true);
@@ -98,12 +115,21 @@ export default function ConnectPageDetailScreen() {
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [subscribing, setSubscribing] = useState(false);
   const [showPriceModal, setShowPriceModal] = useState(false);
+  const [showCanvasPreview, setShowCanvasPreview] = useState(false);
   const [priceInput, setPriceInput] = useState('');
   const [showPayoutInfo, setShowPayoutInfo] = useState(false);
   const [payoutPreview, setPayoutPreview] = useState<PayoutPreview | null>(null);
   const [showBioEdit, setShowBioEdit] = useState(false);
   const [bioInput, setBioInput] = useState('');
   const [savingBio, setSavingBio] = useState(false);
+
+  // Category-based labels
+  const isCommunity = page?.category === 'community' || page?.isAdminPage === true;
+  const subLabel = isCommunity ? 'Premium content' : 'Subscription';
+  const subPriceLabel = isCommunity ? 'Buy' : 'Subscription';
+  const subButtonText = isCommunity ? 'Buy' : 'Subscribe';
+  const subscriberLabel = isCommunity ? 'Buyer' : 'Subscriber';
+  const subscribersLabel = isCommunity ? 'Buyers' : 'Subscribers';
 
   const loadPageDetail = useCallback(async () => {
     if (!id) return;
@@ -139,6 +165,33 @@ export default function ConnectPageDetailScreen() {
     }, [loadPageDetail])
   );
 
+  // Set up Cashfree subscription payment callback. Skipped in Expo Go / web,
+  // where the native module is absent and any SDK call would throw.
+  useEffect(() => {
+    if (!isCashfreeNativeAvailable) return;
+    CFPaymentGatewayService.setCallback({
+      onVerify(orderID: string): void {
+        logger.info('Cashfree subscription verified, orderID:', orderID);
+        // User is already on the Connect page they subscribed from, so no
+        // navigation is needed — just refresh details so the gated UI flips
+        // and surface a prominent in-app notification of the payment.
+        loadSubscriptionStatus();
+        loadPageDetail();
+        showSuccess(
+          isCommunity ? 'Your purchase was completed.' : 'Your subscription is now active.',
+          'Payment received',
+        );
+      },
+      onError(error: CFErrorResponse, orderID: string): void {
+        logger.error('Cashfree subscription error:', JSON.stringify(error), 'orderID:', orderID);
+        Alert.alert('Payment Failed', 'Could not complete payment. Please try again.');
+      },
+    });
+    return () => {
+      CFPaymentGatewayService.removeCallback();
+    };
+  }, [loadSubscriptionStatus, loadPageDetail, isCommunity, showSuccess]);
+
   // Load subscription status after page loads (non-owner only)
   useEffect(() => {
     if (page && !isOwner && page.features?.subscription && page.subscriptionPrice) {
@@ -148,21 +201,27 @@ export default function ConnectPageDetailScreen() {
 
   const handleSubscribe = async () => {
     if (!page || subscribing) return;
+    if (!isCashfreeNativeAvailable) {
+      Alert.alert(
+        'Dev build required',
+        'Subscriptions need the Cashfree native module, which is not available in Expo Go. Install the development build to subscribe.',
+      );
+      return;
+    }
     try {
       setSubscribing(true);
       const result = await createSubscription(page._id);
-      if (result.paymentSessionId) {
-        // Open Cashfree checkout
-        const env = __DEV__ ? 'sandbox' : 'production';
-        const checkoutUrl = env === 'sandbox'
-          ? `https://sandbox.cashfree.com/pg/view/sessions/${result.paymentSessionId}`
-          : `https://payments.cashfree.com/pg/view/sessions/${result.paymentSessionId}`;
-        const canOpen = await Linking.canOpenURL(checkoutUrl);
-        if (canOpen) {
-          await Linking.openURL(checkoutUrl);
-        } else {
-          Alert.alert('Error', 'Unable to open payment page. Please try again.');
-        }
+      if (result.paymentSessionId && result.cashfreeSubscriptionId) {
+        // Use Cashfree React Native SDK for subscription checkout
+        const env = __DEV__ ? CFEnvironment.SANDBOX : CFEnvironment.PRODUCTION;
+        const session = new CFSubscriptionSession(
+          result.paymentSessionId,
+          result.cashfreeSubscriptionId,
+          env
+        );
+        CFPaymentGatewayService.doSubscriptionPayment(session);
+      } else {
+        Alert.alert('Error', 'Unable to initiate payment session. Please try again.');
       }
     } catch (error: any) {
       logger.error('Error creating subscription:', error);
@@ -175,12 +234,14 @@ export default function ConnectPageDetailScreen() {
   const handleCancelSubscription = () => {
     if (!subscriptionStatus?.subscription?._id) return;
     Alert.alert(
-      'Cancel Subscription',
-      'Are you sure you want to cancel your subscription? You will retain access until the end of the current billing period.',
+      isCommunity ? 'Cancel Purchase' : 'Cancel Subscription',
+      isCommunity
+        ? 'Are you sure you want to cancel? You will retain access until the end of the current billing period.'
+        : 'Are you sure you want to cancel your subscription? You will retain access until the end of the current billing period.',
       [
         { text: 'Keep', style: 'cancel' },
         {
-          text: 'Cancel Subscription',
+          text: isCommunity ? 'Cancel Purchase' : 'Cancel Subscription',
           style: 'destructive',
           onPress: async () => {
             try {
@@ -192,7 +253,7 @@ export default function ConnectPageDetailScreen() {
                   status: 'cancelled',
                 },
               });
-              Alert.alert('Cancelled', 'Your subscription has been cancelled.');
+              Alert.alert('Cancelled', isCommunity ? 'Your purchase has been cancelled.' : 'Your subscription has been cancelled.');
             } catch (error: any) {
               Alert.alert('Error', error.message || 'Failed to cancel subscription.');
             }
@@ -290,7 +351,7 @@ export default function ConnectPageDetailScreen() {
     setFollowersLoading(true);
     try {
       const response = await getPageFollowers(id);
-      setFollowers(response.followers || []);
+      setFollowers((response.followers || []).filter(Boolean));
     } catch (error) {
       logger.error('Error loading followers:', error);
     } finally {
@@ -547,7 +608,7 @@ export default function ConnectPageDetailScreen() {
             {isOwner && (
               <TouchableOpacity
                 style={[styles.statsButton, { borderColor: theme.colors.border }]}
-                onPress={() => router.push(`/connect/dashboard?pageId=${id}`)}
+                onPress={() => router.push(`/connect/dashboard?pageId=${id}&category=${page.category || 'connect'}`)}
                 activeOpacity={0.7}
               >
                 <Ionicons name="analytics-outline" size={16} color={theme.colors.primary} />
@@ -594,7 +655,7 @@ export default function ConnectPageDetailScreen() {
           )}
         </View>
 
-        {/* Website Section */}
+        {/* Website Section — canvas-based free-form layout */}
         {page.features?.website && (
           <View style={[styles.section, { backgroundColor: theme.colors.surface, marginTop: isTablet ? 14 : 12 }]}>
             <View style={styles.sectionHeader}>
@@ -606,54 +667,81 @@ export default function ConnectPageDetailScreen() {
               </View>
             </View>
             <View style={styles.sectionContent}>
-              {page.websiteContent && page.websiteContent.length > 0 ? (
-                page.websiteContent
-                  .sort((a, b) => a.order - b.order)
-                  .slice(0, isOwner ? undefined : 2)
-                  .map((block, idx) => renderContentBlock(block, idx))
+              {page.canvasContent && page.canvasContent.length > 0 ? (
+                (() => {
+                  const previewW = Math.min(screenWidth - (isTablet ? 96 : 64), 240);
+                  const previewH = (previewW * 16) / 9;
+                  return (
+                    <View style={{ alignSelf: 'center' }}>
+                      <View
+                        style={{
+                          width: previewW,
+                          height: previewH,
+                          backgroundColor: page.canvasBackground || '#000000',
+                          borderRadius: 10,
+                          overflow: 'hidden',
+                        }}
+                      >
+                        {(page.canvasContent as CanvasElement[])
+                          .slice()
+                          .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
+                          .map((el, idx) => (
+                            <CanvasElementView
+                              key={el._id || `c_${idx}`}
+                              element={el}
+                              isSelected={false}
+                              editable={false}
+                              frameWidth={previewW}
+                              frameHeight={previewH}
+                            />
+                          ))}
+                      </View>
+                    </View>
+                  );
+                })()
               ) : (
                 <Text style={[styles.placeholderText, { color: theme.colors.textSecondary }]}>
-                  {isOwner ? 'Add content to your website.' : 'No content yet.'}
+                  {isOwner ? 'Build your website on a free-form canvas with text, images, and videos.' : 'No content yet.'}
                 </Text>
-              )}
-              {!isOwner && page.websiteContent && page.websiteContent.length > 0 && (
-                <TouchableOpacity
-                  onPress={() => router.push(`/connect/preview?pageId=${id}&section=website&pageName=${encodeURIComponent(page.name)}`)}
-                  activeOpacity={0.7}
-                  style={[styles.viewButton, { borderColor: theme.colors.primary }]}
-                >
-                  <Ionicons name="eye-outline" size={16} color={theme.colors.primary} />
-                  <Text style={[styles.viewButtonText, { color: theme.colors.primary }]}>
-                    View Website
-                  </Text>
-                </TouchableOpacity>
               )}
             </View>
             {isOwner && (
               <View style={styles.sectionBottomActions}>
+                {page.canvasContent && page.canvasContent.length > 0 && (
+                  <TouchableOpacity
+                    onPress={() => setShowCanvasPreview(true)}
+                    activeOpacity={0.7}
+                    style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
+                  >
+                    <Ionicons name="eye-outline" size={16} color="#FFFFFF" />
+                    <Text style={styles.sectionBottomButtonText}>Preview</Text>
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity
-                  onPress={() => {
-                    if (page.websiteContent && page.websiteContent.length > 0) {
-                      router.push(`/connect/preview?pageId=${id}&section=website&pageName=${encodeURIComponent(page.name)}`);
-                    }
-                  }}
-                  activeOpacity={page.websiteContent && page.websiteContent.length > 0 ? 0.7 : 1}
-                  style={[
-                    styles.sectionBottomButton,
-                    { backgroundColor: theme.colors.primary },
-                    !(page.websiteContent && page.websiteContent.length > 0) && { opacity: 0.4 },
-                  ]}
-                >
-                  <Ionicons name="eye-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.sectionBottomButtonText}>Preview</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => router.push(`/connect/editContent?pageId=${id}&section=website`)}
+                  onPress={() => router.push(`/connect/canvas?pageId=${id}`)}
                   activeOpacity={0.7}
                   style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
                 >
-                  <Ionicons name="create-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.sectionBottomButtonText}>Edit</Text>
+                  <Ionicons
+                    name={page.canvasContent && page.canvasContent.length > 0 ? 'create-outline' : 'add-outline'}
+                    size={16}
+                    color="#FFFFFF"
+                  />
+                  <Text style={styles.sectionBottomButtonText}>
+                    {page.canvasContent && page.canvasContent.length > 0 ? 'Edit Website' : 'Build Website'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {!isOwner && page.canvasContent && page.canvasContent.length > 0 && (
+              <View style={styles.sectionBottomActions}>
+                <TouchableOpacity
+                  onPress={() => setShowCanvasPreview(true)}
+                  activeOpacity={0.7}
+                  style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
+                >
+                  <Ionicons name="eye-outline" size={16} color="#FFFFFF" />
+                  <Text style={styles.sectionBottomButtonText}>View full</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -694,7 +782,7 @@ export default function ConnectPageDetailScreen() {
                 <View style={[styles.sectionIconWrap, { backgroundColor: theme.colors.primary + '12' }]}>
                   <Ionicons name="star-outline" size={18} color={theme.colors.primary} />
                 </View>
-                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Subscription</Text>
+                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{subLabel}</Text>
               </View>
             </View>
 
@@ -717,27 +805,39 @@ export default function ConnectPageDetailScreen() {
             )}
 
             <View style={styles.sectionContent}>
-              {page.subscriptionContent && page.subscriptionContent.length > 0 ? (
-                page.subscriptionContent
-                  .sort((a, b) => a.order - b.order)
-                  .slice(0, isOwner ? undefined : 2)
-                  .map((block, idx) => renderContentBlock(block, idx))
-              ) : (
-                <Text style={[styles.placeholderText, { color: theme.colors.textSecondary }]}>
-                  {isOwner ? 'Tap the edit icon to list your services.' : 'No services listed yet.'}
-                </Text>
-              )}
-              {!isOwner && page.subscriptionContent && page.subscriptionContent.length > 0 && (
-                <TouchableOpacity
-                  onPress={() => router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`)}
-                  activeOpacity={0.7}
-                  style={[styles.viewButton, { borderColor: theme.colors.primary }]}
-                >
-                  <Ionicons name="eye-outline" size={16} color={theme.colors.primary} />
-                  <Text style={[styles.viewButtonText, { color: theme.colors.primary }]}>
-                    View Subscription
+              {isOwner || subscriptionStatus?.isSubscribed ? (
+                page.subscriptionContent && page.subscriptionContent.length > 0 ? (
+                  <>
+                    {page.subscriptionContent
+                      .sort((a, b) => a.order - b.order)
+                      .map((block, idx) => renderContentBlock(block, idx))}
+                    {!isOwner && (
+                      <TouchableOpacity
+                        onPress={() => router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`)}
+                        activeOpacity={0.7}
+                        style={[styles.viewButton, { borderColor: theme.colors.primary }]}
+                      >
+                        <Ionicons name="eye-outline" size={16} color={theme.colors.primary} />
+                        <Text style={[styles.viewButtonText, { color: theme.colors.primary }]}>
+                          View {subLabel}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </>
+                ) : (
+                  <Text style={[styles.placeholderText, { color: theme.colors.textSecondary }]}>
+                    {isOwner ? 'Tap the edit icon to list your services.' : 'No services listed yet.'}
                   </Text>
-                </TouchableOpacity>
+                )
+              ) : (
+                <View style={{ alignItems: 'center', paddingVertical: 16 }}>
+                  <Ionicons name="lock-closed-outline" size={28} color={theme.colors.textSecondary} style={{ marginBottom: 8 }} />
+                  <Text style={[styles.placeholderText, { color: theme.colors.textSecondary, textAlign: 'center' }]}>
+                    {isCommunity
+                      ? 'Buy to unlock exclusive content from this community.'
+                      : 'Subscribe to unlock exclusive content from this creator.'}
+                  </Text>
+                </View>
               )}
             </View>
 
@@ -780,7 +880,7 @@ export default function ConnectPageDetailScreen() {
 
                     {approvalStatus === 'approved' && (
                       <Text style={[styles.ownerPriceNote, { color: theme.colors.textSecondary }]}>
-                        Subscribers pay {currSym}{approvedPrice}/month
+                        {subscribersLabel} pay {currSym}{approvedPrice}/month
                       </Text>
                     )}
 
@@ -816,7 +916,7 @@ export default function ConnectPageDetailScreen() {
                     <View style={[styles.subscriptionPriceSection, { borderTopColor: theme.colors.border }]}>
                       <View style={[styles.subscribedBadge, { backgroundColor: theme.colors.success + '15' }]}>
                         <Ionicons name="checkmark-circle" size={18} color={theme.colors.success} />
-                        <Text style={[styles.subscribedText, { color: theme.colors.success }]}>Subscribed</Text>
+                        <Text style={[styles.subscribedText, { color: theme.colors.success }]}>{isCommunity ? 'Purchased' : 'Subscribed'}</Text>
                       </View>
                       {subscriptionStatus.subscription?.currentPeriodEnd && (
                         <Text style={[styles.renewsText, { color: theme.colors.textSecondary }]}>
@@ -829,14 +929,34 @@ export default function ConnectPageDetailScreen() {
                         style={styles.cancelLink}
                       >
                         <Text style={[styles.cancelLinkText, { color: theme.colors.error }]}>
-                          Cancel subscription
+                          Cancel {isCommunity ? 'purchase' : 'subscription'}
                         </Text>
                       </TouchableOpacity>
                     </View>
                   );
                 }
-                // Subscribe button is shown inside the subscription preview page
-                return null;
+                // Show subscribe button for non-subscribed visitors
+                return (
+                  <View style={[styles.subscriptionPriceSection, { borderTopColor: theme.colors.border }]}>
+                    <TouchableOpacity
+                      style={[styles.subscribeButton, { backgroundColor: theme.colors.primary }]}
+                      onPress={handleSubscribe}
+                      activeOpacity={0.7}
+                      disabled={subscribing}
+                    >
+                      {subscribing ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                          <Ionicons name={isCommunity ? 'cart-outline' : 'star'} size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                          <Text style={styles.subscribeButtonText}>
+                            {subButtonText} · {currSym}{approvedPrice}/month
+                          </Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                );
               }
 
               return null;
@@ -876,7 +996,7 @@ export default function ConnectPageDetailScreen() {
                   <Text style={styles.sectionBottomButtonText}>Preview</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  onPress={() => router.push(`/connect/editContent?pageId=${id}&section=subscription`)}
+                  onPress={() => router.push(`/connect/editContent?pageId=${id}&section=subscription&category=${page.category || 'connect'}`)}
                   activeOpacity={0.7}
                   style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
                 >
@@ -942,6 +1062,56 @@ export default function ConnectPageDetailScreen() {
         {/* Bottom Spacer */}
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Full-screen canvas preview */}
+      {page.canvasContent && page.canvasContent.length > 0 && (() => {
+        const targetRatio = 9 / 16;
+        const screenRatio = screenWidth / screenHeight;
+        const previewW = screenRatio > targetRatio ? screenHeight * targetRatio : screenWidth;
+        const previewH = screenRatio > targetRatio ? screenHeight : screenWidth / targetRatio;
+        return (
+          <Modal
+            visible={showCanvasPreview}
+            animationType="fade"
+            presentationStyle="fullScreen"
+            onRequestClose={() => setShowCanvasPreview(false)}
+            statusBarTranslucent
+          >
+            <View style={canvasPreviewStyles.root}>
+              <View
+                style={{
+                  width: previewW,
+                  height: previewH,
+                  backgroundColor: page.canvasBackground || '#000000',
+                  overflow: 'hidden',
+                }}
+              >
+                {(page.canvasContent as CanvasElement[])
+                  .slice()
+                  .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
+                  .map((el, idx) => (
+                    <CanvasElementView
+                      key={el._id || `cp_${idx}`}
+                      element={el}
+                      isSelected={false}
+                      editable={false}
+                      frameWidth={previewW}
+                      frameHeight={previewH}
+                    />
+                  ))}
+              </View>
+              <TouchableOpacity
+                style={canvasPreviewStyles.close}
+                onPress={() => setShowCanvasPreview(false)}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={26} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+          </Modal>
+        );
+      })()}
 
       {/* Bio Edit Modal */}
       <Modal
@@ -1107,7 +1277,7 @@ export default function ConnectPageDetailScreen() {
             {payoutPreview ? (
               <View style={styles.payoutDetails}>
                 <View style={styles.payoutRow}>
-                  <Text style={[styles.payoutLabel, { color: theme.colors.textSecondary }]}>Subscriber pays</Text>
+                  <Text style={[styles.payoutLabel, { color: theme.colors.textSecondary }]}>{subscriberLabel} pays</Text>
                   <Text style={[styles.payoutValue, { color: theme.colors.text }]}>{payoutPreview.currencySymbol || currSym}{payoutPreview.grossAmount}</Text>
                 </View>
                 <View style={[styles.payoutDivider, { backgroundColor: theme.colors.border }]} />
@@ -1180,15 +1350,15 @@ export default function ConnectPageDetailScreen() {
 
                 <Text style={[styles.payoutNote, { color: theme.colors.textSecondary }]}>
                   {payoutPreview.isInternational
-                    ? 'International payouts are processed via Wise. An additional ~1% Wise transfer fee applies. Payouts are sent monthly.'
-                    : 'Domestic payouts are sent monthly to your bank account or UPI via Cashfree.'}
+                    ? 'International payouts are sent monthly via Wise. An additional ~1% Wise transfer fee applies.'
+                    : 'Payouts are sent monthly to your bank account or UPI.'}
                 </Text>
               </View>
             ) : (
               <View style={styles.payoutEmpty}>
                 <Ionicons name="information-circle-outline" size={32} color={theme.colors.textSecondary} />
                 <Text style={[styles.payoutEmptyText, { color: theme.colors.textSecondary }]}>
-                  Set a subscription price to see your payout breakdown.
+                  Set a price to see your payout breakdown.
                 </Text>
               </View>
             )}
@@ -1217,7 +1387,7 @@ export default function ConnectPageDetailScreen() {
               style={[styles.priceModalBox, { backgroundColor: theme.colors.surface }]}
             >
               <Text style={[styles.priceModalTitle, { color: theme.colors.text }]}>
-                Set Subscription Price
+                Set {subPriceLabel} Price
               </Text>
               <Text style={[styles.priceModalSubtitle, { color: theme.colors.textSecondary }]}>
                 Monthly price in {currSym}
@@ -2068,6 +2238,26 @@ const styles = StyleSheet.create({
     fontSize: isTablet ? 16 : 15,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
+  },
+});
+
+const canvasPreviewStyles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#000000',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  close: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 50 : 20,
+    right: 18,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
 

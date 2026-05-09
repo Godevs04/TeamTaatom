@@ -8,7 +8,18 @@ require('./Comment');
 const notificationSchema = new mongoose.Schema({
   type: {
     type: String,
-    enum: ['like', 'comment', 'follow', 'follow_request', 'follow_approved', 'follow_request_accepted', 'follow_request_rejected', 'post_mention'],
+    enum: [
+      'like',
+      'comment',
+      'follow',
+      'follow_request',
+      'follow_approved',
+      'follow_request_accepted',
+      'follow_request_rejected',
+      'post_mention',
+      // Sent to a Connect page owner when someone activates a paid subscription / purchase.
+      'subscription_active',
+    ],
     required: true
   },
   fromUser: {

@@ -92,6 +92,16 @@ const postSchema = new mongoose.Schema({
     enum: ['1:1', '16:9', 'full'],
     default: '1:1'
   },
+  // Photo filter chosen at post creation. Applied non-destructively at
+  // render time via Cloudinary URL transformations (see frontend
+  // utils/imageCache.optimizeCloudinaryUrl). The original upload is
+  // never modified, so the user can change the filter later without a
+  // re-upload.
+  filter: {
+    type: String,
+    enum: ['original', 'vivid', 'warm', 'cool', 'bw'],
+    default: 'original'
+  },
   location: {
     address: {
       type: String,

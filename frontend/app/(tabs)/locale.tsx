@@ -32,7 +32,7 @@ import { geocodeAddress, calculateDistance, invalidateDistanceCacheIfMoved, dist
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getCountries, getStatesByCountry, Country, State } from '../../services/location';
-import { getLocales, Locale } from '../../services/locale';
+import { getLocales, getLocaleById, Locale } from '../../services/locale';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
@@ -44,6 +44,7 @@ import { getGoogleMapsApiKey } from '../../utils/maps';
 import { localeCache } from '../../cache/localeCache';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { trackFeatureUsage } from '../../services/analytics';
+import TravelLoadingOverlay from '../../components/TravelLoadingOverlay';
 
 const logger = createLogger('LocaleScreen');
 
@@ -447,6 +448,11 @@ export default function LocaleScreen() {
   const [isGeocoding, setIsGeocoding] = useState<string | null>(null);
   const [calculatingDistances, setCalculatingDistances] = useState(false);
   const [activeTab, setActiveTab] = useState<'locale' | 'saved'>('locale');
+  // searchInput drives the TextInput value (immediate); searchQuery is the
+  // debounced/applied value that all search and filter effects key off. Splitting
+  // them keeps typing from triggering loadAdminLocales / applyFilters on every
+  // keystroke (which previously caused a loading flash on each character).
+  const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
@@ -516,6 +522,12 @@ export default function LocaleScreen() {
   
   // Bookmark Stability: Track in-flight bookmark operations
   const bookmarkingKeysRef = useRef<Set<string>>(new Set());
+
+  // Stale-while-revalidate cache for the saved-tab background URL refresh.
+  // Maps localeId → last fetch timestamp (ms). loadSavedLocales skips
+  // re-fetching a locale within 60s of the previous successful fetch.
+  // Without this the user could thrash the backend by tab-switching.
+  const bgRefreshCacheRef = useRef<Map<string, number>>(new Map());
   
   const { theme, mode } = useTheme();
   const router = useRouter();
@@ -1804,10 +1816,10 @@ export default function LocaleScreen() {
   // Bookmark Stability: Load saved locales with defensive parsing
   const loadSavedLocales = useCallback(async () => {
     if (!isMountedRef.current) return;
-    
+
     try {
       const saved = await AsyncStorage.getItem('savedLocales');
-      
+
       // Defensive JSON parsing with recovery
       let locales: Locale[] = [];
       try {
@@ -1823,58 +1835,162 @@ export default function LocaleScreen() {
         } catch {}
         locales = [];
       }
-      
-      // Deduplicate by locale ID
+
+      // Normalize every entry into a guaranteed-shape Locale so the saved-tab
+      // renderer never sees objects where strings are expected (older app
+      // versions occasionally persisted Buffer/ObjectId for `_id` or signed-
+      // URL objects for `imageUrl`, which crashed the render). Anything that
+      // can't be coerced to a usable string ID is dropped.
+      const normalize = (raw: any): Locale | null => {
+        if (!raw || typeof raw !== 'object') return null;
+        const idStr =
+          typeof raw._id === 'string'
+            ? raw._id
+            : raw._id && typeof raw._id.toString === 'function'
+              ? String(raw._id)
+              : '';
+        if (!idStr) return null;
+        const asString = (v: any): string => (typeof v === 'string' ? v : '');
+        const asNumber = (v: any): number | undefined => {
+          if (typeof v === 'number' && !Number.isNaN(v)) return v;
+          if (typeof v === 'string' && v.trim() !== '') {
+            const n = parseFloat(v);
+            return Number.isNaN(n) ? undefined : n;
+          }
+          return undefined;
+        };
+        const imageUrls = Array.isArray(raw.imageUrls)
+          ? raw.imageUrls.filter((u: any) => typeof u === 'string' && u)
+          : [];
+        const spotTypes = Array.isArray(raw.spotTypes)
+          ? raw.spotTypes.filter((s: any) => typeof s === 'string' && s)
+          : [];
+        return {
+          _id: idStr,
+          name: asString(raw.name),
+          country: asString(raw.country),
+          countryCode: asString(raw.countryCode),
+          stateProvince: asString(raw.stateProvince),
+          stateCode: asString(raw.stateCode),
+          city: asString(raw.city),
+          description: asString(raw.description),
+          imageUrl: asString(raw.imageUrl),
+          imageUrls,
+          spotTypes,
+          travelInfo: asString(raw.travelInfo),
+          latitude: asNumber(raw.latitude),
+          longitude: asNumber(raw.longitude),
+          isActive: raw.isActive !== false,
+          createdAt: asString(raw.createdAt) || new Date(0).toISOString(),
+        } as Locale;
+      };
+
+      const normalized = locales
+        .map(normalize)
+        .filter((l): l is Locale => l !== null);
+
+      // Deduplicate by locale ID (now guaranteed to be a string)
       const localeMap = new Map<string, Locale>();
-      locales.forEach(locale => {
-        if (locale && locale._id) {
-          localeMap.set(locale._id, locale);
-        }
+      normalized.forEach(locale => {
+        localeMap.set(locale._id, locale);
       });
       const uniqueLocales = Array.from(localeMap.values());
-      
-      // Calculate driving distances for saved locales if user location is available
-      let localesWithDistances = uniqueLocales;
+
+      // Render the persisted data IMMEDIATELY so the Saved tab is
+      // responsive. The previous flow awaited N parallel getLocaleById
+      // calls + N getLocaleDistanceKm calls before calling setSavedLocales,
+      // which on a slow connection or with 10+ saves blocked the list
+      // from rendering for several seconds. Now we paint the cached data
+      // first, then patch in fresh URLs / distances as they arrive.
+      const cachedSorted = sortLocalesByDistance(uniqueLocales);
+      if (isMountedRef.current) {
+        setSavedLocales(cachedSorted);
+        if (uniqueLocales.length !== locales.length) {
+          // Self-heal AsyncStorage if normalization dropped bad entries.
+          AsyncStorage.setItem('savedLocales', JSON.stringify(cachedSorted)).catch(() => {});
+        }
+      }
+
+      // Background refresh: signed URLs from the API. Each fetch resolves
+      // independently and patches that single locale into state via a
+      // functional setState — no await on the full set, so a slow API
+      // response on one entry doesn't block the others.
+      // Skip locales with synthetic ids (`admin-…`) — no server record.
+      uniqueLocales.forEach((locale) => {
+        if (!locale._id || locale._id.startsWith('admin-')) return;
+        // Use a stale-while-revalidate cache to avoid hammering the API
+        // when the user toggles tabs rapidly. Keyed by locale id, fresh
+        // for 60s.
+        const lastFetchAt = bgRefreshCacheRef.current.get(locale._id) || 0;
+        if (Date.now() - lastFetchAt < 60_000) return;
+        bgRefreshCacheRef.current.set(locale._id, Date.now());
+
+        getLocaleById(locale._id)
+          .then((fresh) => {
+            if (!isMountedRef.current) return;
+            if (!fresh || typeof fresh !== 'object') return;
+            setSavedLocales((prev) => prev.map((existing) => {
+              if (existing._id !== locale._id) return existing;
+              return {
+                ...existing,
+                ...fresh,
+                imageUrl: typeof fresh.imageUrl === 'string' && fresh.imageUrl
+                  ? fresh.imageUrl
+                  : existing.imageUrl,
+                imageUrls: Array.isArray(fresh.imageUrls) && fresh.imageUrls.length > 0
+                  ? fresh.imageUrls
+                  : existing.imageUrls,
+                _id: existing._id,
+                distanceKm: (existing as any).distanceKm,
+              } as Locale;
+            }));
+          })
+          .catch(() => {
+            // Drop the cache so we'll retry on next load. Persisted URL
+            // stays as the visible fallback meanwhile.
+            bgRefreshCacheRef.current.delete(locale._id);
+          });
+      });
+
+      // Background distance calc — only when user location is available.
+      // Same pattern: per-locale promises that patch state as they finish.
       if (userLocation && locationPermissionGranted) {
         const userLat = roundCoord(userLocation.latitude);
         const userLon = roundCoord(userLocation.longitude);
-        localesWithDistances = await Promise.all(
-          uniqueLocales.map(async (locale) => {
-            const distanceKm = await getLocaleDistanceKm(
-              locale._id.toString(),
-              userLat,
-              userLon,
-              locale.latitude,
-              locale.longitude
-            );
-            return {
-              ...locale,
-              distanceKm: distanceKm,
-            };
-          })
-        );
-      }
-      
-      // PRODUCTION-GRADE: Sort saved locales by distance (nearest first)
-      // This ensures consistent sorting across all locale lists
-      const sortedLocales = sortLocalesByDistance(localesWithDistances);
-      
-      if (isMountedRef.current) {
-        setSavedLocales(sortedLocales);
-        
-        // Update AsyncStorage if duplicates were found
-        if (uniqueLocales.length !== locales.length) {
-          try {
-            await AsyncStorage.setItem('savedLocales', JSON.stringify(sortedLocales));
-          } catch {}
-        }
+        uniqueLocales.forEach((locale) => {
+          getLocaleDistanceKm(
+            locale._id.toString(),
+            userLat,
+            userLon,
+            locale.latitude,
+            locale.longitude
+          )
+            .then((distanceKm) => {
+              if (!isMountedRef.current) return;
+              setSavedLocales((prev) => {
+                let changed = false;
+                const next = prev.map((existing) => {
+                  if (existing._id !== locale._id) return existing;
+                  if ((existing as any).distanceKm === distanceKm) return existing;
+                  changed = true;
+                  return { ...existing, distanceKm } as Locale;
+                });
+                return changed ? next : prev;
+              });
+            })
+            .catch(() => { /* leave previous distance as-is */ });
+        });
       }
     } catch (error) {
       if (!isMountedRef.current) return;
       logger.error('Error loading saved locales', error);
       setSavedLocales([]);
     }
-  }, [sortLocalesByDistance]);
+    // userLocation/locationPermissionGranted MUST be deps. Without them the
+    // closure captures whatever values existed at first render (typically
+    // null userLocation), so saved-tab distances stay stale even after the
+    // device location resolves.
+  }, [sortLocalesByDistance, userLocation, locationPermissionGranted]);
   
   // Apply client-side filters (for spot types that API doesn't support and saved locales)
   const applyFilters = useCallback((locales: Locale[], isSavedTab = false) => {
@@ -1917,10 +2033,10 @@ export default function LocaleScreen() {
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(locale =>
-        locale.name.toLowerCase().includes(query) ||
-        locale.description?.toLowerCase().includes(query) ||
-        locale.countryCode.toLowerCase().includes(query) ||
-        locale.stateProvince?.toLowerCase().includes(query)
+        locale?.name?.toLowerCase?.().includes(query) ||
+        locale?.description?.toLowerCase?.().includes(query) ||
+        locale?.countryCode?.toLowerCase?.().includes(query) ||
+        locale?.stateProvince?.toLowerCase?.().includes(query)
       );
     }
     
@@ -2043,26 +2159,53 @@ export default function LocaleScreen() {
 
   // Re-sort locales when user location becomes available or changes
   // This ensures sorting works even if location becomes available after locales are loaded
-  // Also recalculates distances if they're missing
+  // Also recalculates distances if any are missing OR if userLocation changed
   useEffect(() => {
     if (activeTab === 'locale' && adminLocales.length > 0) {
-      // Check if we have locales but no distances, and user location is now available
-      const hasDistances = adminLocales.some(locale => {
+      // Recalc when ANY locale is missing a distance (was: skip when any ONE
+      // had a distance, which left newly-loaded locales without km
+      // forever once a single legacy entry was present). Haversine is
+      // <5ms for hundreds of locales so even rerunning unconditionally
+      // is fine — but we still gate on at-least-one-missing to avoid
+      // a no-op render on every userLocation tick.
+      const allHaveDistances = adminLocales.every(locale => {
         const localeWithDistance = locale as Locale & { distanceKm?: number | null };
         return localeWithDistance.distanceKm !== undefined && localeWithDistance.distanceKm !== null;
       });
-      
-      // If user location just became available and we don't have distances, reload to calculate them
-      // Guard: Only reload if not currently calculating and not searching
-      if (userLocation && locationPermissionGranted && !hasDistances && !isSearchingRef.current && !calculatingDistances) {
-        logger.debug('User location available but distances missing, reloading locales to calculate distances');
-        loadedOnceRef.current = false; // Reset guard to allow reload
-        loadAdminLocales(true).catch(err => {
-          logger.error('Error reloading locales for distance calculation:', err);
+
+      // If user location is available and at least one locale is missing
+      // its km, do an instant in-place straight-line calculation. No
+      // refetch — purely client-side Haversine. The Stage 2 driving-
+      // distance refinement still runs in the background on next tab
+      // focus / pagination via the existing path.
+      if (userLocation && locationPermissionGranted && !allHaveDistances && !isSearchingRef.current && !calculatingDistances) {
+        const userLat = roundCoord(userLocation.latitude);
+        const userLon = roundCoord(userLocation.longitude);
+        const withDistances = adminLocales.map((locale) => {
+          const lat = locale.latitude;
+          const lng = locale.longitude;
+          if (!lat || !lng || lat === 0 || lng === 0 ||
+              Number.isNaN(lat) || Number.isNaN(lng) ||
+              lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+            return { ...locale, distanceKm: null } as Locale & { distanceKm?: number | null };
+          }
+          const distanceKm = calculateDistance(userLat, userLon, roundCoord(lat), roundCoord(lng));
+          return { ...locale, distanceKm } as Locale & { distanceKm?: number | null };
         });
-        return;
+        setAdminLocales(withDistances);
+        // Also update the master sorted ref + paged caches so subsequent
+        // sort/pagination paths read the populated distances.
+        if (allLocalesSortedRef.current.length > 0) {
+          const distanceMap = new Map(withDistances.map(l => [l._id, (l as any).distanceKm]));
+          allLocalesSortedRef.current = allLocalesSortedRef.current.map((l) => {
+            const d = distanceMap.get(l._id);
+            return d !== undefined ? ({ ...l, distanceKm: d } as Locale & { distanceKm?: number | null }) : l;
+          });
+          setAllLocalesWithDistances(allLocalesSortedRef.current);
+        }
+        // Don't return — let the filter re-application below run too.
       }
-      
+
       // Re-apply filters to trigger distance-based sorting when location becomes available
       // This will re-sort using the updated userLocation (or fallback to createdAt if not available)
       // Use sortedAdminLocales to ensure proper sorting
@@ -2193,22 +2336,34 @@ export default function LocaleScreen() {
   }, [activeTab, createLocationSnapshot, applyFilters, adminLocales.length]);
 
   useEffect(() => {
-    // Reload saved locales when tab changes
+    // Reload saved locales when the user opens the Saved tab AND whenever
+    // loadSavedLocales updates (it re-creates when userLocation /
+    // locationPermissionGranted change), so distances reflect the latest
+    // device location instead of the stale captured snapshot.
     if (activeTab === 'saved') {
       loadSavedLocales();
     }
-  }, [activeTab]);
+  }, [activeTab, loadSavedLocales]);
 
-  // Listen for bookmark changes from detail page
+  // Listen for bookmark changes from detail page.
+  //
+  // The listener used to depend on `loadSavedLocales`, which re-creates
+  // its identity whenever userLocation / locationPermissionGranted change.
+  // That re-binding tore down and re-subscribed the savedEvents listener
+  // on every location tick; if the detail page emitted in that 1-tick
+  // window the event vanished and the new bookmark only showed up after
+  // the user manually reloaded. Pin the latest loadSavedLocales in a ref
+  // so the subscription is registered exactly once on mount.
+  const loadSavedLocalesRef = useRef(loadSavedLocales);
+  useEffect(() => { loadSavedLocalesRef.current = loadSavedLocales; }, [loadSavedLocales]);
+
   useEffect(() => {
     const unsubscribe = savedEvents.addListener(() => {
-      // Reload saved locales (lightweight operation)
-      loadSavedLocales();
-      // DO NOT reload admin locales here - it causes loops
-      // Bookmark status is handled client-side, no need to refetch
+      // Reload saved locales via the latest version of the callback.
+      loadSavedLocalesRef.current?.();
     });
     return unsubscribe;
-  }, [loadSavedLocales]);
+  }, []);
 
   // Navigation & Lifecycle Safety: Refresh bookmark status on focus (prevent refetch loops)
   useFocusEffect(
@@ -2759,6 +2914,7 @@ export default function LocaleScreen() {
       
       // Reset filters to empty state (not default country)
       dispatchFilter({ type: 'RESET' });
+      setSearchInput('');
       setSearchQuery('');
       
       // CACHE: Invalidate cache when filters are cleared
@@ -2848,34 +3004,28 @@ export default function LocaleScreen() {
     }
   }, [loadAdminLocales, activeTab]);
   
-  // Search Input Stability: Debounced search with request cancellation
+  // Manual-trigger search: searchInput is the live TextInput value, but
+  // searchQuery only flips when the user explicitly taps the search icon
+  // (or hits return on the keyboard). No auto-debounce — typing stays local
+  // and the network/filter pipeline runs only on submit.
+  const handleSearchSubmit = useCallback(() => {
+    if (!isMountedRef.current) return;
+    const next = searchInput.trim();
+    setSearchQuery(next);
+  }, [searchInput]);
+
+  // When the (already-debounced) searchQuery changes, cancel any in-flight
+  // request and refetch immediately. No inner timer here — the debounce above
+  // is the only one.
   useEffect(() => {
-    // Clear previous debounce timer
-    if (searchDebounceTimerRef.current) {
-      clearTimeout(searchDebounceTimerRef.current);
-    }
-    
-    // Cancel previous search request
     if (searchAbortControllerRef.current) {
       searchAbortControllerRef.current.abort();
     }
-    
-    // Set up new debounce timer - always trigger on searchQuery change
-    searchDebounceTimerRef.current = setTimeout(() => {
-      if (isMountedRef.current && !isSearchingRef.current) {
-        // Reset pagination on new search
-        currentPageRef.current = 1;
-        // Reset fetch key to force new fetch
-        lastFetchKeyRef.current = null;
-        loadAdminLocalesRef.current(true);
-      }
-    }, SEARCH_DEBOUNCE_MS);
-
-    return () => {
-      if (searchDebounceTimerRef.current) {
-        clearTimeout(searchDebounceTimerRef.current);
-      }
-    };
+    if (isMountedRef.current && !isSearchingRef.current) {
+      currentPageRef.current = 1;
+      lastFetchKeyRef.current = null;
+      loadAdminLocalesRef.current(true);
+    }
   }, [searchQuery]);
 
   const filteredCountriesForFilter = useMemo(() => {
@@ -3413,7 +3563,7 @@ export default function LocaleScreen() {
     renderAdminLocaleCard({ locale: item, index })
   ), [renderAdminLocaleCard]);
 
-  const localeKeyExtractor = useCallback((item: Locale, index: number) => item._id || `locale-${index}`, []);
+  const localeKeyExtractor = useCallback((item: Locale, index: number) => String(item?._id ?? `locale-${index}`), []);
 
   const localeGetItemLayout = useCallback((_data: ArrayLike<Locale> | null | undefined, index: number) => {
     // Card height comes from styles.wideCard: 200 on tablet, 160 on phone.
@@ -3434,8 +3584,17 @@ export default function LocaleScreen() {
 
   // List Rendering Performance: Memoize render functions
   const renderSavedLocaleCard = useCallback(({ locale, index }: { locale: Locale; index: number }) => {
+    // Defensive: AsyncStorage data can be malformed (older app versions, corrupt
+    // entries). Coerce every field we render or pass into router params to a
+    // safe primitive so the card render never throws "Objects are not valid as
+    // a React child" or "Cannot read property 'toLowerCase' of undefined".
+    const safeName = typeof locale?.name === 'string' ? locale.name : '';
+    const safeCountryCode = typeof locale?.countryCode === 'string' ? locale.countryCode : '';
+    const safeDescription = typeof locale?.description === 'string' ? locale.description : '';
+    const safeImageUrl = typeof locale?.imageUrl === 'string' && locale.imageUrl ? locale.imageUrl : '';
+
     // Use distanceKm from locale object (always available if coordinates exist)
-    const d = (locale as Locale & { distanceKm?: number | null }).distanceKm ?? 
+    const d = (locale as Locale & { distanceKm?: number | null }).distanceKm ??
               (userLocation && locationPermissionGranted ? getLocaleDistance(locale) : null);
     // Fix distance display formatting - ensure correct units
     const distanceText = d !== null && d !== undefined
@@ -3443,7 +3602,7 @@ export default function LocaleScreen() {
         ? `${Math.round(d * 1000)} m`
         : `${d.toFixed(1)} km`
       : '–';
-    
+
     return (
       <TouchableOpacity
         style={[
@@ -3458,20 +3617,20 @@ export default function LocaleScreen() {
             router.push({
               pathname: '/tripscore/countries/[country]/locations/[location]',
               params: {
-                country: locale.countryCode.toLowerCase(),
-                location: locale.name.toLowerCase().replace(/\s+/g, '-'),
+                country: safeCountryCode.toLowerCase(),
+                location: safeName.toLowerCase().replace(/\s+/g, '-'),
                 userId: 'admin-locale',
-                localeId: String(locale._id),
-                imageUrl: locale.imageUrl || '',
+                localeId: String(locale._id || ''),
+                imageUrl: safeImageUrl,
                 galleryUrls:
                   Array.isArray(locale.imageUrls) && locale.imageUrls.length > 0
-                    ? locale.imageUrls.join('|||')
+                    ? locale.imageUrls.filter(u => typeof u === 'string').join('|||')
                     : '',
                 latitude: (locale.latitude && locale.latitude !== 0) ? locale.latitude.toString() : '',
                 longitude: (locale.longitude && locale.longitude !== 0) ? locale.longitude.toString() : '',
-                description: locale.description || '',
-                spotTypes: locale.spotTypes?.join(', ') || '',
-                travelInfo: locale.travelInfo || 'Drivable',
+                description: safeDescription,
+                spotTypes: Array.isArray(locale.spotTypes) ? locale.spotTypes.filter(s => typeof s === 'string').join(', ') : '',
+                travelInfo: typeof locale.travelInfo === 'string' ? locale.travelInfo : 'Drivable',
                 distanceKm: d !== null && d !== undefined ? d.toString() : '',
               }
             });
@@ -3480,13 +3639,13 @@ export default function LocaleScreen() {
             showError('Failed to open locale details');
           }
         }}
-        accessibilityLabel={`${locale.name}, ${locale.countryCode}${distanceText && distanceText !== '–' ? `, ${distanceText} away` : ''}`}
+        accessibilityLabel={`${safeName}, ${safeCountryCode}${distanceText && distanceText !== '–' ? `, ${distanceText} away` : ''}`}
         accessibilityRole="button"
         accessibilityHint="Opens locale details"
       >
-        {locale.imageUrl ? (
+        {safeImageUrl ? (
           <ExpoImage
-            source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: 400, height: 300 }) }}
+            source={{ uri: optimizeCloudinaryUrl(safeImageUrl, { width: 400, height: 300 }) }}
             style={styles.cardImage as ImageStyle}
             contentFit="cover"
             cachePolicy="memory-disk"
@@ -3511,16 +3670,16 @@ export default function LocaleScreen() {
         />
         <View style={styles.cardContent}>
           <View style={styles.cardTitleRow}>
-            <Text style={styles.cardTitle}>{locale.name}</Text>
+            <Text style={styles.cardTitle}>{safeName}</Text>
           </View>
           <Text style={[styles.cardSubtitle, { color: '#FFFFFF' }]}>
-            {locale.countryCode}
+            {safeCountryCode}
           </Text>
-          {locale.description && (
+          {safeDescription ? (
             <Text style={[styles.cardSubtitle, { color: '#FFFFFF', marginTop: 4 }]} numberOfLines={1}>
-              {locale.description}
+              {safeDescription}
             </Text>
-          )}
+          ) : null}
         </View>
         {distanceText && (
           <View style={styles.distanceBadgeAbsolute}>
@@ -3531,10 +3690,10 @@ export default function LocaleScreen() {
         <TouchableOpacity
           style={styles.saveButton}
           onPress={(e) => {
-            e.stopPropagation();
-            unsaveLocale(locale._id);
+            e?.stopPropagation?.();
+            if (locale?._id) unsaveLocale(locale._id);
           }}
-          accessibilityLabel={`Remove ${locale.name} from saved`}
+          accessibilityLabel={`Remove ${safeName} from saved`}
           accessibilityRole="button"
         >
           <Ionicons
@@ -3557,295 +3716,6 @@ export default function LocaleScreen() {
     </View>
   );
 
-  // Elegant travel-themed loading animation component
-  const TravelLoadingOverlay = () => {
-    const rotateAnim = useRef(new Animated.Value(0)).current;
-    const pulseAnim = useRef(new Animated.Value(0)).current;
-    const fadeAnim = useRef(new Animated.Value(0)).current;
-    const floatAnim = useRef(new Animated.Value(0)).current;
-    const globeRotateAnim = useRef(new Animated.Value(0)).current;
-    const shimmerAnim = useRef(new Animated.Value(0)).current;
-    const dot1Anim = useRef(new Animated.Value(0)).current;
-    const dot2Anim = useRef(new Animated.Value(0)).current;
-    const dot3Anim = useRef(new Animated.Value(0)).current;
-
-    useEffect(() => {
-      if (calculatingDistances) {
-        // Start all animations immediately
-        Animated.parallel([
-          // Fade in
-          Animated.timing(fadeAnim, {
-            toValue: 1,
-            duration: 400,
-            easing: Easing.out(Easing.cubic),
-            useNativeDriver: true,
-          }),
-          // Continuous airplane rotation
-          Animated.loop(
-            Animated.timing(rotateAnim, {
-              toValue: 1,
-              duration: 4000,
-              easing: Easing.linear,
-              useNativeDriver: true,
-            })
-          ),
-          // Smooth pulsing
-          Animated.loop(
-            Animated.sequence([
-              Animated.timing(pulseAnim, {
-                toValue: 1,
-                duration: 1500,
-                easing: Easing.inOut(Easing.ease),
-                useNativeDriver: true,
-              }),
-              Animated.timing(pulseAnim, {
-                toValue: 0,
-                duration: 1500,
-                easing: Easing.inOut(Easing.ease),
-                useNativeDriver: true,
-              }),
-            ])
-          ),
-          // Floating animation
-          Animated.loop(
-            Animated.sequence([
-              Animated.timing(floatAnim, {
-                toValue: 1,
-                duration: 2000,
-                easing: Easing.inOut(Easing.ease),
-                useNativeDriver: true,
-              }),
-              Animated.timing(floatAnim, {
-                toValue: 0,
-                duration: 2000,
-                easing: Easing.inOut(Easing.ease),
-                useNativeDriver: true,
-              }),
-            ])
-          ),
-          // Globe rotation
-          Animated.loop(
-            Animated.timing(globeRotateAnim, {
-              toValue: 1,
-              duration: 8000,
-              easing: Easing.linear,
-              useNativeDriver: true,
-            })
-          ),
-          // Shimmer effect
-          Animated.loop(
-            Animated.timing(shimmerAnim, {
-              toValue: 1,
-              duration: 2000,
-              easing: Easing.linear,
-              useNativeDriver: true,
-            })
-          ),
-          // Animated dots with staggered delays
-          Animated.loop(
-            Animated.sequence([
-              Animated.parallel([
-                Animated.timing(dot1Anim, { toValue: 1, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-                Animated.delay(200),
-                Animated.timing(dot2Anim, { toValue: 1, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-                Animated.delay(400),
-                Animated.timing(dot3Anim, { toValue: 1, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-              ]),
-              Animated.parallel([
-                Animated.timing(dot1Anim, { toValue: 0, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-                Animated.delay(200),
-                Animated.timing(dot2Anim, { toValue: 0, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-                Animated.delay(400),
-                Animated.timing(dot3Anim, { toValue: 0, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-              ]),
-            ])
-          ),
-        ]).start();
-      } else {
-        // Fade out smoothly
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }).start();
-      }
-    }, [calculatingDistances, rotateAnim, pulseAnim, fadeAnim, floatAnim, globeRotateAnim, shimmerAnim, dot1Anim, dot2Anim, dot3Anim]);
-
-    const rotation = rotateAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['0deg', '360deg'],
-    });
-
-    const scale = pulseAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: [1, 1.15],
-    });
-
-    const translateY = floatAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: [0, -15],
-    });
-
-    const globeRotation = globeRotateAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: ['0deg', '360deg'],
-    });
-
-    const shimmerTranslate = shimmerAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: [-100, 100],
-    });
-
-    const shimmerOpacity = shimmerAnim.interpolate({
-      inputRange: [0, 0.5, 1],
-      outputRange: [0, 0.3, 0],
-    });
-
-    const dot1Scale = dot1Anim.interpolate({
-      inputRange: [0, 1],
-      outputRange: [1, 1.3],
-    });
-
-    const dot1Opacity = dot1Anim.interpolate({
-      inputRange: [0, 1],
-      outputRange: [0.4, 1],
-    });
-
-    const dot2Scale = dot2Anim.interpolate({
-      inputRange: [0, 1],
-      outputRange: [1, 1.3],
-    });
-
-    const dot2Opacity = dot2Anim.interpolate({
-      inputRange: [0, 1],
-      outputRange: [0.4, 1],
-    });
-
-    const dot3Scale = dot3Anim.interpolate({
-      inputRange: [0, 1],
-      outputRange: [1, 1.3],
-    });
-
-    const dot3Opacity = dot3Anim.interpolate({
-      inputRange: [0, 1],
-      outputRange: [0.4, 1],
-    });
-    
-    // Only render when calculating distances
-    if (!calculatingDistances) return null;
-
-    return (
-      <Animated.View
-        style={[
-          styles.travelLoadingOverlay,
-          {
-            opacity: fadeAnim,
-            backgroundColor: mode === 'dark' ? 'rgba(0, 0, 0, 0.92)' : 'rgba(255, 255, 255, 0.98)',
-          },
-        ]}
-        pointerEvents="box-none"
-      >
-        <LinearGradient
-          colors={mode === 'dark' 
-            ? ['rgba(30, 30, 30, 0.95)', 'rgba(20, 20, 30, 0.95)']
-            : ['rgba(255, 255, 255, 0.98)', 'rgba(245, 250, 255, 0.98)']}
-          style={styles.travelLoadingGradient}
-        >
-          <View style={styles.travelLoadingContent}>
-            {/* Main Icon Container with Multiple Animations */}
-            <Animated.View
-              style={[
-                styles.travelIconContainer,
-                {
-                  transform: [
-                    { rotate: rotation },
-                    { scale },
-                    { translateY },
-                  ],
-                },
-              ]}
-            >
-              {/* Background Globe - Behind everything */}
-              <Animated.View
-                style={[
-                  styles.travelGlobeBackground,
-                  {
-                    transform: [{ rotate: globeRotation }],
-                    opacity: 0.12,
-                  },
-                ]}
-                pointerEvents="none"
-              >
-                <Ionicons name="earth" size={100} color={theme.colors.primary} />
-              </Animated.View>
-
-              {/* Icon Wrapper with Shimmer */}
-              <View style={styles.travelIconWrapper}>
-                {/* Shimmer Effect */}
-                <Animated.View
-                  style={[
-                    styles.travelShimmer,
-                    {
-                      transform: [{ translateX: shimmerTranslate }],
-                      opacity: shimmerOpacity,
-                    },
-                  ]}
-                  pointerEvents="none"
-                />
-                
-                {/* Airplane Icon */}
-                <Ionicons name="airplane" size={56} color={theme.colors.primary} style={styles.travelAirplaneIcon} />
-              </View>
-            </Animated.View>
-
-            {/* Animated Dots */}
-            <View style={styles.travelDotsContainer}>
-              <Animated.View
-                style={[
-                  styles.travelDot,
-                  {
-                    transform: [{ scale: dot1Scale }],
-                    opacity: dot1Opacity,
-                    backgroundColor: theme.colors.primary,
-                  },
-                ]}
-              />
-              <Animated.View
-                style={[
-                  styles.travelDot,
-                  {
-                    transform: [{ scale: dot2Scale }],
-                    opacity: dot2Opacity,
-                    backgroundColor: theme.colors.primary,
-                  },
-                ]}
-              />
-              <Animated.View
-                style={[
-                  styles.travelDot,
-                  {
-                    transform: [{ scale: dot3Scale }],
-                    opacity: dot3Opacity,
-                    backgroundColor: theme.colors.primary,
-                  },
-                ]}
-              />
-            </View>
-
-            {/* Text Content */}
-            <View style={styles.travelTextContainer}>
-              <Text style={[styles.travelLoadingText, { color: theme.colors.text }]}>
-                Capturing the best locales for you
-              </Text>
-              <Text style={[styles.travelLoadingSubtext, { color: theme.colors.textSecondary }]}>
-                Calculating distances...
-              </Text>
-            </View>
-          </View>
-        </LinearGradient>
-      </Animated.View>
-    );
-  };
 
   if (loading && !calculatingDistances) {
     return (
@@ -3873,7 +3743,11 @@ export default function LocaleScreen() {
         style={{ flex: 1 }}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
-        <TravelLoadingOverlay />
+        <TravelLoadingOverlay
+          calculatingDistances={calculatingDistances}
+          mode={mode}
+          theme={theme}
+        />
       {/* Elegant Top Navigation */}
       <View style={styles.topNavigation}>
         <View style={[styles.tabContainer, { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }]}>
@@ -3930,28 +3804,23 @@ export default function LocaleScreen() {
       {/* Search Bar */}
       <View style={[styles.searchContainer, { backgroundColor: theme.colors.background }]}>
         <View style={[styles.searchBar, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-          <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} />
+          <TouchableOpacity
+            onPress={handleSearchSubmit}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityLabel="Search"
+            accessibilityRole="button"
+            activeOpacity={0.7}
+          >
+            <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} />
+          </TouchableOpacity>
           <TextInput
             style={[styles.searchInput, { color: theme.colors.text }]}
             placeholder="Search"
             placeholderTextColor={theme.colors.textSecondary}
-            value={searchQuery}
-            onChangeText={(text) => {
-              // Update search query immediately for UI responsiveness
-              setSearchQuery(text);
-
-              // Clear existing debounce timer
-              if (searchDebounceTimerRef.current) {
-                clearTimeout(searchDebounceTimerRef.current);
-              }
-
-              // Debounce the actual search/filter operation
-              searchDebounceTimerRef.current = setTimeout(() => {
-                // Trigger filter update after debounce delay
-                // The filteredLocales will update automatically via useEffect
-                logger.debug(`Debounced search query: "${text}"`);
-              }, SEARCH_DEBOUNCE_MS);
-            }}
+            value={searchInput}
+            onChangeText={setSearchInput}
+            returnKeyType="search"
+            onSubmitEditing={handleSearchSubmit}
           />
         </View>
         <TouchableOpacity
@@ -3971,13 +3840,18 @@ export default function LocaleScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Content */}
-      {activeTab === 'locale' ? (
-        // FlatList replaces the previous ScrollView+map: cards are virtualised
-        // (only ~6-10 mounted at a time) so scrolling stays smooth even with
-        // 100+ admin locales. ListHeader keeps the "Featured Locales" title
-        // sticky-ish at the top; ListFooter holds the Load More / loading
-        // indicator; ListEmpty handles both initial-loading and empty state.
+      {/* Content
+          Permanent fix for the saved-tab crash: previously this was
+          `activeTab === 'locale' ? <FlatList /> : <FlatList />` which
+          unmounted the locale FlatList (and all its native cells —
+          ExpoImage + LinearGradient + RefreshControl) every time the
+          user tapped Saved. On Android / Expo Go that mass-unmount of
+          native views during one render frame was the source of the
+          instant native crash. Both lists now stay mounted and we just
+          toggle visibility via `display`. The off-screen list pays
+          essentially zero render cost (no items virtualised, no scroll
+          handlers active), so this is also fine for performance. */}
+      <View style={[styles.listSlot, activeTab === 'locale' ? null : styles.hidden]} pointerEvents={activeTab === 'locale' ? 'auto' : 'none'}>
         <FlatList
           data={localesToShow}
           renderItem={renderAdminLocaleItem}
@@ -4005,8 +3879,8 @@ export default function LocaleScreen() {
             />
           }
           ListHeaderComponent={
-            <View style={styles.adminLocalesSection}>
-              <Text style={[styles.sectionTitle, { color: theme.colors.text, marginBottom: 16 }]}>Featured Locales</Text>
+            <View style={[styles.adminLocalesSection, { paddingBottom: 0 }]}>
+              <Text style={[styles.sectionTitle, { color: theme.colors.text, marginBottom: 12 }]}>Featured Locales</Text>
             </View>
           }
           ListEmptyComponent={
@@ -4055,27 +3929,22 @@ export default function LocaleScreen() {
             ) : null
           }
         />
-      ) : (
+      </View>
+
+      <View style={[styles.listSlot, activeTab === 'saved' ? null : styles.hidden]} pointerEvents={activeTab === 'saved' ? 'auto' : 'none'}>
         <FlatList
           data={filteredSavedLocales}
           renderItem={({ item, index }) => renderSavedLocaleCard({ locale: item, index })}
-          keyExtractor={(item, index) => item._id || `locale-${index}`}
-          // List Rendering Performance: FlatList optimization
-          removeClippedSubviews={true}
+          keyExtractor={(item, index) => String(item?._id ?? `locale-${index}`)}
           initialNumToRender={6}
           maxToRenderPerBatch={4}
           windowSize={7}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          getItemLayout={(data, index) => ({
-            length: 200 + 16, // card height + margin
-            offset: (200 + 16) * index,
-            index,
-          })}
           ListEmptyComponent={
-            savedLocales.length === 0 
-              ? renderEmptySavedState() 
-              : filteredSavedLocales.length === 0 
+            savedLocales.length === 0
+              ? renderEmptySavedState()
+              : filteredSavedLocales.length === 0
                 ? (
                     <View style={styles.emptyContainer}>
                       <Ionicons name="filter-outline" size={60} color={theme.colors.textSecondary} />
@@ -4083,7 +3952,7 @@ export default function LocaleScreen() {
                       <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
                         Try adjusting your filters or search query
                       </Text>
-                      <TouchableOpacity 
+                      <TouchableOpacity
                         style={[styles.clearFiltersButton, { backgroundColor: theme.colors.primary }]}
                         onPress={handleClearFilters}
                       >
@@ -4114,7 +3983,7 @@ export default function LocaleScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={[styles.listContainer, { paddingHorizontal: 20, paddingTop: 20 }]}
         />
-      )}
+      </View>
 
       {/* Filter Modal */}
       {renderFilterModal()}
@@ -4215,6 +4084,15 @@ const createStyles = () => {
       paddingHorizontal: isTabletLocal ? theme.spacing.md : 12,
       // Add padding for tab bar (88px mobile, 70px web) + extra spacing for load more button
       paddingBottom: isWebLocal ? 140 : (isTabletLocal ? 160 : 150),
+    },
+    // Wraps each tab's FlatList. Both wrappers stay mounted; only one is
+    // visible at a time (controlled via display:none) so toggling tabs
+    // never unmounts the native cells inside the off-screen list.
+    listSlot: {
+      flex: 1,
+    },
+    hidden: {
+      display: 'none',
     },
     row: {
       justifyContent: 'space-between',

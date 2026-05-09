@@ -53,7 +53,7 @@ import { ErrorBoundary } from '../../utils/errorBoundary';
 import { validateAndSanitizeCaption } from '../../utils/sanitize';
 import CopyrightConfirmationModal from '../../components/CopyrightConfirmationModal';
 import { trackFeatureUsage } from '../../services/analytics';
-import ImageEditModal, { ImageFilterType } from '../../components/ImageEditModal';
+import ImageEditModal, { ImageFilterType, FILTER_PREVIEW_OVERLAY } from '../../components/ImageEditModal';
 import AspectImageCropper, { CropTransform } from '../../components/post/AspectImageCropper';
 
 const logger = createLogger('PostScreen');
@@ -1652,6 +1652,11 @@ export default function PostScreen() {
         spotType: spotType || undefined,
         travelInfo: travelInfo || undefined,
         aspectRatio: selectedAspectRatio,
+        // The chosen photo filter is applied at render time via Cloudinary
+        // URL transformations — see optimizeCloudinaryUrl in
+        // utils/imageCache. Storing the token (not the rendered bytes)
+        // means the user can change the filter later without re-uploading.
+        filter: selectedFilter,
         // Include detected place data for admin review
         detectedPlace: detectedPlaceData ? {
           name: detectedPlaceData.name,
@@ -2813,7 +2818,21 @@ export default function PostScreen() {
                     </ScrollView>
                   </View>
                 )}
-                
+
+                {/* Approximate filter tint — same overlay used in the Edit Photos modal so the
+                    composition view reflects the chosen filter. The real Cloudinary effect
+                    (utils/imageCache.ts) applies after upload. Sits above the images but below
+                    the counter / action bar so those stay readable. */}
+                {FILTER_PREVIEW_OVERLAY[selectedFilter] && (
+                  <View
+                    pointerEvents="none"
+                    style={[
+                      StyleSheet.absoluteFillObject,
+                      { backgroundColor: FILTER_PREVIEW_OVERLAY[selectedFilter]!, borderRadius: theme.borderRadius.xl },
+                    ]}
+                  />
+                )}
+
                 {/* Image counter */}
                 {selectedImages.length > 1 && (
                   <View style={{ 

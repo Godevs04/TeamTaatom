@@ -4644,6 +4644,7 @@ router.get('/analytics/engagement', authenticateSuperAdmin, async (req, res) => 
 const ConnectPage = require('../models/ConnectPage')
 const Payout = require('../models/Payout')
 const Subscription = require('../models/Subscription')
+const payoutController = require('../controllers/payoutController')
 
 // GET /api/v1/superadmin/subscription-approvals — List pages pending subscription approval
 router.get('/subscription-approvals', checkPermission('canManageContent'), async (req, res) => {
@@ -4812,10 +4813,83 @@ router.get('/payouts', checkPermission('canManageContent'), async (req, res) => 
   }
 })
 
+// POST /api/v1/superadmin/payouts/:id/mark-paid — Manually record a completed payout (all payouts are sent manually)
+router.post('/payouts/:id/mark-paid', checkPermission('canManageContent'), payoutController.markPayoutPaid)
+
+// GET /api/v1/superadmin/connect-pages/:pageId/payouts — Payouts scoped to one Connect page
+router.get('/connect-pages/:pageId/payouts', checkPermission('canManageContent'), async (req, res) => {
+  try {
+    const mongoose = require('mongoose')
+    const { pageId } = req.params
+    if (!mongoose.Types.ObjectId.isValid(pageId)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Invalid page id')
+    }
+
+    const { status, page, limit } = req.query
+    const pageNum = Math.max(1, parseInt(page, 10) || 1)
+    const limitNum = Math.min(Math.max(1, parseInt(limit, 10) || 20), 100)
+    const filter = { connectPageId: new mongoose.Types.ObjectId(pageId) }
+    if (status) filter.status = String(status)
+
+    const [payouts, total, summaryAgg] = await Promise.all([
+      Payout.find(filter)
+        .populate('creatorId', 'username fullName email')
+        .sort({ periodYear: -1, periodMonth: -1, createdAt: -1 })
+        .skip((pageNum - 1) * limitNum)
+        .limit(limitNum)
+        .lean(),
+      Payout.countDocuments(filter),
+      Payout.aggregate([
+        { $match: { connectPageId: new mongoose.Types.ObjectId(pageId) } },
+        {
+          $group: {
+            _id: null,
+            totalGross: { $sum: '$grossAmount' },
+            totalCreatorPayout: { $sum: '$creatorPayout' },
+            totalPaid: {
+              $sum: { $cond: [{ $eq: ['$status', 'completed'] }, '$creatorPayout', 0] },
+            },
+            totalPending: {
+              $sum: {
+                $cond: [
+                  { $in: ['$status', ['calculated', 'processing']] },
+                  '$creatorPayout',
+                  0,
+                ],
+              },
+            },
+            count: { $sum: 1 },
+          },
+        },
+      ]),
+    ])
+
+    return sendSuccess(res, 200, 'Page payouts fetched', {
+      payouts,
+      summary: summaryAgg[0] || {
+        totalGross: 0,
+        totalCreatorPayout: 0,
+        totalPaid: 0,
+        totalPending: 0,
+        count: 0,
+      },
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limitNum)),
+      },
+    })
+  } catch (error) {
+    logger.error('Error fetching page payouts:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch page payouts')
+  }
+})
+
 // GET /api/v1/superadmin/subscription-stats — Overview stats + monthly chart data
 router.get('/subscription-stats', checkPermission('canManageContent'), async (req, res) => {
   try {
-    const [pendingCount, activeSubCount, totalSubCount, totalRevenue, monthlyPayouts] = await Promise.all([
+    const [pendingCount, activeSubCount, totalSubCount, totalRevenue, monthlyPayouts, recentSubs] = await Promise.all([
       ConnectPage.countDocuments({ 'subscriptionApproval.status': 'pending' }),
       Subscription.countDocuments({ status: 'active' }),
       Subscription.countDocuments({ status: { $in: ['active', 'cancelled', 'completed'] } }),
@@ -4838,7 +4912,14 @@ router.get('/subscription-stats', checkPermission('canManageContent'), async (re
         { $sort: { '_id.year': -1, '_id.month': -1 } },
         { $limit: 12 },
         { $sort: { '_id.year': 1, '_id.month': 1 } },
-      ])
+      ]),
+      // 5 most recent active subscribers with user + page info
+      Subscription.find({ status: 'active' })
+        .sort({ activatedAt: -1, createdAt: -1 })
+        .limit(5)
+        .populate('userId', 'fullName username profilePic email')
+        .populate('connectPageId', 'name')
+        .lean()
     ])
 
     // Format monthly data for chart
@@ -4853,16 +4934,147 @@ router.get('/subscription-stats', checkPermission('canManageContent'), async (re
       subscribers: p.subscriberCount,
     }))
 
+    // Format recent subscribers for dashboard
+    const recentSubscribers = recentSubs.map(s => ({
+      _id: s._id,
+      fullName: s.userId?.fullName || 'Unknown',
+      username: s.userId?.username || '',
+      profilePic: s.userId?.profilePic || '',
+      email: s.userId?.email || '',
+      pageName: s.connectPageId?.name || 'Unknown Page',
+      amount: s.amount || 0,
+      currency: s.currency || 'INR',
+      activatedAt: s.activatedAt || s.createdAt,
+    }))
+
     return sendSuccess(res, 200, 'Subscription stats fetched', {
       pendingApprovals: pendingCount,
       activeSubscriptions: activeSubCount,
       totalSubscribers: totalSubCount,
       monthlyRecurringRevenue: totalRevenue[0]?.total || 0,
       monthlyChart,
+      recentSubscribers,
     })
   } catch (error) {
     logger.error('Error fetching subscription stats:', error)
     return sendError(res, 'SRV_6001', 'Failed to fetch subscription stats')
+  }
+})
+
+// ─────────────────────────────────────────────
+// Connect Pages (user-created) — list + drill-in subscribers
+// ─────────────────────────────────────────────
+
+// GET /api/v1/superadmin/connect-pages — list user-created Connect pages with subscriber counts
+router.get('/connect-pages', checkPermission('canManageContent'), async (req, res) => {
+  try {
+    const pageNum = Math.max(parseInt(req.query.page) || 1, 1)
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100)
+    const skip = (pageNum - 1) * limit
+    const search = (req.query.search || '').trim()
+    const status = req.query.status
+
+    const match = { isAdminPage: { $ne: true } }
+    if (status && status !== 'all') match.status = status
+    if (search) match.name = { $regex: search, $options: 'i' }
+
+    const [pages, total] = await Promise.all([
+      ConnectPage.aggregate([
+        { $match: match },
+        { $sort: { createdAt: -1 } },
+        { $skip: skip },
+        { $limit: limit },
+        {
+          $lookup: {
+            from: 'subscriptions',
+            let: { pageId: '$_id' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ['$connectPageId', '$$pageId'] },
+                      { $eq: ['$status', 'active'] }
+                    ]
+                  }
+                }
+              }
+            ],
+            as: 'activeSubs'
+          }
+        },
+        {
+          $lookup: {
+            from: 'users',
+            localField: 'userId',
+            foreignField: '_id',
+            as: 'owner'
+          }
+        },
+        {
+          $addFields: {
+            subscriberCount: { $size: '$activeSubs' },
+            monthlyRevenue: { $sum: '$activeSubs.amount' },
+            owner: { $arrayElemAt: ['$owner', 0] }
+          }
+        },
+        {
+          $project: {
+            activeSubs: 0,
+            'owner.password': 0,
+            'owner.refreshTokens': 0,
+            'owner.fcmTokens': 0
+          }
+        }
+      ]),
+      ConnectPage.countDocuments(match)
+    ])
+
+    return sendSuccess(res, 200, 'Connect pages fetched', {
+      pages,
+      pagination: { page: pageNum, limit, total, totalPages: Math.ceil(total / limit) }
+    })
+  } catch (error) {
+    logger.error('Error fetching connect pages:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch connect pages')
+  }
+})
+
+// GET /api/v1/superadmin/connect-pages/:pageId/subscribers — drill-in: who subscribed, when, how much
+router.get('/connect-pages/:pageId/subscribers', checkPermission('canManageContent'), async (req, res) => {
+  try {
+    const mongoose = require('mongoose')
+    const { pageId } = req.params
+    if (!mongoose.Types.ObjectId.isValid(pageId)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Invalid page ID')
+    }
+
+    const page = await ConnectPage.findById(pageId)
+      .populate('userId', 'username fullName profilePic email')
+      .lean()
+    if (!page) {
+      return sendError(res, 'RES_3001', 'Connect page not found')
+    }
+
+    const subscriptions = await Subscription.find({ connectPageId: pageId })
+      .populate('userId', 'username fullName profilePic email')
+      .sort({ createdAt: -1 })
+      .lean()
+
+    const stats = {
+      total: subscriptions.length,
+      active: subscriptions.filter(s => s.status === 'active').length,
+      cancelled: subscriptions.filter(s => s.status === 'cancelled').length,
+      initialized: subscriptions.filter(s => s.status === 'initialized').length,
+      monthlyRevenue: subscriptions
+        .filter(s => s.status === 'active')
+        .reduce((sum, s) => sum + (s.amount || 0), 0)
+    }
+
+    return sendSuccess(res, 200, 'Subscribers fetched', { page, subscriptions, stats })
+  } catch (error) {
+    logger.error('Error fetching connect page subscribers:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch subscribers')
   }
 })
 
@@ -4872,7 +5084,7 @@ router.get('/subscription-stats', checkPermission('canManageContent'), async (re
 // ConnectPage already required above (subscription stats section)
 const ChatModel = require('../models/Chat')
 const { uploadObject, buildMediaKey } = require('../services/storage')
-const { generateSignedUrl } = require('../services/mediaService')
+const { generateSignedUrl, isSignedUrl, extractStorageKeyFromUrl } = require('../services/mediaService')
 
 // Multer for community page images (profile + banner)
 const communityUpload = multer({
@@ -5011,6 +5223,7 @@ router.post('/community-pages', authenticateSuperAdmin, (req, res, next) => {
       profileImage: profileImageStorageKey,
       bannerImage: bannerImageStorageKey,
       isAdminPage: true,
+      category: 'community',
       features: {
         website: parsedFeatures?.website === true || parsedFeatures?.website === 'true' || false,
         groupChat: parsedFeatures?.groupChat === true || parsedFeatures?.groupChat === 'true' || false,
@@ -5300,6 +5513,153 @@ router.put('/community-pages/:pageId/content', authenticateSuperAdmin, async (re
   } catch (error) {
     logger.error('Error updating community page content:', error)
     return sendError(res, 'SRV_6001', 'Failed to update content')
+  }
+})
+
+/**
+ * GET /api/v1/superadmin/community-pages/:pageId/canvas
+ * Fetch canvas content + background; resolves image/video storage keys to signed URLs.
+ */
+router.get('/community-pages/:pageId/canvas', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { pageId } = req.params
+    const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true })
+      .select('canvasContent canvasBackground')
+      .lean()
+
+    if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
+
+    for (const el of (page.canvasContent || [])) {
+      if ((el.type === 'image' || el.type === 'video') && el.content) {
+        if (!el.content.startsWith('http')) {
+          try {
+            const url = await generateSignedUrl(el.content, 'DEFAULT')
+            if (url) el.content = url
+          } catch { /* keep key */ }
+        } else if (isSignedUrl(el.content)) {
+          const key = extractStorageKeyFromUrl(el.content)
+          if (key) {
+            try {
+              const url = await generateSignedUrl(key, 'DEFAULT')
+              if (url) el.content = url
+            } catch { /* keep existing */ }
+          }
+        }
+      }
+    }
+
+    return sendSuccess(res, 200, 'Canvas fetched', {
+      canvasContent: page.canvasContent || [],
+      canvasBackground: page.canvasBackground || '#000000',
+    })
+  } catch (error) {
+    logger.error('Error fetching community canvas:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch canvas')
+  }
+})
+
+/**
+ * PUT /api/v1/superadmin/community-pages/:pageId/canvas
+ * Body: { content: CanvasElement[], background?: string }
+ */
+router.put('/community-pages/:pageId/canvas', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { pageId } = req.params
+    const { content, background } = req.body
+
+    const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true })
+    if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
+
+    if (!Array.isArray(content)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Content must be an array of elements')
+    }
+
+    const clamp01 = (n) => Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0))
+    const sanitized = content
+      .filter(el => el && el.type && typeof el.content === 'string' && el.content.trim() !== '')
+      .map((el, idx) => {
+        let elContent = el.content
+        if ((el.type === 'image' || el.type === 'video') && elContent && isSignedUrl(elContent)) {
+          const storageKey = extractStorageKeyFromUrl(elContent)
+          if (storageKey) elContent = storageKey
+        }
+        return {
+          type: el.type,
+          content: elContent,
+          x: clamp01(el.x),
+          y: clamp01(el.y),
+          w: clamp01(el.w),
+          h: clamp01(el.h),
+          rotation: Number.isFinite(el.rotation) ? el.rotation : 0,
+          zIndex: Number.isFinite(el.zIndex) ? el.zIndex : idx,
+          fontSize: Number.isFinite(el.fontSize) ? el.fontSize : 24,
+          color: typeof el.color === 'string' ? el.color : '#FFFFFF',
+          fontWeight: typeof el.fontWeight === 'string' ? el.fontWeight : '600',
+          backgroundColor: typeof el.backgroundColor === 'string' ? el.backgroundColor : 'transparent',
+        }
+      })
+
+    page.canvasContent = sanitized
+    if (typeof background === 'string') {
+      page.canvasBackground = background
+    }
+    await page.save()
+
+    return sendSuccess(res, 200, 'Canvas updated', {
+      canvasContent: page.canvasContent,
+      canvasBackground: page.canvasBackground,
+    })
+  } catch (error) {
+    logger.error('Error updating community canvas:', error)
+    return sendError(res, 'SRV_6001', 'Failed to update canvas')
+  }
+})
+
+// Multer for canvas video uploads (50MB cap, video mimetypes only)
+const contentVideoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('video/')) cb(null, true)
+    else cb(new Error('Only video files are allowed'), false)
+  }
+}).single('video')
+
+/**
+ * POST /api/v1/superadmin/community-pages/:pageId/content-video
+ * Upload a video for canvas elements. Returns { storageKey, signedUrl }.
+ */
+router.post('/community-pages/:pageId/content-video', authenticateSuperAdmin, (req, res, next) => {
+  contentVideoUpload(req, res, (err) => {
+    if (err) {
+      logger.error('Video multer error:', err.message)
+      return sendError(res, 'VALIDATION_FAILED', `Upload error: ${err.message}`)
+    }
+    next()
+  })
+}, async (req, res) => {
+  try {
+    const { pageId } = req.params
+    const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true }).select('userId')
+    if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
+
+    const file = req.file
+    if (!file) return sendError(res, 'VALIDATION_FAILED', 'No video file provided. Field name must be "video".')
+
+    const ext = file.originalname?.split('.').pop() || 'mp4'
+    const storageKey = buildMediaKey({
+      type: 'connect-content',
+      userId: page.userId.toString(),
+      filename: file.originalname || `canvas-${Date.now()}.${ext}`,
+      extension: ext,
+    })
+    await uploadObject(file.buffer, storageKey, file.mimetype)
+
+    const signedUrl = await generateSignedUrl(storageKey, 'DEFAULT')
+    return sendSuccess(res, 200, 'Video uploaded', { storageKey, signedUrl })
+  } catch (error) {
+    logger.error('Error uploading canvas video:', error)
+    return sendError(res, 'SRV_6001', `Failed to upload video: ${error.message}`)
   }
 })
 

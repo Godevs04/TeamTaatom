@@ -12,19 +12,18 @@ import {
   Search,
   Edit2,
   Trash2,
-  Eye,
   Globe,
   Lock,
   MessageSquare,
-  Star,
+  ShoppingBag,
   FileText,
   RefreshCw,
   ChevronLeft,
   ChevronRight,
-  X,
   Upload,
   Image as ImageIcon,
   AlertTriangle,
+  Layers,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import {
@@ -38,15 +37,15 @@ import {
 // Stat Cards
 // ─────────────────────────────────────────────
 const StatCards = memo(({ pages, loading }) => {
-  const active = pages.filter(p => p.status === 'active').length
   const total = pages.length
   const withSubscription = pages.filter(p => p.features?.subscription).length
+  const totalFollowers = pages.reduce((sum, p) => sum + (p.followerCount || 0), 0)
   const withChat = pages.filter(p => p.features?.groupChat).length
 
   const cards = [
-    { title: 'Total Communities', value: total, icon: Users, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { title: 'Active', value: active, icon: Globe, color: 'text-green-600', bg: 'bg-green-50' },
-    { title: 'With Subscription', value: withSubscription, icon: Star, color: 'text-purple-600', bg: 'bg-purple-50' },
+    { title: 'Total Pages', value: total, icon: Layers, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { title: 'With Buy', value: withSubscription, icon: ShoppingBag, color: 'text-purple-600', bg: 'bg-purple-50' },
+    { title: 'Followers', value: totalFollowers, icon: Users, color: 'text-green-600', bg: 'bg-green-50', note: 'on this page' },
     { title: 'With Group Chat', value: withChat, icon: MessageSquare, color: 'text-amber-600', bg: 'bg-amber-50' },
   ]
 
@@ -61,6 +60,7 @@ const StatCards = memo(({ pages, loading }) => {
           <div className={`text-2xl font-bold ${card.color}`}>
             {loading ? <span className="animate-pulse">...</span> : card.value}
           </div>
+          {card.note && <p className="text-xs text-gray-500 mt-1">{card.note}</p>}
         </div>
       ))}
     </div>
@@ -299,7 +299,7 @@ function CommunityFormModal({ isOpen, onClose, onSave, editPage }) {
               {[
                 { key: 'website', label: 'Website Page', icon: FileText, state: website, setter: setWebsite },
                 { key: 'groupChat', label: 'Group Chat', icon: MessageSquare, state: groupChat, setter: setGroupChat },
-                { key: 'subscription', label: 'Subscription', icon: Star, state: subscription, setter: setSubscription },
+                { key: 'subscription', label: 'Buy', icon: ShoppingBag, state: subscription, setter: setSubscription },
               ].map(({ key, label, icon: Icon, state, setter }) => (
                 <label
                   key={key}
@@ -332,7 +332,7 @@ function CommunityFormModal({ isOpen, onClose, onSave, editPage }) {
           {/* Subscription Price (only when subscription enabled) */}
           {subscription && (
             <div className="bg-purple-50 rounded-lg p-4 border border-purple-100">
-              <label className="block text-sm font-medium text-purple-700 mb-2">Subscription Pricing</label>
+              <label className="block text-sm font-medium text-purple-700 mb-2">Buy Pricing</label>
               <div className="flex gap-3">
                 <select
                   value={subscriptionCurrency}
@@ -427,35 +427,44 @@ function DeleteModal({ isOpen, onClose, onConfirm, pageName, deleting }) {
 // ─────────────────────────────────────────────
 // Page Row
 // ─────────────────────────────────────────────
+const StatusBadge = ({ status }) => {
+  const map = {
+    active: 'bg-green-50 text-green-700 border-green-200',
+    inactive: 'bg-gray-50 text-gray-700 border-gray-200',
+    archived: 'bg-gray-50 text-gray-700 border-gray-200',
+    suspended: 'bg-red-50 text-red-700 border-red-200',
+  }
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium border rounded-full ${map[status] || map.inactive}`}>
+      {status || 'unknown'}
+    </span>
+  )
+}
+
 const PageRow = memo(({ page, onEdit, onDelete, onEditContent }) => {
   const featureBadges = []
   if (page.features?.website) featureBadges.push({ label: 'Website', color: 'bg-blue-100 text-blue-700' })
   if (page.features?.groupChat) featureBadges.push({ label: 'Chat', color: 'bg-amber-100 text-amber-700' })
-  if (page.features?.subscription) featureBadges.push({ label: 'Subscription', color: 'bg-purple-100 text-purple-700' })
+  if (page.features?.subscription) featureBadges.push({ label: 'Buy', color: 'bg-purple-100 text-purple-700' })
 
   return (
-    <TableRow className="hover:bg-gray-50">
-      <TableCell>
-        <div className="flex items-center gap-3">
+    <TableRow>
+      <TableCell className="font-medium">
+        <div className="flex items-center gap-2">
           {page.profileImage ? (
-            <img src={page.profileImage} alt="" className="w-10 h-10 rounded-lg object-cover border border-gray-200" />
+            <img src={page.profileImage} alt="" className="w-8 h-8 rounded-full object-cover bg-gray-100" onError={(e) => { e.currentTarget.style.display = 'none' }} />
           ) : (
-            <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-bold text-sm">
-              {page.name?.[0]?.toUpperCase() || 'C'}
+            <div className="w-8 h-8 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center text-xs font-bold">
+              {(page.name || '?').charAt(0).toUpperCase()}
             </div>
           )}
-          <div>
-            <p className="font-medium text-gray-900 text-sm">{page.name}</p>
-            <p className="text-xs text-gray-500 line-clamp-1 max-w-[200px]">{page.bio || 'No description'}</p>
-          </div>
+          <span className="truncate max-w-[160px]">{page.name}</span>
         </div>
       </TableCell>
       <TableCell>
-        <span className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
-          page.type === 'public' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'
-        }`}>
-          {page.type === 'public' ? <Globe className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-          {page.type}
+        <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+          {page.type === 'private' ? <Lock className="w-3 h-3" /> : <Globe className="w-3 h-3" />}
+          {page.type || 'public'}
         </span>
       </TableCell>
       <TableCell>
@@ -469,38 +478,40 @@ const PageRow = memo(({ page, onEdit, onDelete, onEditContent }) => {
           )}
         </div>
       </TableCell>
-      <TableCell>
-        <span className="text-sm text-gray-700">{page.followerCount || 0}</span>
+      <TableCell className="text-right text-sm">
+        {page.features?.subscription && page.subscriptionPrice
+          ? `₹${page.subscriptionPrice}`
+          : <span className="text-gray-400">—</span>}
       </TableCell>
       <TableCell>
-        <span className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded-full ${
-          page.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-        }`}>
-          {page.status}
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-xs font-medium">
+          <Users className="w-3 h-3" />
+          {page.followerCount || 0}
         </span>
       </TableCell>
-      <TableCell>
-        <span className="text-xs text-gray-500">{formatDate(page.createdAt)}</span>
+      <TableCell><StatusBadge status={page.status} /></TableCell>
+      <TableCell className="text-xs text-gray-500">
+        {page.createdAt ? formatDate(page.createdAt) : '—'}
       </TableCell>
-      <TableCell>
-        <div className="flex items-center gap-2">
+      <TableCell className="text-right">
+        <div className="flex items-center gap-1.5 justify-end">
           <button
             onClick={() => onEditContent(page)}
-            className="p-1.5 rounded-lg text-gray-500 hover:text-green-600 hover:bg-green-50 transition-colors"
+            className="p-1.5 rounded-lg text-gray-500 hover:text-green-600 hover:bg-green-50 border border-gray-200 transition-colors"
             title="Edit Content"
           >
             <FileText className="w-4 h-4" />
           </button>
           <button
             onClick={() => onEdit(page)}
-            className="p-1.5 rounded-lg text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+            className="p-1.5 rounded-lg text-gray-500 hover:text-blue-600 hover:bg-blue-50 border border-gray-200 transition-colors"
             title="Edit"
           >
             <Edit2 className="w-4 h-4" />
           </button>
           <button
             onClick={() => onDelete(page)}
-            className="p-1.5 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+            className="p-1.5 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 border border-gray-200 transition-colors"
             title="Archive"
           >
             <Trash2 className="w-4 h-4" />
@@ -580,20 +591,24 @@ export default function CommunityPages() {
     : pages
 
   return (
-    <div className="space-y-6">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Community Pages</h1>
-          <p className="text-sm text-gray-500 mt-1">Create and manage admin community pages visible in the Community tab</p>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <Layers className="w-6 h-6 text-purple-600" />
+            Community Pages
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">Admin community pages visible in the Community tab</p>
         </div>
         <div className="flex items-center gap-3">
           <button
             onClick={() => fetchPages(pagination.page)}
-            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-            title="Refresh"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50"
+            disabled={loading}
           >
-            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
           </button>
           <button
             onClick={() => { setEditPage(null); setShowCreateModal(true) }}
@@ -608,102 +623,107 @@ export default function CommunityPages() {
       {/* Stats */}
       <StatCards pages={pages} loading={loading} />
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex items-center gap-4">
-            <div className="relative flex-1 max-w-sm">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search communities..."
-                className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="all">All Status</option>
-              <option value="active">Active</option>
-              <option value="archived">Archived</option>
-              <option value="suspended">Suspended</option>
-            </select>
-          </div>
-        </CardContent>
-      </Card>
-
       {/* Table */}
       <Card>
+        <CardHeader>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <CardTitle>All Community Pages</CardTitle>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search pages..."
+                  className="w-48 pl-8 pr-3 py-1.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              {['all', 'active', 'archived', 'suspended'].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStatusFilter(s)}
+                  className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                    statusFilter === s
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  {s.charAt(0).toUpperCase() + s.slice(1)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </CardHeader>
         <CardContent className="p-0">
-          {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <RefreshCw className="w-8 h-8 text-blue-500 animate-spin" />
-            </div>
-          ) : filteredPages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-              <Users className="w-12 h-12 mb-3" />
-              <p className="text-sm font-medium">No community pages found</p>
-              <p className="text-xs mt-1">Create your first community page to get started</p>
-            </div>
-          ) : (
-            <>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Page</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Features</TableHead>
-                    <TableHead>Followers</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredPages.map((page) => (
-                    <PageRow
-                      key={page._id}
-                      page={page}
-                      onEditContent={(p) => navigate(`/community-pages/${p._id}/edit`)}
-                      onEdit={(p) => { setEditPage(p); setShowCreateModal(true) }}
-                      onDelete={(p) => setDeletePage(p)}
-                    />
-                  ))}
-                </TableBody>
-              </Table>
-
-              {/* Pagination */}
-              {pagination.totalPages > 1 && (
-                <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100">
-                  <span className="text-sm text-gray-500">
-                    Page {pagination.page} of {pagination.totalPages} ({pagination.total} total)
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => fetchPages(pagination.page - 1)}
-                      disabled={pagination.page <= 1}
-                      className="p-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => fetchPages(pagination.page + 1)}
-                      disabled={pagination.page >= pagination.totalPages}
-                      className="p-2 rounded-lg border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Page</TableHead>
+                <TableHead>Type</TableHead>
+                <TableHead>Features</TableHead>
+                <TableHead className="text-right">Buy Price</TableHead>
+                <TableHead>Followers</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {loading && filteredPages.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                    Loading...
+                  </TableCell>
+                </TableRow>
+              ) : filteredPages.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                    No community pages found
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredPages.map((page) => (
+                  <PageRow
+                    key={page._id}
+                    page={page}
+                    onEditContent={(p) => navigate(`/community-pages/${p._id}/edit`)}
+                    onEdit={(p) => { setEditPage(p); setShowCreateModal(true) }}
+                    onDelete={(p) => setDeletePage(p)}
+                  />
+                ))
               )}
-            </>
-          )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
+
+      {/* Pagination */}
+      {pagination.totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4">
+          <p className="text-sm text-gray-600">
+            Page {pagination.page} of {pagination.totalPages} • {pagination.total} pages
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => fetchPages(pagination.page - 1)}
+              disabled={pagination.page <= 1 || loading}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Prev
+            </button>
+            <button
+              onClick={() => fetchPages(pagination.page + 1)}
+              disabled={pagination.page >= pagination.totalPages || loading}
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Create/Edit Modal */}
       <CommunityFormModal

@@ -689,26 +689,30 @@ export default function UserProfileScreen() {
           </View>
         </ExpoLinearGradient>
 
-        {/* Stats Row - Uniform Pill-like Cards */}
-        <View style={styles.statsContainer}>
-          <StatCard 
-            iconName="trophy"
-            value={profile.followersCount !== undefined ? profile.followersCount : (Array.isArray(profile.followers) ? profile.followers.length : 0)}
-            label="Followers"
-            onPress={() => router.push({ pathname: '/followers', params: { userId: profile._id, type: 'followers' } })}
-          />
-          <StatCard 
-            iconName="people"
-            value={profile.followingCount !== undefined ? profile.followingCount : (Array.isArray(profile.following) ? profile.following.length : 0)}
-            label="Following"
-            onPress={() => router.push({ pathname: '/followers', params: { userId: profile._id, type: 'following' } })}
-          />
-          <StatCard 
-            iconName="location"
-            value={(currentUser && (currentUser._id === profile._id || isFollowing)) && Array.isArray(profile.locations) ? profile.locations.length : '-'}
-            label="Locations"
-          />
-        </View>
+        {/* Stats Row — hidden on private profiles you can't view (gates
+            follower/following/location counts behind the same access
+            check as posts). Visible to the owner of the profile. */}
+        {(profile.canViewPosts || isOwnProfile) && (
+          <View style={styles.statsContainer}>
+            <StatCard
+              iconName="trophy"
+              value={profile.followersCount !== undefined ? profile.followersCount : (Array.isArray(profile.followers) ? profile.followers.length : 0)}
+              label="Followers"
+              onPress={() => router.push({ pathname: '/followers', params: { userId: profile._id, type: 'followers' } })}
+            />
+            <StatCard
+              iconName="people"
+              value={profile.followingCount !== undefined ? profile.followingCount : (Array.isArray(profile.following) ? profile.following.length : 0)}
+              label="Following"
+              onPress={() => router.push({ pathname: '/followers', params: { userId: profile._id, type: 'following' } })}
+            />
+            <StatCard
+              iconName="location"
+              value={(currentUser && (currentUser._id === profile._id || isFollowing)) && Array.isArray(profile.locations) ? profile.locations.length : '-'}
+              label="Locations"
+            />
+          </View>
+        )}
 
         {/* TripScore Section - Compact */}
         {profile.tripScore && profile.canViewLocations && (
@@ -754,7 +758,10 @@ export default function UserProfileScreen() {
           </Pressable>
         )}
 
-        {/* Location Card - unified: base, verified summary, trips summary, globe */}
+        {/* Location Card — hidden on private profiles you can't view.
+            "My Location"/"Their Location" copy + globe is travel data,
+            same gate as the posts surface. Owner always sees their own. */}
+        {(profile.canViewPosts || isOwnProfile) && (
         <Pressable
           style={[styles.locationCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder }]}
           onPress={() => {
@@ -820,6 +827,7 @@ export default function UserProfileScreen() {
             )}
           </View>
         </Pressable>
+        )}
 
         {/* Posts/Shorts Section */}
         {profile.canViewPosts && (

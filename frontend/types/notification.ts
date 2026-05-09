@@ -8,7 +8,8 @@ export interface Notification {
     | 'follow_approved'
     | 'post_mention'
     | 'follow_request_accepted'
-    | 'follow_request_rejected';
+    | 'follow_request_rejected'
+    | 'subscription_active';
   fromUser: {
     _id: string;
     fullName: string;

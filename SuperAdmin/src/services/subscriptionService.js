@@ -64,3 +64,31 @@ export const getPayouts = async ({ status, month, year, page = 1, limit = 20 } =
     throw error
   }
 }
+
+// Manually mark a payout as paid (all payouts are sent manually)
+export const markPayoutPaid = async (payoutId, { reference, notes, paidAt } = {}) => {
+  try {
+    const response = await api.post(`${BASE}/payouts/${payoutId}/mark-paid`, {
+      reference,
+      notes,
+      paidAt,
+    })
+    return response.data?.data || response.data
+  } catch (error) {
+    logger.error('Failed to mark payout as paid:', error)
+    throw error
+  }
+}
+
+// Fetch payouts scoped to a single Connect page
+export const getConnectPagePayouts = async (pageId, { status, page = 1, limit = 20 } = {}) => {
+  try {
+    const params = { page, limit }
+    if (status) params.status = status
+    const response = await api.get(`${BASE}/connect-pages/${pageId}/payouts`, { params })
+    return response.data?.data || response.data
+  } catch (error) {
+    logger.error('Failed to fetch page payouts:', error)
+    throw error
+  }
+}

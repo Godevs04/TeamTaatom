@@ -17,7 +17,6 @@ const isTabPath = (p: string | null) => {
   const segment = p.split('/').pop() || '';
   return TAB_NAMES.has(segment);
 };
-const isShorts = (p: string | null) => p ? p.endsWith('/shorts') : false;
 
 export default function TabsLayout() {
   const { theme } = useTheme();
@@ -49,28 +48,29 @@ export default function TabsLayout() {
 
     previousPathnameRef.current = pathname;
 
-    // Only handle tab navigation within tabs layout
     const isCurrentTab = isTabPath(pathname);
     const wasTab = isTabPath(previousPath);
 
-    // Only handle tab-to-tab navigation here
+    // Stop all audio whenever the user moves between tabs, regardless of which
+    // tab they're leaving. Home posts (via SongPlayer) and Shorts both route
+    // playback through audioManager, so a single stopAll() handles both. The
+    // freeze window defeats the race where an Audio.Sound.loadAsync started on
+    // the previous tab resolves AFTER navigation and would otherwise begin
+    // playing in the background. Shorts itself calls unfreeze() on focus
+    // return, so this won't block the next tab from starting its own playback.
     if (isCurrentTab && wasTab) {
-      // If leaving shorts, stop audio
-      const wasShorts = isShorts(previousPath);
-      if (wasShorts) {
-        isStoppingAudioRef.current = true;
-        logger.debug('[TabsLayout] Stopping all audio - navigating away from home/shorts');
-        audioManager.stopAll()
-          .catch((error) => {
-            logger.error('[TabsLayout] Error stopping audio:', error);
-          })
-          .finally(() => {
-            // Reset flag after a short delay to allow for navigation
-            setTimeout(() => {
-              isStoppingAudioRef.current = false;
-            }, 100);
-          });
-      }
+      isStoppingAudioRef.current = true;
+      audioManager.freeze(400);
+      logger.debug('[TabsLayout] Stopping all audio on tab change');
+      audioManager.stopAll()
+        .catch((error) => {
+          logger.error('[TabsLayout] Error stopping audio:', error);
+        })
+        .finally(() => {
+          setTimeout(() => {
+            isStoppingAudioRef.current = false;
+          }, 100);
+        });
     }
   }, [pathname]);
 

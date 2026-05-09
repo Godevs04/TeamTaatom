@@ -7,16 +7,22 @@ import {
   ActivityIndicator,
   StatusBar,
   Platform,
+  TextInput,
+  Modal,
+  Animated,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import * as ExpoLocation from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../context/ThemeContext';
+import { useAlert } from '../../context/AlertContext';
+import { useJourney } from '../../context/JourneyContext';
 import { MapView, Marker, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
 import PolylineRenderer from '../../components/PolylineRenderer';
-import PhotoOverlay from '../../components/PhotoOverlay';
 import { getTravelMapData } from '../../services/profile';
 import { getUserJourneys } from '../../services/journey';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
@@ -79,12 +85,186 @@ function AllLocationsMapInner() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme, mode } = useTheme();
+  const { showAlert } = useAlert();
   const rawUserId = params.userId;
   const userId = typeof rawUserId === 'string' ? rawUserId : Array.isArray(rawUserId) ? rawUserId[0] : undefined;
   const displayName = safeDecodeUriComponent(params.userName as string | string[] | undefined);
   const headerTitle = displayName ? `${displayName}'s Locations` : 'My Locations';
   const mapRef = useRef<any>(null);
   const WEBVIEW_API_KEY = getGoogleMapsApiKeyForWebView();
+
+  // Journey tracking — moved here from /map/current-location so the start /
+  // active / paused controls live with the rest of the user's travel data
+  // (past journeys, posts, stats).
+  const {
+    isTracking,
+    isPaused,
+    distance: journeyDistance,
+    duration: journeyDuration,
+    startJourneyRecording,
+    pauseJourneyRecording,
+    resumeJourneyRecording,
+    stopJourneyRecording,
+  } = useJourney();
+  const [journeyTitleInput, setJourneyTitleInput] = useState('');
+  const [showJourneyTitle, setShowJourneyTitle] = useState(false);
+  const [journeyActionLoading, setJourneyActionLoading] = useState(false);
+  const [showInstructions, setShowInstructions] = useState(false);
+  const [instructionCountdown, setInstructionCountdown] = useState(10);
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const progressAnim = useRef(new Animated.Value(1)).current;
+
+  // Live accuracy: separate from `currentCountry` because we want to refresh
+  // it more often than once-on-mount. Only own-page (no userId mismatch).
+  const isOwnPage = !displayName; // displayName only set when viewing someone else's
+  const [deviceAccuracy, setDeviceAccuracy] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!isOwnPage) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+        if (status !== 'granted' || cancelled) return;
+        const loc = await ExpoLocation.getCurrentPositionAsync({
+          accuracy: ExpoLocation.Accuracy.Balanced,
+        });
+        if (!cancelled && loc.coords?.accuracy && loc.coords.accuracy > 0) {
+          setDeviceAccuracy(loc.coords.accuracy);
+        }
+      } catch {
+        // Silent — accuracy chip is optional context, not critical.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isOwnPage]);
+
+  const formatJourneyDistance = () => {
+    if (journeyDistance < 1000) return `${Math.round(journeyDistance)} m`;
+    return `${(journeyDistance / 1000).toFixed(1)} km`;
+  };
+
+  const formatJourneyDuration = () => {
+    const h = Math.floor(journeyDuration / 3600);
+    const m = Math.floor((journeyDuration % 3600) / 60);
+    const s = journeyDuration % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  };
+
+  const handleStartJourney = async () => {
+    try {
+      setJourneyActionLoading(true);
+      const countStr = await AsyncStorage.getItem('journeyStartCount');
+      const count = countStr ? parseInt(countStr, 10) : 0;
+      await AsyncStorage.setItem('journeyStartCount', String(count + 1));
+      await startJourneyRecording(journeyTitleInput || undefined);
+      setJourneyTitleInput('');
+      setShowJourneyTitle(false);
+    } catch (err: any) {
+      showAlert('Failed to start journey', err?.message || 'Unknown error');
+    } finally {
+      setJourneyActionLoading(false);
+    }
+  };
+
+  // Show instructions popup for the first 5 journeys.
+  const handleStartPress = async () => {
+    try {
+      const countStr = await AsyncStorage.getItem('journeyStartCount');
+      const count = countStr ? parseInt(countStr, 10) : 0;
+      if (count < 5) {
+        setInstructionCountdown(10);
+        setShowInstructions(true);
+        progressAnim.setValue(1);
+        Animated.timing(progressAnim, {
+          toValue: 0,
+          duration: 10000,
+          useNativeDriver: false,
+        }).start();
+        countdownRef.current = setInterval(() => {
+          setInstructionCountdown((prev) => {
+            if (prev <= 1) {
+              if (countdownRef.current) clearInterval(countdownRef.current);
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+      } else {
+        await handleStartJourney();
+      }
+    } catch {
+      await handleStartJourney();
+    }
+  };
+
+  const dismissInstructions = async () => {
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    progressAnim.stopAnimation();
+    setShowInstructions(false);
+    await handleStartJourney();
+  };
+
+  // Auto-dismiss when countdown reaches 0
+  useEffect(() => {
+    if (showInstructions && instructionCountdown === 0) {
+      const t = setTimeout(() => dismissInstructions(), 100);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instructionCountdown, showInstructions]);
+
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (countdownRef.current) clearInterval(countdownRef.current);
+    };
+  }, []);
+
+  const handlePauseJourney = async () => {
+    try {
+      setJourneyActionLoading(true);
+      await pauseJourneyRecording();
+    } catch (err: any) {
+      showAlert('Failed to pause', err?.message || 'Unknown error');
+    } finally {
+      setJourneyActionLoading(false);
+    }
+  };
+
+  const handleResumeJourney = async () => {
+    try {
+      setJourneyActionLoading(true);
+      await resumeJourneyRecording();
+    } catch (err: any) {
+      showAlert('Failed to resume', err?.message || 'Unknown error');
+    } finally {
+      setJourneyActionLoading(false);
+    }
+  };
+
+  const handleStopJourney = () => {
+    Alert.alert('End Journey?', 'This will complete your current journey.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'End Journey',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            setJourneyActionLoading(true);
+            await stopJourneyRecording();
+            router.push('/navigate/complete');
+          } catch (err: any) {
+            showAlert('Failed to end journey', err?.message || 'Unknown error');
+          } finally {
+            setJourneyActionLoading(false);
+          }
+        },
+      },
+    ]);
+  };
 
   // Get current country via reverse geocoding
   useEffect(() => {
@@ -368,6 +548,18 @@ function initMap(){
   });
 
   var markers=${JSON.stringify(markersData)};
+  // Dedupe by ~11m precision (4 decimal places) so multiple posts taken at
+  // the exact same spot (or within GPS noise) collapse to one marker. Without
+  // this, a single venue with 3 posts shows as a "+3" cluster badge when
+  // zoomed out, then snaps to overlapping pins (looks like 1) on full zoom-in.
+  (function(){
+    var seen={},deduped=[];
+    markers.forEach(function(m){
+      var key=m.lat.toFixed(4)+','+m.lng.toFixed(4);
+      if(!seen[key]){seen[key]=true;deduped.push(m);}
+    });
+    markers=deduped;
+  })();
   markers.forEach(function(m){bounds.extend(new google.maps.LatLng(m.lat,m.lng));});
 
   // Zoom-aware grid size: smaller grid = less clustering when zoomed in
@@ -419,27 +611,14 @@ function initMap(){
       var pos=new google.maps.LatLng(cluster.lat,cluster.lng);
       var main=cluster.items[0],extra=cluster.items.length-1;
       var div=document.createElement('div');
-      div.style.cssText='position:relative;width:'+sz+'px;height:'+sz+'px;cursor:pointer;';
+      div.style.cssText='position:relative;width:'+sz+'px;height:'+sz+'px;cursor:pointer;display:flex;align-items:center;justify-content:center;';
 
-      if(main.photo){
-        var img=document.createElement('img');
-        img.src=main.photo;
-        img.crossOrigin='anonymous';
-        img.style.cssText='width:'+sz+'px;height:'+sz+'px;border-radius:10px;border:3px solid white;object-fit:cover;box-shadow:0 2px 8px rgba(0,0,0,0.3);background:#E5E7EB;';
-        img.onerror=function(){
-          this.style.display='none';
-          var fb=document.createElement('div');
-          fb.style.cssText='width:'+sz+'px;height:'+sz+'px;border-radius:10px;border:3px solid white;background:${GROWTH_GREEN};display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
-          fb.innerHTML='<span style="color:white;font-weight:bold;font-size:14px;">#'+main.number+'</span>';
-          div.insertBefore(fb,div.firstChild);
-        };
-        div.appendChild(img);
-      }else{
-        var ph=document.createElement('div');
-        ph.style.cssText='width:'+sz+'px;height:'+sz+'px;border-radius:10px;border:3px solid white;background:${GROWTH_GREEN};display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,0.3);';
-        ph.innerHTML='<span style="color:white;font-weight:bold;font-size:14px;">#'+main.number+'</span>';
-        div.appendChild(ph);
-      }
+      // Always render a red teardrop pin for post locations (replacing the
+      // previous photo-tile / number-circle marker). Cluster overflow stays
+      // on the +N badge below.
+      var pin=document.createElement('div');
+      pin.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 24 28"><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 16 12 16s12-7 12-16C24 5.4 18.6 0 12 0z" fill="${ALERT_RED}" stroke="white" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="white"/></svg>';
+      div.appendChild(pin);
 
       if(extra>0){
         var badge=document.createElement('div');
@@ -640,15 +819,7 @@ function initMap(){
             description={`Visit #${location.number}`}
           >
             <View style={styles.markerContainer}>
-              {location.photo ? (
-                <View style={{ marginBottom: 4 }}>
-                  <PhotoOverlay imageUrl={location.photo} label={`${location.number}`} onPress={() => {}} />
-                </View>
-              ) : (
-                <View style={[styles.markerCircle, { backgroundColor: ALERT_RED }]}>
-                  <Text style={styles.markerText}>{location.number}</Text>
-                </View>
-              )}
+              <Ionicons name="location" size={36} color={ALERT_RED} />
             </View>
           </Marker>
         ))}
@@ -810,6 +981,218 @@ function initMap(){
           renderMap()
         )}
       </View>
+
+      {/* Journey controls — only on own page (not when viewing someone else's). */}
+      {isOwnPage && (
+        <View style={[journeyStyles.journeyBar, { backgroundColor: theme.colors.surface, borderTopColor: theme.colors.border }]}>
+          {/* Accuracy chip */}
+          {deviceAccuracy !== null && (
+            <View style={journeyStyles.accuracyRow}>
+              <Ionicons name="checkmark-circle" size={16} color={GROWTH_GREEN} />
+              <Text style={[journeyStyles.accuracyText, { color: theme.colors.textSecondary }]}>
+                Accuracy: ±{Math.round(deviceAccuracy)}m
+              </Text>
+            </View>
+          )}
+
+          {/* No active journey — show Start button */}
+          {!isTracking && !isPaused && (
+            <>
+              {showJourneyTitle && (
+                <View style={[journeyStyles.titleRow, { borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}>
+                  <TextInput
+                    style={[journeyStyles.titleInput, { color: theme.colors.text, backgroundColor: theme.colors.background }]}
+                    placeholder="Journey name (optional)"
+                    placeholderTextColor={theme.colors.textSecondary}
+                    value={journeyTitleInput}
+                    onChangeText={setJourneyTitleInput}
+                    maxLength={50}
+                  />
+                  <TouchableOpacity onPress={() => { setShowJourneyTitle(false); setJourneyTitleInput(''); }}>
+                    <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+              )}
+              <TouchableOpacity
+                style={[journeyStyles.startBtn, { backgroundColor: GROWTH_GREEN }]}
+                onPress={() => {
+                  if (showJourneyTitle) {
+                    handleStartPress();
+                  } else {
+                    setShowJourneyTitle(true);
+                  }
+                }}
+                disabled={journeyActionLoading}
+              >
+                {journeyActionLoading ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <>
+                    <Ionicons name="play-circle" size={22} color="white" />
+                    <Text style={journeyStyles.startBtnText}>Start Journey</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </>
+          )}
+
+          {/* Journey active — show recording stats + pause + end */}
+          {isTracking && !isPaused && (
+            <>
+              <View style={journeyStyles.statsRow}>
+                <View style={journeyStyles.statChip}>
+                  <Ionicons name="navigate" size={14} color={GROWTH_GREEN} />
+                  <Text style={[journeyStyles.statText, { color: theme.colors.text }]}>{formatJourneyDistance()}</Text>
+                </View>
+                <View style={journeyStyles.statChip}>
+                  <Ionicons name="time" size={14} color={ACTION_BLUE} />
+                  <Text style={[journeyStyles.statText, { color: theme.colors.text }]}>{formatJourneyDuration()}</Text>
+                </View>
+                <View style={[journeyStyles.liveDot, { backgroundColor: GROWTH_GREEN }]} />
+                <Text style={[journeyStyles.liveText, { color: GROWTH_GREEN }]}>Recording</Text>
+              </View>
+              <View style={journeyStyles.actionRow}>
+                <TouchableOpacity
+                  style={[journeyStyles.pauseBtn, { borderColor: '#F59E0B' }]}
+                  onPress={handlePauseJourney}
+                  disabled={journeyActionLoading}
+                >
+                  <Ionicons name="pause" size={18} color="#F59E0B" />
+                  <Text style={[journeyStyles.pauseBtnText, { color: '#F59E0B' }]}>Pause</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[journeyStyles.stopBtn, { borderColor: ALERT_RED }]}
+                  onPress={handleStopJourney}
+                  disabled={journeyActionLoading}
+                >
+                  <Ionicons name="stop" size={18} color={ALERT_RED} />
+                  <Text style={[journeyStyles.pauseBtnText, { color: ALERT_RED }]}>End</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+
+          {/* Journey paused — show resume / end */}
+          {isPaused && (
+            <>
+              <View style={journeyStyles.statsRow}>
+                <View style={journeyStyles.statChip}>
+                  <Ionicons name="navigate" size={14} color={GROWTH_GREEN} />
+                  <Text style={[journeyStyles.statText, { color: theme.colors.text }]}>{formatJourneyDistance()}</Text>
+                </View>
+                <View style={journeyStyles.statChip}>
+                  <Ionicons name="time" size={14} color={ACTION_BLUE} />
+                  <Text style={[journeyStyles.statText, { color: theme.colors.text }]}>{formatJourneyDuration()}</Text>
+                </View>
+                <View style={[journeyStyles.liveDot, { backgroundColor: '#F59E0B' }]} />
+                <Text style={[journeyStyles.liveText, { color: '#F59E0B' }]}>Paused</Text>
+              </View>
+              <View style={journeyStyles.actionRow}>
+                <TouchableOpacity
+                  style={[journeyStyles.startBtn, { backgroundColor: GROWTH_GREEN, flex: 1 }]}
+                  onPress={handleResumeJourney}
+                  disabled={journeyActionLoading}
+                >
+                  {journeyActionLoading ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <>
+                      <Ionicons name="play" size={20} color="white" />
+                      <Text style={journeyStyles.startBtnText}>Continue</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[journeyStyles.stopBtn, { borderColor: ALERT_RED }]}
+                  onPress={handleStopJourney}
+                  disabled={journeyActionLoading}
+                >
+                  <Ionicons name="stop" size={18} color={ALERT_RED} />
+                  <Text style={[journeyStyles.pauseBtnText, { color: ALERT_RED }]}>End</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+        </View>
+      )}
+
+      {/* First-5 Journey Instructions Modal */}
+      <Modal
+        visible={showInstructions}
+        transparent
+        animationType="fade"
+        onRequestClose={dismissInstructions}
+      >
+        <View style={instructionStyles.overlay}>
+          <View style={[instructionStyles.modal, { backgroundColor: theme.colors.surface }]}>
+            <View style={instructionStyles.header}>
+              <View style={[instructionStyles.iconWrap, { backgroundColor: GROWTH_GREEN + '12' }]}>
+                <Ionicons name="compass-outline" size={28} color={GROWTH_GREEN} />
+              </View>
+              <Text style={[instructionStyles.title, { color: theme.colors.text }]}>How Journeys Work</Text>
+            </View>
+            <View style={instructionStyles.list}>
+              <View style={instructionStyles.item}>
+                <View style={[instructionStyles.tipIcon, { backgroundColor: GROWTH_GREEN + '12' }]}>
+                  <Ionicons name="pause-circle-outline" size={20} color={GROWTH_GREEN} />
+                </View>
+                <Text style={[instructionStyles.text, { color: theme.colors.text }]}>
+                  You can <Text style={{ fontWeight: '700' }}>pause and resume</Text> your journey anytime you want.
+                </Text>
+              </View>
+              <View style={instructionStyles.item}>
+                <View style={[instructionStyles.tipIcon, { backgroundColor: ACTION_BLUE + '12' }]}>
+                  <Ionicons name="location-outline" size={20} color={ACTION_BLUE} />
+                </View>
+                <Text style={[instructionStyles.text, { color: theme.colors.text }]}>
+                  If your <Text style={{ fontWeight: '700' }}>location is turned off</Text>, the journey will automatically pause.
+                </Text>
+              </View>
+              <View style={instructionStyles.item}>
+                <View style={[instructionStyles.tipIcon, { backgroundColor: ALERT_RED + '12' }]}>
+                  <Ionicons name="time-outline" size={20} color={ALERT_RED} />
+                </View>
+                <Text style={[instructionStyles.text, { color: theme.colors.text }]}>
+                  If paused for more than <Text style={{ fontWeight: '700' }}>24 hours</Text>, the journey ends automatically at your last known location.
+                </Text>
+              </View>
+              <View style={instructionStyles.item}>
+                <View style={[instructionStyles.tipIcon, { backgroundColor: '#8B5CF6' + '12' }]}>
+                  <Ionicons name="camera-outline" size={20} color="#8B5CF6" />
+                </View>
+                <Text style={[instructionStyles.text, { color: theme.colors.text }]}>
+                  <Text style={{ fontWeight: '700' }}>Add posts</Text> along the way to mark waypoints on your route.
+                </Text>
+              </View>
+            </View>
+            <View style={instructionStyles.footer}>
+              <View style={[instructionStyles.progressBg, { backgroundColor: theme.colors.border }]}>
+                <Animated.View
+                  style={[
+                    instructionStyles.progressFill,
+                    {
+                      backgroundColor: GROWTH_GREEN,
+                      width: progressAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: ['0%', '100%'],
+                      }),
+                    },
+                  ]}
+                />
+              </View>
+              <TouchableOpacity
+                style={[instructionStyles.gotItBtn, { backgroundColor: GROWTH_GREEN }]}
+                onPress={dismissInstructions}
+                activeOpacity={0.8}
+              >
+                <Text style={instructionStyles.gotItText}>
+                  Got it, start! ({instructionCountdown}s)
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
     </SafeAreaView>
   );
@@ -1006,5 +1389,192 @@ const markerStyles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '700',
+  },
+});
+
+// Journey controls — moved verbatim from /map/current-location's journeyStyles
+// so the visual treatment of Start / pause / resume / end is identical.
+const journeyStyles = StyleSheet.create({
+  journeyBar: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 24,
+    borderTopWidth: 1,
+    gap: 10,
+  },
+  accuracyRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  accuracyText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  titleInput: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '500',
+    minHeight: 36,
+    paddingVertical: 4,
+  },
+  startBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 12,
+    gap: 8,
+    minHeight: 50,
+  },
+  startBtnText: {
+    color: 'white',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  statChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  statText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginLeft: 'auto',
+  },
+  liveText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  pauseBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    gap: 6,
+  },
+  stopBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    gap: 6,
+  },
+  pauseBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+});
+
+const instructionStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  modal: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 20,
+    paddingTop: 28,
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 24,
+    elevation: 10,
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  iconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  list: {
+    gap: 16,
+    marginBottom: 24,
+  },
+  item: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  tipIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  text: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  footer: {
+    gap: 12,
+  },
+  progressBg: {
+    height: 4,
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+  },
+  gotItBtn: {
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 50,
+  },
+  gotItText: {
+    color: 'white',
+    fontSize: 15,
+    fontWeight: '600',
   },
 });

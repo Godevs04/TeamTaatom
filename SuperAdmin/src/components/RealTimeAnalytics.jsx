@@ -154,9 +154,9 @@ const RealTimeAnalytics = () => {
           <h3 className="text-lg font-semibold text-gray-900 mb-4">User Registrations</h3>
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={userRegistrations}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="time" />
-              <YAxis />
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="time" stroke="#6b7280" tick={{ fontSize: 12 }} />
+              <YAxis stroke="#6b7280" tick={{ fontSize: 12 }} />
               <Tooltip />
               <Area 
                 type="monotone" 
@@ -174,9 +174,9 @@ const RealTimeAnalytics = () => {
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Post Creations</h3>
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={postCreations}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="time" />
-              <YAxis />
+              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <XAxis dataKey="time" stroke="#6b7280" tick={{ fontSize: 12 }} />
+              <YAxis stroke="#6b7280" tick={{ fontSize: 12 }} />
               <Tooltip />
               <Line 
                 type="monotone" 

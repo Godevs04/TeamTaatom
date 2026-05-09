@@ -24,7 +24,7 @@ import { crashReportingService } from '../services/crashReporting';
 import { ErrorBoundary } from '../utils/errorBoundary';
 import { registerServiceWorker } from '../utils/serviceWorker';
 import JourneyStatusBar from '../components/JourneyStatusBar';
-import { useJourneyTracking } from '../hooks/useJourneyTracking';
+import { JourneyProvider, useJourney } from '../context/JourneyContext';
 import * as Sentry from '@sentry/react-native';
 // Note: expo-av is deprecated but still needed for Audio.setAudioModeAsync
 // Will migrate to expo-audio in future SDK update
@@ -102,7 +102,9 @@ function RootLayoutInner() {
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === 'web' ? 0 : insets.top;
 
-  // Journey tracking hook
+  // Journey tracking — reads from the shared provider mounted in
+  // RootLayout below, so every consumer (this layout, navigate/*,
+  // map/current-location) shares one GPS watcher.
   const {
     isTracking,
     isPaused,
@@ -110,7 +112,7 @@ function RootLayoutInner() {
     duration,
     pauseJourneyRecording,
     stopJourneyRecording,
-  } = useJourneyTracking();
+  } = useJourney();
 
   // Apply web optimizations
   useWebOptimizations();
@@ -541,11 +543,18 @@ function RootLayoutInner() {
       // Get current route to avoid navigation during hot reload/refresh
       const currentPath = pathname || segments.join('/');
       const normalizedPath = currentPath.toLowerCase();
-      const isOnAuthScreen = normalizedPath.includes('(auth)') || 
-                             normalizedPath.includes('signin') || 
-                             normalizedPath.includes('signup') || 
-                             normalizedPath.includes('verifyotp') || 
+      const isOnAuthScreen = normalizedPath.includes('(auth)') ||
+                             normalizedPath.includes('signin') ||
+                             normalizedPath.includes('signup') ||
+                             normalizedPath.includes('verifyotp') ||
                              normalizedPath.includes('forgot') ||
+                             normalizedPath.includes('reset-password');
+      // Password-change auth screens are legitimate destinations for an
+      // already-logged-in user (they're navigated to from Settings → Change
+      // Password). Without this exception the auth guard below would yank the
+      // user back to /(tabs)/home the moment the screen mounted, because
+      // (auth) paths aren't in `isOnValidRoute`.
+      const isOnPasswordChangeScreen = normalizedPath.includes('forgot') ||
                              normalizedPath.includes('reset-password');
       const isOnHomeScreen = normalizedPath.includes('(tabs)/home') || 
                              normalizedPath === '/(tabs)/home' || 
@@ -631,6 +640,12 @@ function RootLayoutInner() {
         // If already on a valid authenticated route, don't navigate (prevents flash during refresh)
         if (isOnValidRoute && !isOnAuthScreen) {
           logger.debug('[Navigation] Already on valid route, skipping navigation', { currentPath, segments });
+          return;
+        }
+        // Allow logged-in users to stay on the password-change flow
+        // (Settings → Change Password routes them to /(auth)/forgot).
+        if (isOnPasswordChangeScreen) {
+          logger.debug('[Navigation] On password-change screen, skipping redirect to home');
           return;
         }
         
@@ -960,9 +975,15 @@ export default Sentry.wrap(function RootLayout() {
           <SettingsProvider>
             <AlertProvider>
               <ScrollProvider>
-                <View style={styles.rootContainer}>
-                  <RootLayoutInner />
-                </View>
+                {/* JourneyProvider must wrap RootLayoutInner so it (and
+                    every other screen) reads the SAME journey instance —
+                    one GPS watcher, one batch-send timer for the whole
+                    app tree. */}
+                <JourneyProvider>
+                  <View style={styles.rootContainer}>
+                    <RootLayoutInner />
+                  </View>
+                </JourneyProvider>
               </ScrollProvider>
             </AlertProvider>
           </SettingsProvider>
