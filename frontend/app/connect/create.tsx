@@ -60,6 +60,7 @@ export default function CreateConnectPageScreen() {
   const router = useRouter();
   const [name, setName] = useState('');
   const [bio, setBio] = useState('');
+  const [category, setCategory] = useState<'connect' | 'community'>('connect');
   const [type, setType] = useState<'public' | 'private'>('public');
   const [websiteEnabled, setWebsiteEnabled] = useState(true);
   const [groupChatEnabled, setGroupChatEnabled] = useState(true);
@@ -82,6 +83,9 @@ export default function CreateConnectPageScreen() {
   const [wiseEmail, setWiseEmail] = useState('');
 
   const isDomestic = selectedCountry === 'IN';
+  const isCommunity = category === 'community';
+  const subLabel = isCommunity ? 'Buy' : 'Subscription';
+  const subButtonText = isCommunity ? 'Buy' : 'Subscribe';
 
   useEffect(() => {
     fetchCurrencyConfig().then((config) => {
@@ -149,6 +153,7 @@ export default function CreateConnectPageScreen() {
       setCreating(true);
       const response = await createConnectPage({
         name: name.trim(),
+        category,
         type,
         bio: bio.trim() || undefined,
         features: {
@@ -193,7 +198,9 @@ export default function CreateConnectPageScreen() {
         >
           <Ionicons name="close" size={isTablet ? 28 : 24} color={theme.colors.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Create Connect Page</Text>
+        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
+          Create {isCommunity ? 'Community' : 'Connect'} Page
+        </Text>
         <TouchableOpacity
           style={[styles.createButton, { backgroundColor: theme.colors.primary, opacity: creating || !name.trim() ? 0.5 : 1 }]}
           onPress={handleCreate}
@@ -314,9 +321,62 @@ export default function CreateConnectPageScreen() {
             />
           </View>
 
+          {/* Category */}
+          <View style={styles.field}>
+            <Text style={[styles.label, { color: theme.colors.text }]}>Category</Text>
+            <View style={styles.typeRow}>
+              <TouchableOpacity
+                style={[
+                  styles.typeOption,
+                  { borderColor: category === 'connect' ? theme.colors.primary : theme.colors.border },
+                  category === 'connect' && { backgroundColor: theme.colors.primary + '15' },
+                ]}
+                onPress={() => setCategory('connect')}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="link-outline"
+                  size={20}
+                  color={category === 'connect' ? theme.colors.primary : theme.colors.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.typeLabel,
+                    { color: category === 'connect' ? theme.colors.primary : theme.colors.textSecondary },
+                  ]}
+                >
+                  Connect
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.typeOption,
+                  { borderColor: category === 'community' ? theme.colors.primary : theme.colors.border },
+                  category === 'community' && { backgroundColor: theme.colors.primary + '15' },
+                ]}
+                onPress={() => setCategory('community')}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name="people-outline"
+                  size={20}
+                  color={category === 'community' ? theme.colors.primary : theme.colors.textSecondary}
+                />
+                <Text
+                  style={[
+                    styles.typeLabel,
+                    { color: category === 'community' ? theme.colors.primary : theme.colors.textSecondary },
+                  ]}
+                >
+                  Community
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
           {/* Page Type */}
           <View style={styles.field}>
-            <Text style={[styles.label, { color: theme.colors.text }]}>Page Type</Text>
+            <Text style={[styles.label, { color: theme.colors.text }]}>Visibility</Text>
             <View style={styles.typeRow}>
               <TouchableOpacity
                 style={[
@@ -415,9 +475,9 @@ export default function CreateConnectPageScreen() {
                 <View style={styles.featureInfo}>
                   <Ionicons name="star-outline" size={20} color={theme.colors.primary} />
                   <View style={styles.featureText}>
-                    <Text style={[styles.featureName, { color: theme.colors.text }]}>Subscription</Text>
+                    <Text style={[styles.featureName, { color: theme.colors.text }]}>{subLabel}</Text>
                     <Text style={[styles.featureDesc, { color: theme.colors.textSecondary }]}>
-                      List services you offer
+                      {isCommunity ? 'Let members buy access to your page' : 'List services you offer'}
                     </Text>
                   </View>
                 </View>
@@ -469,12 +529,12 @@ export default function CreateConnectPageScreen() {
                   {subscriptionPrice && parseFloat(subscriptionPrice) > 0 && (
                     <View style={styles.buttonPreviewContainer}>
                       <Text style={[styles.buttonPreviewLabel, { color: theme.colors.textSecondary }]}>
-                        Button preview — how subscribers will see it
+                        Button preview — how users will see it
                       </Text>
                       <View style={[styles.buttonPreview, { backgroundColor: theme.colors.primary }]}>
-                        <Ionicons name="star" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                        <Ionicons name={isCommunity ? 'cart-outline' : 'star'} size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
                         <Text style={styles.buttonPreviewText}>
-                          Subscribe · {activeCurrencyConfig.symbol}{subscriptionPrice}/month
+                          {subButtonText} · {activeCurrencyConfig.symbol}{subscriptionPrice}/month
                         </Text>
                       </View>
                       <Text style={[styles.buttonPreviewNote, { color: theme.colors.textSecondary }]}>
@@ -496,7 +556,7 @@ export default function CreateConnectPageScreen() {
                   </View>
                   <Text style={[styles.payoutSectionDesc, { color: theme.colors.textSecondary }]}>
                     {isDomestic
-                      ? 'Enter your bank account or UPI to receive subscription payouts'
+                      ? `Enter your bank account or UPI to receive ${isCommunity ? '' : 'subscription '}payouts`
                       : 'Enter your Wise email to receive international payouts'}
                   </Text>
 

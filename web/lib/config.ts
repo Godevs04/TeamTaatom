@@ -2,6 +2,14 @@ import { getServerEnv } from "./env";
 
 export type AppEnv = "development" | "staging" | "production";
 
+/** Env sometimes contains literal "null"/"undefined"; treat as unset so metadata URLs stay valid */
+function sanitizePublicWebUrl(raw: string | undefined): string | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const t = String(raw).trim();
+  if (!t || /^null$/i.test(t) || /^undefined$/i.test(t)) return undefined;
+  return t;
+}
+
 function getAppEnv(): AppEnv {
   const env = getServerEnv();
   return (env.APP_ENV ?? env.NEXT_PUBLIC_APP_ENV ?? (env.NODE_ENV === "production" ? "production" : "development")) as AppEnv;
@@ -37,8 +45,18 @@ export const config = {
 
   get webUrl(): string {
     const env = getServerEnv();
-    const url = env.NEXT_PUBLIC_WEB_URL ?? (typeof window !== "undefined" ? window.location.origin : "http://localhost:3001");
-    return url.replace(/\/$/, "");
+    const fromEnv = sanitizePublicWebUrl(env.NEXT_PUBLIC_WEB_URL);
+    if (fromEnv) {
+      try {
+        const href =
+          fromEnv.startsWith("http://") || fromEnv.startsWith("https://") ? fromEnv : `http://${fromEnv}`;
+        return new URL(href).origin;
+      } catch {
+        /* fall through */
+      }
+    }
+    if (typeof window !== "undefined") return window.location.origin.replace(/\/$/, "");
+    return "http://localhost:3001";
   },
 
   get apiV1(): string {

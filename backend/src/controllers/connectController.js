@@ -4,10 +4,36 @@ const ConnectFollow = require('../models/ConnectFollow');
 const ConnectPageView = require('../models/ConnectPageView');
 const Chat = require('../models/Chat');
 const User = require('../models/User');
+const Subscription = require('../models/Subscription');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { uploadObject, buildMediaKey } = require('../services/storage');
 const { generateSignedUrl, isSignedUrl, extractStorageKeyFromUrl } = require('../services/mediaService');
+
+/**
+ * Subscription content gate — true when the viewer is allowed to see paid
+ * content on this page. Owners always pass; everyone else must have an
+ * active Subscription row. The check lives here so every read path that
+ * surfaces `subscriptionContent` (page detail, dedicated content endpoint,
+ * future endpoints) can apply the same rule.
+ *
+ * Returns false for unauthenticated callers — never throws.
+ */
+const userCanReadSubscriptionContent = async (currentUserId, pageOwnerId, pageId) => {
+  if (!currentUserId) return false;
+  if (pageOwnerId && currentUserId.toString() === pageOwnerId.toString()) return true;
+  try {
+    const sub = await Subscription.exists({
+      userId: currentUserId,
+      connectPageId: pageId,
+      status: 'active',
+    });
+    return !!sub;
+  } catch (err) {
+    logger.warn('userCanReadSubscriptionContent check failed:', err.message);
+    return false;
+  }
+};
 
 // Helper: resolve storage keys to signed URLs for page images
 const resolvePageImages = async (page) => {
@@ -43,7 +69,7 @@ const resolvePageImages = async (page) => {
 const createPage = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { name, type, bio, features, subscriptionPrice, subscriptionCurrency, country, payoutInfo } = req.body;
+    const { name, type, category, bio, features, subscriptionPrice, subscriptionCurrency, country, payoutInfo } = req.body;
     const { getCurrencyFromCountry, validatePrice } = require('../utils/currencyConfig');
 
     if (!name || name.trim().length < 3 || name.trim().length > 50) {
@@ -96,6 +122,7 @@ const createPage = async (req, res) => {
     const pageData = {
       userId,
       name: name.trim(),
+      category: category === 'community' ? 'community' : 'connect',
       type: type || 'public',
       bio: bio ? bio.trim() : '',
       profileImage: profileImageStorageKey,
@@ -215,6 +242,20 @@ const getPageDetail = async (req, res) => {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
     }
 
+    // Self-heal any existing drift from the historical $inc/$max bug
+    // (counts could go stale or even negative). Mutations now sync from
+    // the active follow set on every state change, but pre-existing rows
+    // still need this corrective read on first detail-view.
+    const liveFollowerCount = await ConnectFollow.countDocuments({
+      connectPageId: pageId,
+      status: 'active'
+    });
+    if (page.followerCount !== liveFollowerCount) {
+      page.followerCount = liveFollowerCount;
+      ConnectPage.findByIdAndUpdate(pageId, { $set: { followerCount: liveFollowerCount } })
+        .catch((e) => logger.warn('Failed to persist self-healed followerCount:', e));
+    }
+
     // Check if current user is the owner
     const currentUserId = req.user?._id;
     const pageOwnerId = page.userId?._id || page.userId;
@@ -271,6 +312,25 @@ const getPageDetail = async (req, res) => {
         }
       }
     }
+    // Canvas elements: resolve image/video keys to signed URLs.
+    for (const el of (page.canvasContent || [])) {
+      if ((el.type === 'image' || el.type === 'video') && el.content) {
+        if (!el.content.startsWith('http')) {
+          try {
+            const url = await generateSignedUrl(el.content, 'DEFAULT');
+            if (url) el.content = url;
+          } catch { /* keep key */ }
+        } else if (isSignedUrl(el.content)) {
+          const key = extractStorageKeyFromUrl(el.content);
+          if (key) {
+            try {
+              const url = await generateSignedUrl(key, 'DEFAULT');
+              if (url) el.content = url;
+            } catch { /* keep existing */ }
+          }
+        }
+      }
+    }
 
     // Compute localized display prices for the subscription, if priced.
     // INR stays the source of truth (Cashfree only charges INR); the rest are
@@ -287,11 +347,38 @@ const getPageDetail = async (req, res) => {
       logger.warn('[connect.getPageDetail] FX display prices failed (non-fatal):', e.message);
     }
 
+    // Privacy gate: for private pages, redact gated fields when the viewer
+    // is neither the owner nor an active follower. The card / lock screen
+    // can still render (name, bio, profile image, follower count) but the
+    // body content, subscription content, and chat room id stay hidden.
+    // Without this, anyone hitting /api/v1/connect/page/:id could read every
+    // private page's full website + paid content directly from the response.
+    const isPrivateLocked = page.type === 'private' && !isOwner && !isFollowing;
+    if (isPrivateLocked) {
+      page.websiteContent = [];
+      page.subscriptionContent = [];
+      page.chatRoomId = null;
+      page.buyItems = [];
+    }
+
+    // Paid content gate: subscriptionContent is only visible to the owner or
+    // an active subscriber. Without this, the lock screen on the client was
+    // purely cosmetic — every visitor's API response carried the full paid
+    // content. Website/canvas content stays visible to everyone.
+    const isSubscribed = isPrivateLocked
+      ? false
+      : await userCanReadSubscriptionContent(currentUserId, pageOwnerId, pageId);
+    if (!isOwner && !isSubscribed) {
+      page.subscriptionContent = [];
+    }
+
     return sendSuccess(res, 200, 'Page detail fetched', {
       page,
       isOwner,
       isFollowing,
-      subscriptionDisplayPrices,
+      isSubscribed,
+      isPrivateLocked,
+      subscriptionDisplayPrices: isPrivateLocked ? null : subscriptionDisplayPrices,
     });
   } catch (error) {
     logger.error('Error fetching page detail:', error);
@@ -316,7 +403,7 @@ const updatePage = async (req, res) => {
       return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the owner can edit this page');
     }
 
-    const allowedFields = ['name', 'type', 'bio', 'profileImage', 'features', 'creatorPayoutInfo'];
+    const allowedFields = ['name', 'type', 'category', 'bio', 'profileImage', 'features', 'creatorPayoutInfo'];
     const updates = {};
     for (const field of allowedFields) {
       if (req.body[field] !== undefined) {
@@ -506,6 +593,119 @@ const getCommunities = async (req, res) => {
 };
 
 /**
+ * Get user-created (non-admin) Connect pages for the Connect tab.
+ * For authenticated viewers, every page they follow is ranked above every
+ * page they don't, GLOBALLY across the whole collection — so a followed
+ * entry that would otherwise land on page 5 by recency still appears in
+ * batch 1. Pagination uses a stable two-key sort (isFollowing desc,
+ * createdAt desc) so consecutive fetches don't re-shuffle items.
+ * GET /api/v1/connect/connect-pages
+ */
+const getConnectPages = async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Non-admin (community-built) pages only. Admin-created pages live on
+    // the Community tab via getCommunities.
+    const matchStage = { isAdminPage: { $ne: true }, status: 'active' };
+    const currentUserId = req.user?._id;
+
+    let pages;
+    let total;
+    if (currentUserId) {
+      // Resolve the viewer's follow set first so the aggregation can rank
+      // the entire collection (not just the fetched batch) by it.
+      const followDocs = await ConnectFollow.find({
+        followerId: currentUserId,
+        status: 'active'
+      }).select('connectPageId').lean();
+      // Stringify both sides of the comparisons for robustness against
+      // ObjectId vs string mismatches across Mongo driver versions.
+      const followedIdStrings = followDocs.map(f => f.connectPageId.toString());
+      const currentUserIdString = currentUserId.toString();
+
+      const aggPipeline = [
+        { $match: matchStage },
+        {
+          $addFields: {
+            isOwn: { $eq: [{ $toString: '$userId' }, currentUserIdString] },
+            isFollowing: { $in: [{ $toString: '$_id' }, followedIdStrings] }
+          }
+        },
+        // Sort: pages I created → pages I follow → everything else by recency.
+        // Without `isOwn` first, a user's own pages (which can't be followed)
+        // sank below every followed page and appeared "missing" to the user.
+        { $sort: { isOwn: -1, isFollowing: -1, createdAt: -1, _id: -1 } },
+        { $skip: skip },
+        { $limit: limit }
+      ];
+
+      try {
+        [pages, total] = await Promise.all([
+          ConnectPage.aggregate(aggPipeline),
+          ConnectPage.countDocuments(matchStage)
+        ]);
+
+        // aggregate() bypasses Mongoose schema population — populate the
+        // creator separately on the resulting plain documents.
+        await ConnectPage.populate(pages, {
+          path: 'userId',
+          select: 'username fullName profilePic'
+        });
+      } catch (aggErr) {
+        // Defensive fallback: $toString / $in / $eq inside $addFields
+        // require MongoDB 4.0+. If we hit an older server (e.g. mirror,
+        // staging, version downgrade) the aggregation throws — fall back
+        // to recency-only sort and tag isFollowing/isOwn in JS so the
+        // client still gets a usable list rather than a 500.
+        logger.warn('Connect-pages aggregation failed, falling back to recency sort:', aggErr?.message || aggErr);
+        [pages, total] = await Promise.all([
+          ConnectPage.find(matchStage)
+            .populate('userId', 'username fullName profilePic')
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
+            .lean(),
+          ConnectPage.countDocuments(matchStage)
+        ]);
+        const followedIdSet = new Set(followedIdStrings);
+        pages.forEach((p) => {
+          p.isFollowing = followedIdSet.has(p._id.toString());
+          const ownerId = p.userId?._id?.toString?.() || (typeof p.userId === 'string' ? p.userId : '');
+          p.isOwn = ownerId === currentUserIdString;
+        });
+      }
+    } else {
+      // Anonymous viewers have no follow set; recency-only ordering.
+      [pages, total] = await Promise.all([
+        ConnectPage.find(matchStage)
+          .populate('userId', 'username fullName profilePic')
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        ConnectPage.countDocuments(matchStage)
+      ]);
+    }
+
+    // Resolve storage keys to signed URLs for images
+    for (const p of pages) {
+      await resolvePageImages(p);
+    }
+
+    return sendSuccess(res, 200, 'Connect pages fetched', {
+      pages,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) }
+    });
+  } catch (error) {
+    logger.error('Error fetching connect pages:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to fetch connect pages');
+  }
+};
+
+/**
  * Search Connect pages by name (for Search icon)
  * GET /api/v1/connect/search-by-name?q=...
  */
@@ -644,6 +844,35 @@ const findUsers = async (req, res) => {
 // ─────────────────────────────────────────────
 
 /**
+ * Sync the cached `followerCount` on a ConnectPage with the actual count of
+ * active ConnectFollow records. Use this from every follow-state mutation
+ * (follow / unfollow / archive / unarchive) instead of $inc/$dec arithmetic.
+ *
+ * Why: the previous arithmetic approach drifted out of sync whenever the
+ * archive/unarchive paths skipped a counter update, then compounded with
+ * the re-follow-restore-archived branch double-incrementing. Combined with
+ * MongoDB's non-deterministic handling of `$inc + $max` on the same field
+ * across versions, some pages even ended up with a negative `followerCount`.
+ * Re-deriving from `countDocuments` is cheap (indexed lookup) and makes
+ * drift mathematically impossible.
+ */
+const syncFollowerCount = async (connectPageId) => {
+  try {
+    const liveCount = await ConnectFollow.countDocuments({
+      connectPageId,
+      status: 'active'
+    });
+    await ConnectPage.findByIdAndUpdate(connectPageId, {
+      $set: { followerCount: liveCount }
+    });
+    return liveCount;
+  } catch (e) {
+    logger.error('Failed to sync followerCount:', e);
+    return null;
+  }
+};
+
+/**
  * Follow a Connect page
  * POST /api/v1/connect/follow
  */
@@ -682,8 +911,10 @@ const followPage = async (req, res) => {
       await ConnectFollow.create({ followerId, connectPageId });
     }
 
-    // Increment follower count
-    await ConnectPage.findByIdAndUpdate(connectPageId, { $inc: { followerCount: 1 } });
+    // Re-derive the cached count from the active follow set instead of
+    // running an arithmetic increment. Bulletproof against drift / re-
+    // activation double-counts.
+    await syncFollowerCount(connectPageId);
 
     // If page has group chat, add follower to chat participants
     if (page.chatRoomId) {
@@ -719,11 +950,9 @@ const unfollowPage = async (req, res) => {
 
     await ConnectFollow.deleteOne({ _id: follow._id });
 
-    // Decrement follower count (never below 0)
-    await ConnectPage.findByIdAndUpdate(connectPageId, {
-      $inc: { followerCount: -1 },
-      $max: { followerCount: 0 }
-    });
+    // Re-derive the cached count from the active follow set. Always
+    // accurate, never negative.
+    await syncFollowerCount(connectPageId);
 
     // Remove from chat participants if page has group chat
     const page = await ConnectPage.findById(connectPageId).select('chatRoomId');
@@ -758,6 +987,9 @@ const archivePage = async (req, res) => {
     follow.archivedAt = new Date();
     await follow.save();
 
+    // Re-derive the cached count from the active follow set.
+    await syncFollowerCount(connectPageId);
+
     return sendSuccess(res, 200, 'Page archived');
   } catch (error) {
     logger.error('Error archiving page:', error);
@@ -782,6 +1014,9 @@ const unarchivePage = async (req, res) => {
     follow.status = 'active';
     follow.archivedAt = null;
     await follow.save();
+
+    // Re-derive the cached count from the active follow set.
+    await syncFollowerCount(connectPageId);
 
     return sendSuccess(res, 200, 'Page unarchived');
   } catch (error) {
@@ -887,14 +1122,34 @@ const getPageFollowers = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // Get the page to find the creator
+    // Get the page to find the creator AND check privacy.
     const connectPage = await ConnectPage.findById(pageId)
       .populate('userId', 'username fullName profilePic profilePicStorageKey')
-      .select('userId')
+      .select('userId type')
       .lean();
 
     if (!connectPage) {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
+    }
+
+    // Privacy gate: private pages don't expose their follower roster to
+    // non-followers / non-owners. Match the rest of the connect surface.
+    if (connectPage.type === 'private') {
+      const currentUserId = req.user?._id;
+      const ownerId = connectPage.userId?._id || connectPage.userId;
+      const isOwner = !!(currentUserId && ownerId && ownerId.toString() === currentUserId.toString());
+      let isFollower = false;
+      if (currentUserId && !isOwner) {
+        const follow = await ConnectFollow.findOne({
+          followerId: currentUserId,
+          connectPageId: pageId,
+          status: 'active'
+        }).lean();
+        isFollower = !!follow;
+      }
+      if (!isOwner && !isFollower) {
+        return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Followers are private for this page');
+      }
     }
 
     const [follows, total] = await Promise.all([
@@ -1150,9 +1405,27 @@ const getSubscriptionContent = async (req, res) => {
   try {
     const { pageId } = req.params;
 
-    const page = await ConnectPage.findById(pageId).select('subscriptionContent features').lean();
+    // Need userId to gate access; lean+select must include it.
+    const page = await ConnectPage.findById(pageId).select('subscriptionContent features userId').lean();
     if (!page) {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
+    }
+
+    // Paid content gate: only the owner or an active subscriber can read this.
+    // Return 200 with empty content + isSubscribed=false rather than 403 so the
+    // client can render the existing "Subscribe to view" UI without special
+    // error handling.
+    const currentUserId = req.user?._id;
+    const isOwner = !!(currentUserId && page.userId && page.userId.toString() === currentUserId.toString());
+    const isSubscribed = isOwner
+      ? true
+      : await userCanReadSubscriptionContent(currentUserId, page.userId, pageId);
+    if (!isOwner && !isSubscribed) {
+      return sendSuccess(res, 200, 'Subscription content gated', {
+        subscriptionContent: [],
+        isSubscribed: false,
+        gated: true,
+      });
     }
 
     // Resolve image storage keys to signed URLs
@@ -1176,10 +1449,186 @@ const getSubscriptionContent = async (req, res) => {
       }
     }
 
-    return sendSuccess(res, 200, 'Subscription content fetched', { subscriptionContent: page.subscriptionContent || [] });
+    return sendSuccess(res, 200, 'Subscription content fetched', {
+      subscriptionContent: page.subscriptionContent || [],
+      isSubscribed: true,
+      gated: false,
+    });
   } catch (error) {
     logger.error('Error fetching subscription content:', error);
     return sendError(res, 'SERVER_ERROR', 'Failed to fetch subscription content');
+  }
+};
+
+// ─────────────────────────────────────────────
+// CANVAS CONTENT (Stories/Shorts-style free-form layout)
+// ─────────────────────────────────────────────
+
+/**
+ * Update canvas content (owner only)
+ * PUT /api/v1/connect/page/:pageId/canvas
+ * Body: { content: CanvasElement[], background?: string }
+ */
+const updateCanvasContent = async (req, res) => {
+  try {
+    const { pageId } = req.params;
+    const userId = req.user._id;
+    const { content, background } = req.body;
+
+    const page = await ConnectPage.findById(pageId);
+    if (!page) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
+    }
+    if (page.userId.toString() !== userId.toString()) {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the owner can edit canvas content');
+    }
+
+    if (!Array.isArray(content)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Content must be an array of elements');
+    }
+
+    // Sanitize: drop incomplete elements; convert any signed image/video URL back to a storage key
+    // so signed URLs never end up persisted (they expire).
+    const clamp01 = (n) => Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0));
+    const sanitized = content
+      .filter(el => el && el.type && typeof el.content === 'string' && el.content.trim() !== '')
+      .map((el, idx) => {
+        let elContent = el.content;
+        if ((el.type === 'image' || el.type === 'video') && elContent && isSignedUrl(elContent)) {
+          const storageKey = extractStorageKeyFromUrl(elContent);
+          if (storageKey) elContent = storageKey;
+        }
+        return {
+          type: el.type,
+          content: elContent,
+          x: clamp01(el.x),
+          y: clamp01(el.y),
+          w: clamp01(el.w),
+          h: clamp01(el.h),
+          rotation: Number.isFinite(el.rotation) ? el.rotation : 0,
+          zIndex: Number.isFinite(el.zIndex) ? el.zIndex : idx,
+          fontSize: Number.isFinite(el.fontSize) ? el.fontSize : 24,
+          color: typeof el.color === 'string' ? el.color : '#FFFFFF',
+          fontWeight: typeof el.fontWeight === 'string' ? el.fontWeight : '600',
+          backgroundColor: typeof el.backgroundColor === 'string' ? el.backgroundColor : 'transparent'
+        };
+      });
+
+    page.canvasContent = sanitized;
+    if (typeof background === 'string') {
+      page.canvasBackground = background;
+    }
+    await page.save();
+
+    return sendSuccess(res, 200, 'Canvas content updated', {
+      canvasContent: page.canvasContent,
+      canvasBackground: page.canvasBackground
+    });
+  } catch (error) {
+    logger.error('Error updating canvas content:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to update canvas content');
+  }
+};
+
+/**
+ * Get canvas content
+ * GET /api/v1/connect/page/:pageId/canvas
+ */
+const getCanvasContent = async (req, res) => {
+  try {
+    const { pageId } = req.params;
+
+    const page = await ConnectPage.findById(pageId)
+      .select('canvasContent canvasBackground type userId')
+      .lean();
+    if (!page) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
+    }
+
+    // Private page: only owner / active follower can read
+    if (page.type === 'private') {
+      const currentUserId = req.user?._id;
+      const isOwner = currentUserId && page.userId.toString() === currentUserId.toString();
+      if (!isOwner) {
+        const follow = await ConnectFollow.findOne({
+          followerId: currentUserId,
+          connectPageId: pageId,
+          status: 'active'
+        });
+        if (!follow) {
+          return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'This content is private');
+        }
+      }
+    }
+
+    // Resolve image/video storage keys → signed URLs for transit.
+    for (const el of (page.canvasContent || [])) {
+      if ((el.type === 'image' || el.type === 'video') && el.content) {
+        if (!el.content.startsWith('http')) {
+          try {
+            const url = await generateSignedUrl(el.content, 'DEFAULT');
+            if (url) el.content = url;
+          } catch { /* keep key */ }
+        } else if (isSignedUrl(el.content)) {
+          const key = extractStorageKeyFromUrl(el.content);
+          if (key) {
+            try {
+              const url = await generateSignedUrl(key, 'DEFAULT');
+              if (url) el.content = url;
+            } catch { /* keep existing */ }
+          }
+        }
+      }
+    }
+
+    return sendSuccess(res, 200, 'Canvas content fetched', {
+      canvasContent: page.canvasContent || [],
+      canvasBackground: page.canvasBackground || '#000000'
+    });
+  } catch (error) {
+    logger.error('Error fetching canvas content:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to fetch canvas content');
+  }
+};
+
+/**
+ * Upload a video for canvas elements (owner only)
+ * POST /api/v1/connect/page/:pageId/content-video
+ * Body: multipart with field 'video'
+ */
+const uploadContentVideo = async (req, res) => {
+  try {
+    const { pageId } = req.params;
+    const userId = req.user._id;
+
+    const page = await ConnectPage.findById(pageId).select('userId');
+    if (!page) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
+    }
+    if (page.userId.toString() !== userId.toString()) {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the owner can upload videos');
+    }
+
+    const file = req.file;
+    if (!file) {
+      return sendError(res, 'VALIDATION_FAILED', 'No video file provided');
+    }
+
+    const extension = file.originalname?.split('.').pop() || 'mp4';
+    const storageKey = buildMediaKey({
+      type: 'connect-content',
+      userId: userId.toString(),
+      filename: file.originalname || 'content.mp4',
+      extension
+    });
+    await uploadObject(file.buffer, storageKey, file.mimetype);
+
+    const signedUrl = await generateSignedUrl(storageKey, 'DEFAULT');
+
+    return sendSuccess(res, 200, 'Video uploaded', { storageKey, signedUrl });
+  } catch (error) {
+    logger.error('Error uploading canvas video:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to upload video');
   }
 };
 
@@ -1374,6 +1823,7 @@ module.exports = {
   deletePage,
   // Discovery
   getCommunities,
+  getConnectPages,
   searchByName,
   findUsers,
   // Follow
@@ -1390,6 +1840,10 @@ module.exports = {
   updateSubscriptionContent,
   getSubscriptionContent,
   uploadContentImage,
+  // Canvas
+  updateCanvasContent,
+  getCanvasContent,
+  uploadContentVideo,
   // Views
   recordView,
   // Analytics

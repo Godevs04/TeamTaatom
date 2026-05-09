@@ -23,6 +23,7 @@ import { useAlert } from '../../context/AlertContext';
 import { getJourneyDetail, updateJourneyTitle, deleteJourney } from '../../services/journey';
 import { MapView, Marker, useWebViewFallback } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
+import { openDirections } from '../../utils/locationUtils';
 import PolylineRenderer from '../../components/PolylineRenderer';
 import ShareModal from '../../components/ShareModal';
 import logger from '../../utils/logger';
@@ -442,6 +443,10 @@ function initMap(){
                 const post = waypoint.post;
                 if (!post) return null;
                 const imageUrl = post.storageKeys?.[0]?.url || post.storageKeys?.[0]?.signedUrl;
+                const hasCoords =
+                  typeof waypoint.lat === 'number' && typeof waypoint.lng === 'number' &&
+                  waypoint.lat !== 0 && waypoint.lng !== 0 &&
+                  !Number.isNaN(waypoint.lat) && !Number.isNaN(waypoint.lng);
                 return (
                   <TouchableOpacity
                     key={`post-${index}`}
@@ -467,6 +472,17 @@ function initMap(){
                         </Text>
                       </View>
                     </View>
+                    {hasCoords && (
+                      <TouchableOpacity
+                        style={styles.directionsBtn}
+                        onPress={() => openDirections(waypoint.lat, waypoint.lng, post.caption || post.location?.address || `Waypoint ${index + 1}`)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        accessibilityLabel="Get directions"
+                        accessibilityRole="button"
+                      >
+                        <Ionicons name="navigate" size={18} color={ACTION_BLUE} />
+                      </TouchableOpacity>
+                    )}
                     <Ionicons name="chevron-forward" size={16} color={theme.colors.textSecondary} />
                   </TouchableOpacity>
                 );
@@ -666,6 +682,15 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
     textTransform: 'capitalize',
+  },
+  directionsBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    marginRight: 8,
   },
   emptyPosts: {
     alignItems: 'center',

@@ -32,7 +32,9 @@ const SubscriptionSchema = new Schema({
     type: String,
     default: null
   },
-  cashfreePaymentSessionId: {
+  // Cashfree subscription_session_id (sub_session_…) — distinct from a regular
+  // order payment_session_id. Renamed in migration 008 from `cashfreePaymentSessionId`.
+  cashfreeSubscriptionSessionId: {
     type: String,
     default: null
   },
@@ -66,6 +68,13 @@ const SubscriptionSchema = new Schema({
     default: null
   },
   cancelledAt: {
+    type: Date,
+    default: null
+  },
+  // Set when the page owner has been notified that this subscription went active.
+  // Used to make owner-notification idempotent across the webhook and the
+  // fallback Cashfree poll, which can both flip a sub to `active`.
+  ownerNotifiedAt: {
     type: Date,
     default: null
   },

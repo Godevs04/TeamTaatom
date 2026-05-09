@@ -13,6 +13,7 @@ import {
   Dimensions,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  StatusBar,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -175,6 +176,7 @@ export default function LocationDetailScreen() {
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [bookmarkLoading, setBookmarkLoading] = useState(false);
   const [localeData, setLocaleData] = useState<Locale | null>(null);
+  const [navigatingToMap, setNavigatingToMap] = useState(false);
   const [allCountryLocations, setAllCountryLocations] = useState<LocationDetail[]>([]); // Store all locations for nearby section
   const [nearbyLocations, setNearbyLocations] = useState<LocationDetail[]>([]); // Nearby locations sorted by distance
 
@@ -205,12 +207,26 @@ export default function LocationDetailScreen() {
     }
   }, [data?.name, localeData, isAdminLocale]);
 
-  // Listen for bookmark changes from other screens
+  // Listen for bookmark changes from other screens.
+  //
+  // The listener used to have empty deps and capture `checkBookmarkStatus`
+  // from the first render — at which point `localeData` was still null
+  // and the captured callback fell into the regular-location branch
+  // (reading `savedLocations` instead of `savedLocales`). When the user
+  // first tapped Save, the optimistic `setIsBookmarked(true)` was
+  // immediately reverted by this stale listener reading the wrong key.
+  // The second tap only "worked" because the deduplication path skipped
+  // emitChanged and the buggy listener never fired.
+  //
+  // Pin the live callback in a ref so the listener always invokes the
+  // latest version (with the correct localeData closure). The ref is
+  // null on the first render — checkBookmarkStatus is defined further
+  // down — and gets wired up by the sync effect below `checkBookmarkStatus`.
+  const checkBookmarkStatusRef = useRef<(() => Promise<void>) | null>(null);
   useEffect(() => {
     const unsubscribe = savedEvents.addListener(() => {
-      // Refresh bookmark status when saved locales change
       if (isMountedRef.current) {
-        checkBookmarkStatus();
+        checkBookmarkStatusRef.current?.();
       }
     });
     return unsubscribe;
@@ -503,8 +519,12 @@ export default function LocationDetailScreen() {
         }
         
         const locationName = data?.name || (Array.isArray(location) ? location[0] : location);
+        if (!locationName) {
+          // No identifier available yet — skip silently; will re-run when data loads.
+          return;
+        }
         const locationSlug = locationName.toLowerCase().replace(/\s+/g, '-');
-        
+
         if (isMountedRef.current) {
           setIsBookmarked(saved.some((loc: any) => loc && (loc.slug === locationSlug || loc.name === locationName)));
         }
@@ -515,6 +535,13 @@ export default function LocationDetailScreen() {
     }
   }, [isAdminLocale, localeData, data?.name, location]);
 
+  // Keep the savedEvents listener pointed at the latest checkBookmarkStatus,
+  // so it always uses the current isAdminLocale / localeData / data closure
+  // — without re-binding the listener on every dep change.
+  useEffect(() => {
+    checkBookmarkStatusRef.current = checkBookmarkStatus;
+  }, [checkBookmarkStatus]);
+
   // Bookmark Stability: Atomic read-modify-write with deduplication
   const handleBookmark = useCallback(async () => {
     // Bookmark Stability: Prevent duplicate bookmark operations
@@ -524,10 +551,20 @@ export default function LocationDetailScreen() {
     }
     
     if (!isMountedRef.current) return;
-    
+
+    // Admin-locale flow needs `localeData` to know which entry to toggle.
+    // If a user taps before the locale fetch resolves (or after it failed),
+    // falling through to the regular-location branch would (a) write to the
+    // wrong AsyncStorage key and (b) crash on `locationName.toLowerCase()`
+    // when neither `data.name` nor the URL param is populated yet.
+    if (isAdminLocale && !localeData) {
+      Alert.alert('Please wait', 'Still loading locale details — try again in a moment.');
+      return;
+    }
+
     bookmarkingRef.current = true;
     setBookmarkLoading(true);
-    
+
     try {
       if (isAdminLocale && localeData) {
         // Handle admin locale bookmarking - Atomic read-modify-write
@@ -569,6 +606,10 @@ export default function LocationDetailScreen() {
       } else {
         // Handle regular location bookmarking - Atomic read-modify-write
         const locationName = data?.name || (Array.isArray(location) ? location[0] : location);
+        if (!locationName) {
+          Alert.alert('Please wait', 'Location details are still loading — try again in a moment.');
+          return;
+        }
         const locationSlug = locationName.toLowerCase().replace(/\s+/g, '-');
         
         const savedLocations = await AsyncStorage.getItem('savedLocations');
@@ -1197,28 +1238,57 @@ export default function LocationDetailScreen() {
                 <TouchableOpacity
                   style={[styles.quickInfoCard, styles.clickableCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
                   activeOpacity={0.7}
+                  disabled={navigatingToMap}
                   onPress={async () => {
+                    if (navigatingToMap) return;
+                    setNavigatingToMap(true);
+                    try {
                     // CRITICAL: For locale flow, use EXACT coordinates from database (localeData)
                     // For tripscore flow, use coordinates from data
                     let coords: { latitude: number; longitude: number } | undefined = undefined;
-                    
+
                     // Helper: validate coordinate sanity
                     const isValidCoord = (lat?: number, lng?: number) =>
                       !!lat && !!lng && lat !== 0 && lng !== 0 &&
                       !isNaN(lat) && !isNaN(lng) &&
                       lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 
+                    // Bound any geocoding call so a stalled fetch can never
+                    // freeze the button. Without this, a slow network or a
+                    // throttled / restricted Google API key leaves the user
+                    // staring at an unresponsive screen for tens of seconds
+                    // before falling back. 3s is enough for a healthy
+                    // connection and short enough to feel responsive.
+                    const GEOCODE_TIMEOUT_MS = 3000;
+                    const geocodeWithTimeout = (
+                      address: string,
+                      cc?: string
+                    ): Promise<{ latitude: number; longitude: number } | null> =>
+                      Promise.race([
+                        geocodeAddress(address, cc),
+                        new Promise<null>((resolve) =>
+                          setTimeout(() => resolve(null), GEOCODE_TIMEOUT_MS)
+                        ),
+                      ]);
+
                     if (isAdminLocale && localeData) {
-                      // Bug: stored DB coords sometimes don't match the locale name (e.g. Mysore Palace
-                      // pinned in Chennai). Always geocode by name+country first so the map matches the
-                      // displayed name. Fall back to DB coords only if geocoding fails.
+                      // Admin locales are curated, so trust the DB coords on the
+                      // happy path and navigate immediately. The previous
+                      // implementation always geocoded first to guard against
+                      // mis-pinned admin entries (Mysore Palace pinned in
+                      // Chennai), but the round-trip blocks the entire button
+                      // and was the user-visible "no response" symptom. Only
+                      // geocode when the DB row has no usable coords.
                       const dbHasCoords = isValidCoord(localeData.latitude, localeData.longitude);
                       const dbCoords = dbHasCoords ? {
                         latitude: localeData.latitude!,
                         longitude: localeData.longitude!
                       } : null;
 
-                      try {
+                      if (dbCoords) {
+                        coords = dbCoords;
+                      } else {
+                       try {
                         const nameQuery = [
                           localeData.name,
                           localeData.city,
@@ -1226,7 +1296,7 @@ export default function LocationDetailScreen() {
                           localeData.country
                         ].filter(Boolean).join(', ');
                         const ccForGeocode = (localeData.countryCode || countryParam || 'IN').toUpperCase();
-                        const geocoded = await geocodeAddress(nameQuery || localeData.name, ccForGeocode);
+                        const geocoded = await geocodeWithTimeout(nameQuery || localeData.name, ccForGeocode);
 
                         if (geocoded && isValidCoord(geocoded.latitude, geocoded.longitude)) {
                           // If DB has coords AND they're close to geocoded (<50km), trust the DB
@@ -1257,6 +1327,7 @@ export default function LocationDetailScreen() {
                           logger.warn('⚠️ Geocode threw, falling back to DB coords:', coords);
                         }
                       }
+                      }
                     } else if (data?.coordinates || data?.name) {
                       // Tripscore flow: some posts were saved with wrong coords (e.g. a photo
                       // tagged with the wrong place). Geocode the stored address first and
@@ -1268,7 +1339,7 @@ export default function LocationDetailScreen() {
                       if (data?.name) {
                         try {
                           const ccForGeocode = (countryParam && countryParam !== 'general' ? countryParam : 'IN').toUpperCase();
-                          const geocoded = await geocodeAddress(data.name, ccForGeocode);
+                          const geocoded = await geocodeWithTimeout(data.name, ccForGeocode);
 
                           if (geocoded && isValidCoord(geocoded.latitude, geocoded.longitude)) {
                             if (dbCoords) {
@@ -1307,7 +1378,7 @@ export default function LocationDetailScreen() {
                       try {
                         // Use country code for better geocoding accuracy
                         const countryCodeForGeocoding = countryParam && countryParam !== 'general' ? countryParam.toUpperCase() : 'IN';
-                        const geocodedCoords = await geocodeAddress(data.name, countryCodeForGeocoding);
+                        const geocodedCoords = await geocodeWithTimeout(data.name, countryCodeForGeocoding);
                         if (geocodedCoords && geocodedCoords.latitude && geocodedCoords.longitude &&
                             geocodedCoords.latitude !== 0 && geocodedCoords.longitude !== 0) {
                           coords = geocodedCoords;
@@ -1316,8 +1387,8 @@ export default function LocationDetailScreen() {
                           logger.warn('⚠️ Geocoding API returned invalid coordinates for:', data.name);
                         }
                       } catch (geocodeError) {
-                        const errorToLog = geocodeError instanceof Error 
-                          ? geocodeError 
+                        const errorToLog = geocodeError instanceof Error
+                          ? geocodeError
                           : new Error(String(geocodeError) || 'Geocoding API failed');
                         logger.error('❌ Geocoding API failed for:', errorToLog, { locationName: data.name });
                       }
@@ -1362,6 +1433,9 @@ export default function LocationDetailScreen() {
                       });
                       Alert.alert('Location Error', 'Unable to determine exact location coordinates. Please try again.');
                     }
+                    } finally {
+                      setNavigatingToMap(false);
+                    }
                   }}
                 >
                   <View style={styles.quickInfoHeader}>
@@ -1370,10 +1444,14 @@ export default function LocationDetailScreen() {
                       <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Explore on Map</Text>
                     </View>
                     <View style={styles.clickableIndicator}>
-                      <Ionicons name="chevron-forward" size={16} color="#4CAF50" />
+                      {navigatingToMap ? (
+                        <ActivityIndicator size="small" color="#4CAF50" />
+                      ) : (
+                        <Ionicons name="chevron-forward" size={16} color="#4CAF50" />
+                      )}
                     </View>
                   </View>
-                  <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>Navigate</Text>
+                  <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>{navigatingToMap ? 'Opening…' : 'Navigate'}</Text>
                   <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>View {data.name} location</Text>
                 </TouchableOpacity>
               </View>
@@ -1470,10 +1548,15 @@ const createStyles = () => {
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: isTabletLocal ? 24 : 20,
-      paddingTop: isAndroidLocal ? (isTabletLocal ? 20 : 18) : (isTabletLocal ? 16 : 14),
+      // Extra breathing room above the back / title / bookmark / close row.
+      // On Android, SafeAreaView doesn't handle the status bar inset, so we
+      // add StatusBar.currentHeight to keep the header below the notification bar.
+      paddingTop: isAndroidLocal
+        ? (StatusBar.currentHeight || 0) + (isTabletLocal ? 12 : 8)
+        : (isTabletLocal ? 28 : 24),
       paddingBottom: isTabletLocal ? 18 : 14,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      minHeight: isAndroidLocal ? (isTabletLocal ? 72 : 64) : (isTabletLocal ? 64 : 56),
+      minHeight: isAndroidLocal ? (isTabletLocal ? 84 : 76) : (isTabletLocal ? 76 : 68),
     },
     backButton: {
       // Minimum touch target: 44x44 for iOS, 48x48 for Android

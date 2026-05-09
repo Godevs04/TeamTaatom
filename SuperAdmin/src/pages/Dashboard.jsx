@@ -762,6 +762,60 @@ const Dashboard = () => {
                   </motion.div>
                 </div>
 
+                {/* Recent Subscribers */}
+                {subStats.recentSubscribers && subStats.recentSubscribers.length > 0 && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="bg-white rounded-xl border-2 border-gray-200 shadow-lg p-6 hover:shadow-xl transition-shadow duration-300"
+                  >
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                        <Star className="w-5 h-5 text-purple-600" />
+                        Recent Subscribers
+                      </h3>
+                      <button
+                        onClick={() => navigate('/connect-dashboard')}
+                        className="text-sm text-purple-600 hover:text-purple-700 font-medium"
+                      >
+                        View All →
+                      </button>
+                    </div>
+                    <div className="space-y-3">
+                      {subStats.recentSubscribers.map((sub, index) => (
+                        <motion.div
+                          key={sub._id}
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          className="flex items-center space-x-3 p-3 hover:bg-gradient-to-r hover:from-purple-50 hover:to-pink-50 rounded-lg transition-all duration-200 border border-transparent hover:border-purple-200"
+                        >
+                          <div className="w-10 h-10 bg-gradient-to-br from-purple-400 to-pink-500 rounded-full flex items-center justify-center shadow-md overflow-hidden flex-shrink-0">
+                            {sub.profilePic ? (
+                              <img src={sub.profilePic} alt={sub.fullName} className="w-full h-full object-cover" />
+                            ) : (
+                              <span className="text-sm font-bold text-white">
+                                {sub.fullName?.charAt(0) || 'U'}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-gray-900 truncate text-sm">{sub.fullName}</p>
+                            <p className="text-xs text-gray-500 truncate">{sub.pageName}</p>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-sm font-semibold text-green-600">₹{sub.amount}</p>
+                            <p className="text-xs text-gray-400">
+                              {new Date(sub.activatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </p>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
+                  </motion.div>
+                )}
+
                 {/* Monthly Payouts Chart */}
                 {subStats.monthlyChart && subStats.monthlyChart.length > 0 && (
                   <motion.div

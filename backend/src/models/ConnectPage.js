@@ -28,6 +28,31 @@ const ContentBlockSchema = new Schema({
   }
 }, { _id: true });
 
+const CanvasElementSchema = new Schema({
+  type: {
+    type: String,
+    enum: ['text', 'image', 'video'],
+    required: true
+  },
+  // text: the string. image/video: storage key (or signed URL transiently from client).
+  content: {
+    type: String,
+    required: true
+  },
+  // Position/size are normalized to the 9:16 frame: 0..1 of frame width / height.
+  x: { type: Number, default: 0.5 },
+  y: { type: Number, default: 0.5 },
+  w: { type: Number, default: 0.4 },
+  h: { type: Number, default: 0.25 },
+  rotation: { type: Number, default: 0 },
+  zIndex: { type: Number, default: 0 },
+  // Text-only styling
+  fontSize: { type: Number, default: 24 },
+  color: { type: String, default: '#FFFFFF' },
+  fontWeight: { type: String, default: '600' },
+  backgroundColor: { type: String, default: 'transparent' }
+}, { _id: true });
+
 const BuyItemSchema = new Schema({
   name: {
     type: String,
@@ -69,6 +94,11 @@ const ConnectPageSchema = new Schema({
     minlength: [3, 'Name must be at least 3 characters'],
     maxlength: [50, 'Name cannot exceed 50 characters']
   },
+  category: {
+    type: String,
+    enum: ['connect', 'community'],
+    default: 'connect'
+  },
   type: {
     type: String,
     enum: ['public', 'private'],
@@ -95,6 +125,11 @@ const ConnectPageSchema = new Schema({
   },
   websiteContent: [ContentBlockSchema],
   subscriptionContent: [ContentBlockSchema],
+  canvasContent: [CanvasElementSchema],
+  canvasBackground: {
+    type: String,
+    default: '#000000'
+  },
   subscriptionPrice: {
     type: Number,
     default: null
@@ -192,6 +227,7 @@ const ConnectPageSchema = new Schema({
 
 // Indexes
 ConnectPageSchema.index({ type: 1, status: 1, isAdminPage: 1 });
+ConnectPageSchema.index({ category: 1, status: 1 });
 ConnectPageSchema.index({ isDefault: 1 });
 ConnectPageSchema.index({ name: 'text' });
 ConnectPageSchema.index({ status: 1, createdAt: -1 });

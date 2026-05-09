@@ -42,18 +42,6 @@ export interface SettingsResponse {
   settings: UserSettings;
 }
 
-// Check network connectivity
-const checkNetworkConnectivity = async (): Promise<boolean> => {
-  try {
-    // Try a simple ping to the server
-    const response = await api.get('/api/v1/auth/me', { timeout: 5000 });
-    return response.status === 200;
-  } catch (error) {
-    logger.debug('Network connectivity check failed:', error);
-    return false;
-  }
-};
-
 // Get user settings
 export const getSettings = async (): Promise<SettingsResponse> => {
   try {
@@ -93,13 +81,7 @@ export const updateSettings = async (settings: Partial<UserSettings>): Promise<S
 export const updateSettingCategory = async (category: 'privacy' | 'notifications' | 'account', settings: any): Promise<SettingsResponse> => {
   try {
     logger.debug(`Updating ${category} settings:`, settings);
-    
-    // Check network connectivity first
-    const isConnected = await checkNetworkConnectivity();
-    if (!isConnected) {
-      throw new Error('No internet connection. Please check your network and try again.');
-    }
-    
+
     const response = await api.put(`/api/v1/settings/${category}`, settings, {
       timeout: 10000, // 10 second timeout
       headers: {

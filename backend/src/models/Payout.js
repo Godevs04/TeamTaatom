@@ -130,14 +130,36 @@ const PayoutSchema = new Schema({
     enum: ['calculated', 'pending', 'processing', 'completed', 'failed'],
     default: 'calculated'
   },
-  // Cashfree payout reference
+  // Cashfree payout reference (transfer_id sent to Cashfree Payouts API)
   cashfreePayoutId: {
+    type: String,
+    default: null
+  },
+  // Cashfree beneficiary id (`bene_${creatorUserId}`) — registered on first payout
+  cashfreeBeneficiaryId: {
     type: String,
     default: null
   },
   // Wise transfer reference (international)
   wiseTransferId: {
     type: String,
+    default: null
+  },
+  // External reference number from a manually-completed transfer
+  // (UTR / UPI ref / Wise transaction id) — populated when admin clicks "Mark as Paid"
+  payoutReference: {
+    type: String,
+    default: ''
+  },
+  // Free-form admin note (reason, dispute context, etc.)
+  notes: {
+    type: String,
+    default: ''
+  },
+  // SuperAdmin who initiated the payout (auto push or manual mark)
+  processedBy: {
+    type: Types.ObjectId,
+    ref: 'SuperAdmin',
     default: null
   },
   processedAt: {
