@@ -20,6 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../../context/ThemeContext';
+import { useAlert } from '../../../context/AlertContext';
 import { theme as themeConstants } from '../../../constants/theme';
 import {
   getPageDetail,
@@ -46,6 +47,21 @@ import { crashReportingService } from '../../../services/crashReporting';
 import { setPendingChatRoomId } from '../../../utils/connectChatBridge';
 import { optimizeCloudinaryUrl } from '../../../utils/imageCache';
 import logger from '../../../utils/logger';
+import { NativeModules } from 'react-native';
+import {
+  CFErrorResponse,
+  CFPaymentGatewayService,
+} from 'react-native-cashfree-pg-sdk';
+import {
+  CFEnvironment,
+  CFSubscriptionSession,
+} from 'cashfree-pg-api-contract';
+
+// The Cashfree SDK ships a Proxy that throws "package not linked" the moment
+// any method is called when the native module is absent (Expo Go, web). Gate
+// every SDK call on the real native module so the screen doesn't crash; the
+// dev-client build links the module and this becomes true.
+const isCashfreeNativeAvailable = !!NativeModules.CashfreePgApi;
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -87,6 +103,7 @@ function ContentImage({ uri }: { uri: string }) {
 
 export default function ConnectPageDetailScreen() {
   const { theme } = useTheme();
+  const { showSuccess } = useAlert();
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const [loading, setLoading] = useState(true);
@@ -150,6 +167,33 @@ export default function ConnectPageDetailScreen() {
     }, [loadPageDetail])
   );
 
+  // Set up Cashfree subscription payment callback. Skipped in Expo Go / web,
+  // where the native module is absent and any SDK call would throw.
+  useEffect(() => {
+    if (!isCashfreeNativeAvailable) return;
+    CFPaymentGatewayService.setCallback({
+      onVerify(orderID: string): void {
+        logger.info('Cashfree subscription verified, orderID:', orderID);
+        // User is already on the Connect page they subscribed from, so no
+        // navigation is needed — just refresh details so the gated UI flips
+        // and surface a prominent in-app notification of the payment.
+        loadSubscriptionStatus();
+        loadPageDetail();
+        showSuccess(
+          isCommunity ? 'Your purchase was completed.' : 'Your subscription is now active.',
+          'Payment received',
+        );
+      },
+      onError(error: CFErrorResponse, orderID: string): void {
+        logger.error('Cashfree subscription error:', JSON.stringify(error), 'orderID:', orderID);
+        Alert.alert('Payment Failed', 'Could not complete payment. Please try again.');
+      },
+    });
+    return () => {
+      CFPaymentGatewayService.removeCallback();
+    };
+  }, [loadSubscriptionStatus, loadPageDetail, isCommunity, showSuccess]);
+
   // Load subscription status after page loads (non-owner only)
   useEffect(() => {
     if (page && !isOwner && page.features?.subscription && page.subscriptionPrice) {
@@ -159,21 +203,27 @@ export default function ConnectPageDetailScreen() {
 
   const handleSubscribe = async () => {
     if (!page || subscribing) return;
+    if (!isCashfreeNativeAvailable) {
+      Alert.alert(
+        'Dev build required',
+        'Subscriptions need the Cashfree native module, which is not available in Expo Go. Install the development build to subscribe.',
+      );
+      return;
+    }
     try {
       setSubscribing(true);
       const result = await createSubscription(page._id);
-      if (result.paymentSessionId) {
-        // Open Cashfree checkout
-        const env = __DEV__ ? 'sandbox' : 'production';
-        const checkoutUrl = env === 'sandbox'
-          ? `https://sandbox.cashfree.com/pg/view/sessions/${result.paymentSessionId}`
-          : `https://payments.cashfree.com/pg/view/sessions/${result.paymentSessionId}`;
-        const canOpen = await Linking.canOpenURL(checkoutUrl);
-        if (canOpen) {
-          await Linking.openURL(checkoutUrl);
-        } else {
-          Alert.alert('Error', 'Unable to open payment page. Please try again.');
-        }
+      if (result.paymentSessionId && result.cashfreeSubscriptionId) {
+        // Use Cashfree React Native SDK for subscription checkout
+        const env = __DEV__ ? CFEnvironment.SANDBOX : CFEnvironment.PRODUCTION;
+        const session = new CFSubscriptionSession(
+          result.paymentSessionId,
+          result.cashfreeSubscriptionId,
+          env
+        );
+        CFPaymentGatewayService.doSubscriptionPayment(session);
+      } else {
+        Alert.alert('Error', 'Unable to initiate payment session. Please try again.');
       }
     } catch (error: any) {
       logger.error('Error creating subscription:', error);
@@ -887,8 +937,28 @@ export default function ConnectPageDetailScreen() {
                     </View>
                   );
                 }
-                // Subscribe button is shown inside the subscription preview page
-                return null;
+                // Show subscribe button for non-subscribed visitors
+                return (
+                  <View style={[styles.subscriptionPriceSection, { borderTopColor: theme.colors.border }]}>
+                    <TouchableOpacity
+                      style={[styles.subscribeButton, { backgroundColor: theme.colors.primary }]}
+                      onPress={handleSubscribe}
+                      activeOpacity={0.7}
+                      disabled={subscribing}
+                    >
+                      {subscribing ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                          <Ionicons name={isCommunity ? 'cart-outline' : 'star'} size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                          <Text style={styles.subscribeButtonText}>
+                            {subButtonText} · {currSym}{approvedPrice}/month
+                          </Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                );
               }
 
               return null;

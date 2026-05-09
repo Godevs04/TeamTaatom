@@ -2,9 +2,106 @@ const mongoose = require('mongoose');
 const Subscription = require('../models/Subscription');
 const ConnectPage = require('../models/ConnectPage');
 const User = require('../models/User');
+const Notification = require('../models/Notification');
 const cashfreeService = require('../services/cashfreeService');
+const { sendNotificationToUser } = require('../utils/sendNotification');
+const { getIO } = require('../socket');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
+
+/**
+ * Notify a Connect page owner that someone has activated a paid subscription
+ * to their page. Fires the project's standard 3-channel pattern: DB record
+ * (for the bell list) + push notification + Socket.io real-time event.
+ *
+ * Idempotent — uses `subscription.ownerNotifiedAt` to ensure the owner is
+ * notified at most once per subscription, even if both the Cashfree webhook
+ * and the status-poll fallback try to fire it.
+ *
+ * Never throws — notification failures must not roll back the subscription
+ * activation. Errors are logged.
+ */
+const notifyOwnerOfSubscription = async (subscription) => {
+  try {
+    if (!subscription || subscription.ownerNotifiedAt) return;
+
+    const [subscriber, page] = await Promise.all([
+      User.findById(subscription.userId).select('fullName username profilePic').lean(),
+      ConnectPage.findById(subscription.connectPageId).select('name category userId').lean(),
+    ]);
+    if (!subscriber || !page) {
+      logger.warn('notifyOwnerOfSubscription: subscriber or page missing', {
+        subscriptionId: subscription._id,
+      });
+      return;
+    }
+
+    const ownerId = page.userId;
+    if (ownerId.toString() === subscriber._id.toString()) {
+      // Owner subscribing to their own page is already blocked at the controller,
+      // but defend in depth here so we never self-notify.
+      return;
+    }
+
+    const isCommunity = page.category === 'community';
+    const subscriberName = subscriber.fullName || subscriber.username || 'Someone';
+    const verb = isCommunity ? 'purchased' : 'subscribed to';
+    const title = isCommunity ? 'New purchase' : 'New subscriber';
+    const body = `${subscriberName} ${verb} your page "${page.name}".`;
+
+    const metadata = {
+      connectPageId: subscription.connectPageId.toString(),
+      connectPageName: page.name,
+      subscriptionId: subscription._id.toString(),
+      amount: subscription.amount,
+      currency: subscription.currency || 'INR',
+      isCommunity,
+    };
+
+    await Notification.createNotification({
+      type: 'subscription_active',
+      fromUser: subscriber._id,
+      toUser: ownerId,
+      metadata,
+    });
+
+    sendNotificationToUser({
+      userId: ownerId.toString(),
+      title,
+      body,
+      data: {
+        type: 'subscription_active',
+        entityId: subscription.connectPageId.toString(),
+        connectPageId: subscription.connectPageId.toString(),
+        senderId: subscriber._id.toString(),
+        fromUserId: subscriber._id.toString(),
+      },
+    }).catch((err) => logger.error('Push notification failed for subscription_active:', err));
+
+    try {
+      const io = getIO();
+      if (io) {
+        io.of('/app').to(`user:${ownerId}`).emit('notification', {
+          type: 'subscription_active',
+          fromUser: {
+            _id: subscriber._id,
+            fullName: subscriber.fullName,
+            profilePic: subscriber.profilePic,
+          },
+          metadata,
+          createdAt: new Date(),
+        });
+      }
+    } catch (socketErr) {
+      logger.warn('Socket emit failed for subscription_active:', socketErr.message);
+    }
+
+    subscription.ownerNotifiedAt = new Date();
+    await subscription.save();
+  } catch (err) {
+    logger.error('notifyOwnerOfSubscription failed:', err);
+  }
+};
 
 /** Cashfree return URL: HTTPS for web checkout, deep link for native apps. */
 function buildSubscriptionReturnUrl(req, connectPageId) {
@@ -22,6 +119,13 @@ function isCashfreeNotConfiguredError(error) {
   return (
     error instanceof cashfreeService.CashfreeNotConfiguredError ||
     error?.code === 'CASHFREE_NOT_CONFIGURED'
+  );
+}
+
+function isUnsupportedCurrencyError(error) {
+  return (
+    error instanceof cashfreeService.UnsupportedCurrencyError ||
+    error?.code === 'CASHFREE_UNSUPPORTED_CURRENCY'
   );
 }
 
@@ -61,6 +165,17 @@ const createSubscription = async (req, res) => {
       return sendError(res, 'BUSINESS_INVALID_OPERATION', 'Subscription pricing is pending admin approval');
     }
 
+    // Cashfree subscriptions only support INR. Reject upfront with a clear,
+    // user-facing error rather than letting the gateway return an opaque failure.
+    const pageCurrency = (page.subscriptionCurrency || cashfreeService.CASHFREE_SUBSCRIPTION_CURRENCY).toUpperCase();
+    if (pageCurrency !== cashfreeService.CASHFREE_SUBSCRIPTION_CURRENCY) {
+      return sendError(
+        res,
+        'BUSINESS_INVALID_OPERATION',
+        `Subscriptions are currently only supported in ${cashfreeService.CASHFREE_SUBSCRIPTION_CURRENCY}. This page is set to ${pageCurrency}.`,
+      );
+    }
+
     // Check for existing active subscription
     const existingSub = await Subscription.findOne({
       userId,
@@ -83,7 +198,8 @@ const createSubscription = async (req, res) => {
         return sendSuccess(res, 200, 'Existing subscription session found', {
           subscriptionId: existingSub._id,
           cashfreeSubscriptionId: existingSub.cashfreeSubscriptionId,
-          paymentSessionId: existingSub.cashfreePaymentSessionId,
+          paymentSessionId: existingSub.cashfreeSubscriptionSessionId,
+          subscriptionSessionId: existingSub.cashfreeSubscriptionSessionId,
           amount: existingSub.amount,
         });
       }
@@ -105,6 +221,7 @@ const createSubscription = async (req, res) => {
         planId,
         planName: `${page.name} (Monthly)`,
         amount: page.subscriptionPrice,
+        currency: pageCurrency,
       });
     }
 
@@ -119,6 +236,7 @@ const createSubscription = async (req, res) => {
       subscriptionId: cashfreeSubId,
       planId,
       authorizationAmount: page.subscriptionPrice,
+      currency: pageCurrency,
       customer: {
         id: userId.toString(),
         email: user.email || `${user.username}@taatom.app`,
@@ -135,7 +253,7 @@ const createSubscription = async (req, res) => {
       creatorId: page.userId,
       cashfreePlanId: planId,
       cashfreeSubscriptionId: cashfreeResult.subscriptionId,
-      cashfreePaymentSessionId: cashfreeResult.paymentSessionId,
+      cashfreeSubscriptionSessionId: cashfreeResult.subscriptionSessionId,
       amount: page.subscriptionPrice,
       currency: page.subscriptionCurrency || 'INR',
       status: 'initialized',
@@ -145,7 +263,8 @@ const createSubscription = async (req, res) => {
     return sendSuccess(res, 201, 'Subscription session created', {
       subscriptionId: subscription._id,
       cashfreeSubscriptionId: cashfreeResult.subscriptionId,
-      paymentSessionId: cashfreeResult.paymentSessionId,
+      paymentSessionId: cashfreeResult.subscriptionSessionId,
+      subscriptionSessionId: cashfreeResult.subscriptionSessionId,
       amount: page.subscriptionPrice,
       currency: page.subscriptionCurrency || 'INR',
     });
@@ -153,6 +272,10 @@ const createSubscription = async (req, res) => {
     if (isCashfreeNotConfiguredError(error)) {
       logger.warn('Subscribe skipped: Cashfree not configured:', error.message);
       return sendError(res, 'SERVER_UNAVAILABLE', error.message);
+    }
+    if (isUnsupportedCurrencyError(error)) {
+      logger.warn('Subscribe rejected: unsupported currency:', error.message);
+      return sendError(res, 'BUSINESS_INVALID_OPERATION', error.message);
     }
     logger.error('Error creating subscription:', error);
     const hint =
@@ -224,6 +347,9 @@ const getSubscriptionStatus = async (req, res) => {
           }
           await subscription.save();
           logger.info(`Fallback: synced subscription ${subscription._id} to active from Cashfree`);
+          // Notify the page owner. Helper is idempotent via ownerNotifiedAt,
+          // so this is safe even if the webhook later fires for the same sub.
+          await notifyOwnerOfSubscription(subscription);
         } else if (cfStatus === 'cancelled' || cfStatus === 'canceled') {
           subscription.status = 'cancelled';
           subscription.cancelledAt = new Date();
@@ -476,6 +602,11 @@ const handleWebhook = async (req, res) => {
               paidAt: now,
             });
           }
+          await subscription.save();
+          // Notify the page owner. Helper is idempotent via ownerNotifiedAt and
+          // never throws, so we don't gate the webhook response on it.
+          await notifyOwnerOfSubscription(subscription);
+          break;
         } else if (newStatus === 'cancelled' || newStatus === 'canceled') {
           subscription.status = 'cancelled';
           subscription.cancelledAt = new Date();
@@ -651,6 +782,8 @@ const devManualActivate = async (req, res) => {
       });
     }
     await subscription.save();
+    // Mirror the webhook: notify the page owner (idempotent).
+    await notifyOwnerOfSubscription(subscription);
 
     logger.info(`[DEV] Manually activated subscription ${subscription._id}`);
     return sendSuccess(res, 200, 'Subscription activated (dev)', {

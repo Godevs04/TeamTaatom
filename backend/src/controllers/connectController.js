@@ -4,10 +4,36 @@ const ConnectFollow = require('../models/ConnectFollow');
 const ConnectPageView = require('../models/ConnectPageView');
 const Chat = require('../models/Chat');
 const User = require('../models/User');
+const Subscription = require('../models/Subscription');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { uploadObject, buildMediaKey } = require('../services/storage');
 const { generateSignedUrl, isSignedUrl, extractStorageKeyFromUrl } = require('../services/mediaService');
+
+/**
+ * Subscription content gate — true when the viewer is allowed to see paid
+ * content on this page. Owners always pass; everyone else must have an
+ * active Subscription row. The check lives here so every read path that
+ * surfaces `subscriptionContent` (page detail, dedicated content endpoint,
+ * future endpoints) can apply the same rule.
+ *
+ * Returns false for unauthenticated callers — never throws.
+ */
+const userCanReadSubscriptionContent = async (currentUserId, pageOwnerId, pageId) => {
+  if (!currentUserId) return false;
+  if (pageOwnerId && currentUserId.toString() === pageOwnerId.toString()) return true;
+  try {
+    const sub = await Subscription.exists({
+      userId: currentUserId,
+      connectPageId: pageId,
+      status: 'active',
+    });
+    return !!sub;
+  } catch (err) {
+    logger.warn('userCanReadSubscriptionContent check failed:', err.message);
+    return false;
+  }
+};
 
 // Helper: resolve storage keys to signed URLs for page images
 const resolvePageImages = async (page) => {
@@ -335,10 +361,22 @@ const getPageDetail = async (req, res) => {
       page.buyItems = [];
     }
 
+    // Paid content gate: subscriptionContent is only visible to the owner or
+    // an active subscriber. Without this, the lock screen on the client was
+    // purely cosmetic — every visitor's API response carried the full paid
+    // content. Website/canvas content stays visible to everyone.
+    const isSubscribed = isPrivateLocked
+      ? false
+      : await userCanReadSubscriptionContent(currentUserId, pageOwnerId, pageId);
+    if (!isOwner && !isSubscribed) {
+      page.subscriptionContent = [];
+    }
+
     return sendSuccess(res, 200, 'Page detail fetched', {
       page,
       isOwner,
       isFollowing,
+      isSubscribed,
       isPrivateLocked,
       subscriptionDisplayPrices: isPrivateLocked ? null : subscriptionDisplayPrices,
     });
@@ -1367,9 +1405,27 @@ const getSubscriptionContent = async (req, res) => {
   try {
     const { pageId } = req.params;
 
-    const page = await ConnectPage.findById(pageId).select('subscriptionContent features').lean();
+    // Need userId to gate access; lean+select must include it.
+    const page = await ConnectPage.findById(pageId).select('subscriptionContent features userId').lean();
     if (!page) {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
+    }
+
+    // Paid content gate: only the owner or an active subscriber can read this.
+    // Return 200 with empty content + isSubscribed=false rather than 403 so the
+    // client can render the existing "Subscribe to view" UI without special
+    // error handling.
+    const currentUserId = req.user?._id;
+    const isOwner = !!(currentUserId && page.userId && page.userId.toString() === currentUserId.toString());
+    const isSubscribed = isOwner
+      ? true
+      : await userCanReadSubscriptionContent(currentUserId, page.userId, pageId);
+    if (!isOwner && !isSubscribed) {
+      return sendSuccess(res, 200, 'Subscription content gated', {
+        subscriptionContent: [],
+        isSubscribed: false,
+        gated: true,
+      });
     }
 
     // Resolve image storage keys to signed URLs
@@ -1393,7 +1449,11 @@ const getSubscriptionContent = async (req, res) => {
       }
     }
 
-    return sendSuccess(res, 200, 'Subscription content fetched', { subscriptionContent: page.subscriptionContent || [] });
+    return sendSuccess(res, 200, 'Subscription content fetched', {
+      subscriptionContent: page.subscriptionContent || [],
+      isSubscribed: true,
+      gated: false,
+    });
   } catch (error) {
     logger.error('Error fetching subscription content:', error);
     return sendError(res, 'SERVER_ERROR', 'Failed to fetch subscription content');

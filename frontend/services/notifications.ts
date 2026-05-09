@@ -153,7 +153,31 @@ export const handleNotificationClick = async (notification: any): Promise<{
           message: 'This user account is no longer available.',
           shouldNavigate: false
         };
-        
+
+      case 'subscription_active': {
+        // Sent to the page owner when someone activates a paid subscription /
+        // purchase on their Connect page. Tapping opens the page so they can
+        // see the new subscriber list.
+        const connectPageId =
+          notification.metadata?.connectPageId ||
+          notification.connectPageId ||
+          notification.entityId;
+        if (connectPageId) {
+          return {
+            success: true,
+            message: 'Opening your Connect page...',
+            shouldNavigate: true,
+            navigationPath: `/connect/page/${connectPageId}`,
+          };
+        }
+        return {
+          success: true,
+          message: 'This page is no longer available.',
+          shouldNavigate: false,
+          contentUnavailable: true,
+        };
+      }
+
       case 'post_deleted':
       case 'short_deleted':
         return {
