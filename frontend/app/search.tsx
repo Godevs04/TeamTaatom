@@ -267,7 +267,10 @@ export default function SearchScreen() {
         )}
         <View style={styles.userStats}>
           <Text style={[styles.statText, { color: theme.colors.textSecondary }]}>
-            {(typeof item.followers === 'number' ? item.followers : item.followers?.length) || 0} followers
+            {(item as { followersCount?: number }).followersCount ??
+              (typeof item.followers === 'number' ? item.followers : item.followers?.length) ??
+              0}{' '}
+            followers
           </Text>
           <Text style={[styles.statText, { color: theme.colors.textSecondary }]}>
             • {item.totalLikes || 0} likes

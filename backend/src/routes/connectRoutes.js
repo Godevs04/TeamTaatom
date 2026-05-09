@@ -4,6 +4,7 @@ const multer = require('multer');
 const { authMiddleware, optionalAuth } = require('../middleware/authMiddleware');
 const connectController = require('../controllers/connectController');
 const subscriptionController = require('../controllers/subscriptionController');
+const payoutController = require('../controllers/payoutController');
 
 // Multer config for connect page image uploads
 const storage = multer.memoryStorage();
@@ -14,6 +15,19 @@ const upload = multer({
       cb(null, true);
     } else {
       cb(new Error('Only image files are allowed'), false);
+    }
+  }
+});
+
+// Separate multer for canvas video uploads (mp4/mov/etc)
+const videoUpload = multer({
+  storage,
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype.startsWith('video/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only video files are allowed'), false);
     }
   }
 });
@@ -35,6 +49,7 @@ router.delete('/page/:pageId', authMiddleware, connectController.deletePage);
 // Discovery
 // ─────────────────────────────────────────────
 router.get('/communities', optionalAuth, connectController.getCommunities);
+router.get('/connect-pages', optionalAuth, connectController.getConnectPages);
 router.get('/search-by-name', optionalAuth, connectController.searchByName);
 router.get('/find-users', authMiddleware, connectController.findUsers);
 
@@ -59,6 +74,13 @@ router.get('/page/:pageId/subscription', optionalAuth, connectController.getSubs
 router.post('/page/:pageId/content-image', authMiddleware, upload.single('image'), connectController.uploadContentImage);
 
 // ─────────────────────────────────────────────
+// Canvas Content (free-form Stories/Shorts-style layout)
+// ─────────────────────────────────────────────
+router.put('/page/:pageId/canvas', authMiddleware, connectController.updateCanvasContent);
+router.get('/page/:pageId/canvas', optionalAuth, connectController.getCanvasContent);
+router.post('/page/:pageId/content-video', authMiddleware, videoUpload.single('video'), connectController.uploadContentVideo);
+
+// ─────────────────────────────────────────────
 // Subscriptions (Payment)
 // ─────────────────────────────────────────────
 router.post('/subscribe', authMiddleware, subscriptionController.createSubscription);
@@ -68,6 +90,13 @@ router.get('/my-subscriptions', authMiddleware, subscriptionController.getMySubs
 router.get('/page/:pageId/subscribers', authMiddleware, subscriptionController.getPageSubscribers);
 router.post('/subscription/webhook', subscriptionController.handleWebhook); // No auth — Cashfree calls this
 router.get('/subscription/payout-preview/:connectPageId', authMiddleware, subscriptionController.getPayoutPreview);
+router.get('/my-payouts', authMiddleware, payoutController.getMyPayouts);
+
+// Dev-only simulators — the handlers themselves refuse to run when
+// NODE_ENV === 'production'. Lets you flip subscription state without
+// wiring up an ngrok tunnel for the Cashfree webhook on a local box.
+router.post('/subscription/_dev/manual-activate', authMiddleware, subscriptionController.devManualActivate);
+router.post('/subscription/_dev/manual-cancel', authMiddleware, subscriptionController.devManualCancel);
 
 // ─────────────────────────────────────────────
 // Currency Config (public)

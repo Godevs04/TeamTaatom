@@ -30,6 +30,8 @@ const TravelVerification = lazyWithRetry(() => import('./pages/TravelVerificatio
 const System = lazyWithRetry(() => import('./pages/System'))
 const SupportInbox = lazyWithRetry(() => import('./pages/SupportInbox'))
 const ConnectSubscriptions = lazyWithRetry(() => import('./pages/ConnectSubscriptions'))
+const ConnectDashboard = lazyWithRetry(() => import('./pages/ConnectDashboard'))
+const ConnectPageDetail = lazyWithRetry(() => import('./pages/ConnectPageDetail'))
 const CommunityPages = lazyWithRetry(() => import('./pages/CommunityPages'))
 const CommunityPageEditor = lazyWithRetry(() => import('./pages/CommunityPageEditor'))
 
@@ -106,6 +108,8 @@ function App() {
                         <Route path="/travel-verification" element={<TravelVerification />} />
                         <Route path="/support-inbox" element={<SupportInbox />} />
                         <Route path="/connect-subscriptions" element={<ConnectSubscriptions />} />
+                        <Route path="/connect-dashboard" element={<ConnectDashboard />} />
+                        <Route path="/connect-dashboard/:pageId" element={<ConnectPageDetail />} />
                         <Route path="/community-pages" element={<CommunityPages />} />
                         <Route path="/community-pages/:pageId/edit" element={<CommunityPageEditor />} />
                         <Route path="/system" element={<System />} />

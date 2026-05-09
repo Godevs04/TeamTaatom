@@ -46,7 +46,10 @@ export default function VerifyOtpClient({ email: emailProp }: { email?: string }
           : `next=${next}`;
         router.replace(`/auth/login?${loginQs}`);
       } else {
-        router.replace("/feed");
+        const onboarded =
+          typeof window !== "undefined" &&
+          localStorage.getItem(STORAGE_KEYS.onboardingCompletedWeb) === "true";
+        router.replace(onboarded ? "/feed" : "/onboarding/welcome");
       }
     } catch (e: unknown) {
       toast.error(getFriendlyAuthErrorMessage(e));

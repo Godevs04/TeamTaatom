@@ -16,6 +16,7 @@ import {
   FolderOpen,
   UserX,
   Monitor,
+  HelpCircle,
 } from "lucide-react";
 import { cn } from "../../../lib/utils";
 
@@ -35,6 +36,7 @@ const sections: { id: string; title: string; href: string; icon: React.ElementTy
   { id: "account-activity", title: "Account Activity", href: "/settings/account-activity", icon: Monitor },
   { id: "blocked-users", title: "Blocked Users", href: "/settings/blocked-users", icon: UserX },
   { id: "about", title: "About", href: "/settings/about", icon: Info },
+  { id: "help", title: "Help center", href: "/help", icon: HelpCircle },
 ];
 
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {

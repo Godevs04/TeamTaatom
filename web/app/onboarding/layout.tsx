@@ -1,4 +1,6 @@
-export default function OnboardingLayout({ children }: { children: React.ReactNode }) {
+import type { ReactNode } from "react";
+
+export default function OnboardingLayout({ children }: { children: ReactNode }) {
   return (
     <div className="landing-bg relative min-h-[calc(100vh-3.5rem)] w-full">
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/40 via-transparent to-white/30" />

@@ -6,6 +6,7 @@ import Image from "next/image";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { completeProfileOnboarding, followProfile, getSuggestedUsers } from "@/lib/api";
+import { STORAGE_KEYS } from "@/lib/constants";
 import { useAuth } from "@/context/auth-context";
 import type { User } from "@/types/user";
 import { UserRound } from "lucide-react";
@@ -64,6 +65,13 @@ export default function OnboardingSuggestedUsersPage() {
       await refresh();
     } catch {
       toast.error("Could not mark onboarding complete. You can continue — we will retry later.");
+    }
+    try {
+      if (typeof window !== "undefined") {
+        localStorage.setItem(STORAGE_KEYS.onboardingCompletedWeb, "true");
+      }
+    } catch {
+      /* ignore */
     }
     router.replace("/feed");
   };

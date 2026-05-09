@@ -28,21 +28,29 @@ const logger = require('../utils/logger');
  *   → Creator gets ≈ ₹75.24
  */
 
-// Fee percentages
+function parsePercentEnv(name, defaultVal, min = 0, max = 100) {
+  const raw = process.env[name];
+  if (raw === undefined || raw === '') return defaultVal;
+  const n = Number.parseFloat(raw);
+  if (!Number.isFinite(n)) return defaultVal;
+  return Math.min(max, Math.max(min, n));
+}
+
+// Fee percentages (override via TAATOM_* env — defaults match product fee sheet)
 const FEES = {
   domestic: {
-    gatewayFeePercent: 2,
+    gatewayFeePercent: parsePercentEnv('TAATOM_GATEWAY_FEE_DOMESTIC_PERCENT', 2),
     fxChargePercent: 0,
-    commissionPercent: 20,
-    gstPercent: 18,
+    commissionPercent: parsePercentEnv('TAATOM_COMMISSION_PERCENT', 20),
+    gstPercent: parsePercentEnv('TAATOM_GST_ON_COMMISSION_PERCENT', 18),
     wiseFeePercent: 0,
   },
   international: {
-    gatewayFeePercent: 3.5,
-    fxChargePercent: 1.5,
-    commissionPercent: 20,
-    gstPercent: 18,
-    wiseFeePercent: 1,
+    gatewayFeePercent: parsePercentEnv('TAATOM_GATEWAY_FEE_INTL_PERCENT', 3.5),
+    fxChargePercent: parsePercentEnv('TAATOM_FX_CHARGE_PERCENT', 1.5),
+    commissionPercent: parsePercentEnv('TAATOM_COMMISSION_PERCENT', 20),
+    gstPercent: parsePercentEnv('TAATOM_GST_ON_COMMISSION_PERCENT', 18),
+    wiseFeePercent: parsePercentEnv('TAATOM_WISE_TRANSFER_FEE_PERCENT', 1),
   },
 };
 

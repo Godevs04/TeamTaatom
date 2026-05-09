@@ -243,6 +243,16 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   const currentSongRef = useRef<Song | null>(null);
   const startTimeRef = useRef<number>(0);
   const endTimeRef = useRef<number>(MAX_SELECTION_DURATION);
+  // Mirror isPlaying so the audio-status polling interval (which closes
+  // over state at setup time) can see the latest value mid-tick. Without
+  // this, pausing near the end of the clip raced with the loop-branch's
+  // playAsync — audio resumed itself while the button stayed on "play".
+  const isPlayingRef = useRef<boolean>(false);
+  // Single in-flight guard for the play/pause toggle so a rapid double-tap
+  // doesn't fire setPositionAsync + playAsync concurrently with a pending
+  // pauseAsync against the same Audio.Sound (which expo-av handles
+  // erratically on Android).
+  const playToggleInFlightRef = useRef<boolean>(false);
   const trimGrantRef = useRef<{ startTime: number; endTime: number } | null>(null);
   const trimStartRef = useRef({ initialX: 0, initialStartTime: 0 });
   const trimEndRef = useRef({ initialX: 0, initialEndTime: 0 });
@@ -317,6 +327,11 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     if (!currentSong || !isPlaying || !soundRef.current) return;
 
     const interval = setInterval(async () => {
+      // The user may have paused between the previous tick scheduling and
+      // this tick firing. Without this guard, the loop-branch below would
+      // call playAsync on a sound the user just paused — audio resumes
+      // while the button stays on "play".
+      if (!isPlayingRef.current) return;
       const sound = soundRef.current;
       if (!sound) return;
       try {
@@ -340,7 +355,9 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
           try {
             await sound.setPositionAsync(start * 1000);
             if (!isDraggingRef.current) setCurrentTime(start);
-            if (!status.isPlaying) {
+            // Re-check the ref after the await — the user may have paused
+            // while we were repositioning.
+            if (!status.isPlaying && isPlayingRef.current) {
               await sound.playAsync();
             }
           } catch (loopError) {
@@ -373,6 +390,10 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     endTimeRef.current = endTime;
     selectionDurationRef.current = endTime - startTime;
   }, [startTime, endTime]);
+
+  useEffect(() => {
+    isPlayingRef.current = isPlaying;
+  }, [isPlaying]);
 
   useEffect(() => {
     maxSelectionRef.current = videoDuration && videoDuration > 0
@@ -505,6 +526,12 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
 
   const playAudio = async () => {
     if (!soundRef.current || !currentSong) return;
+    // Reject re-entry: a double-tap on the toggle within ~50ms would
+    // otherwise queue pauseAsync + playAsync (or vice-versa) on the same
+    // expo-av Audio.Sound, which on Android sometimes leaves the player
+    // in a stuck state where neither button matches the audio state.
+    if (playToggleInFlightRef.current) return;
+    playToggleInFlightRef.current = true;
 
     try {
       if (isPlaying) {
@@ -516,7 +543,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
         setCurrentTime(startTime);
         await soundRef.current.playAsync();
         setIsPlaying(true);
-        
+
         logger.debug('Playback started:', {
           startTime,
           endTime,
@@ -527,6 +554,8 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       }
     } catch (error) {
       logger.error('Error playing audio:', error);
+    } finally {
+      playToggleInFlightRef.current = false;
     }
   };
 

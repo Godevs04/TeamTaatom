@@ -17,7 +17,7 @@ import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
-import { useJourneyTracking } from '../../hooks/useJourneyTracking';
+import { useJourney } from '../../context/JourneyContext';
 import JourneyCard from '../../components/JourneyCard';
 import { getUserJourneys } from '../../services/journey';
 
@@ -47,7 +47,7 @@ export default function NavigateIndexScreen() {
     duration,
     resumeJourneyRecording,
     stopJourneyRecording,
-  } = useJourneyTracking();
+  } = useJourney();
 
   const [userId, setUserId] = useState<string>('');
   const [journeys, setJourneys] = useState<any[]>([]);

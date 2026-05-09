@@ -16,6 +16,7 @@ export interface PostType {
   tags?: string[];
   type?: 'photo' | 'short';
   aspectRatio?: '1:1' | '16:9' | 'full';
+  filter?: 'original' | 'vivid' | 'warm' | 'cool' | 'bw';
   location?: {
     address: string;
     coordinates: {

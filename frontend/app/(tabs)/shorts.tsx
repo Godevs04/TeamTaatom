@@ -44,6 +44,8 @@ import { socketService } from '../../services/socket';
 import ShareModal from '../../components/ShareModal';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { ShortsNativeAd } from '../../components/ads/ShortsNativeAd';
+import { useAdCap, recordGoogleAdImpression } from '../../services/adCap';
+import Constants from 'expo-constants';
 
 /** Shorts list item: either a reel (PostType) or a full-screen native ad slot. */
 export type ShortsItem = PostType | { type: 'ad'; adIndex: number };
@@ -61,6 +63,12 @@ const isTablet = SCREEN_WIDTH >= 768;
 const isWeb = Platform.OS === 'web';
 const isIOS = Platform.OS === 'ios';
 const isAndroid = Platform.OS === 'android';
+// Expo Go can't load the react-native-google-mobile-ads native module —
+// ShortsNativeAd would mount, fail synchronously in its first effect, and
+// the parent slot would render a SHORTS_ITEM_HEIGHT-tall black void at
+// position 6 before onLoadFailed could propagate. Skip ad insertion entirely
+// in this environment so dev builds in Expo Go don't show the blank slot.
+const isExpoGo = (Constants as any)?.appOwnership === 'expo';
 const logger = createLogger('ShortsScreen');
 
 // Tab bar height from (tabs)/_layout - content must sit above it
@@ -117,6 +125,29 @@ export type ShortsScreenProps = {
   initialShortId?: string;
 };
 
+/**
+ * Memo wrapper around a single shorts cell. The parent computes a small
+ * `cacheKey` string of every state slice that affects this cell's rendered
+ * output (visibility, isPlaying, isMuted, isSaved, isFollowing, like state,
+ * pause-button overlay, like-animation overlay, source-version key, etc.)
+ * and passes the cell's JSX as a thunk via `render`.
+ *
+ * React.memo's custom comparator only checks `cacheKey`. When a sibling
+ * cell's state changes, that sibling's cacheKey changes but THIS cell's
+ * doesn't, so React.memo skips re-rendering this cell entirely — even
+ * though the parent's `renderShortItem` ran with a fresh closure. That's
+ * what stops the "tap Like on cell A also re-renders cells B and C" cost
+ * that was the dominant remaining stutter source after the in-cell state-
+ * coalescing pass.
+ *
+ * If we ever need to invalidate every visible cell at once (e.g. on theme
+ * change), include the relevant value in the cacheKey.
+ */
+const ShortCellMemo = React.memo(
+  ({ render }: { render: () => React.ReactElement; cacheKey: string }) => render(),
+  (prev, next) => prev.cacheKey === next.cacheKey
+);
+
 export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [shorts, setShorts] = useState<PostType[]>([]);
   const [loading, setLoading] = useState(true);
@@ -127,6 +158,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [isScreenFocused, setIsScreenFocused] = useState(true);
   const isScreenFocusedRef = useRef(true);
   const [videoStates, setVideoStates] = useState<{ [key: string]: boolean }>({});
+  // Per-reel "first frame is ready to display" gate. Set when expo-av fires
+  // onReadyForDisplay; cleared when the Video element re-mounts (onLoadStart).
+  // Drives Video opacity so the thumbnail backdrop stays visible until the
+  // native player actually has a frame to paint — without this, the swap from
+  // placeholder→Video shows expo-av's pre-frame black surface for ~one frame.
+  const [readyShorts, setReadyShorts] = useState<Set<string>>(new Set());
   const [showPauseButton, setShowPauseButton] = useState<{ [key: string]: boolean }>({});
   const [showLikeAnimation, setShowLikeAnimation] = useState<{ [key: string]: boolean }>({});
   const [likeAnimationParticles, setLikeAnimationParticles] = useState<{ [key: string]: Array<{ id: string; x: number; y: number }> }>({});
@@ -167,10 +204,43 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // Hard cap: track ads shown this session; never insert more than 3 ad slots total
   const adsShownThisSessionRef = useRef(0);
   const [adsShownThisSession, setAdsShownThisSession] = useState(0);
+  // Persistent 3-per-8h Google AdMob cap, shared with the home feed. The
+  // existing per-session counter above stays in place as defense-in-depth;
+  // the persistent cap is the authoritative limit across app restarts.
+  const adCap = useAdCap();
+  // When an ad slot can't render (Expo Go, no AdMob fill, network error,
+  // placeholder unit ID, …), ShortsNativeAd returns null but its parent
+  // wrapper still occupies a SHORTS_ITEM_HEIGHT-tall cell with the black
+  // shortItem background — the user sees a blank dark screen at that
+  // position. ShortsNativeAd's onLoadFailed callback flips this flag, and
+  // shortsData below excludes ad slots once it's true. Session-scoped: a
+  // single failure stops further ad insertion until next app launch (per
+  // CLAUDE.md "stability first" — better to lose ads than show black slots).
+  const [shortsAdsBroken, setShortsAdsBroken] = useState(false);
 
   const flatListRef = useRef<FlatList>(null);
   const videoRefs = useRef<{ [key: string]: Video | null }>({});
+  // Two timeout namespaces. Previously a single `pauseTimeoutRefs[id]` slot was
+  // shared by the pause-button hide timer AND the like-animation hide timer,
+  // so a tap-then-like (or vice versa) on the same cell within 1.5s overwrote
+  // the slot and orphaned the first timer. Splitting them prevents stale
+  // callbacks from setting state on stale data.
   const pauseTimeoutRefs = useRef<{ [key: string]: NodeJS.Timeout }>({});
+  const likeAnimTimeoutRefs = useRef<{ [key: string]: NodeJS.Timeout }>({});
+
+  // Helpers that no-op when the per-id value hasn't changed. The previous
+  // pattern `setState(prev => ({ ...prev, [id]: value }))` always allocated a
+  // new object reference, even when value === prev[id], which churned
+  // renderShortItem's deps and re-rendered every visible cell on every video
+  // load/play/pause/viewability event. Coalescing eliminates the redundant
+  // re-renders entirely.
+  const updateKeyedBool = useCallback((
+    setter: React.Dispatch<React.SetStateAction<{ [key: string]: boolean }>>,
+    key: string,
+    value: boolean
+  ) => {
+    setter((prev) => (prev[key] === value ? prev : { ...prev, [key]: value }));
+  }, []);
   const likeAnimationRefs = useRef<{ [key: string]: Animated.Value }>({});
   const likeParticleRefs = useRef<{ [key: string]: ParticleAnimations }>({});
   const swipeAnimation = useRef(new Animated.Value(0)).current;
@@ -246,7 +316,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       if (video) {
         try {
           await video.pauseAsync();
-          setVideoStates(prev => ({ ...prev, [activeVideoIdRef.current!]: false }));
+          updateKeyedBool(setVideoStates, activeVideoIdRef.current!, false);
           logger.debug(`Paused current video: ${activeVideoIdRef.current}`);
         } catch (error) {
           logger.warn(`Error pausing current video:`, error);
@@ -322,28 +392,31 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
       // Remove from refs
       delete videoRefs.current[videoId];
-      
-      // Update state
+
+      // Update state — coalesce: skip the new-object allocation when the key
+      // wasn't there to begin with.
       setVideoStates(prev => {
+        if (!(videoId in prev)) return prev;
         const newState = { ...prev };
         delete newState[videoId];
         return newState;
       });
-      
+
       logger.debug(`Stopped and unloaded video: ${videoId}`);
     } catch (error) {
       // Safely handle and log errors
-      const errorMessage = error instanceof Error 
-        ? error.message 
-        : typeof error === 'string' 
-        ? error 
+      const errorMessage = error instanceof Error
+        ? error.message
+        : typeof error === 'string'
+        ? error
         : 'Unknown video cleanup error';
-      
+
       logger.warn(`Error stopping/unloading video ${videoId}:`, errorMessage);
-      
+
       // Still remove from refs even if cleanup fails to prevent memory leaks
       delete videoRefs.current[videoId];
       setVideoStates(prev => {
+        if (!(videoId in prev)) return prev;
         const newState = { ...prev };
         delete newState[videoId];
         return newState;
@@ -390,11 +463,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       });
       videoRefs.current = {};
       
-      // Clear all pause timeouts
-      Object.values(pauseTimeoutRefs.current).forEach(timeout => {
-        clearTimeout(timeout);
-      });
+      // Clear all pause timeouts AND like-anim timeouts (separate namespaces).
+      Object.values(pauseTimeoutRefs.current).forEach(timeout => clearTimeout(timeout));
+      Object.values(likeAnimTimeoutRefs.current).forEach(timeout => clearTimeout(timeout));
       pauseTimeoutRefs.current = {};
+      likeAnimTimeoutRefs.current = {};
+
+      // Drop animated-value refs so we don't leak Animated.Value instances.
+      likeAnimationRefs.current = {};
+      likeParticleRefs.current = {};
       
       // Clear video cache
       if (videoCacheRef.current) {
@@ -455,6 +532,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       isScreenFocusedRef.current = true;
       setIsScreenFocused(true);
 
+      // Lift any audio freeze left over from the previous tab-blur cleanup.
+      // Without this, the next song the user lands on could be silently
+      // blocked if the freeze window was set long enough to cover slow
+      // network loads (see cleanup below).
+      audioManager.unfreeze();
+
       // CRITICAL: Set audio mode for shorts playback (main speaker, not earpiece)
       // This ensures audio plays through main speaker even if call service changed it
       Audio.setAudioModeAsync({
@@ -489,10 +572,21 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         // Freeze audioManager BEFORE the cleanup teardown. Any SongPlayer load
         // that's mid-flight will resolve, attempt audioManager.playSound, and
         // get rejected — the in-flight Audio.Sound is unloaded instead of
-        // starting playback in the background. This is the fix for "song
-        // keeps playing after I switch from shorts to home". The freeze
-        // auto-clears after 400ms, well after any reasonable load completes.
-        audioManager.freeze(400);
+        // starting playback in the background. This is the fix for
+        // "switching tabs we can also hear the song".
+        //
+        // 400ms (the previous value) was too short — slow-network streaming
+        // loads regularly resolved after that window expired, slipped past
+        // the freeze, and started playing on the next tab. 3000ms covers
+        // those. The focus path above explicitly unfreezes when the user
+        // returns to shorts, so coming back doesn't stall.
+        //
+        // Trade-off: if the user switches Shorts → Home and immediately
+        // taps a home post that auto-plays a song, the home-tab audio
+        // could be blocked for up to ~3s. Acceptable — the cure is far
+        // less annoying than the disease (orphaned shorts audio playing
+        // while the user is on a different tab).
+        audioManager.freeze(3000);
 
         // Screen unfocused (user switched tab or navigated away) - pause video and audio
         pauseCurrentVideo();
@@ -825,19 +919,27 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               }
             }).catch((loadError) => {
               logger.error(`Video ${videoId} retry load failed:`, loadError);
+              // Bump source version to force a clean remount with a fresh URL fetch on next render.
+              // Without this, the Video sits in a broken state showing a black surface forever
+              // until the user scrolls away and back.
+              setSourceVersions(prev => ({ ...prev, [videoId]: (prev[videoId] ?? 0) + 1 }));
             });
           }
         }).catch(() => {
           // If unload fails, try to reload directly (re-check video ref)
           const videoAfterError = videoRefs.current[videoId];
           if (videoAfterError && typeof videoAfterError.loadAsync === 'function') {
-            videoAfterError.loadAsync({ uri: videoUrl }).catch(() => {});
+            videoAfterError.loadAsync({ uri: videoUrl }).catch(() => {
+              setSourceVersions(prev => ({ ...prev, [videoId]: (prev[videoId] ?? 0) + 1 }));
+            });
           }
         });
       } else {
         // If unloadAsync doesn't exist, try to reload directly
         if (typeof video.loadAsync === 'function') {
-          video.loadAsync({ uri: videoUrl }).catch(() => {});
+          video.loadAsync({ uri: videoUrl }).catch(() => {
+            setSourceVersions(prev => ({ ...prev, [videoId]: (prev[videoId] ?? 0) + 1 }));
+          });
         }
       }
     }, delay);
@@ -1050,13 +1152,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       if (videoId !== activeVideoId && videoRefs.current[videoId]) {
         try {
           await videoRefs.current[videoId]?.pauseAsync();
-          setVideoStates(prev => ({ ...prev, [videoId]: false }));
+          updateKeyedBool(setVideoStates, videoId, false);
         } catch (error) {
           logger.warn(`Error pausing video ${videoId}:`, error);
         }
       }
     });
-  }, []);
+  }, [updateKeyedBool]);
 
   const toggleVideoPlayback = useCallback((videoId: string) => {
     const video = videoRefs.current[videoId];
@@ -1072,8 +1174,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       if (newPlayState) {
         pauseAllVideosExcept(videoId);
         activeVideoIdRef.current = videoId;
-        // Update video state immediately for music sync
-        setVideoStates(prev => ({ ...prev, [videoId]: true }));
+        // Update video state immediately for music sync (coalesced)
+        updateKeyedBool(setVideoStates, videoId, true);
         
         // Set video audio based on music presence
         if (hasMusic) {
@@ -1090,31 +1192,31 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           activeVideoIdRef.current = null;
         }
         // Update video state immediately for music sync
-        setVideoStates(prev => ({ ...prev, [videoId]: false }));
+        updateKeyedBool(setVideoStates, videoId, false);
       }
-      
+
       video.setStatusAsync({
         shouldPlay: newPlayState,
       }).catch(() => {});
     }
-  }, [videoStates, pauseAllVideosExcept, shorts]);
+  }, [videoStates, pauseAllVideosExcept, shorts, updateKeyedBool]);
 
   const showPauseButtonTemporarily = (videoId: string) => {
     // Don't show pause button if like animation is showing
     if (showLikeAnimation[videoId]) {
       return;
     }
-    
-    setShowPauseButton(prev => ({ ...prev, [videoId]: true }));
-    
-    // Clear existing timeout
+
+    updateKeyedBool(setShowPauseButton, videoId, true);
+
+    // Clear existing pause-button timeout (separate slot from like-anim).
     if (pauseTimeoutRefs.current[videoId]) {
       clearTimeout(pauseTimeoutRefs.current[videoId]);
     }
-    
+
     // Set new timeout
     pauseTimeoutRefs.current[videoId] = setTimeout(() => {
-      setShowPauseButton(prev => ({ ...prev, [videoId]: false }));
+      updateKeyedBool(setShowPauseButton, videoId, false);
     }, 2000);
   };
 
@@ -1128,12 +1230,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     
     // Reset animation
     animValue.setValue(0);
-    
-    // Show like animation
-    setShowLikeAnimation(prev => ({ ...prev, [shortId]: true }));
-    
-    // Hide pause button while animation is showing
-    setShowPauseButton(prev => ({ ...prev, [shortId]: false }));
+
+    // Show like animation (coalesced — no-op if already true)
+    updateKeyedBool(setShowLikeAnimation, shortId, true);
+
+    // Hide pause button while animation is showing (coalesced)
+    updateKeyedBool(setShowPauseButton, shortId, false);
     
     // Clear existing timeout
     if (pauseTimeoutRefs.current[shortId]) {
@@ -1253,10 +1355,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }, index * 30); // Stagger particles
     });
     
-    // Hide animation after 1.5 seconds
-    pauseTimeoutRefs.current[shortId] = setTimeout(() => {
-      setShowLikeAnimation(prev => ({ ...prev, [shortId]: false }));
+    // Hide animation after 1.5 seconds.
+    // Use the separate likeAnim slot so a follow-up tap-to-pause on the same
+    // cell within 1.5s doesn't orphan this timer.
+    if (likeAnimTimeoutRefs.current[shortId]) {
+      clearTimeout(likeAnimTimeoutRefs.current[shortId]);
+    }
+    likeAnimTimeoutRefs.current[shortId] = setTimeout(() => {
+      updateKeyedBool(setShowLikeAnimation, shortId, false);
       setLikeAnimationParticles(prev => {
+        if (!prev[shortId]) return prev;
         const newState = { ...prev };
         delete newState[shortId];
         return newState;
@@ -1645,11 +1753,21 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     swipeStartYRef.current = null;
   };
 
-  // Interleave full-screen native ad after every SHORTS_ADS_AFTER_EVERY reels. Hard cap: max 3 slots per session.
-  const showShortsAds = !isWeb && hasWatchedFiveReels && adsAllowedAfter20s;
+  // Interleave full-screen native ad after every SHORTS_ADS_AFTER_EVERY reels.
+  // Three independent caps must all permit a slot:
+  //   1. UX gates: hasWatchedFiveReels + adsAllowedAfter20s.
+  //   2. Per-session counter (defense-in-depth, resets on app restart).
+  //   3. Persistent 3-per-8h cap (adCap, shared with home feed).
+  // Whichever is most restrictive wins.
+  const showShortsAds = !isWeb && !isExpoGo && hasWatchedFiveReels && adsAllowedAfter20s && !adCap.isCapped && !shortsAdsBroken;
   const shortsData = useMemo((): ShortsItem[] => {
     if (!showShortsAds || shorts.length === 0) return shorts as ShortsItem[];
-    const maxSlots = Math.min(MAX_SHORTS_ADS, Math.max(0, 3 - adsShownThisSession));
+    const maxSlots = Math.min(
+      MAX_SHORTS_ADS,
+      Math.max(0, 3 - adsShownThisSession),
+      adCap.remainingSlots,
+    );
+    if (maxSlots <= 0) return shorts as ShortsItem[];
     const result: ShortsItem[] = [];
     let adCount = 0;
     shorts.forEach((reel, i) => {
@@ -1659,14 +1777,18 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
     });
     return result;
-  }, [shorts, showShortsAds, adsShownThisSession]);
+  }, [shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots]);
 
   // Deep link: scroll to specific short when effectiveShortId is set (URL or props). dataIndex accounts for ad slots when showShortsAds.
   useEffect(() => {
     if (!effectiveShortId || shorts.length === 0) return;
     const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
     if (reelIndex === -1) return;
-    const maxSlots = Math.min(MAX_SHORTS_ADS, Math.max(0, 3 - adsShownThisSession));
+    const maxSlots = Math.min(
+      MAX_SHORTS_ADS,
+      Math.max(0, 3 - adsShownThisSession),
+      adCap.remainingSlots,
+    );
     const dataIndex = showShortsAds
       ? reelIndex + Math.min(Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY), maxSlots)
       : reelIndex;
@@ -1687,7 +1809,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }, 100 * (attempt + 1));
     };
     attemptScroll();
-  }, [effectiveShortId, shorts, showShortsAds, adsShownThisSession]);
+  }, [effectiveShortId, shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots]);
 
   // Enhanced: Ensure video playback syncs with currentVisibleIndex (uses shortsData; ad = pause all, reel = play)
   useEffect(() => {
@@ -1731,14 +1853,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           }
           if (!status.isPlaying) {
             currentVideo.playAsync().then(() => {
-              setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
+              updateKeyedBool(setVideoStates, currentShortId, true);
               logger.debug(`Video ${currentShortId} started playing via useEffect`);
             }).catch((error) => {
               logger.error(`Video ${currentShortId} failed to play via useEffect:`, error);
               setTimeout(() => { currentVideo.playAsync().catch(() => {}); }, 500);
             });
           } else {
-            setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
+            updateKeyedBool(setVideoStates, currentShortId, true);
           }
         } else {
           logger.debug(`Video ${currentShortId} not loaded yet, waiting for onLoad`);
@@ -1749,10 +1871,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       });
     } else {
       activeVideoIdRef.current = currentShortId;
-      setVideoStates(prev => ({ ...prev, [currentShortId]: true }));
+      updateKeyedBool(setVideoStates, currentShortId, true);
       logger.debug(`Video ref not available for ${currentShortId}, will play when mounted`);
     }
-  }, [currentVisibleIndex, shortsData]);
+  }, [currentVisibleIndex, shortsData, updateKeyedBool]);
 
   // Preload next reel and track video views (reels only; skip when visible item is ad)
   useEffect(() => {
@@ -1813,6 +1935,17 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             onImpression={() => {
               adsShownThisSessionRef.current += 1;
               setAdsShownThisSession((prev) => Math.min(3, prev + 1));
+              // Persistent 3-per-8h cap, shared with the home feed. Fire-and-forget;
+              // adCap handles AsyncStorage write + listener notification internally.
+              recordGoogleAdImpression();
+            }}
+            onLoadFailed={() => {
+              // Stop inserting ad slots for the rest of this session — see the
+              // shortsAdsBroken declaration above. The cell currently rendering
+              // this null ad will still occupy its slot until the next render,
+              // but no NEW broken slots will appear after the data array
+              // recomputes.
+              setShortsAdsBroken(true);
             }}
           />
         </View>
@@ -1832,7 +1965,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const shouldRenderVideo = distanceFromVisible === 0;
 
     const videoState = videoStates[item._id];
-    const isVideoPlaying = videoState !== undefined ? videoState : (index === currentVisibleIndex);
+    // Only treat the video as "playing" once it has actually reported playback
+    // (via onLoad / onPlaybackStatusUpdate). The previous optimistic fallback
+    // (`index === currentVisibleIndex` when state is undefined) caused SongPlayer
+    // to autoplay the (smaller, faster-loading) audio file before the video had
+    // finished buffering — so the user heard music before seeing the reel, and
+    // a tap-pause during that gap couldn't sync the two streams.
+    const isVideoPlaying = videoState === true;
     const isFollowing = followStates[item.user._id] || false;
     const isSaved = savedShorts.has(item._id);
     const isLiked = item.isLiked || false;
@@ -1854,7 +1993,26 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
     }
 
+    // Pipe-separated key of every state slice that affects this cell's
+    // output. ShortCellMemo skips re-render if this string is identical to
+    // its previous value — meaning a state change for a different cell
+    // doesn't pay the cost of re-rendering this one. Pipe-string is cheap
+    // to build and compare; deliberately avoiding JSON.stringify per cell.
+    const isOwn = item.user._id === currentUser?._id;
+    const isVisibleNow = index === currentVisibleIndex;
+    const isVideoReady = readyShorts.has(item._id);
+    const cacheKey =
+      `${item._id}|${index}|${isVisibleNow ? 1 : 0}|` +
+      `${isVideoPlaying ? 1 : 0}|${mutedShorts.has(item._id) ? 1 : 0}|` +
+      `${isSaved ? 1 : 0}|${isFollowing ? 1 : 0}|` +
+      `${actionLoading === item._id ? 1 : 0}|` +
+      `${shouldShowPauseButton ? 1 : 0}|${shouldShowLikeAnimation ? 1 : 0}|` +
+      `${sourceVersions[item._id] ?? 0}|` +
+      `${item.likesCount ?? 0}|${item.commentsCount ?? 0}|${isLiked ? 1 : 0}|${item.viewsCount ?? 0}|` +
+      `${isOwn ? 1 : 0}|${isScreenFocused ? 1 : 0}|${isVideoReady ? 1 : 0}`;
+
     return (
+      <ShortCellMemo cacheKey={cacheKey} render={() => (
       <View style={styles.shortItem}>
           {/* Video Player with Gesture Handling */}
           <View
@@ -1878,21 +2036,50 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               accessibilityLabel="Tap to play or pause video"
               accessibilityRole="button"
             >
+              {/* TouchableWithoutFeedback uses React.Children.only — wrap the backdrop
+                  + Video pair in a single View so it sees one child. The wrapper fills
+                  the parent so taps still hit anywhere. */}
+              <View style={styles.shortVideo}>
+              {/* Backdrop — ALWAYS rendered. The Video element below stacks on top
+                  via absoluteFillObject and is invisible (opacity 0) until expo-av
+                  fires onReadyForDisplay. That keeps the user looking at the
+                  thumbnail through the whole mount → buffer → first-frame window
+                  instead of expo-av's black native surface. */}
+              {item.imageUrl ? (
+                <ExpoImage
+                  source={{ uri: item.imageUrl }}
+                  style={[styles.shortVideo as ImageStyle, StyleSheet.absoluteFillObject]}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={0}
+                />
+              ) : (
+                <View style={[styles.shortVideo, StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center' }]}>
+                  <ActivityIndicator size="small" color="rgba(255,255,255,0.6)" />
+                </View>
+              )}
+
               {/* Conditional rendering: Only mount Video component if within 1 index of visible */}
               {/* This ensures previous videos are fully unmounted, preventing memory leaks */}
-              {shouldRenderVideo ? (
+              {shouldRenderVideo && (
                 <Video
                 key={`video-${item._id}-${sourceVersions[item._id] ?? 0}`}
                 ref={(ref) => {
                   videoRefs.current[item._id] = ref;
                 }}
                 source={{ uri: handlersRef.current.getVideoUrl(item) }}
-                style={styles.shortVideo}
+                style={[styles.shortVideo, StyleSheet.absoluteFillObject, { opacity: isVideoReady ? 1 : 0 }]}
                 resizeMode={ResizeMode.COVER}
                 // Autoplay behavior: only play if this is the current visible index
                 // Force play when index matches currentVisibleIndex to ensure consistent playback
                 shouldPlay={index === currentVisibleIndex}
                 isLooping
+                // Cut status callback rate from default ~500ms to 1s. The callback runs
+                // setState (videoStates) and mute-enforcement on every fire; halving its
+                // rate halves the per-reel bridge work and re-render trigger frequency
+                // during steady playback. Pause/play state transitions still propagate
+                // immediately because expo-av fires the callback on state change too.
+                progressUpdateIntervalMillis={1000}
                 // CRITICAL: Mute video when music is playing
                 // If song exists with valid s3Url, video must be muted so only music plays
                 // Also mute videos that are not in focus to save audio resources
@@ -1901,9 +2088,28 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   const hasMusic = !!(item.song?.songId?._id);
                   return hasMusic ? 0.0 : 1.0;
                 })()}
+                // Reset the ready gate whenever this Video instance starts a fresh load
+                // (initial mount, source-version bump after error, etc.). Without this,
+                // a remounted Video would inherit `isVideoReady=true` from the previous
+                // instance and show its still-black native surface at full opacity until
+                // the new first frame decoded.
+                onReadyForDisplay={() => {
+                  setReadyShorts(prev => {
+                    if (prev.has(item._id)) return prev;
+                    const next = new Set(prev);
+                    next.add(item._id);
+                    return next;
+                  });
+                }}
                 // Use onLoadStart to ensure video starts playing when it loads and is properly muted
                 onLoadStart={() => {
                   logger.debug(`Video ${item._id} load started, index: ${index}, currentVisible: ${currentVisibleIndex}`);
+                  setReadyShorts(prev => {
+                    if (!prev.has(item._id)) return prev;
+                    const next = new Set(prev);
+                    next.delete(item._id);
+                    return next;
+                  });
                   if (index === currentVisibleIndex) {
                     const video = videoRefs.current[item._id];
                     if (video) {
@@ -1929,7 +2135,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   // unmounts the old player and remounts a clean one with the new URL.
                   logger.error(`Video ${item._id} failed to load:`, error);
                   videoCacheRef.current.delete(item._id);
-                  setVideoStates(prev => ({ ...prev, [item._id]: false }));
+                  updateKeyedBool(setVideoStates, item._id, false);
 
                   const errorMessage = typeof error === 'string' ? error : (error as any)?.message || '';
                   const errorCode = (error as any)?.code;
@@ -2018,10 +2224,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     // to avoid unnecessary re-renders (onPlaybackStatusUpdate fires ~30x/sec)
                     if (wasPlaying !== isNowPlaying) {
                       logger.debug(`Video ${item._id} ${isNowPlaying ? 'playing' : 'paused'}`);
-                      setVideoStates(prev => ({
-                        ...prev,
-                        [item._id]: isNowPlaying
-                      }));
+                      updateKeyedBool(setVideoStates, item._id, isNowPlaying);
                     }
                   } else if ((status as any).error) {
                     // Handle playback errors
@@ -2036,12 +2239,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   // CRITICAL: Ensure video plays after it fully loads, especially for subsequent videos
                   if (status.isLoaded) {
                     logger.debug(`Video ${item._id} loaded successfully, isPlaying: ${status.isPlaying}, shouldPlay: ${index === currentVisibleIndex}`);
-                    
-                    // Initialize video state when video loads
-                    setVideoStates(prev => ({
-                      ...prev,
-                      [item._id]: status.isPlaying || false
-                    }));
+
+                    // Initialize video state when video loads (coalesced)
+                    updateKeyedBool(setVideoStates, item._id, !!status.isPlaying);
                     
                     // CRITICAL FIX: Ensure video plays when it becomes visible and is loaded
                     // This fixes the black screen issue for subsequent videos
@@ -2062,10 +2262,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                             if (!currentStatus.isPlaying) {
                               activeVideoIdRef.current = item._id;
                               video.playAsync().then(() => {
-                                setVideoStates(prev => ({
-                                  ...prev,
-                                  [item._id]: true
-                                }));
+                                updateKeyedBool(setVideoStates, item._id, true);
                                 logger.debug(`Video ${item._id} started playing after load`);
                               }).catch((error) => {
                                 logger.error(`Video ${item._id} failed to play after load:`, error);
@@ -2081,24 +2278,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   }
                 }}
               />
-              ) : (
-                // Lightweight placeholder for unmounted videos. Show the
-                // poster/thumbnail (cached on disk by expo-image) so the user
-                // sees the next reel's frame instead of a black void during
-                // the brief mount window. No native decoder allocated — image
-                // bitmap is cheap (~3MB) compared to a Video instance (50-400MB).
-                item.imageUrl ? (
-                  <ExpoImage
-                    source={{ uri: item.imageUrl }}
-                    style={styles.shortVideo as any}
-                    contentFit="cover"
-                    cachePolicy="memory-disk"
-                    transition={0}
-                  />
-                ) : (
-                  <View style={styles.shortVideo} />
-                )
               )}
+              </View>
             </TouchableWithoutFeedback>
           </View>
           
@@ -2195,13 +2376,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   logger.warn('Profile picture failed to load for user:', item.user._id);
                 }}
               />
-              {/* Follow Button - Only show if not own user */}
-              {item.user._id !== currentUser?._id && (
+              {/* Follow Button - Only show if currentUser is loaded AND not own post.
+                  If currentUser hasn't resolved yet, hide the button instead of
+                  defaulting to visible (which previously flashed Follow on the
+                  user's own shorts during the load race). */}
+              {!!currentUser?._id && String(item.user._id) !== String(currentUser._id) && (
                 <View style={[styles.followButton, isFollowing && styles.followingButton]}>
-                  <Ionicons 
-                    name={isFollowing ? "checkmark" : "add"} 
-                    size={12} 
-                    color="white" 
+                  <Ionicons
+                    name={isFollowing ? "checkmark" : "add"}
+                    size={12}
+                    color="white"
                   />
                 </View>
               )}
@@ -2406,8 +2590,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             </View>
           </View>
       </View>
+      )} />
     );
-  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, swipeAnimation, fadeAnimation, isScreenFocused, sourceVersions]);
+    // swipeAnimation / fadeAnimation are Animated.Value refs from useRef ---
+    // their identity never changes, so they don't belong in the deps array.
+    // Including them was harmless but signaled false volatility.
+  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions, readyShorts]);
 
   const keyExtractor = useCallback((item: ShortsItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;
@@ -2440,6 +2628,22 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
     const previousIndex = currentVisibleIndex;
     const previousItem = shortsData[previousIndex] as ShortsItem | undefined;
+
+    // Clear the ready-flag for the reel about to become visible so its Video
+    // remounts with opacity:0. Otherwise a re-visit (Video unmounted on scroll
+    // away, mounting again now) would inherit the previous instance's
+    // ready=true and flash its black native surface for ~one frame before
+    // onLoadStart resets the flag.
+    if (item && !isAdItem(item)) {
+      const incomingId = (item as PostType)._id;
+      setReadyShorts(prev => {
+        if (!prev.has(incomingId)) return prev;
+        const next = new Set(prev);
+        next.delete(incomingId);
+        return next;
+      });
+    }
+
     setCurrentVisibleIndex(newVisibleIndex);
     setCurrentIndex(newVisibleIndex);
 
@@ -2456,10 +2660,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       if (previousVideo) {
         previousVideo.pauseAsync()
           .then(() => {
-            setVideoStates(prev => ({ ...prev, [previousVideoId]: false }));
+            updateKeyedBool(setVideoStates, previousVideoId, false);
           })
           .catch(() => {
-            setVideoStates(prev => ({ ...prev, [previousVideoId]: false }));
+            updateKeyedBool(setVideoStates, previousVideoId, false);
           });
         // Do NOT call stopAndUnloadVideo here: the Video component may still
         // be mounted in the FlatList window, and unloadAsync leaves it in a
@@ -2476,11 +2680,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // If new visible item is a reel, mark it active for playback; if ad, leave video paused
     if (item && !isAdItem(item)) {
       activeVideoIdRef.current = item._id;
-      setVideoStates(prev => ({ ...prev, [item._id]: true }));
+      updateKeyedBool(setVideoStates, item._id, true);
     } else {
       activeVideoIdRef.current = null;
     }
-  }, [shortsData, stopAndUnloadVideo, currentVisibleIndex]);
+  }, [shortsData, stopAndUnloadVideo, currentVisibleIndex, updateKeyedBool]);
 
   const viewabilityConfig = useRef({
     itemVisiblePercentThreshold: 80, // Item is considered visible when 80% is on screen
@@ -2603,6 +2807,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         snapToInterval={SHORTS_ITEM_HEIGHT}
         snapToAlignment="start"
         decelerationRate="fast"
+        // Stops a fast flick from carrying past one page and snapping back —
+        // user lands on the next reel exactly, no overshoot.
+        disableIntervalMomentum={true}
         onScrollToIndexFailed={(info) => {
           const wait = new Promise(resolve => setTimeout(resolve, 500));
           wait.then(() => {

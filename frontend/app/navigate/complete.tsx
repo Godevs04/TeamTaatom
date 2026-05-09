@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
-import { useJourneyTracking } from '../../hooks/useJourneyTracking';
+import { useJourney } from '../../context/JourneyContext';
 import { WebView } from 'react-native-webview';
 import { MapView, Marker, useWebViewFallback } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
@@ -41,7 +41,7 @@ export default function CompleteScreen() {
   const router = useRouter();
   const { theme } = useTheme();
   const { showAlert } = useAlert();
-  const { journey, polyline } = useJourneyTracking();
+  const { journey, polyline } = useJourney();
   const params = useLocalSearchParams();
 
   const [mapReady, setMapReady] = useState(false);

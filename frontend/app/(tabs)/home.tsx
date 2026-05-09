@@ -38,6 +38,7 @@ import { createLogger } from '../../utils/logger';
 import { audioManager } from '../../utils/audioManager';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { NativeAdCard } from '../../components/ads/NativeAdCard';
+import { useAdCap, recordGoogleAdImpression } from '../../services/adCap';
 import { flushPendingLikes } from '../../utils/likePersistence';
 import type { FeedMode } from '../../services/posts';
 
@@ -222,6 +223,10 @@ export default function HomeScreen() {
   // Frequency control: only show native ads after user has scrolled past 5 posts and session > 30s (retention-friendly).
   const [hasScrolledPastFifthPost, setHasScrolledPastFifthPost] = useState(false);
   const [adsAllowedAfter30s, setAdsAllowedAfter30s] = useState(false);
+  // Persistent 3-per-8h Google AdMob cap, shared with the shorts feed. Once
+  // capped, no ad slots are inserted into the feed (per spec: posts/reels show
+  // no ads after the cap is reached).
+  const adCap = useAdCap();
   const hasSetScrollThresholdRef = useRef(false);
   useEffect(() => {
     const t = setTimeout(() => setAdsAllowedAfter30s(true), 30000);
@@ -562,7 +567,7 @@ export default function HomeScreen() {
               // Handle participants - can be array of user objects or array of IDs
               // Also handle case where participants might be serialized as array-indexed objects
               let participants = chat.participants;
-              
+
               // If participants looks like an array-indexed object (e.g., { '0': {...}, '1': {...} })
               if (participants && typeof participants === 'object' && !Array.isArray(participants)) {
                 const keys = Object.keys(participants);
@@ -571,12 +576,34 @@ export default function HomeScreen() {
                   participants = keys.map(k => participants[k]);
                 }
               }
-              
+
               if (!Array.isArray(participants) || participants.length === 0) {
                 return;
               }
-              
-              // Find the other user (not me) - handle Buffer objects from backend
+
+              const isGroupChat = chat.type === 'connect_page';
+
+              if (isGroupChat) {
+                // Group chats: msg.seen only flips true once ALL participants
+                // have read it, so it's not a per-viewer flag. Count messages
+                // where I'm not the sender and I'm not in seenBy.
+                const unseen = chat.messages.filter((msg: any) => {
+                  try {
+                    const senderId = normalizeId(msg.sender?._id || msg.sender);
+                    if (!senderId || senderId === normalizedMyUserId) return false;
+                    if (Array.isArray(msg.seenBy) && msg.seenBy.some((id: any) => normalizeId(id) === normalizedMyUserId)) {
+                      return false;
+                    }
+                    return true;
+                  } catch (e) {
+                    return false;
+                  }
+                }).length;
+                totalUnseen += unseen;
+                return;
+              }
+
+              // 1:1 chat — find the other user and use msg.seen
               const otherUser = participants.find((p: any) => {
                 try {
                   // Handle both populated participants (with _id) and direct IDs
@@ -587,18 +614,18 @@ export default function HomeScreen() {
                   return false;
                 }
               });
-              
+
               if (otherUser) {
                 try {
                   const otherUserId = normalizeId(otherUser._id || otherUser);
-                  
+
                   if (otherUserId) {
                     const unseen = chat.messages.filter((msg: any) => {
                       try {
                         // Normalize sender ID - handle Buffer objects from backend
                         // Sender can be: string, ObjectId, or { _id: ObjectId }
                         const senderId = normalizeId(msg.sender?._id || msg.sender);
-                        
+
                         // Message is unseen if:
                         // 1. It's from the other user (not me)
                         // 2. It hasn't been seen
@@ -608,7 +635,7 @@ export default function HomeScreen() {
                         return false;
                       }
                     }).length;
-                    
+
                     totalUnseen += unseen;
                   }
                 } catch (e) {
@@ -1077,21 +1104,30 @@ export default function HomeScreen() {
     },
   });
 
-  // Interleave native ad slots every ADS_AFTER_EVERY posts. Frequency control: only after scroll past 5 + session > 30s.
+  // Interleave native ad slots every ADS_AFTER_EVERY posts. Frequency control:
+  //   1. UX gates: scroll past 5 + session > 30s.
+  //   2. Hard cap: max remainingSlots Google ads in the current 8h window (shared with shorts).
+  // Once the cap is reached, no ad slots are inserted at all.
   const feedData = useMemo((): FeedItem[] => {
     if (isWeb || posts.length === 0) return posts as FeedItem[];
-    const showAds = hasScrolledPastFifthPost && adsAllowedAfter30s;
+    const showAds = hasScrolledPastFifthPost && adsAllowedAfter30s && !adCap.isCapped;
     if (!showAds) return posts as FeedItem[];
+    const maxAdsInFeed = adCap.remainingSlots;
+    if (maxAdsInFeed <= 0) return posts as FeedItem[];
     const result: FeedItem[] = [];
     let adIndex = 0;
     posts.forEach((post, i) => {
       result.push(post);
-      if ((i + 1) % ADS_AFTER_EVERY === 0 && i < posts.length - 1) {
+      if (
+        (i + 1) % ADS_AFTER_EVERY === 0 &&
+        i < posts.length - 1 &&
+        adIndex < maxAdsInFeed
+      ) {
         result.push({ type: 'ad', adIndex: adIndex++ });
       }
     });
     return result;
-  }, [posts, hasScrolledPastFifthPost, adsAllowedAfter30s]);
+  }, [posts, hasScrolledPastFifthPost, adsAllowedAfter30s, adCap.isCapped, adCap.remainingSlots]);
 
   const renderTopHeader = () => (
     <AnimatedHeader
@@ -1186,7 +1222,7 @@ export default function HomeScreen() {
 
   const renderItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => {
     if (isAdItem(item)) {
-      return <NativeAdCard adIndex={item.adIndex} />;
+      return <NativeAdCard adIndex={item.adIndex} onImpression={recordGoogleAdImpression} />;
     }
     return (
       <OptimizedPhotoCard
