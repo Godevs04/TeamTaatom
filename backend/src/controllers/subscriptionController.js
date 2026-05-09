@@ -175,7 +175,7 @@ const getSubscriptionStatus = async (req, res) => {
       return sendError(res, 'VALIDATION_FAILED', 'Invalid page ID');
     }
 
-    const subscription = await Subscription.findOne({
+    let subscription = await Subscription.findOne({
       userId,
       connectPageId,
       status: { $in: ['active', 'initialized'] }
@@ -186,6 +186,27 @@ const getSubscriptionStatus = async (req, res) => {
         isSubscribed: false,
         subscription: null,
       });
+    }
+
+    // Webhooks cannot reach localhost/LAN — poll Cashfree once per status fetch while pending
+    if (subscription.status === 'initialized' && subscription.cashfreeSubscriptionId) {
+      try {
+        const cf = await cashfreeService.getSubscription(subscription.cashfreeSubscriptionId);
+        const cfStatus = String(
+          cf.subscription_status ?? cf.subscription?.subscription_status ?? ''
+        ).toLowerCase();
+        if (cfStatus === 'active') {
+          subscription.status = 'active';
+          subscription.activatedAt = subscription.activatedAt || new Date();
+          subscription.currentPeriodStart = new Date();
+          const periodEnd = new Date();
+          periodEnd.setMonth(periodEnd.getMonth() + 1);
+          subscription.currentPeriodEnd = periodEnd;
+          await subscription.save();
+        }
+      } catch (e) {
+        logger.warn('Subscription Cashfree sync skipped:', e.message);
+      }
     }
 
     return sendSuccess(res, 200, 'Subscription status fetched', {

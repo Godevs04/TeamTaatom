@@ -73,9 +73,10 @@ export async function openCashfreeSubscriptionCheckout(subsSessionId: string): P
   }
 
   const cashfree = Cashfree({ mode: getCashfreeMode() });
+  // _top avoids navigating inside Cashfree/iframes (blocked loads to http:// LAN return URLs).
   const result = await cashfree.subscriptionsCheckout({
     subsSessionId: id,
-    redirectTarget: "_self",
+    redirectTarget: "_top",
   });
 
   if (result?.error?.message) {
