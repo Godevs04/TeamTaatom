@@ -17,6 +17,7 @@ const { VERIFIED_STATUSES } = require('../config/tripScoreConfig');
 const { lookupByCoords } = require('../utils/coordsToCountry');
 const { sendNotificationToUser } = require('../utils/sendNotification');
 const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
+const { PROFILE_ONBOARDING_VERSION } = require('../constants/profileOnboarding');
 
 /**
  * Check if viewer is allowed to access a target user's private content.
@@ -2910,38 +2911,108 @@ const getSuggestedUsers = async (req, res) => {
   }
 };
 
-// @desc    Save user interests
+function sanitizeOnboardingStringArray(arr, maxItems = 20, maxLen = 48) {
+  if (!Array.isArray(arr)) return null;
+  const out = [];
+  const seen = new Set();
+  for (const item of arr.slice(0, maxItems)) {
+    if (typeof item !== 'string') continue;
+    const t = item.trim().slice(0, maxLen);
+    if (!t) continue;
+    const key = t.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(t);
+  }
+  return out;
+}
+
+// @desc    Save user interests (and optional onboarding: languagesKnown, nationality)
 // @route   POST /profile/interests
 // @access  Private
 const saveInterests = async (req, res) => {
   try {
     const userId = req.user._id;
-    const { interests } = req.body;
+    const body = req.body || {};
+    const hasInterests = Object.prototype.hasOwnProperty.call(body, 'interests');
+    const hasLanguagesKnown = Object.prototype.hasOwnProperty.call(body, 'languagesKnown');
+    const hasNationality = Object.prototype.hasOwnProperty.call(body, 'nationality');
 
-    // Validate interests
-    if (!Array.isArray(interests)) {
-      return sendError(res, 'VAL_2001', 'Interests must be an array');
+    if (!hasInterests && !hasLanguagesKnown && !hasNationality) {
+      return sendError(res, 'VAL_2001', 'Provide at least one of: interests, languagesKnown, nationality');
     }
 
-    // Update user interests
+    const update = {};
+
+    if (hasInterests) {
+      if (!Array.isArray(body.interests)) {
+        return sendError(res, 'VAL_2001', 'interests must be an array');
+      }
+      update.interests = sanitizeOnboardingStringArray(body.interests, 20, 48) || [];
+    }
+
+    if (hasLanguagesKnown) {
+      if (!Array.isArray(body.languagesKnown)) {
+        return sendError(res, 'VAL_2001', 'languagesKnown must be an array');
+      }
+      update.languagesKnown = sanitizeOnboardingStringArray(body.languagesKnown, 20, 56) || [];
+    }
+
+    if (hasNationality) {
+      if (typeof body.nationality !== 'string') {
+        return sendError(res, 'VAL_2001', 'nationality must be a string');
+      }
+      update.nationality = body.nationality.trim().slice(0, 100);
+    }
+
     const user = await User.findByIdAndUpdate(
       userId,
-      { interests },
+      update,
       { new: true, runValidators: true }
-    ).select('interests');
+    ).select('interests languagesKnown nationality');
 
     if (!user) {
       return sendError(res, 'RES_3001', 'User not found');
     }
 
-    // Clear cache for this user
     deleteCache(CacheKeys.user(userId));
 
-    logger.info(`User ${userId} updated interests:`, interests);
-    return sendSuccess(res, 200, 'Interests saved successfully', { interests: user.interests });
+    logger.info(`User ${userId} updated profile preferences`, update);
+    return sendSuccess(res, 200, 'Profile preferences saved successfully', {
+      interests: user.interests,
+      languagesKnown: user.languagesKnown,
+      nationality: user.nationality,
+    });
   } catch (error) {
     logger.error('Save interests error:', error);
     return sendError(res, 'SRV_6001', 'Error saving interests');
+  }
+};
+
+// @desc    Mark extended profile onboarding as completed (one-time migration + new users)
+// @route   POST /profile/onboarding/complete
+// @access  Private
+const completeProfileOnboarding = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { profileOnboardingVersion: PROFILE_ONBOARDING_VERSION },
+      { new: true, runValidators: true }
+    ).select('profileOnboardingVersion');
+
+    if (!user) {
+      return sendError(res, 'RES_3001', 'User not found');
+    }
+
+    deleteCache(CacheKeys.user(userId));
+
+    return sendSuccess(res, 200, 'Profile onboarding completed', {
+      profileOnboardingVersion: user.profileOnboardingVersion,
+    });
+  } catch (error) {
+    logger.error('completeProfileOnboarding error:', error);
+    return sendError(res, 'SRV_6001', 'Error completing onboarding');
   }
 };
 
@@ -2963,5 +3034,6 @@ module.exports = {
   toggleBlockUser,
   getBlockStatus,
   getSuggestedUsers,
-  saveInterests
+  saveInterests,
+  completeProfileOnboarding
 };

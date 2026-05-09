@@ -233,6 +233,26 @@ export async function getSuggestedUsers(limit = 50) {
   return res.data as { users: User[] };
 }
 
+export async function saveProfileOnboardingPreferences(body: {
+  interests?: string[];
+  languagesKnown?: string[];
+  nationality?: string;
+}) {
+  const res = await api.post("/profile/interests", body);
+  return res.data as {
+    success?: boolean;
+    message?: string;
+    interests?: string[];
+    languagesKnown?: string[];
+    nationality?: string;
+  };
+}
+
+export async function completeProfileOnboarding() {
+  const res = await api.post("/profile/onboarding/complete", {});
+  return res.data as { success?: boolean; profileOnboardingVersion?: number };
+}
+
 /** Returns a taatom.com (or configured) short link such as https://taatom.com/s/xxxxx */
 export async function createPostShortUrl(postId: string): Promise<string | null> {
   try {

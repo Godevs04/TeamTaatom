@@ -21,7 +21,7 @@ const schema = z.object({
 });
 type FormValues = z.infer<typeof schema>;
 
-export default function LoginClient({ nextUrl }: { nextUrl?: string }) {
+export default function LoginClient({ nextUrl, initialEmail }: { nextUrl?: string; initialEmail?: string }) {
   const router = useRouter();
   const next = nextUrl || "/feed";
   const { user, isLoading: authLoading, signIn } = useAuth();
@@ -36,8 +36,14 @@ export default function LoginClient({ nextUrl }: { nextUrl?: string }) {
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { email: "", password: "" },
+    defaultValues: { email: initialEmail || "", password: "" },
   });
+
+  useEffect(() => {
+    if (initialEmail) {
+      form.setValue("email", initialEmail, { shouldValidate: true });
+    }
+  }, [initialEmail, form]);
 
   const onSubmit = async (values: FormValues) => {
     try {

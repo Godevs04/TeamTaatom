@@ -6,7 +6,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getSuggestedUsers, toggleFollow as toggleFollowService } from '../../services/profile';
+import { getSuggestedUsers, toggleFollow as toggleFollowService, completeProfileOnboarding } from '../../services/profile';
+import { getCurrentUser } from '../../services/auth';
 import { UserSkeleton } from '../../components/LoadingSkeleton';
 import { trackScreenView, trackEngagement, trackFeatureUsage, trackDropOff } from '../../services/analytics';
 import { theme } from '../../constants/theme';
@@ -102,14 +103,20 @@ export default function SuggestedUsersOnboarding() {
 
   const handleContinue = async () => {
     setIsCompleting(true);
+    try {
+      await completeProfileOnboarding();
+      await getCurrentUser();
+    } catch (e) {
+      logger.error('Error completing profile onboarding:', e);
+    }
     await AsyncStorage.setItem('onboarding_completed', 'true');
-    
+
     // Track onboarding completion
     trackFeatureUsage('onboarding_completed', {
       users_followed: following.size,
       skipped: false,
     });
-    
+
     router.replace('/(tabs)/home');
   };
 

@@ -311,7 +311,7 @@ const signin = async (req, res) => {
 const getMe = async (req, res) => {
   try {
     const user = await User.findById(req.user._id)
-      .select('username fullName bio email profilePic profilePicStorageKey totalLikes isVerified createdAt lastLogin followers following')
+      .select('username fullName bio email profilePic profilePicStorageKey totalLikes isVerified createdAt lastLogin followers following interests languagesKnown nationality profileOnboardingVersion')
       .populate('followers', 'fullName profilePic')
       .populate('following', 'fullName profilePic')
       .lean();
@@ -348,7 +348,11 @@ const getMe = async (req, res) => {
       totalLikes: user.totalLikes ?? 0,
       isVerified: user.isVerified,
       createdAt: user.createdAt,
-      lastLogin: user.lastLogin
+      lastLogin: user.lastLogin,
+      interests: user.interests ?? [],
+      languagesKnown: user.languagesKnown ?? [],
+      nationality: user.nationality ?? '',
+      profileOnboardingVersion: user.profileOnboardingVersion ?? 0,
     };
 
     res.status(200).json({

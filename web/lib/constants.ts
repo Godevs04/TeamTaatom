@@ -23,5 +23,7 @@ export const STORAGE_KEYS = {
   likedPostIds: "taatom_posts_liked_ids",
   savedPostIds: "taatom_posts_saved_ids",
   savedLocaleIds: "taatom_saved_locales", // JSON array of full locale objects (mirrors app savedLocales)
+  /** Set on register; cleared after first post-verify navigation so new signups run web onboarding */
+  webOnboardingAfterVerify: "taatom_web_onboarding_after_verify",
 } as const;
 

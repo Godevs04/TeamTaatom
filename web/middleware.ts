@@ -6,6 +6,7 @@ const AUTH_ROUTES = ["/auth/login", "/auth/register"];
 
 // Protect routes that require auth; redirect to landing (login) when not authenticated
 const PROTECTED_PREFIXES = [
+  "/onboarding",
   "/feed",
   "/shorts",
   "/saved",
@@ -60,6 +61,8 @@ export function middleware(req: NextRequest) {
 // Keep in sync with PROTECTED_PREFIXES and AUTH_ROUTES (Next.js requires static matcher)
 export const config = {
   matcher: [
+    "/onboarding",
+    "/onboarding/:path*",
     "/auth/login",
     "/auth/login/:path*",
     "/auth/register",

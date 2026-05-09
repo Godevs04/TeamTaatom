@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { authLogout, authMe, authSignIn, getProfile } from "../lib/api";
 import type { User } from "../types/user";
 import { STORAGE_KEYS } from "../lib/constants";
+import { PROFILE_ONBOARDING_VERSION } from "../lib/profile-onboarding-version";
 
 type AuthState = {
   user: User | null;
@@ -95,6 +96,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     signIn,
     signOut,
   };
+
+  React.useEffect(() => {
+    if (isAuthPage || meQuery.isLoading || !user) return;
+    if (pathname?.startsWith("/onboarding")) return;
+    if ((user.profileOnboardingVersion ?? 0) >= PROFILE_ONBOARDING_VERSION) return;
+    router.replace("/onboarding/welcome");
+  }, [isAuthPage, meQuery.isLoading, user, pathname, router]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

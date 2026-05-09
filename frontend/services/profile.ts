@@ -360,6 +360,10 @@ export interface TravelMapDataResponse {
   };
 }
 
+export const completeProfileOnboarding = async (): Promise<void> => {
+  await api.post('/api/v1/profile/onboarding/complete', {});
+};
+
 export const getTravelMapData = async (userId: string): Promise<TravelMapDataResponse> => {
   try {
     const response = await api.get(`/api/v1/profile/${userId}/travel-map`);
