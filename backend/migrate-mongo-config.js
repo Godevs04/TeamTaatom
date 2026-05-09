@@ -1,3 +1,7 @@
+const path = require('path');
+// migrate-mongo does not load .env; without this MONGO_URL is empty and we hit localhost:27017.
+require('dotenv').config({ path: path.join(__dirname, '.env') });
+
 const config = {
   mongodb: {
     url: process.env.MONGO_URL || 'mongodb://localhost:27017/taatom',

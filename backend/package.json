@@ -13,7 +13,7 @@
     "migrate": "node ./node_modules/migrate-mongo/bin/migrate-mongo.js up",
     "migrate:down": "node ./node_modules/migrate-mongo/bin/migrate-mongo.js down",
     "migrate:status": "node ./node_modules/migrate-mongo/bin/migrate-mongo.js status",
-    "migrate:create": "node ./node_modules/migrate-mongo/bin/migrate-mongo.js create",
+    "migrate:create": "node scripts/migrate-create.js",
     "copy-policies": "node scripts/copy-policies.js",
     "lint": "eslint . --max-warnings 99999"
   },
