@@ -30,7 +30,13 @@ function isProtected(pathname: string) {
 }
 
 export function middleware(req: NextRequest) {
-  const { pathname, search } = req.nextUrl;
+  const { pathname } = req.nextUrl;
+
+  // Cashfree subscription return_url may receive POST (form body); pages only handle GET.
+  if (req.method === "POST" && /^\/connect\/page\/[^/]+$/.test(pathname)) {
+    const url = req.nextUrl.clone();
+    return NextResponse.redirect(url, 303);
+  }
 
   const hasCookieToken = !!req.cookies.get("authToken")?.value;
   const hasDevAuth = !!req.cookies.get("devAuth")?.value;
@@ -53,7 +59,7 @@ export function middleware(req: NextRequest) {
 
   const url = req.nextUrl.clone();
   url.pathname = "/";
-  url.searchParams.set("next", `${pathname}${search || ""}`);
+  url.searchParams.set("next", `${pathname}${req.nextUrl.search || ""}`);
   return NextResponse.redirect(url);
 }
 
@@ -87,5 +93,6 @@ export const config = {
     "/chat/:path*",
     "/notifications",
     "/notifications/:path*",
+    "/connect/page/:path*",
   ],
 };

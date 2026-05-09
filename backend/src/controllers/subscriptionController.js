@@ -300,7 +300,7 @@ const getSubscriptionStatus = async (req, res) => {
       return sendError(res, 'VALIDATION_FAILED', 'Invalid page ID');
     }
 
-    const subscription = await Subscription.findOne({
+    let subscription = await Subscription.findOne({
       userId,
       connectPageId,
       status: { $in: ['active', 'initialized'] }
@@ -314,8 +314,9 @@ const getSubscriptionStatus = async (req, res) => {
     }
 
     // ── Fallback: if still initialized, poll Cashfree directly ──
-    // The webhook may not have arrived (sandbox, network issues, etc.).
-    // Check Cashfree for the real status and sync our DB if it changed.
+    // The webhook may not have arrived (sandbox, network issues, localhost/LAN
+    // unreachable from Cashfree, etc.). Check Cashfree for the real status and
+    // sync our DB if it changed.
     if (
       subscription.status === 'initialized' &&
       subscription.cashfreeSubscriptionId &&
@@ -323,7 +324,9 @@ const getSubscriptionStatus = async (req, res) => {
     ) {
       try {
         const cfSub = await cashfreeService.getSubscription(subscription.cashfreeSubscriptionId);
-        const cfStatus = (cfSub?.subscription_status || cfSub?.status || '').toLowerCase();
+        const cfStatus = String(
+          cfSub?.subscription_status ?? cfSub?.subscription?.subscription_status ?? cfSub?.status ?? ''
+        ).toLowerCase();
 
         if (cfStatus === 'active') {
           const now = new Date();
