@@ -2048,7 +2048,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               {item.imageUrl ? (
                 <ExpoImage
                   source={{ uri: item.imageUrl }}
-                  style={[styles.shortVideo, StyleSheet.absoluteFillObject]}
+                  style={[styles.shortVideo as ImageStyle, StyleSheet.absoluteFillObject]}
                   contentFit="cover"
                   cachePolicy="memory-disk"
                   transition={0}
