@@ -121,6 +121,13 @@ export default function ConnectPageDetailPage() {
     void qc.invalidateQueries({ queryKey: ["connect-sub-status", id] });
     void qc.invalidateQueries({ queryKey: ["connect-page", id] });
     router.replace(`/connect/page/${id}`, { scroll: false });
+
+    const delaysMs = [1200, 3500, 8000];
+    delaysMs.forEach((delay) => {
+      window.setTimeout(() => {
+        void qc.invalidateQueries({ queryKey: ["connect-sub-status", id] });
+      }, delay);
+    });
   }, [id, searchParams, qc, router]);
 
   React.useEffect(() => {

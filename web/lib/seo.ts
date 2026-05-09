@@ -36,7 +36,8 @@ export function createMetadata(overrides: {
   const baseRaw = typeof config.webUrl === "string" && config.webUrl.trim() ? config.webUrl.trim() : FALLBACK_BASE;
   let base = FALLBACK_BASE;
   try {
-    base = new URL(baseRaw).origin;
+    const u = new URL(baseRaw.startsWith("http") ? baseRaw : `http://${baseRaw}`);
+    base = u.origin;
   } catch {
     base = FALLBACK_BASE;
   }
