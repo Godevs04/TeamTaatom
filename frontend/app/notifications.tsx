@@ -432,6 +432,8 @@ export default function NotificationsScreen() {
         return '#34C759'; // Green for accepted
       case 'follow_request_rejected':
         return '#8E8E93'; // Grey for rejected
+      case 'subscription_active':
+        return '#34C759'; // Green for paid activations — distinct from social events
       default:
         return theme.colors.primary;
     }
@@ -453,13 +455,15 @@ export default function NotificationsScreen() {
         return 'checkmark-circle';
       case 'follow_request_rejected':
         return 'close-circle';
+      case 'subscription_active':
+        return 'cash';
       default:
         return 'notifications';
     }
   };
 
   const getNotificationMessage = (notification: Notification) => {
-    const { type, fromUser } = notification;
+    const { type, fromUser, metadata } = notification;
     const userName = fromUser?.fullName || 'Someone';
 
     switch (type) {
@@ -479,6 +483,13 @@ export default function NotificationsScreen() {
         return `You accepted ${userName}'s follow request`;
       case 'follow_request_rejected':
         return `You declined ${userName}'s follow request`;
+      case 'subscription_active': {
+        const pageName = metadata?.connectPageName as string | undefined;
+        const verb = metadata?.isCommunity ? 'purchased' : 'subscribed to';
+        return pageName
+          ? `${userName} ${verb} your page "${pageName}"`
+          : `${userName} ${verb} your page`;
+      }
       default:
         return 'You have a new notification';
     }

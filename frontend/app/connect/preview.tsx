@@ -18,6 +18,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode } from 'expo-av';
 import { useTheme } from '../../context/ThemeContext';
+import { useAlert } from '../../context/AlertContext';
 import { theme as themeConstants } from '../../constants/theme';
 import {
   getWebsiteContent,
@@ -33,6 +34,20 @@ import {
 } from '../../services/connect';
 import { crashReportingService } from '../../services/crashReporting';
 import logger from '../../utils/logger';
+import { NativeModules } from 'react-native';
+import {
+  CFErrorResponse,
+  CFPaymentGatewayService,
+} from 'react-native-cashfree-pg-sdk';
+import {
+  CFEnvironment,
+  CFSubscriptionSession,
+} from 'cashfree-pg-api-contract';
+
+// In Expo Go / web the Cashfree native module is absent and the SDK throws
+// "package not linked" the moment any method is called. Gate every SDK call
+// on the real native module so this screen renders without crashing.
+const isCashfreeNativeAvailable = !!NativeModules.CashfreePgApi;
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -74,6 +89,7 @@ function PreviewImage({ uri }: { uri: string }) {
 
 export default function ContentPreviewScreen() {
   const { theme } = useTheme();
+  const { showSuccess } = useAlert();
   const router = useRouter();
   const { pageId, section, pageName } = useLocalSearchParams<{
     pageId: string;
@@ -136,14 +152,67 @@ export default function ContentPreviewScreen() {
     load();
   }, [pageId, section]);
 
+  // Cashfree subscription payment callback
+  const refreshSubscriptionStatus = useCallback(async () => {
+    if (!pageId) return;
+    try {
+      const status = await getSubscriptionStatus(pageId);
+      setSubscriptionStatus(status);
+    } catch (err) {
+      logger.warn('Error refreshing subscription status:', err);
+    }
+  }, [pageId]);
+
+  useEffect(() => {
+    if (!isCashfreeNativeAvailable) return;
+    CFPaymentGatewayService.setCallback({
+      onVerify(orderID: string): void {
+        logger.info('Cashfree subscription verified, orderID:', orderID);
+        refreshSubscriptionStatus();
+        showSuccess(
+          isCommunity ? 'Your purchase was completed.' : 'Your subscription is now active.',
+          'Payment received',
+        );
+        // Redirect back to the Connect page the user subscribed from so they
+        // land on the page detail (not stuck inside the preview), and so any
+        // gated subscriber UI on that page reflects the new status.
+        if (pageId) {
+          router.replace(`/connect/page/${pageId}`);
+        }
+      },
+      onError(error: CFErrorResponse, orderID: string): void {
+        logger.error('Cashfree subscription error:', JSON.stringify(error), 'orderID:', orderID);
+        Alert.alert('Payment Failed', 'Could not complete payment. Please try again.');
+      },
+    });
+    return () => {
+      CFPaymentGatewayService.removeCallback();
+    };
+  }, [refreshSubscriptionStatus, isCommunity, pageId, router, showSuccess]);
+
   const handleSubscribe = async () => {
     if (!pageData || subscribing) return;
+    if (!isCashfreeNativeAvailable) {
+      Alert.alert(
+        'Dev build required',
+        'Subscriptions need the Cashfree native module, which is not available in Expo Go. Install the development build to subscribe.',
+      );
+      return;
+    }
     try {
       setSubscribing(true);
       const result = await createSubscription(pageData._id);
-      // Refresh subscription status after subscribing
-      const status = await getSubscriptionStatus(pageData._id);
-      setSubscriptionStatus(status);
+      if (result.paymentSessionId && result.cashfreeSubscriptionId) {
+        const env = __DEV__ ? CFEnvironment.SANDBOX : CFEnvironment.PRODUCTION;
+        const session = new CFSubscriptionSession(
+          result.paymentSessionId,
+          result.cashfreeSubscriptionId,
+          env
+        );
+        CFPaymentGatewayService.doSubscriptionPayment(session);
+      } else {
+        Alert.alert('Error', 'Unable to initiate payment session. Please try again.');
+      }
     } catch (error: any) {
       crashReportingService.captureException(error, { context: 'subscribe_from_preview' });
       Alert.alert('Error', error.message || 'Failed to subscribe. Please try again.');
