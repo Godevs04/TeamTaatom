@@ -113,6 +113,16 @@ const endpointLimiters = {
   
   // Search endpoints
   search: createIPLimiter(30, 60 * 1000), // 30 searches per minute per IP
+
+  // Subscription / money-path endpoints — protect Cashfree from being spammed
+  // and protect us from reckless retry storms by a buggy client.
+  subscriptionWrite: createUserLimiter(10, 60 * 60 * 1000), // 10 subscribe/cancel per hour per user
+  subscriptionRead: createUserLimiter(60, 60 * 1000),       // 60 status/payout-preview per minute per user
+
+  // Journey high-frequency endpoint. The hook batches every ~10s, so 30/min
+  // gives plenty of headroom for normal use while blocking flood from a
+  // buggy retry loop or a malicious client.
+  journeyLocation: createUserLimiter(30, 60 * 1000),
 };
 
 // Middleware to combine user and IP rate limiting
