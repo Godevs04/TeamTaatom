@@ -2268,11 +2268,15 @@ const getTravelMapData = async (req, res) => {
       }
     }
 
-    // Get verified TripVisits (only verified trip locations)
+    // Get verified TripVisits (only verified trip locations).
+    // Owner sees their own pending_review visits too — public viewers don't.
+    const allowedStatuses = isOwnProfile
+      ? [...VERIFIED_STATUSES, 'pending_review']
+      : VERIFIED_STATUSES;
     const trustedVisits = await TripVisit.find({
       user: id,
       isActive: true,
-      verificationStatus: { $in: VERIFIED_STATUSES },
+      verificationStatus: { $in: allowedStatuses },
       lat: { $exists: true, $nin: [null, 0] },
       lng: { $exists: true, $nin: [null, 0] }
     })

@@ -483,21 +483,41 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
         await soundRef.current.unloadAsync();
       }
 
-      const { sound } = await Audio.Sound.createAsync(
+      const { sound, status } = await Audio.Sound.createAsync(
         { uri: song.s3Url },
-        { 
+        {
           shouldPlay: false,
           progressUpdateIntervalMillis: 200, // Update every 200ms for smooth looping
           isLooping: false // We handle looping manually to respect startTime/endTime
         }
       );
-      
+
       soundRef.current = sound;
-      setCurrentSong(song);
+
+      // Songs uploaded before migration 005 may have duration=0/undefined.
+      // Read the real duration from the loaded sound so the trim slider math
+      // downstream in SongBar is not based on the 30s fallback.
+      let actualDurationSec = song.duration;
+      const initialMillis = status && status.isLoaded ? status.durationMillis : null;
+      if (typeof initialMillis === 'number' && initialMillis > 0) {
+        actualDurationSec = initialMillis / 1000;
+      } else {
+        try {
+          const liveStatus = await sound.getStatusAsync();
+          if (liveStatus.isLoaded && typeof liveStatus.durationMillis === 'number' && liveStatus.durationMillis > 0) {
+            actualDurationSec = liveStatus.durationMillis / 1000;
+          }
+        } catch (_) { /* fall through to existing value */ }
+      }
+      const correctedSong: Song = {
+        ...song,
+        duration: actualDurationSec && actualDurationSec > 0 ? actualDurationSec : MAX_SELECTION_DURATION,
+      };
+      setCurrentSong(correctedSong);
 
       // Use video duration if provided, otherwise use song duration or max
       const maxDuration = getMaxSelectionDuration();
-      const songDuration = song.duration || MAX_SELECTION_DURATION;
+      const songDuration = correctedSong.duration;
       const finalDuration = Math.min(maxDuration, songDuration);
 
       // Set initial times - start at 0, end at video duration (or max)
