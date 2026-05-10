@@ -271,6 +271,17 @@ process.on('unhandledRejection', async (reason, promise) => {
         logger.warn('Failed to start journey auto-end job:', err.message);
       }
 
+      // Start stale-init subscription poll job. Catches subscriptions stuck
+      // in `initialized` because the Cashfree webhook was missed (sandbox,
+      // network drop, callback URL misconfigured) so they don't sit forever
+      // until the subscriber happens to open the status screen.
+      try {
+        const { startStaleSubscriptionPollJob } = require('./jobs/staleSubscriptionPoll');
+        startStaleSubscriptionPollJob();
+      } catch (err) {
+        logger.warn('Failed to start stale subscription poll job:', err.message);
+      }
+
       // Warm the FX rate cache so the first /api/v1/connect/page/* request
       // doesn't pay the live-fetch latency. Non-fatal if it fails; the
       // service falls back to hardcoded rates.

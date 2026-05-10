@@ -741,8 +741,13 @@ function initMap(){
         style={styles.map}
         provider={getMapProvider()}
         initialRegion={region}
-        showsUserLocation={false}
-        showsMyLocationButton={false}
+        // Show the OS-native current-location dot (with accuracy ring) on top
+        // of the post/journey markers. Permission is already requested in the
+        // useEffect at the top of this component, so the SDK silently no-ops
+        // if the user denied it. `followsUserLocation` stays false so we don't
+        // hijack the camera if the user pans away.
+        showsUserLocation={isOwnPage}
+        showsMyLocationButton={isOwnPage}
         followsUserLocation={false}
         showsCompass={true}
         showsScale={true}

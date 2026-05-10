@@ -84,10 +84,14 @@ const SubscriptionSchema = new Schema({
     amount: Number,
     status: {
       type: String,
-      enum: ['success', 'failed', 'pending']
+      enum: ['success', 'failed', 'pending', 'refunded']
     },
     paidAt: Date,
-    failureReason: String
+    failureReason: String,
+    // Set when this payment was refunded by Cashfree (full or partial).
+    refundedAt: Date,
+    refundAmount: Number,
+    cashfreeRefundId: String
   }]
 }, {
   timestamps: true

@@ -3419,8 +3419,8 @@ export default function LocaleScreen() {
                   Array.isArray(locale.imageUrls) && locale.imageUrls.length > 0
                     ? locale.imageUrls.join('|||')
                     : '',
-                latitude: (locale.latitude && locale.latitude !== 0) ? locale.latitude.toString() : '',
-                longitude: (locale.longitude && locale.longitude !== 0) ? locale.longitude.toString() : '',
+                latitude: (locale.latitude != null && locale.latitude !== 0) ? locale.latitude.toString() : '',
+                longitude: (locale.longitude != null && locale.longitude !== 0) ? locale.longitude.toString() : '',
                 description: locale.description || '',
                 spotTypes: locale.spotTypes?.join(', ') || '',
                 travelInfo: locale.travelInfo || 'Drivable',
@@ -3626,8 +3626,8 @@ export default function LocaleScreen() {
                   Array.isArray(locale.imageUrls) && locale.imageUrls.length > 0
                     ? locale.imageUrls.filter(u => typeof u === 'string').join('|||')
                     : '',
-                latitude: (locale.latitude && locale.latitude !== 0) ? locale.latitude.toString() : '',
-                longitude: (locale.longitude && locale.longitude !== 0) ? locale.longitude.toString() : '',
+                latitude: (locale.latitude != null && locale.latitude !== 0) ? locale.latitude.toString() : '',
+                longitude: (locale.longitude != null && locale.longitude !== 0) ? locale.longitude.toString() : '',
                 description: safeDescription,
                 spotTypes: Array.isArray(locale.spotTypes) ? locale.spotTypes.filter(s => typeof s === 'string').join(', ') : '',
                 travelInfo: typeof locale.travelInfo === 'string' ? locale.travelInfo : 'Drivable',

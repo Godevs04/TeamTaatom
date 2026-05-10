@@ -4,6 +4,20 @@ const logger = require('../utils/logger');
 const Journey = require('../models/Journey');
 const Post = require('../models/Post');
 const User = require('../models/User');
+const { MAX_REALISTIC_SPEED_KMH } = require('../config/tripScoreConfig');
+
+// Treat coords as valid only when both axes are real numbers within bounds.
+// `lat == null` correctly catches null/undefined while preserving 0 (equator,
+// prime meridian) — a truthy `!lat` check would silently drop both.
+const isValidCoord = (lat, lng) => {
+  const la = Number(lat);
+  const ln = Number(lng);
+  return (
+    Number.isFinite(la) && Number.isFinite(ln) &&
+    la >= -90 && la <= 90 &&
+    ln >= -180 && ln <= 180
+  );
+};
 
 // POST /api/v1/journey/start
 const startJourney = async (req, res) => {
@@ -11,8 +25,8 @@ const startJourney = async (req, res) => {
     const { startCoords, title, sourceUserId } = req.body;
 
     // Validate startCoords
-    if (!startCoords || !startCoords.lat || !startCoords.lng) {
-      return sendError(res, 'VAL_2001', 'startCoords with lat and lng are required');
+    if (!startCoords || !isValidCoord(startCoords.lat, startCoords.lng)) {
+      return sendError(res, 'VAL_2001', 'startCoords with lat and lng within valid bounds are required');
     }
 
     // Check if user already has an active or paused journey
@@ -237,8 +251,16 @@ const updateLocation = async (req, res) => {
     }
 
     // Process each coordinate
+    let skippedInvalid = 0;
+    let skippedImpossible = 0;
     for (const coord of coordinates) {
-      if (!coord.lat || !coord.lng) continue;
+      // Reject out-of-bounds / NaN before they enter the polyline. A single
+      // bad point (e.g. parseFloat overflow → lat:300) corrupts distance math
+      // and map rendering permanently — and there's no easy DB cleanup.
+      if (!isValidCoord(coord.lat, coord.lng)) {
+        skippedInvalid++;
+        continue;
+      }
 
       const point = {
         lat: parseFloat(coord.lat),
@@ -247,19 +269,44 @@ const updateLocation = async (req, res) => {
         accuracy: coord.accuracy ? parseFloat(coord.accuracy) : null
       };
 
-      journey.polyline.push(point);
-
       // Calculate distance from previous point using Haversine formula
-      if (journey.polyline.length > 1) {
-        const prevPoint = journey.polyline[journey.polyline.length - 2];
+      if (journey.polyline.length > 0) {
+        const prevPoint = journey.polyline[journey.polyline.length - 1];
         const distance = calculateHaversineDistance(
           prevPoint.lat,
           prevPoint.lng,
           point.lat,
           point.lng
         );
+
+        // Speed sanity check: reject points implying motion faster than a
+        // commercial flight (~1000 km/h). Catches GPS jumps from indoor
+        // multipath, spoofed coords, and parseFloat overflow that's still
+        // technically in-bounds but absurd vs. the previous point.
+        const dtSec = Math.max(
+          0.001,
+          (point.timestamp - prevPoint.timestamp) / 1000,
+        );
+        const speedKmh = (distance / 1000) / (dtSec / 3600);
+        if (speedKmh > MAX_REALISTIC_SPEED_KMH) {
+          skippedImpossible++;
+          continue;
+        }
+
+        journey.polyline.push(point);
         journey.distanceTraveled += distance; // distance in meters
+      } else {
+        journey.polyline.push(point);
       }
+    }
+
+    if (skippedInvalid > 0 || skippedImpossible > 0) {
+      logger.warn(`Journey ${journeyId} updateLocation: dropped points`, {
+        skippedInvalid,
+        skippedImpossible,
+        accepted: coordinates.length - skippedInvalid - skippedImpossible,
+        userId: req.user._id.toString(),
+      });
     }
 
     // Update endCoords to last polyline point

@@ -106,6 +106,10 @@ export const SongBar: React.FC<SongBarProps> = ({
           playsInSilentModeIOS: true,
           staysActiveInBackground: false,
           shouldDuckAndroid: true,
+          // Preserve the global MIX_WITH_OTHERS mode set in _layout.tsx — without
+          // this, iOS reverts to DO_NOT_MIX and the trim preview goes silent
+          // when a muted Video is also on screen.
+          interruptionModeIOS: 0,
         });
 
         const { sound } = await Audio.Sound.createAsync(
@@ -214,10 +218,14 @@ export const SongBar: React.FC<SongBarProps> = ({
   const isDark = theme.colors.background === '#000000' || theme.colors.background === '#111114';
   const safeDuration = songDuration > 0 ? songDuration : 1;
 
-  // Calculate positions as percentages
-  const leftPct = (startTime / safeDuration) * 100;
-  const rightPct = ((safeDuration - endTime) / safeDuration) * 100;
-  const selectionWidthPct = Math.max(0, 100 - leftPct - rightPct);
+  // Calculate positions as percentages — clamp to [0,100] so the laid-out
+  // touch-target never escapes the trimmer (otherwise leftPct can exceed 100
+  // when startTime > safeDuration, putting the handle off-screen and breaking
+  // gesture hit-testing on Android).
+  const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v));
+  const leftPct = clamp((startTime / safeDuration) * 100, 0, 100);
+  const rightPct = clamp(((safeDuration - endTime) / safeDuration) * 100, 0, 100);
+  const selectionWidthPct = clamp(100 - leftPct - rightPct, 0, 100);
 
   return (
     <View style={[styles.container, { backgroundColor: isDark ? '#1a1a1a' : '#f0f0f0' }]}>
