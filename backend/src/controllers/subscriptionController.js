@@ -211,6 +211,19 @@ const createSubscription = async (req, res) => {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'User not found');
     }
 
+    // Cashfree requires a real phone number on the customer record. The previous
+    // hardcoded '9999999999' fallback was rejected by some Cashfree environments
+    // and silently broke the checkout. Fail fast with a clear error so the
+    // client can prompt the user to add a phone before subscribing.
+    const normalizedPhone = typeof user.phone === 'string' ? user.phone.trim() : '';
+    if (!normalizedPhone) {
+      return sendError(
+        res,
+        'VALIDATION_FAILED',
+        'A verified phone number is required to subscribe. Please add one in Settings.',
+      );
+    }
+
     // Ensure Cashfree plan exists for this page.
     // Cashfree caps plan_name at 40 chars; cashfreeService truncates defensively,
     // but we use a short suffix so the displayed name stays readable for typical page names.
@@ -240,7 +253,7 @@ const createSubscription = async (req, res) => {
       customer: {
         id: userId.toString(),
         email: user.email || `${user.username}@taatom.app`,
-        phone: user.phone || '9999999999',
+        phone: normalizedPhone,
         name: user.fullName || user.username,
       },
       returnUrl,
@@ -660,6 +673,52 @@ const handleWebhook = async (req, res) => {
         break;
       }
 
+      // Cashfree fires a refund event when a charged payment is refunded
+      // (full or partial). We must record this so creator payouts can be
+      // reconciled — silently ignoring it produces phantom revenue.
+      case 'SUBSCRIPTION_PAYMENT_REFUND':
+      case 'SUBSCRIPTION_REFUND':
+      case 'PAYMENT_REFUND': {
+        const refund = data?.refund || data?.payment || data;
+        const refundedPaymentId = refund?.cf_payment_id || refund?.payment_id;
+        const refundId = refund?.cf_refund_id || refund?.refund_id || null;
+        const refundAmount = Number(refund?.refund_amount ?? refund?.payment_amount ?? subscription.amount) || 0;
+        const refundedAt = new Date();
+
+        // Locate the original payment by Cashfree payment id; mark refunded.
+        const target = refundedPaymentId
+          ? subscription.payments.find(p => p.cashfreePaymentId === refundedPaymentId)
+          : null;
+
+        if (target) {
+          target.status = 'refunded';
+          target.refundedAt = refundedAt;
+          target.refundAmount = refundAmount;
+          target.cashfreeRefundId = refundId;
+        } else {
+          // No matching payment in our records — track the refund as its own
+          // entry so the event isn't lost. Best-effort: payout calculation can
+          // still observe the refund.
+          subscription.payments.push({
+            cashfreePaymentId: refundedPaymentId || `refund_${refundId || subscription.cashfreeSubscriptionId}`,
+            amount: refundAmount,
+            status: 'refunded',
+            paidAt: refundedAt,
+            refundedAt,
+            refundAmount,
+            cashfreeRefundId: refundId,
+          });
+        }
+        await subscription.save();
+        logger.info(`Subscription refund recorded`, {
+          subscriptionId: subscription._id.toString(),
+          cashfreePaymentId: refundedPaymentId,
+          cashfreeRefundId: refundId,
+          refundAmount,
+        });
+        break;
+      }
+
       default:
         logger.info(`Unhandled webhook event type: ${eventType}`);
     }
@@ -837,6 +896,9 @@ module.exports = {
   getPageSubscribers,
   handleWebhook,
   getPayoutPreview,
+  // Exported for the stale-init poll job, so it uses the same idempotent
+  // (ownerNotifiedAt-gated) notification path as the webhook handler.
+  notifyOwnerOfSubscription,
   // Dev-only — registered behind a NODE_ENV guard inside the handlers.
   devManualActivate,
   devManualCancel,

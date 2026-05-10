@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authMiddleware, optionalAuth } = require('../middleware/authMiddleware');
+const { endpointLimiters } = require('../middleware/rateLimit');
 const {
   startJourney,
   pauseJourney,
@@ -19,7 +20,10 @@ const {
 router.post('/start', authMiddleware, startJourney);
 router.post('/:journeyId/pause', authMiddleware, pauseJourney);
 router.post('/:journeyId/resume', authMiddleware, resumeJourney);
-router.put('/:journeyId/location', authMiddleware, updateLocation);
+// /location is the high-frequency endpoint hit while a journey is active
+// (the client batches every ~10s). Rate limit prevents a buggy retry loop
+// from saturating the DB with duplicate polyline points.
+router.put('/:journeyId/location', authMiddleware, endpointLimiters.journeyLocation, updateLocation);
 router.post('/:journeyId/complete', authMiddleware, completeJourney);
 router.post('/:journeyId/waypoint', authMiddleware, addWaypoint);
 router.patch('/:journeyId/title', authMiddleware, updateJourneyTitle);
