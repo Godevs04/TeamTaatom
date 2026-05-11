@@ -285,6 +285,17 @@ const createSubscription = async (req, res) => {
       logger.warn('Subscribe rejected: unsupported currency:', error.message);
       return sendError(res, 'BUSINESS_INVALID_OPERATION', error.message);
     }
+    // Cashfree rejects the '9999999999' placeholder phone in some
+    // environments. Downgrade this to a warn so it doesn't flood Sentry;
+    // the client gets a clear actionable message to add a phone first.
+    if (typeof error?.message === 'string' && /phone/i.test(error.message)) {
+      logger.warn('Subscribe rejected by gateway: phone not accepted:', error.message);
+      return sendError(
+        res,
+        'BUSINESS_INVALID_OPERATION',
+        'Please add a phone number in Settings before subscribing.',
+      );
+    }
     logger.error('Error creating subscription:', error);
     const hint =
       typeof error?.message === 'string' && error.message.length > 0 && error.message.length < 280
