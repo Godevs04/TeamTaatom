@@ -454,7 +454,6 @@ function initMap(){
         showsCompass={true}
         showsScale={true}
         mapType="terrain"
-        userLocationPriority={hasValidCoordinates ? "none" : "high"}
         followsUserLocation={!hasValidCoordinates}
       >
         <Marker
