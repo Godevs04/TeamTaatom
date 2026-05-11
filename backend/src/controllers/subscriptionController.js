@@ -211,18 +211,13 @@ const createSubscription = async (req, res) => {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'User not found');
     }
 
-    // Cashfree requires a real phone number on the customer record. The previous
-    // hardcoded '9999999999' fallback was rejected by some Cashfree environments
-    // and silently broke the checkout. Fail fast with a clear error so the
-    // client can prompt the user to add a phone before subscribing.
-    const normalizedPhone = typeof user.phone === 'string' ? user.phone.trim() : '';
-    if (!normalizedPhone) {
-      return sendError(
-        res,
-        'VALIDATION_FAILED',
-        'A verified phone number is required to subscribe. Please add one in Settings.',
-      );
-    }
+    // Cashfree requires customer_phone in the API payload. Use the user's
+    // phone if available, otherwise fall back to a valid placeholder.
+    // The User model doesn't currently have a phone field, so the fallback
+    // covers the common case until phone collection is added.
+    const normalizedPhone = typeof user.phone === 'string' && user.phone.trim()
+      ? user.phone.trim()
+      : '9999999999';
 
     // Ensure Cashfree plan exists for this page.
     // Cashfree caps plan_name at 40 chars; cashfreeService truncates defensively,
@@ -289,6 +284,17 @@ const createSubscription = async (req, res) => {
     if (isUnsupportedCurrencyError(error)) {
       logger.warn('Subscribe rejected: unsupported currency:', error.message);
       return sendError(res, 'BUSINESS_INVALID_OPERATION', error.message);
+    }
+    // Cashfree rejects the '9999999999' placeholder phone in some
+    // environments. Downgrade this to a warn so it doesn't flood Sentry;
+    // the client gets a clear actionable message to add a phone first.
+    if (typeof error?.message === 'string' && /phone/i.test(error.message)) {
+      logger.warn('Subscribe rejected by gateway: phone not accepted:', error.message);
+      return sendError(
+        res,
+        'BUSINESS_INVALID_OPERATION',
+        'Please add a phone number in Settings before subscribing.',
+      );
     }
     logger.error('Error creating subscription:', error);
     const hint =
