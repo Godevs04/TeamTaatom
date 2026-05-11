@@ -881,24 +881,24 @@ export default function LocaleScreen() {
           }
         }
         
+        // Call via ref so the closure with the just-set userLocation is used;
+        // calling loadAdminLocales directly captures the userLocation=null version.
+        loadAdminLocalesRef.current(true);
+
         // Then load other data in parallel
         await Promise.allSettled([
       loadCountries(),
           loadSavedLocales()
         ]);
-        
+
       const loadTime = Date.now() - startTime;
         logger.debug(`[PERF] Locale screen initial data loaded in ${loadTime}ms`);
       } catch (error) {
         logger.error('Error initializing data:', error);
       }
     };
-    
+
     initializeData();
-    
-    // Load locales after initial data (depends on filters, but can start immediately)
-    // Cache check happens in separate useEffect after functions are defined
-    loadAdminLocales(true);
     
     return () => {
       isMountedRef.current = false;
