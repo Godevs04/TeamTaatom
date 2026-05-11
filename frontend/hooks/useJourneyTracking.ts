@@ -50,47 +50,68 @@ const BG_LOCATION_TASK = 'taatom-journey-bg-location';
 // backgrounded / locked. Cannot touch React state — only persists incoming
 // coordinates to AsyncStorage so the next foreground transition can replay
 // them into the polyline.
-TaskManager.defineTask(BG_LOCATION_TASK, async (taskBody: any) => {
-  const { data, error } = taskBody || {};
-  if (error) return;
-  if (!data) return;
-  const locations = data?.locations as Location.LocationObject[] | undefined;
-  if (!Array.isArray(locations) || locations.length === 0) return;
+//
+// Wrapped in try/catch because the native ExpoTaskManager module isn't
+// always linked — Expo Go skips it, and any custom dev client built before
+// expo-task-manager was added to package.json won't have it either. When
+// the native module is missing, defineTask throws "Cannot find native
+// module 'ExpoTaskManager'" at module load and takes down every route
+// that transitively imports this hook. `isExpoGo` only catches Expo Go,
+// so we can't rely on it alone — the try/catch is the durable guard.
+// The foreground watcher below still works without this — only background
+// coverage is skipped when the native module is absent.
+try {
+  TaskManager.defineTask(BG_LOCATION_TASK, async (taskBody: any) => {
+    const { data, error } = taskBody || {};
+    if (error) return;
+    if (!data) return;
+    const locations = data?.locations as Location.LocationObject[] | undefined;
+    if (!Array.isArray(locations) || locations.length === 0) return;
 
-  try {
-    const journeyId = await AsyncStorage.getItem('activeJourneyId');
-    if (!journeyId) return; // Stale task firing after a stop — drop.
+    try {
+      const journeyId = await AsyncStorage.getItem('activeJourneyId');
+      if (!journeyId) return; // Stale task firing after a stop — drop.
 
-    const valid: Coordinate[] = [];
-    for (const loc of locations) {
-      const lat = loc?.coords?.latitude;
-      const lng = loc?.coords?.longitude;
-      if (typeof lat !== 'number' || typeof lng !== 'number') continue;
-      if (Number.isNaN(lat) || Number.isNaN(lng)) continue;
-      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
-      valid.push({
-        latitude: lat,
-        longitude: lng,
-        timestamp: loc.timestamp,
-        accuracy: loc.coords?.accuracy || 0,
-      });
+      const valid: Coordinate[] = [];
+      for (const loc of locations) {
+        const lat = loc?.coords?.latitude;
+        const lng = loc?.coords?.longitude;
+        if (typeof lat !== 'number' || typeof lng !== 'number') continue;
+        if (Number.isNaN(lat) || Number.isNaN(lng)) continue;
+        if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
+        valid.push({
+          latitude: lat,
+          longitude: lng,
+          timestamp: loc.timestamp,
+          accuracy: loc.coords?.accuracy || 0,
+        });
+      }
+      if (valid.length === 0) return;
+
+      const queueKey = BG_QUEUE_KEY_PREFIX + journeyId;
+      const existingRaw = await AsyncStorage.getItem(queueKey);
+      let existing: Coordinate[] = [];
+      if (existingRaw) {
+        try {
+          const parsed = JSON.parse(existingRaw);
+          if (Array.isArray(parsed)) existing = parsed;
+        } catch { /* keep existing empty */ }
+      }
+      await AsyncStorage.setItem(queueKey, JSON.stringify([...existing, ...valid]));
+    } catch {
+      // Background task must never throw — silent on error.
     }
-    if (valid.length === 0) return;
-
-    const queueKey = BG_QUEUE_KEY_PREFIX + journeyId;
-    const existingRaw = await AsyncStorage.getItem(queueKey);
-    let existing: Coordinate[] = [];
-    if (existingRaw) {
-      try {
-        const parsed = JSON.parse(existingRaw);
-        if (Array.isArray(parsed)) existing = parsed;
-      } catch { /* keep existing empty */ }
-    }
-    await AsyncStorage.setItem(queueKey, JSON.stringify([...existing, ...valid]));
-  } catch {
-    // Background task must never throw — silent on error.
+  });
+} catch (e) {
+  // Native ExpoTaskManager module not linked in this build.
+  // Background tracking is disabled; foreground watcher still works.
+  if (__DEV__) {
+    console.warn(
+      '[Journey] expo-task-manager native module unavailable — background tracking disabled. ' +
+      'Rebuild the dev client (eas build) to enable it.'
+    );
   }
-});
+}
 
 // Module-level pub/sub so every live instance of useJourneyTracking can stay
 // in sync. The hook is currently called from multiple components
@@ -150,6 +171,11 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   const [error, setError] = useState<string | null>(null);
 
   // Use refs to avoid stale closures
+  // Flag to suppress syncFromSource when this instance just completed/started
+  // a journey. Without this, broadcastJourneyStateChanged triggers the same
+  // instance's sync listener which overwrites the journey state that was just
+  // set (e.g. wiping the completed journey to null).
+  const suppressNextSyncRef = useRef(false);
   const journeyIdRef = useRef<string | null>(null);
   const locationWatcherRef = useRef<Location.LocationSubscription | null>(null);
   const batchCoordinatesRef = useRef<Coordinate[]>([]);
@@ -277,7 +303,17 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
             const { journey: fetchedJourney } = await getActiveJourney();
             if (fetchedJourney) {
               setJourney(fetchedJourney);
-              setPolyline(fetchedJourney.polyline || []);
+              // Backend polyline uses {lat, lng} but the frontend
+              // Coordinate type (and calculateCoordinateDistance) expects
+              // {latitude, longitude}. Normalize on restore so the
+              // watcher's distance calculation doesn't receive undefined.
+              const normalizedPolyline: Coordinate[] = (fetchedJourney.polyline || []).map((p: any) => ({
+                latitude: p.latitude ?? p.lat,
+                longitude: p.longitude ?? p.lng,
+                timestamp: typeof p.timestamp === 'string' ? new Date(p.timestamp).getTime() : (p.timestamp || 0),
+                accuracy: p.accuracy ?? 0,
+              }));
+              setPolyline(normalizedPolyline);
               setDistance(fetchedJourney.distanceTraveled || 0);
               // Set startTimeRef so the duration useEffect can spin up its
               // 1s ticker. Before this fix, the ref stayed null on screens
@@ -294,9 +330,8 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
               // Seed lastCoordinateRef from the tail of the restored polyline
               // so further emissions compute deltas against the right base.
-              const restored = fetchedJourney.polyline || [];
-              if (restored.length > 0) {
-                lastCoordinateRef.current = restored[restored.length - 1];
+              if (normalizedPolyline.length > 0) {
+                lastCoordinateRef.current = normalizedPolyline[normalizedPolyline.length - 1];
               }
 
               // Recover any points that were pushed but not yet sent (e.g.
@@ -369,6 +404,13 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     // broadcast, sees activeJourneyId is gone, and clears its own state so
     // the JourneyStatusBar disappears).
     const syncFromSource = async () => {
+      // When this instance just called start/stop/pause/resume, skip the
+      // self-triggered sync to avoid overwriting the state that was just set
+      // (e.g. wiping the completed journey to null).
+      if (suppressNextSyncRef.current) {
+        suppressNextSyncRef.current = false;
+        return;
+      }
       try {
         const storedJourneyId = await AsyncStorage.getItem('activeJourneyId');
         // Component may have unmounted while we awaited the storage read
@@ -792,6 +834,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         await startLocationWatcher();
 
         logger.debug('[Journey] Started journey recording:', newJourney._id);
+        suppressNextSyncRef.current = true;
         broadcastJourneyStateChanged();
       } catch (err: any) {
         const errorMsg = err?.message || 'Failed to start journey';
@@ -850,6 +893,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       setIsPaused(true);
 
       logger.debug('[Journey] Paused journey:', journeyIdRef.current);
+      suppressNextSyncRef.current = true;
       broadcastJourneyStateChanged();
     } catch (err: any) {
       const errorMsg = err?.message || 'Failed to pause journey';
@@ -887,6 +931,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       await startLocationWatcher();
 
       logger.debug('[Journey] Resumed journey:', journeyIdRef.current);
+      suppressNextSyncRef.current = true;
       broadcastJourneyStateChanged();
     } catch (err: any) {
       const errorMsg = err?.message || 'Failed to resume journey';
@@ -970,6 +1015,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       // JourneyStatusBar etc.) so they wipe their own copies of the journey
       // state. Without this the recording popup persisted because the root
       // instance's isTracking was never updated.
+      suppressNextSyncRef.current = true;
       broadcastJourneyStateChanged();
     } catch (err: any) {
       const errorMsg = err?.message || 'Failed to stop journey';

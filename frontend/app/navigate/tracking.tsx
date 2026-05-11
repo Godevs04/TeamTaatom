@@ -58,6 +58,9 @@ export default function TrackingScreen() {
 
   const [mapReady, setMapReady] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  // Set when the user intentionally ends/pauses — prevents the redirect
+  // effect from competing with the deliberate navigation.
+  const isNavigatingAwayRef = React.useRef(false);
 
   // Prefer the live GPS reading from the hook (updated every 2s regardless
   // of polyline growth) over the polyline tail — the latter only advances
@@ -72,9 +75,11 @@ export default function TrackingScreen() {
     return { latitude: last.latitude, longitude: last.longitude };
   }, [currentCoordinate, polyline]);
 
-  // Redirect to home if no journey (only after hook has initialized)
+  // Redirect to home if no journey (only after hook has initialized).
+  // Skip when the user intentionally stopped/paused — the handler navigates
+  // deliberately and a competing router.replace would crash the app.
   useEffect(() => {
-    if (initialized && !isTracking) {
+    if (initialized && !isTracking && !isNavigatingAwayRef.current) {
       router.replace('/navigate');
     }
   }, [initialized, isTracking, router]);
@@ -83,6 +88,7 @@ export default function TrackingScreen() {
     try {
       setIsLoading(true);
       await pauseJourneyRecording();
+      isNavigatingAwayRef.current = true;
       showAlert('Journey paused', 'You can continue your journey anytime in the next 24 hours');
       router.push('/navigate');
     } catch (err: any) {
@@ -105,6 +111,7 @@ export default function TrackingScreen() {
           try {
             setIsLoading(true);
             await stopJourneyRecording();
+            isNavigatingAwayRef.current = true;
             router.push('/navigate/complete');
           } catch (err: any) {
             showAlert('Failed to end journey', err.message);
