@@ -147,3 +147,105 @@ export const buildAddressString = (formData) => {
   return parts.join(', ');
 };
 
+/**
+ * Reverse-geocode coordinates and detect a tourist-oriented place (via backend + Google).
+ * @returns {Promise<object | null>} API payload data or null on failure / expected empty result
+ */
+export const reverseGeocodeTourist = async (latitude, longitude) => {
+  if (latitude == null || longitude == null) {
+    return null;
+  }
+
+  try {
+    const response = await api.post(
+      '/api/v1/maps/reverse-geocode',
+      { latitude, longitude },
+      { skipErrorLog: true }
+    );
+
+    if (response.data && response.data.success && response.data.data) {
+      return response.data.data;
+    }
+
+    return null;
+  } catch (error) {
+    const status = error.response?.status;
+    const isExpectedError = status === 404 || status === 400 || status === 422;
+
+    if (!isExpectedError) {
+      console.error('Reverse geocode error:', error);
+    }
+
+    return null;
+  }
+};
+
+/**
+ * OSM tourism POIs in bounding box (backend Overpass proxy).
+ * @returns {Promise<{ pois: Array, hint?: string } | null>}
+ */
+export const fetchTourismOsmInBounds = async (south, west, north, east, signal) => {
+  try {
+    const response = await api.post(
+      '/api/v1/maps/tourism-osm',
+      { south, west, north, east },
+      {
+        skipErrorLog: true,
+        skipRateLimit: true,
+        signal,
+        timeout: 55000,
+      }
+    );
+
+    if (response.data && response.data.success && response.data.data) {
+      return response.data.data;
+    }
+
+    return null;
+  } catch (error) {
+    if (error.code === 'ERR_CANCELED' || error.name === 'CanceledError') {
+      throw error;
+    }
+    const status = error.response?.status;
+    const isExpectedError = status === 404 || status === 400 || status === 422;
+
+    if (!isExpectedError) {
+      console.error('tourism-osm error:', error);
+    }
+
+    return null;
+  }
+};
+
+/**
+ * Reverse geocode for locale import; keeps OSM display name when passed as preferredName.
+ */
+export const reverseAddressForImport = async (latitude, longitude, preferredName = '') => {
+  try {
+    const body = { latitude, longitude };
+    if (preferredName && String(preferredName).trim()) {
+      body.preferredName = String(preferredName).trim();
+    }
+
+    const response = await api.post('/api/v1/maps/reverse-address', body, {
+      skipErrorLog: true,
+      timeout: 20000,
+    });
+
+    if (response.data && response.data.success && response.data.data) {
+      return response.data.data;
+    }
+
+    return null;
+  } catch (error) {
+    const status = error.response?.status;
+    const isExpectedError = status === 404 || status === 400 || status === 422;
+
+    if (!isExpectedError) {
+      console.error('reverse-address error:', error);
+    }
+
+    return null;
+  }
+};
+
