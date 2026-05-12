@@ -107,10 +107,12 @@ const getCsrfToken = async () => {
 api.interceptors.request.use(
   async (config) => {
     // Skip rate limiting for certain endpoints
-    const skipRateLimit = config.skipRateLimit || 
-      config.url?.includes('/verify-2fa') || 
+    const skipRateLimit = config.skipRateLimit ||
+      config.url?.includes('/verify-2fa') ||
       config.url?.includes('/resend-2fa') ||
-      config.url?.includes('/login')
+      config.url?.includes('/login') ||
+      /** Map OSM layer debounces server-side; counting each pan against global 10/min blocked UX */
+      config.url?.includes('/maps/tourism-osm')
     
     // Check rate limit
     if (!skipRateLimit) {

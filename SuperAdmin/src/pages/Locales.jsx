@@ -896,6 +896,23 @@ const Locales = () => {
     toast.success('Place details populated successfully!')
   }, [detectedPlace, isEditModeForDetect, formData, editFormData])
 
+  /** Prefill add-locale form from a tourist POI resolved by tapping the world map */
+  const handleImportTouristPlaceFromMap = useCallback((place) => {
+    if (!place || place.isTouristPlace === false) return
+    setFormData((prev) => ({
+      ...prev,
+      name: place.name || prev.name,
+      country: place.country || prev.country,
+      countryCode: place.countryCode || prev.countryCode,
+      stateProvince: place.stateProvince || prev.stateProvince,
+      city: place.city || place.stateProvince || place.name || prev.city,
+      latitude: place.lat ?? prev.latitude,
+      longitude: place.lng ?? prev.longitude,
+    }))
+    setShowUploadModal(true)
+    toast.success('Imported place details — add photos, description, and save.')
+  }, [])
+
   // Detect duplicate locales (similar names and coordinates within radius)
   const duplicateHints = useMemo(() => {
     const hints = new Map()
@@ -2306,7 +2323,11 @@ const Locales = () => {
                 <p className="text-gray-600">Loading map data…</p>
               </div>
             ) : (
-              <LocalesWorldMap locales={mapLocalesAll} onPreviewLocale={handlePreview} />
+              <LocalesWorldMap
+                locales={mapLocalesAll}
+                onPreviewLocale={handlePreview}
+                onImportTouristPlace={handleImportTouristPlaceFromMap}
+              />
             )}
           </CardContent>
         </Card>
