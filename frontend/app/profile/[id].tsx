@@ -37,7 +37,7 @@ function countTripsFromLocations(locations: Array<{ date?: string }>): number {
 }
 
 // Follow state enum
-type FollowState = 'FOLLOWING' | 'REQUESTED' | 'FOLLOW';
+type FollowState = 'FOLLOWING' | 'REQUESTED' | 'FOLLOW' | null;
 
 export default function UserProfileScreen() {
   const { id } = useLocalSearchParams();
@@ -49,7 +49,7 @@ export default function UserProfileScreen() {
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [followRequestSent, setFollowRequestSent] = useState(false);
-  const [followState, setFollowState] = useState<FollowState>('FOLLOW');
+  const [followState, setFollowState] = useState<FollowState>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [userShorts, setUserShorts] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'posts' | 'shorts'>('posts');
@@ -275,6 +275,12 @@ export default function UserProfileScreen() {
           const cacheAge = Date.now() - (parsed.timestamp || 0);
           if (cacheAge < 5 * 60 * 1000 && parsed.data) { // 5 min cache
             setProfile(parsed.data);
+            // Pre-set follow state from cache to avoid flicker
+            const cachedIsFollowing = Boolean(parsed.data.isFollowing);
+            const cachedFollowRequestSent = Boolean(parsed.data.followRequestSent);
+            setIsFollowing(cachedIsFollowing);
+            setFollowRequestSent(cachedFollowRequestSent);
+            setFollowState(deriveFollowState(cachedIsFollowing, cachedFollowRequestSent));
             setLoading(false); // Show cached data immediately
           }
         }
@@ -428,7 +434,7 @@ export default function UserProfileScreen() {
     setLoading(true);
     setIsFollowing(false);
     setFollowRequestSent(false);
-    setFollowState('FOLLOW');
+    setFollowState(null);
     setShowWorldMap(false);
     setVerifiedLocationsCount(null);
     setVerifiedLocations([]);
@@ -649,8 +655,8 @@ export default function UserProfileScreen() {
                 </View>
               )}
 
-              {/* Action Buttons */}
-              {currentUser && currentUser._id !== profile._id && (
+              {/* Action Buttons — hidden until follow state is resolved to avoid flicker */}
+              {currentUser && currentUser._id !== profile._id && followState !== null && (
                 <View style={styles.actionButtonsContainer}>
                   <Pressable
                     style={[

@@ -124,6 +124,9 @@ export default function PostScreen() {
   const [showAudioChoiceModal, setShowAudioChoiceModal] = useState(false);
   // Ref to track if a song was just selected to prevent race condition with onClose
   const songJustSelectedRef = useRef(false);
+  // Track screen focus so draft Alert only fires when this tab is visible
+  const isFocusedRef = useRef(false);
+  const draftCheckedRef = useRef(false);
   const [spotType, setSpotType] = useState<string>('');
   const [travelInfo, setTravelInfo] = useState<string>('');
   const [showImageEditModal, setShowImageEditModal] = useState(false);
@@ -394,9 +397,9 @@ export default function PostScreen() {
       
       // Check for existing content
       await checkExistingContent();
-      
-      // Load draft if available
-      await loadDraft();
+
+      // Draft loading is now handled by useFocusEffect so the Alert
+      // only appears while the Post tab is actually visible.
     };
     loadUser();
   }, []);
@@ -462,7 +465,11 @@ export default function PostScreen() {
         await AsyncStorage.removeItem(DRAFT_KEY);
         return;
       }
-      
+
+      // Only show the draft alert while the Post tab is focused so the
+      // popup doesn't appear over other screens.
+      if (!isFocusedRef.current) return;
+
       // Show restore option
       Alert.alert(
         'Draft Found',
@@ -639,8 +646,17 @@ export default function PostScreen() {
   // Navigation lifecycle safety: cancel upload on screen blur
   useFocusEffect(
     useCallback(() => {
-      // On screen blur, cancel upload if active
+      isFocusedRef.current = true;
+
+      // Load draft only once per mount, and only while this tab is visible
+      if (!draftCheckedRef.current) {
+        draftCheckedRef.current = true;
+        loadDraft();
+      }
+
+      // On screen blur, cancel upload if active and clear focus flag
       return () => {
+        isFocusedRef.current = false;
         if (uploadSessionRef.current.isActive) {
           logger.debug('Screen blurred during upload, cancelling');
           cancelUpload();

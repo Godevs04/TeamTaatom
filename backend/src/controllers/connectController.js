@@ -773,7 +773,7 @@ const searchByName = async (req, res) => {
  */
 const findUsers = async (req, res) => {
   try {
-    const { target_country, lang, travel_style } = req.query;
+    const { target_country, current_country, lang, travel_style } = req.query;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
@@ -783,15 +783,27 @@ const findUsers = async (req, res) => {
       return sendError(res, 'VALIDATION_FAILED', 'Language is required');
     }
 
+    // Resolve country codes to names so we can match against the
+    // free-text `nationality` field (e.g. "IN" → "India").
+    const countriesList = require('../data/countries.json');
+    const codeToName = {};
+    for (const c of countriesList) {
+      codeToName[c.code.toUpperCase()] = c.name;
+    }
+
     // Build user query based on filters
     const userQuery = {
-      _id: { $ne: currentUserId },
-      isVerified: true
+      _id: { $ne: currentUserId }
     };
 
-    // Filter by language preference
+    // Filter by language: match either the UI language preference
+    // OR the languagesKnown array so polyglots show up too.
     if (lang) {
-      userQuery['settings.account.language'] = lang;
+      userQuery.$or = userQuery.$or || [];
+      userQuery.$or.push(
+        { 'settings.account.language': lang },
+        { languagesKnown: lang }
+      );
     }
 
     // Filter by travel style
@@ -799,17 +811,60 @@ const findUsers = async (req, res) => {
       userQuery.travelStyle = travel_style;
     }
 
-    // Filter by interests matching target_country or current_country
-    // Since User model doesn't have country fields directly,
-    // we use interests array and any available metadata
+    // Filter by target country (people-from) — match against `nationality`.
+    // The nationality field is free-text so we try both the country name
+    // and the code itself, case-insensitive.
     if (target_country) {
-      userQuery.$or = userQuery.$or || [];
-      userQuery.$or.push({ interests: { $regex: target_country, $options: 'i' } });
+      const countryName = codeToName[target_country.toUpperCase()] || target_country;
+      const escaped = countryName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const codeEscaped = target_country.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const nationalityConditions = [
+        { nationality: { $regex: escaped, $options: 'i' } },
+        { nationality: { $regex: codeEscaped, $options: 'i' } }
+      ];
+      // Merge with existing $or (from language) using $and
+      if (userQuery.$or) {
+        // Already have $or for language — wrap both in $and
+        const langOr = userQuery.$or;
+        delete userQuery.$or;
+        userQuery.$and = [
+          { $or: langOr },
+          { $or: nationalityConditions }
+        ];
+      } else {
+        userQuery.$or = nationalityConditions;
+      }
+    }
+
+    // Filter by current_country — same approach as target_country but
+    // checks where the user currently is. Since User doesn't have a
+    // dedicated currentCountry field, we fall back to nationality if
+    // different from target_country (i.e. skip if same filter already applied).
+    if (current_country && current_country !== target_country) {
+      const countryName = codeToName[current_country.toUpperCase()] || current_country;
+      const escaped = countryName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const codeEscaped = current_country.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const currentConditions = [
+        { nationality: { $regex: escaped, $options: 'i' } },
+        { nationality: { $regex: codeEscaped, $options: 'i' } }
+      ];
+      if (userQuery.$and) {
+        userQuery.$and.push({ $or: currentConditions });
+      } else if (userQuery.$or) {
+        const existingOr = userQuery.$or;
+        delete userQuery.$or;
+        userQuery.$and = [
+          { $or: existingOr },
+          { $or: currentConditions }
+        ];
+      } else {
+        userQuery.$or = currentConditions;
+      }
     }
 
     const [users, total] = await Promise.all([
       User.find(userQuery)
-        .select('username fullName profilePic bio interests travelStyle settings.account.language followers')
+        .select('username fullName profilePic bio interests travelStyle nationality languagesKnown settings.account.language followers')
         .sort({ lastLogin: -1 })
         .skip(skip)
         .limit(limit)

@@ -132,7 +132,8 @@ export default function TabsLayout() {
         options={{
           title: 'Shorts',
           tabBarAccessibilityLabel: 'Shorts tab',
-          // unmountOnBlur freed video decoders on tab switch; not in expo-router 6 types but supported at runtime by react-navigation
+          // unmountOnBlur frees all video decoders on tab switch and ensures
+          // a clean remount (fresh from top) when the user returns.
           unmountOnBlur: true,
           tabBarIcon: ({ color, focused }) => (
             <Ionicons name={focused ? 'play-circle' : 'play-circle-outline'} size={22} color={color} />
