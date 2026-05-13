@@ -790,10 +790,20 @@ export default function HomeScreen() {
   }, [feedMode]); // Re-run when feed mode changes
 
   // Navigation lifecycle safety: clear visible index tracking and cancel pending fetches
+  const homeHasBlurredRef = useRef(false);
   useFocusEffect(
     useCallback(() => {
+      // Scroll to top every time the Home tab gains focus (after first visit).
+      // Users expect a fresh-from-top feed when tapping the Home tab.
+      if (homeHasBlurredRef.current) {
+        setTimeout(() => {
+          flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+        }, 50);
+      }
+
       // Clear visible index when screen loses focus
       return () => {
+        homeHasBlurredRef.current = true;
         setVisibleIndex(null);
         hasScrolledRef.current = false;
         lastViewedPostIdRef.current = null;

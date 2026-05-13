@@ -11,7 +11,7 @@ import SongPlayer from '../SongPlayer';
 import { audioManager } from '../../utils/audioManager';
 import { Audio } from 'expo-av';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import ReAnimated, { useSharedValue, useAnimatedStyle, withSpring } from 'react-native-reanimated';
+import ReAnimated, { useSharedValue, useAnimatedStyle } from 'react-native-reanimated';
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -70,11 +70,11 @@ export default function PostImage({
   const heartScale = useRef(new Animated.Value(0)).current;
   const heartOpacity = useRef(new Animated.Value(0)).current;
 
-  // Pinch-to-zoom
+  // Pinch-to-zoom (center only, no pan)
   const scale = useSharedValue(1);
   const pinchGesture = Gesture.Pinch()
     .onUpdate((e) => { scale.value = Math.max(1, e.scale); })
-    .onEnd(() => { scale.value = withSpring(1, { damping: 15, stiffness: 150 }); });
+    .onEnd(() => { scale.value = 1; });
   const animatedImageStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
   // expo-image handles caching natively; we just pass the array through.

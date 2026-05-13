@@ -181,7 +181,6 @@ export default function PolylineRenderer({
         coordinates={processedCoords}
         strokeColor={color}
         strokeWidth={strokeWidth}
-        lineDashPattern={[]} // Solid line (empty array means no dashing)
         geodesic={true} // Follow Earth's curvature for long distances
       />
     );

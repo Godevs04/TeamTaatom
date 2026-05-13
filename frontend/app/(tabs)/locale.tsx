@@ -1437,23 +1437,29 @@ export default function LocaleScreen() {
             const dateB = new Date(b.createdAt || 0).getTime();
             return dateB - dateA;
           });
-          
+
+          let finalLocales: Locale[];
           if (forceRefresh || currentPageRef.current === 1) {
+            finalLocales = sortedByDate;
             setAdminLocales(sortedByDate);
           } else {
-            setAdminLocales(prev => {
-              const localeMap = new Map<string, Locale>();
-              prev.forEach(locale => localeMap.set(locale._id, locale));
-              sortedByDate.forEach(locale => localeMap.set(locale._id, locale));
-              return Array.from(localeMap.values()).sort((a, b) => {
-                const dateA = new Date(a.createdAt || 0).getTime();
-                const dateB = new Date(b.createdAt || 0).getTime();
-                return dateB - dateA;
-              });
+            // Merge with existing locales (pagination)
+            const localeMap = new Map<string, Locale>();
+            adminLocales.forEach(locale => localeMap.set(locale._id, locale));
+            sortedByDate.forEach(locale => localeMap.set(locale._id, locale));
+            finalLocales = Array.from(localeMap.values()).sort((a, b) => {
+              const dateA = new Date(a.createdAt || 0).getTime();
+              const dateB = new Date(b.createdAt || 0).getTime();
+              return dateB - dateA;
             });
+            setAdminLocales(finalLocales);
           }
-            setLoadingLocales(false);
-            setLoading(false);
+
+          // Apply client-side filters so filteredLocales stays in sync
+          const filtered = applyFilters(finalLocales, false);
+          setFilteredLocales(filtered);
+          setLoadingLocales(false);
+          setLoading(false);
           loadedOnceRef.current = true;
         }
       } else {
@@ -2023,9 +2029,11 @@ export default function LocaleScreen() {
     }
     
     // Filter by spot types (if multiple selected, show locales that match any)
+    // Case-insensitive so "Historical spots" matches "historical spots" in DB
     if (filters.spotTypes && filters.spotTypes.length > 0) {
-      filtered = filtered.filter(locale => 
-        locale.spotTypes && locale.spotTypes.some(type => filters.spotTypes.includes(type))
+      const lowerSpotTypes = filters.spotTypes.map(t => t.toLowerCase());
+      filtered = filtered.filter(locale =>
+        locale.spotTypes && locale.spotTypes.some(type => lowerSpotTypes.includes(type.toLowerCase()))
       );
     }
     
@@ -2926,9 +2934,11 @@ export default function LocaleScreen() {
       setTotalPages(1);
       setDisplayedPage(1);
       setAllLocalesWithDistances([]); // Clear cached sorted locales
+      allLocalesSortedRef.current = []; // Clear single source of truth
       locationSnapshotRef.current = null; // Reset location snapshot to allow re-sorting
       lastFetchKeyRef.current = null;
-      
+      loadedOnceRef.current = false;
+
       // Reload locales without filters (only for locale tab) - use setTimeout to avoid blocking UI
       if (activeTab === 'locale') {
         // Use loadAdminLocalesRef so the call uses the latest version (with cleared filters)
@@ -2974,15 +2984,19 @@ export default function LocaleScreen() {
       setTotalPages(1);
       setDisplayedPage(1);
       setAllLocalesWithDistances([]); // Clear cached sorted locales
-      // Reset fetch key to force new fetch
+      allLocalesSortedRef.current = []; // Clear single source of truth
+      // Reset fetch key and load guard to force a fresh fetch
       lastFetchKeyRef.current = null;
-      
+      loadedOnceRef.current = false;
+
       // Reload locales with filters applied (only for locale tab)
-      // Use setTimeout to ensure modal closes before reloading
+      // Use loadAdminLocalesRef so the call picks up the latest filter
+      // state — the direct loadAdminLocales closure may still hold the
+      // pre-dispatch values when this callback was captured.
       if (activeTab === 'locale') {
         setTimeout(() => {
           if (isMountedRef.current) {
-            loadAdminLocales(true).catch(err => {
+            loadAdminLocalesRef.current(true).catch((err: any) => {
               logger.error('Error loading locales after search:', err);
               // Ensure UI doesn't break even if there's an error
               if (isMountedRef.current) {
@@ -3002,7 +3016,7 @@ export default function LocaleScreen() {
         setShowStateDropdown(false);
       }
     }
-  }, [loadAdminLocales, activeTab]);
+  }, [activeTab]);
   
   // Manual-trigger search: searchInput is the live TextInput value, but
   // searchQuery only flips when the user explicitly taps the search icon

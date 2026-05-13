@@ -227,7 +227,7 @@ const createSubscription = async (req, res) => {
     if (!plan) {
       plan = await cashfreeService.createPlan({
         planId,
-        planName: `${page.name} (Monthly)`,
+        planName: `${page.name} - Monthly`,
         amount: page.subscriptionPrice,
         currency: pageCurrency,
       });

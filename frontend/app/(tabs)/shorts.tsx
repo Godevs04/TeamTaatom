@@ -158,12 +158,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [isScreenFocused, setIsScreenFocused] = useState(true);
   const isScreenFocusedRef = useRef(true);
   const [videoStates, setVideoStates] = useState<{ [key: string]: boolean }>({});
-  // Per-reel "first frame is ready to display" gate. Set when expo-av fires
-  // onReadyForDisplay; cleared when the Video element re-mounts (onLoadStart).
-  // Drives Video opacity so the thumbnail backdrop stays visible until the
-  // native player actually has a frame to paint — without this, the swap from
-  // placeholder→Video shows expo-av's pre-frame black surface for ~one frame.
-  const [readyShorts, setReadyShorts] = useState<Set<string>>(new Set());
+  // Per-video "first frame decoded" flag. Drives opacity so the ExpoImage
+  // backdrop stays visible until the native player actually paints a frame.
+  // Set via onReadyForDisplay — never cleared manually (unmount handles reset).
+  const [videoReady, setVideoReady] = useState<{ [key: string]: boolean }>({});
   const [showPauseButton, setShowPauseButton] = useState<{ [key: string]: boolean }>({});
   const [showLikeAnimation, setShowLikeAnimation] = useState<{ [key: string]: boolean }>({});
   const [likeAnimationParticles, setLikeAnimationParticles] = useState<{ [key: string]: Array<{ id: string; x: number; y: number }> }>({});
@@ -249,6 +247,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const activeVideoIdRef = useRef<string | null>(null);
   // Track current audio player (Sound from SongPlayer) so we can pause when tab/focus/scroll/background
   const currentPlayerRef = useRef<Audio.Sound | null>(null);
+  // Track each video's last known position to detect native loop restarts
+  const lastVideoPositionRef = useRef<Record<string, number>>({});
   // Track last viewed short ID for analytics de-duplication
   const lastViewedShortIdRef = useRef<string | null>(null);
   // Guard to prevent duplicate navigation on rapid swipes
@@ -533,19 +533,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       setIsScreenFocused(true);
 
       // Lift any audio freeze left over from the previous tab-blur cleanup.
-      // Without this, the next song the user lands on could be silently
-      // blocked if the freeze window was set long enough to cover slow
-      // network loads (see cleanup below).
       audioManager.unfreeze();
 
       // CRITICAL: Set audio mode for shorts playback (main speaker, not earpiece)
-      // This ensures audio plays through main speaker even if call service changed it
       Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
         staysActiveInBackground: false,
         shouldDuckAndroid: true,
-        playThroughEarpieceAndroid: false, // CRITICAL: Use main speaker for shorts
+        playThroughEarpieceAndroid: false,
       }).catch(err => {
         logger.error('Error setting audio mode for shorts:', err);
       });
@@ -564,31 +560,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
 
       return () => {
-        // CRITICAL: Mark screen as unfocused FIRST — this makes SongPlayer's
-        // isVisible=false so it won't re-create audio after stopAll() clears it.
+        // CRITICAL: Mark screen as unfocused FIRST
         isScreenFocusedRef.current = false;
         setIsScreenFocused(false);
 
-        // Freeze audioManager BEFORE the cleanup teardown. Any SongPlayer load
-        // that's mid-flight will resolve, attempt audioManager.playSound, and
-        // get rejected — the in-flight Audio.Sound is unloaded instead of
-        // starting playback in the background. This is the fix for
-        // "switching tabs we can also hear the song".
-        //
-        // 400ms (the previous value) was too short — slow-network streaming
-        // loads regularly resolved after that window expired, slipped past
-        // the freeze, and started playing on the next tab. 3000ms covers
-        // those. The focus path above explicitly unfreezes when the user
-        // returns to shorts, so coming back doesn't stall.
-        //
-        // Trade-off: if the user switches Shorts → Home and immediately
-        // taps a home post that auto-plays a song, the home-tab audio
-        // could be blocked for up to ~3s. Acceptable — the cure is far
-        // less annoying than the disease (orphaned shorts audio playing
-        // while the user is on a different tab).
+        // Freeze audioManager to block in-flight SongPlayer loads from playing
+        // on the next tab after we leave.
         audioManager.freeze(3000);
 
-        // Screen unfocused (user switched tab or navigated away) - pause video and audio
+        // Pause video and audio
         pauseCurrentVideo();
         if (currentPlayerRef.current) {
           currentPlayerRef.current.pauseAsync?.().catch(() => {});
@@ -1954,15 +1934,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
     // Reel item
     const distanceFromVisible = index - currentVisibleIndex;
-    // Mount ONLY the currently-visible reel. Each native expo-av Video owns a
-    // hardware decoder + GPU surface + PCM buffer; on Android this is 50-150MB
-    // for H.264 and 200-400MB for HEVC. Pre-mounting even one extra reel
-    // doubles peak heap pressure and is the dominant cause of the heap-OOM
-    // crashes ("allocating 240 bytes failed" — heap was already saturated).
-    // Trade-off: a brief poster flash when scrolling to the next reel; far
-    // better than crashing. With the page-snap FlatList paging the next reel
-    // mounts and starts streaming the moment it scrolls into view.
-    const shouldRenderVideo = distanceFromVisible === 0;
+    // Mount the currently-visible reel AND its immediate neighbours (prev + next)
+    // so the upcoming video can buffer while the user watches the current one.
+    // This eliminates the "split-second black flash" when scrolling because the
+    // next Video component is already mounted and pre-loading its stream.
+    // Memory note: each expo-av Video holds a hardware decoder + GPU surface;
+    // three concurrent decoders (prev + current + next) is the sweet spot.
+    // The cleanup effect at distance > 2 unloads anything further out, and
+    // the blur handler unloads ALL decoders when the user leaves the tab.
+    const shouldRenderVideo = Math.abs(distanceFromVisible) <= 1;
 
     const videoState = videoStates[item._id];
     // Only treat the video as "playing" once it has actually reported playback
@@ -2000,16 +1980,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // to build and compare; deliberately avoiding JSON.stringify per cell.
     const isOwn = item.user._id === currentUser?._id;
     const isVisibleNow = index === currentVisibleIndex;
-    const isVideoReady = readyShorts.has(item._id);
     const cacheKey =
       `${item._id}|${index}|${isVisibleNow ? 1 : 0}|` +
       `${isVideoPlaying ? 1 : 0}|${mutedShorts.has(item._id) ? 1 : 0}|` +
       `${isSaved ? 1 : 0}|${isFollowing ? 1 : 0}|` +
       `${actionLoading === item._id ? 1 : 0}|` +
       `${shouldShowPauseButton ? 1 : 0}|${shouldShowLikeAnimation ? 1 : 0}|` +
-      `${sourceVersions[item._id] ?? 0}|` +
+      `${sourceVersions[item._id] ?? 0}|${videoReady[item._id] ? 1 : 0}|` +
       `${item.likesCount ?? 0}|${item.commentsCount ?? 0}|${isLiked ? 1 : 0}|${item.viewsCount ?? 0}|` +
-      `${isOwn ? 1 : 0}|${isScreenFocused ? 1 : 0}|${isVideoReady ? 1 : 0}`;
+      `${isOwn ? 1 : 0}|${isScreenFocused ? 1 : 0}`;
 
     return (
       <ShortCellMemo cacheKey={cacheKey} render={() => (
@@ -2040,11 +2019,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   + Video pair in a single View so it sees one child. The wrapper fills
                   the parent so taps still hit anywhere. */}
               <View style={styles.shortVideo}>
-              {/* Backdrop — ALWAYS rendered. The Video element below stacks on top
-                  via absoluteFillObject and is invisible (opacity 0) until expo-av
-                  fires onReadyForDisplay. That keeps the user looking at the
-                  thumbnail through the whole mount → buffer → first-frame window
-                  instead of expo-av's black native surface. */}
+              {/* Always show thumbnail backdrop so there's never a black surface.
+                  The Video layers on top; once its first frame decodes, it
+                  naturally covers the image — no opacity hack needed. */}
               {item.imageUrl ? (
                 <ExpoImage
                   source={{ uri: item.imageUrl }}
@@ -2054,13 +2031,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   transition={0}
                 />
               ) : (
-                <View style={[styles.shortVideo, StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center' }]}>
+                <View style={[styles.shortVideo, StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }]}>
                   <ActivityIndicator size="small" color="rgba(255,255,255,0.6)" />
                 </View>
               )}
-
-              {/* Conditional rendering: Only mount Video component if within 1 index of visible */}
-              {/* This ensures previous videos are fully unmounted, preventing memory leaks */}
+              {/* Only mount Video component if within 1 index of visible */}
               {shouldRenderVideo && (
                 <Video
                 key={`video-${item._id}-${sourceVersions[item._id] ?? 0}`}
@@ -2068,48 +2043,24 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   videoRefs.current[item._id] = ref;
                 }}
                 source={{ uri: handlersRef.current.getVideoUrl(item) }}
-                style={[styles.shortVideo, StyleSheet.absoluteFillObject, { opacity: isVideoReady ? 1 : 0 }]}
+                style={[
+                  styles.shortVideo,
+                  StyleSheet.absoluteFillObject,
+                  // Start transparent — the ExpoImage backdrop shows through.
+                  // Flip to opaque once onReadyForDisplay fires (first frame decoded).
+                  { opacity: videoReady[item._id] ? 1 : 0 },
+                ]}
                 resizeMode={ResizeMode.COVER}
-                // Autoplay behavior: only play if this is the current visible index
-                // Force play when index matches currentVisibleIndex to ensure consistent playback
                 shouldPlay={index === currentVisibleIndex}
                 isLooping
-                // Cut status callback rate from default ~500ms to 1s. The callback runs
-                // setState (videoStates) and mute-enforcement on every fire; halving its
-                // rate halves the per-reel bridge work and re-render trigger frequency
-                // during steady playback. Pause/play state transitions still propagate
-                // immediately because expo-av fires the callback on state change too.
-                progressUpdateIntervalMillis={1000}
-                // CRITICAL: Mute video when music is playing
-                // If song exists with valid s3Url, video must be muted so only music plays
-                // Also mute videos that are not in focus to save audio resources
+                progressUpdateIntervalMillis={250}
                 isMuted={index !== currentVisibleIndex || !!(item.song?.songId?._id)}
                 volume={(() => {
                   const hasMusic = !!(item.song?.songId?._id);
                   return hasMusic ? 0.0 : 1.0;
                 })()}
-                // Reset the ready gate whenever this Video instance starts a fresh load
-                // (initial mount, source-version bump after error, etc.). Without this,
-                // a remounted Video would inherit `isVideoReady=true` from the previous
-                // instance and show its still-black native surface at full opacity until
-                // the new first frame decoded.
-                onReadyForDisplay={() => {
-                  setReadyShorts(prev => {
-                    if (prev.has(item._id)) return prev;
-                    const next = new Set(prev);
-                    next.add(item._id);
-                    return next;
-                  });
-                }}
-                // Use onLoadStart to ensure video starts playing when it loads and is properly muted
                 onLoadStart={() => {
                   logger.debug(`Video ${item._id} load started, index: ${index}, currentVisible: ${currentVisibleIndex}`);
-                  setReadyShorts(prev => {
-                    if (!prev.has(item._id)) return prev;
-                    const next = new Set(prev);
-                    next.delete(item._id);
-                    return next;
-                  });
                   if (index === currentVisibleIndex) {
                     const video = videoRefs.current[item._id];
                     if (video) {
@@ -2124,6 +2075,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                         });
                       }
                     }
+                  }
+                }}
+                onReadyForDisplay={() => {
+                  // Native player has decoded the first frame — make the Video
+                  // opaque so it covers the ExpoImage backdrop underneath.
+                  if (!videoReady[item._id]) {
+                    updateKeyedBool(setVideoReady, item._id, true);
                   }
                 }}
                 onError={(error) => {
@@ -2218,6 +2176,24 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     // Update active video ref when playback starts
                     if (isNowPlaying && index === currentVisibleIndex) {
                       activeVideoIdRef.current = item._id;
+                    }
+
+                    // Detect video loop restart and sync audio back to startTime.
+                    // When isLooping is true, expo-av restarts the video natively
+                    // without firing didJustFinish. We detect the loop by checking
+                    // if the position jumped backwards significantly.
+                    if (isNowPlaying && index === currentVisibleIndex && status.positionMillis !== undefined) {
+                      const lastPos = lastVideoPositionRef.current[item._id] ?? 0;
+                      const curPos = status.positionMillis;
+                      // A backwards jump of >500ms while playing = the video looped
+                      if (lastPos > 500 && curPos < lastPos - 500) {
+                        const hasMusic = !!(item.song?.songId?._id);
+                        if (hasMusic && currentPlayerRef.current) {
+                          const songStartMs = (item.song?.startTime || 0) * 1000;
+                          currentPlayerRef.current.setPositionAsync(songStartMs).catch(() => {});
+                        }
+                      }
+                      lastVideoPositionRef.current[item._id] = curPos;
                     }
                     
                     // Only update video state when playback status actually changes
@@ -2595,7 +2571,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // swipeAnimation / fadeAnimation are Animated.Value refs from useRef ---
     // their identity never changes, so they don't belong in the deps array.
     // Including them was harmless but signaled false volatility.
-  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions, readyShorts]);
+  }, [currentVisibleIndex, videoStates, videoReady, followStates, savedShorts, mutedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions]);
 
   const keyExtractor = useCallback((item: ShortsItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;
@@ -2628,21 +2604,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
     const previousIndex = currentVisibleIndex;
     const previousItem = shortsData[previousIndex] as ShortsItem | undefined;
-
-    // Clear the ready-flag for the reel about to become visible so its Video
-    // remounts with opacity:0. Otherwise a re-visit (Video unmounted on scroll
-    // away, mounting again now) would inherit the previous instance's
-    // ready=true and flash its black native surface for ~one frame before
-    // onLoadStart resets the flag.
-    if (item && !isAdItem(item)) {
-      const incomingId = (item as PostType)._id;
-      setReadyShorts(prev => {
-        if (!prev.has(incomingId)) return prev;
-        const next = new Set(prev);
-        next.delete(incomingId);
-        return next;
-      });
-    }
 
     setCurrentVisibleIndex(newVisibleIndex);
     setCurrentIndex(newVisibleIndex);
@@ -2687,8 +2648,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   }, [shortsData, stopAndUnloadVideo, currentVisibleIndex, updateKeyedBool]);
 
   const viewabilityConfig = useRef({
-    itemVisiblePercentThreshold: 80, // Item is considered visible when 80% is on screen
-    minimumViewTime: 100, // Minimum time item must be visible (ms)
+    itemVisiblePercentThreshold: 60, // Lower threshold so visibility triggers sooner during snap animation
+    minimumViewTime: 50, // Reduced from 100ms — faster visibility detection after snap
   }).current;
 
   if (loading) {
@@ -2817,10 +2778,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           });
         }}
         removeClippedSubviews={true}
-        initialNumToRender={1}
-        maxToRenderPerBatch={1}
-        windowSize={3}
-        updateCellsBatchingPeriod={100}
+        initialNumToRender={2}
+        maxToRenderPerBatch={2}
+        windowSize={5}
+        updateCellsBatchingPeriod={10}
         onEndReached={loadMoreShorts}
         onEndReachedThreshold={0.3}
         onScroll={handleScroll}
