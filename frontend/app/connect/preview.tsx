@@ -61,26 +61,35 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' = '400') => {
 // Auto-sizing image that shows full image at screen width
 const contentWidth = screenWidth - (isTablet ? themeConstants.spacing.xl * 2 : themeConstants.spacing.md * 2);
 
-function PreviewImage({ uri }: { uri: string }) {
-  const [height, setHeight] = useState(contentWidth * 0.75); // default 4:3 fallback
+// Aspect ratio overrides from editor
+const AR_MAP: Record<string, number> = { square: 1, landscape: 16 / 9, portrait: 3 / 4 };
+
+// inRow: paired side-by-side with another block (fixed 4:3 + cover)
+// inStack: stacked vertically in a mosaic column (fills flex:1 with cover)
+function PreviewImage({ uri, inRow, inStack, arOverride }: { uri: string; inRow?: boolean; inStack?: boolean; arOverride?: string }) {
+  const [aspectRatio, setAspectRatio] = useState<number>(4 / 3);
 
   useEffect(() => {
-    Image.getSize(
-      uri,
-      (w, h) => {
-        if (w > 0) {
-          setHeight((h / w) * contentWidth);
-        }
-      },
-      () => {} // ignore errors, keep fallback
-    );
-  }, [uri]);
+    if (inStack || (arOverride && arOverride !== 'original')) return;
+    Image.getSize(uri, (w, h) => { if (w > 0 && h > 0) setAspectRatio(w / h); }, () => {});
+  }, [uri, inStack, arOverride]);
 
+  const resolvedAR = arOverride && AR_MAP[arOverride] ? AR_MAP[arOverride] : aspectRatio;
+
+  if (inStack) {
+    return (
+      <Image
+        source={{ uri }}
+        style={{ flex: 1, width: '100%', borderRadius: 8 }}
+        resizeMode="cover"
+      />
+    );
+  }
   return (
     <Image
       source={{ uri }}
-      style={[styles.imageBlock, { height }]}
-      resizeMode="contain"
+      style={[styles.imageBlock, { aspectRatio: resolvedAR }]}
+      resizeMode="cover"
     />
   );
 }
@@ -97,6 +106,8 @@ export default function ContentPreviewScreen() {
 
   const [loading, setLoading] = useState(true);
   const [content, setContent] = useState<ContentBlock[]>([]);
+  const [pageBackground, setPageBackground] = useState<string>('');
+  const [pageTextColor, setPageTextColor] = useState<string>('');
   const [pageData, setPageData] = useState<ConnectPageType | null>(null);
   const [isOwner, setIsOwner] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
@@ -128,6 +139,16 @@ export default function ContentPreviewScreen() {
           ? (contentResponse as any).websiteContent
           : (contentResponse as any).subscriptionContent;
         setContent(data || []);
+        setPageBackground(
+          isWebsite
+            ? ((contentResponse as any).websiteBackground || '')
+            : ((contentResponse as any).subscriptionBackground || '')
+        );
+        setPageTextColor(
+          isWebsite
+            ? ((contentResponse as any).websiteTextColor || '')
+            : ((contentResponse as any).subscriptionTextColor || '')
+        );
         if (pageResponse) {
           setPageData(pageResponse.page);
           setIsOwner(pageResponse.isOwner);
@@ -245,29 +266,89 @@ export default function ContentPreviewScreen() {
 
   const sorted = [...content].sort((a, b) => a.order - b.order);
 
-  const renderBlock = (block: ContentBlock, index: number) => {
+  // A cell in a grid row — may contain multiple stacked blocks.
+  type RowCell = { col: number; blocks: ContentBlock[] };
+
+  // Pack sorted blocks into rows of RowCell[].
+  // A block with stacked=true joins the last cell of the last closed row
+  // (enabling the "tall-left + two-stacked-right" mosaic layout).
+  const packBlocksIntoRows = (blocks: ContentBlock[]): RowCell[][] => {
+    const rows: RowCell[][] = [];
+    let current: RowCell[] = [];
+    let used = 0;
+    for (const block of blocks) {
+      if ((block as any).stacked && rows.length > 0) {
+        const lastRow = rows[rows.length - 1];
+        lastRow[lastRow.length - 1].blocks.push(block);
+        continue;
+      }
+      const w = Math.max(1, Math.min(12, Number((block as any).col) || 12));
+      if (used + w > 12 && current.length > 0) {
+        rows.push(current);
+        current = [];
+        used = 0;
+      }
+      current.push({ col: w, blocks: [block] });
+      used += w;
+      if (used >= 12) {
+        rows.push(current);
+        current = [];
+        used = 0;
+      }
+    }
+    if (current.length > 0) rows.push(current);
+    return rows;
+  };
+
+  const renderBlock = (block: ContentBlock, index: number, inRow = false, inStack = false) => {
+    const effectiveTextColor = block.color || pageTextColor || theme.colors.text;
+    const effectiveBg = block.backgroundColor || '';
+    const textAlign: 'left' | 'center' | 'right' =
+      (block.align as any) || (block.type === 'heading' ? 'center' : 'left');
+    const headingFontSize = block.fontSize === 'small' ? 16 : block.fontSize === 'large' ? 26 : 20;
+    const textFontSize = block.fontSize === 'small' ? 12 : block.fontSize === 'large' ? 18 : 15;
+    // Padding & border-radius tiers
+    const paddingMap: Record<string, number> = { none: 0, small: 6, medium: 12, large: 20 };
+    const radiusMap: Record<string, number> = { none: 0, small: 6, medium: 12, large: 20 };
+    const blockPadding = block.padding ? paddingMap[block.padding] ?? 0 : undefined;
+    const blockRadius = block.borderRadius ? radiusMap[block.borderRadius] ?? 0 : undefined;
+    const hasWrapStyles = effectiveBg || blockPadding !== undefined || blockRadius !== undefined;
+    const wrapBg = (node: React.ReactNode) =>
+      hasWrapStyles ? (
+        <View
+          key={block._id || index}
+          style={{
+            backgroundColor: effectiveBg || undefined,
+            borderRadius: blockRadius ?? 12,
+            padding: blockPadding ?? (effectiveBg ? 10 : 0),
+            marginBottom: 8,
+            overflow: 'hidden',
+          }}
+        >
+          {node}
+        </View>
+      ) : (
+        <React.Fragment key={block._id || index}>{node}</React.Fragment>
+      );
+
     switch (block.type) {
       case 'heading':
-        return (
-          <Text
-            key={block._id || index}
-            style={[styles.headingBlock, { color: theme.colors.text }]}
-          >
+        return wrapBg(
+          <Text style={[styles.headingBlock, { color: effectiveTextColor, textAlign, fontSize: headingFontSize }, block.bold ? { fontWeight: '800' } : undefined]}>
             {block.content}
           </Text>
         );
       case 'text':
-        return (
-          <Text
-            key={block._id || index}
-            style={[styles.textBlock, { color: theme.colors.text }]}
-          >
+        return wrapBg(
+          <Text style={[styles.textBlock, { color: effectiveTextColor, textAlign, fontSize: textFontSize }, block.bold ? { fontWeight: '700', fontFamily: getFontFamily('700') } : undefined]}>
             {block.content}
           </Text>
         );
       case 'image':
         return block.content ? (
-          <PreviewImage key={block._id || index} uri={block.content} />
+          <View key={block._id || index} style={blockRadius !== undefined ? { borderRadius: blockRadius, overflow: 'hidden' } : undefined}>
+            <PreviewImage uri={block.content} inRow={inRow} inStack={inStack} arOverride={block.aspectRatio} />
+          </View>
         ) : null;
       case 'video':
         return (
@@ -281,19 +362,26 @@ export default function ContentPreviewScreen() {
             />
           </View>
         );
-      case 'button':
+      case 'button': {
+        const rawUrl = block.url?.trim();
+        const buttonUrl = rawUrl && /^[a-z][a-z0-9+.-]*:/i.test(rawUrl)
+          ? rawUrl
+          : (rawUrl ? `https://${rawUrl}` : '');
         return (
           <TouchableOpacity
             key={block._id || index}
-            style={[styles.buttonBlock, { backgroundColor: theme.colors.primary }]}
+            style={[styles.buttonBlock, { backgroundColor: effectiveBg || theme.colors.primary }]}
             onPress={() => {
-              if (block.url) Linking.openURL(block.url).catch(() => {});
+              if (buttonUrl) Linking.openURL(buttonUrl).catch(() => {});
             }}
             activeOpacity={0.7}
           >
-            <Text style={styles.buttonBlockText}>{block.content || 'Button'}</Text>
+            <Text style={[styles.buttonBlockText, block.color ? { color: block.color } : undefined]}>
+              {block.content || 'Button'}
+            </Text>
           </TouchableOpacity>
         );
+      }
       case 'divider':
         return (
           <View
@@ -305,7 +393,7 @@ export default function ContentPreviewScreen() {
         return (
           <TouchableOpacity
             key={block._id || index}
-            style={[styles.embedBlock, { backgroundColor: theme.colors.border }]}
+            style={[styles.embedBlock, { backgroundColor: effectiveBg || theme.colors.border }]}
             onPress={() => {
               if (block.content) Linking.openURL(block.content).catch(() => {});
             }}
@@ -375,11 +463,44 @@ export default function ContentPreviewScreen() {
         </View>
       ) : (
         <ScrollView
-          style={styles.scrollContent}
+          style={[styles.scrollContent, pageBackground ? { backgroundColor: pageBackground } : null]}
           contentContainerStyle={styles.contentContainer}
           showsVerticalScrollIndicator={false}
         >
-          {sorted.map((block, idx) => renderBlock(block, idx))}
+          {packBlocksIntoRows(sorted).map((row, ri) => {
+            const isSingle = row.length === 1 && row[0].blocks.length === 1;
+            return isSingle ? (
+              <React.Fragment key={`prow-${ri}`}>{renderBlock(row[0].blocks[0], ri, false, false)}</React.Fragment>
+            ) : (
+              <View key={`prow-${ri}`} style={{ flexDirection: 'row', gap: 3, marginVertical: 1, alignItems: 'flex-start' }}>
+                {row.map((cell, ci) => {
+                  const isStackedCell = cell.blocks.length > 1;
+                  const va = cell.blocks[0]?.verticalAlign;
+                  const alignSelf = va === 'center' ? 'center' as const : va === 'bottom' ? 'flex-end' as const : undefined;
+                  return (
+                    <View
+                      key={`pc-${ri}-${ci}`}
+                      style={isStackedCell
+                        ? { flex: cell.col, flexDirection: 'column', gap: 6 }
+                        : { flex: cell.col, alignSelf }}
+                    >
+                      {cell.blocks.map((block, bi) =>
+                        isStackedCell ? (
+                          <View key={block._id || `ps-${ri}-${ci}-${bi}`} style={{ flex: 1 }}>
+                            {renderBlock(block, bi, true, true)}
+                          </View>
+                        ) : (
+                          <React.Fragment key={block._id || `ps-${ri}-${ci}-${bi}`}>
+                            {renderBlock(block, bi, row.length > 1, false)}
+                          </React.Fragment>
+                        )
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+            );
+          })}
 
           {/* Subscribe section */}
           {isSubscription && pageData && (pageData.subscriptionPrice || pageData.subscriptionApproval?.requestedPrice) && (() => {
@@ -545,10 +666,10 @@ const styles = StyleSheet.create({
   headingBlock: {
     fontSize: 20,
     lineHeight: 26,
-    fontFamily: getFontFamily('600'),
-    fontWeight: '600',
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
     textAlign: 'center',
-    marginBottom: 16,
+    marginBottom: 2,
     ...(isWeb &&
       ({
         fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
@@ -566,8 +687,8 @@ const styles = StyleSheet.create({
   },
   imageBlock: {
     width: '100%',
-    borderRadius: themeConstants.borderRadius.md,
-    marginBottom: isTablet ? 20 : 16,
+    borderRadius: themeConstants.borderRadius.sm,
+    marginBottom: 1,
   },
   videoContainer: {
     width: '100%',

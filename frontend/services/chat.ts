@@ -155,7 +155,7 @@ export const sendMessageToRoom = async (
  * Returns array of attachment metadata ready to be sent with a message
  */
 export const uploadChatMedia = async (
-  files: Array<{ uri: string; name: string; type: string }>
+  files: Array<{ uri: string; name: string; type: string; duration?: number; width?: number; height?: number }>
 ): Promise<{ attachments: ChatAttachment[] }> => {
   try {
     const formData = new FormData();
@@ -166,6 +166,15 @@ export const uploadChatMedia = async (
         type: file.type,
       } as any);
     });
+
+    // Send media metadata as JSON so backend can include it in attachments
+    const metadata = files.map((file) => ({
+      name: file.name,
+      duration: file.duration,
+      width: file.width,
+      height: file.height,
+    }));
+    formData.append('metadata', JSON.stringify(metadata));
 
     const response = await api.post('/api/v1/chat/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },

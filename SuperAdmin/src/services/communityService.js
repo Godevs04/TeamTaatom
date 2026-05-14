@@ -65,12 +65,24 @@ export const getCommunityPageContent = async (pageId) => {
 }
 
 // Update content (website and/or subscription) for a community page
-export const updateCommunityPageContent = async (pageId, { websiteContent, subscriptionContent }) => {
+export const updateCommunityPageContent = async (
+  pageId,
+  {
+    websiteContent,
+    subscriptionContent,
+    websiteBackground,
+    websiteTextColor,
+    subscriptionBackground,
+    subscriptionTextColor,
+  }
+) => {
   try {
-    const response = await api.put(`${BASE}/community-pages/${pageId}/content`, {
-      websiteContent,
-      subscriptionContent,
-    })
+    const body = { websiteContent, subscriptionContent }
+    if (websiteBackground !== undefined) body.websiteBackground = websiteBackground
+    if (websiteTextColor !== undefined) body.websiteTextColor = websiteTextColor
+    if (subscriptionBackground !== undefined) body.subscriptionBackground = subscriptionBackground
+    if (subscriptionTextColor !== undefined) body.subscriptionTextColor = subscriptionTextColor
+    const response = await api.put(`${BASE}/community-pages/${pageId}/content`, body)
     return response.data?.data || response.data
   } catch (error) {
     logger.error('Failed to update community page content:', error)
@@ -93,42 +105,3 @@ export const uploadContentImage = async (pageId, file) => {
   }
 }
 
-// Get canvas content + background for a community page
-export const getCommunityCanvas = async (pageId) => {
-  try {
-    const response = await api.get(`${BASE}/community-pages/${pageId}/canvas`)
-    return response.data?.data || response.data
-  } catch (error) {
-    logger.error('Failed to fetch community canvas:', error)
-    throw error
-  }
-}
-
-// Update canvas content + background
-export const updateCommunityCanvas = async (pageId, content, background) => {
-  try {
-    const response = await api.put(`${BASE}/community-pages/${pageId}/canvas`, {
-      content,
-      background,
-    })
-    return response.data?.data || response.data
-  } catch (error) {
-    logger.error('Failed to update community canvas:', error)
-    throw error
-  }
-}
-
-// Upload a video for canvas elements
-export const uploadContentVideo = async (pageId, file) => {
-  try {
-    const formData = new FormData()
-    formData.append('video', file)
-    const response = await api.post(`${BASE}/community-pages/${pageId}/content-video`, formData, {
-      timeout: 120000,
-    })
-    return response.data?.data || response.data
-  } catch (error) {
-    logger.error('Failed to upload content video:', error?.response?.data || error?.message || error)
-    throw error
-  }
-}
