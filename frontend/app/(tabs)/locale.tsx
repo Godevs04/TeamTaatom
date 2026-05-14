@@ -4540,14 +4540,10 @@ const createStyles = () => {
     marginLeft: 12,
   },
   dropdownList: {
-    position: 'absolute',
-    top: 56,
-    left: 0,
-    right: 0,
     borderRadius: 12,
     borderWidth: 1,
     maxHeight: 256,
-    zIndex: 1000,
+    marginTop: 4,
   },
   dropdownScrollView: {
     maxHeight: 200,

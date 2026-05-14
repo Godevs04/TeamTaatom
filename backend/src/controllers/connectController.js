@@ -19,6 +19,83 @@ const { generateSignedUrl, isSignedUrl, extractStorageKeyFromUrl } = require('..
  *
  * Returns false for unauthenticated callers — never throws.
  */
+// Normalize a user-entered URL: prepend `https://` when no scheme is
+// present so "taatom.com" works on mobile (Linking.openURL needs a scheme)
+// and on web (<a href="taatom.com"> would otherwise resolve relative to
+// the current origin).
+const normalizeButtonUrl = (raw) => {
+  if (!raw || typeof raw !== 'string') return '';
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) return trimmed; // already has a scheme
+  return `https://${trimmed}`;
+};
+
+// Clamp 12-grid column width to [1, 12]. Anything missing defaults to
+// full-width (12) so legacy blocks keep their old single-column-per-row
+// layout after this field is added.
+const normalizeCol = (raw) => {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 12;
+  return Math.max(1, Math.min(12, Math.round(n)));
+};
+
+// Validate a hex / CSS-named color. Returns '' for anything we don't
+// recognize so the renderer falls back to page-level / theme defaults
+// rather than rendering with arbitrary user-supplied strings.
+const ALLOWED_NAMED_COLORS = new Set([
+  'transparent', 'white', 'black', 'red', 'green', 'blue', 'yellow',
+  'orange', 'purple', 'pink', 'gray', 'grey', 'brown', 'cyan', 'magenta'
+]);
+const normalizeColor = (raw) => {
+  if (!raw || typeof raw !== 'string') return '';
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  if (/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(trimmed)) return trimmed;
+  if (/^rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*(?:,\s*(?:\d*\.?\d+))?\s*\)$/i.test(trimmed)) return trimmed;
+  if (ALLOWED_NAMED_COLORS.has(trimmed.toLowerCase())) return trimmed.toLowerCase();
+  return '';
+};
+
+// Shared sanitizer for websiteContent / subscriptionContent. Drops empty
+// blocks (except buttons with only a URL and dividers), strips _id to avoid
+// Mongoose subdocument conflicts, restores storage keys from signed URLs
+// on image blocks, normalizes button URLs, clamps grid column width, and
+// validates color overrides.
+const sanitizeContentBlocks = (content) =>
+  content
+    .filter(block => {
+      if (!block || !block.type) return false;
+      if (block.type === 'button') {
+        return (block.content && block.content.trim() !== '') || (block.url && block.url.trim() !== '');
+      }
+      if (block.type === 'divider') return true;
+      return block.content && block.content.trim() !== '';
+    })
+    .map((block, idx) => {
+      let blockContent = block.content;
+      if (block.type === 'image' && blockContent && isSignedUrl(blockContent)) {
+        const storageKey = extractStorageKeyFromUrl(blockContent);
+        if (storageKey) blockContent = storageKey;
+      }
+      const clean = {
+        type: block.type,
+        content: blockContent || '',
+        order: idx,
+        col: normalizeCol(block.col),
+        backgroundColor: normalizeColor(block.backgroundColor),
+        color: normalizeColor(block.color),
+        bold: !!block.bold,
+        align: ['left', 'center', 'right'].includes(block.align) ? block.align : '',
+        fontSize: ['small', 'normal', 'large'].includes(block.fontSize) ? block.fontSize : '',
+        stacked: !!block.stacked,
+      };
+      if (block.type === 'button') clean.url = normalizeButtonUrl(block.url);
+      else if (block.url) clean.url = block.url;
+      if (block.embedType) clean.embedType = block.embedType;
+      return clean;
+    });
+
 const userCanReadSubscriptionContent = async (currentUserId, pageOwnerId, pageId) => {
   if (!currentUserId) return false;
   if (pageOwnerId && currentUserId.toString() === pageOwnerId.toString()) return true;
@@ -312,26 +389,6 @@ const getPageDetail = async (req, res) => {
         }
       }
     }
-    // Canvas elements: resolve image/video keys to signed URLs.
-    for (const el of (page.canvasContent || [])) {
-      if ((el.type === 'image' || el.type === 'video') && el.content) {
-        if (!el.content.startsWith('http')) {
-          try {
-            const url = await generateSignedUrl(el.content, 'DEFAULT');
-            if (url) el.content = url;
-          } catch { /* keep key */ }
-        } else if (isSignedUrl(el.content)) {
-          const key = extractStorageKeyFromUrl(el.content);
-          if (key) {
-            try {
-              const url = await generateSignedUrl(key, 'DEFAULT');
-              if (url) el.content = url;
-            } catch { /* keep existing */ }
-          }
-        }
-      }
-    }
-
     // Compute localized display prices for the subscription, if priced.
     // INR stays the source of truth (Cashfree only charges INR); the rest are
     // approximate conversions for fan-facing UI. Failure here must NEVER block
@@ -364,7 +421,7 @@ const getPageDetail = async (req, res) => {
     // Paid content gate: subscriptionContent is only visible to the owner or
     // an active subscriber. Without this, the lock screen on the client was
     // purely cosmetic — every visitor's API response carried the full paid
-    // content. Website/canvas content stays visible to everyone.
+    // content. Website content stays visible to everyone.
     const isSubscribed = isPrivateLocked
       ? false
       : await userCanReadSubscriptionContent(currentUserId, pageOwnerId, pageId);
@@ -1287,7 +1344,7 @@ const updateWebsiteContent = async (req, res) => {
   try {
     const { pageId } = req.params;
     const userId = req.user._id;
-    const { content } = req.body;
+    const { content, background, textColor } = req.body;
 
     const page = await ConnectPage.findById(pageId);
     if (!page) {
@@ -1304,31 +1361,16 @@ const updateWebsiteContent = async (req, res) => {
       return sendError(res, 'VALIDATION_FAILED', 'Content must be an array of blocks');
     }
 
-    // Filter out empty blocks and strip _id to avoid subdocument conflicts
-    // For image blocks: restore storage keys from signed URLs to prevent
-    // expired signed URLs from being stored in the database
-    const sanitized = content
-      .filter(block => block.content && block.content.trim() !== '')
-      .map((block, idx) => {
-        let blockContent = block.content;
-        if (block.type === 'image' && blockContent && isSignedUrl(blockContent)) {
-          const storageKey = extractStorageKeyFromUrl(blockContent);
-          if (storageKey) blockContent = storageKey;
-        }
-        const clean = {
-          type: block.type,
-          content: blockContent,
-          order: idx,
-        };
-        if (block.url) clean.url = block.url;
-        if (block.embedType) clean.embedType = block.embedType;
-        return clean;
-      });
-
-    page.websiteContent = sanitized;
+    page.websiteContent = sanitizeContentBlocks(content);
+    if (typeof background !== 'undefined') page.websiteBackground = normalizeColor(background);
+    if (typeof textColor !== 'undefined') page.websiteTextColor = normalizeColor(textColor);
     await page.save();
 
-    return sendSuccess(res, 200, 'Website content updated', { websiteContent: page.websiteContent });
+    return sendSuccess(res, 200, 'Website content updated', {
+      websiteContent: page.websiteContent,
+      websiteBackground: page.websiteBackground,
+      websiteTextColor: page.websiteTextColor,
+    });
   } catch (error) {
     logger.error('Error updating website content:', error);
     logger.error('Validation details:', error.errors || error.message);
@@ -1344,7 +1386,7 @@ const getWebsiteContent = async (req, res) => {
   try {
     const { pageId } = req.params;
 
-    const page = await ConnectPage.findById(pageId).select('websiteContent type features userId').lean();
+    const page = await ConnectPage.findById(pageId).select('websiteContent websiteBackground websiteTextColor type features userId').lean();
     if (!page) {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
     }
@@ -1389,7 +1431,11 @@ const getWebsiteContent = async (req, res) => {
       }
     }
 
-    return sendSuccess(res, 200, 'Website content fetched', { websiteContent: page.websiteContent || [] });
+    return sendSuccess(res, 200, 'Website content fetched', {
+      websiteContent: page.websiteContent || [],
+      websiteBackground: page.websiteBackground || '',
+      websiteTextColor: page.websiteTextColor || '',
+    });
   } catch (error) {
     logger.error('Error fetching website content:', error);
     return sendError(res, 'SERVER_ERROR', 'Failed to fetch website content');
@@ -1404,7 +1450,7 @@ const updateSubscriptionContent = async (req, res) => {
   try {
     const { pageId } = req.params;
     const userId = req.user._id;
-    const { content } = req.body;
+    const { content, background, textColor } = req.body;
 
     const page = await ConnectPage.findById(pageId);
     if (!page) {
@@ -1421,31 +1467,16 @@ const updateSubscriptionContent = async (req, res) => {
       return sendError(res, 'VALIDATION_FAILED', 'Content must be an array of blocks');
     }
 
-    // Filter out empty blocks and strip _id to avoid subdocument conflicts
-    // For image blocks: restore storage keys from signed URLs to prevent
-    // expired signed URLs from being stored in the database
-    const sanitized = content
-      .filter(block => block.content && block.content.trim() !== '')
-      .map((block, idx) => {
-        let blockContent = block.content;
-        if (block.type === 'image' && blockContent && isSignedUrl(blockContent)) {
-          const storageKey = extractStorageKeyFromUrl(blockContent);
-          if (storageKey) blockContent = storageKey;
-        }
-        const clean = {
-          type: block.type,
-          content: blockContent,
-          order: idx,
-        };
-        if (block.url) clean.url = block.url;
-        if (block.embedType) clean.embedType = block.embedType;
-        return clean;
-      });
-
-    page.subscriptionContent = sanitized;
+    page.subscriptionContent = sanitizeContentBlocks(content);
+    if (typeof background !== 'undefined') page.subscriptionBackground = normalizeColor(background);
+    if (typeof textColor !== 'undefined') page.subscriptionTextColor = normalizeColor(textColor);
     await page.save();
 
-    return sendSuccess(res, 200, 'Subscription content updated', { subscriptionContent: page.subscriptionContent });
+    return sendSuccess(res, 200, 'Subscription content updated', {
+      subscriptionContent: page.subscriptionContent,
+      subscriptionBackground: page.subscriptionBackground,
+      subscriptionTextColor: page.subscriptionTextColor,
+    });
   } catch (error) {
     logger.error('Error updating subscription content:', error);
     return sendError(res, 'SERVER_ERROR', 'Failed to update subscription content');
@@ -1461,7 +1492,7 @@ const getSubscriptionContent = async (req, res) => {
     const { pageId } = req.params;
 
     // Need userId to gate access; lean+select must include it.
-    const page = await ConnectPage.findById(pageId).select('subscriptionContent features userId').lean();
+    const page = await ConnectPage.findById(pageId).select('subscriptionContent subscriptionBackground subscriptionTextColor features userId').lean();
     if (!page) {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
     }
@@ -1506,184 +1537,14 @@ const getSubscriptionContent = async (req, res) => {
 
     return sendSuccess(res, 200, 'Subscription content fetched', {
       subscriptionContent: page.subscriptionContent || [],
+      subscriptionBackground: page.subscriptionBackground || '',
+      subscriptionTextColor: page.subscriptionTextColor || '',
       isSubscribed: true,
       gated: false,
     });
   } catch (error) {
     logger.error('Error fetching subscription content:', error);
     return sendError(res, 'SERVER_ERROR', 'Failed to fetch subscription content');
-  }
-};
-
-// ─────────────────────────────────────────────
-// CANVAS CONTENT (Stories/Shorts-style free-form layout)
-// ─────────────────────────────────────────────
-
-/**
- * Update canvas content (owner only)
- * PUT /api/v1/connect/page/:pageId/canvas
- * Body: { content: CanvasElement[], background?: string }
- */
-const updateCanvasContent = async (req, res) => {
-  try {
-    const { pageId } = req.params;
-    const userId = req.user._id;
-    const { content, background } = req.body;
-
-    const page = await ConnectPage.findById(pageId);
-    if (!page) {
-      return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
-    }
-    if (page.userId.toString() !== userId.toString()) {
-      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the owner can edit canvas content');
-    }
-
-    if (!Array.isArray(content)) {
-      return sendError(res, 'VALIDATION_FAILED', 'Content must be an array of elements');
-    }
-
-    // Sanitize: drop incomplete elements; convert any signed image/video URL back to a storage key
-    // so signed URLs never end up persisted (they expire).
-    const clamp01 = (n) => Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0));
-    const sanitized = content
-      .filter(el => el && el.type && typeof el.content === 'string' && el.content.trim() !== '')
-      .map((el, idx) => {
-        let elContent = el.content;
-        if ((el.type === 'image' || el.type === 'video') && elContent && isSignedUrl(elContent)) {
-          const storageKey = extractStorageKeyFromUrl(elContent);
-          if (storageKey) elContent = storageKey;
-        }
-        return {
-          type: el.type,
-          content: elContent,
-          x: clamp01(el.x),
-          y: clamp01(el.y),
-          w: clamp01(el.w),
-          h: clamp01(el.h),
-          rotation: Number.isFinite(el.rotation) ? el.rotation : 0,
-          zIndex: Number.isFinite(el.zIndex) ? el.zIndex : idx,
-          fontSize: Number.isFinite(el.fontSize) ? el.fontSize : 24,
-          color: typeof el.color === 'string' ? el.color : '#FFFFFF',
-          fontWeight: typeof el.fontWeight === 'string' ? el.fontWeight : '600',
-          backgroundColor: typeof el.backgroundColor === 'string' ? el.backgroundColor : 'transparent'
-        };
-      });
-
-    page.canvasContent = sanitized;
-    if (typeof background === 'string') {
-      page.canvasBackground = background;
-    }
-    await page.save();
-
-    return sendSuccess(res, 200, 'Canvas content updated', {
-      canvasContent: page.canvasContent,
-      canvasBackground: page.canvasBackground
-    });
-  } catch (error) {
-    logger.error('Error updating canvas content:', error);
-    return sendError(res, 'SERVER_ERROR', 'Failed to update canvas content');
-  }
-};
-
-/**
- * Get canvas content
- * GET /api/v1/connect/page/:pageId/canvas
- */
-const getCanvasContent = async (req, res) => {
-  try {
-    const { pageId } = req.params;
-
-    const page = await ConnectPage.findById(pageId)
-      .select('canvasContent canvasBackground type userId')
-      .lean();
-    if (!page) {
-      return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
-    }
-
-    // Private page: only owner / active follower can read
-    if (page.type === 'private') {
-      const currentUserId = req.user?._id;
-      const isOwner = currentUserId && page.userId.toString() === currentUserId.toString();
-      if (!isOwner) {
-        const follow = await ConnectFollow.findOne({
-          followerId: currentUserId,
-          connectPageId: pageId,
-          status: 'active'
-        });
-        if (!follow) {
-          return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'This content is private');
-        }
-      }
-    }
-
-    // Resolve image/video storage keys → signed URLs for transit.
-    for (const el of (page.canvasContent || [])) {
-      if ((el.type === 'image' || el.type === 'video') && el.content) {
-        if (!el.content.startsWith('http')) {
-          try {
-            const url = await generateSignedUrl(el.content, 'DEFAULT');
-            if (url) el.content = url;
-          } catch { /* keep key */ }
-        } else if (isSignedUrl(el.content)) {
-          const key = extractStorageKeyFromUrl(el.content);
-          if (key) {
-            try {
-              const url = await generateSignedUrl(key, 'DEFAULT');
-              if (url) el.content = url;
-            } catch { /* keep existing */ }
-          }
-        }
-      }
-    }
-
-    return sendSuccess(res, 200, 'Canvas content fetched', {
-      canvasContent: page.canvasContent || [],
-      canvasBackground: page.canvasBackground || '#000000'
-    });
-  } catch (error) {
-    logger.error('Error fetching canvas content:', error);
-    return sendError(res, 'SERVER_ERROR', 'Failed to fetch canvas content');
-  }
-};
-
-/**
- * Upload a video for canvas elements (owner only)
- * POST /api/v1/connect/page/:pageId/content-video
- * Body: multipart with field 'video'
- */
-const uploadContentVideo = async (req, res) => {
-  try {
-    const { pageId } = req.params;
-    const userId = req.user._id;
-
-    const page = await ConnectPage.findById(pageId).select('userId');
-    if (!page) {
-      return sendError(res, 'RESOURCE_NOT_FOUND', 'Connect page not found');
-    }
-    if (page.userId.toString() !== userId.toString()) {
-      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the owner can upload videos');
-    }
-
-    const file = req.file;
-    if (!file) {
-      return sendError(res, 'VALIDATION_FAILED', 'No video file provided');
-    }
-
-    const extension = file.originalname?.split('.').pop() || 'mp4';
-    const storageKey = buildMediaKey({
-      type: 'connect-content',
-      userId: userId.toString(),
-      filename: file.originalname || 'content.mp4',
-      extension
-    });
-    await uploadObject(file.buffer, storageKey, file.mimetype);
-
-    const signedUrl = await generateSignedUrl(storageKey, 'DEFAULT');
-
-    return sendSuccess(res, 200, 'Video uploaded', { storageKey, signedUrl });
-  } catch (error) {
-    logger.error('Error uploading canvas video:', error);
-    return sendError(res, 'SERVER_ERROR', 'Failed to upload video');
   }
 };
 
@@ -1895,15 +1756,14 @@ module.exports = {
   updateSubscriptionContent,
   getSubscriptionContent,
   uploadContentImage,
-  // Canvas
-  updateCanvasContent,
-  getCanvasContent,
-  uploadContentVideo,
   // Views
   recordView,
   // Analytics
   getPageAnalytics,
   // Geo
   getCountries,
-  getLanguages
+  getLanguages,
+  // Shared helpers used by SuperAdmin routes
+  sanitizeContentBlocks,
+  normalizeColor,
 };

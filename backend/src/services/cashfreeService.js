@@ -378,7 +378,10 @@ const verifyWebhookSignature = (rawBody, timestamp, signature) => {
       .createHmac('sha256', config.secretKey)
       .update(payload)
       .digest('base64');
-    return expectedSignature === signature;
+    const expected = Buffer.from(expectedSignature, 'utf8');
+    const received = Buffer.from(signature, 'utf8');
+    if (expected.length !== received.length) return false;
+    return crypto.timingSafeEqual(expected, received);
   } catch (error) {
     logger.error('Webhook signature verification failed:', error);
     return false;

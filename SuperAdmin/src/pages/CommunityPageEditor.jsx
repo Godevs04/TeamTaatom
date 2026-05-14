@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Globe, Star, Save, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import ContentBuilder from '../components/ContentBuilder'
-import CanvasEditor from '../components/CanvasEditor'
 import {
   getCommunityPageContent,
   updateCommunityPageContent,
@@ -23,6 +22,10 @@ export default function CommunityPageEditor() {
   const [activeTab, setActiveTab] = useState('website')
   const [websiteBlocks, setWebsiteBlocks] = useState([])
   const [subscriptionBlocks, setSubscriptionBlocks] = useState([])
+  const [websiteBackground, setWebsiteBackground] = useState('')
+  const [websiteTextColor, setWebsiteTextColor] = useState('')
+  const [subscriptionBackground, setSubscriptionBackground] = useState('')
+  const [subscriptionTextColor, setSubscriptionTextColor] = useState('')
   const [pageName, setPageName] = useState('')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -39,6 +42,10 @@ export default function CommunityPageEditor() {
         setPageName(data.name || 'Community Page')
         setWebsiteBlocks(data.websiteContent || [])
         setSubscriptionBlocks(data.subscriptionContent || [])
+        setWebsiteBackground(data.websiteBackground || '')
+        setWebsiteTextColor(data.websiteTextColor || '')
+        setSubscriptionBackground(data.subscriptionBackground || '')
+        setSubscriptionTextColor(data.subscriptionTextColor || '')
       } catch (err) {
         logger.error('Failed to load content:', err)
         toast.error('Failed to load page content')
@@ -101,6 +108,10 @@ export default function CommunityPageEditor() {
       await updateCommunityPageContent(pageId, {
         websiteContent: websiteBlocks,
         subscriptionContent: subscriptionBlocks,
+        websiteBackground,
+        websiteTextColor,
+        subscriptionBackground,
+        subscriptionTextColor,
       })
       setDirty(false)
       toast.success('Content saved successfully')
@@ -186,37 +197,104 @@ export default function CommunityPageEditor() {
       </div>
 
       {/* Builder area */}
-      {activeTab === 'website' ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="mb-4">
-            <h2 className="text-sm font-semibold text-gray-700">Website</h2>
-            <p className="text-xs text-gray-400 mt-1">
-              Free-form canvas. Add text, images, and videos and position them anywhere on a 9:16 frame. This is what visitors see.
-            </p>
-          </div>
-          <CanvasEditor pageId={pageId} />
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="mb-4">
+          <h2 className="text-sm font-semibold text-gray-700">
+            {activeTab === 'website' ? 'Website' : 'Subscription Content'}
+          </h2>
+          <p className="text-xs text-gray-400 mt-1">
+            {activeTab === 'website'
+              ? 'Stacked content blocks. Add headings, text, images, videos, and buttons — this is what visitors see.'
+              : 'This content is only visible to paying subscribers.'}
+          </p>
         </div>
-      ) : (
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="mb-4">
-            <h2 className="text-sm font-semibold text-gray-700">Subscription Content</h2>
-            <p className="text-xs text-gray-400 mt-1">
-              This content is only visible to paying subscribers.
-            </p>
-          </div>
 
-          <ContentBuilder
-            blocks={currentBlocks}
-            onChange={currentOnChange}
-            onImageUpload={handleImageUpload}
+        {/* Page-level colors */}
+        <div className="mb-5 flex gap-4 flex-wrap">
+          <PageColorField
+            label="Page background"
+            value={activeTab === 'website' ? websiteBackground : subscriptionBackground}
+            onChange={(c) => {
+              if (activeTab === 'website') setWebsiteBackground(c)
+              else setSubscriptionBackground(c)
+              setDirty(true)
+            }}
+          />
+          <PageColorField
+            label="Default text color"
+            value={activeTab === 'website' ? websiteTextColor : subscriptionTextColor}
+            onChange={(c) => {
+              if (activeTab === 'website') setWebsiteTextColor(c)
+              else setSubscriptionTextColor(c)
+              setDirty(true)
+            }}
           />
         </div>
-      )}
 
-      {/* Unsaved changes warning (subscription only; website canvas has its own save) */}
-      {dirty && activeTab !== 'website' && (
+        <ContentBuilder
+          blocks={currentBlocks}
+          onChange={currentOnChange}
+          onImageUpload={handleImageUpload}
+        />
+      </div>
+
+      {/* Unsaved changes warning */}
+      {dirty && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-amber-50 border border-amber-200 text-amber-800 px-5 py-2.5 rounded-full shadow-lg text-sm font-medium">
           You have unsaved changes
+        </div>
+      )}
+    </div>
+  )
+}
+
+const PAGE_PRESET_COLORS = [
+  '#FFFFFF', '#FAF7F2', '#F5F5F5', '#1E1E1E', '#000000',
+  '#4A90E2', '#5856D6', '#9A1750', '#FF3B30',
+  '#FF6B35', '#FFD700', '#E8C547', '#34C759',
+  '#2C5530', '#0F4C5C', '#6B4F8A', '#D4A373',
+]
+
+function PageColorField({ label, value, onChange }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs"
+      >
+        <span
+          className="inline-block h-5 w-5 rounded-full border border-gray-300"
+          style={{ backgroundColor: value || 'transparent' }}
+        />
+        <span className="text-gray-700">{value || 'None'}</span>
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-50 mt-1 w-64 rounded-md border border-gray-200 bg-white p-2 shadow-lg">
+          <div className="flex flex-wrap gap-2">
+            {PAGE_PRESET_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => { onChange(c); setOpen(false) }}
+                className="h-7 w-7 rounded-full border-2"
+                style={{
+                  backgroundColor: c,
+                  borderColor: value && value.toLowerCase() === c.toLowerCase() ? '#3b82f6' : '#e5e7eb',
+                }}
+              />
+            ))}
+            <button
+              type="button"
+              onClick={() => { onChange(''); setOpen(false) }}
+              className="h-7 w-7 rounded-full border border-gray-300 bg-white text-xs text-gray-500"
+              title="Clear"
+            >
+              ×
+            </button>
+          </div>
         </div>
       )}
     </div>

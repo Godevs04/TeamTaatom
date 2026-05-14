@@ -32,7 +32,6 @@ import type { ConnectFollower } from "@/lib/connect-api";
 import { openCashfreeSubscriptionCheckout } from "@/lib/cashfree-client";
 import { getFriendlyErrorMessage } from "@/lib/auth-errors";
 import { ConnectContentBlocks } from "@/components/connect/connect-content-blocks";
-import { ConnectCanvasView } from "@/components/connect/connect-canvas-view";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -518,14 +517,11 @@ export default function ConnectPageDetailPage() {
               </div>
               <div className="pt-6">
                 {tab === "website" && page.features?.website && (
-                  page.canvasContent && page.canvasContent.length > 0 ? (
-                    <ConnectCanvasView
-                      elements={page.canvasContent}
-                      background={page.canvasBackground}
-                    />
-                  ) : (
-                    <ConnectContentBlocks blocks={page.websiteContent} />
-                  )
+                  <ConnectContentBlocks
+                    blocks={page.websiteContent}
+                    pageBackground={page.websiteBackground}
+                    pageTextColor={page.websiteTextColor}
+                  />
                 )}
                 {tab === "subscription" && showSubTab && (
                   <>
@@ -548,7 +544,11 @@ export default function ConnectPageDetailPage() {
                         )}
                       </div>
                     ) : page.subscriptionContent && page.subscriptionContent.length > 0 ? (
-                      <ConnectContentBlocks blocks={page.subscriptionContent} />
+                      <ConnectContentBlocks
+                        blocks={page.subscriptionContent}
+                        pageBackground={page.subscriptionBackground}
+                        pageTextColor={page.subscriptionTextColor}
+                      />
                     ) : (
                       <p className="text-sm text-slate-500 dark:text-zinc-400">
                         {isOwner ? "No content added yet." : "No services listed yet."}

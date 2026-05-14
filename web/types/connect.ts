@@ -16,22 +16,19 @@ export type ContentBlock = {
   order: number;
   url?: string;
   embedType?: "youtube" | "map" | "custom" | "";
-};
-
-export type CanvasElement = {
-  _id?: string;
-  type: "text" | "image" | "video";
-  content: string;
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  rotation?: number;
-  zIndex?: number;
-  fontSize?: number;
-  color?: string;
-  fontWeight?: string;
+  /** 12-grid column width (1-12). Adjacent blocks summing <=12 share a row. */
+  col?: number;
+  /** Per-block color overrides. '' / undefined = inherit page default. */
   backgroundColor?: string;
+  color?: string;
+  /** Bold text: true = fontWeight 700 for text, 800 for heading */
+  bold?: boolean;
+  /** Text alignment. Heading defaults to center, text defaults to left. */
+  align?: "left" | "center" | "right";
+  /** Font size tier */
+  fontSize?: "small" | "normal" | "large";
+  /** Stack this block into the last column of the previous row */
+  stacked?: boolean;
 };
 
 export type ConnectPageOwner = {
@@ -56,8 +53,10 @@ export type ConnectPage = {
   };
   websiteContent?: ContentBlock[];
   subscriptionContent?: ContentBlock[];
-  canvasContent?: CanvasElement[];
-  canvasBackground?: string;
+  websiteBackground?: string;
+  websiteTextColor?: string;
+  subscriptionBackground?: string;
+  subscriptionTextColor?: string;
   subscriptionPrice?: number | null;
   subscriptionCurrency?: string;
   subscriptionApproval?: {

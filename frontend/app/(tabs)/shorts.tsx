@@ -249,6 +249,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const currentPlayerRef = useRef<Audio.Sound | null>(null);
   // Track each video's last known position to detect native loop restarts
   const lastVideoPositionRef = useRef<Record<string, number>>({});
+  // Mirror of `shorts` state for stable callbacks (handleSongPlayingChange) that
+  // need current item data without being re-memoed on every list change.
+  const shortsRef = useRef<PostType[]>([]);
+  shortsRef.current = shorts;
   // Track last viewed short ID for analytics de-duplication
   const lastViewedShortIdRef = useRef<string | null>(null);
   // Guard to prevent duplicate navigation on rapid swipes
@@ -330,9 +334,29 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
    * Stable callback for SongPlayer's onPlayingChange.
    * MUST be memoized — if this is an inline function, SongPlayer's effect fires
    * on every render and interrupts sound loading mid-flight.
+   *
+   * When audio first becomes active (after its load latency), the video has
+   * usually already been playing for 200-500 ms. Seek the audio to match the
+   * current video position so they start aligned instead of audio permanently
+   * trailing the visual.
    */
   const handleSongPlayingChange = useCallback((s: Audio.Sound | null) => {
     currentPlayerRef.current = s;
+    if (!s) return;
+    const activeId = activeVideoIdRef.current;
+    if (!activeId) return;
+    const video = videoRefs.current[activeId];
+    if (!video) return;
+    const activeItem = shortsRef.current?.find((it: any) => it && !isAdItem(it) && it._id === activeId) as PostType | undefined;
+    if (!activeItem || !activeItem.song?.songId?._id) return;
+    const startSec = activeItem.song?.startTime || 0;
+    const endSec = activeItem.song?.endTime;
+    const segmentMs = endSec && endSec > startSec ? (endSec - startSec) * 1000 : 60000;
+    video.getStatusAsync().then((status: any) => {
+      if (!status?.isLoaded || typeof status.positionMillis !== 'number') return;
+      const audioOffsetMs = status.positionMillis % segmentMs;
+      s.setPositionAsync(startSec * 1000 + audioOffsetMs).catch(() => {});
+    }).catch(() => {});
   }, []);
 
   /**
@@ -536,12 +560,20 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       audioManager.unfreeze();
 
       // CRITICAL: Set audio mode for shorts playback (main speaker, not earpiece)
+      // MUST include interruptionModeIOS: 0 (MIX_WITH_OTHERS) so that
+      // Audio.Sound (SongPlayer) can play alongside a muted Video component.
+      // Without this, iOS gives the muted Video exclusive audio-session control
+      // and silences (or blocks) all Audio.Sound instances — the user sees a
+      // playing video but hears nothing, or the video itself refuses to start
+      // because the session mode conflicts with the previous tab's setting.
       Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
         staysActiveInBackground: false,
         shouldDuckAndroid: true,
         playThroughEarpieceAndroid: false,
+        interruptionModeIOS: 0, // MIX_WITH_OTHERS — required for video + song coexistence
+        interruptionModeAndroid: 1, // DO_NOT_MIX (default; Android handles mixing via audioFocus)
       }).catch(err => {
         logger.error('Error setting audio mode for shorts:', err);
       });
@@ -2029,6 +2061,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   contentFit="cover"
                   cachePolicy="memory-disk"
                   transition={0}
+                  onError={(e: any) => logger.warn('[shorts thumbnail] load failed', {
+                    shortId: item._id,
+                    url: item.imageUrl?.substring(0, 120),
+                    error: e?.error || e?.nativeEvent?.error || String(e),
+                  })}
                 />
               ) : (
                 <View style={[styles.shortVideo, StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }]}>
@@ -2053,7 +2090,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 resizeMode={ResizeMode.COVER}
                 shouldPlay={index === currentVisibleIndex}
                 isLooping
-                progressUpdateIntervalMillis={250}
+                progressUpdateIntervalMillis={100}
                 isMuted={index !== currentVisibleIndex || !!(item.song?.songId?._id)}
                 volume={(() => {
                   const hasMusic = !!(item.song?.songId?._id);
@@ -2189,8 +2226,18 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                       if (lastPos > 500 && curPos < lastPos - 500) {
                         const hasMusic = !!(item.song?.songId?._id);
                         if (hasMusic && currentPlayerRef.current) {
-                          const songStartMs = (item.song?.startTime || 0) * 1000;
-                          currentPlayerRef.current.setPositionAsync(songStartMs).catch(() => {});
+                          const startSec = item.song?.startTime || 0;
+                          const endSec = item.song?.endTime;
+                          const songStartMs = startSec * 1000;
+                          // Compensate for the video having already advanced `curPos` ms
+                          // past the loop point by the time this status update fires.
+                          // Without the offset, audio resets to exactly startTime while
+                          // the video is already curPos ms in, leaving audio ~100ms behind
+                          // the visual after every loop. Wrap within the audio segment
+                          // length so the seek never lands past endTime.
+                          const segmentMs = endSec && endSec > startSec ? (endSec - startSec) * 1000 : 60000;
+                          const audioOffsetMs = curPos % segmentMs;
+                          currentPlayerRef.current.setPositionAsync(songStartMs + audioOffsetMs).catch(() => {});
                         }
                       }
                       lastVideoPositionRef.current[item._id] = curPos;
@@ -2344,13 +2391,18 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               accessibilityLabel={`View ${item.user.username || 'user'}'s profile`}
               accessibilityRole="button"
             >
-              <Image
+              <ExpoImage
                 source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
                 style={styles.profileImage as ImageStyle}
-                defaultSource={require('../../assets/avatars/male_avatar.png')}
-                onError={() => {
-                  logger.warn('Profile picture failed to load for user:', item.user._id);
-                }}
+                cachePolicy="memory-disk"
+                placeholder={require('../../assets/avatars/male_avatar.png')}
+                contentFit="cover"
+                transition={200}
+                onError={(e: any) => logger.warn('[shorts profile avatar] load failed', {
+                  userId: item.user._id,
+                  url: item.user.profilePic?.substring(0, 120),
+                  error: e?.error || e?.nativeEvent?.error || String(e),
+                })}
               />
               {/* Follow Button - Only show if currentUser is loaded AND not own post.
                   If currentUser hasn't resolved yet, hide the button instead of
@@ -2455,13 +2507,18 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 accessibilityRole="button"
               >
                 <View style={styles.avatarContainer}>
-                <Image
+                <ExpoImage
                   source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
                   style={styles.userAvatar as ImageStyle}
-                  defaultSource={require('../../assets/avatars/male_avatar.png')}
-                  onError={() => {
-                    logger.warn('Profile picture failed to load for user:', item.user._id);
-                  }}
+                  cachePolicy="memory-disk"
+                  placeholder={require('../../assets/avatars/male_avatar.png')}
+                  contentFit="cover"
+                  transition={200}
+                  onError={(e: any) => logger.warn('[shorts bottom avatar] load failed', {
+                    userId: item.user._id,
+                    url: item.user.profilePic?.substring(0, 120),
+                    error: e?.error || e?.nativeEvent?.error || String(e),
+                  })}
                 />
                   <View style={styles.avatarRing} />
                 </View>
