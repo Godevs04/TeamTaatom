@@ -799,6 +799,8 @@ export default function UserProfileScreen() {
             <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary, marginBottom: 8 }]}>
               {verifiedLocationsCount !== null && verifiedLocationsCount > 0
                 ? `${verifiedLocationsCount} verified location${verifiedLocationsCount !== 1 ? 's' : ''} · ${tripsCount} trip${tripsCount !== 1 ? 's' : ''}`
+                : verifiedLocationsCount === null && profile.canViewLocations
+                ? 'Loading travel summary…'
                 : 'No verified travel summary yet'}
             </Text>
             {countriesCount > 0 ? (
