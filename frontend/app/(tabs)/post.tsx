@@ -867,7 +867,12 @@ export default function PostScreen() {
           // us HEVC (default since iOS 11) which crashes on many older Android
           // decoders and some lower-end iOS chipsets — that was the dominant
           // "crashes when I play a short" signature.
-          videoExportPreset: ImagePicker.VideoExportPreset.MediumQuality,
+          // H264_1280x720 explicitly targets H.264 at 720p (matching the server's
+          // transcode target), so the backend probe sees H.264/AAC ≤1080p and
+          // passes through without re-encoding. MediumQuality was causing
+          // double-compression: Apple compressed aggressively (sometimes <1MB for
+          // a 106MB source), then the server transcoded again on the result.
+          videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720,
           videoMaxDuration: 60, // Shorts cap — also keeps decoder pressure bounded
           videoQuality: 1, // iOS UIImagePickerControllerQualityType.Medium (~960x540)
         });
@@ -1217,7 +1222,9 @@ export default function PostScreen() {
           // fine on the original device but crashes expo-av on many Android
           // devices and lower-end iPads, which is the root cause of the
           // "shorts page crashes on play" reports.
-          videoExportPreset: ImagePicker.VideoExportPreset.MediumQuality,
+          // H264_1280x720 explicitly targets 720p H.264; backend passthrough
+          // applies (no double transcode), preserving quality.
+          videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720,
           videoMaxDuration: 60, // Shorts cap — also keeps decoder pressure bounded
           videoQuality: 1, // iOS UIImagePickerControllerQualityType.Medium (~960x540)
         });

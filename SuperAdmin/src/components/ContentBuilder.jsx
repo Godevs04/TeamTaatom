@@ -147,7 +147,7 @@ function DraggableBlock({ block, index, moveBlock, updateBlock, removeBlock, onI
                       B
                     </button>
                     {/* Alignment */}
-                    {(['left', 'center', 'right'] as const).map((a) => {
+                    {(['left', 'center', 'right']).map((a) => {
                       const defaultAlign = block.type === 'heading' ? 'center' : 'left';
                       const active = (block.align || defaultAlign) === a;
                       return (
