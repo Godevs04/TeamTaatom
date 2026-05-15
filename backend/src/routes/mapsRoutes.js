@@ -1,6 +1,12 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const { searchPlace, geocodeAddress } = require('../controllers/mapsController');
+const {
+  searchPlace,
+  geocodeAddress,
+  reverseGeocode,
+  tourismOsmInBounds,
+  reverseAddressForImport,
+} = require('../controllers/mapsController');
 const { verifySuperAdminToken } = require('../controllers/superAdminController');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { sendError } = require('../utils/errorCodes');
@@ -20,6 +26,24 @@ const geocodeValidation = [
     .trim()
     .isLength({ min: 1, max: 500 })
     .withMessage('Address must be between 1 and 500 characters'),
+];
+
+const reverseGeocodeValidation = [
+  body('latitude').isFloat({ min: -90, max: 90 }).withMessage('Latitude must be between -90 and 90'),
+  body('longitude').isFloat({ min: -180, max: 180 }).withMessage('Longitude must be between -180 and 180'),
+];
+
+const bboxValidation = [
+  body('south').isFloat({ min: -90, max: 90 }).withMessage('south invalid'),
+  body('west').isFloat({ min: -180, max: 180 }).withMessage('west invalid'),
+  body('north').isFloat({ min: -90, max: 90 }).withMessage('north invalid'),
+  body('east').isFloat({ min: -180, max: 180 }).withMessage('east invalid'),
+];
+
+const reverseAddressImportValidation = [
+  body('latitude').isFloat({ min: -90, max: 90 }).withMessage('Latitude must be between -90 and 90'),
+  body('longitude').isFloat({ min: -180, max: 180 }).withMessage('Longitude must be between -180 and 180'),
+  body('preferredName').optional({ values: 'null' }).trim().isLength({ max: 200 }).withMessage('preferredName too long'),
 ];
 
 /**
@@ -93,6 +117,35 @@ router.post('/geocode', verifySuperAdminToken, geocodeValidation, (req, res, nex
   }
   next();
 }, geocodeAddress);
+
+/**
+ * Reverse-geocode coordinates and detect tourist-oriented POIs (SuperAdmin).
+ */
+router.post('/reverse-geocode', verifySuperAdminToken, reverseGeocodeValidation, (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
+  }
+  next();
+}, reverseGeocode);
+
+/** OSM tourism POIs in map bounds (SuperAdmin world map). */
+router.post('/tourism-osm', verifySuperAdminToken, bboxValidation, (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
+  }
+  next();
+}, tourismOsmInBounds);
+
+/** Reverse geocode for import form (preferredName optional). */
+router.post('/reverse-address', verifySuperAdminToken, reverseAddressImportValidation, (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return sendError(res, 'VAL_2001', 'Validation failed', { validationErrors: errors.array() });
+  }
+  next();
+}, reverseAddressForImport);
 
 /**
  * User-accessible place search endpoint
