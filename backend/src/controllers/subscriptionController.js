@@ -429,8 +429,23 @@ const cancelSubscription = async (req, res) => {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Active subscription not found');
     }
 
-    // Cancel on Cashfree
-    await cashfreeService.cancelSubscription(subscription.cashfreeSubscriptionId);
+    // Cancel on Cashfree — non-blocking: if Cashfree fails (already cancelled,
+    // missing ID, gateway error) we still cancel locally so the user isn't stuck.
+    if (subscription.cashfreeSubscriptionId) {
+      try {
+        await cashfreeService.cancelSubscription(subscription.cashfreeSubscriptionId);
+      } catch (cashfreeError) {
+        logger.error('Cashfree cancel failed, proceeding with local cancellation:', {
+          subscriptionId: subscription._id,
+          cashfreeSubscriptionId: subscription.cashfreeSubscriptionId,
+          error: cashfreeError.message,
+        });
+      }
+    } else {
+      logger.warn('cancelSubscription: no cashfreeSubscriptionId, skipping gateway call', {
+        subscriptionId: subscription._id,
+      });
+    }
 
     // Update local status
     subscription.status = 'cancelled';
