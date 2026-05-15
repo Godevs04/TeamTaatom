@@ -905,7 +905,7 @@ export default function UserProfileScreen() {
                   </View>
                   <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No posts yet</Text>
                   <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
-                    This user hasn't shared any posts yet
+                    This user hasn&apos;t shared any posts yet
                   </Text>
                 </View>
               )}
@@ -984,7 +984,7 @@ export default function UserProfileScreen() {
                   </View>
                   <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No shorts yet</Text>
                   <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
-                    This user hasn't shared any shorts yet
+                    This user hasn&apos;t shared any shorts yet
                   </Text>
                 </View>
               )
