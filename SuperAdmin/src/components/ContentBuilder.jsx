@@ -163,7 +163,7 @@ function DraggableBlock({ block, index, moveBlock, updateBlock, removeBlock, onI
                       );
                     })}
                     {/* Font size */}
-                    {(['small', 'normal', 'large'] as const).map((s) => {
+                    {(['small', 'normal', 'large']).map((s) => {
                       const active = (block.fontSize || 'normal') === s;
                       return (
                         <button
