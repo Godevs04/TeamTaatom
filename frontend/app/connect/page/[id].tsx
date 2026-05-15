@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -112,7 +112,17 @@ export default function ConnectPageDetailScreen() {
   const { theme } = useTheme();
   const { showSuccess } = useAlert();
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const {
+    id,
+    optimistic_subscribed,
+    optimistic_subscription_id,
+    optimistic_amount,
+  } = useLocalSearchParams<{
+    id: string;
+    optimistic_subscribed?: string;
+    optimistic_subscription_id?: string;
+    optimistic_amount?: string;
+  }>();
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState<ConnectPageType | null>(null);
   const [isOwner, setIsOwner] = useState(false);
@@ -123,6 +133,9 @@ export default function ConnectPageDetailScreen() {
   const [followersLoading, setFollowersLoading] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [subscribing, setSubscribing] = useState(false);
+  // Stores the pending subscription response so onVerify can optimistically
+  // flip the UI before the webhook arrives and DB status updates to 'active'.
+  const pendingSubscriptionRef = useRef<{ subscriptionId: string; amount: number } | null>(null);
   const [showPriceModal, setShowPriceModal] = useState(false);
   const [priceInput, setPriceInput] = useState('');
   const [showPayoutInfo, setShowPayoutInfo] = useState(false);
@@ -180,9 +193,23 @@ export default function ConnectPageDetailScreen() {
     CFPaymentGatewayService.setCallback({
       onVerify(orderID: string): void {
         logger.info('Cashfree subscription verified, orderID:', orderID);
-        // User is already on the Connect page they subscribed from, so no
-        // navigation is needed — just refresh details so the gated UI flips
-        // and surface a prominent in-app notification of the payment.
+        // Optimistic update: flip UI to "Subscribed" immediately.
+        // The webhook may not have reached the server yet, so getSubscriptionStatus
+        // can still return isSubscribed:false if called right now.
+        if (pendingSubscriptionRef.current) {
+          setSubscriptionStatus({
+            isSubscribed: true,
+            subscription: {
+              _id: pendingSubscriptionRef.current.subscriptionId,
+              status: 'active',
+              amount: pendingSubscriptionRef.current.amount,
+              activatedAt: new Date().toISOString(),
+              currentPeriodEnd: null,
+            },
+          });
+          pendingSubscriptionRef.current = null;
+        }
+        // Refresh from server in background to get accurate period dates etc.
         loadSubscriptionStatus();
         loadPageDetail();
         showSuccess(
@@ -207,6 +234,23 @@ export default function ConnectPageDetailScreen() {
     }
   }, [page, isOwner, loadSubscriptionStatus]);
 
+  // If navigated from preview after payment, apply optimistic subscribed state
+  // immediately so the UI flips without waiting for the webhook to update the DB.
+  useEffect(() => {
+    if (optimistic_subscribed === '1' && optimistic_subscription_id) {
+      setSubscriptionStatus({
+        isSubscribed: true,
+        subscription: {
+          _id: optimistic_subscription_id,
+          status: 'active',
+          amount: Number(optimistic_amount) || 0,
+          activatedAt: new Date().toISOString(),
+          currentPeriodEnd: null,
+        },
+      });
+    }
+  }, [optimistic_subscribed, optimistic_subscription_id, optimistic_amount]);
+
   const handleSubscribe = async () => {
     if (!page || subscribing) return;
     if (!isCashfreeNativeAvailable) {
@@ -220,6 +264,12 @@ export default function ConnectPageDetailScreen() {
       setSubscribing(true);
       const result = await createSubscription(page._id);
       if (result.paymentSessionId && result.cashfreeSubscriptionId) {
+        // Store pending data so onVerify can optimistically flip the UI
+        // before the webhook arrives and syncs DB status to 'active'.
+        pendingSubscriptionRef.current = {
+          subscriptionId: result.subscriptionId,
+          amount: result.amount,
+        };
         // Use Cashfree React Native SDK for subscription checkout
         const env = __DEV__ ? CFEnvironment.SANDBOX : CFEnvironment.PRODUCTION;
         const session = new CFSubscriptionSession(

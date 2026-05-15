@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -112,6 +112,7 @@ export default function ContentPreviewScreen() {
   const [isOwner, setIsOwner] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [subscribing, setSubscribing] = useState(false);
+  const pendingSubscriptionRef = useRef<{ subscriptionId: string; amount: number } | null>(null);
 
   const isWebsite = section === 'website';
   const isSubscription = section === 'subscription';
@@ -192,11 +193,22 @@ export default function ContentPreviewScreen() {
           isCommunity ? 'Your purchase was completed.' : 'Your subscription is now active.',
           'Payment received',
         );
-        // Redirect back to the Connect page the user subscribed from so they
-        // land on the page detail (not stuck inside the preview), and so any
-        // gated subscriber UI on that page reflects the new status.
+        // Redirect to page detail, passing pending subscription data as params
+        // so page/[id].tsx can flip to "Subscribed" immediately without waiting
+        // for the webhook to update the DB.
         if (pageId) {
-          router.replace(`/connect/page/${pageId}`);
+          const pending = pendingSubscriptionRef.current;
+          pendingSubscriptionRef.current = null;
+          router.replace({
+            pathname: `/connect/page/${pageId}` as any,
+            params: pending
+              ? {
+                  optimistic_subscribed: '1',
+                  optimistic_subscription_id: pending.subscriptionId,
+                  optimistic_amount: String(pending.amount),
+                }
+              : {},
+          });
         }
       },
       onError(error: CFErrorResponse, orderID: string): void {
@@ -222,6 +234,10 @@ export default function ContentPreviewScreen() {
       setSubscribing(true);
       const result = await createSubscription(pageData._id);
       if (result.paymentSessionId && result.cashfreeSubscriptionId) {
+        pendingSubscriptionRef.current = {
+          subscriptionId: result.subscriptionId,
+          amount: result.amount,
+        };
         const env = __DEV__ ? CFEnvironment.SANDBOX : CFEnvironment.PRODUCTION;
         const session = new CFSubscriptionSession(
           result.paymentSessionId,
