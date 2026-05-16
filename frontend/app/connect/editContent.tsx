@@ -45,6 +45,9 @@ export default function EditContentScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const [pageBackground, setPageBackground] = useState<string>('');
+  const [pageTextColor, setPageTextColor] = useState<string>('');
+  const [colorPickerOpen, setColorPickerOpen] = useState<'bg' | 'text' | null>(null);
 
   const isCommunity = category === 'community';
   const sectionTitle = section === 'website' ? 'Website' : (isCommunity ? 'Buy' : 'Subscription');
@@ -61,9 +64,13 @@ export default function EditContentScreen() {
       if (section === 'website') {
         response = await getWebsiteContent(pageId);
         setBlocks(response.websiteContent || []);
+        setPageBackground(response.websiteBackground || '');
+        setPageTextColor(response.websiteTextColor || '');
       } else {
         response = await getSubscriptionContent(pageId);
         setBlocks(response.subscriptionContent || []);
+        setPageBackground(response.subscriptionBackground || '');
+        setPageTextColor(response.subscriptionTextColor || '');
       }
     } catch (error) {
       logger.error('Error loading content:', error);
@@ -98,10 +105,11 @@ export default function EditContentScreen() {
           return block;
         });
 
+      const colorOptions = { background: pageBackground, textColor: pageTextColor };
       if (section === 'website') {
-        await updateWebsiteContent(pageId, processedBlocks);
+        await updateWebsiteContent(pageId, processedBlocks, colorOptions);
       } else {
-        await updateSubscriptionContent(pageId, processedBlocks);
+        await updateSubscriptionContent(pageId, processedBlocks, colorOptions);
       }
       setHasChanges(false);
       Alert.alert('Saved', `${sectionTitle} content has been updated.`, [
@@ -201,6 +209,66 @@ export default function EditContentScreen() {
               : 'List the services you offer with text, images, and buttons. Visitors can see what you provide.'}
           </Text>
 
+          {/* Page-level color settings */}
+          <View style={[styles.pageColorRow, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <Text style={[styles.pageColorLabel, { color: theme.colors.text }]}>Page background</Text>
+            <TouchableOpacity
+              style={[
+                styles.pageColorSwatch,
+                {
+                  backgroundColor: pageBackground || 'transparent',
+                  borderColor: theme.colors.border,
+                },
+              ]}
+              onPress={() => setColorPickerOpen((o) => (o === 'bg' ? null : 'bg'))}
+              activeOpacity={0.7}
+            >
+              {!pageBackground && (
+                <Text style={[styles.pageColorPlaceholder, { color: theme.colors.textSecondary }]}>None</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+          {colorPickerOpen === 'bg' && (
+            <PageColorPalette
+              theme={theme}
+              current={pageBackground}
+              onPick={(c) => {
+                setPageBackground(c);
+                setHasChanges(true);
+                setColorPickerOpen(null);
+              }}
+            />
+          )}
+          <View style={[styles.pageColorRow, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <Text style={[styles.pageColorLabel, { color: theme.colors.text }]}>Default text color</Text>
+            <TouchableOpacity
+              style={[
+                styles.pageColorSwatch,
+                {
+                  backgroundColor: pageTextColor || 'transparent',
+                  borderColor: theme.colors.border,
+                },
+              ]}
+              onPress={() => setColorPickerOpen((o) => (o === 'text' ? null : 'text'))}
+              activeOpacity={0.7}
+            >
+              {!pageTextColor && (
+                <Text style={[styles.pageColorPlaceholder, { color: theme.colors.textSecondary }]}>Auto</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+          {colorPickerOpen === 'text' && (
+            <PageColorPalette
+              theme={theme}
+              current={pageTextColor}
+              onPick={(c) => {
+                setPageTextColor(c);
+                setHasChanges(true);
+                setColorPickerOpen(null);
+              }}
+            />
+          )}
+
           <ContentBlockBuilder
             blocks={blocks}
             onChange={handleBlocksChange}
@@ -278,4 +346,96 @@ const styles = StyleSheet.create({
     lineHeight: isTablet ? 22 : 20,
     marginBottom: 20,
   },
+  pageColorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  pageColorLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  pageColorSwatch: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pageColorPlaceholder: {
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  palette: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    marginBottom: 12,
+    borderWidth: 1,
+  },
+  paletteSwatch: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 2,
+  },
+  paletteClear: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
 });
+
+const PAGE_PRESET_COLORS = [
+  '#FFFFFF', '#FAF7F2', '#F5F5F5', '#1E1E1E', '#000000',
+  '#4A90E2', '#5856D6', '#9A1750', '#FF3B30',
+  '#FF6B35', '#FFD700', '#E8C547', '#34C759',
+  '#2C5530', '#0F4C5C', '#6B4F8A', '#D4A373',
+];
+
+function PageColorPalette({
+  theme,
+  current,
+  onPick,
+}: {
+  theme: any;
+  current: string;
+  onPick: (color: string) => void;
+}) {
+  return (
+    <View style={[styles.palette, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+      {PAGE_PRESET_COLORS.map((c) => (
+        <TouchableOpacity
+          key={c}
+          style={[
+            styles.paletteSwatch,
+            {
+              backgroundColor: c,
+              borderColor: current.toLowerCase() === c.toLowerCase() ? theme.colors.primary : theme.colors.border,
+            },
+          ]}
+          onPress={() => onPick(c)}
+          activeOpacity={0.7}
+        />
+      ))}
+      <TouchableOpacity
+        style={[styles.paletteClear, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+        onPress={() => onPick('')}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="close" size={16} color={theme.colors.textSecondary} />
+      </TouchableOpacity>
+    </View>
+  );
+}

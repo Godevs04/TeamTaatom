@@ -127,26 +127,27 @@ export default function FollowersFollowingList() {
     const previousFollowing = previousState?.isFollowing ?? false;
     
     // Optimistic update
-    setUsers(prev => prev.map(u => 
-      u._id === targetId 
-        ? { ...u, isFollowing: !u.isFollowing } 
+    setUsers(prev => prev.map(u =>
+      u._id === targetId
+        ? { ...u, isFollowing: !u.isFollowing, followRequestSent: false }
         : u
     ));
-    
+
     try {
       // Call API and use the response
       const response = await toggleFollow(targetId);
-      
+
       // Extract values from response
       const isFollowingValue = Boolean(response.isFollowing);
       const followRequestSentValue = Boolean(response.followRequestSent);
-      
+
       // Update state with actual API response (source of truth)
       setUsers(prev => prev.map(u => {
         if (u._id === targetId) {
           return {
             ...u,
             isFollowing: isFollowingValue,
+            followRequestSent: followRequestSentValue,
             // Update followersCount if provided (for the profile owner)
             ...(response.followersCount !== undefined && { followersCount: response.followersCount })
           };
@@ -181,9 +182,9 @@ export default function FollowersFollowingList() {
       // Check if it's a follow request already pending message or conflict error
       if (errorMessage.includes('Follow request already pending') || errorMessage.includes('Request already sent') || err.isConflict) {
         // Update state to show request sent
-        setUsers(prev => prev.map(u => 
-          u._id === targetId 
-            ? { ...u, isFollowing: false } // Not following yet, but request sent
+        setUsers(prev => prev.map(u =>
+          u._id === targetId
+            ? { ...u, isFollowing: false, followRequestSent: true }
             : u
         ));
         Alert.alert('Follow Request Pending', errorMessage);
@@ -195,22 +196,23 @@ export default function FollowersFollowingList() {
     }
   };
 
-  const renderItem = ({ item }: { item: UserType & { isFollowing?: boolean } }) => {
+  const renderItem = ({ item }: { item: UserType & { isFollowing?: boolean; followRequestSent?: boolean } }) => {
     const isFollowing = item.isFollowing ?? false;
+    const isRequested = !isFollowing && (item.followRequestSent ?? false);
     const isLoading = followLoading === item._id;
-    
+
     return (
       <View style={styles(theme).cardContainer}>
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles(theme).card}
           onPress={() => router.push(`/profile/${item._id}`)}
           activeOpacity={0.7}
         >
           {/* Avatar Container */}
           <View style={styles(theme).avatarContainer}>
-            <Image 
-              source={item.profilePic ? { uri: item.profilePic } : require('../assets/avatars/male_avatar.png')} 
-              style={styles(theme).avatar} 
+            <Image
+              source={item.profilePic ? { uri: item.profilePic } : require('../assets/avatars/male_avatar.png')}
+              style={styles(theme).avatar}
             />
             {isFollowing && (
               <View style={styles(theme).followingBadge}>
@@ -218,7 +220,7 @@ export default function FollowersFollowingList() {
               </View>
             )}
           </View>
-          
+
           {/* User Info */}
           <View style={styles(theme).userInfo}>
             <Text style={styles(theme).name} numberOfLines={1}>
@@ -227,8 +229,11 @@ export default function FollowersFollowingList() {
             {isFollowing && (
               <Text style={styles(theme).followingLabel}>Following</Text>
             )}
+            {isRequested && (
+              <Text style={styles(theme).followingLabel}>Request Sent</Text>
+            )}
           </View>
-          
+
           {/* Action Buttons */}
           <View style={styles(theme).actionButtons}>
             <TouchableOpacity
@@ -236,35 +241,35 @@ export default function FollowersFollowingList() {
               onPress={() => router.push(`/chat?userId=${item._id}`)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Ionicons 
-                name="chatbubble-ellipses-outline" 
-                size={22} 
-                color={theme.colors.primary} 
+              <Ionicons
+                name="chatbubble-ellipses-outline"
+                size={22}
+                color={theme.colors.primary}
               />
             </TouchableOpacity>
-            
+
             {item._id !== userId && (
               <TouchableOpacity
                 style={[
                   styles(theme).followButton,
-                  isFollowing && styles(theme).followButtonFollowing,
+                  (isFollowing || isRequested) && styles(theme).followButtonFollowing,
                   isLoading && styles(theme).followButtonLoading
                 ]}
                 onPress={() => handleToggleFollow(item._id)}
-                disabled={isLoading}
+                disabled={isLoading || isRequested}
                 activeOpacity={0.8}
               >
                 {isLoading ? (
-                  <ActivityIndicator 
-                    size="small" 
-                    color={isFollowing ? theme.colors.primary : '#FFFFFF'} 
+                  <ActivityIndicator
+                    size="small"
+                    color={(isFollowing || isRequested) ? theme.colors.primary : '#FFFFFF'}
                   />
                 ) : (
                   <Text style={[
                     styles(theme).followButtonText,
-                    isFollowing && styles(theme).followButtonTextFollowing
+                    (isFollowing || isRequested) && styles(theme).followButtonTextFollowing
                   ]}>
-                    {isFollowing ? 'Unfollow' : 'Follow'}
+                    {isFollowing ? 'Unfollow' : isRequested ? 'Requested' : 'Follow'}
                   </Text>
                 )}
               </TouchableOpacity>

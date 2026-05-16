@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -37,12 +37,10 @@ import {
   getCurrencySymbol,
   ConnectPageType,
   ContentBlock,
-  CanvasElement,
   PayoutPreview,
   ConnectFollowerUser,
   SubscriptionStatus,
 } from '../../../services/connect';
-import CanvasElementView from '../../../components/CanvasElementView';
 import { crashReportingService } from '../../../services/crashReporting';
 import { setPendingChatRoomId } from '../../../utils/connectChatBridge';
 import { optimizeCloudinaryUrl } from '../../../utils/imageCache';
@@ -61,7 +59,7 @@ import {
 // dev-client build links the module and this becomes true.
 const isCashfreeNativeAvailable = !!NativeModules.CashfreePgApi;
 
-const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
 const isWeb = Platform.OS === 'web';
 const isIOS = Platform.OS === 'ios';
@@ -75,26 +73,37 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' = '400') => {
 // Section padding: md on each side + section padding
 const sectionContentWidth = screenWidth - (isTablet ? themeConstants.spacing.lg * 2 + themeConstants.spacing.lg * 2 : themeConstants.spacing.md * 2 + themeConstants.spacing.md * 2);
 
-// Auto-sizing content image (matches preview.tsx)
-function ContentImage({ uri }: { uri: string }) {
-  const [imgHeight, setImgHeight] = useState(sectionContentWidth * 0.75);
+// Auto-sizing content image (matches preview.tsx). Uses aspectRatio so the
+// image scales correctly when its parent shrinks — e.g., inside a Half-width
+// flex cell. A fixed pixel height computed from full-section width would
+// leave the image with wrong proportions in narrow cells.
+// Aspect ratio overrides from editor: 'square' → 1, 'landscape' → 16/9, 'portrait' → 3/4
+const AR_MAP: Record<string, number> = { square: 1, landscape: 16 / 9, portrait: 3 / 4 };
+
+function ContentImage({ uri, inRow, inStack, arOverride }: { uri: string; inRow?: boolean; inStack?: boolean; arOverride?: string }) {
+  const [aspectRatio, setAspectRatio] = useState<number>(4 / 3);
 
   useEffect(() => {
-    if (!uri) return;
-    Image.getSize(
-      uri,
-      (w, h) => {
-        if (w > 0) setImgHeight((h / w) * sectionContentWidth);
-      },
-      () => {} // keep fallback
-    );
-  }, [uri]);
+    if (!uri || inStack || (arOverride && arOverride !== 'original')) return;
+    Image.getSize(uri, (w, h) => { if (w > 0 && h > 0) setAspectRatio(w / h); }, () => {});
+  }, [uri, inStack, arOverride]);
 
+  const resolvedAR = arOverride && AR_MAP[arOverride] ? AR_MAP[arOverride] : aspectRatio;
+
+  if (inStack) {
+    return (
+      <Image
+        source={{ uri }}
+        style={{ flex: 1, width: '100%', borderRadius: 8 }}
+        resizeMode="cover"
+      />
+    );
+  }
   return (
     <Image
       source={{ uri }}
-      style={[styles.contentImage, { height: imgHeight }]}
-      resizeMode="contain"
+      style={[styles.contentImage, { aspectRatio: resolvedAR }]}
+      resizeMode="cover"
     />
   );
 }
@@ -103,7 +112,17 @@ export default function ConnectPageDetailScreen() {
   const { theme } = useTheme();
   const { showSuccess } = useAlert();
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const {
+    id,
+    optimistic_subscribed,
+    optimistic_subscription_id,
+    optimistic_amount,
+  } = useLocalSearchParams<{
+    id: string;
+    optimistic_subscribed?: string;
+    optimistic_subscription_id?: string;
+    optimistic_amount?: string;
+  }>();
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState<ConnectPageType | null>(null);
   const [isOwner, setIsOwner] = useState(false);
@@ -114,8 +133,10 @@ export default function ConnectPageDetailScreen() {
   const [followersLoading, setFollowersLoading] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [subscribing, setSubscribing] = useState(false);
+  // Stores the pending subscription response so onVerify can optimistically
+  // flip the UI before the webhook arrives and DB status updates to 'active'.
+  const pendingSubscriptionRef = useRef<{ subscriptionId: string; amount: number } | null>(null);
   const [showPriceModal, setShowPriceModal] = useState(false);
-  const [showCanvasPreview, setShowCanvasPreview] = useState(false);
   const [priceInput, setPriceInput] = useState('');
   const [showPayoutInfo, setShowPayoutInfo] = useState(false);
   const [payoutPreview, setPayoutPreview] = useState<PayoutPreview | null>(null);
@@ -172,9 +193,23 @@ export default function ConnectPageDetailScreen() {
     CFPaymentGatewayService.setCallback({
       onVerify(orderID: string): void {
         logger.info('Cashfree subscription verified, orderID:', orderID);
-        // User is already on the Connect page they subscribed from, so no
-        // navigation is needed — just refresh details so the gated UI flips
-        // and surface a prominent in-app notification of the payment.
+        // Optimistic update: flip UI to "Subscribed" immediately.
+        // The webhook may not have reached the server yet, so getSubscriptionStatus
+        // can still return isSubscribed:false if called right now.
+        if (pendingSubscriptionRef.current) {
+          setSubscriptionStatus({
+            isSubscribed: true,
+            subscription: {
+              _id: pendingSubscriptionRef.current.subscriptionId,
+              status: 'active',
+              amount: pendingSubscriptionRef.current.amount,
+              activatedAt: new Date().toISOString(),
+              currentPeriodEnd: null,
+            },
+          });
+          pendingSubscriptionRef.current = null;
+        }
+        // Refresh from server in background to get accurate period dates etc.
         loadSubscriptionStatus();
         loadPageDetail();
         showSuccess(
@@ -199,6 +234,23 @@ export default function ConnectPageDetailScreen() {
     }
   }, [page, isOwner, loadSubscriptionStatus]);
 
+  // If navigated from preview after payment, apply optimistic subscribed state
+  // immediately so the UI flips without waiting for the webhook to update the DB.
+  useEffect(() => {
+    if (optimistic_subscribed === '1' && optimistic_subscription_id) {
+      setSubscriptionStatus({
+        isSubscribed: true,
+        subscription: {
+          _id: optimistic_subscription_id,
+          status: 'active',
+          amount: Number(optimistic_amount) || 0,
+          activatedAt: new Date().toISOString(),
+          currentPeriodEnd: null,
+        },
+      });
+    }
+  }, [optimistic_subscribed, optimistic_subscription_id, optimistic_amount]);
+
   const handleSubscribe = async () => {
     if (!page || subscribing) return;
     if (!isCashfreeNativeAvailable) {
@@ -212,6 +264,12 @@ export default function ConnectPageDetailScreen() {
       setSubscribing(true);
       const result = await createSubscription(page._id);
       if (result.paymentSessionId && result.cashfreeSubscriptionId) {
+        // Store pending data so onVerify can optimistically flip the UI
+        // before the webhook arrives and syncs DB status to 'active'.
+        pendingSubscriptionRef.current = {
+          subscriptionId: result.subscriptionId,
+          amount: result.amount,
+        };
         // Use Cashfree React Native SDK for subscription checkout
         const env = __DEV__ ? CFEnvironment.SANDBOX : CFEnvironment.PRODUCTION;
         const session = new CFSubscriptionSession(
@@ -359,35 +417,93 @@ export default function ConnectPageDetailScreen() {
     }
   };
 
-  const renderContentBlock = (block: ContentBlock, index: number) => {
+  type RowCell = { col: number; blocks: ContentBlock[] };
+
+  // Pack blocks into rows of cells. stacked=true blocks join the last cell of
+  // the last closed row (mosaic: tall-left + two-stacked-right layout).
+  const packBlocksIntoRows = (blocks: ContentBlock[]): RowCell[][] => {
+    const rows: RowCell[][] = [];
+    let current: RowCell[] = [];
+    let used = 0;
+    for (const block of blocks) {
+      if ((block as any).stacked && rows.length > 0) {
+        const lastRow = rows[rows.length - 1];
+        lastRow[lastRow.length - 1].blocks.push(block);
+        continue;
+      }
+      const w = Math.max(1, Math.min(12, Number((block as any).col) || 12));
+      if (used + w > 12 && current.length > 0) {
+        rows.push(current);
+        current = [];
+        used = 0;
+      }
+      current.push({ col: w, blocks: [block] });
+      used += w;
+      if (used >= 12) {
+        rows.push(current);
+        current = [];
+        used = 0;
+      }
+    }
+    if (current.length > 0) rows.push(current);
+    return rows;
+  };
+
+  const renderContentBlock = (block: ContentBlock, index: number, pageTextColor?: string, inRow = false, inStack = false) => {
+    // Per-block override > page-level override > theme default.
+    const effectiveTextColor = block.color || pageTextColor || theme.colors.text;
+    const effectiveBg = block.backgroundColor || '';
+    const textAlign: 'left' | 'center' | 'right' =
+      (block.align as any) || (block.type === 'heading' ? 'center' : 'left');
+    const headingFontSize = block.fontSize === 'small' ? 16 : block.fontSize === 'large' ? 26 : 20;
+    const textFontSize = block.fontSize === 'small' ? 12 : block.fontSize === 'large' ? 18 : 15;
+    // Padding & border-radius tiers
+    const paddingMap: Record<string, number> = { none: 0, small: 6, medium: 12, large: 20 };
+    const radiusMap: Record<string, number> = { none: 0, small: 6, medium: 12, large: 20 };
+    const blockPadding = block.padding ? paddingMap[block.padding] ?? 0 : undefined;
+    const blockRadius = block.borderRadius ? radiusMap[block.borderRadius] ?? 0 : undefined;
+    const hasWrapStyles = effectiveBg || blockPadding !== undefined || blockRadius !== undefined;
+    const wrap = (node: React.ReactNode) =>
+      hasWrapStyles ? (
+        <View
+          key={block._id || index}
+          style={{
+            backgroundColor: effectiveBg || undefined,
+            borderRadius: blockRadius ?? 12,
+            padding: blockPadding ?? (effectiveBg ? 10 : 0),
+            overflow: 'hidden',
+          }}
+        >
+          {node}
+        </View>
+      ) : (
+        <React.Fragment key={block._id || index}>{node}</React.Fragment>
+      );
+
     switch (block.type) {
       case 'heading':
-        return (
-          <Text
-            key={block._id || index}
-            style={[styles.contentHeading, { color: theme.colors.text }]}
-          >
+        return wrap(
+          <Text style={[styles.contentHeading, { color: effectiveTextColor, textAlign, fontSize: headingFontSize }, block.bold ? { fontWeight: '800' } : undefined]}>
             {block.content}
           </Text>
         );
       case 'text':
-        return (
-          <Text
-            key={block._id || index}
-            style={[styles.contentText, { color: theme.colors.text }]}
-          >
+        return wrap(
+          <Text style={[styles.contentText, { color: effectiveTextColor, textAlign, fontSize: textFontSize }, block.bold ? { fontWeight: '700', fontFamily: getFontFamily('700') } : undefined]}>
             {block.content}
           </Text>
         );
       case 'image':
         return block.content ? (
-          <ContentImage key={block._id || index} uri={block.content} />
+          <View key={block._id || index} style={blockRadius !== undefined ? { borderRadius: blockRadius, overflow: 'hidden' } : undefined}>
+            <ContentImage uri={block.content} inRow={inRow} inStack={inStack} arOverride={block.aspectRatio} />
+          </View>
         ) : null;
       case 'video':
         return (
           <TouchableOpacity
             key={block._id || index}
-            style={[styles.videoPlaceholder, { backgroundColor: theme.colors.border }]}
+            style={[styles.videoPlaceholder, { backgroundColor: effectiveBg || theme.colors.border }]}
             activeOpacity={0.7}
           >
             <Ionicons name="play-circle" size={48} color={theme.colors.textSecondary} />
@@ -396,19 +512,29 @@ export default function ConnectPageDetailScreen() {
             </Text>
           </TouchableOpacity>
         );
-      case 'button':
+      case 'button': {
+        // Defensive scheme prefix: backend normalizes button URLs on save,
+        // but rows saved before that fix may still have bare domains like
+        // "taatom.com" — without https:// Linking.openURL silently fails.
+        const rawUrl = block.url?.trim();
+        const buttonUrl = rawUrl && /^[a-z][a-z0-9+.-]*:/i.test(rawUrl)
+          ? rawUrl
+          : (rawUrl ? `https://${rawUrl}` : '');
         return (
           <TouchableOpacity
             key={block._id || index}
-            style={[styles.contentButton, { backgroundColor: theme.colors.primary }]}
+            style={[styles.contentButton, { backgroundColor: effectiveBg || theme.colors.primary }]}
             onPress={() => {
-              if (block.url) Linking.openURL(block.url).catch(() => {});
+              if (buttonUrl) Linking.openURL(buttonUrl).catch(() => {});
             }}
             activeOpacity={0.7}
           >
-            <Text style={styles.contentButtonText}>{block.content || 'Button'}</Text>
+            <Text style={[styles.contentButtonText, block.color ? { color: block.color } : undefined]}>
+              {block.content || 'Button'}
+            </Text>
           </TouchableOpacity>
         );
+      }
       case 'divider':
         return (
           <View
@@ -420,7 +546,7 @@ export default function ConnectPageDetailScreen() {
         return (
           <TouchableOpacity
             key={block._id || index}
-            style={[styles.embedPlaceholder, { backgroundColor: theme.colors.border }]}
+            style={[styles.embedPlaceholder, { backgroundColor: effectiveBg || theme.colors.border }]}
             onPress={() => {
               if (block.content) Linking.openURL(block.content).catch(() => {});
             }}
@@ -655,93 +781,98 @@ export default function ConnectPageDetailScreen() {
           )}
         </View>
 
-        {/* Website Section — canvas-based free-form layout */}
+        {/* Website Section — stacked content blocks (builder) */}
         {page.features?.website && (
-          <View style={[styles.section, { backgroundColor: theme.colors.surface, marginTop: isTablet ? 14 : 12 }]}>
+          <View style={[styles.section, { backgroundColor: page.websiteBackground || theme.colors.surface, marginTop: isTablet ? 14 : 12 }]}>
             <View style={styles.sectionHeader}>
               <View style={styles.sectionTitleRow}>
                 <View style={[styles.sectionIconWrap, { backgroundColor: theme.colors.primary + '12' }]}>
                   <Ionicons name="globe-outline" size={18} color={theme.colors.primary} />
                 </View>
-                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Website</Text>
+                <Text style={[styles.sectionTitle, { color: page.websiteTextColor || theme.colors.text }]}>Website</Text>
               </View>
             </View>
             <View style={styles.sectionContent}>
-              {page.canvasContent && page.canvasContent.length > 0 ? (
-                (() => {
-                  const previewW = Math.min(screenWidth - (isTablet ? 96 : 64), 240);
-                  const previewH = (previewW * 16) / 9;
-                  return (
-                    <View style={{ alignSelf: 'center' }}>
-                      <View
-                        style={{
-                          width: previewW,
-                          height: previewH,
-                          backgroundColor: page.canvasBackground || '#000000',
-                          borderRadius: 10,
-                          overflow: 'hidden',
-                        }}
-                      >
-                        {(page.canvasContent as CanvasElement[])
-                          .slice()
-                          .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
-                          .map((el, idx) => (
-                            <CanvasElementView
-                              key={el._id || `c_${idx}`}
-                              element={el}
-                              isSelected={false}
-                              editable={false}
-                              frameWidth={previewW}
-                              frameHeight={previewH}
-                            />
-                          ))}
+              {page.websiteContent && page.websiteContent.length > 0 ? (
+                packBlocksIntoRows(
+                  page.websiteContent
+                    .slice()
+                    .sort((a, b) => a.order - b.order)
+                    .slice(0, isOwner ? undefined : 2)
+                ).map((row, ri) => (
+                  (() => {
+                    const isSingle = row.length === 1 && row[0].blocks.length === 1;
+                    return isSingle ? (
+                      <React.Fragment key={`wrow-${ri}`}>{renderContentBlock(row[0].blocks[0], ri, page.websiteTextColor, false, false)}</React.Fragment>
+                    ) : (
+                      <View key={`wrow-${ri}`} style={{ flexDirection: 'row', gap: 3, marginVertical: 1, alignItems: 'flex-start' }}>
+                        {row.map((cell, ci) => {
+                          const isStackedCell = cell.blocks.length > 1;
+                          const va = cell.blocks[0]?.verticalAlign;
+                          const alignSelf = va === 'center' ? 'center' as const : va === 'bottom' ? 'flex-end' as const : undefined;
+                          return (
+                            <View key={`wc-${ri}-${ci}`} style={isStackedCell ? { flex: cell.col, flexDirection: 'column', gap: 6 } : { flex: cell.col, alignSelf }}>
+                              {cell.blocks.map((block, bi) =>
+                                isStackedCell ? (
+                                  <View key={block._id || `ws-${ri}-${ci}-${bi}`} style={{ flex: 1 }}>
+                                    {renderContentBlock(block, bi, page.websiteTextColor, true, true)}
+                                  </View>
+                                ) : (
+                                  <React.Fragment key={block._id || `ws-${ri}-${ci}-${bi}`}>
+                                    {renderContentBlock(block, bi, page.websiteTextColor, row.length > 1, false)}
+                                  </React.Fragment>
+                                )
+                              )}
+                            </View>
+                          );
+                        })}
                       </View>
-                    </View>
-                  );
-                })()
+                    );
+                  })()
+                ))
               ) : (
                 <Text style={[styles.placeholderText, { color: theme.colors.textSecondary }]}>
-                  {isOwner ? 'Build your website on a free-form canvas with text, images, and videos.' : 'No content yet.'}
+                  {isOwner ? 'Add content to your website.' : 'No content yet.'}
                 </Text>
+              )}
+              {!isOwner && page.websiteContent && page.websiteContent.length > 0 && (
+                <TouchableOpacity
+                  onPress={() => router.push(`/connect/preview?pageId=${id}&section=website&pageName=${encodeURIComponent(page.name)}`)}
+                  activeOpacity={0.7}
+                  style={[styles.viewButton, { borderColor: theme.colors.primary }]}
+                >
+                  <Ionicons name="eye-outline" size={16} color={theme.colors.primary} />
+                  <Text style={[styles.viewButtonText, { color: theme.colors.primary }]}>
+                    View Website
+                  </Text>
+                </TouchableOpacity>
               )}
             </View>
             {isOwner && (
               <View style={styles.sectionBottomActions}>
-                {page.canvasContent && page.canvasContent.length > 0 && (
-                  <TouchableOpacity
-                    onPress={() => setShowCanvasPreview(true)}
-                    activeOpacity={0.7}
-                    style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
-                  >
-                    <Ionicons name="eye-outline" size={16} color="#FFFFFF" />
-                    <Text style={styles.sectionBottomButtonText}>Preview</Text>
-                  </TouchableOpacity>
-                )}
                 <TouchableOpacity
-                  onPress={() => router.push(`/connect/canvas?pageId=${id}`)}
-                  activeOpacity={0.7}
-                  style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
-                >
-                  <Ionicons
-                    name={page.canvasContent && page.canvasContent.length > 0 ? 'create-outline' : 'add-outline'}
-                    size={16}
-                    color="#FFFFFF"
-                  />
-                  <Text style={styles.sectionBottomButtonText}>
-                    {page.canvasContent && page.canvasContent.length > 0 ? 'Edit Website' : 'Build Website'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-            {!isOwner && page.canvasContent && page.canvasContent.length > 0 && (
-              <View style={styles.sectionBottomActions}>
-                <TouchableOpacity
-                  onPress={() => setShowCanvasPreview(true)}
-                  activeOpacity={0.7}
-                  style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
+                  onPress={() => {
+                    if (page.websiteContent && page.websiteContent.length > 0) {
+                      router.push(`/connect/preview?pageId=${id}&section=website&pageName=${encodeURIComponent(page.name)}`);
+                    }
+                  }}
+                  activeOpacity={page.websiteContent && page.websiteContent.length > 0 ? 0.7 : 1}
+                  style={[
+                    styles.sectionBottomButton,
+                    { backgroundColor: theme.colors.primary },
+                    !(page.websiteContent && page.websiteContent.length > 0) && { opacity: 0.4 },
+                  ]}
                 >
                   <Ionicons name="eye-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.sectionBottomButtonText}>View full</Text>
+                  <Text style={styles.sectionBottomButtonText}>Preview</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => router.push(`/connect/editContent?pageId=${id}&section=website`)}
+                  activeOpacity={0.7}
+                  style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
+                >
+                  <Ionicons name="create-outline" size={16} color="#FFFFFF" />
+                  <Text style={styles.sectionBottomButtonText}>Edit</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -808,9 +939,39 @@ export default function ConnectPageDetailScreen() {
               {isOwner || subscriptionStatus?.isSubscribed ? (
                 page.subscriptionContent && page.subscriptionContent.length > 0 ? (
                   <>
-                    {page.subscriptionContent
-                      .sort((a, b) => a.order - b.order)
-                      .map((block, idx) => renderContentBlock(block, idx))}
+                    {packBlocksIntoRows(
+                      page.subscriptionContent.slice().sort((a, b) => a.order - b.order)
+                    ).map((row, ri) => (
+                      (() => {
+                        const isSingle = row.length === 1 && row[0].blocks.length === 1;
+                        return isSingle ? (
+                          <React.Fragment key={`srow-${ri}`}>{renderContentBlock(row[0].blocks[0], ri, page.subscriptionTextColor, false, false)}</React.Fragment>
+                        ) : (
+                          <View key={`srow-${ri}`} style={{ flexDirection: 'row', gap: 3, marginVertical: 1, alignItems: 'flex-start' }}>
+                            {row.map((cell, ci) => {
+                              const isStackedCell = cell.blocks.length > 1;
+                              const va = cell.blocks[0]?.verticalAlign;
+                              const alignSelf = va === 'center' ? 'center' as const : va === 'bottom' ? 'flex-end' as const : undefined;
+                              return (
+                                <View key={`sc-${ri}-${ci}`} style={isStackedCell ? { flex: cell.col, flexDirection: 'column', gap: 6 } : { flex: cell.col, alignSelf }}>
+                                  {cell.blocks.map((block, bi) =>
+                                    isStackedCell ? (
+                                      <View key={block._id || `ss-${ri}-${ci}-${bi}`} style={{ flex: 1 }}>
+                                        {renderContentBlock(block, bi, page.subscriptionTextColor, true, true)}
+                                      </View>
+                                    ) : (
+                                      <React.Fragment key={block._id || `ss-${ri}-${ci}-${bi}`}>
+                                        {renderContentBlock(block, bi, page.subscriptionTextColor, row.length > 1, false)}
+                                      </React.Fragment>
+                                    )
+                                  )}
+                                </View>
+                              );
+                            })}
+                          </View>
+                        );
+                      })()
+                    ))}
                     {!isOwner && (
                       <TouchableOpacity
                         onPress={() => router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`)}
@@ -1062,56 +1223,6 @@ export default function ConnectPageDetailScreen() {
         {/* Bottom Spacer */}
         <View style={{ height: 40 }} />
       </ScrollView>
-
-      {/* Full-screen canvas preview */}
-      {page.canvasContent && page.canvasContent.length > 0 && (() => {
-        const targetRatio = 9 / 16;
-        const screenRatio = screenWidth / screenHeight;
-        const previewW = screenRatio > targetRatio ? screenHeight * targetRatio : screenWidth;
-        const previewH = screenRatio > targetRatio ? screenHeight : screenWidth / targetRatio;
-        return (
-          <Modal
-            visible={showCanvasPreview}
-            animationType="fade"
-            presentationStyle="fullScreen"
-            onRequestClose={() => setShowCanvasPreview(false)}
-            statusBarTranslucent
-          >
-            <View style={canvasPreviewStyles.root}>
-              <View
-                style={{
-                  width: previewW,
-                  height: previewH,
-                  backgroundColor: page.canvasBackground || '#000000',
-                  overflow: 'hidden',
-                }}
-              >
-                {(page.canvasContent as CanvasElement[])
-                  .slice()
-                  .sort((a, b) => (a.zIndex || 0) - (b.zIndex || 0))
-                  .map((el, idx) => (
-                    <CanvasElementView
-                      key={el._id || `cp_${idx}`}
-                      element={el}
-                      isSelected={false}
-                      editable={false}
-                      frameWidth={previewW}
-                      frameHeight={previewH}
-                    />
-                  ))}
-              </View>
-              <TouchableOpacity
-                style={canvasPreviewStyles.close}
-                onPress={() => setShowCanvasPreview(false)}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="close" size={26} color="#FFFFFF" />
-              </TouchableOpacity>
-            </View>
-          </Modal>
-        );
-      })()}
 
       {/* Bio Edit Modal */}
       <Modal
@@ -1709,10 +1820,10 @@ const styles = StyleSheet.create({
   contentHeading: {
     fontSize: 20,
     lineHeight: 26,
-    fontFamily: getFontFamily('600'),
-    fontWeight: '600',
+    fontFamily: getFontFamily('700'),
+    fontWeight: '700',
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: 2,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
@@ -1729,7 +1840,7 @@ const styles = StyleSheet.create({
   contentImage: {
     width: '100%',
     borderRadius: themeConstants.borderRadius.sm,
-    marginBottom: isTablet ? 4 : 2,
+    marginBottom: 1,
   },
   videoPlaceholder: {
     width: '100%',
@@ -2238,26 +2349,6 @@ const styles = StyleSheet.create({
     fontSize: isTablet ? 16 : 15,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
-  },
-});
-
-const canvasPreviewStyles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: '#000000',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  close: {
-    position: 'absolute',
-    top: Platform.OS === 'ios' ? 50 : 20,
-    right: 18,
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });
 

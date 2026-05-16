@@ -152,12 +152,15 @@ const getLocales = async (req, res) => {
     }
     
     // Build state filter conditions (handle optional state fields)
+    // Use exact match for stateCode and anchored regex for stateProvince
+    // so short codes like "CA" don't substring-match "Yucatan", "Nicaragua", etc.
     const stateConditions = [];
     if (stateCode && stateCode.trim() !== '' && stateCode !== 'all') {
+      const escaped = stateCode.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       stateConditions.push(
         { stateCode: stateCode.trim() },
-        { stateCode: { $regex: stateCode.trim(), $options: 'i' } },
-        { stateProvince: { $regex: stateCode.trim(), $options: 'i' } }
+        { stateCode: { $regex: `^${escaped}$`, $options: 'i' } },
+        { stateProvince: { $regex: `^${escaped}$`, $options: 'i' } }
       );
     }
     
@@ -189,12 +192,11 @@ const getLocales = async (req, res) => {
     }
     
     // Backend Defensive Guards: Add spotType filter if provided (supports multiple)
+    // Use case-insensitive regex so "Historical spots" matches "historical spots" etc.
     if (spotTypesArray.length > 0) {
-      // Filter locales that have ANY of the selected spot types
-      query.spotTypes = { $in: spotTypesArray };
+      query.spotTypes = { $in: spotTypesArray.map(s => new RegExp(`^${s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')) };
     } else if (spotType && spotType !== 'all') {
-      // Backward compatibility: single spotType
-      query.spotTypes = { $in: [spotType] };
+      query.spotTypes = { $in: [new RegExp(`^${spotType.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i')] };
     }
 
     // OPTIMIZATION: Use lean() and select only required fields to reduce payload size

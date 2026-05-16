@@ -41,7 +41,7 @@ export default function CompleteScreen() {
   const router = useRouter();
   const { theme } = useTheme();
   const { showAlert } = useAlert();
-  const { journey, polyline } = useJourney();
+  const { journey, polyline, distance, duration } = useJourney();
   const params = useLocalSearchParams();
 
   const [mapReady, setMapReady] = useState(false);
@@ -54,19 +54,34 @@ export default function CompleteScreen() {
     }
   }, [journey, router]);
 
+  // The backend returns Mongoose fields (distanceTraveled, startedAt, completedAt)
+  // while the frontend type uses (distance, startTime, completedTime). Support both.
+  const totalDistance = journey?.distanceTraveled ?? journey?.distance ?? distance ?? 0;
+  const startedAt = journey?.startedAt || journey?.startTime || journey?.createdAt || '';
+  const completedAt = journey?.completedAt || journey?.completedTime || '';
+
   const formatDistance = () => {
-    if (!journey) return '0 km';
-    if (journey.distance < 1000) {
-      return `${Math.round(journey.distance)} m`;
+    if (!totalDistance) return '0 m';
+    if (totalDistance < 1000) {
+      return `${Math.round(totalDistance)} m`;
     }
-    return `${(journey.distance / 1000).toFixed(1)} km`;
+    return `${(totalDistance / 1000).toFixed(1)} km`;
   };
 
   const formatDuration = () => {
-    if (!journey) return '0m';
-    const hours = Math.floor(journey.duration / 3600);
-    const minutes = Math.floor((journey.duration % 3600) / 60);
-    const seconds = journey.duration % 60;
+    // Compute from timestamps if context duration is 0 (journey already completed)
+    let secs = duration;
+    if ((!secs || secs <= 0) && startedAt && completedAt) {
+      const start = new Date(startedAt).getTime();
+      const end = new Date(completedAt).getTime();
+      if (!isNaN(start) && !isNaN(end)) {
+        secs = Math.floor((end - start) / 1000);
+      }
+    }
+    if (!secs || secs <= 0) return '0s';
+    const hours = Math.floor(secs / 3600);
+    const minutes = Math.floor((secs % 3600) / 60);
+    const seconds = secs % 60;
 
     if (hours > 0) {
       return `${hours}h ${minutes}m`;
@@ -234,14 +249,18 @@ var path=${polyCoords};if(path.length>1){new google.maps.Polyline({path:path,geo
           <View style={styles.detailRow}>
             <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Started</Text>
             <Text style={[styles.detailValue, { color: theme.colors.text }]}>
-              {new Date(journey.startTime).toLocaleDateString()} {new Date(journey.startTime).toLocaleTimeString()}
+              {startedAt && !isNaN(new Date(startedAt).getTime())
+                ? `${new Date(startedAt).toLocaleDateString()} ${new Date(startedAt).toLocaleTimeString()}`
+                : '—'}
             </Text>
           </View>
           <View style={[styles.detailDivider, { backgroundColor: theme.colors.border }]} />
           <View style={styles.detailRow}>
             <Text style={[styles.detailLabel, { color: theme.colors.textSecondary }]}>Completed</Text>
             <Text style={[styles.detailValue, { color: theme.colors.text }]}>
-              {journey.completedTime ? new Date(journey.completedTime).toLocaleDateString() : '—'}
+              {completedAt && !isNaN(new Date(completedAt).getTime())
+                ? new Date(completedAt).toLocaleDateString()
+                : '—'}
             </Text>
           </View>
         </View>

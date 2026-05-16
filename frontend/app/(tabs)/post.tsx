@@ -124,6 +124,9 @@ export default function PostScreen() {
   const [showAudioChoiceModal, setShowAudioChoiceModal] = useState(false);
   // Ref to track if a song was just selected to prevent race condition with onClose
   const songJustSelectedRef = useRef(false);
+  // Track screen focus so draft Alert only fires when this tab is visible
+  const isFocusedRef = useRef(false);
+  const draftCheckedRef = useRef(false);
   const [spotType, setSpotType] = useState<string>('');
   const [travelInfo, setTravelInfo] = useState<string>('');
   const [showImageEditModal, setShowImageEditModal] = useState(false);
@@ -394,9 +397,9 @@ export default function PostScreen() {
       
       // Check for existing content
       await checkExistingContent();
-      
-      // Load draft if available
-      await loadDraft();
+
+      // Draft loading is now handled by useFocusEffect so the Alert
+      // only appears while the Post tab is actually visible.
     };
     loadUser();
   }, []);
@@ -462,7 +465,11 @@ export default function PostScreen() {
         await AsyncStorage.removeItem(DRAFT_KEY);
         return;
       }
-      
+
+      // Only show the draft alert while the Post tab is focused so the
+      // popup doesn't appear over other screens.
+      if (!isFocusedRef.current) return;
+
       // Show restore option
       Alert.alert(
         'Draft Found',
@@ -639,8 +646,17 @@ export default function PostScreen() {
   // Navigation lifecycle safety: cancel upload on screen blur
   useFocusEffect(
     useCallback(() => {
-      // On screen blur, cancel upload if active
+      isFocusedRef.current = true;
+
+      // Load draft only once per mount, and only while this tab is visible
+      if (!draftCheckedRef.current) {
+        draftCheckedRef.current = true;
+        loadDraft();
+      }
+
+      // On screen blur, cancel upload if active and clear focus flag
       return () => {
+        isFocusedRef.current = false;
         if (uploadSessionRef.current.isActive) {
           logger.debug('Screen blurred during upload, cancelling');
           cancelUpload();
@@ -851,7 +867,12 @@ export default function PostScreen() {
           // us HEVC (default since iOS 11) which crashes on many older Android
           // decoders and some lower-end iOS chipsets — that was the dominant
           // "crashes when I play a short" signature.
-          videoExportPreset: ImagePicker.VideoExportPreset.MediumQuality,
+          // H264_1280x720 explicitly targets H.264 at 720p (matching the server's
+          // transcode target), so the backend probe sees H.264/AAC ≤1080p and
+          // passes through without re-encoding. MediumQuality was causing
+          // double-compression: Apple compressed aggressively (sometimes <1MB for
+          // a 106MB source), then the server transcoded again on the result.
+          videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720,
           videoMaxDuration: 60, // Shorts cap — also keeps decoder pressure bounded
           videoQuality: 1, // iOS UIImagePickerControllerQualityType.Medium (~960x540)
         });
@@ -1201,7 +1222,9 @@ export default function PostScreen() {
           // fine on the original device but crashes expo-av on many Android
           // devices and lower-end iPads, which is the root cause of the
           // "shorts page crashes on play" reports.
-          videoExportPreset: ImagePicker.VideoExportPreset.MediumQuality,
+          // H264_1280x720 explicitly targets 720p H.264; backend passthrough
+          // applies (no double transcode), preserving quality.
+          videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720,
           videoMaxDuration: 60, // Shorts cap — also keeps decoder pressure bounded
           videoQuality: 1, // iOS UIImagePickerControllerQualityType.Medium (~960x540)
         });
