@@ -100,19 +100,40 @@ function setupSocket(server) {
       // 1:1 chat: emit to the specific user (existing behavior)
       if (to) emitToUser(to, 'seen', { from: socket.userId, messageId });
     });
-    // Join/Leave room handlers
+    // Join/Leave room handlers — validate room names to prevent unauthorized access
     socket.on('join', (room) => {
-      if (room) {
+      if (!room || typeof room !== 'string') return;
+
+      // Allow user to join their own room only
+      if (room.startsWith('user:')) {
+        if (room !== `user:${socket.userId}`) {
+          logger.warn(`Socket ${socket.userId} tried to join unauthorized room: ${room}`);
+          return;
+        }
         socket.join(room);
         logger.debug(`Socket ${socket.userId} joined room: ${room}`);
+        return;
       }
+
+      // Allow admin_support only for SuperAdmin tokens (they have a role field)
+      if (room === 'admin_support') {
+        if (!socket.user?.role) {
+          logger.warn(`Socket ${socket.userId} tried to join admin_support without admin role`);
+          return;
+        }
+        socket.join(room);
+        logger.debug(`Socket ${socket.userId} joined room: ${room}`);
+        return;
+      }
+
+      // Reject all other arbitrary room names
+      logger.warn(`Socket ${socket.userId} tried to join unrecognized room: ${room}`);
     });
 
     socket.on('leave', (room) => {
-      if (room) {
-        socket.leave(room);
-        logger.debug(`Socket ${socket.userId} left room: ${room}`);
-      }
+      if (!room || typeof room !== 'string') return;
+      socket.leave(room);
+      logger.debug(`Socket ${socket.userId} left room: ${room}`);
     });
 
     // Send message event (for real-time)

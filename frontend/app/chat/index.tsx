@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Image, Alert, Dimensions, Keyboard, Linking } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import * as Notifications from 'expo-notifications';
 import { useTheme } from '../../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -511,6 +512,20 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
     // Return the actual other user's name
     return otherUser?.fullName || 'Unknown User';
   };
+
+  // Resolve profile pic: prefer otherUser.profilePic, fall back to matching participant
+  const resolvedProfilePic = useMemo(() => {
+    if (otherUser?.profilePic) return otherUser.profilePic;
+    if (participants && Array.isArray(participants)) {
+      const match = participants.find((p: any) => {
+        const pId = normalizeId(p?._id || p);
+        const otherId = normalizeId(otherUser?._id);
+        return pId && otherId && pId === otherId;
+      });
+      if (match?.profilePic) return match.profilePic;
+    }
+    return null;
+  }, [otherUser?.profilePic, otherUser?._id, participants]);
 
   // Always set Taatom Official as online
   useEffect(() => {
@@ -1668,14 +1683,26 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
           >
             <View style={styles.headerAvatarWrap}>
               {chatType === 'connect_page' && connectPageId?.profileImage ? (
-                <Image
+                <ExpoImage
                   source={{ uri: connectPageId.profileImage }}
                   style={styles.headerAvatar}
+                  cachePolicy="memory-disk"
+                  placeholder={require('../../assets/avatars/male_avatar.png')}
+                  onError={(e: any) => logger.warn('[chat header avatar] load failed', {
+                    url: connectPageId.profileImage?.substring(0, 120),
+                    error: e?.error || e?.nativeEvent?.error || String(e),
+                  })}
                 />
-              ) : otherUser.profilePic ? (
-                <Image
-                  source={{ uri: otherUser.profilePic }}
+              ) : resolvedProfilePic ? (
+                <ExpoImage
+                  source={{ uri: resolvedProfilePic }}
                   style={styles.headerAvatar}
+                  cachePolicy="memory-disk"
+                  placeholder={require('../../assets/avatars/male_avatar.png')}
+                  onError={(e: any) => logger.warn('[chat header avatar] load failed', {
+                    url: resolvedProfilePic?.substring(0, 120),
+                    error: e?.error || e?.nativeEvent?.error || String(e),
+                  })}
                 />
               ) : chatType === 'connect_page' ? (
                 <View style={[styles.headerAvatarPlaceholder, { backgroundColor: theme.colors.primary + '15' }]}>
@@ -1890,9 +1917,11 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                         onPress={() => senderId && router.push(`/profile/${senderId}`)}
                         style={{ marginRight: 8, marginBottom: 2 }}
                       >
-                        <Image
+                        <ExpoImage
                           source={resolvedSenderPic ? { uri: resolvedSenderPic } : require('../../assets/avatars/male_avatar.png')}
                           style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: theme.colors.border }}
+                          cachePolicy="memory-disk"
+                          placeholder={require('../../assets/avatars/male_avatar.png')}
                         />
                       </TouchableOpacity>
                     ) : (
@@ -2658,6 +2687,17 @@ export default function ChatModal() {
       // CRITICAL: Keep original seen status - don't mark as seen when opening chat
       const updatedMessages = (messagesRes.value as any).data.messages || [];
       
+      // Enrich user with fresh profilePic from chat participants (signed URLs)
+      if (!user.profilePic && chat.participants && Array.isArray(chat.participants)) {
+        const matchedParticipant = chat.participants.find((p: any) => {
+          const pId = normalizeId(p?._id);
+          return pId && pId === normalizeId(user._id);
+        });
+        if (matchedParticipant?.profilePic) {
+          user.profilePic = matchedParticipant.profilePic;
+        }
+      }
+
       setActiveChat(chat);
       setActiveMessages(updatedMessages);
       setSelectedUser(user);
@@ -2700,31 +2740,25 @@ export default function ChatModal() {
     }
   };
 
-  // Prevent back navigation when ChatWindow is open AND we're on the chat
-  // list (internal entry — user tapped a row). For that path "back" should
-  // just close the open chat and remain on the list.
-  //
-  // For EXTERNAL entries (Connect page → group chat, deep-link, profile
-  // → message), the back gesture must actually pop the navigation stack so
-  // the user lands on the screen they came from. Intercepting beforeRemove
-  // there left them stranded on an empty /chat showing the chat list — the
-  // exact bug the user reported.
+  // Back gesture from a chat detail always returns to the chat list first,
+  // regardless of how the user entered (list tap, notification, deep link,
+  // profile → message, Connect page). A second back gesture then leaves /chat
+  // entirely. This matches iMessage / WhatsApp UX — the previous external-entry
+  // exemption sent notification/deep-link users to home, skipping the list.
   const navigation = useNavigation<any>();
   useFocusEffect(
     useCallback(() => {
       if (!activeChat) return; // Only intercept if chat is open
 
       const unsubscribe = navigation?.addListener('beforeRemove', (e: any) => {
-        if (externalEntryRef.current || params.userId || params.chatId) {
-          // External entry — let the back-pop happen so we return to
-          // wherever the user came from.
-          return;
-        }
-        // Internal entry (chat-list tap) — close the chat in place.
         e.preventDefault();
         setSelectedUser(null);
         setActiveChat(null);
         setActiveMessages([]);
+        // Also clear the external-entry flag so once the user is back on the
+        // chat list, a further swipe-back pops /chat to wherever they came from.
+        externalEntryRef.current = false;
+        chatIdModeRef.current = false;
         // Detach immediately so a rapid second iOS swipe-back actually pops
         // the chat list. Without this, the old listener stays attached until
         // the next render's cleanup runs — long enough for users on iOS to
@@ -2734,7 +2768,7 @@ export default function ChatModal() {
       });
 
       return unsubscribe;
-    }, [activeChat, navigation, params.userId, params.chatId])
+    }, [activeChat, navigation])
   );
 
   // If userId param is present, fetch that user directly
@@ -3133,23 +3167,16 @@ export default function ChatModal() {
     return <ChatWindow
       otherUser={selectedUser}
       onClose={() => {
-        // Pop the navigation stack only when the chat screen was *entered*
-        // with a chat target (Connect page, deep-link, profile message
-        // button, etc.). When the user was already on /chat and tapped a
-        // row in the chat list, just clear the open chat and remain on
-        // the list — that's the inbox-style UX users expect.
-        const shouldGoBack = !!(params.userId || params.chatId || externalEntryRef.current);
+        // Back from a chat always returns to the chat list, regardless of how
+        // the user entered (list tap, deep-link, notification, profile message
+        // button, Connect page). Matches the swipe-back behavior. A second
+        // back action from the list then pops /chat to the caller.
         chatIdModeRef.current = false;
         externalEntryRef.current = false;
         setSelectedUser(null);
         setActiveChat(null);
         setActiveMessages([]);
-        if (shouldGoBack) {
-          router.back();
-        } else {
-          // Refresh chat list when closing a chat to reflect latest messages and sorting
-          refreshChatList();
-        }
+        refreshChatList();
       }}
       messages={activeMessages} 
       onSendMessage={handleNewMessage} 
@@ -4055,9 +4082,9 @@ export default function ChatModal() {
               >
                 <View style={styles.avatarContainer}>
                   {(item as any).type === 'connect_page' && (item as any).connectPageId?.profileImage ? (
-                    <Image source={{ uri: (item as any).connectPageId.profileImage }} style={styles.avatar} />
+                    <ExpoImage source={{ uri: (item as any).connectPageId.profileImage }} style={styles.avatar} cachePolicy="memory-disk" placeholder={require('../../assets/avatars/male_avatar.png')} />
                   ) : other && other.profilePic ? (
-                    <Image source={{ uri: other.profilePic }} style={styles.avatar} />
+                    <ExpoImage source={{ uri: other.profilePic }} style={styles.avatar} cachePolicy="memory-disk" placeholder={require('../../assets/avatars/male_avatar.png')} />
                   ) : (item as any).type === 'connect_page' ? (
                     <View style={[styles.avatarPlaceholder, { backgroundColor: theme.colors.primary + '15' }]}>
                       <Ionicons name="people" size={22} color={theme.colors.primary} />
@@ -4229,7 +4256,7 @@ export default function ChatModal() {
                     activeOpacity={0.7}
                   >
                     {item.profilePic ? (
-                      <Image source={{ uri: item.profilePic }} style={styles.userAvatar} />
+                      <ExpoImage source={{ uri: item.profilePic }} style={styles.userAvatar} cachePolicy="memory-disk" placeholder={require('../../assets/avatars/male_avatar.png')} />
                     ) : (
                       <Ionicons name="person-circle" size={48} color={theme.colors.textSecondary} style={{ marginRight: 16 }} />
                     )}
