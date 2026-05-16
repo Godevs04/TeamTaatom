@@ -30,7 +30,7 @@ const logger = {
   warn: (...args: any[]) => console.warn(...args),
 };
 
-const BATCH_SEND_INTERVAL = 60000; // Send coordinates every 60 seconds (battery optimization)
+const BATCH_SEND_INTERVAL = 30000; // Send coordinates every 30 seconds
 const MIN_LOCATION_DISTANCE = 10; // Minimum 10 meters between tracked points
 // AsyncStorage prefix for the unsent-coords queue. Each in-memory push to
 // batchCoordinatesRef also writes here so a crash mid-journey doesn't lose

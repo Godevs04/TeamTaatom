@@ -6,6 +6,75 @@ const Post = require('../models/Post');
 const User = require('../models/User');
 const { MAX_REALISTIC_SPEED_KMH } = require('../config/tripScoreConfig');
 
+// ─── Road Snap ──────────────────────────────────────────────────────
+// Uses Google Maps Roads API to snap raw GPS points to the nearest road.
+// The API accepts up to 100 points per request, so longer polylines are
+// chunked with a 1-point overlap so the snapped segments join seamlessly.
+// Falls back to the original polyline on any error (network, quota, etc.)
+// so journey completion is never blocked.
+const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
+
+/**
+ * Snap an array of { lat, lng } points to roads via Google Maps Roads API.
+ * Returns the snapped points in the same { lat, lng, timestamp?, accuracy? } shape,
+ * preserving timestamps via interpolation from the original array.
+ */
+const snapToRoads = async (polyline) => {
+  if (!GOOGLE_MAPS_API_KEY || polyline.length < 2) return polyline;
+
+  const CHUNK_SIZE = 100; // Roads API limit per request
+  const snappedAll = [];
+
+  try {
+    for (let i = 0; i < polyline.length; i += CHUNK_SIZE - 1) {
+      const chunk = polyline.slice(i, i + CHUNK_SIZE);
+      const pathParam = chunk.map(p => `${p.lat},${p.lng}`).join('|');
+
+      const url = `https://roads.googleapis.com/v1/snapToRoads?path=${pathParam}&interpolate=true&key=${GOOGLE_MAPS_API_KEY}`;
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        logger.warn(`Roads API returned ${response.status} — falling back to raw polyline`);
+        return polyline;
+      }
+
+      const data = await response.json();
+      if (!data.snappedPoints || data.snappedPoints.length === 0) {
+        // Chunk had no road matches — keep originals for this segment
+        if (snappedAll.length === 0) return polyline;
+        continue;
+      }
+
+      // Map snapped points back, interpolating timestamps from the original
+      // chunk based on the originalIndex provided by the API.
+      for (const sp of data.snappedPoints) {
+        // Skip the first point of subsequent chunks (overlap point)
+        if (snappedAll.length > 0 && i > 0 &&
+            sp.location.latitude === snappedAll[snappedAll.length - 1].lat &&
+            sp.location.longitude === snappedAll[snappedAll.length - 1].lng) {
+          continue;
+        }
+
+        const origIdx = sp.originalIndex != null ? sp.originalIndex : 0;
+        const origPoint = chunk[Math.min(origIdx, chunk.length - 1)];
+        snappedAll.push({
+          lat: sp.location.latitude,
+          lng: sp.location.longitude,
+          timestamp: origPoint.timestamp || new Date(),
+          accuracy: 0, // snapped = perfect road accuracy
+        });
+      }
+    }
+
+    if (snappedAll.length < 2) return polyline;
+    logger.debug(`Road snap: ${polyline.length} raw → ${snappedAll.length} snapped points`);
+    return snappedAll;
+  } catch (err) {
+    logger.warn('Road snap failed (non-blocking), keeping raw polyline:', err.message);
+    return polyline;
+  }
+};
+
 // Treat coords as valid only when both axes are real numbers within bounds.
 // `lat == null` correctly catches null/undefined while preserving 0 (equator,
 // prime meridian) — a truthy `!lat` check would silently drop both.
@@ -375,6 +444,16 @@ const completeJourney = async (req, res) => {
     journey.status = 'completed';
     journey.completedAt = new Date();
     journey.autoEnded = false;
+
+    // Snap raw GPS polyline to actual roads for a cleaner path display.
+    // Non-blocking — falls back to raw polyline on any error.
+    if (journey.polyline.length >= 2) {
+      try {
+        journey.polyline = await snapToRoads(journey.polyline);
+      } catch (snapErr) {
+        logger.warn('Road snap error (non-blocking):', snapErr.message);
+      }
+    }
 
     // Set endCoords to last polyline point
     if (journey.polyline.length > 0) {

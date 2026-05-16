@@ -9,7 +9,7 @@ const ContentBlockSchema = new Schema({
   },
   content: {
     type: String,
-    required: true
+    default: ''
   },
   order: {
     type: Number,
@@ -24,6 +24,72 @@ const ContentBlockSchema = new Schema({
   embedType: {
     type: String,
     enum: ['youtube', 'map', 'custom', ''],
+    default: ''
+  },
+  // Layout: 12-column grid width. 12 = full row, 6 = half, 4 = third.
+  // Adjacent blocks whose cols sum to <= 12 are packed into the same row
+  // by the renderer. Defaults to full-width so existing rows keep their
+  // current single-column-per-row layout.
+  col: {
+    type: Number,
+    default: 12,
+    min: 1,
+    max: 12
+  },
+  // Per-block color overrides. Empty string ('') means "inherit from the
+  // page-level color"; a non-empty CSS color string overrides it.
+  backgroundColor: {
+    type: String,
+    default: ''
+  },
+  color: {
+    type: String,
+    default: ''
+  },
+  // Bold text override. true = heavier weight on render (heading: '800', text: '700').
+  bold: {
+    type: Boolean,
+    default: false
+  },
+  // Text alignment for heading/text blocks.
+  align: {
+    type: String,
+    enum: ['left', 'center', 'right', ''],
+    default: ''
+  },
+  // Font size tier for heading/text blocks.
+  fontSize: {
+    type: String,
+    enum: ['small', 'normal', 'large', ''],
+    default: ''
+  },
+  // Stacked: block joins the last column of the previous row (mosaic layout).
+  stacked: {
+    type: Boolean,
+    default: false
+  },
+  // Padding tier per block (controls inner spacing).
+  padding: {
+    type: String,
+    enum: ['none', 'small', 'medium', 'large', ''],
+    default: ''
+  },
+  // Border radius tier per block.
+  borderRadius: {
+    type: String,
+    enum: ['none', 'small', 'medium', 'large', ''],
+    default: ''
+  },
+  // Image aspect ratio override.
+  aspectRatio: {
+    type: String,
+    enum: ['original', 'square', 'landscape', 'portrait', ''],
+    default: ''
+  },
+  // Vertical alignment when block is in a multi-column row.
+  verticalAlign: {
+    type: String,
+    enum: ['top', 'center', 'bottom', ''],
     default: ''
   }
 }, { _id: true });
@@ -125,6 +191,13 @@ const ConnectPageSchema = new Schema({
   },
   websiteContent: [ContentBlockSchema],
   subscriptionContent: [ContentBlockSchema],
+  // Page-level color defaults. Apply when a block has no per-block override.
+  // Empty string means "use the app's theme default" so unmigrated pages
+  // continue to render exactly as before.
+  websiteBackground: { type: String, default: '' },
+  websiteTextColor: { type: String, default: '' },
+  subscriptionBackground: { type: String, default: '' },
+  subscriptionTextColor: { type: String, default: '' },
   canvasContent: [CanvasElementSchema],
   canvasBackground: {
     type: String,

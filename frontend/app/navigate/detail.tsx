@@ -21,7 +21,7 @@ import { useTheme } from '../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAlert } from '../../context/AlertContext';
 import { getJourneyDetail, updateJourneyTitle, deleteJourney } from '../../services/journey';
-import { MapView, Marker, useWebViewFallback } from '../../utils/mapsWrapper';
+import { MapView, Marker, useWebViewFallback, getMapProvider } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import { openDirections } from '../../utils/locationUtils';
 import PolylineRenderer from '../../components/PolylineRenderer';
@@ -339,6 +339,7 @@ function initMap(){
           })() : MapView && Marker ? (
             <MapView
               style={styles.map}
+              provider={getMapProvider()}
               initialRegion={{
                 latitude: journey.startCoords?.lat || 0,
                 longitude: journey.startCoords?.lng || 0,

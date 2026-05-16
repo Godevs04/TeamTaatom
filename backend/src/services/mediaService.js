@@ -18,7 +18,10 @@ const EXPIRY_TIMES = {
   AUDIO: 900,      // 15 minutes
   VIDEO: 900,      // 15 minutes
   IMAGE: 300,      // 5 minutes
-  PROFILE: 600,    // 10 minutes
+  PROFILE: 3600,   // 1 hour — profile pics are viewed repeatedly; short expiry caused
+                   // images to 403 while the user was still looking at the chat/feed.
+                   // 1 hour is safe (no sensitive data) and eliminates the most common
+                   // "profile pic doesn't load" reports.
   LOCALE: 300,     // 5 minutes
   DEFAULT: 600     // 10 minutes
 };
@@ -176,12 +179,25 @@ const getStorageKeyFromDocument = (doc, urlField = null) => {
 const resolveProfilePic = async (user) => {
   if (!user || typeof user !== 'object') return '';
 
+  const userId = user._id ? user._id.toString() : 'unknown';
+
   // 1. Storage key — always preferred, always fresh
   if (user.profilePicStorageKey && typeof user.profilePicStorageKey === 'string') {
     try {
       const signed = await generateSignedUrl(user.profilePicStorageKey, 'PROFILE');
       if (signed) return signed;
-    } catch (_) { /* fall through */ }
+      // generateSignedUrl returned null — storage key might be invalid
+      logger.warn('resolveProfilePic: generateSignedUrl returned null for storageKey', {
+        userId,
+        storageKey: user.profilePicStorageKey.substring(0, 80),
+      });
+    } catch (err) {
+      logger.error('resolveProfilePic: generateSignedUrl threw for storageKey', {
+        userId,
+        storageKey: user.profilePicStorageKey.substring(0, 80),
+        error: err.message,
+      });
+    }
   }
 
   // 2 & 3. Legacy profilePic field
@@ -196,12 +212,14 @@ const resolveProfilePic = async (user) => {
         } catch (_) { /* fall through */ }
       }
       // Could not recover — never serve an expired URL
+      logger.warn('resolveProfilePic: could not re-sign stale URL', { userId });
       return '';
     }
     // 2. Permanent URL (Cloudinary or other public CDN)
     return user.profilePic;
   }
 
+  // No profile pic data at all — user hasn't uploaded one
   return '';
 };
 

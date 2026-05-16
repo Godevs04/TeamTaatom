@@ -153,11 +153,24 @@ const truncate = (value, max) => {
   return s.length > max ? s.slice(0, max).trim() : s;
 };
 
+/**
+ * Sanitize a string for Cashfree API text fields (plan_name, plan_note, etc.).
+ * Cashfree rejects fields with characters outside alphanumerics and a small set
+ * of special characters. Strip everything that isn't allowed so every caller is
+ * protected at this boundary — never rely on callers to sanitize.
+ *
+ * Allowed: letters, digits, spaces, hyphens, underscores, periods, commas.
+ */
+const sanitizeForCashfree = (value) => {
+  const s = String(value == null ? '' : value);
+  return s.replace(/[^a-zA-Z0-9 \-_.,]/g, '').replace(/\s+/g, ' ').trim();
+};
+
 const createPlan = async ({ planId, planName, amount, currency }) => {
   assertSubscriptionCurrency(currency);
   const config = getConfig();
-  const safePlanName = truncate(planName, CASHFREE_PLAN_NAME_MAX);
-  const safePlanNote = truncate(`Subscription plan for Connect page: ${safePlanName}`, CASHFREE_PLAN_NOTE_MAX);
+  const safePlanName = sanitizeForCashfree(truncate(planName, CASHFREE_PLAN_NAME_MAX));
+  const safePlanNote = sanitizeForCashfree(truncate(`Subscription plan for Connect page - ${safePlanName}`, CASHFREE_PLAN_NOTE_MAX));
   try {
     const result = await makeRequest('POST', `${config.baseUrl}/plans`, {
       plan_id: planId,
@@ -276,7 +289,7 @@ const createSubscription = async ({
         customer_id: customer.id,
         customer_email: customer.email,
         customer_phone: customer.phone,
-        customer_name: customer.name,
+        customer_name: sanitizeForCashfree(customer.name) || 'User',
       },
       // 0 is invalid for UPI/card mandate flows; align with plan recurring amount (INR)
       authorization_details: {
@@ -365,7 +378,10 @@ const verifyWebhookSignature = (rawBody, timestamp, signature) => {
       .createHmac('sha256', config.secretKey)
       .update(payload)
       .digest('base64');
-    return expectedSignature === signature;
+    const expected = Buffer.from(expectedSignature, 'utf8');
+    const received = Buffer.from(signature, 'utf8');
+    if (expected.length !== received.length) return false;
+    return crypto.timingSafeEqual(expected, received);
   } catch (error) {
     logger.error('Webhook signature verification failed:', error);
     return false;
