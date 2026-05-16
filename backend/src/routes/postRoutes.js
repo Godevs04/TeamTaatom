@@ -56,14 +56,13 @@ router.get('/health', (req, res) => {
 });
 
 // Multer configuration for image uploads
-// No file size limits - unlimited uploads
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: {
     files: 10, // Maximum 10 files
+    fileSize: 25 * 1024 * 1024, // 25 MB max per image
     fieldSize: 10 * 1024 * 1024, // 10MB for field values (captions, etc.)
-    // fileSize removed - unlimited file size
   },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/')) {

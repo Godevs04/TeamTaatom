@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Video, ResizeMode } from 'expo-av';
 import { useTheme } from '../../context/ThemeContext';
 import { useRouter } from 'expo-router';
 import { ChatAttachment } from '../../services/chat';
@@ -29,6 +30,8 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
   const router = useRouter();
   const [imageLoading, setImageLoading] = useState(true);
   const [lightboxVisible, setLightboxVisible] = useState(false);
+  const [videoModalVisible, setVideoModalVisible] = useState(false);
+  const videoRef = useRef<Video>(null);
 
   const formatFileSize = (bytes?: number) => {
     if (!bytes) return '';
@@ -93,32 +96,76 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
   // Video attachment
   if (attachment.type === 'video') {
     return (
-      <TouchableOpacity
-        style={[styles.videoContainer, { backgroundColor: theme.colors.surface }]}
-        onPress={() => {
-          if (attachment.url) {
-            Linking.openURL(attachment.url);
-          }
-        }}
-      >
-        {attachment.thumbnailUrl ? (
-          <Image source={{ uri: attachment.thumbnailUrl }} style={styles.videoThumbnail} />
-        ) : (
-          <View style={[styles.videoThumbnail, { backgroundColor: '#000' }]} />
-        )}
-        <View style={styles.playButtonOverlay}>
-          <View style={styles.playButton}>
-            <Ionicons name="play" size={24} color="#fff" />
+      <>
+        <TouchableOpacity
+          style={[styles.videoContainer, { backgroundColor: theme.colors.surface }]}
+          onPress={() => {
+            if (attachment.url) {
+              setVideoModalVisible(true);
+            }
+          }}
+        >
+          {attachment.thumbnailUrl ? (
+            <Image source={{ uri: attachment.thumbnailUrl }} style={styles.videoThumbnail} />
+          ) : (
+            <View style={[styles.videoThumbnail, { backgroundColor: '#000' }]} />
+          )}
+          <View style={styles.playButtonOverlay}>
+            <View style={styles.playButton}>
+              <Ionicons name="play" size={24} color="#fff" />
+            </View>
           </View>
-        </View>
-        {attachment.duration ? (
-          <View style={styles.durationBadge}>
-            <Text style={styles.durationText}>
-              {Math.floor(attachment.duration / 60)}:{String(Math.floor(attachment.duration % 60)).padStart(2, '0')}
-            </Text>
+          {attachment.duration != null && attachment.duration > 0 ? (
+            <View style={styles.durationBadge}>
+              <Text style={styles.durationText}>
+                {Math.floor(attachment.duration / 60)}:{String(Math.floor(attachment.duration % 60)).padStart(2, '0')}
+              </Text>
+            </View>
+          ) : null}
+        </TouchableOpacity>
+
+        {/* Video Player Modal */}
+        <Modal
+          visible={videoModalVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => {
+            videoRef.current?.stopAsync().catch(() => {});
+            setVideoModalVisible(false);
+          }}
+        >
+          <View style={styles.lightbox}>
+            <TouchableOpacity
+              style={styles.lightboxClose}
+              onPress={() => {
+                videoRef.current?.stopAsync().catch(() => {});
+                setVideoModalVisible(false);
+              }}
+            >
+              <Ionicons name="close" size={28} color="#fff" />
+            </TouchableOpacity>
+            {videoModalVisible && attachment.url ? (
+              <Video
+                ref={videoRef}
+                source={{ uri: attachment.url }}
+                style={styles.videoPlayer}
+                resizeMode={ResizeMode.CONTAIN}
+                useNativeControls
+                shouldPlay
+                onError={() => {
+                  // In-app playback failed (likely expired signed URL).
+                  // Close the modal and fall back to the system video viewer
+                  // so the user still has a way to watch it.
+                  setVideoModalVisible(false);
+                  if (attachment.url) {
+                    Linking.openURL(attachment.url).catch(() => {});
+                  }
+                }}
+              />
+            ) : null}
           </View>
-        ) : null}
-      </TouchableOpacity>
+        </Modal>
+      </>
     );
   }
 
@@ -259,6 +306,10 @@ const styles = StyleSheet.create({
     height: SCREEN_WIDTH,
   },
   // Video styles
+  videoPlayer: {
+    width: SCREEN_WIDTH,
+    height: SCREEN_WIDTH * 0.75,
+  },
   videoContainer: {
     borderRadius: 12,
     overflow: 'hidden',

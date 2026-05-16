@@ -5084,7 +5084,8 @@ router.get('/connect-pages/:pageId/subscribers', checkPermission('canManageConte
 // ConnectPage already required above (subscription stats section)
 const ChatModel = require('../models/Chat')
 const { uploadObject, buildMediaKey } = require('../services/storage')
-const { generateSignedUrl, isSignedUrl, extractStorageKeyFromUrl } = require('../services/mediaService')
+const connectController = require('../controllers/connectController')
+const { generateSignedUrl } = require('../services/mediaService')
 
 // Multer for community page images (profile + banner)
 const communityUpload = multer({
@@ -5375,7 +5376,7 @@ router.get('/community-pages/:pageId/content', authenticateSuperAdmin, async (re
   try {
     const { pageId } = req.params
     const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true })
-      .select('name features websiteContent subscriptionContent')
+      .select('name features websiteContent subscriptionContent websiteBackground websiteTextColor subscriptionBackground subscriptionTextColor')
       .lean()
 
     if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
@@ -5403,6 +5404,10 @@ router.get('/community-pages/:pageId/content', authenticateSuperAdmin, async (re
       features: page.features,
       websiteContent: page.websiteContent || [],
       subscriptionContent: page.subscriptionContent || [],
+      websiteBackground: page.websiteBackground || '',
+      websiteTextColor: page.websiteTextColor || '',
+      subscriptionBackground: page.subscriptionBackground || '',
+      subscriptionTextColor: page.subscriptionTextColor || '',
     })
   } catch (error) {
     logger.error('Error fetching community page content:', error)
@@ -5469,197 +5474,49 @@ router.post('/community-pages/:pageId/upload-image', (req, res, next) => {
 router.put('/community-pages/:pageId/content', authenticateSuperAdmin, async (req, res) => {
   try {
     const { pageId } = req.params
-    const { websiteContent, subscriptionContent } = req.body
+    const {
+      websiteContent,
+      subscriptionContent,
+      websiteBackground,
+      websiteTextColor,
+      subscriptionBackground,
+      subscriptionTextColor,
+    } = req.body
 
     const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true })
     if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
-
-    const sanitizeBlocks = (blocks) => {
-      if (!Array.isArray(blocks)) return []
-      return blocks
-        .filter(b => b.type === 'divider' || (b.content && b.content.trim() !== ''))
-        .map((b, idx) => {
-          const block = {
-            type: b.type,
-            content: b.type === 'divider' ? '---' : b.content,
-            order: idx,
-          }
-          if (b.url) block.url = b.url
-          if (b.embedType) block.embedType = b.embedType
-          return block
-        })
-    }
 
     if (websiteContent !== undefined) {
       if (!page.features.website) {
         return sendError(res, 'VALIDATION_FAILED', 'Website feature is not enabled')
       }
-      page.websiteContent = sanitizeBlocks(websiteContent)
+      page.websiteContent = connectController.sanitizeContentBlocks(websiteContent)
     }
+    if (websiteBackground !== undefined) page.websiteBackground = connectController.normalizeColor(websiteBackground)
+    if (websiteTextColor !== undefined) page.websiteTextColor = connectController.normalizeColor(websiteTextColor)
 
     if (subscriptionContent !== undefined) {
       if (!page.features.subscription) {
         return sendError(res, 'VALIDATION_FAILED', 'Subscription feature is not enabled')
       }
-      page.subscriptionContent = sanitizeBlocks(subscriptionContent)
+      page.subscriptionContent = connectController.sanitizeContentBlocks(subscriptionContent)
     }
+    if (subscriptionBackground !== undefined) page.subscriptionBackground = connectController.normalizeColor(subscriptionBackground)
+    if (subscriptionTextColor !== undefined) page.subscriptionTextColor = connectController.normalizeColor(subscriptionTextColor)
 
     await page.save()
 
     return sendSuccess(res, 200, 'Content updated', {
       websiteContent: page.websiteContent,
       subscriptionContent: page.subscriptionContent,
+      websiteBackground: page.websiteBackground,
+      websiteTextColor: page.websiteTextColor,
+      subscriptionBackground: page.subscriptionBackground,
+      subscriptionTextColor: page.subscriptionTextColor,
     })
   } catch (error) {
     logger.error('Error updating community page content:', error)
     return sendError(res, 'SRV_6001', 'Failed to update content')
-  }
-})
-
-/**
- * GET /api/v1/superadmin/community-pages/:pageId/canvas
- * Fetch canvas content + background; resolves image/video storage keys to signed URLs.
- */
-router.get('/community-pages/:pageId/canvas', authenticateSuperAdmin, async (req, res) => {
-  try {
-    const { pageId } = req.params
-    const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true })
-      .select('canvasContent canvasBackground')
-      .lean()
-
-    if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
-
-    for (const el of (page.canvasContent || [])) {
-      if ((el.type === 'image' || el.type === 'video') && el.content) {
-        if (!el.content.startsWith('http')) {
-          try {
-            const url = await generateSignedUrl(el.content, 'DEFAULT')
-            if (url) el.content = url
-          } catch { /* keep key */ }
-        } else if (isSignedUrl(el.content)) {
-          const key = extractStorageKeyFromUrl(el.content)
-          if (key) {
-            try {
-              const url = await generateSignedUrl(key, 'DEFAULT')
-              if (url) el.content = url
-            } catch { /* keep existing */ }
-          }
-        }
-      }
-    }
-
-    return sendSuccess(res, 200, 'Canvas fetched', {
-      canvasContent: page.canvasContent || [],
-      canvasBackground: page.canvasBackground || '#000000',
-    })
-  } catch (error) {
-    logger.error('Error fetching community canvas:', error)
-    return sendError(res, 'SRV_6001', 'Failed to fetch canvas')
-  }
-})
-
-/**
- * PUT /api/v1/superadmin/community-pages/:pageId/canvas
- * Body: { content: CanvasElement[], background?: string }
- */
-router.put('/community-pages/:pageId/canvas', authenticateSuperAdmin, async (req, res) => {
-  try {
-    const { pageId } = req.params
-    const { content, background } = req.body
-
-    const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true })
-    if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
-
-    if (!Array.isArray(content)) {
-      return sendError(res, 'VALIDATION_FAILED', 'Content must be an array of elements')
-    }
-
-    const clamp01 = (n) => Math.max(0, Math.min(1, Number.isFinite(n) ? n : 0))
-    const sanitized = content
-      .filter(el => el && el.type && typeof el.content === 'string' && el.content.trim() !== '')
-      .map((el, idx) => {
-        let elContent = el.content
-        if ((el.type === 'image' || el.type === 'video') && elContent && isSignedUrl(elContent)) {
-          const storageKey = extractStorageKeyFromUrl(elContent)
-          if (storageKey) elContent = storageKey
-        }
-        return {
-          type: el.type,
-          content: elContent,
-          x: clamp01(el.x),
-          y: clamp01(el.y),
-          w: clamp01(el.w),
-          h: clamp01(el.h),
-          rotation: Number.isFinite(el.rotation) ? el.rotation : 0,
-          zIndex: Number.isFinite(el.zIndex) ? el.zIndex : idx,
-          fontSize: Number.isFinite(el.fontSize) ? el.fontSize : 24,
-          color: typeof el.color === 'string' ? el.color : '#FFFFFF',
-          fontWeight: typeof el.fontWeight === 'string' ? el.fontWeight : '600',
-          backgroundColor: typeof el.backgroundColor === 'string' ? el.backgroundColor : 'transparent',
-        }
-      })
-
-    page.canvasContent = sanitized
-    if (typeof background === 'string') {
-      page.canvasBackground = background
-    }
-    await page.save()
-
-    return sendSuccess(res, 200, 'Canvas updated', {
-      canvasContent: page.canvasContent,
-      canvasBackground: page.canvasBackground,
-    })
-  } catch (error) {
-    logger.error('Error updating community canvas:', error)
-    return sendError(res, 'SRV_6001', 'Failed to update canvas')
-  }
-})
-
-// Multer for canvas video uploads (50MB cap, video mimetypes only)
-const contentVideoUpload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('video/')) cb(null, true)
-    else cb(new Error('Only video files are allowed'), false)
-  }
-}).single('video')
-
-/**
- * POST /api/v1/superadmin/community-pages/:pageId/content-video
- * Upload a video for canvas elements. Returns { storageKey, signedUrl }.
- */
-router.post('/community-pages/:pageId/content-video', authenticateSuperAdmin, (req, res, next) => {
-  contentVideoUpload(req, res, (err) => {
-    if (err) {
-      logger.error('Video multer error:', err.message)
-      return sendError(res, 'VALIDATION_FAILED', `Upload error: ${err.message}`)
-    }
-    next()
-  })
-}, async (req, res) => {
-  try {
-    const { pageId } = req.params
-    const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true }).select('userId')
-    if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
-
-    const file = req.file
-    if (!file) return sendError(res, 'VALIDATION_FAILED', 'No video file provided. Field name must be "video".')
-
-    const ext = file.originalname?.split('.').pop() || 'mp4'
-    const storageKey = buildMediaKey({
-      type: 'connect-content',
-      userId: page.userId.toString(),
-      filename: file.originalname || `canvas-${Date.now()}.${ext}`,
-      extension: ext,
-    })
-    await uploadObject(file.buffer, storageKey, file.mimetype)
-
-    const signedUrl = await generateSignedUrl(storageKey, 'DEFAULT')
-    return sendSuccess(res, 200, 'Video uploaded', { storageKey, signedUrl })
-  } catch (error) {
-    logger.error('Error uploading canvas video:', error)
-    return sendError(res, 'SRV_6001', `Failed to upload video: ${error.message}`)
   }
 })
 

@@ -157,6 +157,12 @@ export default function ProfileScreen() {
   // Scroll position persistence: Store scroll position when navigating away
   const scrollViewRef = useRef<ScrollView>(null);
   const scrollPositionRef = useRef<number>(0);
+  // True when we're returning to the screen and owe the ScrollView a scrollTo.
+  // Set in useFocusEffect; cleared by the loading-aware effect below once the
+  // ScrollView is actually mounted (loadUserData briefly flips checkingUser
+  // which swaps the ScrollView for a spinner — restoring scroll before then
+  // is a no-op).
+  const pendingScrollRestoreRef = useRef<boolean>(false);
   // Remember where the posts/shorts/saved tabs sit, so tab switches don't feel like a jump
   const tabsOffsetRef = useRef<number>(0);
   
@@ -443,18 +449,14 @@ export default function ProfileScreen() {
       // Screen focused - ensure mounted
       isMountedRef.current = true;
       
-      // Restore scroll position when returning to profile page
-      // This ensures users don't have to scroll down again after viewing a post or short
-      if (scrollViewRef.current && scrollPositionRef.current > 0) {
-        // Small delay to ensure ScrollView is fully rendered
-        setTimeout(() => {
-          if (scrollViewRef.current && isMountedRef.current) {
-            scrollViewRef.current.scrollTo({
-              y: scrollPositionRef.current,
-              animated: false, // Instant scroll to avoid animation delay
-            });
-          }
-        }, 100);
+      // Restore scroll position when returning to profile page.
+      // We can't scroll here directly because loadUserData (below) flips
+      // checkingUser=true which swaps the ScrollView for a spinner — any
+      // scrollTo we issue right now hits a stale (or unmounted) ScrollView.
+      // Mark the intent; the loading-aware effect below performs the scroll
+      // once the ScrollView is actually back in the tree.
+      if (scrollPositionRef.current > 0) {
+        pendingScrollRestoreRef.current = true;
       }
       
       // Reload saved items when screen is focused and saved tab is active
@@ -529,6 +531,30 @@ export default function ProfileScreen() {
       };
     }, [user?._id, loadUserData])
   );
+
+  // Loading-aware scroll restoration. Runs whenever the spinner finishes
+  // (loading + checkingUser both false) — that's when the ScrollView is
+  // actually in the tree. Without this, scroll-restore in useFocusEffect
+  // fires while the spinner is still mounted and gets dropped on the floor.
+  useEffect(() => {
+    if (loading || checkingUser) return;
+    if (!pendingScrollRestoreRef.current) return;
+    pendingScrollRestoreRef.current = false;
+    // requestAnimationFrame ensures the ScrollView has painted its content
+    // before we ask it to seek. Two RAFs cover Android, where layout can
+    // straggle a frame behind the JS state update.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!isMountedRef.current) return;
+        if (!scrollViewRef.current) return;
+        if (scrollPositionRef.current <= 0) return;
+        scrollViewRef.current.scrollTo({
+          y: scrollPositionRef.current,
+          animated: false,
+        });
+      });
+    });
+  }, [loading, checkingUser]);
 
   // Log posts when they change for debugging (development only)
   useEffect(() => {

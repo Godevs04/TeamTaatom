@@ -31,19 +31,6 @@ const upload = multer({
   }
 });
 
-// Separate multer for canvas video uploads (mp4/mov/etc)
-const videoUpload = multer({
-  storage,
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('video/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only video files are allowed'), false);
-    }
-  }
-});
-
 // ─────────────────────────────────────────────
 // Connect Pages — CRUD
 // ─────────────────────────────────────────────
@@ -84,13 +71,6 @@ router.get('/page/:pageId/website', validatePageId, optionalAuth, connectControl
 router.put('/page/:pageId/subscription', validatePageId, authMiddleware, connectController.updateSubscriptionContent);
 router.get('/page/:pageId/subscription', validatePageId, optionalAuth, connectController.getSubscriptionContent);
 router.post('/page/:pageId/content-image', validatePageId, authMiddleware, upload.single('image'), connectController.uploadContentImage);
-
-// ─────────────────────────────────────────────
-// Canvas Content (free-form Stories/Shorts-style layout)
-// ─────────────────────────────────────────────
-router.put('/page/:pageId/canvas', validatePageId, authMiddleware, connectController.updateCanvasContent);
-router.get('/page/:pageId/canvas', validatePageId, optionalAuth, connectController.getCanvasContent);
-router.post('/page/:pageId/content-video', validatePageId, authMiddleware, videoUpload.single('video'), connectController.uploadContentVideo);
 
 // ─────────────────────────────────────────────
 // Subscriptions (Payment)
