@@ -2894,7 +2894,7 @@ const Locales = () => {
 
                 <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
                   <p className="text-sm text-blue-800">
-                    <span className="font-semibold">Confirm this is the correct place?</span> Click "Use This Place" to auto-fill all form fields.
+                    <span className="font-semibold">Confirm this is the correct place?</span> Click &quot;Use This Place&quot; to auto-fill all form fields.
                   </p>
                 </div>
               </div>
@@ -2902,7 +2902,7 @@ const Locales = () => {
 
             {!detectedPlace && !isSearchingPlace && detectPlaceName && (
               <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl text-center">
-                <p className="text-sm text-gray-600">Enter a place name and click "Search" to find it on the map</p>
+                <p className="text-sm text-gray-600">Enter a place name and click &quot;Search&quot; to find it on the map</p>
               </div>
             )}
           </div>
