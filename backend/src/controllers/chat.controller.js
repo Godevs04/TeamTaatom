@@ -6,7 +6,7 @@ const mongoose = require('mongoose');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
-const { generateSignedUrl } = require('../services/mediaService');
+const { generateSignedUrl, resolveProfilePic } = require('../services/mediaService');
 const { buildMediaKey, uploadObject, getDownloadUrl } = require('../services/storage');
 
 // Use dynamic import for fetch to handle CommonJS compatibility
@@ -149,27 +149,10 @@ exports.listChats = async (req, res) => {
         if (participant._id && participant._id.toString() === officialId) {
           participant.isVerified = true;
           participant.fullName = participant.fullName || TAATOM_OFFICIAL_USER.fullName;
-          // Always use the constant profile picture for Taatom Official
           participant.profilePic = TAATOM_OFFICIAL_USER.profilePic;
         } else if (participant._id) {
-          // Generate signed URL for regular users
-          let profilePicUrl = null;
-          if (participant.profilePicStorageKey) {
-            try {
-              profilePicUrl = await generateSignedUrl(participant.profilePicStorageKey, 'PROFILE');
-            } catch (error) {
-              logger.warn('Failed to generate profile picture URL for chat participant:', { 
-                userId: participant._id, 
-                error: error.message 
-              });
-              // Fallback to legacy URL if available
-              profilePicUrl = participant.profilePic || null;
-            }
-          } else if (participant.profilePic) {
-            // Legacy: use existing profilePic if no storage key
-            profilePicUrl = participant.profilePic;
-          }
-          participant.profilePic = profilePicUrl;
+          // Use centralized resolveProfilePic (handles storage key, legacy URLs, and stale signed URLs)
+          participant.profilePic = await resolveProfilePic(participant);
         }
       }
     }
@@ -451,28 +434,12 @@ exports.getChat = async (req, res) => {
           participant.fullName = participant.fullName || TAATOM_OFFICIAL_USER.fullName;
           participant.profilePic = TAATOM_OFFICIAL_USER.profilePic;
         } else if (participant._id) {
-          // Generate signed URL for regular users
-          let profilePicUrl = null;
-          if (participant.profilePicStorageKey) {
-            try {
-              profilePicUrl = await generateSignedUrl(participant.profilePicStorageKey, 'PROFILE');
-            } catch (error) {
-              logger.warn('Failed to generate profile picture URL for chat participant:', { 
-                userId: participant._id, 
-                error: error.message 
-              });
-              // Fallback to legacy URL if available
-              profilePicUrl = participant.profilePic || null;
-            }
-          } else if (participant.profilePic) {
-            // Legacy: use existing profilePic if no storage key
-            profilePicUrl = participant.profilePic;
-          }
-          participant.profilePic = profilePicUrl;
+          // Use centralized resolveProfilePic (handles storage key, legacy URLs, and stale signed URLs)
+          participant.profilePic = await resolveProfilePic(participant);
         }
       }
     }
-    
+
     // Ensure messages are properly formatted
     const rawMessages = chat.messages || [];
     logger.info('📨 [getChat] Processing messages', {
@@ -565,12 +532,8 @@ exports.getChatByRoomId = async (req, res) => {
           participant.isVerified = true;
           participant.fullName = participant.fullName || TAATOM_OFFICIAL_USER.fullName;
           participant.profilePic = TAATOM_OFFICIAL_USER.profilePic;
-        } else if (participant._id && participant.profilePicStorageKey) {
-          try {
-            participant.profilePic = await generateSignedUrl(participant.profilePicStorageKey, 'PROFILE');
-          } catch (error) {
-            logger.warn('Failed to generate profile pic URL in getChatByRoomId:', { userId: participant._id, error: error.message });
-          }
+        } else if (participant._id) {
+          participant.profilePic = await resolveProfilePic(participant);
         }
       }
     }
@@ -658,14 +621,7 @@ exports.getMessagesByRoomId = async (req, res) => {
     if (chat.type === 'connect_page' && chat.participants) {
       for (const p of chat.participants) {
         const pId = (p._id || p).toString();
-        let profilePic = p.profilePic || null;
-        if (!profilePic && p.profilePicStorageKey) {
-          try {
-            profilePic = await generateSignedUrl(p.profilePicStorageKey, 'PROFILE');
-          } catch (err) {
-            logger.warn('Failed to generate profile pic URL in getMessagesByRoomId:', { userId: pId, error: err.message });
-          }
-        }
+        const profilePic = await resolveProfilePic(p);
         participantsMap[pId] = { fullName: p.fullName || '', profilePic: profilePic || '' };
       }
     }
@@ -755,10 +711,7 @@ exports.sendMessageToRoom = async (req, res) => {
       const senderUser = await User.findById(userId).select('fullName profilePic profilePicStorageKey').lean();
       if (senderUser) {
         senderName = senderUser.fullName || '';
-        senderProfilePic = senderUser.profilePic || '';
-        if (!senderProfilePic && senderUser.profilePicStorageKey) {
-          senderProfilePic = await generateSignedUrl(senderUser.profilePicStorageKey, 'PROFILE') || '';
-        }
+        senderProfilePic = await resolveProfilePic(senderUser) || '';
       }
     } catch (err) {
       logger.warn('[sendMessageToRoom] Failed to fetch sender info:', err.message);
@@ -1698,14 +1651,27 @@ exports.uploadChatMedia = async (req, res) => {
       return sendError(res, 'VAL_2001', 'No files provided');
     }
 
+    // Parse optional metadata sent alongside files (duration, width, height)
+    let fileMetadata = [];
+    try {
+      if (req.body && req.body.metadata) {
+        fileMetadata = JSON.parse(req.body.metadata);
+      }
+    } catch (e) {
+      logger.warn('[uploadChatMedia] Failed to parse metadata:', e.message);
+    }
+
     logger.info('[uploadChatMedia] Uploading files', {
       userId: userId.toString(),
-      fileCount: req.files.length
+      fileCount: req.files.length,
+      hasMetadata: fileMetadata.length > 0
     });
 
     const attachments = [];
 
-    for (const file of req.files) {
+    for (let i = 0; i < req.files.length; i++) {
+      const file = req.files[i];
+      const meta = fileMetadata[i] || {};
       const extension = file.originalname.split('.').pop() || 'bin';
       const storageKey = buildMediaKey({
         type: 'chat',
@@ -1734,7 +1700,11 @@ exports.uploadChatMedia = async (req, res) => {
         storageKey: key,
         fileName: file.originalname,
         fileSize: file.size,
-        mimeType: file.mimetype
+        mimeType: file.mimetype,
+        // Include media metadata from frontend (duration, dimensions)
+        ...(meta.duration != null && { duration: Number(meta.duration) }),
+        ...(meta.width != null && { width: Number(meta.width) }),
+        ...(meta.height != null && { height: Number(meta.height) }),
       };
 
       attachments.push(attachment);
@@ -1743,7 +1713,10 @@ exports.uploadChatMedia = async (req, res) => {
         type: attachmentType,
         fileName: file.originalname,
         size: file.size,
-        key
+        key,
+        duration: meta.duration,
+        width: meta.width,
+        height: meta.height
       });
     }
 
@@ -1782,10 +1755,7 @@ exports.sharePost = async (req, res) => {
     }
 
     // Build post preview for attachment
-    let authorProfilePic = post.user?.profilePic || '';
-    if (!authorProfilePic && post.user?.profilePicStorageKey) {
-      authorProfilePic = await generateSignedUrl(post.user.profilePicStorageKey, 'PROFILE') || '';
-    }
+    const authorProfilePic = post.user ? (await resolveProfilePic(post.user) || '') : '';
 
     // Get first image URL from post media
     let postImageUrl = '';

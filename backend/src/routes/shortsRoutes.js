@@ -11,16 +11,11 @@ const {
 const router = express.Router();
 
 // Multer configuration for video uploads
-// Use memory storage for efficiency, but handle large files gracefully
-// For files > 100MB, consider disk storage to avoid memory issues
 const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: {
-    // No file size limit - unlimited uploads
-    // Note: For very large files (400MB+), memory storage is acceptable
-    // as Node.js can handle buffers up to ~2GB, but monitor memory usage
-    fileSize: Infinity, // Explicitly set to unlimited
+    fileSize: 100 * 1024 * 1024, // 100 MB max per file
   },
   fileFilter: (req, file, cb) => {
     const isVideo = file.fieldname === 'video' && file.mimetype.startsWith('video/');

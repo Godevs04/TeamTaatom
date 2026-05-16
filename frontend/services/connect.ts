@@ -13,25 +13,28 @@ export interface ContentBlock {
   order: number;
   url?: string;
   embedType?: 'youtube' | 'map' | 'custom' | '';
-}
-
-export interface CanvasElement {
-  _id?: string;
-  type: 'text' | 'image' | 'video';
-  // text: the string. image/video: signed URL on read, storage key on persist (server handles).
-  content: string;
-  // Normalized to canvas frame: 0..1 of frame width/height.
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  rotation: number;
-  zIndex: number;
-  // Text-only
-  fontSize?: number;
-  color?: string;
-  fontWeight?: string;
+  // Layout: 12-column grid width. 12 = full row, 6 = half, 4 = third.
+  col?: number;
+  // Per-block color overrides ('' / undefined = inherit page default)
   backgroundColor?: string;
+  color?: string;
+  // Bold text override: true = fontWeight '700' for text, '800' for heading
+  bold?: boolean;
+  // Text alignment (heading defaults to center, text defaults to left)
+  align?: 'left' | 'center' | 'right';
+  // Font size tier (small / normal / large)
+  fontSize?: 'small' | 'normal' | 'large';
+  // When true, this block stacks inside the last column of the previous row
+  // instead of starting a new row. Enables tall-left + two-stacked-right layouts.
+  stacked?: boolean;
+  // Padding tier per block (controls inner spacing)
+  padding?: 'none' | 'small' | 'medium' | 'large' | '';
+  // Border radius tier per block
+  borderRadius?: 'none' | 'small' | 'medium' | 'large' | '';
+  // Image aspect ratio override
+  aspectRatio?: 'original' | 'square' | 'landscape' | 'portrait' | '';
+  // Vertical alignment in multi-column rows
+  verticalAlign?: 'top' | 'center' | 'bottom' | '';
 }
 
 export interface BuyItem {
@@ -72,8 +75,10 @@ export interface ConnectPageType {
   };
   websiteContent: ContentBlock[];
   subscriptionContent: ContentBlock[];
-  canvasContent?: CanvasElement[];
-  canvasBackground?: string;
+  websiteBackground?: string;
+  websiteTextColor?: string;
+  subscriptionBackground?: string;
+  subscriptionTextColor?: string;
   subscriptionPrice: number | null;
   subscriptionCurrency: string;
   subscriptionApproval?: SubscriptionApproval;
@@ -382,9 +387,16 @@ export const uploadContentImage = async (pageId: string, imageUri: string): Prom
   }
 };
 
-export const updateWebsiteContent = async (pageId: string, content: ContentBlock[]): Promise<{ websiteContent: ContentBlock[] }> => {
+export const updateWebsiteContent = async (
+  pageId: string,
+  content: ContentBlock[],
+  options?: { background?: string; textColor?: string }
+): Promise<{ websiteContent: ContentBlock[]; websiteBackground?: string; websiteTextColor?: string }> => {
   try {
-    const response = await api.put(`/api/v1/connect/page/${pageId}/website`, { content });
+    const body: Record<string, unknown> = { content };
+    if (options?.background !== undefined) body.background = options.background;
+    if (options?.textColor !== undefined) body.textColor = options.textColor;
+    const response = await api.put(`/api/v1/connect/page/${pageId}/website`, body);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
@@ -392,7 +404,9 @@ export const updateWebsiteContent = async (pageId: string, content: ContentBlock
   }
 };
 
-export const getWebsiteContent = async (pageId: string): Promise<{ websiteContent: ContentBlock[] }> => {
+export const getWebsiteContent = async (
+  pageId: string
+): Promise<{ websiteContent: ContentBlock[]; websiteBackground?: string; websiteTextColor?: string }> => {
   try {
     const response = await api.get(`/api/v1/connect/page/${pageId}/website`);
     return response.data;
@@ -402,9 +416,16 @@ export const getWebsiteContent = async (pageId: string): Promise<{ websiteConten
   }
 };
 
-export const updateSubscriptionContent = async (pageId: string, content: ContentBlock[]): Promise<{ subscriptionContent: ContentBlock[] }> => {
+export const updateSubscriptionContent = async (
+  pageId: string,
+  content: ContentBlock[],
+  options?: { background?: string; textColor?: string }
+): Promise<{ subscriptionContent: ContentBlock[]; subscriptionBackground?: string; subscriptionTextColor?: string }> => {
   try {
-    const response = await api.put(`/api/v1/connect/page/${pageId}/subscription`, { content });
+    const body: Record<string, unknown> = { content };
+    if (options?.background !== undefined) body.background = options.background;
+    if (options?.textColor !== undefined) body.textColor = options.textColor;
+    const response = await api.put(`/api/v1/connect/page/${pageId}/subscription`, body);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
@@ -412,59 +433,11 @@ export const updateSubscriptionContent = async (pageId: string, content: Content
   }
 };
 
-export const getSubscriptionContent = async (pageId: string): Promise<{ subscriptionContent: ContentBlock[] }> => {
+export const getSubscriptionContent = async (
+  pageId: string
+): Promise<{ subscriptionContent: ContentBlock[]; subscriptionBackground?: string; subscriptionTextColor?: string }> => {
   try {
     const response = await api.get(`/api/v1/connect/page/${pageId}/subscription`);
-    return response.data;
-  } catch (error: any) {
-    const parsedError = parseError(error);
-    throw new Error(parsedError.userMessage);
-  }
-};
-
-export const getCanvasContent = async (
-  pageId: string
-): Promise<{ canvasContent: CanvasElement[]; canvasBackground: string }> => {
-  try {
-    const response = await api.get(`/api/v1/connect/page/${pageId}/canvas`);
-    return response.data;
-  } catch (error: any) {
-    const parsedError = parseError(error);
-    throw new Error(parsedError.userMessage);
-  }
-};
-
-export const updateCanvasContent = async (
-  pageId: string,
-  content: CanvasElement[],
-  background?: string
-): Promise<{ canvasContent: CanvasElement[]; canvasBackground: string }> => {
-  try {
-    const response = await api.put(`/api/v1/connect/page/${pageId}/canvas`, { content, background });
-    return response.data;
-  } catch (error: any) {
-    const parsedError = parseError(error);
-    throw new Error(parsedError.userMessage);
-  }
-};
-
-export const uploadContentVideo = async (
-  pageId: string,
-  videoUri: string
-): Promise<{ storageKey: string; signedUrl: string }> => {
-  try {
-    const formData = new FormData();
-    const ext = (videoUri.split('.').pop() || 'mp4').toLowerCase();
-    const mime = ext === 'mov' ? 'video/quicktime' : 'video/mp4';
-    formData.append('video', {
-      uri: videoUri,
-      type: mime,
-      name: `canvas_${Date.now()}.${ext}`,
-    } as any);
-
-    const response = await api.post(`/api/v1/connect/page/${pageId}/content-video`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);

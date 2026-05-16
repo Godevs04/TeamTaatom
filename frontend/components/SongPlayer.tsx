@@ -214,7 +214,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         { uri: audioUrl },
         {
           shouldPlay: shouldPlayNow, // Stream and play immediately
-          progressUpdateIntervalMillis: 500,
+          progressUpdateIntervalMillis: 150,
           isLooping: true,
           volume: isMuted ? 0 : volume,
           positionMillis: startTime * 1000,

@@ -19,7 +19,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { useJourney } from '../../context/JourneyContext';
 import JourneyCard from '../../components/JourneyCard';
-import { getUserJourneys } from '../../services/journey';
+import { getUserJourneys, deleteJourney } from '../../services/journey';
 
 const GROWTH_GREEN = '#22C55E';
 const ACTION_BLUE = '#3B82F6';
@@ -148,6 +148,29 @@ export default function NavigateIndexScreen() {
         style: 'destructive',
       },
     ]);
+  };
+
+  const handleDeleteJourney = (journeyItem: any) => {
+    Alert.alert(
+      'Delete Journey',
+      `Are you sure you want to delete "${journeyItem.title || 'Untitled Journey'}"? This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteJourney(journeyItem._id);
+              setJourneys((prev) => prev.filter((j) => j._id !== journeyItem._id));
+              showAlert('Journey deleted', '');
+            } catch (err: any) {
+              showAlert('Failed to delete', err.message || 'Something went wrong');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleRefresh = () => loadJourneys(1, true);
@@ -290,6 +313,7 @@ export default function NavigateIndexScreen() {
             <JourneyCard
               journey={item}
               onPress={() => router.push(`/navigate/detail?journeyId=${item._id}`)}
+              onLongPress={() => handleDeleteJourney(item)}
             />
           )}
           ListEmptyComponent={renderEmptyState}
