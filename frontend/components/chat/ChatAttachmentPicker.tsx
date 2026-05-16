@@ -130,12 +130,16 @@ const ChatAttachmentPicker: React.FC<ChatAttachmentPickerProps> = ({
       uri: asset.uri,
       name: asset.fileName || `media_${Date.now()}.${asset.type === 'video' ? 'mp4' : 'jpg'}`,
       type: asset.mimeType || (asset.type === 'video' ? 'video/mp4' : 'image/jpeg'),
+      // Pass media metadata so backend can store it with the attachment
+      duration: asset.type === 'video' && asset.duration ? asset.duration / 1000 : undefined, // ms → seconds
+      width: asset.width || undefined,
+      height: asset.height || undefined,
     }));
 
     await uploadFiles(files);
   };
 
-  const uploadFiles = async (files: Array<{ uri: string; name: string; type: string }>) => {
+  const uploadFiles = async (files: Array<{ uri: string; name: string; type: string; duration?: number; width?: number; height?: number }>) => {
     setUploading(true);
     onClose();
 

@@ -11,6 +11,7 @@ import {
   Image,
   ScrollView,
   TextInput,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -230,7 +231,10 @@ export default function ConnectHubScreen() {
           setLanguages(l.languages);
           setGeoLoaded(true);
         })
-        .catch(err => logger.error('Error loading geo data:', err));
+        .catch(err => {
+          logger.error('Error loading geo data:', err);
+          setGeoLoaded(true); // mark done so we don't retry in a loop
+        });
     }
   }, [geoLoaded]);
 
@@ -335,8 +339,9 @@ export default function ConnectHubScreen() {
       });
       setFoundUsers(response.users);
       setFindSearched(true);
-    } catch (error) {
+    } catch (error: any) {
       logger.error('Error finding users:', error);
+      Alert.alert('Error', error?.message || 'Failed to find travelers. Please try again.');
     } finally {
       setFindLoading(false);
     }
@@ -777,8 +782,11 @@ export default function ConnectHubScreen() {
         </TouchableOpacity>
 
         {/* Language Picker */}
+        <Text style={[styles.filterFieldLabel, { color: theme.colors.text }]}>
+          Language (required)
+        </Text>
         <TouchableOpacity
-          style={[styles.filterSelect, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+          style={[styles.filterSelect, { backgroundColor: theme.colors.background, borderColor: !selectedLanguage ? theme.colors.primary + '60' : theme.colors.border }]}
           onPress={() => setShowLanguagePicker(true)}
           activeOpacity={0.7}
         >

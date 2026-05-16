@@ -1107,14 +1107,14 @@ const getFollowersList = async (req, res) => {
     
     // Populate the paginated followers users
     const followers = await User.find({ _id: { $in: paginatedFollowersIds } })
-      .select('fullName profilePic profilePicStorageKey email followers following totalLikes isVerified');
-    
+      .select('fullName profilePic profilePicStorageKey email followers following totalLikes isVerified followRequests');
+
     const currentUserId = req.user ? req.user._id.toString() : null;
-    
+
     // Generate signed URLs for profile pictures
     const followersWithStatus = await Promise.all(followers.map(async (f) => {
       let profilePicUrl = null;
-      
+
       // Special handling for Taatom Official user
       const isTaatomOfficial = f._id.toString() === TAATOM_OFFICIAL_USER_ID;
       if (isTaatomOfficial) {
@@ -1124,6 +1124,9 @@ const getFollowersList = async (req, res) => {
       }
 
       const isFollowing = currentUserId ? f.followers.map(String).includes(currentUserId) : false;
+      const followRequestSent = currentUserId && !isFollowing
+        ? (f.followRequests || []).some(req => req.user.toString() === currentUserId && req.status === 'pending')
+        : false;
       return {
         _id: f._id,
         fullName: f.fullName,
@@ -1134,6 +1137,7 @@ const getFollowersList = async (req, res) => {
         followers: f.followers,
         following: f.following,
         isFollowing,
+        followRequestSent,
       };
     }));
 
@@ -1184,14 +1188,14 @@ const getFollowingList = async (req, res) => {
     
     // Populate the paginated following users
     const following = await User.find({ _id: { $in: paginatedFollowingIds } })
-      .select('fullName profilePic profilePicStorageKey email followers following totalLikes isVerified');
-    
+      .select('fullName profilePic profilePicStorageKey email followers following totalLikes isVerified followRequests');
+
     const currentUserId = req.user ? req.user._id.toString() : null;
-    
+
     // Generate signed URLs for profile pictures
     const followingWithStatus = await Promise.all(following.map(async (f) => {
       let profilePicUrl = null;
-      
+
       // Special handling for Taatom Official user
       const isTaatomOfficial = f._id.toString() === TAATOM_OFFICIAL_USER_ID;
       if (isTaatomOfficial) {
@@ -1199,8 +1203,11 @@ const getFollowingList = async (req, res) => {
       } else {
         profilePicUrl = await resolveProfilePic(f);
       }
-      
+
       const isFollowing = currentUserId ? f.followers.map(String).includes(currentUserId) : false;
+      const followRequestSent = currentUserId && !isFollowing
+        ? (f.followRequests || []).some(req => req.user.toString() === currentUserId && req.status === 'pending')
+        : false;
       return {
         _id: f._id,
         fullName: f.fullName,
@@ -1211,6 +1218,7 @@ const getFollowingList = async (req, res) => {
         followers: f.followers,
         following: f.following,
         isFollowing,
+        followRequestSent,
       };
     }));
     

@@ -29,11 +29,12 @@ export interface Journey {
 interface JourneyCardProps {
   journey: Journey;
   onPress: () => void;
+  onLongPress?: () => void;
 }
 
 const GROWTH_GREEN = '#22C55E';
 
-export default function JourneyCard({ journey, onPress }: JourneyCardProps) {
+export default function JourneyCard({ journey, onPress, onLongPress }: JourneyCardProps) {
   const { theme } = useTheme();
 
   const startDate = new Date(journey.startedAt);
@@ -69,6 +70,8 @@ export default function JourneyCard({ journey, onPress }: JourneyCardProps) {
       style={[styles.card, { backgroundColor: theme.colors.surface }]}
       activeOpacity={0.65}
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={500}
     >
       {/* Icon */}
       <View style={[styles.iconWrap, { backgroundColor: GROWTH_GREEN + '12' }]}>
