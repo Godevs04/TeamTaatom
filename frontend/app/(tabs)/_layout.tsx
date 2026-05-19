@@ -1,7 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { Tabs, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Platform, Dimensions } from 'react-native';
+import { Platform, Dimensions, StyleSheet, View } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { useTheme } from '../../context/ThemeContext';
 import { audioManager } from '../../utils/audioManager';
 import logger from '../../utils/logger';
@@ -19,7 +20,7 @@ const isTabPath = (p: string | null) => {
 };
 
 export default function TabsLayout() {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const pathname = usePathname();
   const previousPathnameRef = useRef<string | null>(null);
 
@@ -74,26 +75,31 @@ export default function TabsLayout() {
     }
   }, [pathname]);
 
-  // Tab bar style - always visible (constant, no disappearing while scrolling)
+  // Tab bar style - floating dock with frosted glass
   const tabBarStyle = {
-    backgroundColor: theme.colors.surface,
-    borderTopColor: theme.colors.border,
+    backgroundColor: theme.colors.floatingDock,
     borderTopWidth: 1,
-    paddingBottom: isWeb ? 12 : 8,
-    paddingTop: isWeb ? 12 : 8,
-    height: isWeb ? 70 : 88,
+    borderTopColor: theme.colors.glassBorder,
+    elevation: 14,
+    shadowColor: theme.colors.glowBlue || theme.colors.primary,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: isDark ? 0.28 : 0.18,
+    shadowRadius: 24,
     position: 'absolute' as const,
-    bottom: 0,
-    left: 0,
-    right: 0,
+    bottom: isWeb ? 16 : (isIOS ? 24 : 16),
+    left: 16,
+    right: 16,
+    height: 68,
+    borderRadius: 34,
+    paddingBottom: isIOS ? 20 : 10,
+    paddingTop: 9,
+    overflow: 'hidden' as const,
     // Always visible - no transform/animation
     transform: [{ translateY: 0 }],
     ...(isWeb && {
       maxWidth: 600,
       alignSelf: 'center' as const,
-      width: '100%',
-      borderTopLeftRadius: 0,
-      borderTopRightRadius: 0,
+      width: 'calc(100% - 32px)' as any,
     }),
   };
 
@@ -103,6 +109,13 @@ export default function TabsLayout() {
         headerShown: false,
         lazy: true,
         tabBarStyle: tabBarStyle as any,
+        tabBarBackground: () => (
+          <BlurView
+            tint={isDark ? 'dark' : 'light'}
+            intensity={90}
+            style={StyleSheet.absoluteFill}
+          />
+        ),
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.textSecondary,
         tabBarLabelStyle: {
@@ -145,8 +158,18 @@ export default function TabsLayout() {
         options={{
           title: 'Post',
           tabBarAccessibilityLabel: 'Create post tab',
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'add-circle' : 'add-circle-outline'} size={22} color={color} />
+          tabBarIcon: () => (
+            <View
+              style={[
+                styles.centerTab,
+                {
+                  backgroundColor: theme.colors.primary,
+                  shadowColor: theme.colors.glowBlue || theme.colors.primary,
+                },
+              ]}
+            >
+              <Ionicons name="add" size={28} color="#FFFFFF" />
+            </View>
           ),
         }}
       />
@@ -173,3 +196,20 @@ export default function TabsLayout() {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  centerTab: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.36,
+    shadowRadius: 16,
+    elevation: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.32)',
+  },
+});

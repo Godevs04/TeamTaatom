@@ -16,10 +16,13 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { WebView } from 'react-native-webview';
 import { useJourney } from '../../context/JourneyContext';
-import { MapView, Marker, useWebViewFallback } from '../../utils/mapsWrapper';
+import { MapView, Marker, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import PolylineRenderer from '../../components/PolylineRenderer';
 import GPSAccuracyChip from '../../components/GPSAccuracyChip';
+import GlassMapPanel from '../../components/GlassMapPanel';
+import PremiumMapMarker from '../../components/PremiumMapMarker';
+import { useMapStyle } from '../../hooks/useMapStyle';
 
 const GROWTH_GREEN = '#22C55E';
 const ACTION_BLUE = '#3B82F6';
@@ -41,6 +44,7 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 export default function TrackingScreen() {
   const router = useRouter();
   const { theme } = useTheme();
+  const mapStyle = useMapStyle();
   const { showAlert } = useAlert();
   const {
     initialized,
@@ -124,6 +128,17 @@ export default function TrackingScreen() {
     ]);
   };
 
+  const openJourneyCapture = (type: 'photo' | 'short') => {
+    router.push({
+      pathname: '/(tabs)/post',
+      params: {
+        journeyCapture: 'true',
+        postType: type,
+        source: 'journey',
+      },
+    });
+  };
+
   const formatDistance = () => {
     if (distance < 1000) {
       return `${Math.round(distance)} m`;
@@ -204,8 +219,8 @@ export default function TrackingScreen() {
             if (!WV_KEY) return <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}><Ionicons name="map-outline" size={48} color="#9CA3AF" /></View>;
             const polyCoords = JSON.stringify(polyline.filter(p => p.latitude && p.longitude).map(p => ({ lat: p.latitude, lng: p.longitude })));
             const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>html,body,#map{height:100%;margin:0;padding:0}</style>
-<script>function initMap(){var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${initialRegion.latitude},lng:${initialRegion.longitude}},zoom:15,mapTypeId:'terrain'});
-var path=${polyCoords};if(path.length>1){new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${GROWTH_GREEN}',strokeOpacity:1,strokeWeight:4,map:map});}
+<script>function initMap(){var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${initialRegion.latitude},lng:${initialRegion.longitude}},zoom:15,mapTypeId:'roadmap',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true});
+var path=${polyCoords};if(path.length>1){new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});}
 ${currentLocation ? `new google.maps.Marker({position:{lat:${currentLocation.latitude},lng:${currentLocation.longitude}},map:map,title:'You'});` : ''}
 }</script></head><body><div id="map"></div>
 <script async defer src="https://maps.googleapis.com/maps/api/js?key=${WV_KEY}&language=en&callback=initMap"></script></body></html>`;
@@ -223,6 +238,8 @@ ${currentLocation ? `new google.maps.Marker({position:{lat:${currentLocation.lat
           })() : MapView ? (
             <MapView
               style={styles.map}
+              provider={getMapProvider()}
+              {...mapStyle.nativeMapProps}
               initialRegion={{
                 ...initialRegion,
                 latitudeDelta: 0.05,
@@ -233,26 +250,31 @@ ${currentLocation ? `new google.maps.Marker({position:{lat:${currentLocation.lat
               followsUserLocation={true}
               zoomEnabled={true}
               scrollEnabled={true}
+              mapType={mapStyle.mapType}
             >
               {polyline.length > 1 && (
                 <PolylineRenderer
                   coordinates={polyline}
-                  color={GROWTH_GREEN}
+                  color={mapStyle.routeColor}
+                  glowColor={mapStyle.routeGlowColor}
                   strokeWidth={4}
                   simplifyDistance={5}
                   applyKalman={false}
                 />
               )}
               {currentLocation && Marker && (
-                <Marker coordinate={currentLocation} title="Current Location" pinColor={ACTION_BLUE} />
+                <Marker coordinate={currentLocation} title="Current Location" anchor={{ x: 0.5, y: 0.5 }}>
+                  <PremiumMapMarker icon="navigate" active />
+                </Marker>
               )}
               {Marker && journey?.waypoints?.map((waypoint, index) => (
                 <Marker
                   key={`waypoint-${index}`}
                   coordinate={{ latitude: waypoint.latitude, longitude: waypoint.longitude }}
                   title={`${waypoint.type === 'photo' ? 'Photo' : 'Video'} #${index + 1}`}
-                  pinColor={waypoint.type === 'photo' ? GROWTH_GREEN : ACTION_BLUE}
-                />
+                >
+                  <PremiumMapMarker icon={waypoint.type === 'photo' ? 'camera' : 'videocam'} />
+                </Marker>
               ))}
             </MapView>
           ) : (
@@ -262,6 +284,22 @@ ${currentLocation ? `new google.maps.Marker({position:{lat:${currentLocation.lat
           )}
 
           {/* GPS Accuracy Chip */}
+          <GlassMapPanel style={styles.capturePanel} tint={mapStyle.glassTint}>
+            <TouchableOpacity
+              style={[styles.captureButton, { borderColor: ACTION_BLUE }]}
+              onPress={() => openJourneyCapture('photo')}
+            >
+              <Ionicons name="camera" size={18} color={ACTION_BLUE} />
+              <Text style={[styles.captureText, { color: ACTION_BLUE }]}>Post</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.captureButton, { borderColor: ALERT_RED }]}
+              onPress={() => openJourneyCapture('short')}
+            >
+              <Ionicons name="videocam" size={18} color={ALERT_RED} />
+              <Text style={[styles.captureText, { color: ALERT_RED }]}>Post a reel</Text>
+            </TouchableOpacity>
+          </GlassMapPanel>
           <GPSAccuracyChip accuracy={accuracy} />
         </View>
       )}
@@ -331,6 +369,30 @@ const styles = StyleSheet.create({
   map: {
     width: '100%',
     height: '100%',
+  },
+  capturePanel: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 72,
+    padding: 10,
+    flexDirection: 'row',
+    gap: 10,
+  },
+  captureButton: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  captureText: {
+    fontSize: 14,
+    fontWeight: '700',
   },
   loadingOverlay: {
     position: 'absolute',

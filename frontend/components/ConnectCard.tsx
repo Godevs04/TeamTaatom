@@ -14,6 +14,7 @@ import { ConnectPageType } from '../services/connect';
 import { theme as themeConstants } from '../constants/theme';
 import { optimizeCloudinaryUrl } from '../utils/imageCache';
 import { imageCacheManager } from '../utils/imageCacheManager';
+import PremiumGlassCard from './ui/PremiumGlassCard';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -54,12 +55,8 @@ export default function ConnectCard({
     : '';
 
   return (
-    <TouchableOpacity
-      style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
-      onPress={onPress}
-      activeOpacity={0.7}
-    >
-      <View style={styles.cardContent}>
+    <TouchableOpacity onPress={onPress} activeOpacity={0.76} style={styles.touchable}>
+      <PremiumGlassCard style={styles.card} contentStyle={styles.cardContent} glow={isFollowing}>
         {/* Profile Image */}
         <View style={styles.imageContainer}>
           {cachedImageUri ? (
@@ -136,17 +133,17 @@ export default function ConnectCard({
             </Text>
           </TouchableOpacity>
         )}
-      </View>
+      </PremiumGlassCard>
     </TouchableOpacity>
   );
 }
 
 const styles = StyleSheet.create({
-  card: {
-    borderRadius: themeConstants.borderRadius.md,
-    borderWidth: 1,
+  touchable: {
     marginHorizontal: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.md,
     marginBottom: isTablet ? themeConstants.spacing.md : themeConstants.spacing.sm,
+  },
+  card: {
     padding: isTablet ? themeConstants.spacing.lg : themeConstants.spacing.md,
   },
   cardContent: {
@@ -160,6 +157,8 @@ const styles = StyleSheet.create({
     width: isTablet ? 56 : 48,
     height: isTablet ? 56 : 48,
     borderRadius: isTablet ? 28 : 24,
+    borderWidth: 2,
+    borderColor: 'rgba(142, 184, 255, 0.55)',
   },
   profileImagePlaceholder: {
     width: isTablet ? 56 : 48,
@@ -225,7 +224,7 @@ const styles = StyleSheet.create({
   followButton: {
     paddingHorizontal: isTablet ? 18 : 14,
     paddingVertical: isTablet ? 8 : 6,
-    borderRadius: themeConstants.borderRadius.sm,
+    borderRadius: themeConstants.borderRadius.full,
     alignItems: 'center',
     justifyContent: 'center',
   },

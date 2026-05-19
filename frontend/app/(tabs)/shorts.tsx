@@ -776,13 +776,33 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
     const videoId = item._id;
     
+    // DETAILED LOGGING: Track URL resolution for first 2 shorts
+    const isFirstTwoShorts = shorts.length > 0 && shorts.indexOf(item) < 2;
+    if (isFirstTwoShorts) {
+      logger.info(`[FIRST_2_SHORTS] getVideoUrl called for short at index ${shorts.indexOf(item)}:`, {
+        videoId,
+        hasVideoUrl: !!item.videoUrl,
+        hasMediaUrl: !!item.mediaUrl,
+        hasImageUrl: !!item.imageUrl,
+        videoUrl: item.videoUrl ? item.videoUrl.substring(0, 80) : 'UNDEFINED',
+        mediaUrl: item.mediaUrl ? item.mediaUrl.substring(0, 80) : 'UNDEFINED',
+        imageUrl: item.imageUrl ? item.imageUrl.substring(0, 80) : 'UNDEFINED',
+        baseUrl: baseUrl ? baseUrl.substring(0, 80) : 'UNDEFINED',
+        timestamp: new Date().toISOString()
+      });
+    }
+    
     // Validate base URL exists
     if (!baseUrl || typeof baseUrl !== 'string' || baseUrl.trim() === '') {
       logger.error(`Invalid video URL for item ${videoId}:`, {
         videoUrl: item.videoUrl,
         mediaUrl: item.mediaUrl,
-        imageUrl: item.imageUrl
+        imageUrl: item.imageUrl,
+        isFirstTwoShorts
       });
+      if (isFirstTwoShorts) {
+        logger.error(`[FIRST_2_SHORTS] EMPTY URL DETECTED at index ${shorts.indexOf(item)}`);
+      }
       return '';
     }
     
@@ -801,21 +821,37 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         if (cachedBaseUrl === currentBaseUrl) {
           // Check if cache is close to expiry (within 2 minutes)
           if (cacheAge < (CACHE_MAX_AGE - 2 * 60 * 1000)) {
+            if (isFirstTwoShorts) {
+              logger.info(`[FIRST_2_SHORTS] Cache HIT for short at index ${shorts.indexOf(item)}, age: ${Math.round(cacheAge / 1000)}s`);
+            }
             return cached.url;
           } else {
             // Cache is getting old, but still valid - return it but don't update cache timestamp
             // This will force a refresh on next call
             logger.debug(`Video ${videoId} cache is close to expiry (${Math.round(cacheAge / 1000 / 60)} minutes old)`);
+            if (isFirstTwoShorts) {
+              logger.info(`[FIRST_2_SHORTS] Cache NEAR_EXPIRY for short at index ${shorts.indexOf(item)}`);
+            }
             return cached.url;
           }
         } else {
           // Base URL changed, clear cache for this item
           videoCacheRef.current.delete(videoId);
+          if (isFirstTwoShorts) {
+            logger.warn(`[FIRST_2_SHORTS] Cache INVALIDATED (URL changed) for short at index ${shorts.indexOf(item)}`);
+          }
         }
       } else {
         // Cache expired, clear it
         logger.debug(`Video ${videoId} cache expired (${Math.round(cacheAge / 1000 / 60)} minutes old), clearing`);
+        if (isFirstTwoShorts) {
+          logger.warn(`[FIRST_2_SHORTS] Cache EXPIRED for short at index ${shorts.indexOf(item)}`);
+        }
         videoCacheRef.current.delete(videoId);
+      }
+    } else {
+      if (isFirstTwoShorts) {
+        logger.info(`[FIRST_2_SHORTS] Cache MISS for short at index ${shorts.indexOf(item)}`);
       }
     }
     
@@ -835,9 +871,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       timestamp: Date.now()
     });
     
+    if (isFirstTwoShorts) {
+      logger.info(`[FIRST_2_SHORTS] Generated URL for short at index ${shorts.indexOf(item)}: ${url.substring(0, 100)}...`);
+    }
     logger.debug(`Video URL for ${videoId} (fresh):`, url.substring(0, 100) + '...');
     return url;
-  }, [videoQuality]);
+  }, [videoQuality, shorts]);
   
   // Track previous visible index to detect actual scroll changes
   const previousVisibleIndexRef = useRef<number>(-1);
@@ -963,6 +1002,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       currentPageRef.current = 1;
       hasMoreRef.current = true;
 
+      logger.info(`[LOAD_SHORTS] Starting to load shorts`, {
+        effectiveUserId,
+        effectiveShortId,
+        timestamp: new Date().toISOString()
+      });
+
       const shouldFilterByUser = !!effectiveUserId;
 
       // When a specific shortId is provided (opened from notification / feed tap)
@@ -972,6 +1017,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           const raw = await getPostById(effectiveShortId);
           const singleShort: PostType | null = raw?.post || raw || null;
           if (singleShort) {
+            logger.info(`[LOAD_SHORTS] Loaded specific short:`, {
+              shortId: singleShort._id,
+              hasVideoUrl: !!singleShort.videoUrl,
+              hasMediaUrl: !!singleShort.mediaUrl,
+              hasImageUrl: !!singleShort.imageUrl
+            });
             const fromStorage = likedShortIdsRef.current.has(singleShort._id);
             const isLiked = singleShort.isLiked || fromStorage;
             const likesCount = isLiked && fromStorage && !singleShort.isLiked
@@ -986,6 +1037,23 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         // Load the full feed in background; merge so the specific short stays at position 0
         try {
           const response = await getShorts(1, 10);
+          logger.info(`[LOAD_SHORTS] Loaded full feed (${response.shorts?.length || 0} shorts)`, {
+            timestamp: new Date().toISOString()
+          });
+          // Log first 2 shorts details
+          if (response.shorts && response.shorts.length > 0) {
+            response.shorts.slice(0, 2).forEach((s, idx) => {
+              logger.info(`[LOAD_SHORTS] First 2 shorts - Short ${idx}:`, {
+                shortId: s._id,
+                hasVideoUrl: !!s.videoUrl,
+                hasMediaUrl: !!s.mediaUrl,
+                hasImageUrl: !!s.imageUrl,
+                videoUrl: s.videoUrl ? s.videoUrl.substring(0, 80) : 'UNDEFINED',
+                mediaUrl: s.mediaUrl ? s.mediaUrl.substring(0, 80) : 'UNDEFINED',
+                imageUrl: s.imageUrl ? s.imageUrl.substring(0, 80) : 'UNDEFINED'
+              });
+            });
+          }
           videoCacheRef.current.clear();
           const merged = (response.shorts || []).map((s: PostType) => {
             const fromStorage = likedShortIdsRef.current.has(s._id);
@@ -1018,6 +1086,25 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         response = await getUserShorts(effectiveUserId, 1, 100);
       } else {
         response = await getShorts(1, 10);
+      }
+
+      logger.info(`[LOAD_SHORTS] Loaded shorts (${response.shorts?.length || 0} shorts)`, {
+        timestamp: new Date().toISOString()
+      });
+      
+      // Log first 2 shorts details
+      if (response.shorts && response.shorts.length > 0) {
+        response.shorts.slice(0, 2).forEach((s, idx) => {
+          logger.info(`[LOAD_SHORTS] First 2 shorts - Short ${idx}:`, {
+            shortId: s._id,
+            hasVideoUrl: !!s.videoUrl,
+            hasMediaUrl: !!s.mediaUrl,
+            hasImageUrl: !!s.imageUrl,
+            videoUrl: s.videoUrl ? s.videoUrl.substring(0, 80) : 'UNDEFINED',
+            mediaUrl: s.mediaUrl ? s.mediaUrl.substring(0, 80) : 'UNDEFINED',
+            imageUrl: s.imageUrl ? s.imageUrl.substring(0, 80) : 'UNDEFINED'
+          });
+        });
       }
 
       videoCacheRef.current.clear();
@@ -2078,6 +2165,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 key={`video-${item._id}-${sourceVersions[item._id] ?? 0}`}
                 ref={(ref) => {
                   videoRefs.current[item._id] = ref;
+                  if (index < 2) {
+                    logger.info(`[RENDER_VIDEO] Video component mounted for short at index ${index}:`, {
+                      shortId: item._id,
+                      shouldRenderVideo,
+                      sourceVersion: sourceVersions[item._id] ?? 0,
+                      timestamp: new Date().toISOString()
+                    });
+                  }
                 }}
                 source={{ uri: handlersRef.current.getVideoUrl(item) }}
                 style={[
@@ -2098,6 +2193,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 })()}
                 onLoadStart={() => {
                   logger.debug(`Video ${item._id} load started, index: ${index}, currentVisible: ${currentVisibleIndex}`);
+                  if (index < 2) {
+                    logger.info(`[RENDER_VIDEO] onLoadStart for short at index ${index}:`, {
+                      shortId: item._id,
+                      timestamp: new Date().toISOString()
+                    });
+                  }
                   if (index === currentVisibleIndex) {
                     const video = videoRefs.current[item._id];
                     if (video) {

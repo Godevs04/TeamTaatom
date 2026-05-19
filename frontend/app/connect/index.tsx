@@ -13,7 +13,6 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
@@ -36,6 +35,9 @@ import {
 import { getPlaceSuggestions } from '../../utils/locationUtils';
 import { toggleFollow } from '../../services/profile';
 import logger from '../../utils/logger';
+import PremiumScreen from '../../components/ui/PremiumScreen';
+import PremiumIconButton from '../../components/ui/PremiumIconButton';
+import PremiumSegmentedTabs from '../../components/ui/PremiumSegmentedTabs';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -889,51 +891,24 @@ export default function ConnectHubScreen() {
   ];
 
   return (
-    <SafeAreaView
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
-      edges={['top']}
-    >
+    <PremiumScreen style={styles.container} edges={['top']}>
       {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity
-          style={styles.backButton}
+      <View style={styles.header}>
+        <PremiumIconButton
+          icon="menu"
           onPress={() => router.back()}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="arrow-back" size={isTablet ? 28 : 24} color={theme.colors.text} />
-        </TouchableOpacity>
+          accessibilityLabel="Back"
+        />
         <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Connect</Text>
-        <TouchableOpacity
-          style={styles.searchButton}
+        <PremiumIconButton
+          icon="search"
           onPress={() => router.push('/connect/search')}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="search" size={isTablet ? 26 : 22} color={theme.colors.text} />
-        </TouchableOpacity>
+          accessibilityLabel="Search"
+        />
       </View>
 
       {/* Tabs */}
-      <View style={[styles.tabBar, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
-        {tabs.map(tab => {
-          const isActive = activeTab === tab.key;
-          return (
-            <TouchableOpacity
-              key={tab.key}
-              style={[styles.tab, isActive && { borderBottomColor: theme.colors.primary, borderBottomWidth: 2 }]}
-              onPress={() => handleTabChange(tab.key)}
-              activeOpacity={0.7}
-            >
-              <Text
-                style={[styles.tabText, { color: isActive ? theme.colors.primary : theme.colors.textSecondary }, isActive && styles.tabTextActive]}
-              >
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+      <PremiumSegmentedTabs tabs={tabs} value={activeTab} onChange={handleTabChange} style={styles.tabBar} />
 
       {/* Tab Content */}
       {activeTab === 'connect' ? renderConnectTab() : activeTab === 'find' ? renderFindTab() : renderPageListTab()}
@@ -941,7 +916,7 @@ export default function ConnectHubScreen() {
       {/* FAB — Create Connect Page (Connect tab only) */}
       {activeTab === 'connect' && (
         <TouchableOpacity
-          style={[styles.fab, { backgroundColor: theme.colors.primary }]}
+          style={[styles.fab, { backgroundColor: theme.colors.primary, shadowColor: theme.colors.glowBlue }]}
           onPress={() => router.push('/connect/create')}
           activeOpacity={0.8}
         >
@@ -957,7 +932,7 @@ export default function ConnectHubScreen() {
       {renderPickerModal(showCurrentCountryPicker, countries, selectedCurrentCountry, setSelectedCurrentCountry, () => setShowCurrentCountryPicker(false), 'Currently in')}
       {renderPickerModal(showLanguagePicker, languages, selectedLanguage, setSelectedLanguage, () => setShowLanguagePicker(false), 'Select Language')}
       {renderPickerModal(showTravelStylePicker, TRAVEL_STYLES, selectedTravelStyle, setSelectedTravelStyle, () => setShowTravelStylePicker(false), 'Select Travel Style')}
-    </SafeAreaView>
+    </PremiumScreen>
   );
 }
 
@@ -968,15 +943,15 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.md,
-    paddingVertical: isTablet ? themeConstants.spacing.md : 12,
-    borderBottomWidth: 1,
+    paddingTop: isTablet ? themeConstants.spacing.md : 12,
+    paddingBottom: 10,
   },
   backButton: {
     padding: isTablet ? themeConstants.spacing.sm : 8,
   },
   headerTitle: {
-    flex: 1,
     fontSize: isTablet ? 22 : 18,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
@@ -987,28 +962,19 @@ const styles = StyleSheet.create({
     padding: isTablet ? themeConstants.spacing.sm : 8,
   },
   tabBar: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-  },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: isTablet ? 14 : 12,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
-  },
-  tabText: {
-    fontSize: isTablet ? 16 : 14,
-    fontFamily: getFontFamily('500'),
-    fontWeight: '500',
-  },
-  tabTextActive: {
-    fontWeight: '600',
+    marginHorizontal: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.md,
+    marginBottom: 10,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.36,
+    shadowRadius: 18,
+    elevation: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
   },
   footerLoader: {
     paddingVertical: 16,

@@ -17,6 +17,13 @@ export const theme = {
     xl: 22,
     full: 9999,
   },
+  radius: {
+    sm: 10,
+    md: 14,
+    lg: 16,
+    xl: 22,
+    full: 9999,
+  },
   typography: {
     h1: {
       fontSize: 32,
@@ -72,4 +79,39 @@ export const theme = {
       elevation: 10,
     },
   },
+  animation: {
+    spring: {
+      stiffness: 250,
+      damping: 20,
+      mass: 1,
+    },
+    timing: {
+      duration: 300,
+    }
+  },
+  glass: {
+    blurIntensity: 50,
+    blurTint: 'dark' as 'dark' | 'light' | 'default',
+    border: {
+      width: 1,
+      color: colors.glass.border,
+    },
+    blur: {
+      light: 20,
+      medium: 50,
+    }
+  },
+  premium: {
+    screenGradient: colors.screenGradient,
+    glassSurface: colors.glassSurface,
+    glassStrong: colors.glassStrong,
+    glassBorder: colors.glassBorder,
+    glowBlue: colors.glowBlue,
+    innerHighlight: colors.innerHighlight,
+    softShadow: colors.softShadow,
+    floatingDock: colors.floatingDock,
+    cardRadius: 22,
+    pillRadius: 9999,
+    iconWell: 48,
+  }
 };
