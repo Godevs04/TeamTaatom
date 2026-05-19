@@ -368,12 +368,58 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       if (autoPlay) {
         // Should play - play song
         const currentPostId = audioManager.getCurrentPostId();
-        // Capture-and-clear: if this sound was preloaded (loaded with shouldPlay:false
-        // while the video was buffering), the reload-detection branch below would
-        // mistake it for an externally-stopped sound and reload it. Skip that branch
-        // and let the normal "wire sound into audioManager" path start playback.
         const wasPreloaded = preloadedRef.current;
         preloadedRef.current = false;
+
+        // CRITICAL SYNC FIX: If audio is preloaded and ready, play it IMMEDIATELY
+        // This ensures audio/video sync from the very start
+        if (soundRef.current && wasPreloaded && post._id) {
+          logger.debug('[SONGPLAYER] Playing preloaded audio immediately for sync');
+          // Play preloaded sound immediately without any checks
+          soundRef.current.playAsync()
+            .then(() => {
+              setIsPlaying(true);
+              audioManager.playSound(soundRef.current!, post._id.toString()).catch(() => {});
+            })
+            .catch((err) => {
+              logger.debug('[SONGPLAYER] Preloaded play failed:', err);
+              // Fallback: reload if preloaded play fails
+              soundRef.current = null;
+              setSound(null);
+              loadAndPlaySong();
+            });
+          return;
+        }
+
+        // OPTIMIZATION: If sound exists and is for the same post, resume immediately
+        // without any status checks to minimize delay when returning to same short
+        if (soundRef.current && post._id && currentPostId === post._id.toString()) {
+          logger.debug('[SONGPLAYER] Resuming same post audio immediately (no status check)');
+          // Resume immediately without awaiting - fire and forget for speed
+          soundRef.current.playAsync().catch((err) => {
+            logger.debug('[SONGPLAYER] Immediate resume failed, attempting recovery:', err);
+            // Only if immediate resume fails, do a status check
+            soundRef.current?.getStatusAsync()
+              .then((status) => {
+                if (status.isLoaded && !status.isPlaying) {
+                  soundRef.current?.playAsync().catch(() => {});
+                } else if (!status.isLoaded) {
+                  // Sound was unloaded, need to reload
+                  soundRef.current = null;
+                  setSound(null);
+                  loadAndPlaySong();
+                }
+              })
+              .catch(() => {
+                // Status check failed, reload
+                soundRef.current = null;
+                setSound(null);
+                loadAndPlaySong();
+              });
+          });
+          setIsPlaying(true);
+          return;
+        }
 
         // Critical check: If soundRef exists but audioManager has no current sound,
         // it means stopAll() was called and the sound was unloaded externally.
@@ -423,69 +469,34 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         if (!soundRef.current) {
           // Load and play if not already loaded
           loadAndPlaySong();
+        } else if (post._id && currentPostId !== post._id.toString()) {
+          // Different post is playing, use audioManager to switch
+          audioManager.playSound(soundRef.current, post._id.toString())
+            .then(() => {
+              setIsPlaying(true);
+            })
+            .catch((err) => {
+              logger.error('Error playing sound:', err);
+              // If playSound fails (e.g., sound was unloaded), reload
+              soundRef.current = null;
+              setSound(null);
+              loadAndPlaySong();
+            });
         } else {
-          // If already loaded, check if it's already playing
-          
-          if (post._id && currentPostId !== post._id.toString()) {
-            // Different post is playing, use audioManager to switch
-            audioManager.playSound(soundRef.current, post._id.toString())
-              .then(() => {
-                setIsPlaying(true);
-              })
-              .catch((err) => {
-                logger.error('Error playing sound:', err);
-                // If playSound fails (e.g., sound was unloaded), reload
-                soundRef.current = null;
-                setSound(null);
-                loadAndPlaySong();
-              });
-          } else if (post._id && currentPostId === post._id.toString()) {
-            // Same post - check if sound is actually playing, if not, resume it
-            soundRef.current.getStatusAsync()
-              .then((status) => {
-                if (status.isLoaded && !status.isPlaying) {
-                  // Sound is loaded but paused, resume it
-                  soundRef.current?.playAsync()
-                    .then(() => {
-                      setIsPlaying(true);
-                    })
-                    .catch((err) => {
-                      logger.error('Error resuming sound:', err);
-                    });
-                } else {
-                  // Already playing, just update state
-                  setIsPlaying(true);
-                }
-              })
-              .catch(() => {
-                // If status check fails, the sound might be unloaded (e.g., after stopAll)
-                // Reload and play the song - this is critical for unmuting
-                logger.debug('Sound status check failed, reloading song (likely after unmute)');
-                soundRef.current = null;
-                setSound(null);
-                loadAndPlaySong()
-                  .then(() => {
-                    setIsPlaying(true);
-                  })
-                  .catch((err) => {
-                    logger.error('Error reloading and playing sound:', err);
-                  });
-              });
-          } else {
-            // Post is not currently playing - need to load and play
-            // This can happen when unmuting a post that was stopped
-            logger.debug('Post not currently playing, loading and playing (likely after unmute)');
-            loadAndPlaySong()
-              .then(() => {
-                setIsPlaying(true);
-              })
-              .catch((err) => {
-                logger.error('Error loading and playing sound:', err);
-              });
-          }
+          // Post is not currently playing - need to load and play
+          logger.debug('[SONGPLAYER] Post not currently playing, loading and playing');
+          loadAndPlaySong()
+            .then(() => {
+              setIsPlaying(true);
+            })
+            .catch((err) => {
+              logger.error('Error loading and playing sound:', err);
+            });
         }
       } else {
-        // autoPlay is false
+        // autoPlay is false - PRELOAD mode
+        // For shorts: preload audio in parallel with video buffering
+        // This ensures audio is ready to play immediately when video starts
         if (!soundRef.current) {
           // PRELOAD: load the song silently in parallel with the video buffer.
           // shouldPlayNow inside loadAndPlaySong derives from autoPlay (false here),
@@ -493,36 +504,26 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
           // isPlaying:true and autoPlay flips, the autoPlay branch above starts
           // playback on this already-loaded sound — within a frame instead of
           // trailing the video by the song's load latency (~200-500ms).
+          logger.debug('[SONGPLAYER] Preloading audio for sync with video');
           loadAndPlaySong();
         } else {
           // Sound exists — pause it (muted, paused, or about to lose focus).
           // Check if sound is actually loaded before pausing — loadAsync may
           // still be in-flight, and calling pauseAsync on a loading sound throws.
-          soundRef.current.getStatusAsync()
-            .then((status) => {
-              if (status.isLoaded && soundRef.current) {
-                soundRef.current.pauseAsync().catch(err => {
-                  // pauseAsync routinely rejects when the sound was unloaded
-                  // between the status check above and this call (race with
-                  // the visibility effect's cleanup branch) or when the native
-                  // op was cancelled (-1102). isPlaying state is already set
-                  // false synchronously below, so these are cosmetic noise.
-                  const code = err?.code;
-                  const msg = err?.message || '';
-                  const isExpected =
-                    code === -1102 ||
-                    msg.includes('-1102') ||
-                    msg.includes('NSURLErrorCancelled') ||
-                    msg.includes('cancelled') ||
-                    msg.includes('unloaded') ||
-                    msg.includes('not loaded');
-                  if (!isExpected) logger.error('Error pausing:', err);
-                });
-              }
-            })
-            .catch(() => {
-              // Sound not accessible — already unloaded or not yet loaded
-            });
+          soundRef.current.pauseAsync().catch(err => {
+            // pauseAsync routinely rejects when the sound was unloaded
+            // or when the native op was cancelled (-1102). These are expected.
+            const code = err?.code;
+            const msg = err?.message || '';
+            const isExpected =
+              code === -1102 ||
+              msg.includes('-1102') ||
+              msg.includes('NSURLErrorCancelled') ||
+              msg.includes('cancelled') ||
+              msg.includes('unloaded') ||
+              msg.includes('not loaded');
+            if (!isExpected) logger.error('Error pausing:', err);
+          });
           setIsPlaying(false);
         }
       }
@@ -536,9 +537,9 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       preloadedRef.current = false;
       if (soundRef.current) {
         onPlayingChange?.(null);
-        // Stop + unload instantly to prevent audio bleeding
-        soundRef.current.stopAsync().catch(() => {});
-        soundRef.current.unloadAsync().catch(() => {});
+        // Pause instead of unload to keep sound ready for quick resume
+        soundRef.current.pauseAsync().catch(() => {});
+        // Don't unload - keep it in memory for fast resume when returning
         soundRef.current = null;
         setSound(null);
         setIsPlaying(false);
