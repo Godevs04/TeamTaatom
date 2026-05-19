@@ -13,6 +13,7 @@ interface ThemeContextProps {
   mode: 'dark' | 'light' | 'auto';
   setMode: (m: 'dark' | 'light' | 'auto') => void;
   themeLoaded: boolean;
+  isDark: boolean;
   getScaledFontSize?: (baseSize: number) => number;
 }
 
@@ -64,12 +65,23 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const value = useMemo(
-    () => ({
-      theme: (mode === 'dark' ? darkTheme : mode === 'light' ? lightTheme : (new Date().getHours() >= 7 && new Date().getHours() <= 19) ? lightTheme : darkTheme),
-      mode,
-      setMode: setModePersist,
-      themeLoaded,
-    }),
+    () => {
+      // Determine if dark based on mode, or auto + hour
+      let isDark = false;
+      if (mode === 'dark') isDark = true;
+      else if (mode === 'light') isDark = false;
+      else {
+        const h = new Date().getHours();
+        isDark = h < 7 || h > 19;
+      }
+      return {
+        theme: isDark ? darkTheme : lightTheme,
+        mode,
+        setMode: setModePersist,
+        themeLoaded,
+        isDark,
+      };
+    },
     [mode, themeLoaded]
   );
 

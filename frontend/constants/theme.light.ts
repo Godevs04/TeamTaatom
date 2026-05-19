@@ -17,6 +17,13 @@ export const lightTheme = {
     xl: 22,
     full: 9999,
   },
+  radius: {
+    sm: 10,
+    md: 14,
+    lg: 16,
+    xl: 22,
+    full: 9999,
+  },
   typography: {
     h1: {
       fontSize: 32,
@@ -72,4 +79,39 @@ export const lightTheme = {
       elevation: 10,
     },
   },
+  animation: {
+    spring: {
+      stiffness: 250,
+      damping: 20,
+      mass: 1,
+    },
+    timing: {
+      duration: 300,
+    }
+  },
+  glass: {
+    blurIntensity: 65,
+    blurTint: 'light' as 'dark' | 'light' | 'default',
+    border: {
+      width: 1,
+      color: lightColors.glass.border,
+    },
+    blur: {
+      light: 20,
+      medium: 50,
+    }
+  },
+  premium: {
+    screenGradient: lightColors.screenGradient,
+    glassSurface: lightColors.glassSurface,
+    glassStrong: lightColors.glassStrong,
+    glassBorder: lightColors.glassBorder,
+    glowBlue: lightColors.glowBlue,
+    innerHighlight: lightColors.innerHighlight,
+    softShadow: lightColors.softShadow,
+    floatingDock: lightColors.floatingDock,
+    cardRadius: 22,
+    pillRadius: 9999,
+    iconWell: 48,
+  }
 };

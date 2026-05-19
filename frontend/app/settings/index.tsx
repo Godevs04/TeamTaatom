@@ -16,18 +16,18 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import NavBar from '../../components/NavBar';
+import PremiumScreen from '../../components/ui/PremiumScreen';
+import PremiumGlassCard from '../../components/ui/PremiumGlassCard';
 import { getUserFromStorage } from '../../services/auth';
 import { useSettings } from '../../context/SettingsContext';
-import { useAlert } from '../../context/AlertContext';
 import { createLogger } from '../../utils/logger';
 import { theme } from '../../constants/theme';
 
 // Responsive dimensions
-const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
 const isWeb = Platform.OS === 'web';
 const isIOS = Platform.OS === 'ios';
-const isAndroid = Platform.OS === 'android';
 
 // Elegant font families for each platform
 const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') => {
@@ -139,8 +139,7 @@ export default function SettingsScreen() {
   const isMountedRef = useRef(true);
   
   const router = useRouter();
-  const { theme, setMode, mode } = useTheme();
-  const { showSuccess, showError, showConfirm, showOptions } = useAlert();
+  const { theme } = useTheme();
 
   const loadUserData = useCallback(async () => {
     try {
@@ -238,17 +237,17 @@ export default function SettingsScreen() {
 
   if (isLoading) {
     return (
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <PremiumScreen style={styles.container}>
         <NavBar title="Settings" />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
-      </View>
+      </PremiumScreen>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <PremiumScreen style={styles.container}>
       <NavBar 
         title="Settings" 
         showBack={true}
@@ -299,7 +298,7 @@ export default function SettingsScreen() {
           </View>
         </View>
         {/* User Info Header */}
-        <View style={[styles.headerContainer, { backgroundColor: theme.colors.surface }]}>
+        <PremiumGlassCard style={styles.headerContainer} contentStyle={styles.userInfo} glow>
           <View style={styles.userInfo}>
             <Text style={[styles.userName, { color: theme.colors.text }]}>
               {user?.fullName || 'User'}
@@ -308,17 +307,13 @@ export default function SettingsScreen() {
               {user?.email}
             </Text>
           </View>
-        </View>
+        </PremiumGlassCard>
 
         {/* Settings Sections */}
         <View style={styles.sectionsContainer}>
           {memoizedSections.map((section) => (
-            <TouchableOpacity
-              key={section.id}
-              style={[styles.sectionItem, { backgroundColor: theme.colors.surface }]}
-              onPress={() => navigateToSection(section)}
-            >
-              <View style={styles.sectionContent}>
+            <TouchableOpacity key={section.id} onPress={() => navigateToSection(section)} activeOpacity={0.75}>
+              <PremiumGlassCard style={styles.sectionItem} contentStyle={styles.sectionContent}>
                 <View style={[styles.iconContainer, { backgroundColor: theme.colors.primary + '20' }]}>
                   <Ionicons 
                     name={section.icon as any} 
@@ -339,7 +334,7 @@ export default function SettingsScreen() {
                   size={20} 
                   color={theme.colors.textSecondary} 
                 />
-              </View>
+              </PremiumGlassCard>
             </TouchableOpacity>
           ))}
         </View>
@@ -364,7 +359,7 @@ export default function SettingsScreen() {
           </Text>
         </View>
       </ScrollView>
-    </View>
+    </PremiumScreen>
   );
 }
 

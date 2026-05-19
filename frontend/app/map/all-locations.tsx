@@ -12,6 +12,7 @@ import {
   Animated,
   Alert,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -23,9 +24,12 @@ import { useAlert } from '../../context/AlertContext';
 import { useJourney } from '../../context/JourneyContext';
 import { MapView, Marker, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
 import PolylineRenderer from '../../components/PolylineRenderer';
+import GlassMapPanel from '../../components/GlassMapPanel';
+import PremiumMapMarker from '../../components/PremiumMapMarker';
 import { getTravelMapData } from '../../services/profile';
 import { getUserJourneys } from '../../services/journey';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
+import { useMapStyle } from '../../hooks/useMapStyle';
 import logger from '../../utils/logger';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 const GROWTH_GREEN = '#22C55E';
@@ -75,6 +79,7 @@ function AllLocationsMapInner() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mapFilter, setMapFilter] = useState<'posts' | 'journeys' | 'both'>('posts');
+  const [selectedLocation, setSelectedLocation] = useState<LocationPin | null>(null);
   const [currentCountry, setCurrentCountry] = useState<string | null>(null);
   const [statistics, setStatistics] = useState<{
     totalLocations: number;
@@ -85,6 +90,7 @@ function AllLocationsMapInner() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme, mode } = useTheme();
+  const mapStyle = useMapStyle();
   const { showAlert } = useAlert();
   const rawUserId = params.userId;
   const userId = typeof rawUserId === 'string' ? rawUserId : Array.isArray(rawUserId) ? rawUserId[0] : undefined;
@@ -264,6 +270,17 @@ function AllLocationsMapInner() {
         },
       },
     ]);
+  };
+
+  const openJourneyCapture = (type: 'photo' | 'short') => {
+    router.push({
+      pathname: '/(tabs)/post',
+      params: {
+        journeyCapture: 'true',
+        postType: type,
+        source: 'journey',
+      },
+    });
   };
 
   // Get current country via reverse geocoding
@@ -482,9 +499,14 @@ function AllLocationsMapInner() {
       lat: loc.latitude,
       lng: loc.longitude,
       title: (loc.address || `Location #${loc.number}`).replace(/"/g, '&quot;'),
+      address: loc.address || `Location #${loc.number}`,
       number: loc.number,
       photo: loc.photo || null,
       postId: loc.postId || null,
+      latitude: loc.latitude,
+      longitude: loc.longitude,
+      date: loc.date,
+      contentType: loc.contentType || null,
     }));
     const filteredJourneys = (mapFilter === 'journeys' || mapFilter === 'both') ? journeys : [];
     const polylinePaths = filteredJourneys.map((j) => ({
@@ -507,7 +529,7 @@ function AllLocationsMapInner() {
 function initMap(){
   var map=new google.maps.Map(document.getElementById('map'),{
     center:{lat:${region.latitude},lng:${region.longitude}},
-    zoom:${zoomLevel},mapTypeId:'terrain',language:'en'
+    zoom:${zoomLevel},mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true
   });
   var bounds=new google.maps.LatLngBounds();
   var activeOverlays=[];
@@ -516,7 +538,8 @@ function initMap(){
   var journeys=${JSON.stringify(polylinePaths)};
   journeys.forEach(function(j){
     if(j.path&&j.path.length>1){
-      new google.maps.Polyline({path:j.path,geodesic:true,strokeColor:'${GROWTH_GREEN}',strokeOpacity:0.9,strokeWeight:4,map:map});
+      new google.maps.Polyline({path:j.path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});
+      new google.maps.Polyline({path:j.path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});
       j.path.forEach(function(p){bounds.extend(new google.maps.LatLng(p.lat,p.lng));});
     }
     // Start marker
@@ -627,23 +650,18 @@ function initMap(){
         div.appendChild(badge);
       }
 
-      // Tap handler: single marker → navigate to post, cluster → zoom in
+      // Tap handler: single marker opens the native preview card, cluster zooms in.
       div.addEventListener('click',function(e){
         e.stopPropagation();
-        if(cluster.items.length===1&&cluster.items[0].postId){
-          // Navigate to post detail
+        if(cluster.items.length===1){
           if(window.ReactNativeWebView){
-            window.ReactNativeWebView.postMessage(JSON.stringify({type:'navigatePost',postId:cluster.items[0].postId}));
+            window.ReactNativeWebView.postMessage(JSON.stringify({type:'selectLocation',location:cluster.items[0]}));
           }
         }else if(cluster.items.length>1){
           // Zoom into the cluster area
           var cb=new google.maps.LatLngBounds();
           cluster.items.forEach(function(it){cb.extend(new google.maps.LatLng(it.lat,it.lng));});
           map.fitBounds(cb,60);
-        }else if(cluster.items[0].postId){
-          if(window.ReactNativeWebView){
-            window.ReactNativeWebView.postMessage(JSON.stringify({type:'navigatePost',postId:cluster.items[0].postId}));
-          }
         }
       });
 
@@ -669,7 +687,7 @@ function initMap(){
 <div id="map"></div>
 <script async defer src="https://maps.googleapis.com/maps/api/js?key=${WEBVIEW_API_KEY || ''}&language=en&callback=initMap"></script>
 </body></html>`;
-  }, [locations, journeys, mapFilter, getMapRegion, WEBVIEW_API_KEY]);
+  }, [locations, journeys, mapFilter, getMapRegion, WEBVIEW_API_KEY, mapStyle.customMapStyle, mapStyle.routeColor, mapStyle.routeGlowColor]);
 
   // ──────────────────────────────────────────────────────
   // renderMap — native MapView preferred, WebView fallback
@@ -705,6 +723,17 @@ function initMap(){
               const data = JSON.parse(event.nativeEvent.data);
               if (data.type === 'navigatePost' && data.postId) {
                 router.push(`/post/${data.postId}`);
+              } else if (data.type === 'selectLocation' && data.location) {
+                setSelectedLocation({
+                  number: data.location.number,
+                  latitude: data.location.latitude ?? data.location.lat,
+                  longitude: data.location.longitude ?? data.location.lng,
+                  address: data.location.address || data.location.title || `Location #${data.location.number}`,
+                  date: data.location.date || '',
+                  photo: data.location.photo || undefined,
+                  postId: data.location.postId || undefined,
+                  contentType: data.location.contentType || undefined,
+                });
               }
             } catch (err) {
               logger.debug('[AllLocations] WebView message parse error:', err);
@@ -740,6 +769,7 @@ function initMap(){
         ref={mapRef}
         style={styles.map}
         provider={getMapProvider()}
+        {...mapStyle.nativeMapProps}
         initialRegion={region}
         // Show the OS-native current-location dot (with accuracy ring) on top
         // of the post/journey markers. Permission is already requested in the
@@ -751,7 +781,7 @@ function initMap(){
         followsUserLocation={false}
         showsCompass={true}
         showsScale={true}
-        mapType="terrain"
+        mapType={mapStyle.mapType}
         mapPadding={{ top: 100, right: 80, bottom: 100, left: 80 }}
         onMapReady={() => {
           const allCoords = [
@@ -782,7 +812,8 @@ function initMap(){
             <React.Fragment key={`journey-${j._id}`}>
               <PolylineRenderer
                 coordinates={coords}
-                color={GROWTH_GREEN}
+                color={mapStyle.routeColor}
+                glowColor={mapStyle.routeGlowColor}
                 strokeWidth={4}
                 simplifyDistance={10}
                 applyKalman={true}
@@ -822,10 +853,9 @@ function initMap(){
             coordinate={{ latitude: location.latitude, longitude: location.longitude }}
             title={location.address || `Location #${location.number}`}
             description={`Visit #${location.number}`}
+            onPress={() => setSelectedLocation(location)}
           >
-            <View style={styles.markerContainer}>
-              <Ionicons name="location" size={36} color={ALERT_RED} />
-            </View>
+            <PremiumMapMarker icon="location" active={selectedLocation?.postId === location.postId || selectedLocation?.number === location.number} />
           </Marker>
         ))}
       </MapView>
@@ -985,6 +1015,65 @@ function initMap(){
         ) : (
           renderMap()
         )}
+        {selectedLocation && (
+          <GlassMapPanel style={styles.previewCard} tint={mapStyle.glassTint}>
+            <View style={styles.previewContent}>
+              {selectedLocation.photo ? (
+                <ExpoImage
+                  source={{ uri: selectedLocation.photo }}
+                  style={styles.previewImage}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={180}
+                />
+              ) : (
+                <View style={[styles.previewImage, styles.previewFallback]}>
+                  <Ionicons name="image-outline" size={24} color={mapStyle.routeColor} />
+                </View>
+              )}
+              <View style={styles.previewText}>
+                <Text style={[styles.previewTitle, { color: theme.colors.text }]} numberOfLines={1}>
+                  {selectedLocation.address || `Location #${selectedLocation.number}`}
+                </Text>
+                <Text style={[styles.previewMeta, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                  Shared destination {selectedLocation.contentType ? `- ${selectedLocation.contentType}` : ''}
+                </Text>
+                <View style={styles.previewActions}>
+                  {selectedLocation.postId ? (
+                    <TouchableOpacity
+                      style={[styles.previewButton, { borderColor: theme.colors.border }]}
+                      onPress={() => router.push(`/post/${selectedLocation.postId}`)}
+                    >
+                      <Ionicons name="images-outline" size={16} color={theme.colors.text} />
+                      <Text style={[styles.previewButtonText, { color: theme.colors.text }]}>Post</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  <TouchableOpacity
+                    style={[styles.previewButton, styles.previewPrimaryButton, { backgroundColor: mapStyle.routeColor }]}
+                    onPress={() => router.push({
+                      pathname: '/map/current-location',
+                      params: {
+                        latitude: String(selectedLocation.latitude),
+                        longitude: String(selectedLocation.longitude),
+                        address: selectedLocation.address || `Location #${selectedLocation.number}`,
+                      },
+                    })}
+                  >
+                    <Ionicons name="navigate" size={16} color="white" />
+                    <Text style={[styles.previewButtonText, { color: 'white' }]}>Direction</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.previewClose}
+                onPress={() => setSelectedLocation(null)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+          </GlassMapPanel>
+        )}
       </View>
 
       {/* Journey controls — only on own page (not when viewing someone else's). */}
@@ -1056,6 +1145,22 @@ function initMap(){
                 <View style={[journeyStyles.liveDot, { backgroundColor: GROWTH_GREEN }]} />
                 <Text style={[journeyStyles.liveText, { color: GROWTH_GREEN }]}>Recording</Text>
               </View>
+              <View style={journeyStyles.captureRow}>
+                <TouchableOpacity
+                  style={[journeyStyles.captureBtn, { borderColor: ACTION_BLUE }]}
+                  onPress={() => openJourneyCapture('photo')}
+                >
+                  <Ionicons name="camera" size={18} color={ACTION_BLUE} />
+                  <Text style={[journeyStyles.captureText, { color: ACTION_BLUE }]}>Post</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[journeyStyles.captureBtn, { borderColor: ALERT_RED }]}
+                  onPress={() => openJourneyCapture('short')}
+                >
+                  <Ionicons name="videocam" size={18} color={ALERT_RED} />
+                  <Text style={[journeyStyles.captureText, { color: ALERT_RED }]}>Post a reel</Text>
+                </TouchableOpacity>
+              </View>
               <View style={journeyStyles.actionRow}>
                 <TouchableOpacity
                   style={[journeyStyles.pauseBtn, { borderColor: '#F59E0B' }]}
@@ -1091,6 +1196,22 @@ function initMap(){
                 </View>
                 <View style={[journeyStyles.liveDot, { backgroundColor: '#F59E0B' }]} />
                 <Text style={[journeyStyles.liveText, { color: '#F59E0B' }]}>Paused</Text>
+              </View>
+              <View style={journeyStyles.captureRow}>
+                <TouchableOpacity
+                  style={[journeyStyles.captureBtn, { borderColor: ACTION_BLUE }]}
+                  onPress={() => openJourneyCapture('photo')}
+                >
+                  <Ionicons name="camera" size={18} color={ACTION_BLUE} />
+                  <Text style={[journeyStyles.captureText, { color: ACTION_BLUE }]}>Post</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[journeyStyles.captureBtn, { borderColor: ALERT_RED }]}
+                  onPress={() => openJourneyCapture('short')}
+                >
+                  <Ionicons name="videocam" size={18} color={ALERT_RED} />
+                  <Text style={[journeyStyles.captureText, { color: ALERT_RED }]}>Post a reel</Text>
+                </TouchableOpacity>
               </View>
               <View style={journeyStyles.actionRow}>
                 <TouchableOpacity
@@ -1369,6 +1490,71 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
+  previewCard: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 18,
+    padding: 12,
+  },
+  previewContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  previewImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  previewFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(94, 162, 255, 0.14)',
+  },
+  previewText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  previewTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  previewMeta: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 3,
+  },
+  previewActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  previewButton: {
+    minHeight: 34,
+    paddingHorizontal: 12,
+    borderRadius: 17,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  previewPrimaryButton: {
+    borderWidth: 0,
+  },
+  previewButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  previewClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
 
 const markerStyles = StyleSheet.create({
@@ -1473,6 +1659,25 @@ const journeyStyles = StyleSheet.create({
   actionRow: {
     flexDirection: 'row',
     gap: 10,
+  },
+  captureRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  captureBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  captureText: {
+    fontSize: 14,
+    fontWeight: '700',
   },
   pauseBtn: {
     flex: 1,

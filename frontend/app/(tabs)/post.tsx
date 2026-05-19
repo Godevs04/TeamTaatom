@@ -21,10 +21,12 @@ import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as MediaLibrary from "expo-media-library";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
 import  NavBar from "../../components/NavBar";
+import PremiumScreen from "../../components/ui/PremiumScreen";
+import PremiumSegmentedTabs from "../../components/ui/PremiumSegmentedTabs";
 import { postSchema, shortSchema } from "../../utils/validation";
 import { getCurrentLocation, getAddressFromCoords } from "../../utils/locationUtils";
 import { LocationExtractionService } from "../../services/locationExtraction";
@@ -89,6 +91,9 @@ interface ShortFormValues {
 }
 
 export default function PostScreen() {
+  const params = useLocalSearchParams();
+  const initialPostType = params.postType === 'short' ? 'short' : 'photo';
+  const isJourneyCapture = params.journeyCapture === 'true';
   const [selectedImages, setSelectedImages] = useState<Array<{ uri: string; type: string; name: string }>>([]);
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null);
   const [videoThumbnail, setVideoThumbnail] = useState<string | null>(null);
@@ -108,7 +113,7 @@ export default function PostScreen() {
   }>({ current: 0, total: 0, percentage: 0 });
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [postType, setPostType] = useState<'photo' | 'short'>('photo');
+  const [postType, setPostType] = useState<'photo' | 'short'>(initialPostType);
   const [user, setUser] = useState<UserType | null>(null);
   const [hasExistingPosts, setHasExistingPosts] = useState<boolean | null>(null);
   const [hasExistingShorts, setHasExistingShorts] = useState<boolean | null>(null);
@@ -136,6 +141,12 @@ export default function PostScreen() {
   const [showCopyrightModal, setShowCopyrightModal] = useState(false);
   const [copyrightAccepted, setCopyrightAccepted] = useState(false);
   const [pendingShortData, setPendingShortData] = useState<any>(null);
+
+  useEffect(() => {
+    if (params.postType === 'short' || params.postType === 'photo') {
+      setPostType(params.postType);
+    }
+  }, [params.postType]);
   
   // Place detection state
   const [showDetectPlaceModal, setShowDetectPlaceModal] = useState(false);
@@ -2449,7 +2460,7 @@ export default function PostScreen() {
       style={{ flex: 1 }}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
-      <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
+      <PremiumScreen edges={[]} style={{ flex: 1 }}>
         <NavBar title="New Post" />
         <ScrollView 
           style={{ flex: 1, padding: theme.spacing.md }} 
@@ -2469,80 +2480,34 @@ export default function PostScreen() {
             resizeMode="cover"
           />
         </View>
-        {/* Post Type Selector */}
-        <View style={{
-          flexDirection: 'row',
-          backgroundColor: theme.colors.surface,
-          borderRadius: theme.borderRadius.xl,
-          padding: 4,
-          marginBottom: theme.spacing.md,
-          ...theme.shadows.small,
-          borderWidth: 1,
-          borderColor: theme.colors.border
-        }}>
-          <TouchableOpacity
-            style={[
-              {
-                flex: 1,
-                paddingVertical: 10,
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: theme.borderRadius.lg,
-                flexDirection: 'row',
-                gap: 8
-              },
-              postType === 'photo' && {
-                backgroundColor: theme.colors.primary,
-                ...theme.shadows.small
-              }
-            ]}
-            onPress={() => setPostType('photo')}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name={postType === 'photo' ? "image" : "image-outline"}
-              size={20}
-              color={postType === 'photo' ? 'white' : theme.colors.textSecondary}
-            />
-            <Text style={[
-              { fontSize: theme.typography.body.fontSize, fontWeight: '600' },
-              postType === 'photo' ? { color: 'white' } : { color: theme.colors.textSecondary }
-            ]}>
-              Photo
+        {isJourneyCapture && (
+          <View style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 8,
+            paddingHorizontal: 14,
+            paddingVertical: 10,
+            borderRadius: 14,
+            backgroundColor: theme.colors.primary + '12',
+            borderWidth: 1,
+            borderColor: theme.colors.primary + '30',
+            marginBottom: theme.spacing.md,
+          }}>
+            <Ionicons name="navigate" size={18} color={theme.colors.primary} />
+            <Text style={{ flex: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
+              Capture a live moment from your journey. Reels can use in-app audio before upload.
             </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              {
-                flex: 1,
-                paddingVertical: 10,
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: theme.borderRadius.lg,
-                flexDirection: 'row',
-                gap: 8
-              },
-              postType === 'short' && {
-                backgroundColor: theme.colors.primary,
-                ...theme.shadows.small
-              }
-            ]}
-            onPress={() => setPostType('short')}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name={postType === 'short' ? "videocam" : "videocam-outline"}
-              size={20}
-              color={postType === 'short' ? 'white' : theme.colors.textSecondary}
-            />
-            <Text style={[
-              { fontSize: theme.typography.body.fontSize, fontWeight: '600' },
-              postType === 'short' ? { color: 'white' } : { color: theme.colors.textSecondary }
-            ]}>
-              Short
-            </Text>
-          </TouchableOpacity>
-        </View>
+          </View>
+        )}
+        <PremiumSegmentedTabs
+          tabs={[
+            { key: 'photo', label: 'Photo', icon: 'image' },
+            { key: 'short', label: 'Short', icon: 'videocam' },
+          ]}
+          value={postType}
+          onChange={(value) => setPostType(value as 'photo' | 'short')}
+          style={{ marginBottom: theme.spacing.md }}
+        />
 
         {!selectedImages.length && !selectedVideo ? (
           <>
@@ -2615,7 +2580,7 @@ export default function PostScreen() {
                   flex: 1,
                   alignItems: "center", 
                   justifyContent: "center",
-                  backgroundColor: theme.colors.surface, 
+                  backgroundColor: theme.colors.glassSurface || theme.colors.surface, 
                   borderRadius: theme.borderRadius.xl, 
                   padding: theme.spacing.xl, 
                   ...theme.shadows.medium,
@@ -2650,7 +2615,7 @@ export default function PostScreen() {
                   flex: 1,
                   alignItems: "center", 
                   justifyContent: "center",
-                  backgroundColor: theme.colors.surface, 
+                  backgroundColor: theme.colors.glassSurface || theme.colors.surface, 
                   borderRadius: theme.borderRadius.xl, 
                   padding: theme.spacing.xl, 
                   ...theme.shadows.medium,
@@ -4967,7 +4932,7 @@ export default function PostScreen() {
           selectedAspectRatio={selectedAspectRatio}
           onAspectRatioChange={(ar) => { setSelectedAspectRatio(ar); setCropTransform(null); }}
         />
-      </View>
+      </PremiumScreen>
     </KeyboardAvoidingView>
     </ErrorBoundary>
   );

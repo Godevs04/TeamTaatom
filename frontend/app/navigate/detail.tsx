@@ -23,9 +23,11 @@ import { useAlert } from '../../context/AlertContext';
 import { getJourneyDetail, updateJourneyTitle, deleteJourney } from '../../services/journey';
 import { MapView, Marker, useWebViewFallback, getMapProvider } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
-import { openDirections } from '../../utils/locationUtils';
 import PolylineRenderer from '../../components/PolylineRenderer';
+import GlassMapPanel from '../../components/GlassMapPanel';
+import PremiumMapMarker from '../../components/PremiumMapMarker';
 import ShareModal from '../../components/ShareModal';
+import { useMapStyle } from '../../hooks/useMapStyle';
 import logger from '../../utils/logger';
 
 const GROWTH_GREEN = '#22C55E';
@@ -46,6 +48,7 @@ export default function JourneyDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme } = useTheme();
+  const mapStyle = useMapStyle();
   const journeyId = typeof params.journeyId === 'string' ? params.journeyId : '';
 
   const { showAlert, showSuccess, showError: showErrorAlert } = useAlert();
@@ -312,9 +315,10 @@ export default function JourneyDetailScreen() {
 <style>html,body,#map{height:100%;margin:0;padding:0}</style>
 <script>
 function initMap(){
-  var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${center.lat},lng:${center.lng}},zoom:13,mapTypeId:'terrain',language:'en'});
+  var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${center.lat},lng:${center.lng}},zoom:13,mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true});
   var path=${polyCoords};
-  new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${GROWTH_GREEN}',strokeOpacity:1,strokeWeight:4,map:map});
+  new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});
+  new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});
   if(path.length>0)new google.maps.Marker({position:path[0],map:map,title:'Start',icon:{url:'data:image/svg+xml;utf-8,<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="${encodeURIComponent(GROWTH_GREEN)}" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="white">S</text></svg>',scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
   if(path.length>1)new google.maps.Marker({position:path[path.length-1],map:map,title:'End',icon:{url:'data:image/svg+xml;utf-8,<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="${encodeURIComponent(ALERT_RED)}" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="white">E</text></svg>',scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
   ${wpMarkers}
@@ -340,13 +344,14 @@ function initMap(){
             <MapView
               style={styles.map}
               provider={getMapProvider()}
+              {...mapStyle.nativeMapProps}
               initialRegion={{
                 latitude: journey.startCoords?.lat || 0,
                 longitude: journey.startCoords?.lng || 0,
                 latitudeDelta: 0.1,
                 longitudeDelta: 0.1,
               }}
-              mapType="terrain"
+              mapType={mapStyle.mapType}
               showsCompass={true}
             >
               {journey.polyline?.length > 1 && (
@@ -357,21 +362,28 @@ function initMap(){
                     timestamp: new Date(p.timestamp).getTime(),
                     accuracy: p.accuracy || 0,
                   }))}
-                  color={GROWTH_GREEN}
+                  color={mapStyle.routeColor}
+                  glowColor={mapStyle.routeGlowColor}
                   strokeWidth={4}
                   simplifyDistance={10}
                   applyKalman={false}
                 />
               )}
               {journey.startCoords?.lat && journey.startCoords?.lng && (
-                <Marker coordinate={{ latitude: journey.startCoords.lat, longitude: journey.startCoords.lng }} title="Start" pinColor={GROWTH_GREEN} />
+                <Marker coordinate={{ latitude: journey.startCoords.lat, longitude: journey.startCoords.lng }} title="Start" anchor={{ x: 0.5, y: 0.5 }}>
+                  <PremiumMapMarker icon="play" />
+                </Marker>
               )}
               {journey.endCoords?.lat && journey.endCoords?.lng && (
-                <Marker coordinate={{ latitude: journey.endCoords.lat, longitude: journey.endCoords.lng }} title="End" pinColor={ALERT_RED} />
+                <Marker coordinate={{ latitude: journey.endCoords.lat, longitude: journey.endCoords.lng }} title="End" anchor={{ x: 0.5, y: 0.5 }}>
+                  <PremiumMapMarker icon="flag" active />
+                </Marker>
               )}
               {journey.waypoints?.map((w: any, i: number) => (
                 w.lat && w.lng && (
-                  <Marker key={`wp-${i}`} coordinate={{ latitude: w.lat, longitude: w.lng }} title={`${w.contentType || 'Photo'} #${i + 1}`} pinColor={ALERT_RED} />
+                  <Marker key={`wp-${i}`} coordinate={{ latitude: w.lat, longitude: w.lng }} title={`${w.contentType || 'Photo'} #${i + 1}`} anchor={{ x: 0.5, y: 0.5 }}>
+                    <PremiumMapMarker icon={w.contentType === 'video' ? 'videocam' : 'camera'} />
+                  </Marker>
                 )
               ))}
             </MapView>
@@ -379,6 +391,14 @@ function initMap(){
             <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}>
               <Ionicons name="map-outline" size={48} color="#9CA3AF" />
             </View>
+          )}
+          {journey.polyline?.length > 1 && (
+            <GlassMapPanel style={styles.mapSummaryPanel} tint={mapStyle.glassTint}>
+              <Ionicons name="navigate" size={16} color={mapStyle.routeColor} />
+              <Text style={[styles.mapSummaryText, { color: theme.colors.text }]} numberOfLines={1}>
+                {formatDistance(journey.distanceTraveled)} - {formatDuration(journey.startedAt, journey.completedAt)}
+              </Text>
+            </GlassMapPanel>
           )}
         </View>
 
@@ -476,7 +496,14 @@ function initMap(){
                     {hasCoords && (
                       <TouchableOpacity
                         style={styles.directionsBtn}
-                        onPress={() => openDirections(waypoint.lat, waypoint.lng, post.caption || post.location?.address || `Waypoint ${index + 1}`)}
+                        onPress={() => router.push({
+                          pathname: '/map/current-location',
+                          params: {
+                            latitude: String(waypoint.lat),
+                            longitude: String(waypoint.lng),
+                            address: post.caption || post.location?.address || `Waypoint ${index + 1}`,
+                          },
+                        })}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         accessibilityLabel="Get directions"
                         accessibilityRole="button"
@@ -577,6 +604,22 @@ const styles = StyleSheet.create({
   map: {
     width: '100%',
     height: '100%',
+  },
+  mapSummaryPanel: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  mapSummaryText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
   },
   contentPadding: {
     padding: 16,

@@ -121,6 +121,7 @@ export function simplifyPolyline(
 interface PolylineRendererProps {
   coordinates: Array<{ latitude: number; longitude: number }>;
   color?: string;
+  glowColor?: string;
   strokeWidth?: number;
   simplifyDistance?: number; // Minimum distance in meters to keep points
   applyKalman?: boolean; // Whether to apply Kalman filter for smoothing
@@ -142,6 +143,7 @@ interface PolylineRendererProps {
 export default function PolylineRenderer({
   coordinates,
   color = '#22C55E', // Growth Green
+  glowColor,
   strokeWidth = 4,
   simplifyDistance = 5,
   applyKalman = false,
@@ -177,12 +179,26 @@ export default function PolylineRenderer({
     const { Polyline } = require('react-native-maps');
 
     return (
-      <Polyline
-        coordinates={processedCoords}
-        strokeColor={color}
-        strokeWidth={strokeWidth}
-        geodesic={true} // Follow Earth's curvature for long distances
-      />
+      <>
+        {glowColor ? (
+          <Polyline
+            coordinates={processedCoords}
+            strokeColor={glowColor}
+            strokeWidth={Math.max(strokeWidth + 8, 10)}
+            lineCap="round"
+            lineJoin="round"
+            geodesic={true}
+          />
+        ) : null}
+        <Polyline
+          coordinates={processedCoords}
+          strokeColor={color}
+          strokeWidth={strokeWidth}
+          lineCap="round"
+          lineJoin="round"
+          geodesic={true} // Follow Earth's curvature for long distances
+        />
+      </>
     );
   } catch (error) {
     // Polyline component not available, return null

@@ -1,9 +1,9 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform, Dimensions } from 'react-native';
+import { View, Text, Platform, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
-import { theme } from '../constants/theme';
+import PremiumGlassCard from './ui/PremiumGlassCard';
+import PremiumIconButton from './ui/PremiumIconButton';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -35,61 +35,34 @@ export default function NavBar(props: NavBarProps) {
   
   const shouldShowBack = showBack || showBackButton;
   const backHandler = onBack || onBackPress;
-  // Use elegant black font for title in light theme, else use primary color
-  const titleColor = theme.colors.background === '#F5F7FA' ? '#181A20' : theme.colors.primary;
+  const titleColor = theme.colors.text;
   return (
     <SafeAreaView style={{
-      backgroundColor: theme.colors.surface,
+      backgroundColor: 'transparent',
       zIndex: 10,
-      shadowColor: theme.colors.shadow,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.12,
-      shadowRadius: 8,
-      elevation: 6,
-      borderBottomLeftRadius: 18,
-      borderBottomRightRadius: 18,
     }} edges={["top"]}>
-      <View style={{
+      <PremiumGlassCard style={{
+        marginHorizontal: isTablet ? 24 : 14,
+        marginTop: isAndroid ? 6 : 4,
+        marginBottom: 8,
+        borderRadius: 28,
+      }} contentStyle={{
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
-        paddingTop: isIOS ? (isTablet ? 12 : 10) : (isTablet ? 18 : 16),
-        paddingBottom: isTablet ? theme.spacing.lg : 16,
-        backgroundColor: theme.colors.surface,
-        borderBottomWidth: 0.5,
-        borderBottomColor: theme.colors.border,
+        paddingHorizontal: isTablet ? 18 : 10,
+        paddingVertical: 8,
         minHeight: isTablet ? 64 : 56,
       }}>
         {shouldShowBack && (
-          <TouchableOpacity 
+          <PremiumIconButton
+            icon="chevron-back"
             onPress={backHandler}
-            accessibilityRole="button"
             accessibilityLabel="Go back"
-            accessibilityHint="Returns to the previous screen"
-            style={{ 
-              marginRight: isTablet ? theme.spacing.md : theme.spacing.sm,
-              // Minimum 44x44 touch target for iOS, 48x48 for Android
-              minWidth: isAndroid ? 48 : 44,
-              minHeight: isAndroid ? 48 : 44,
-              justifyContent: 'center',
-              alignItems: 'center',
-              padding: isTablet ? theme.spacing.sm : 8,
-              borderRadius: theme.borderRadius.md,
-              ...(isWeb && {
-                cursor: 'pointer',
-                transition: 'all 0.2s ease',
-              } as any),
-            }}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            activeOpacity={0.7}
-          >
-            <Ionicons 
-              name="chevron-back" 
-              size={isTablet ? 28 : 24} 
-              color={theme.colors.text} 
-            />
-          </TouchableOpacity>
+            size={isAndroid ? 46 : 44}
+            iconSize={isTablet ? 26 : 22}
+            style={{ marginRight: isTablet ? 12 : 8 }}
+          />
         )}
         <Text
           accessibilityRole="header"
@@ -118,7 +91,7 @@ export default function NavBar(props: NavBarProps) {
             marginLeft: isTablet ? theme.spacing.md : theme.spacing.sm,
           }} />
         ) : null}
-      </View>
+      </PremiumGlassCard>
     </SafeAreaView>
   );
 }
