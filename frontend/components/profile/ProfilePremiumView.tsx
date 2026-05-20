@@ -95,7 +95,7 @@ export default function ProfilePremiumView({
 
   return (
     <View style={styles.wrap}>
-      <View style={styles.headerBlock}>
+      <View style={[styles.headerBlock, { borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(91,188,248,0.15)' }]}>
         <LinearGradient
           colors={isDark ? ['#0F1E30', '#122236', '#152A42'] : ['#E8F4FF', '#F5FAFF', '#FFFFFF']}
           style={StyleSheet.absoluteFillObject}
@@ -268,9 +268,6 @@ export default function ProfilePremiumView({
                     {new Date(loc.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                   </Text>
                 ) : null}
-                <View style={[styles.verifiedPill, { backgroundColor: accent + '20' }]}>
-                  <Text style={[styles.verifiedPillText, { color: accent }]}>Verified</Text>
-                </View>
               </View>
             </View>
           ))}
@@ -293,18 +290,16 @@ const styles = StyleSheet.create({
   wrap: {
     paddingBottom: 8,
   },
-  coverWrap: {
-    marginHorizontal: 0,
-    height: COVER_H + AVATAR / 2 + 120,
-    marginBottom: 8,
+  headerBlock: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 16,
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1,
   },
-  coverImg: {
-    width: '100%',
-    height: COVER_H,
-  },
-  coverBottom: {
-    paddingHorizontal: 16,
-    marginTop: -AVATAR / 2,
+  headerInner: {
+    padding: 20,
   },
   avatarRow: {
     flexDirection: 'row',
@@ -344,32 +339,11 @@ const styles = StyleSheet.create({
   displayName: {
     fontSize: 22,
     fontWeight: '800',
-    color: '#F8FCFF',
   },
   handle: {
     fontSize: 13,
     fontWeight: '600',
-    color: 'rgba(255,255,255,0.65)',
     marginTop: 2,
-  },
-  levelBadge: {
-    width: 72,
-    height: 72,
-    borderRadius: 16,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-    marginBottom: 4,
-  },
-  levelText: {
-    fontSize: 14,
-    fontWeight: '900',
-    marginTop: 2,
-  },
-  levelSub: {
-    fontSize: 9,
-    fontWeight: '700',
   },
   tags: {
     fontSize: 12,
@@ -507,38 +481,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  achieveInner: {
-    padding: 14,
-  },
-  achieveRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  achieveItem: {
-    width: (SCREEN_W - 32 - 28) / 4,
-    alignItems: 'center',
-  },
-  achieveHex: {
-    width: 52,
-    height: 52,
-    borderRadius: 14,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-    transform: [{ rotate: '0deg' }],
-  },
-  achieveLabel: {
-    fontSize: 9,
-    fontWeight: '700',
-    textAlign: 'center',
-    lineHeight: 12,
-  },
-  achieveProg: {
-    fontSize: 9,
-    fontWeight: '800',
-    marginTop: 2,
-  },
   highlightsBlock: {
     marginBottom: 12,
   },
@@ -594,17 +536,6 @@ const styles = StyleSheet.create({
   timelineDate: {
     fontSize: 11,
     marginTop: 2,
-  },
-  verifiedPill: {
-    alignSelf: 'flex-start',
-    marginTop: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 999,
-  },
-  verifiedPillText: {
-    fontSize: 10,
-    fontWeight: '800',
   },
   quoteCard: {
     marginBottom: 16,

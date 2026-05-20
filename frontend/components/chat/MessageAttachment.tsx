@@ -371,4 +371,3 @@ const styles = StyleSheet.create({
 });
 
 export default MessageAttachment;
-
