@@ -23,6 +23,7 @@ import CustomAlert from './CustomAlert';
 import PostComments from './post/PostComments';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { savedEvents } from '../utils/savedEvents';
+import { audioManager } from '../utils/audioManager';
 import { realtimePostsService } from '../services/realtimePosts';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -134,6 +135,8 @@ function PhotoCard({
   const [isMenuLoading, setIsMenuLoading] = useState(false);
   const [commentsDisabled, setCommentsDisabled] = useState((post as any).commentsDisabled || false);
   const [actionLoading, setActionLoading] = useState<Set<string>>(new Set());
+  const likeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const likeTargetRef = useRef<boolean | null>(null);
   const [alertConfig, setAlertConfig] = useState({
     title: '',
     message: '',
@@ -332,91 +335,85 @@ function PhotoCard({
     setImageError(!post.imageUrl);
   }, [post.imageUrl]);
 
-  const handleLike = async () => {
+  const handleLike = () => {
     if (!currentUser) {
       Alert.alert('Error', 'You must be signed in to like posts.');
       return;
     }
 
-    // Prevent duplicate actions
-    const actionKey = `like-${post._id}`;
-    if (actionLoading.has(actionKey)) {
-      return;
-    }
-
-    setActionLoading(prev => new Set(prev).add(actionKey));
-
-    // Optimistic update - update UI immediately
-    const previousLiked = isLiked;
-    const previousCount = likesCount;
     const newLiked = !isLiked;
     const newCount = newLiked ? likesCount + 1 : Math.max(0, likesCount - 1);
-    
-    // Trigger haptic feedback
+    likeTargetRef.current = newLiked;
+
     triggerLikeHaptic(newLiked);
-    
     setIsLikedWithRef(newLiked);
     setLikesCountWithRef(newCount);
 
-    try {
-      // Persist optimistic intent immediately so it survives app kill / RAM clear
-      try {
-        await setLocalLikedId(LIKED_POSTS_STORAGE_KEY, post._id, newLiked);
-        await enqueuePendingLike(PENDING_LIKES_STORAGE_KEY, post._id, newLiked);
-      } catch (e) {
-        logger.debug('Failed to persist optimistic like intent', e);
-      }
-
-      // Mark as updating to prevent WebSocket listener from processing
-      isUpdatingRef.current = true;
-      lastUpdateTimeRef.current = Date.now();
-      
-      const response = await toggleLike(post._id);
-      
-      // Persist liked state locally so it survives app restart (same as Shorts)
-      try {
-        await setLocalLikedId(LIKED_POSTS_STORAGE_KEY, post._id, response.isLiked);
-        await clearPendingLike(PENDING_LIKES_STORAGE_KEY, post._id);
-      } catch (e) {
-        logger.debug('Failed to persist liked posts', e);
-      }
-      
-      // Update with actual response (in case of errors or discrepancies)
-      setIsLikedWithRef(response.isLiked);
-      setLikesCountWithRef(response.likesCount);
-      
-      // Track engagement
-      trackEngagement(response.isLiked ? 'like' : 'unlike', 'post', post._id, {
-        likes_count: response.likesCount,
-      });
-      
-      // Emit event to notify other pages
-      savedEvents.emitPostAction(post._id, response.isLiked ? 'like' : 'unlike', {
-        likesCount: response.likesCount,
-        isLiked: response.isLiked
-      });
-
-      // Emit WebSocket event for real-time updates (but ignore our own event)
-      await realtimePostsService.emitLike(post._id, response.isLiked, response.likesCount);
-      
-      // Reset flag after a delay to allow WebSocket event to be ignored
-      setTimeout(() => {
-        isUpdatingRef.current = false;
-      }, 500);
-      
-    } catch (error) {
-      // Revert optimistic update on error
-      setIsLikedWithRef(previousLiked);
-      setLikesCountWithRef(previousCount);
-      logger.error('Error toggling like', error);
-      Alert.alert('Error', 'Failed to update like status.');
-    } finally {
-      setActionLoading(prev => {
-        const next = new Set(prev);
-        next.delete(actionKey);
-        return next;
-      });
+    if (likeDebounceRef.current) {
+      clearTimeout(likeDebounceRef.current);
     }
+
+    likeDebounceRef.current = setTimeout(async () => {
+      const targetLiked = likeTargetRef.current;
+      if (targetLiked === null) return;
+
+      const previousLiked = stateRef.current.isLiked;
+      const previousCount = stateRef.current.likesCount;
+      const actionKey = `like-${post._id}`;
+      setActionLoading(prev => new Set(prev).add(actionKey));
+
+      try {
+        try {
+          await setLocalLikedId(LIKED_POSTS_STORAGE_KEY, post._id, targetLiked);
+          await enqueuePendingLike(PENDING_LIKES_STORAGE_KEY, post._id, targetLiked);
+        } catch (e) {
+          logger.debug('Failed to persist optimistic like intent', e);
+        }
+
+        isUpdatingRef.current = true;
+        lastUpdateTimeRef.current = Date.now();
+
+        const response = await toggleLike(post._id);
+
+        try {
+          await setLocalLikedId(LIKED_POSTS_STORAGE_KEY, post._id, response.isLiked);
+          await clearPendingLike(PENDING_LIKES_STORAGE_KEY, post._id);
+        } catch (e) {
+          logger.debug('Failed to persist liked posts', e);
+        }
+
+        setIsLikedWithRef(response.isLiked);
+        setLikesCountWithRef(response.likesCount);
+        likeTargetRef.current = response.isLiked;
+
+        trackEngagement(response.isLiked ? 'like' : 'unlike', 'post', post._id, {
+          likes_count: response.likesCount,
+        });
+
+        savedEvents.emitPostAction(post._id, response.isLiked ? 'like' : 'unlike', {
+          likesCount: response.likesCount,
+          isLiked: response.isLiked,
+        });
+
+        await realtimePostsService.emitLike(post._id, response.isLiked, response.likesCount);
+
+        setTimeout(() => {
+          isUpdatingRef.current = false;
+        }, 500);
+      } catch (error) {
+        setIsLikedWithRef(previousLiked);
+        setLikesCountWithRef(previousCount);
+        likeTargetRef.current = previousLiked;
+        logger.error('Error toggling like', error);
+        Alert.alert('Error', 'Failed to update like status.');
+      } finally {
+        setActionLoading(prev => {
+          const next = new Set(prev);
+          next.delete(actionKey);
+          return next;
+        });
+      }
+    }, 280);
   };
 
   const handleShareClick = () => {
@@ -595,6 +592,7 @@ function PhotoCard({
             try {
               setIsMenuLoading(true);
               await deletePost(post._id);
+              await audioManager.stopAll();
 
               // Clear AsyncStorage cache (all feed-mode variants) to prevent deleted post
               // from reappearing after pull-to-refresh / app restart. TAATOM-044 keys the

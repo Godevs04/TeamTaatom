@@ -80,7 +80,7 @@ async function deleteAllLocaleStorageObjects(locale) {
 const getLocales = async (req, res) => {
   try {
     // Backend Defensive Guards: Validate and sanitize query params
-    let { search, countryCode, stateCode, page = 1, limit = 50, includeInactive, spotType, spotTypes } = req.query;
+    let { search, countryCode, stateCode, stateProvince, page = 1, limit = 50, includeInactive, spotType, spotTypes } = req.query;
     
     // Validate and cap limit (max 50)
     const parsedLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 50);
@@ -156,12 +156,24 @@ const getLocales = async (req, res) => {
     // so short codes like "CA" don't substring-match "Yucatan", "Nicaragua", etc.
     const stateConditions = [];
     if (stateCode && stateCode.trim() !== '' && stateCode !== 'all') {
-      const escaped = stateCode.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const code = stateCode.trim();
+      const escaped = code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       stateConditions.push(
-        { stateCode: stateCode.trim() },
-        { stateCode: { $regex: `^${escaped}$`, $options: 'i' } },
-        { stateProvince: { $regex: `^${escaped}$`, $options: 'i' } }
+        { stateCode: code },
+        { stateCode: { $regex: `^${escaped}$`, $options: 'i' } }
       );
+      // Match full state name when UI sends code (e.g. CA → California)
+      if (stateProvince && typeof stateProvince === 'string' && stateProvince.trim()) {
+        const nameEscaped = stateProvince.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        stateConditions.push(
+          { stateProvince: { $regex: `^${nameEscaped}$`, $options: 'i' } },
+          { stateProvince: { $regex: nameEscaped, $options: 'i' } }
+        );
+      } else {
+        stateConditions.push(
+          { stateProvince: { $regex: `^${escaped}$`, $options: 'i' } }
+        );
+      }
     }
     
     // Combine search and state filters properly

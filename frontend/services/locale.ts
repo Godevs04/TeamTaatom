@@ -56,6 +56,7 @@ export const getLocales = async (
   page: number = 1,
   limit: number = 50,
   includeInactive: boolean = false,
+  stateProvince: string = '',
   signal?: AbortSignal
 ): Promise<LocalesResponse> => {
   try {
@@ -70,6 +71,9 @@ export const getLocales = async (
     }
     if (stateCode && stateCode.trim() !== '' && stateCode !== 'all') {
       params.append('stateCode', stateCode.trim());
+    }
+    if (stateProvince && stateProvince.trim() !== '') {
+      params.append('stateProvince', stateProvince.trim());
     }
     // Support multiple spot types
     if (spotTypes) {

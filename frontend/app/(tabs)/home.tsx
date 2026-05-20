@@ -36,6 +36,7 @@ import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { audioManager } from '../../utils/audioManager';
+import { savedEvents } from '../../utils/savedEvents';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { LinearGradient } from 'expo-linear-gradient';
 import { CloudSkyBackground, CloudSegmentedControl } from '../../components/cloud';
@@ -195,6 +196,9 @@ export default function HomeScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const flatListRef = useRef<FlashListRef<FeedItem>>(null);
+  const homeScrollOffsetRef = useRef(0);
+  const shouldRestoreHomeScrollRef = useRef(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const isFetchingRef = useRef(false);
   const hasInitializedRef = useRef(false);
   const lastErrorTimeRef = useRef(0);
@@ -313,6 +317,8 @@ export default function HomeScreen() {
         logger.debug(`Discarding stale ${requestFeedMode} response (current tab is ${feedModeRef.current})`);
         return;
       }
+
+      setLoadError(null);
       
       // Handle empty posts array gracefully (don't show error if API succeeded)
       if (!response.posts || response.posts.length === 0) {
@@ -471,13 +477,16 @@ export default function HomeScreen() {
                 setPosts(mergeLikedIntoPosts(parsed.data));
                 setHasMore(false); // Can't paginate with cached data
                 setPage(1);
-                // Don't show error if we have cached data
+                setLoadError(null);
                 return;
               }
             }
           }
         } catch (cacheError) {
           logger.warn('Failed to load cached posts', cacheError);
+        }
+        if (pageNum === 1 && !shouldAppend) {
+          setLoadError('Network Error');
         }
       }
       
@@ -792,25 +801,22 @@ export default function HomeScreen() {
   }, [feedMode]); // Re-run when feed mode changes
 
   // Navigation lifecycle safety: clear visible index tracking and cancel pending fetches
-  const homeHasBlurredRef = useRef(false);
   useFocusEffect(
     useCallback(() => {
-      // Scroll to top every time the Home tab gains focus (after first visit).
-      // Users expect a fresh-from-top feed when tapping the Home tab.
-      if (homeHasBlurredRef.current) {
-        setTimeout(() => {
-          flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
-        }, 50);
+      if (shouldRestoreHomeScrollRef.current && homeScrollOffsetRef.current > 0) {
+        const offset = homeScrollOffsetRef.current;
+        requestAnimationFrame(() => {
+          flatListRef.current?.scrollToOffset({ offset, animated: false });
+        });
+        shouldRestoreHomeScrollRef.current = false;
       }
 
-      // Clear visible index when screen loses focus
       return () => {
-        homeHasBlurredRef.current = true;
+        shouldRestoreHomeScrollRef.current = true;
         setVisibleIndex(null);
         hasScrolledRef.current = false;
         lastViewedPostIdRef.current = null;
         lastViewTimeRef.current = 0;
-        // Stop all audio when leaving home page
         logger.debug('[Home] Stopping all audio - leaving home page');
         audioManager.stopAll().catch((error) => {
           logger.error('[Home] Error stopping audio:', error);
@@ -818,6 +824,16 @@ export default function HomeScreen() {
       };
     }, [])
   );
+
+  // Refresh feed when admin approves content or backend signals invalidation
+  useEffect(() => {
+    const unsub = savedEvents.addFeedInvalidateListener(() => {
+      if (!isFetchingRef.current) {
+        fetchPosts(1, false).catch(() => {});
+      }
+    });
+    return unsub;
+  }, [fetchPosts]);
 
   // Refresh unseen count when screen comes into focus
   useFocusEffect(
@@ -853,23 +869,31 @@ export default function HomeScreen() {
     const showAds = !isWeb && hasScrolledPastFifthPost && adsAllowedAfter30s;
     const dataIndex = showAds ? postIndex + Math.floor(postIndex / ADS_AFTER_EVERY) : postIndex;
     const attemptScroll = (attempt: number = 0) => {
-      if (attempt > 5) {
-        logger.warn(`Failed to scroll to post ${params.postId} after 5 attempts`);
+      if (attempt > 8) {
+        logger.warn(`Failed to scroll to post ${params.postId} after 8 attempts`);
         return;
       }
       setTimeout(() => {
         if (flatListRef.current) {
           try {
-            flatListRef.current.scrollToIndex({ index: dataIndex, animated: true });
+            flatListRef.current.scrollToIndex({
+              index: dataIndex,
+              animated: attempt > 0,
+              viewPosition: 0,
+            });
             logger.debug(`Successfully scrolled to post at index ${dataIndex}`);
           } catch (error) {
             logger.debug(`Scroll attempt ${attempt + 1} failed, retrying...`, error);
+            flatListRef.current?.scrollToOffset({
+              offset: Math.max(0, dataIndex * 500),
+              animated: false,
+            });
             attemptScroll(attempt + 1);
           }
         } else {
           attemptScroll(attempt + 1);
         }
-      }, 100 * (attempt + 1));
+      }, 150 * (attempt + 1));
     };
     attemptScroll();
   }, [params.postId, posts, hasScrolledPastFifthPost, adsAllowedAfter30s]);
@@ -1246,13 +1270,17 @@ export default function HomeScreen() {
         {renderTopHeader()}
         {renderFeedTabs()}
         <EmptyState
-          icon="camera-outline"
-          title="No Content Yet"
-          description="No content yet. Explore other users or share your first photo!"
-          actionLabel="Explore Users"
-          onAction={() => router.push('/search')}
-          secondaryActionLabel="Create Post"
-          onSecondaryAction={() => router.push('/(tabs)/post')}
+          icon={loadError ? 'cloud-offline-outline' : 'camera-outline'}
+          title={loadError || 'No Content Yet'}
+          description={
+            loadError
+              ? 'Unable to reach the server. Check your connection and pull down to refresh.'
+              : 'No content yet. Explore other users or share your first photo!'
+          }
+          actionLabel={loadError ? 'Retry' : 'Explore Users'}
+          onAction={() => (loadError ? handleRefresh() : router.push('/search'))}
+          secondaryActionLabel={loadError ? undefined : 'Create Post'}
+          onSecondaryAction={loadError ? undefined : () => router.push('/(tabs)/post')}
         />
         </SafeAreaView>
       </View>
@@ -1281,7 +1309,10 @@ export default function HomeScreen() {
         style={styles.postsContainer}
         contentContainerStyle={styles.postsList}
         showsVerticalScrollIndicator={false}
-        onScroll={handleScroll}
+        onScroll={(e) => {
+          homeScrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+          handleScroll(e);
+        }}
         scrollEventThrottle={16}
         refreshControl={
           <RefreshControl

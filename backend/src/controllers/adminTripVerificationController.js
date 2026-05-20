@@ -302,6 +302,26 @@ const approveTripVisit = async (req, res) => {
       logger.error('Failed to send approval notification:', err);
     });
 
+    // Notify the post owner and their followers so feed + TripScore refresh in-app
+    try {
+      const io = getIO();
+      if (io) {
+        const nsp = io.of('/app');
+        const audience = new Set();
+        if (tripVisit.user) audience.add(tripVisit.user.toString());
+        if (tripVisit.postId) {
+          const Post = require('../models/Post');
+          const post = await Post.findById(tripVisit.postId).select('user').lean();
+          if (post?.user) audience.add(post.user.toString());
+        }
+        if (audience.size > 0) {
+          nsp.emitInvalidateFeed([...audience]);
+        }
+      }
+    } catch (socketErr) {
+      logger.debug('Could not emit feed invalidation after approval:', socketErr.message);
+    }
+
     return sendSuccess(res, 200, 'TripVisit approved successfully', {
       tripVisit: {
         _id: tripVisit._id,

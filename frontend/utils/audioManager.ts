@@ -5,6 +5,9 @@ import logger from './logger';
 class AudioManager {
   currentSound: Audio.Sound | null = null;
   currentPostId: string | null = null;
+  /** Session-wide mute for feed post audio (persists across posts until toggled). */
+  private sessionMuted = true;
+  private sessionMuteListeners: Set<(muted: boolean) => void> = new Set();
   // When frozen, playSound refuses to start playback and unloads the incoming
   // sound instead. Used by screens (e.g. Shorts) during their tab-blur cleanup
   // to defeat the race where an in-flight Audio.Sound.loadAsync resolves AFTER
@@ -33,6 +36,22 @@ class AudioManager {
 
   isFrozen(): boolean {
     return Date.now() < this.frozenUntil;
+  }
+
+  getSessionMuted(): boolean {
+    return this.sessionMuted;
+  }
+
+  setSessionMuted(muted: boolean): void {
+    this.sessionMuted = muted;
+    this.sessionMuteListeners.forEach((cb) => {
+      try { cb(muted); } catch (_) {}
+    });
+  }
+
+  addSessionMuteListener(callback: (muted: boolean) => void): () => void {
+    this.sessionMuteListeners.add(callback);
+    return () => { this.sessionMuteListeners.delete(callback); };
   }
 
   async playSound(sound: Audio.Sound, postId: string) {

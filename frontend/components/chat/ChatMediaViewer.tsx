@@ -150,11 +150,11 @@ const styles = StyleSheet.create({
   },
   fullImage: {
     width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT * 0.85,
+    height: SCREEN_HEIGHT,
   },
   fullVideo: {
     width: SCREEN_WIDTH,
-    height: SCREEN_HEIGHT * 0.75,
+    height: SCREEN_HEIGHT,
   },
   loader: {
     position: 'absolute',

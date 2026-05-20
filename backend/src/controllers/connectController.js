@@ -853,14 +853,21 @@ const findUsers = async (req, res) => {
       _id: { $ne: currentUserId }
     };
 
-    // Filter by language: match either the UI language preference
-    // OR the languagesKnown array so polyglots show up too.
+    // Filter by language: match UI preference, languagesKnown array, or bio text
     if (lang) {
-      userQuery.$or = userQuery.$or || [];
-      userQuery.$or.push(
+      const langConditions = [
         { 'settings.account.language': lang },
-        { languagesKnown: lang }
-      );
+        { languagesKnown: lang },
+        { bio: { $regex: lang, $options: 'i' } },
+      ];
+      if (userQuery.$or) {
+        const existingOr = userQuery.$or;
+        delete userQuery.$or;
+        userQuery.$and = userQuery.$and || [];
+        userQuery.$and.push({ $or: existingOr }, { $or: langConditions });
+      } else {
+        userQuery.$or = langConditions;
+      }
     }
 
     // Filter by travel style
@@ -868,16 +875,16 @@ const findUsers = async (req, res) => {
       userQuery.travelStyle = travel_style;
     }
 
-    // Filter by target country (people-from) — match against `nationality`.
-    // The nationality field is free-text so we try both the country name
-    // and the code itself, case-insensitive.
+    // Filter by target country (people-from) — match nationality and bio.
+    // Optional: when omitted, all users matching language are returned.
     if (target_country) {
       const countryName = codeToName[target_country.toUpperCase()] || target_country;
       const escaped = countryName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const codeEscaped = target_country.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const nationalityConditions = [
         { nationality: { $regex: escaped, $options: 'i' } },
-        { nationality: { $regex: codeEscaped, $options: 'i' } }
+        { nationality: { $regex: codeEscaped, $options: 'i' } },
+        { bio: { $regex: escaped, $options: 'i' } },
       ];
       // Merge with existing $or (from language) using $and
       if (userQuery.$or) {

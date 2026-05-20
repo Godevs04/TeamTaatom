@@ -215,7 +215,7 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         {
           shouldPlay: shouldPlayNow, // Stream and play immediately
           progressUpdateIntervalMillis: 150,
-          isLooping: true,
+          isLooping: !endTime,
           volume: isMuted ? 0 : volume,
           positionMillis: startTime * 1000,
         },
@@ -268,16 +268,16 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
           setIsPlaying(status.isPlaying);
           setIsLoading(false);
           
-          // Handle 60-second loop if endTime is set
-          if (endTime && status.positionMillis >= endTime * 1000) {
+          // Seamless loop: seek slightly before segment end to avoid gap (library assets)
+          if (endTime && status.positionMillis >= endTime * 1000 - 80) {
             newSound.setPositionAsync(startTime * 1000).catch(() => {});
-          } else if (status.didJustFinish && !status.isLooping) {
+          } else if (status.didJustFinish) {
             if (startTime > 0) {
               newSound.setPositionAsync(startTime * 1000).catch(() => {});
-              newSound.playAsync().catch(() => {});
             } else {
-              newSound.replayAsync().catch(() => {});
+              newSound.setPositionAsync(0).catch(() => {});
             }
+            newSound.playAsync().catch(() => {});
           }
         } else if (status.error) {
           // Check if error is -1102 (operation cancelled) - this is expected and shouldn't be logged
@@ -529,19 +529,13 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       }
     }
 
-    // Stop and unload when component becomes invisible (only for auto-play mode)
+    // Pause (don't unload) when component becomes invisible — keeps audio for resume
     if (!isVisible && !showPlayPause) {
-      // Bump the load token so any in-flight loadAndPlaySong sees a stale
-      // token when its loadAsync resolves and unloads instead of playing.
       loadTokenRef.current += 1;
       preloadedRef.current = false;
       if (soundRef.current) {
         onPlayingChange?.(null);
-        // Pause instead of unload to keep sound ready for quick resume
         soundRef.current.pauseAsync().catch(() => {});
-        // Don't unload - keep it in memory for fast resume when returning
-        soundRef.current = null;
-        setSound(null);
         setIsPlaying(false);
       }
     }

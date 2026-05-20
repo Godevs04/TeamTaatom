@@ -507,8 +507,11 @@ export interface SubscriptionResponse {
   subscriptionId: string;
   cashfreeSubscriptionId: string;
   paymentSessionId: string;
+  subscriptionSessionId?: string;
   amount: number;
   currency: string;
+  /** Matches backend CASHFREE_ENV — use for CFSubscriptionSession, not __DEV__. */
+  cashfreeEnvironment?: 'sandbox' | 'production';
 }
 
 export interface SubscriptionStatus {
@@ -720,6 +723,19 @@ export const getCurrencySymbol = (code: string): string => {
     JPY: '¥', KRW: '₩', THB: '฿',
   };
   return symbols[code] || code;
+};
+
+/** Safe money display — never renders NaN, null, or undefined in UI. */
+export const formatConnectMoney = (
+  amount: number | null | undefined,
+  currency = 'INR',
+): string => {
+  const sym = getCurrencySymbol(currency || 'INR');
+  const n = typeof amount === 'number' && Number.isFinite(amount) ? amount : 0;
+  return `${sym}${n.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
 };
 
 // ─────────────────────────────────────────────
