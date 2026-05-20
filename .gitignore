@@ -63,3 +63,12 @@ feature1.md
 # Undo with:  git update-index --no-skip-worktree <file>
 #
 # For machine-specific config, use .env / EXPO_PUBLIC_* overrides.
+
+# AI Context references
+.ai-context/
+.codebase_atlas/
+.kiro/
+UI_REFRESH_LOG.md
+frontend/AGENT_CONTEXT.md
+frontend/2026-05-17.md
+CHANGES_LOGGED.txt

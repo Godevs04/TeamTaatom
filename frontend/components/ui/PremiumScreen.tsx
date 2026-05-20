@@ -36,10 +36,6 @@ export default function PremiumScreen({
           />
           <Circle cx="56" cy="108" r="44" fill={isDark ? 'rgba(91,188,248,0.13)' : 'rgba(255,255,255,0.38)'} />
           <Circle cx="332" cy="222" r="54" fill={isDark ? 'rgba(67,184,156,0.10)' : 'rgba(255,255,255,0.34)'} />
-          <Path
-            d="M18 706 C90 668 150 692 196 724 C254 684 334 696 388 742 L388 844 L18 844 Z"
-            fill={isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.50)'}
-          />
         </Svg>
       </View>
       <View style={[styles.content, contentStyle]}>{children}</View>

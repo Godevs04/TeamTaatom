@@ -1154,11 +1154,6 @@ export default function ProfileScreen() {
         <View style={styles.topActionsContainer}>
           <View style={styles.topActionsLeft}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Image
-                source={{ uri: 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png' }}
-                style={{ width: 56, height: 56 }}
-                resizeMode="contain"
-              />
               <Text style={{
                 fontSize: 30,
                 fontWeight: '600',
@@ -1231,7 +1226,6 @@ export default function ProfileScreen() {
               textPrimary={profileTheme.textPrimary}
               textSecondary={profileTheme.textSecondary}
               onEditProfile={() => setShowEditProfile(true)}
-              onPublish={() => router.push('/(tabs)/post')}
               onOpenMap={() => {
                 const id = user?._id ?? profileData?._id;
                 const userId = id != null ? String(id) : undefined;
