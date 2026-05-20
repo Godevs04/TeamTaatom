@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -15,13 +15,11 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import PremiumGlassCard from '../ui/PremiumGlassCard';
 import CloudGlassSurface from '../cloud/CloudGlassSurface';
-import { cloudDesign } from '../../constants/cloudDesign';
 import RotatingGlobe from '../RotatingGlobe';
 import BioDisplay from '../BioDisplay';
 import { optimizeCloudinaryUrl } from '../../utils/imageCache';
 
 const { width: SCREEN_W } = Dimensions.get('window');
-const COVER_H = 168;
 const AVATAR = 96;
 
 export interface ProfilePremiumViewProps {
@@ -43,7 +41,6 @@ export interface ProfilePremiumViewProps {
   textPrimary: string;
   textSecondary: string;
   onEditProfile: () => void;
-  onPublish: () => void;
   onOpenMap: () => void;
   onOpenTripScore: () => void;
   onOpenJourneys: () => void;
@@ -51,10 +48,6 @@ export interface ProfilePremiumViewProps {
   onOpenFollowers: () => void;
   onOpenChat?: () => void;
   onHighlightPress?: (postId: string) => void;
-}
-
-function explorerLevel(score: number): number {
-  return Math.max(1, Math.min(12, Math.floor(score / 35) + 1));
 }
 
 function formatLocationLine(address: string, date?: string): string {
@@ -86,7 +79,6 @@ export default function ProfilePremiumView({
   textPrimary,
   textSecondary,
   onEditProfile,
-  onPublish,
   onOpenMap,
   onOpenTripScore,
   onOpenJourneys,
@@ -96,34 +88,21 @@ export default function ProfilePremiumView({
   onHighlightPress,
 }: ProfilePremiumViewProps) {
   const router = useRouter();
-  const level = explorerLevel(tripScore);
   const topPercent = tripScore > 0 ? Math.min(99, Math.max(5, Math.round((tripScore % 500) / 5))) : 0;
 
-  const achievements = useMemo(
-    () => [
-      { id: 'explorer', label: 'Explorer', icon: 'compass' as const, progress: `${Math.min(tripScore, 100)}/100`, done: tripScore >= 10 },
-      { id: 'countries', label: 'Country Collector', icon: 'flag' as const, progress: `${countriesCount}/10`, done: countriesCount >= 3 },
-      { id: 'trips', label: 'Frequent Traveler', icon: 'airplane' as const, progress: `${tripsCount}/5`, done: tripsCount >= 2 },
-      { id: 'verified', label: 'Verified Wanderer', icon: 'checkmark-circle' as const, progress: `${verifiedCount ?? 0}/5`, done: (verifiedCount ?? 0) >= 1 },
-    ],
-    [tripScore, countriesCount, tripsCount, verifiedCount]
-  );
-
   const timeline = verifiedLocations.slice(0, 4);
-  const tags = ['Explorer', countriesCount > 0 ? `${countriesCount} countries` : 'Traveler'].join(' · ');
+  const tags = countriesCount > 0 ? `${countriesCount} countries` : 'Traveler';
 
   return (
     <View style={styles.wrap}>
-      {/* Cover + identity */}
-      <View style={styles.coverWrap}>
-        <Image source={require('../../assets/banner1.png')} style={styles.coverImg as ImageStyle} resizeMode="cover" />
+      <View style={styles.headerBlock}>
         <LinearGradient
-          colors={['transparent', 'rgba(6,18,31,0.55)', 'rgba(6,18,31,0.92)']}
+          colors={isDark ? ['#0F1E30', '#122236', '#152A42'] : ['#E8F4FF', '#F5FAFF', '#FFFFFF']}
           style={StyleSheet.absoluteFillObject}
         />
-        <View style={styles.coverBottom}>
+        <View style={styles.headerInner}>
           <View style={styles.avatarRow}>
-            <View style={styles.avatarOuter}>
+            <View style={[styles.avatarOuter, { borderColor: isDark ? '#FFFFFF' : `${accent}55` }]}>
               <Image
                 source={
                   profilePic
@@ -132,24 +111,17 @@ export default function ProfilePremiumView({
                 }
                 style={styles.avatar as ImageStyle}
               />
-              <View style={[styles.verifiedDot, { backgroundColor: accent }]}>
-                <Ionicons name="checkmark" size={12} color="#fff" />
-              </View>
             </View>
             <View style={styles.nameCol}>
-              <Text style={styles.displayName} numberOfLines={1}>
+              <Text style={[styles.displayName, { color: textPrimary }]} numberOfLines={1}>
                 {fullName}
               </Text>
               {username ? (
-                <Text style={styles.handle} numberOfLines={1}>
+                <Text style={[styles.handle, { color: textSecondary }]} numberOfLines={1}>
                   @{username}
                 </Text>
               ) : null}
             </View>
-            <Pressable style={[styles.levelBadge, { borderColor: accent + '55' }]} onPress={onOpenTripScore}>
-              <LinearGradient colors={['rgba(91,188,248,0.35)', 'rgba(43,127,212,0.2)']} style={StyleSheet.absoluteFillObject} />
-              <Ionicons name="compass" size={18} color={accent} />
-            </Pressable>
           </View>
           <Text style={[styles.tags, { color: textSecondary }]}>{tags}</Text>
           {bio ? (
@@ -158,21 +130,25 @@ export default function ProfilePremiumView({
             </View>
           ) : null}
           <View style={styles.actionRow}>
-            <Pressable style={styles.btnPrimary} onPress={onPublish}>
-              <LinearGradient colors={cloudDesign.buttonGradient} style={StyleSheet.absoluteFillObject} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
-              <Ionicons name="add" size={18} color="#fff" />
-              <Text style={styles.btnPrimaryText}>Publish</Text>
-            </Pressable>
-            <Pressable style={[styles.btnOutline, { borderColor: accent + '60' }]} onPress={onOpenConnect}>
+            <Pressable
+              style={[styles.btnOutline, { borderColor: accent + '60', flex: 1, justifyContent: 'center' }]}
+              onPress={onOpenConnect}
+            >
               <Ionicons name="people-outline" size={16} color={accent} />
               <Text style={[styles.btnOutlineText, { color: textPrimary }]}>Connect</Text>
             </Pressable>
             {onOpenChat ? (
-              <Pressable style={[styles.btnIcon, { borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(91,188,248,0.25)' }]} onPress={onOpenChat}>
+              <Pressable
+                style={[styles.btnIcon, { borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(91,188,248,0.25)' }]}
+                onPress={onOpenChat}
+              >
                 <Ionicons name="chatbubble-outline" size={18} color={textPrimary} />
               </Pressable>
             ) : (
-              <Pressable style={[styles.btnIcon, { borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(91,188,248,0.25)' }]} onPress={onEditProfile}>
+              <Pressable
+                style={[styles.btnIcon, { borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(91,188,248,0.25)' }]}
+                onPress={onEditProfile}
+              >
                 <Ionicons name="create-outline" size={18} color={textPrimary} />
               </Pressable>
             )}
@@ -188,11 +164,6 @@ export default function ProfilePremiumView({
           {topPercent > 0 ? (
             <Text style={[styles.statHint, { color: accent }]}>Top {topPercent}%</Text>
           ) : null}
-        </Pressable>
-        <View style={[styles.statDivider, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(91,188,248,0.15)' }]} />
-        <Pressable style={styles.statCell} onPress={onOpenMap}>
-          <Text style={[styles.statValue, { color: textPrimary }]}>{verifiedCount ?? '–'}</Text>
-          <Text style={[styles.statLabel, { color: textSecondary }]}>Verified</Text>
         </Pressable>
         <View style={[styles.statDivider, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(91,188,248,0.15)' }]} />
         <Pressable style={styles.statCell} onPress={onOpenJourneys}>

@@ -1,8 +1,9 @@
-import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import React, { useMemo } from 'react';
+import { View, Text, StyleSheet, FlatList, Dimensions, Platform } from 'react-native';
 import { useCloudGlassTokens } from './CloudGlassSurface';
-import { CloudLocaleHeroCard, CloudLocaleMiniCard, CloudLocaleMiniCardWide, CloudLocaleCardData } from './CloudLocaleCard';
-import CloudLocaleFeaturedSection from './CloudLocaleFeaturedSection';
+import { CloudLocaleHeroCard, CloudLocaleCardData } from './CloudLocaleCard';
+import ScrollEdgeFades from '../ScrollEdgeFades';
+import { useTheme } from '../../context/ThemeContext';
 
 interface CloudLocaleFeedProps {
   locales: CloudLocaleCardData[];
@@ -14,73 +15,63 @@ interface CloudLocaleFeedProps {
   featuredTitle?: string;
 }
 
-/** Hero + up to 3 in horizontal carousel under Featured */
-const FEATURED_CAP = 4;
+const { width: SCREEN_W } = Dimensions.get('window');
 
+/**
+ * One-locale-at-a-time horizontal carousel (paging) with soft edge fades,
+ * for Saved / featured locale strips.
+ */
 export default function CloudLocaleFeed({
   locales,
   getDistanceText,
   onLocalePress,
   onSavePress,
   isSaved,
-  showNearest = true,
-  featuredTitle = 'Featured Locales 📍',
+  showNearest: _showNearest = true,
+  featuredTitle = 'Saved Locales 🔖',
 }: CloudLocaleFeedProps) {
   const glass = useCloudGlassTokens();
-  if (!locales.length) return null;
+  const { isDark } = useTheme();
+  const pageWidth = SCREEN_W;
 
-  const nearest = showNearest ? locales[0] : null;
-  const afterNearest = showNearest ? locales.slice(1) : locales;
-  const featured = afterNearest.slice(0, FEATURED_CAP);
-  const more = afterNearest.slice(FEATURED_CAP);
+  const data = useMemo(() => locales.filter(Boolean), [locales]);
+
+  if (!data.length) return null;
 
   return (
     <View style={styles.wrap}>
-      {nearest ? (
-        <View style={styles.nearestBlock}>
-          <Text style={[styles.sectionTitle, { color: glass.textPrimary }]}>Nearest to You 🧭</Text>
-          <View style={styles.padded}>
-            <CloudLocaleHeroCard
-              locale={nearest}
-              distanceText={getDistanceText(nearest)}
-              onPress={() => onLocalePress(nearest)}
-              onSavePress={onSavePress ? () => onSavePress(nearest) : undefined}
-              saved={nearest._id && isSaved ? isSaved(nearest._id) : false}
-            />
-          </View>
-          <View style={styles.sectionGap} />
-        </View>
-      ) : null}
-
-      {featured.length > 0 ? (
-        <CloudLocaleFeaturedSection
-          locales={featured}
-          title={featuredTitle}
-          getDistanceText={getDistanceText}
-          onLocalePress={onLocalePress}
-          onSavePress={onSavePress}
-          isSaved={isSaved}
+      <Text style={[styles.sectionTitle, { color: glass.textPrimary }]}>{featuredTitle}</Text>
+      <View style={styles.carouselSlot}>
+        <FlatList
+          data={data}
+          keyExtractor={(item) => String(item._id || item.name)}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          decelerationRate="fast"
+          snapToInterval={pageWidth}
+          snapToAlignment="center"
+          disableIntervalMomentum
+          getItemLayout={(_, index) => ({
+            length: pageWidth,
+            offset: pageWidth * index,
+            index,
+          })}
+          contentContainerStyle={styles.carouselContent}
+          renderItem={({ item }) => (
+            <View style={[styles.page, { width: pageWidth }]}>
+              <CloudLocaleHeroCard
+                locale={item}
+                distanceText={getDistanceText(item)}
+                onPress={() => onLocalePress(item)}
+                onSavePress={onSavePress ? () => onSavePress(item) : undefined}
+                saved={item._id && isSaved ? isSaved(item._id) : false}
+              />
+            </View>
+          )}
         />
-      ) : null}
-
-      {more.length > 0 ? (
-        <View style={styles.moreBlock}>
-          <Text style={[styles.sectionTitle, { color: glass.textPrimary }]}>More Nearby</Text>
-          <View style={styles.moreGrid}>
-            {more.map((locale) => (
-              <View key={locale._id || locale.name} style={styles.moreItem}>
-                <CloudLocaleMiniCardWide
-                  locale={locale}
-                  distanceText={getDistanceText(locale)}
-                  onPress={() => onLocalePress(locale)}
-                  onSavePress={onSavePress ? () => onSavePress(locale) : undefined}
-                  saved={locale._id && isSaved ? isSaved(locale._id) : false}
-                />
-              </View>
-            ))}
-          </View>
-        </View>
-      ) : null}
+        <ScrollEdgeFades isDark={isDark} variant="horizontal" horizontalFadeSize={40} />
+      </View>
     </View>
   );
 }
@@ -89,32 +80,22 @@ const styles = StyleSheet.create({
   wrap: {
     paddingBottom: 12,
   },
-  nearestBlock: {},
   sectionTitle: {
     fontSize: 14,
     fontWeight: '800',
     marginHorizontal: 16,
-    marginBottom: 8,
+    marginBottom: 10,
     marginTop: 2,
   },
-  padded: {
+  carouselSlot: {
+    minHeight: Platform.OS === 'web' ? 320 : 280,
+    position: 'relative',
+  },
+  carouselContent: {
+    alignItems: 'stretch',
+  },
+  page: {
     paddingHorizontal: 16,
-    alignItems: 'center',
-  },
-  sectionGap: {
-    height: 16,
-  },
-  moreBlock: {
-    marginTop: 4,
-  },
-  moreGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-  moreItem: {
-    width: '47%',
-    minWidth: 150,
+    justifyContent: 'flex-start',
   },
 });

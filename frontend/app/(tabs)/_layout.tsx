@@ -2,7 +2,6 @@ import React, { useEffect, useRef } from 'react';
 import { Tabs, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Platform, Dimensions, StyleSheet, View } from 'react-native';
-import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import { audioManager } from '../../utils/audioManager';
@@ -102,7 +101,7 @@ export default function TabsLayout() {
     }
   }, [pathname]);
 
-  // Tab bar style - floating dock with frosted glass
+  // Tab bar — solid dock (no blur) so content never shows through
   const tabBarStyle = {
     backgroundColor: theme.colors.floatingDock,
     borderTopWidth: 1,
@@ -113,13 +112,13 @@ export default function TabsLayout() {
     shadowOpacity: isDark ? 0.28 : 0.18,
     shadowRadius: 24,
     position: 'absolute' as const,
-    bottom: isWeb ? 16 : (isIOS ? 24 : 16),
-    left: 16,
-    right: 16,
-    height: 68,
-    borderRadius: 34,
-    paddingBottom: isIOS ? 20 : 10,
-    paddingTop: 9,
+    bottom: isWeb ? 14 : (isIOS ? 20 : 14),
+    left: 14,
+    right: 14,
+    height: isWeb ? 78 : (isIOS ? 88 : 82),
+    borderRadius: 36,
+    paddingBottom: isIOS ? 22 : 14,
+    paddingTop: 10,
     overflow: 'hidden' as const,
     // Always visible - no transform/animation
     transform: [{ translateY: 0 }],
@@ -137,11 +136,7 @@ export default function TabsLayout() {
         lazy: true,
         tabBarStyle: tabBarStyle as any,
         tabBarBackground: () => (
-          <BlurView
-            tint={isDark ? 'dark' : 'light'}
-            intensity={90}
-            style={StyleSheet.absoluteFill}
-          />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.colors.floatingDock }]} />
         ),
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.textSecondary,

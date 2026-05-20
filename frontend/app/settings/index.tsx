@@ -10,7 +10,6 @@ import {
   RefreshControl,
   Platform,
   Dimensions,
-  Image
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -260,9 +259,13 @@ export default function SettingsScreen() {
     <View style={[styles.container, { backgroundColor: isDark ? '#06121F' : '#EDF7FF' }]}>
       <CloudSkyBackground heightRatio={0.38} />
       <LinearGradient
-        colors={isDark ? ['#06121F', '#102236', '#07111C'] : ['transparent', '#F8FCFF', '#FFFFFF']}
+        colors={
+          isDark
+            ? ['#06121F', '#102236', '#07111C']
+            : (theme.colors.screenGradient as [string, string, ...string[]])
+        }
         style={StyleSheet.absoluteFillObject}
-        locations={[0, 0.3, 1]}
+        locations={isDark ? [0, 0.3, 1] : [0, 0.22, 0.55, 1]}
       />
       <SafeAreaView style={styles.safeFill} edges={['top']}>
       <NavBar 
@@ -306,16 +309,6 @@ export default function SettingsScreen() {
           />
         }
       >
-        <View style={styles.settingsHero}>
-          <CloudGlassSurface blur borderRadius={22} style={styles.settingsBannerGlass} contentStyle={styles.settingsBannerInner}>
-            <Image
-              source={require('../../assets/settings_image.png')}
-              style={styles.settingsBannerImage}
-              resizeMode="cover"
-            />
-          </CloudGlassSurface>
-        </View>
-
         <CloudGlassSurface style={styles.headerContainer} contentStyle={styles.userInfo} borderRadius={18}>
           <Text style={[styles.userName, { color: theme.colors.text }]}>
             {user?.fullName || 'User'}
@@ -380,23 +373,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 32,
   },
-  settingsHero: {
-    paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
-    marginTop: 8,
-    marginBottom: 14,
-  },
-  settingsBannerGlass: {
-    width: '100%',
-  },
-  settingsBannerInner: {
-    height: isTablet ? 140 : 118,
-    overflow: 'hidden',
-    padding: 0,
-  },
-  settingsBannerImage: {
-    width: '100%',
-    height: '100%',
-  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -405,6 +381,7 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginTop: 10,
     marginBottom: 14,
   },
   userInfo: {

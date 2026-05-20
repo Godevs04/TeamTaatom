@@ -43,6 +43,7 @@ import { trackScreenView, trackEngagement, trackFeatureUsage } from '../../servi
 import { theme } from '../../constants/theme';
 import { optimizeCloudinaryUrl } from '../../utils/imageCache';
 import { CloudSkyBackground } from '../../components/cloud';
+import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 import { cloudDesign } from '../../constants/cloudDesign';
 import PremiumGlassCard from '../../components/ui/PremiumGlassCard';
 
@@ -1122,14 +1123,11 @@ export default function ProfileScreen() {
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {!isDark && <CloudSkyBackground heightRatio={0.38} />}
       <LinearGradient
-        colors={
-          isDark
-            ? (theme.colors.screenGradient as [string, string, string])
-            : ['transparent', '#F8FCFF', '#FFFFFF']
-        }
+        colors={theme.colors.screenGradient as [string, string, ...string[]]}
         style={StyleSheet.absoluteFillObject}
-        locations={isDark ? undefined : [0, 0.3, 1]}
+        locations={isDark ? [0, 0.45, 1] : [0, 0.22, 0.55, 1]}
       />
+      <View style={styles.scrollClip}>
       <ScrollView
         ref={scrollViewRef}
         style={styles.scrollView}
@@ -1541,6 +1539,8 @@ export default function ProfileScreen() {
           />
         )}
       </ScrollView>
+      <ScrollEdgeFades isDark={isDark} variant="vertical" />
+      </View>
     </View>
     </ErrorBoundary>
   );
@@ -1557,6 +1557,10 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+  },
+  scrollClip: {
+    flex: 1,
+    position: 'relative',
   },
   scrollContent: {
     // Add padding for tab bar (88px mobile, 70px web) + extra spacing
