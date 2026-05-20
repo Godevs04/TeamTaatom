@@ -1,7 +1,7 @@
 /**
  * Ad cap tracker — enforces the "3 Google AdMob ads per user per 8h rolling
  * window" rule, shared across the home feed (posts), shorts feed (reels), and
- * (future) website browser. The window starts at the user's first ad
+ * Connect website preview. The window starts at the user's first ad
  * impression and runs in the background; once it expires the count resets to
  * zero and the website-dedup set is cleared (per spec: "session lifetime for
  * website-revisit dedup = cleared on 8h cap reset").
