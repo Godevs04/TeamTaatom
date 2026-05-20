@@ -45,6 +45,13 @@ import { localeCache } from '../../cache/localeCache';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { trackFeatureUsage } from '../../services/analytics';
 import TravelLoadingOverlay from '../../components/TravelLoadingOverlay';
+import {
+  CloudSkyBackground,
+  CloudSegmentedControl,
+  CloudSearchDock,
+  CloudLocaleFeed,
+} from '../../components/cloud';
+import type { CloudLocaleCardData } from '../../components/cloud/CloudLocaleCard';
 
 const logger = createLogger('LocaleScreen');
 
@@ -2002,16 +2009,13 @@ export default function LocaleScreen() {
   const applyFilters = useCallback((locales: Locale[], isSavedTab = false) => {
     let filtered = [...locales];
     
-    // Filter by country (for saved locales - API handles this for locale tab)
-    if (filters.countryCode && filters.countryCode.trim() !== '' && isSavedTab) {
+    if (filters.countryCode && filters.countryCode.trim() !== '') {
       filtered = filtered.filter(locale => 
         locale.countryCode && locale.countryCode.toUpperCase() === filters.countryCode.toUpperCase()
       );
     }
     
-    // Filter by state/province (for saved locales - API handles this for locale tab)
-    // Handle optional state fields: match by stateCode or stateProvince
-    if (filters.stateCode && filters.stateCode.trim() !== '' && isSavedTab) {
+    if (filters.stateCode && filters.stateCode.trim() !== '') {
       filtered = filtered.filter(locale => {
         // If locale has stateCode, match exactly
         if (locale.stateCode && locale.stateCode.trim() !== '') {
@@ -2037,14 +2041,16 @@ export default function LocaleScreen() {
       );
     }
     
-    // Filter by search query (client-side for saved, or when not using API)
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
+    // Live text search (client-side on loaded locales)
+    const searchText = searchInput.trim().toLowerCase();
+    if (searchText) {
       filtered = filtered.filter(locale =>
-        locale?.name?.toLowerCase?.().includes(query) ||
-        locale?.description?.toLowerCase?.().includes(query) ||
-        locale?.countryCode?.toLowerCase?.().includes(query) ||
-        locale?.stateProvince?.toLowerCase?.().includes(query)
+        locale?.name?.toLowerCase?.().includes(searchText) ||
+        locale?.description?.toLowerCase?.().includes(searchText) ||
+        locale?.countryCode?.toLowerCase?.().includes(searchText) ||
+        locale?.stateProvince?.toLowerCase?.().includes(searchText) ||
+        (Array.isArray(locale.spotTypes) &&
+          locale.spotTypes.some((t) => typeof t === 'string' && t.toLowerCase().includes(searchText)))
       );
     }
     
@@ -2096,7 +2102,7 @@ export default function LocaleScreen() {
     const sorted = sortLocalesByDistance(filtered);
     
     return sorted;
-  }, [filters, searchQuery, sortLocalesByDistance, userLocation, locationPermissionGranted, getLocaleDistance]);
+  }, [filters, searchInput, sortLocalesByDistance, userLocation, locationPermissionGranted, getLocaleDistance]);
   
   // Memoized filtered saved locales for performance
   const filteredSavedLocales = useMemo(() => {
@@ -2104,7 +2110,7 @@ export default function LocaleScreen() {
       return applyFilters(savedLocales, true);
     }
     return savedLocales;
-  }, [savedLocales, filters, searchQuery, activeTab, applyFilters, userLocation, locationPermissionGranted, calculatingDistances]);
+  }, [savedLocales, filters, searchInput, activeTab, applyFilters, userLocation, locationPermissionGranted, calculatingDistances]);
 
   // Whether any user-applied filter is active (search query or filter modal selection).
   // Lifted out of renderAdminLocales so the list renderer (FlatList) can read it
@@ -2114,8 +2120,8 @@ export default function LocaleScreen() {
     !!filters.stateCode ||
     filters.spotTypes.length > 0 ||
     !!(filters.searchRadius && filters.searchRadius.trim() !== '' && parseFloat(filters.searchRadius.trim()) > 0) ||
-    searchQuery.trim() !== ''
-  ), [filters, searchQuery]);
+    searchInput.trim() !== ''
+  ), [filters, searchInput]);
 
   // Memoized sorted admin locales - always sorted by distance (or createdAt if no location)
   // This ensures locales are always in the correct order for display
@@ -2147,9 +2153,12 @@ export default function LocaleScreen() {
   // The list the locale-tab FlatList actually renders. Lifted from
   // renderAdminLocales() so the FlatList can read it directly and so it
   // doesn't re-allocate on every parent render.
-  const localesToShow = useMemo(() => (
-    (hasActiveFilters || filteredLocales.length > 0) ? filteredLocales : sortedAdminLocales
-  ), [hasActiveFilters, filteredLocales, sortedAdminLocales]);
+  // Always derive display list from sorted data + live filters (search, spot types, radius)
+  const localesToShow = useMemo(() => {
+    if (activeTab !== 'locale') return [];
+    if (sortedAdminLocales.length === 0) return [];
+    return applyFilters(sortedAdminLocales, false);
+  }, [activeTab, sortedAdminLocales, applyFilters, searchInput, filters]);
 
   // Update filtered locales when adminLocales change (but NOT when filters/searchQuery change - handled in loadAdminLocales)
   // Also apply client-side filters for multiple spot types and search radius which require client-side processing
@@ -2163,7 +2172,7 @@ export default function LocaleScreen() {
     } else {
       setFilteredLocales([]);
     }
-  }, [sortedAdminLocales, applyFilters, activeTab, filters.spotTypes, filters.searchRadius, userLocation, locationPermissionGranted]);
+  }, [sortedAdminLocales, applyFilters, activeTab, filters.spotTypes, filters.searchRadius, filters.countryCode, filters.stateCode, searchInput, userLocation, locationPermissionGranted]);
 
   // Re-sort locales when user location becomes available or changes
   // This ensures sorting works even if location becomes available after locales are loaded
@@ -2542,6 +2551,58 @@ export default function LocaleScreen() {
   const isLocaleSaved = (localeId: string): boolean => {
     return savedLocales.some(l => l._id === localeId);
   };
+
+  const formatLocaleDistance = useCallback((locale: Locale) => {
+    const d =
+      (locale as Locale & { distanceKm?: number | null }).distanceKm ??
+      (userLocation && locationPermissionGranted ? getLocaleDistance(locale) : null);
+    if (d !== null && d !== undefined) {
+      return d < 1 ? `${Math.round(d * 1000)} m` : `${d.toFixed(1)} km`;
+    }
+    return '–';
+  }, [userLocation, locationPermissionGranted, getLocaleDistance]);
+
+  const openLocaleDetail = useCallback((locale: Locale) => {
+    const d =
+      (locale as Locale & { distanceKm?: number | null }).distanceKm ??
+      (userLocation && locationPermissionGranted ? getLocaleDistance(locale) : null);
+    try {
+      trackFeatureUsage('locale_open', { locale_id: locale._id });
+      router.push({
+        pathname: '/tripscore/countries/[country]/locations/[location]',
+        params: {
+          country: locale.countryCode.toLowerCase(),
+          location: locale.name.toLowerCase().replace(/\s+/g, '-'),
+          userId: 'admin-locale',
+          localeId: String(locale._id),
+          imageUrl: locale.imageUrl || '',
+          galleryUrls:
+            Array.isArray(locale.imageUrls) && locale.imageUrls.length > 0
+              ? locale.imageUrls.join('|||')
+              : '',
+          latitude: locale.latitude != null && locale.latitude !== 0 ? locale.latitude.toString() : '',
+          longitude: locale.longitude != null && locale.longitude !== 0 ? locale.longitude.toString() : '',
+          description: locale.description || '',
+          spotTypes: locale.spotTypes?.join(', ') || '',
+          travelInfo: locale.travelInfo || 'Drivable',
+          distanceKm: d !== null && d !== undefined ? d.toString() : '',
+        },
+      });
+    } catch (error) {
+      logger.error('Error navigating to locale detail:', error);
+      showError('Failed to open locale details');
+    }
+  }, [router, userLocation, locationPermissionGranted, getLocaleDistance, showError]);
+
+  const toCloudLocale = useCallback((locale: Locale): CloudLocaleCardData => ({
+    _id: String(locale._id),
+    name: locale.name,
+    countryCode: locale.countryCode,
+    imageUrl: locale.imageUrl,
+    spotTypes: locale.spotTypes,
+    travelInfo: locale.travelInfo,
+    description: locale.description,
+  }), []);
 
   const loadCountries = async () => {
     if (!isMountedRef.current) return;
@@ -3026,12 +3087,31 @@ export default function LocaleScreen() {
     if (!isMountedRef.current) return;
     const next = searchInput.trim();
     setSearchQuery(next);
-  }, [searchInput]);
+    lastFetchKeyRef.current = null;
+    loadedOnceRef.current = false;
+    // Immediate client filter via localesToShow useMemo; API refetch follows searchQuery effect
+    if (sortedAdminLocales.length > 0) {
+      setFilteredLocales(applyFilters(sortedAdminLocales, false));
+    }
+  }, [searchInput, sortedAdminLocales, applyFilters]);
 
-  // When the (already-debounced) searchQuery changes, cancel any in-flight
-  // request and refetch immediately. No inner timer here — the debounce above
-  // is the only one.
+  // Live filter: clear committed API search as soon as the field is emptied
   useEffect(() => {
+    if (!searchInput.trim() && searchQuery.trim()) {
+      setSearchQuery('');
+      lastFetchKeyRef.current = null;
+      loadedOnceRef.current = false;
+      if (activeTab === 'locale' && sortedAdminLocales.length > 0) {
+        setFilteredLocales(applyFilters(sortedAdminLocales, false));
+      }
+      loadAdminLocalesRef.current(true);
+    }
+  }, [searchInput, searchQuery, activeTab, sortedAdminLocales, applyFilters]);
+
+  // API search only when user commits via keyboard/search icon — not on every keystroke.
+  // Client-side filter (searchInput in applyFilters) handles live typing on loaded locales.
+  useEffect(() => {
+    if (!searchQuery.trim()) return;
     if (searchAbortControllerRef.current) {
       searchAbortControllerRef.current.abort();
     }
@@ -3580,9 +3660,9 @@ export default function LocaleScreen() {
   const localeKeyExtractor = useCallback((item: Locale, index: number) => String(item?._id ?? `locale-${index}`), []);
 
   const localeGetItemLayout = useCallback((_data: ArrayLike<Locale> | null | undefined, index: number) => {
-    // Card height comes from styles.wideCard: 200 on tablet, 160 on phone.
+    // Card height comes from styles.wideCard: 220 on tablet, 176 on phone.
     // Plus the inline marginBottom: 16 applied in renderAdminLocaleCard.
-    const cardHeight = isTabletLocal ? 200 : 160;
+    const cardHeight = isTabletLocal ? 220 : 176;
     const totalHeight = cardHeight + 16;
     return { length: totalHeight, offset: totalHeight * index, index };
   }, []);
@@ -3750,7 +3830,14 @@ export default function LocaleScreen() {
     >
       <StatusBar
         barStyle={mode === 'dark' ? 'light-content' : 'dark-content'}
-        backgroundColor={theme.colors.background}
+        backgroundColor="transparent"
+        translucent
+      />
+      <CloudSkyBackground heightRatio={0.34} />
+      <LinearGradient
+        colors={mode === 'dark' ? ['#06121F', '#102236', '#07111C'] : ['transparent', '#F8FCFF', '#FFFFFF']}
+        style={StyleSheet.absoluteFillObject}
+        locations={[0, 0.28, 1]}
       />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -3762,97 +3849,26 @@ export default function LocaleScreen() {
           mode={mode}
           theme={theme}
         />
-      {/* Elegant Top Navigation */}
       <View style={styles.topNavigation}>
-        <View style={[styles.tabContainer, { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }]}>
-          <TouchableOpacity
-            style={[
-              styles.tabButton,
-              activeTab === 'locale' && { backgroundColor: theme.colors.primary }
-            ]}
-            onPress={() => setActiveTab('locale')}
-            activeOpacity={0.7}
-            accessibilityLabel="Locale tab"
-            accessibilityRole="tab"
-            accessibilityState={{ selected: activeTab === 'locale' }}
-          >
-            <Ionicons
-              name={activeTab === 'locale' ? "location" : "location-outline"}
-              size={20}
-              color={activeTab === 'locale' ? 'white' : theme.colors.textSecondary}
-            />
-            <Text style={[
-              styles.tabText,
-              { color: activeTab === 'locale' ? 'white' : theme.colors.textSecondary }
-            ]}>
-              Locale
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.tabButton,
-              activeTab === 'saved' && { backgroundColor: theme.colors.primary }
-            ]}
-            onPress={() => setActiveTab('saved')}
-            activeOpacity={0.7}
-            accessibilityLabel="Saved tab"
-            accessibilityRole="tab"
-            accessibilityState={{ selected: activeTab === 'saved' }}
-          >
-            <Ionicons
-              name={activeTab === 'saved' ? "bookmark" : "bookmark-outline"}
-              size={20}
-              color={activeTab === 'saved' ? 'white' : theme.colors.textSecondary}
-            />
-            <Text style={[
-              styles.tabText,
-              { color: activeTab === 'saved' ? 'white' : theme.colors.textSecondary }
-            ]}>
-              Saved
-            </Text>
-          </TouchableOpacity>
-        </View>
+        <CloudSegmentedControl
+          segments={[
+            { key: 'locale', label: 'Locale' },
+            { key: 'saved', label: 'Saved' },
+          ]}
+          value={activeTab}
+          onChange={(tab) => setActiveTab(tab as 'locale' | 'saved')}
+        />
       </View>
 
-      {/* Search Bar */}
-      <View style={[styles.searchContainer, { backgroundColor: theme.colors.background }]}>
-        <View style={[styles.searchBar, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-          <TouchableOpacity
-            onPress={handleSearchSubmit}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityLabel="Search"
-            accessibilityRole="button"
-            activeOpacity={0.7}
-          >
-            <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} />
-          </TouchableOpacity>
-          <TextInput
-            style={[styles.searchInput, { color: theme.colors.text }]}
-            placeholder="Search"
-            placeholderTextColor={theme.colors.textSecondary}
-            value={searchInput}
-            onChangeText={setSearchInput}
-            returnKeyType="search"
-            onSubmitEditing={handleSearchSubmit}
-          />
-        </View>
-        <TouchableOpacity
-          style={[styles.filterButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
-          onPress={() => setShowFilterModal(true)}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          activeOpacity={0.7}
-          accessibilityLabel={activeFilterCount > 0 ? `Filters, ${activeFilterCount} active` : 'Filters'}
-          accessibilityRole="button"
-        >
-          <Ionicons name="filter" size={isTabletLocal ? 22 : 20} color={theme.colors.text} />
-          {activeFilterCount > 0 && (
-            <View style={[styles.filterButtonBadge, { backgroundColor: theme.colors.primary }]}>
-              <Text style={styles.filterButtonBadgeText}>{activeFilterCount}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      </View>
+      <CloudSearchDock
+        value={searchInput}
+        onChangeText={setSearchInput}
+        onSubmit={handleSearchSubmit}
+        onFilterPress={() => setShowFilterModal(true)}
+        filterBadgeCount={activeFilterCount}
+        placeholder="Search destinations"
+        style={{ marginBottom: 8 }}
+      />
 
       {/* Content
           Permanent fix for the saved-tab crash: previously this was
@@ -3867,41 +3883,60 @@ export default function LocaleScreen() {
           handlers active), so this is also fine for performance. */}
       <View style={[styles.listSlot, activeTab === 'locale' ? null : styles.hidden]} pointerEvents={activeTab === 'locale' ? 'auto' : 'none'}>
         <FlatList
-          data={localesToShow}
-          renderItem={renderAdminLocaleItem}
-          keyExtractor={localeKeyExtractor}
-          getItemLayout={localeGetItemLayout}
-          removeClippedSubviews
-          initialNumToRender={6}
-          maxToRenderPerBatch={4}
-          windowSize={7}
+          data={[]}
+          renderItem={() => null}
+          keyExtractor={() => 'locale-featured'}
           showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
           scrollEventThrottle={16}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
+          ListHeaderComponentStyle={{ width: screenWidth }}
           contentContainerStyle={{
             paddingBottom: isTabletLocal ? 80 : 100,
             paddingHorizontal: 0,
+            width: screenWidth,
           }}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
               onRefresh={handleRefresh}
-              colors={['#4A90E2']}
-              tintColor="#4A90E2"
+              colors={['#5BBCF8']}
+              tintColor="#5BBCF8"
+            />
+          }
+        />
+        <FlatList
+          data={localesToShow}
+          renderItem={renderAdminLocaleItem}
+          keyExtractor={localeKeyExtractor}
+          showsVerticalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          ListHeaderComponentStyle={{ width: screenWidth }}
+          contentContainerStyle={{
+            paddingBottom: isTabletLocal ? 80 : 100,
+            paddingHorizontal: 0,
+            width: screenWidth,
+          }}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={['#5BBCF8']}
+              tintColor="#5BBCF8"
             />
           }
           ListHeaderComponent={
-            <View style={[styles.adminLocalesSection, { paddingBottom: 0 }]}>
-              <Text style={[styles.sectionTitle, { color: theme.colors.text, marginBottom: 12 }]}>Featured Locales</Text>
-            </View>
+            <Text style={[styles.sectionTitle, { color: theme.colors.text, marginBottom: 16, paddingHorizontal: 20, marginTop: 20 }]}>
+              Featured Locales
+            </Text>
           }
           ListEmptyComponent={
             loadingLocales ? (
-              <View style={styles.adminLocalesSection}>
-                <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginVertical: 20 }} />
-              </View>
+              <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginVertical: 20 }} />
             ) : (
               <View style={styles.adminLocalesSection}>
                 <View style={styles.emptyContainer}>
@@ -3947,16 +3982,35 @@ export default function LocaleScreen() {
 
       <View style={[styles.listSlot, activeTab === 'saved' ? null : styles.hidden]} pointerEvents={activeTab === 'saved' ? 'auto' : 'none'}>
         <FlatList
-          data={filteredSavedLocales}
-          renderItem={({ item, index }) => renderSavedLocaleCard({ locale: item, index })}
-          keyExtractor={(item, index) => String(item?._id ?? `locale-${index}`)}
-          initialNumToRender={6}
-          maxToRenderPerBatch={4}
-          windowSize={7}
+          data={[]}
+          renderItem={() => null}
+          keyExtractor={() => 'saved-featured'}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
+          ListHeaderComponentStyle={{ width: screenWidth }}
+          ListHeaderComponent={
+            filteredSavedLocales.length > 0 ? (
+              <CloudLocaleFeed
+                featuredTitle="Saved Locales 🔖"
+                showNearest={Boolean(userLocation && locationPermissionGranted)}
+                locales={filteredSavedLocales.map(toCloudLocale)}
+                getDistanceText={(l) => {
+                  const full = filteredSavedLocales.find((x) => String(x._id) === l._id);
+                  return full ? formatLocaleDistance(full) : '–';
+                }}
+                onLocalePress={(l) => {
+                  const full = filteredSavedLocales.find((x) => String(x._id) === l._id);
+                  if (full) openLocaleDetail(full);
+                }}
+                onSavePress={(l) => {
+                  if (l._id) unsaveLocale(l._id);
+                }}
+                isSaved={() => true}
+              />
+            ) : null
+          }
           ListEmptyComponent={
-            savedLocales.length === 0
+            filteredSavedLocales.length > 0 ? null : savedLocales.length === 0
               ? renderEmptySavedState()
               : filteredSavedLocales.length === 0
                 ? (
@@ -3995,7 +4049,10 @@ export default function LocaleScreen() {
             />
           }
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.listContainer, { paddingHorizontal: 20, paddingTop: 20 }]}
+          contentContainerStyle={[
+            styles.listContainer,
+            { width: screenWidth, paddingHorizontal: 20, paddingTop: 20, paddingBottom: isTabletLocal ? 80 : 100 },
+          ]}
         />
       </View>
 
@@ -4018,6 +4075,7 @@ const createStyles = () => {
   return StyleSheet.create({
     container: {
       flex: 1,
+      backgroundColor: '#EDF8FF',
       ...(isWebLocal && {
         maxWidth: isTabletLocal ? 1200 : 1000,
         alignSelf: 'center',
@@ -4032,17 +4090,23 @@ const createStyles = () => {
     },
     tabContainer: {
       flexDirection: 'row',
-      borderRadius: theme.borderRadius.xl,
+      borderRadius: 28,
       padding: 4,
+      shadowColor: '#62B9FF',
+      shadowOffset: { width: 0, height: 14 },
+      shadowOpacity: 0.18,
+      shadowRadius: 26,
+      elevation: 8,
     },
     tabButton: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
       paddingVertical: 10,
-      borderRadius: theme.borderRadius.lg,
+      borderRadius: 24,
       flex: 1,
       gap: 8,
+      overflow: 'hidden',
     },
     activeTab: {
       // backgroundColor applied inline via theme from useTheme()
@@ -4058,6 +4122,7 @@ const createStyles = () => {
       paddingHorizontal: isTabletLocal ? theme.spacing.xl : 14,
       paddingVertical: isTabletLocal ? theme.spacing.md : 6,
       gap: 10,
+      backgroundColor: 'transparent',
     },
     searchBar: {
       flex: 1,
@@ -4066,9 +4131,14 @@ const createStyles = () => {
       borderRadius: 22,
       paddingHorizontal: isTabletLocal ? theme.spacing.lg : 14,
       paddingVertical: isTabletLocal ? theme.spacing.md : 8,
-      borderWidth: 0,
+      borderWidth: 1,
       maxWidth: isTabletLocal ? 800 : undefined,
       height: 38,
+      shadowColor: '#72C3FF',
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.14,
+      shadowRadius: 18,
+      elevation: 5,
     },
     searchInput: {
       flex: 1,
@@ -4088,7 +4158,12 @@ const createStyles = () => {
       borderRadius: 19,
       alignItems: 'center' as const,
       justifyContent: 'center' as const,
-      borderWidth: 0,
+      borderWidth: 1,
+      shadowColor: '#72C3FF',
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.14,
+      shadowRadius: 18,
+      elevation: 5,
       ...(isWebLocal && {
         cursor: 'pointer',
         transition: 'all 0.2s ease',
@@ -4119,12 +4194,17 @@ const createStyles = () => {
       marginBottom: isTabletLocal ? theme.spacing.md : 12,
     },
     locationCard: {
-      borderRadius: isTabletLocal ? theme.borderRadius.lg : 16,
+      borderRadius: isTabletLocal ? 28 : 24,
       overflow: 'hidden',
       marginBottom: isTabletLocal ? theme.spacing.md : 10,
       position: 'relative',
-      borderWidth: 0.5,
-      borderColor: 'rgba(0,0,0,0.08)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.72)',
+      shadowColor: '#4AA3DF',
+      shadowOffset: { width: 0, height: 16 },
+      shadowOpacity: 0.22,
+      shadowRadius: 28,
+      elevation: 10,
     },
     halfCard: {
       width: isTabletLocal ? (screenWidth - theme.spacing.xxl * 2 - theme.spacing.md) / 2 : (screenWidth - 36) / 2,
@@ -4132,7 +4212,7 @@ const createStyles = () => {
     },
     wideCard: {
       width: isTabletLocal ? screenWidth - theme.spacing.xxl * 2 : screenWidth - 40,
-      height: isTabletLocal ? 200 : 160,
+      height: isTabletLocal ? 220 : 176,
       alignSelf: 'center',
     },
   cardImage: {
@@ -4378,11 +4458,12 @@ const createStyles = () => {
     paddingBottom: isTabletLocal ? 30 : 40, // Increased to ensure load more button is fully visible above bottom nav
   },
   sectionTitle: {
-    fontSize: 17,
+    fontSize: 19,
     fontFamily: getFontFamily('600'),
-    fontWeight: '600',
+    fontWeight: '700',
     marginBottom: 16,
     marginTop: 8,
+    letterSpacing: 0.2,
   },
   localesList: {
     flexDirection: 'column',
@@ -4402,8 +4483,13 @@ const createStyles = () => {
     justifyContent: 'center',
     paddingVertical: isTabletLocal ? theme.spacing.md : 14,
     paddingHorizontal: isTabletLocal ? theme.spacing.xl : 24,
-    borderRadius: theme.borderRadius.md,
+    borderRadius: theme.borderRadius.full,
     minWidth: isTabletLocal ? 200 : 160,
+    shadowColor: '#32A8FF',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
+    elevation: 8,
   },
   loadMoreText: {
     fontSize: isTabletLocal ? 16 : 15,
@@ -4439,10 +4525,12 @@ const createStyles = () => {
     right: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.36)',
     zIndex: 10,
   },
   distanceText: {
@@ -4450,6 +4538,9 @@ const createStyles = () => {
     fontFamily: getFontFamily('500'),
     fontWeight: '500',
     color: '#FFFFFF',
+    textShadowColor: 'rgba(0,0,0,0.28)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
     ...(isWebLocal && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
@@ -4698,10 +4789,12 @@ const createStyles = () => {
       width: 36,
       height: 36,
       borderRadius: 18,
-      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      backgroundColor: 'rgba(255, 255, 255, 0.24)',
       justifyContent: 'center',
       alignItems: 'center',
       zIndex: 10,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.36)',
     },
   });
 };

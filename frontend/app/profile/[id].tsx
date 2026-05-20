@@ -15,6 +15,14 @@ import BioDisplay from '../../components/BioDisplay';
 import RotatingGlobe from '../../components/RotatingGlobe';
 import Constants from 'expo-constants';
 import { LinearGradient as ExpoLinearGradient } from 'expo-linear-gradient';
+import {
+  CloudSkyBackground,
+  CloudMetricRow,
+  CloudTripScoreHero,
+  CloudActionGroup,
+  CloudListRow,
+} from '../../components/cloud';
+import PremiumGlassCard from '../../components/ui/PremiumGlassCard';
 import logger from '../../utils/logger';
 import { getUserShorts } from '../../services/posts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -126,7 +134,12 @@ export default function UserProfileScreen() {
   // Theme-aware colors for profile - MUST be called before any conditional returns
   const colorScheme = useColorScheme();
   // Improved dark mode detection - use theme mode if available, otherwise check background color
-  const isDark = mode === 'dark' || (mode === 'auto' && colorScheme === 'dark') || theme.colors.background === '#000000' || theme.colors.background === '#111114';
+  const isDark =
+    mode === 'dark' ||
+    (mode === 'auto' && colorScheme === 'dark') ||
+    theme.colors.background === '#0B1A2B' ||
+    theme.colors.background === '#000000' ||
+    theme.colors.background === '#111114';
   
   const profileTheme = useMemo(() => {
     if (isDark) {
@@ -585,12 +598,24 @@ export default function UserProfileScreen() {
     );
   }
 
+  const locationCount =
+    currentUser && (currentUser._id === profile._id || isFollowing) && Array.isArray(profile.locations)
+      ? profile.locations.length
+      : '-';
+
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <View style={[styles.container, { backgroundColor: isDark ? '#06121F' : '#EDF7FF' }]}>
+      <CloudSkyBackground heightRatio={0.42} />
+      <ExpoLinearGradient
+        colors={isDark ? ['transparent', '#102236', '#07111C'] : ['transparent', '#F8FCFF', '#FFFFFF']}
+        style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}
+        locations={[0, 0.35, 1]}
+        pointerEvents="none"
+      />
       <ScrollView
-        style={[styles.scrollView, { backgroundColor: theme.colors.background }]}
+        style={styles.scrollView}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scrollContent, { backgroundColor: theme.colors.background }]}
+        contentContainerStyle={styles.scrollContent}
       >
         {/* Modern Hero Header */}
         <ExpoLinearGradient
@@ -629,7 +654,7 @@ export default function UserProfileScreen() {
             </View>
 
             {/* Profile Card */}
-            <View style={[styles.profileCard, { backgroundColor: profileTheme.cardBg + '95' }]}>
+            <PremiumGlassCard style={styles.profileCard} contentStyle={styles.profileCardInner} subtle>
               {/* Avatar with Ring */}
               <View style={styles.avatarContainer}>
                 <View style={[styles.avatarRing, { borderColor: profileTheme.accent + '40' }]}>
@@ -691,155 +716,97 @@ export default function UserProfileScreen() {
                   )}
                 </View>
               )}
-            </View>
+            </PremiumGlassCard>
           </View>
         </ExpoLinearGradient>
 
-        {/* Stats Row — hidden on private profiles you can't view (gates
-            follower/following/location counts behind the same access
-            check as posts). Visible to the owner of the profile. */}
         {(profile.canViewPosts || isOwnProfile) && (
-          <View style={styles.statsContainer}>
-            <StatCard
-              iconName="trophy"
-              value={profile.followersCount !== undefined ? profile.followersCount : (Array.isArray(profile.followers) ? profile.followers.length : 0)}
-              label="Followers"
-              onPress={() => router.push({ pathname: '/followers', params: { userId: profile._id, type: 'followers' } })}
-            />
-            <StatCard
-              iconName="people"
-              value={profile.followingCount !== undefined ? profile.followingCount : (Array.isArray(profile.following) ? profile.following.length : 0)}
-              label="Following"
-              onPress={() => router.push({ pathname: '/followers', params: { userId: profile._id, type: 'following' } })}
-            />
-            <StatCard
-              iconName="location"
-              value={(currentUser && (currentUser._id === profile._id || isFollowing)) && Array.isArray(profile.locations) ? profile.locations.length : '-'}
-              label="Locations"
-            />
-          </View>
+          <CloudMetricRow
+            embedded
+            metrics={[
+              {
+                icon: 'trophy',
+                value: profile.followersCount !== undefined ? profile.followersCount : (Array.isArray(profile.followers) ? profile.followers.length : 0),
+                label: 'Followers',
+                onPress: () => router.push({ pathname: '/followers', params: { userId: profile._id, type: 'followers' } }),
+              },
+              {
+                icon: 'people',
+                value: profile.followingCount !== undefined ? profile.followingCount : (Array.isArray(profile.following) ? profile.following.length : 0),
+                label: 'Following',
+                onPress: () => router.push({ pathname: '/followers', params: { userId: profile._id, type: 'following' } }),
+              },
+              {
+                icon: 'location',
+                value: locationCount,
+                label: 'Locations',
+              },
+            ]}
+          />
         )}
 
-        {/* TripScore Section - Compact */}
-        {profile.tripScore && profile.canViewLocations && (
-          <Pressable 
-            style={[styles.sectionCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder }]}
+        {profile.tripScore && profile.canViewLocations ? (
+          <CloudTripScoreHero
+            score={profile.tripScore.totalScore || 0}
+            subtitle={`${profile.tripScore.totalScore || 0} total TripScore`}
             onPress={() => router.push(`/tripscore/continents?userId=${id}`)}
-          >
-            <View style={styles.sectionHeader}>
-              <View style={[styles.sectionIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-                <Ionicons name="trophy" size={22} color={profileTheme.accent} />
-              </View>
-              <Text style={[styles.sectionTitle, { color: profileTheme.textPrimary }]}>TripScore</Text>
-            </View>
-            <View style={styles.tripScoreContent}>
-              <View style={[styles.tripScoreCard, { backgroundColor: profileTheme.accent + '10', borderColor: profileTheme.accent + '25', borderWidth: 1 }]}>
-                <Text style={[styles.tripScoreNumber, { color: profileTheme.accent }]}>
-                  {profile.tripScore.totalScore || 0}
-                </Text>
-                <Text style={[styles.tripScoreLabel, { color: profileTheme.textSecondary }]}>
-                  Total TripScore
-                </Text>
-              </View>
-            </View>
-          </Pressable>
-        )}
+          />
+        ) : null}
 
-        {/* Friend's Travels Section - Only show if can view posts */}
-        {profile.canViewPosts && (
-          <Pressable
-            style={[styles.sectionCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder }]}
-            onPress={() => router.push(`/journeys?userId=${id}`)}
-          >
-            <View style={styles.sectionHeader}>
-              <View style={[styles.sectionIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-                <Ionicons name="map" size={22} color={profileTheme.accent} />
-              </View>
-              <Text style={[styles.sectionTitle, { color: profileTheme.textPrimary }]}>Travels</Text>
-              <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
-            </View>
-            <Text style={[styles.sectionDescription, { color: profileTheme.textSecondary, marginTop: 8 }]}>
-              View completed journeys and travel history
-            </Text>
-          </Pressable>
-        )}
-
-        {/* Location Card — hidden on private profiles you can't view.
-            "My Location"/"Their Location" copy + globe is travel data,
-            same gate as the posts surface. Owner always sees their own. */}
-        {(profile.canViewPosts || isOwnProfile) && (
-        <Pressable
-          style={[styles.locationCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder }]}
-          onPress={() => {
-            if (verifiedLocationsCount !== null && verifiedLocationsCount > 0) {
-              const name = profile?.fullName || profile?.username || 'User';
-              router.push(`/map/all-locations?userId=${id}&userName=${encodeURIComponent(name)}`);
-            } else if (profile.canViewLocations && profile.locations && profile.locations.length > 0) {
-              setShowWorldMap(true);
-            }
-          }}
-        >
-          <View style={styles.locationCardHeader}>
-            <View style={[styles.locationIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-              <Ionicons name="globe" size={24} color={profileTheme.accent} />
-            </View>
-            <View style={styles.locationTextContainer}>
-              <Text style={[styles.locationTitle, { color: profileTheme.textPrimary }]}>
-                {isOwnProfile ? 'My Location' : 'Their Location'}
-              </Text>
-              <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary }]}>
-                {isOwnProfile ? 'Your verified travel' : 'Their verified travel'}
-              </Text>
-            </View>
-            {(verifiedLocationsCount !== null && verifiedLocationsCount > 0) || (profile.canViewLocations && profile.locations && profile.locations.length > 0) ? (
-              <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
-            ) : null}
-          </View>
-          <View style={styles.locationCardBody}>
-            <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary, marginBottom: 8 }]}>
-              {verifiedLocationsCount !== null && verifiedLocationsCount > 0
-                ? `${verifiedLocationsCount} verified location${verifiedLocationsCount !== 1 ? 's' : ''} · ${tripsCount} trip${tripsCount !== 1 ? 's' : ''}`
-                : verifiedLocationsCount === null && profile.canViewLocations
-                ? 'Loading travel summary…'
-                : 'No verified travel summary yet'}
-            </Text>
-            {countriesCount > 0 ? (
-              <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary, marginBottom: 12 }]}>
-                {countriesCount} countr{countriesCount !== 1 ? 'ies' : 'y'} visited
-              </Text>
-            ) : null}
-          </View>
-          <View style={styles.locationGlobeContainer}>
-            {globeLocations.length > 0 ? (
-              <RotatingGlobe
-                locations={globeLocations}
-                size={140}
-                onPress={() => {
-                  if (verifiedLocationsCount !== null && verifiedLocationsCount > 0) {
-                    const name = profile?.fullName || profile?.username || 'User';
-                    router.push(`/map/all-locations?userId=${id}&userName=${encodeURIComponent(name)}`);
-                  }
-                }}
+        {(profile.canViewPosts || isOwnProfile) ? (
+          <CloudActionGroup style={{ marginBottom: 12 }}>
+            {profile.canViewPosts ? (
+              <CloudListRow
+                icon="map-outline"
+                title="Travels"
+                subtitle="View completed journeys and travel history"
+                onPress={() => router.push(`/journeys?userId=${id}`)}
+                showDivider={false}
+                iconTint={profileTheme.accent}
               />
-            ) : !profile.canViewLocations ? (
-              <View style={[styles.emptyGlobeContainer, { backgroundColor: profileTheme.accent + '10' }]}>
-                <Ionicons name="lock-closed-outline" size={32} color={profileTheme.textSecondary} />
-                <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary, marginTop: 8, textAlign: 'center' }]}>
-                  Follow to view locations
-                </Text>
-              </View>
-            ) : (
-              <View style={[styles.emptyGlobeContainer, { backgroundColor: profileTheme.accent + '10' }]}>
-                <Ionicons name="globe-outline" size={64} color={profileTheme.accent} />
-              </View>
-            )}
-          </View>
-        </Pressable>
-        )}
+            ) : null}
+            <CloudListRow
+              icon="globe-outline"
+              title={isOwnProfile ? 'My Location' : 'Their Location'}
+              subtitle={
+                verifiedLocationsCount !== null && verifiedLocationsCount > 0
+                  ? `${verifiedLocationsCount} verified location${verifiedLocationsCount !== 1 ? 's' : ''} · ${tripsCount} trip${tripsCount !== 1 ? 's' : ''}`
+                  : verifiedLocationsCount === null && profile.canViewLocations
+                    ? 'Loading travel summary…'
+                    : 'No verified travel summary yet'
+              }
+              onPress={() => {
+                if (verifiedLocationsCount !== null && verifiedLocationsCount > 0) {
+                  const name = profile?.fullName || profile?.username || 'User';
+                  router.push(`/map/all-locations?userId=${id}&userName=${encodeURIComponent(name)}`);
+                } else if (profile.canViewLocations && profile.locations && profile.locations.length > 0) {
+                  setShowWorldMap(true);
+                }
+              }}
+              showDivider={profile.canViewPosts}
+              iconTint={profileTheme.accent}
+            />
+          </CloudActionGroup>
+        ) : null}
+
+        {(profile.canViewPosts || isOwnProfile) && globeLocations.length > 0 ? (
+          <PremiumGlassCard style={{ marginHorizontal: 16, marginBottom: 12 }} contentStyle={{ alignItems: 'center', paddingVertical: 16 }} subtle>
+            <RotatingGlobe
+              locations={globeLocations}
+              size={140}
+              onPress={() => {
+                if (verifiedLocationsCount !== null && verifiedLocationsCount > 0) {
+                  const name = profile?.fullName || profile?.username || 'User';
+                  router.push(`/map/all-locations?userId=${id}&userName=${encodeURIComponent(name)}`);
+                }
+              }}
+            />
+          </PremiumGlassCard>
+        ) : null}
 
         {/* Posts/Shorts Section */}
         {profile.canViewPosts && (
-          <View style={[styles.postsContainer, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder }]}>
+          <PremiumGlassCard style={styles.postsContainer} contentStyle={styles.postsContainerInner} subtle>
             {/* Tabs */}
             <View style={styles.postsTabsSection}>
               <Pressable
@@ -990,12 +957,11 @@ export default function UserProfileScreen() {
               )
               }
             </View>
-            {/* End Tab Content Container */}
-          </View>
+          </PremiumGlassCard>
         )}
 
         {!profile.canViewPosts && (
-          <View style={[styles.sectionCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder }]}>
+          <PremiumGlassCard style={{ marginHorizontal: 16 }} contentStyle={{ padding: 20 }} subtle>
             <View style={styles.emptyState}>
               <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
                 <Ionicons name="lock-closed-outline" size={56} color={profileTheme.accent} />
@@ -1009,7 +975,7 @@ export default function UserProfileScreen() {
                 }
               </Text>
             </View>
-          </View>
+          </PremiumGlassCard>
         )}
       </ScrollView>
       
@@ -1184,9 +1150,15 @@ const styles = StyleSheet.create({
 
   // Profile Card
   profileCard: {
+    marginTop: 0,
     borderRadius: 24,
+  },
+  profileCardInner: {
     padding: 24,
     alignItems: 'center',
+  },
+  postsContainerInner: {
+    padding: 16,
   },
   avatarContainer: {
     marginBottom: 16,

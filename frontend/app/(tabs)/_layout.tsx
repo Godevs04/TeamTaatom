@@ -3,6 +3,7 @@ import { Tabs, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Platform, Dimensions, StyleSheet, View } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import { audioManager } from '../../utils/audioManager';
 import logger from '../../utils/logger';
@@ -18,6 +19,32 @@ const isTabPath = (p: string | null) => {
   const segment = p.split('/').pop() || '';
   return TAB_NAMES.has(segment);
 };
+
+function CloudTabIcon({
+  name,
+  color,
+  focused,
+}: {
+  name: keyof typeof Ionicons.glyphMap;
+  color: string;
+  focused: boolean;
+}) {
+  if (!focused) {
+    return <Ionicons name={name} size={22} color={color} />;
+  }
+
+  return (
+    <View style={styles.activeIconShell}>
+      <LinearGradient
+        colors={['#5BBCF8', '#2B7FD4']}
+        style={StyleSheet.absoluteFillObject}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      />
+      <Ionicons name={name} size={20} color="#FFFFFF" />
+    </View>
+  );
+}
 
 export default function TabsLayout() {
   const { theme, isDark } = useTheme();
@@ -136,7 +163,7 @@ export default function TabsLayout() {
           title: 'Home',
           tabBarAccessibilityLabel: 'Home tab',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'home' : 'home-outline'} size={22} color={color} />
+            <CloudTabIcon name={focused ? 'home' : 'home-outline'} color={color} focused={focused} />
           ),
         }}
       />
@@ -149,7 +176,7 @@ export default function TabsLayout() {
           // a clean remount (fresh from top) when the user returns.
           unmountOnBlur: true,
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'play-circle' : 'play-circle-outline'} size={22} color={color} />
+            <CloudTabIcon name={focused ? 'sparkles' : 'play-circle-outline'} color={color} focused={focused} />
           ),
         } as any}
       />
@@ -179,7 +206,7 @@ export default function TabsLayout() {
           title: 'Locale',
           tabBarAccessibilityLabel: 'Locale tab',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'location' : 'location-outline'} size={22} color={color} />
+            <CloudTabIcon name={focused ? 'map' : 'location-outline'} color={color} focused={focused} />
           ),
         }}
       />
@@ -189,7 +216,7 @@ export default function TabsLayout() {
           title: 'Profile',
           tabBarAccessibilityLabel: 'Profile tab',
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? 'person' : 'person-outline'} size={22} color={color} />
+            <CloudTabIcon name={focused ? 'trophy' : 'person-outline'} color={color} focused={focused} />
           ),
         }}
       />
@@ -211,5 +238,21 @@ const styles = StyleSheet.create({
     elevation: 10,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.32)',
+  },
+  activeIconShell: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    marginBottom: -1,
+    shadowColor: '#5BBCF8',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.32,
+    shadowRadius: 12,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.48)',
   },
 });

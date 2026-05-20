@@ -36,6 +36,7 @@ import { getPlaceSuggestions } from '../../utils/locationUtils';
 import { toggleFollow } from '../../services/profile';
 import logger from '../../utils/logger';
 import PremiumScreen from '../../components/ui/PremiumScreen';
+import CloudGlassSurface from '../../components/cloud/CloudGlassSurface';
 import PremiumIconButton from '../../components/ui/PremiumIconButton';
 import PremiumSegmentedTabs from '../../components/ui/PremiumSegmentedTabs';
 
@@ -460,15 +461,15 @@ export default function ConnectHubScreen() {
   const renderUserItem = (user: FoundUser) => (
     <TouchableOpacity
       key={user._id}
-      style={[styles.userCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
+      style={styles.userCardTouchable}
       onPress={() => { setSelectedUser(user); setShowUserSheet(true); }}
       activeOpacity={0.7}
     >
-      <View style={styles.userCardContent}>
+      <CloudGlassSurface style={styles.userCard} contentStyle={styles.userCardContent} borderRadius={18}>
         {user.profilePic ? (
           <Image source={{ uri: user.profilePic }} style={styles.userAvatar} />
         ) : (
-          <View style={[styles.userAvatarPlaceholder, { backgroundColor: theme.colors.border }]}>
+          <View style={[styles.userAvatarPlaceholder, { backgroundColor: 'rgba(91,188,248,0.12)' }]}>
             <Ionicons name="person" size={22} color={theme.colors.textSecondary} />
           </View>
         )}
@@ -494,7 +495,7 @@ export default function ConnectHubScreen() {
           style={[
             styles.followBtn,
             user.isFollowing
-              ? { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: 1 }
+              ? { backgroundColor: 'rgba(255,255,255,0.1)' }
               : { backgroundColor: theme.colors.primary },
           ]}
           onPress={() => handleProfileFollowToggle(user)}
@@ -505,7 +506,7 @@ export default function ConnectHubScreen() {
             {user.isFollowing ? 'Following' : 'Follow'}
           </Text>
         </TouchableOpacity>
-      </View>
+      </CloudGlassSurface>
     </TouchableOpacity>
   );
 
@@ -694,7 +695,7 @@ export default function ConnectHubScreen() {
       showsVerticalScrollIndicator={false}
     >
       {/* Filter Form */}
-      <View style={[styles.filterCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+      <CloudGlassSurface style={styles.filterCard} contentStyle={styles.filterCardContent} borderRadius={20}>
         <Text style={[styles.filterTitle, { color: theme.colors.text }]}>
           Find Fellow Travelers
         </Text>
@@ -828,7 +829,7 @@ export default function ConnectHubScreen() {
             </>
           )}
         </TouchableOpacity>
-      </View>
+      </CloudGlassSurface>
 
       {/* User Results */}
       {findSearched && foundUsers.length === 0 && (
@@ -884,10 +885,10 @@ export default function ConnectHubScreen() {
     );
   };
 
-  const tabs: { key: TabType; label: string }[] = [
-    { key: 'connect', label: 'Connect' },
-    { key: 'community', label: 'Community' },
-    { key: 'find', label: 'Find' },
+  const tabs: { key: TabType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+    { key: 'connect', label: 'Connect', icon: 'sparkles-outline' },
+    { key: 'community', label: 'Community', icon: 'people-outline' },
+    { key: 'find', label: 'Find', icon: 'compass-outline' },
   ];
 
   return (
@@ -999,10 +1000,11 @@ const styles = StyleSheet.create({
     paddingBottom: 80,
   },
   filterCard: {
-    borderRadius: themeConstants.borderRadius.md,
-    borderWidth: 1,
-    padding: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.lg,
+    borderRadius: 30,
     marginBottom: isTablet ? themeConstants.spacing.lg : themeConstants.spacing.md,
+  },
+  filterCardContent: {
+    padding: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.lg,
   },
   filterTitle: {
     fontSize: isTablet ? 17 : 16,
@@ -1018,11 +1020,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderRadius: themeConstants.borderRadius.sm,
+    borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: isTablet ? 14 : 12,
     marginBottom: 12,
     gap: 10,
+    shadowColor: '#65BDF7',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 2,
   },
   filterSelectText: {
     flex: 1,
@@ -1067,8 +1074,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     paddingVertical: isTablet ? 14 : 12,
-    borderRadius: themeConstants.borderRadius.sm,
+    borderRadius: themeConstants.borderRadius.full,
     marginTop: 4,
+    shadowColor: '#32A8FF',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
+    elevation: 8,
   },
   findButtonText: {
     color: '#FFFFFF',
@@ -1087,15 +1099,16 @@ const styles = StyleSheet.create({
     maxWidth: 280,
   },
   // User Card (Find tab results)
-  userCard: {
-    borderRadius: themeConstants.borderRadius.md,
-    borderWidth: 1,
+  userCardTouchable: {
     marginBottom: isTablet ? themeConstants.spacing.md : themeConstants.spacing.sm,
-    padding: isTablet ? themeConstants.spacing.lg : themeConstants.spacing.md,
+  },
+  userCard: {
+    borderRadius: 26,
   },
   userCardContent: {
     flexDirection: 'row',
     alignItems: 'center',
+    padding: isTablet ? themeConstants.spacing.lg : themeConstants.spacing.md,
   },
   userAvatar: {
     width: isTablet ? 52 : 44,
