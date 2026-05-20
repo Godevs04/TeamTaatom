@@ -36,10 +36,10 @@ export const cloudDesign = {
   postGlass: {
     dark: {
       fill: 'rgba(255,255,255,0.06)',
-      border: 'rgba(255,255,255,0.08)',
+      border: 'rgba(255,255,255,0.18)',
       shadowColor: '#000000',
       shadowOpacity: 0.25,
-      insetTop: 'rgba(255,255,255,0.06)',
+      insetTop: 'rgba(255,255,255,0.22)',
     },
     light: {
       fill: 'rgba(255,255,255,0.65)',

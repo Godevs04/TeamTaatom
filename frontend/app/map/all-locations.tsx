@@ -11,6 +11,8 @@ import {
   Modal,
   Animated,
   Alert,
+  FlatList,
+  Dimensions,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -35,6 +37,8 @@ import { ErrorBoundary } from '../../utils/errorBoundary';
 const GROWTH_GREEN = '#22C55E';
 const ALERT_RED = '#EF4444';
 const ACTION_BLUE = '#3B82F6';
+const { width: screenWidth } = Dimensions.get('window');
+
 
 function safeDecodeUriComponent(value: string | string[] | undefined): string | null {
   if (value == null) return null;
@@ -98,6 +102,72 @@ function AllLocationsMapInner() {
   const headerTitle = displayName ? `${displayName}'s Locations` : 'My Locations';
   const mapRef = useRef<any>(null);
   const WEBVIEW_API_KEY = getGoogleMapsApiKeyForWebView();
+
+  const validLocations = useMemo(() => {
+    return locations.filter(
+      (loc) => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0
+    );
+  }, [locations]);
+
+  const carouselRef = useRef<FlatList>(null);
+  const isScrollingCarouselRef = useRef(false);
+
+  const centerMapOnLocation = useCallback((latitude: number, longitude: number) => {
+    if (!mapRef.current) return;
+    try {
+      mapRef.current.animateToRegion(
+        {
+          latitude,
+          longitude,
+          latitudeDelta: 0.015,
+          longitudeDelta: 0.015,
+        },
+        400
+      );
+    } catch (err) {
+      logger.error('Error centering map on location:', err);
+    }
+  }, []);
+
+  const getCarouselItemLayout = useCallback((data: any, index: number) => ({
+    length: screenWidth,
+    offset: screenWidth * index,
+    index,
+  }), []);
+
+  const handleCarouselScroll = useCallback((event: any) => {
+    if (!isScrollingCarouselRef.current) return;
+    const contentOffsetX = event.nativeEvent.contentOffset.x;
+    const index = Math.round(contentOffsetX / screenWidth);
+    if (index >= 0 && index < validLocations.length) {
+      const nextLocation = validLocations[index];
+      if (selectedLocation?.number !== nextLocation.number || selectedLocation?.postId !== nextLocation.postId) {
+        setSelectedLocation(nextLocation);
+        centerMapOnLocation(nextLocation.latitude, nextLocation.longitude);
+      }
+    }
+  }, [validLocations, selectedLocation, centerMapOnLocation]);
+
+  useEffect(() => {
+    if (selectedLocation && !isScrollingCarouselRef.current) {
+      const index = validLocations.findIndex(
+        (loc) => loc.postId === selectedLocation.postId || loc.number === selectedLocation.number
+      );
+      if (index !== -1 && carouselRef.current) {
+        setTimeout(() => {
+          try {
+            carouselRef.current?.scrollToIndex({
+              index,
+              animated: true,
+            });
+          } catch (err) {
+            logger.warn('Failed to scroll carousel to index:', err);
+          }
+        }, 50);
+      }
+      centerMapOnLocation(selectedLocation.latitude, selectedLocation.longitude);
+    }
+  }, [selectedLocation, validLocations, centerMapOnLocation]);
 
   // Journey tracking — moved here from /map/current-location so the start /
   // active / paused controls live with the rest of the user's travel data
@@ -332,8 +402,17 @@ function AllLocationsMapInner() {
       // Process post locations
       if (travelMapResult.status === 'fulfilled') {
         const response = travelMapResult.value;
-        setLocations(response?.locations ?? []);
+        const fetchedLocations = response?.locations ?? [];
+        setLocations(fetchedLocations);
         setStatistics(response?.statistics ?? null);
+
+        // Auto-select first valid location if nothing is selected
+        const validLocs = fetchedLocations.filter(
+          (loc: any) => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0
+        );
+        if (validLocs.length > 0) {
+          setSelectedLocation(validLocs[0]);
+        }
       }
 
       // Process journey polylines
@@ -519,7 +598,11 @@ function AllLocationsMapInner() {
       startCity: j.startCity || 'Start',
       endCity: j.endCity || 'End',
     }));
+
+    const centerLat = selectedLocation ? selectedLocation.latitude : region.latitude;
+    const centerLng = selectedLocation ? selectedLocation.longitude : region.longitude;
     const zoomLevel = Math.min(12, Math.max(2, Math.floor(15 - Math.log2(Math.max(region.latitudeDelta, 1)))));
+    const zoomLevelVal = selectedLocation ? 14 : zoomLevel;
 
     return `<!DOCTYPE html>
 <html><head>
@@ -528,8 +611,8 @@ function AllLocationsMapInner() {
 <script>
 function initMap(){
   var map=new google.maps.Map(document.getElementById('map'),{
-    center:{lat:${region.latitude},lng:${region.longitude}},
-    zoom:${zoomLevel},mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true
+    center:{lat:${centerLat},lng:${centerLng}},
+    zoom:${zoomLevelVal},mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true
   });
   var bounds=new google.maps.LatLngBounds();
   var activeOverlays=[];
@@ -625,7 +708,7 @@ function initMap(){
     activeOverlays.forEach(function(ov){ov.setMap(null);});
     activeOverlays=[];
 
-    var zoom=map.getZoom()||${zoomLevel};
+    var zoom=map.getZoom()||${zoomLevelVal};
     var gs=getGridSize(zoom);
     var clusters=clusterMarkers(markers,gs);
     var sz=56;
@@ -636,11 +719,16 @@ function initMap(){
       var div=document.createElement('div');
       div.style.cssText='position:relative;width:'+sz+'px;height:'+sz+'px;cursor:pointer;display:flex;align-items:center;justify-content:center;';
 
-      // Always render a red teardrop pin for post locations (replacing the
-      // previous photo-tile / number-circle marker). Cluster overflow stays
-      // on the +N badge below.
       var pin=document.createElement('div');
-      pin.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 24 28"><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 16 12 16s12-7 12-16C24 5.4 18.6 0 12 0z" fill="${ALERT_RED}" stroke="white" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="white"/></svg>';
+      var isViewingAny = ${selectedLocation !== null};
+      var isSelected = isViewingAny && (main.number === ${selectedLocation?.number || -1} || main.postId === '${selectedLocation?.postId || ""}');
+      if (isViewingAny && !isSelected) {
+        // Muted, small circular dot (8px diameter) with white border
+        pin.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4.5" fill="#8A96A8" stroke="white" stroke-width="1.5"/><circle cx="8" cy="8" r="2" fill="none"/></svg>';
+      } else {
+        // Branded teardrop pin (active)
+        pin.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 24 28"><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 16 12 16s12-7 12-16C24 5.4 18.6 0 12 0z" fill="${ALERT_RED}" stroke="white" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="white"/></svg>';
+      }
       div.appendChild(pin);
 
       if(extra>0){
@@ -672,11 +760,15 @@ function initMap(){
 
   // Initial render + re-render on zoom change
   if(markers.length>0||journeys.some(function(j){return j.path.length>0;})){
-    map.fitBounds(bounds,40);
-    google.maps.event.addListenerOnce(map,'bounds_changed',function(){
-      if(map.getZoom()>15)map.setZoom(15);
+    if (!${selectedLocation !== null}) {
+      map.fitBounds(bounds,40);
+      google.maps.event.addListenerOnce(map,'bounds_changed',function(){
+        if(map.getZoom()>15)map.setZoom(15);
+        renderClusters();
+      });
+    } else {
       renderClusters();
-    });
+    }
   }else{
     renderClusters();
   }
@@ -687,7 +779,7 @@ function initMap(){
 <div id="map"></div>
 <script async defer src="https://maps.googleapis.com/maps/api/js?key=${WEBVIEW_API_KEY || ''}&language=en&callback=initMap"></script>
 </body></html>`;
-  }, [locations, journeys, mapFilter, getMapRegion, WEBVIEW_API_KEY, mapStyle.customMapStyle, mapStyle.routeColor, mapStyle.routeGlowColor]);
+  }, [locations, journeys, mapFilter, getMapRegion, WEBVIEW_API_KEY, mapStyle.customMapStyle, mapStyle.routeColor, mapStyle.routeGlowColor, selectedLocation]);
 
   // ──────────────────────────────────────────────────────
   // renderMap — native MapView preferred, WebView fallback
@@ -1015,64 +1107,90 @@ function initMap(){
         ) : (
           renderMap()
         )}
-        {selectedLocation && (
-          <GlassMapPanel style={styles.previewCard} tint={mapStyle.glassTint}>
-            <View style={styles.previewContent}>
-              {selectedLocation.photo ? (
-                <ExpoImage
-                  source={{ uri: selectedLocation.photo }}
-                  style={styles.previewImage}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                  transition={180}
-                />
-              ) : (
-                <View style={[styles.previewImage, styles.previewFallback]}>
-                  <Ionicons name="image-outline" size={24} color={mapStyle.routeColor} />
+        {validLocations.length > 0 && selectedLocation && (
+          <FlatList
+            ref={carouselRef}
+            data={validLocations}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            snapToInterval={screenWidth}
+            decelerationRate="fast"
+            onScrollBeginDrag={() => {
+              isScrollingCarouselRef.current = true;
+            }}
+            onMomentumScrollEnd={handleCarouselScroll}
+            getItemLayout={getCarouselItemLayout}
+            keyExtractor={(item, idx) => `carousel-${item.postId || item.number}-${idx}`}
+            style={styles.carouselContainer}
+            contentContainerStyle={styles.carouselContent}
+            renderItem={({ item }) => {
+              const isSelected = selectedLocation?.postId === item.postId || selectedLocation?.number === item.number;
+              return (
+                <View style={styles.carouselCardWrapper}>
+                  <GlassMapPanel style={[styles.previewCard, isSelected && styles.previewCardActive]} tint={mapStyle.glassTint}>
+                    <View style={styles.previewContent}>
+                      {item.photo ? (
+                        <ExpoImage
+                          source={{ uri: item.photo }}
+                          style={styles.previewImage}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                          transition={180}
+                        />
+                      ) : (
+                        <View style={[styles.previewImage, styles.previewFallback]}>
+                          <Ionicons name="image-outline" size={24} color={mapStyle.routeColor} />
+                        </View>
+                      )}
+                      <View style={styles.previewText}>
+                        <Text style={[styles.previewTitle, { color: theme.colors.text }]} numberOfLines={1}>
+                          {item.address || `Location #${item.number}`}
+                        </Text>
+                        <Text style={[styles.previewMeta, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                          Shared destination {item.contentType ? `- ${item.contentType}` : ''}
+                        </Text>
+                        <View style={styles.previewActions}>
+                          {item.postId ? (
+                            <TouchableOpacity
+                              style={[styles.previewButton, { borderColor: theme.colors.border }]}
+                              onPress={() => router.push(`/post/${item.postId}`)}
+                            >
+                              <Ionicons name="images-outline" size={16} color={theme.colors.text} />
+                              <Text style={[styles.previewButtonText, { color: theme.colors.text }]}>Post</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                          <TouchableOpacity
+                            style={[styles.previewButton, styles.previewPrimaryButton, { backgroundColor: mapStyle.routeColor }]}
+                            onPress={() => router.push({
+                              pathname: '/map/current-location',
+                              params: {
+                                latitude: String(item.latitude),
+                                longitude: String(item.longitude),
+                                address: item.address || `Location #${item.number}`,
+                              },
+                            })}
+                          >
+                            <Ionicons name="navigate" size={16} color="white" />
+                            <Text style={[styles.previewButtonText, { color: 'white' }]}>Direction</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.previewClose}
+                        onPress={() => {
+                          setSelectedLocation(null);
+                        }}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
+                      </TouchableOpacity>
+                    </View>
+                  </GlassMapPanel>
                 </View>
-              )}
-              <View style={styles.previewText}>
-                <Text style={[styles.previewTitle, { color: theme.colors.text }]} numberOfLines={1}>
-                  {selectedLocation.address || `Location #${selectedLocation.number}`}
-                </Text>
-                <Text style={[styles.previewMeta, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-                  Shared destination {selectedLocation.contentType ? `- ${selectedLocation.contentType}` : ''}
-                </Text>
-                <View style={styles.previewActions}>
-                  {selectedLocation.postId ? (
-                    <TouchableOpacity
-                      style={[styles.previewButton, { borderColor: theme.colors.border }]}
-                      onPress={() => router.push(`/post/${selectedLocation.postId}`)}
-                    >
-                      <Ionicons name="images-outline" size={16} color={theme.colors.text} />
-                      <Text style={[styles.previewButtonText, { color: theme.colors.text }]}>Post</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  <TouchableOpacity
-                    style={[styles.previewButton, styles.previewPrimaryButton, { backgroundColor: mapStyle.routeColor }]}
-                    onPress={() => router.push({
-                      pathname: '/map/current-location',
-                      params: {
-                        latitude: String(selectedLocation.latitude),
-                        longitude: String(selectedLocation.longitude),
-                        address: selectedLocation.address || `Location #${selectedLocation.number}`,
-                      },
-                    })}
-                  >
-                    <Ionicons name="navigate" size={16} color="white" />
-                    <Text style={[styles.previewButtonText, { color: 'white' }]}>Direction</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-              <TouchableOpacity
-                style={styles.previewClose}
-                onPress={() => setSelectedLocation(null)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-          </GlassMapPanel>
+              );
+            }}
+          />
         )}
       </View>
 
@@ -1490,12 +1608,30 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
-  previewCard: {
+  carouselContainer: {
     position: 'absolute',
-    left: 16,
-    right: 16,
     bottom: 18,
+    left: 0,
+    right: 0,
+    height: 155,
+  },
+  carouselContent: {
+    alignItems: 'center',
+    paddingHorizontal: 0,
+  },
+  carouselCardWrapper: {
+    width: screenWidth,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  previewCard: {
+    width: '100%',
     padding: 12,
+  },
+  previewCardActive: {
+    borderWidth: 1.5,
+    borderColor: '#3B82F6',
   },
   previewContent: {
     flexDirection: 'row',

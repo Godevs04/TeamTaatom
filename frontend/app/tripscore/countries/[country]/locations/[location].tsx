@@ -189,6 +189,20 @@ export default function LocationDetailScreen() {
   // Distance Calculation Guards: Cache calculated distances per session
   const distanceCacheRef = useRef<Map<string, number>>(new Map());
 
+  // Synchronize distance with route params if they change / become available after mount
+  useEffect(() => {
+    if (!isMountedRef.current) return;
+    const paramVal = Array.isArray(distanceKmParam) ? distanceKmParam[0] : distanceKmParam;
+    if (paramVal && paramVal !== '') {
+      const parsed = parseFloat(paramVal as string);
+      if (!isNaN(parsed) && !hasPreSeededDistanceRef.current) {
+        logger.debug('Syncing pre-seeded distance from param:', parsed);
+        hasPreSeededDistanceRef.current = true;
+        setDistance(parsed);
+      }
+    }
+  }, [distanceKmParam]);
+
   // Navigation & Lifecycle Safety: Setup and cleanup
   useEffect(() => {
     isMountedRef.current = true;
@@ -958,7 +972,7 @@ export default function LocationDetailScreen() {
       
       // CRITICAL: Calculate distance ONLY for tripscore flow, NOT for locale flow
       // Locale flow distance is calculated above with exact coordinates
-      if (!isAdminLocale && !isFromLocaleFlow && data?.coordinates && 
+      if (!isAdminLocale && !isFromLocaleFlow && !hasPreSeededDistanceRef.current && data?.coordinates && 
           data.coordinates.latitude && data.coordinates.longitude &&
           data.coordinates.latitude !== 0 && data.coordinates.longitude !== 0) {
         // Calculate distance asynchronously after data is set (tripscore flow only)

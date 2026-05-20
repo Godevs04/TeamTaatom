@@ -1,23 +1,25 @@
 import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
-  Dimensions,
-  Animated,
-  Platform,
+   View,
+   Text,
+   StyleSheet,
+   TouchableOpacity,
+   ActivityIndicator,
+   Dimensions,
+   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import Constants from 'expo-constants';
+import { Image as ExpoImage } from 'expo-image';
 import { useTheme } from '../../../../context/ThemeContext';
 import api from '../../../../services/api';
 import { MapView, Marker, getMapProvider } from '../../../../utils/mapsWrapper';
 import logger from '../../../../utils/logger';
+import PremiumMapMarker from '../../../../components/PremiumMapMarker';
+import GlassMapPanel from '../../../../components/GlassMapPanel';
 
 const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
 
@@ -55,27 +57,41 @@ const { width, height } = Dimensions.get('window');
 export default function CountryMapScreen() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<TripScoreCountryResponse | null>(null);
+  const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
   const { theme } = useTheme();
   const router = useRouter();
   const { country, userId } = useLocalSearchParams();
   const mapRef = useRef<any>(null);
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-  const pulseAnim = useRef(new Animated.Value(0)).current;
   // Cache markers to prevent re-rendering issues when navigating back
   const markersCacheRef = useRef<Array<any>>([]);
 
-  useEffect(() => {
-    if (hoveredIndex !== null) {
-      const loop = Animated.loop(
-        Animated.sequence([
-          Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
-          Animated.timing(pulseAnim, { toValue: 0, duration: 600, useNativeDriver: true })
-        ])
-      );
-      loop.start();
-      return () => loop.stop();
+  const centerMapOnLocation = useCallback((loc: Location) => {
+    if (!loc.coordinates?.latitude || !loc.coordinates?.longitude) return;
+    if (mapRef.current) {
+      if (Platform.OS === 'ios') {
+        mapRef.current.animateToRegion({
+          latitude: loc.coordinates.latitude,
+          longitude: loc.coordinates.longitude,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        }, 350);
+      } else {
+        mapRef.current.animateCamera({
+          center: {
+            latitude: loc.coordinates.latitude,
+            longitude: loc.coordinates.longitude,
+          },
+          zoom: 12,
+        }, { duration: 350 });
+      }
     }
-  }, [hoveredIndex, pulseAnim]);
+  }, []);
+
+  useEffect(() => {
+    if (selectedLocation) {
+      centerMapOnLocation(selectedLocation);
+    }
+  }, [selectedLocation, centerMapOnLocation]);
 
   // Load data on mount and when screen comes into focus (to persist markers after navigation)
   useEffect(() => {
@@ -93,6 +109,12 @@ export default function CountryMapScreen() {
       const countryName = countryParam.replace(/-/g, ' ');
       const response = await api.get(`/api/v1/profile/${userId}/tripscore/countries/${countryName}`);
       setData(response.data);
+      if (response.data?.locations && response.data.locations.length > 0) {
+        const firstWithCoords = response.data.locations.find(
+          (loc: any) => loc.coordinates?.latitude && loc.coordinates?.longitude
+        );
+        setSelectedLocation(firstWithCoords || response.data.locations[0]);
+      }
     } catch (error) {
       logger.error('Error loading country data:', error);
     } finally {
@@ -101,13 +123,7 @@ export default function CountryMapScreen() {
   };
 
   const handleLocationPress = (location: Location) => {
-    const locationSlug = location.name.toLowerCase().replace(/\s+/g, '-');
-    const countryParam = Array.isArray(country) ? country[0] : country;
-    // Navigate immediately to avoid any map roaming/animation side-effects
-    router.push({
-      pathname: '/tripscore/countries/[country]/locations/[location]',
-      params: { country: countryParam as string, location: locationSlug, userId: (Array.isArray(userId) ? userId[0] : userId) as string }
-    });
+    setSelectedLocation(location);
   };
 
   const getCountryCenter = (countryName: string) => {
@@ -358,29 +374,35 @@ export default function CountryMapScreen() {
     const center = getCountryCenter(countryDisplayName || '');
     const delta = getCountryDelta(countryDisplayName || '');
     
-    // Always render a red teardrop pin for visited locations (replacing the
-    // previous photo-thumbnail / flag marker). Same pin treatment as the
-    // My Location map for cross-screen consistency.
-    // NOTE: SVG attributes MUST use double quotes — the outer JS string in the
-    // injected WebView code wraps `icon.url` in single quotes, so any single
-    // quote inside the SVG would terminate the JS literal early and crash the
-    // map's HTML parse. (Match the existing flag-marker pattern used elsewhere
-    // in this file.)
-    const pinSvgUrl = 'data:image/svg+xml;utf-8,<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 24 28"><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 16 12 16s12-7 12-16C24 5.4 18.6 0 12 0z" fill="%23FF5722" stroke="white" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="white"/></svg>';
+    const activePinSvg = 'data:image/svg+xml;utf-8,<svg xmlns="http://www.w3.org/2000/svg" width="42" height="50" viewBox="0 0 24 28"><filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="1.5" flood-opacity="0.3"/></filter><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 16 12 16s12-7 12-16C24 5.4 18.6 0 12 0z" fill="%23FF3B30" stroke="white" stroke-width="1.8" filter="url(%23shadow)"/><circle cx="12" cy="12" r="4" fill="white"/></svg>';
+    const inactiveDotSvg = 'data:image/svg+xml;utf-8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5" fill="%234A5568" stroke="white" stroke-width="1.5"/></svg>';
 
     const markers = locations.map((loc, i) => {
       const lat = loc.coordinates?.latitude || center.latitude;
       const lng = loc.coordinates?.longitude || center.longitude;
+      const isSelected = selectedLocation && (
+        selectedLocation.name === loc.name &&
+        selectedLocation.coordinates?.latitude === loc.coordinates?.latitude &&
+        selectedLocation.coordinates?.longitude === loc.coordinates?.longitude
+      );
+
+      const pinUrl = isSelected ? activePinSvg : inactiveDotSvg;
+      const sizeX = isSelected ? 42 : 16;
+      const sizeY = isSelected ? 50 : 16;
+      const anchorX = isSelected ? 21 : 8;
+      const anchorY = isSelected ? 50 : 8;
+      const zIndex = isSelected ? 99999 : i;
 
       return `
         new google.maps.Marker({
           position: { lat: ${lat}, lng: ${lng} },
           map: map,
           icon: {
-            url: '${pinSvgUrl}',
-            scaledSize: new google.maps.Size(40, 48),
-            anchor: new google.maps.Point(20, 48),
+            url: '${pinUrl}',
+            scaledSize: new google.maps.Size(${sizeX}, ${sizeY}),
+            anchor: new google.maps.Point(${anchorX}, ${anchorY}),
           },
+          zIndex: ${zIndex},
           title: '${loc.name.replace(/'/g, "\\'")}',
         }).addListener('click', function() {
           window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'marker', index: ${i} }));
@@ -541,63 +563,30 @@ export default function CountryMapScreen() {
                 router.push({ pathname: '/tripscore/countries/[country]/locations', params: { country: countryParam as string, userId: (Array.isArray(userId) ? userId[0] : userId) as string } });
               }
             }}
-            onSelect={() => setHoveredIndex(-1)}
-            onDeselect={() => setHoveredIndex(null)}
           >
-            <View style={styles.markerContainer}>
-              {hoveredIndex === -1 && (
-                <Animated.View
-                  pointerEvents="none"
-                  style={[
-                    styles.pulseRing,
-                    {
-                      opacity: pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] }),
-                      transform: [{ scale: pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 2.2] }) }]
-                    }
-                  ]}
-                />
-              )}
-              <View style={styles.customMarker}>
-                <Ionicons name="flag" size={20} color="#FF5722" />
-              </View>
-            </View>
+            <PremiumMapMarker active={true} />
           </Marker>
           {/* Markers for visited locations */}
           {visitedMarkers.map((location: any, index: number) => {
-            // Use stableId if available, otherwise fallback to name + coordinates
             const stableKey = location.stableId || `${location.name}-${location.coordinates!.latitude.toFixed(6)}-${location.coordinates!.longitude.toFixed(6)}`;
+            const isSelected = selectedLocation && (
+              selectedLocation.name === location.name &&
+              selectedLocation.coordinates?.latitude === location.coordinates.latitude &&
+              selectedLocation.coordinates?.longitude === location.coordinates.longitude
+            );
 
             return (
               <Marker
                 key={stableKey}
-                zIndex={9999}
-                anchor={{ x: 0.5, y: 0.5 }}
+                zIndex={isSelected ? 99999 : index}
+                anchor={{ x: 0.5, y: isSelected ? 0.9 : 0.5 }}
                 coordinate={{
                   latitude: location.coordinates!.latitude,
                   longitude: location.coordinates!.longitude,
                 }}
-                title={location.name}
-                description={`Score: ${location.score}`}
                 onPress={() => handleLocationPress(location)}
-                onCalloutPress={undefined}
-                onSelect={() => setHoveredIndex(index)}
-                onDeselect={() => setHoveredIndex(null)}
               >
-                <View style={styles.markerContainer}>
-                  {hoveredIndex === index && (
-                    <Animated.View
-                      pointerEvents="none"
-                      style={[
-                        styles.pulseRing,
-                        {
-                          opacity: pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] }),
-                          transform: [{ scale: pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 2.2] }) }]
-                        }
-                      ]}
-                    />
-                  )}
-                  <Ionicons name="location" size={32} color="#FF5722" />
-                </View>
+                <PremiumMapMarker active={!!isSelected} />
               </Marker>
             );
           })}
@@ -609,6 +598,60 @@ export default function CountryMapScreen() {
               Map not available on this platform
             </Text>
           </View>
+        )}
+        {selectedLocation && (
+          <GlassMapPanel style={styles.previewCard} tint="dark">
+            <View style={styles.previewContent}>
+              {selectedLocation.imageUrl ? (
+                <ExpoImage
+                  source={{ uri: selectedLocation.imageUrl }}
+                  style={styles.previewImage}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={180}
+                />
+              ) : (
+                <View style={[styles.previewImage, styles.previewFallback]}>
+                  <Ionicons name="image-outline" size={24} color="#FF3B30" />
+                </View>
+              )}
+              <View style={styles.previewText}>
+                <Text style={[styles.previewTitle, { color: theme.colors.text }]} numberOfLines={1}>
+                  {selectedLocation.name}
+                </Text>
+                <Text style={[styles.previewMeta, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                  Score: {selectedLocation.score} {selectedLocation.category?.typeOfSpot ? `- ${selectedLocation.category.typeOfSpot}` : ''}
+                </Text>
+                <View style={styles.previewActions}>
+                  <TouchableOpacity
+                    style={[styles.previewButton, styles.previewPrimaryButton, { backgroundColor: '#FF3B30' }]}
+                    onPress={() => {
+                      const locationSlug = selectedLocation.name.toLowerCase().replace(/\s+/g, '-');
+                      const countryParam = Array.isArray(country) ? country[0] : country;
+                      router.push({
+                        pathname: '/tripscore/countries/[country]/locations/[location]',
+                        params: { 
+                          country: countryParam as string, 
+                          location: locationSlug, 
+                          userId: (Array.isArray(userId) ? userId[0] : userId) as string 
+                        }
+                      });
+                    }}
+                  >
+                    <Ionicons name="eye-outline" size={16} color="white" />
+                    <Text style={[styles.previewButtonText, { color: 'white' }]}>Details</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+              <TouchableOpacity
+                style={styles.previewClose}
+                onPress={() => setSelectedLocation(null)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+          </GlassMapPanel>
         )}
       </View>
 
@@ -695,5 +738,70 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     backgroundColor: '#FF5722',
+  },
+  previewCard: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 18,
+    padding: 12,
+  },
+  previewContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  previewImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  previewFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(94, 162, 255, 0.14)',
+  },
+  previewText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  previewTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  previewMeta: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 3,
+  },
+  previewActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  previewButton: {
+    minHeight: 34,
+    paddingHorizontal: 12,
+    borderRadius: 17,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  previewPrimaryButton: {
+    borderWidth: 0,
+  },
+  previewButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  previewClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

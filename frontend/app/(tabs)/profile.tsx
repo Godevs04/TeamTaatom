@@ -231,7 +231,7 @@ export default function ProfileScreen() {
   }, []);
 
   // Profile Data Consistency: Single source of truth - refresh all profile data from API
-  const loadUserData = useCallback(async () => {
+  const loadUserData = useCallback(async (isBackground = false) => {
     // Request Guard: Prevent duplicate calls
     if (isFetchingRef.current) {
       logger.debug('loadUserData already in progress, skipping');
@@ -239,9 +239,11 @@ export default function ProfileScreen() {
     }
     
     isFetchingRef.current = true;
-    setCheckingUser(true);
-    setVerifiedLocations([]);
-    setVerifiedLocationsCount(null);
+    if (!isBackground) {
+      setCheckingUser(true);
+      setVerifiedLocations([]);
+      setVerifiedLocationsCount(null);
+    }
     
     // Cancel previous request if any
     if (abortControllerRef.current) {
@@ -531,7 +533,7 @@ export default function ProfileScreen() {
         // Small delay to avoid race conditions with navigation
         const refreshTimer = setTimeout(() => {
           if (isMountedRef.current && user?._id) {
-            loadUserData();
+            loadUserData(true);
           }
         }, 100);
         
@@ -1037,7 +1039,7 @@ export default function ProfileScreen() {
           </Text>
           <TouchableOpacity
             style={[styles.retryButton, { backgroundColor: theme.colors.primary }]}
-            onPress={loadUserData}
+            onPress={() => loadUserData()}
           >
             <Text style={[styles.retryButtonText, { color: theme.colors.surface }]}>
               Retry
@@ -1533,7 +1535,7 @@ export default function ProfileScreen() {
           />
         )}
       </ScrollView>
-      <ScrollEdgeFades isDark={isDark} variant="vertical" />
+      <ScrollEdgeFades isDark={isDark} variant="vertical" hideTop={true} />
       </View>
     </View>
     </ErrorBoundary>

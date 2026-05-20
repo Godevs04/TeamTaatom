@@ -13,7 +13,7 @@ import {
   Dimensions
 } from 'react-native';
 import { FlashList, FlashListRef } from '@shopify/flash-list';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -183,6 +183,9 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
 
 export default function HomeScreen() {
   const { handleScroll } = useScrollToHideNav();
+  const insets = useSafeAreaInsets();
+  const topBarHeight = 56 + 63 + insets.top;
+  const bottomBarHeight = isWeb ? 70 : (Platform.OS === 'ios' ? (insets.bottom > 0 ? 56 + insets.bottom : 64) : 68);
   const [posts, setPosts] = useState<PostType[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -199,6 +202,10 @@ export default function HomeScreen() {
   const flatListRef = useRef<FlashListRef<FeedItem>>(null);
   const homeScrollOffsetRef = useRef(0);
   const shouldRestoreHomeScrollRef = useRef(false);
+  const savedVisibleIndexRef = useRef<number | null>(null);
+  const savedVisiblePostIdRef = useRef<string | null>(null);
+  const visibleIndexRef = useRef<number | null>(null);
+  const visiblePostIdRef = useRef<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const isFetchingRef = useRef(false);
   const hasInitializedRef = useRef(false);
@@ -801,9 +808,19 @@ export default function HomeScreen() {
     trackScreenView('home');
   }, [feedMode]); // Re-run when feed mode changes
 
-  // Navigation lifecycle safety: clear visible index tracking and cancel pending fetches
+  // Sync state values to refs for access in focus effect cleanup without stale closures
+  useEffect(() => {
+    visibleIndexRef.current = visibleIndex;
+  }, [visibleIndex]);
+
+  useEffect(() => {
+    visiblePostIdRef.current = visiblePostId;
+  }, [visiblePostId]);
+
+  // Navigation lifecycle safety: clear/restore visible index tracking, resume playback, background refresh
   useFocusEffect(
     useCallback(() => {
+      // 1. Restore scroll position
       if (shouldRestoreHomeScrollRef.current && homeScrollOffsetRef.current > 0) {
         const offset = homeScrollOffsetRef.current;
         requestAnimationFrame(() => {
@@ -812,9 +829,36 @@ export default function HomeScreen() {
         shouldRestoreHomeScrollRef.current = false;
       }
 
+      // 2. Restore playback states
+      if (savedVisibleIndexRef.current !== null) {
+        setVisibleIndex(savedVisibleIndexRef.current);
+      }
+      if (savedVisiblePostIdRef.current !== null) {
+        setVisiblePostId(savedVisiblePostIdRef.current);
+      }
+
+      // 3. Background refresh data on focus
+      if (hasInitializedRef.current && !isFetchingRef.current) {
+        logger.debug('[Home] Screen focused: triggering background refresh of page 1');
+        fetchPosts(1, false).catch((err) => {
+          logger.error('[Home] Background refresh failed:', err);
+        });
+      }
+
+      // 4. Refresh unseen count and setup periodic refresh
+      fetchUnseenMessageCount();
+      const interval = setInterval(() => {
+        fetchUnseenMessageCount();
+      }, 10000);
+
       return () => {
+        clearInterval(interval);
+        // Save current visible index and post ID to restore on return
+        savedVisibleIndexRef.current = visibleIndexRef.current;
+        savedVisiblePostIdRef.current = visiblePostIdRef.current;
         shouldRestoreHomeScrollRef.current = true;
         setVisibleIndex(null);
+        setVisiblePostId(null);
         hasScrolledRef.current = false;
         lastViewedPostIdRef.current = null;
         lastViewTimeRef.current = 0;
@@ -823,7 +867,7 @@ export default function HomeScreen() {
           logger.error('[Home] Error stopping audio:', error);
         });
       };
-    }, [])
+    }, [fetchPosts, fetchUnseenMessageCount])
   );
 
   // Refresh feed when admin approves content or backend signals invalidation
@@ -835,20 +879,6 @@ export default function HomeScreen() {
     });
     return unsub;
   }, [fetchPosts]);
-
-  // Refresh unseen count when screen comes into focus
-  useFocusEffect(
-    useCallback(() => {
-      fetchUnseenMessageCount();
-      
-      // Set up periodic refresh every 10 seconds when screen is focused
-      const interval = setInterval(() => {
-        fetchUnseenMessageCount();
-      }, 10000);
-      
-      return () => clearInterval(interval);
-    }, [fetchUnseenMessageCount])
-  );
 
   // Scroll to specific post when postId parameter is provided — only once when post first appears.
   // Prevents scroll jump when loading more (effect would re-run on append and scroll back to post).
@@ -1033,6 +1063,27 @@ export default function HomeScreen() {
         width: '100%',
       } as any),
     },
+    topBarContainer: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      paddingTop: insets.top,
+      zIndex: 1000,
+      backgroundColor: mode === 'dark' ? '#06121F' : '#EDF7FF',
+      // Shadow Mechanics
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.15,
+      shadowRadius: 3,
+      elevation: 4,
+      overflow: 'visible',
+      ...(isWeb && {
+        maxWidth: isTablet ? 800 : 600,
+        alignSelf: 'center',
+        width: '100%',
+      } as any),
+    },
     loadingContainer: {
       flex: 1,
       alignItems: 'center',
@@ -1212,9 +1263,6 @@ export default function HomeScreen() {
     minimumViewTime: 200, // Minimum time item must be visible (ms)
   }).current;
 
-  // Stable renderItem — does NOT depend on visiblePostId so it won't recreate on every scroll.
-  // isCurrentlyVisible is passed via extraData + the memo comparator inside OptimizedPhotoCard.
-  const visiblePostIdRef = useRef<string | null>(visiblePostId);
   visiblePostIdRef.current = visiblePostId;
 
   const renderItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => {
@@ -1250,18 +1298,28 @@ export default function HomeScreen() {
     return (
       <View style={styles.container}>
         {screenBg}
-        <SafeAreaView style={styles.safeArea}>
-        <StatusBar
-          barStyle={mode === 'dark' ? 'light-content' : 'dark-content'}
-          backgroundColor="transparent"
-          translucent
-        />
-        {renderTopHeader()}
-        {renderFeedTabs()}
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+        <View style={styles.safeArea}>
+          <StatusBar
+            barStyle={mode === 'dark' ? 'light-content' : 'dark-content'}
+            backgroundColor="transparent"
+            translucent
+          />
+          <View style={[styles.topBarContainer, { position: 'relative', shadowOpacity: 0, elevation: 0 }]}>
+            <LinearGradient
+              colors={
+                mode === 'dark'
+                  ? ['#06121F', '#102236']
+                  : ['#A8DAFC', '#C8E8FF']
+              }
+              style={StyleSheet.absoluteFillObject}
+            />
+            {renderTopHeader()}
+            {renderFeedTabs()}
+          </View>
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+          </View>
         </View>
-        </SafeAreaView>
       </View>
     );
   }
@@ -1270,28 +1328,38 @@ export default function HomeScreen() {
     return (
       <View style={styles.container}>
         {screenBg}
-        <SafeAreaView style={styles.safeArea}>
-        <StatusBar 
-          barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
-          backgroundColor="transparent"
-          translucent
-        />
-        {renderTopHeader()}
-        {renderFeedTabs()}
-        <EmptyState
-          icon={loadError ? 'cloud-offline-outline' : 'camera-outline'}
-          title={loadError || 'No Content Yet'}
-          description={
-            loadError
-              ? 'Unable to reach the server. Check your connection and pull down to refresh.'
-              : 'No content yet. Explore other users or share your first photo!'
-          }
-          actionLabel={loadError ? 'Retry' : 'Explore Users'}
-          onAction={() => (loadError ? handleRefresh() : router.push('/search'))}
-          secondaryActionLabel={loadError ? undefined : 'Create Post'}
-          onSecondaryAction={loadError ? undefined : () => router.push('/(tabs)/post')}
-        />
-        </SafeAreaView>
+        <View style={styles.safeArea}>
+          <StatusBar 
+            barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
+            backgroundColor="transparent"
+            translucent
+          />
+          <View style={[styles.topBarContainer, { position: 'relative', shadowOpacity: 0, elevation: 0 }]}>
+            <LinearGradient
+              colors={
+                mode === 'dark'
+                  ? ['#06121F', '#102236']
+                  : ['#A8DAFC', '#C8E8FF']
+              }
+              style={StyleSheet.absoluteFillObject}
+            />
+            {renderTopHeader()}
+            {renderFeedTabs()}
+          </View>
+          <EmptyState
+            icon={loadError ? 'cloud-offline-outline' : 'camera-outline'}
+            title={loadError || 'No Content Yet'}
+            description={
+              loadError
+                ? 'Unable to reach the server. Check your connection and pull down to refresh.'
+                : 'No content yet. Explore other users or share your first photo!'
+            }
+            actionLabel={loadError ? 'Retry' : 'Explore Users'}
+            onAction={() => (loadError ? handleRefresh() : router.push('/search'))}
+            secondaryActionLabel={loadError ? undefined : 'Create Post'}
+            onSecondaryAction={loadError ? undefined : () => router.push('/(tabs)/post')}
+          />
+        </View>
       </View>
     );
   }
@@ -1305,69 +1373,90 @@ export default function HomeScreen() {
         backgroundColor="transparent"
         translucent
       />
-      <SafeAreaView style={styles.safeArea}>
-        {renderTopHeader()}
-        {renderFeedTabs()}
-
-        <View style={styles.feedClip}>
-          <FlashList
-            key={feedMode}
-            ref={flatListRef}
-            data={feedData}
-            keyExtractor={keyExtractor}
-            renderItem={renderItem}
-            style={styles.postsContainer}
-            contentContainerStyle={styles.postsList}
-            showsVerticalScrollIndicator={false}
-            onScroll={(e) => {
-              homeScrollOffsetRef.current = e.nativeEvent.contentOffset.y;
-              handleScroll(e);
-            }}
-            scrollEventThrottle={16}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={handleRefresh}
-                colors={[theme.colors.primary]}
-                tintColor={theme.colors.primary}
-                progressBackgroundColor={theme.colors.surface}
-              />
-            }
-            onEndReached={handleLoadMore}
-            onEndReachedThreshold={0.1}
-            ListHeaderComponent={
-              !isOnline ? (
-                  <View style={styles.offlineBanner}>
-                    <Text style={styles.offlineText}>
-                      You're offline. Some features may be limited.
+      <View style={styles.safeArea}>
+        {/* Scrollable feed container (zIndex: 1) */}
+        <View style={[styles.feedClip, { zIndex: 1 }]}>
+          <View style={StyleSheet.absoluteFillObject}>
+            <FlashList
+              key={feedMode}
+              ref={flatListRef}
+              data={feedData}
+              keyExtractor={keyExtractor}
+              renderItem={renderItem}
+              style={styles.postsContainer}
+              contentContainerStyle={[
+                styles.postsList,
+                {
+                  paddingTop: topBarHeight,
+                  paddingBottom: bottomBarHeight + 20,
+                }
+              ]}
+              showsVerticalScrollIndicator={false}
+              onScroll={(e) => {
+                homeScrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+                handleScroll(e);
+              }}
+              scrollEventThrottle={16}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={handleRefresh}
+                  colors={[theme.colors.primary]}
+                  tintColor={theme.colors.primary}
+                  progressBackgroundColor={theme.colors.surface}
+                  progressViewOffset={topBarHeight}
+                />
+              }
+              onEndReached={handleLoadMore}
+              onEndReachedThreshold={0.1}
+              ListHeaderComponent={
+                !isOnline ? (
+                    <View style={styles.offlineBanner}>
+                      <Text style={styles.offlineText}>
+                        You're offline. Some features may be limited.
+                      </Text>
+                    </View>
+                ) : null
+              }
+              ListFooterComponent={
+                hasMore ? (
+                  <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
+                    <ActivityIndicator color={theme.colors.primary} />
+                  </View>
+                ) : posts.length > 0 ? (
+                  <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
+                    <Text style={{
+                      color: theme.colors.textSecondary,
+                      fontSize: theme.typography.small.fontSize,
+                    }}>
+                      You're all caught up!
                     </Text>
                   </View>
-              ) : null
-            }
-            ListFooterComponent={
-              hasMore ? (
-                <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
-                  <ActivityIndicator color={theme.colors.primary} />
-                </View>
-              ) : posts.length > 0 ? (
-                <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
-                  <Text style={{
-                    color: theme.colors.textSecondary,
-                    fontSize: theme.typography.small.fontSize,
-                  }}>
-                    You're all caught up!
-                  </Text>
-                </View>
-              ) : null
-            }
-            extraData={visiblePostId}
-            onViewableItemsChanged={onViewableItemsChanged}
-            viewabilityConfig={viewabilityConfig}
-            drawDistance={screenHeight}
-          />
-          <ScrollEdgeFades isDark={isDark} variant="vertical" />
+                ) : null
+              }
+              extraData={visiblePostId}
+              onViewableItemsChanged={onViewableItemsChanged}
+              viewabilityConfig={viewabilityConfig}
+              drawDistance={screenHeight}
+            />
+          </View>
+          <ScrollEdgeFades isDark={isDark} variant="vertical" hideTop={true} />
         </View>
-      </SafeAreaView>
+
+        {/* Absolute Top Bar (zIndex: 1000) */}
+        <View style={styles.topBarContainer}>
+          <LinearGradient
+            colors={
+              mode === 'dark'
+                ? ['#06121F', '#102236']
+                : ['#A8DAFC', '#C8E8FF']
+            }
+            style={StyleSheet.absoluteFillObject}
+          />
+          {renderTopHeader()}
+          {renderFeedTabs()}
+        </View>
+      </View>
     </View>
     </ErrorBoundary>
   );

@@ -489,7 +489,9 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
           shouldPlay: false,
           progressUpdateIntervalMillis: 200, // Update every 200ms for smooth looping
           isLooping: false // We handle looping manually to respect startTime/endTime
-        }
+        },
+        null,
+        false // Disable downloadFirst to enable instant streaming
       );
 
       soundRef.current = sound;

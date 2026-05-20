@@ -18,6 +18,7 @@ export interface UserType {
   isFollowing?: boolean;
   followRequestSent?: boolean;
   requiresFollowApproval?: boolean;
+  travelStyle?: string;
 }
 
 export interface FollowRequest {

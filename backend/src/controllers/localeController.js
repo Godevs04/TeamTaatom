@@ -154,24 +154,26 @@ const getLocales = async (req, res) => {
     // Build state filter conditions (handle optional state fields)
     // Use exact match for stateCode and anchored regex for stateProvince
     // so short codes like "CA" don't substring-match "Yucatan", "Nicaragua", etc.
+    // Cross-match both stateCode and stateProvince to handle database inconsistencies.
     const stateConditions = [];
-    if (stateCode && stateCode.trim() !== '' && stateCode !== 'all') {
-      const code = stateCode.trim();
-      const escaped = code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      stateConditions.push(
-        { stateCode: code },
-        { stateCode: { $regex: `^${escaped}$`, $options: 'i' } }
-      );
-      // Match full state name when UI sends code (e.g. CA → California)
-      if (stateProvince && typeof stateProvince === 'string' && stateProvince.trim()) {
-        const nameEscaped = stateProvince.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const queryCode = (stateCode && typeof stateCode === 'string' && stateCode.trim() !== 'all') ? stateCode.trim() : '';
+    const queryProvince = (stateProvince && typeof stateProvince === 'string' && stateProvince.trim() !== 'all') ? stateProvince.trim() : '';
+    
+    if (queryCode || queryProvince) {
+      if (queryCode) {
+        const escapedCode = queryCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         stateConditions.push(
-          { stateProvince: { $regex: `^${nameEscaped}$`, $options: 'i' } },
-          { stateProvince: { $regex: nameEscaped, $options: 'i' } }
+          { stateCode: queryCode },
+          { stateCode: { $regex: `^${escapedCode}$`, $options: 'i' } },
+          { stateProvince: { $regex: `^${escapedCode}$`, $options: 'i' } }
         );
-      } else {
+      }
+      if (queryProvince) {
+        const escapedProvince = queryProvince.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         stateConditions.push(
-          { stateProvince: { $regex: `^${escaped}$`, $options: 'i' } }
+          { stateProvince: queryProvince },
+          { stateProvince: { $regex: `^${escapedProvince}$`, $options: 'i' } },
+          { stateCode: { $regex: `^${escapedProvince}$`, $options: 'i' } }
         );
       }
     }

@@ -14,6 +14,8 @@ type Props = {
   /** Full-screen video (Shorts): black fades instead of theme sky colors */
   edgeColors?: 'screen' | 'video';
   style?: ViewStyle;
+  hideTop?: boolean;
+  hideBottom?: boolean;
 };
 
 /**
@@ -27,6 +29,8 @@ export default function ScrollEdgeFades({
   horizontalFadeSize = 36,
   edgeColors = 'screen',
   style,
+  hideTop = false,
+  hideBottom = false,
 }: Props) {
   const topBottomScreen = isDark
     ? (['rgba(6,18,31,0)', 'rgba(6,18,31,0.45)', 'rgba(6,18,31,0.82)'] as const)
@@ -65,14 +69,18 @@ export default function ScrollEdgeFades({
 
   return (
     <View pointerEvents="none" style={[StyleSheet.absoluteFillObject, style]}>
-      <LinearGradient
-        colors={[...topBottom] as [string, string, ...string[]]}
-        style={[styles.vEdge, { top: 0, height: fadeSize }]}
-      />
-      <LinearGradient
-        colors={[...topBottom].reverse() as [string, string, ...string[]]}
-        style={[styles.vEdge, { bottom: 0, height: fadeSize + 8 }]}
-      />
+      {!hideTop && (
+        <LinearGradient
+          colors={[...topBottom] as [string, string, ...string[]]}
+          style={[styles.vEdge, { top: 0, height: fadeSize }]}
+        />
+      )}
+      {!hideBottom && (
+        <LinearGradient
+          colors={[...topBottom].reverse() as [string, string, ...string[]]}
+          style={[styles.vEdge, { bottom: 0, height: fadeSize + 8 }]}
+        />
+      )}
     </View>
   );
 }
