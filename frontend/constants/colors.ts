@@ -53,7 +53,8 @@ export const colors = {
   glowBlue: 'rgba(91, 188, 248, 0.28)',
   innerHighlight: 'rgba(91, 188, 248, 0.10)',
   softShadow: 'rgba(0, 0, 0, 0.32)',
-  floatingDock: 'rgba(18, 34, 54, 0.88)',
+  /** Solid tab bar (not translucent) */
+  floatingDock: '#152A42',
   cloudSurface: '#162D44',
   skyPale: '#0F1E30',
   blueDeep: '#5BBCF8',

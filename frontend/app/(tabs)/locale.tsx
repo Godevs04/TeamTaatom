@@ -51,6 +51,7 @@ import {
   CloudSearchDock,
   CloudLocaleFeed,
 } from '../../components/cloud';
+import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 import type { CloudLocaleCardData } from '../../components/cloud/CloudLocaleCard';
 
 const logger = createLogger('LocaleScreen');
@@ -536,7 +537,7 @@ export default function LocaleScreen() {
   // Without this the user could thrash the backend by tab-switching.
   const bgRefreshCacheRef = useRef<Map<string, number>>(new Map());
   
-  const { theme, mode } = useTheme();
+  const { theme, mode, isDark } = useTheme();
   const router = useRouter();
 
   const spotTypeOptions = [
@@ -3654,19 +3655,20 @@ export default function LocaleScreen() {
   // Stable callbacks for the locale-tab FlatList. Using a separate render
   // function (not the useCallback'd renderAdminLocaleCard) keeps the FlatList
   // happy with a `(item) =>` signature without re-allocating per render.
-  const renderAdminLocaleItem = useCallback(({ item, index }: { item: Locale; index: number }) => (
-    renderAdminLocaleCard({ locale: item, index })
-  ), [renderAdminLocaleCard]);
+  const renderAdminLocaleItem = useCallback(
+    ({ item, index }: { item: Locale; index: number }) => (
+      <View style={{ width: screenWidth, paddingHorizontal: 16 }}>
+        {renderAdminLocaleCard({ locale: item, index })}
+      </View>
+    ),
+    [renderAdminLocaleCard, screenWidth],
+  );
 
   const localeKeyExtractor = useCallback((item: Locale, index: number) => String(item?._id ?? `locale-${index}`), []);
 
   const localeGetItemLayout = useCallback((_data: ArrayLike<Locale> | null | undefined, index: number) => {
-    // Card height comes from styles.wideCard: 220 on tablet, 176 on phone.
-    // Plus the inline marginBottom: 16 applied in renderAdminLocaleCard.
-    const cardHeight = isTabletLocal ? 220 : 176;
-    const totalHeight = cardHeight + 16;
-    return { length: totalHeight, offset: totalHeight * index, index };
-  }, []);
+    return { length: screenWidth, offset: screenWidth * index, index };
+  }, [screenWidth]);
 
   const renderCustomLayout = useCallback(() => {
     return (
@@ -3836,9 +3838,13 @@ export default function LocaleScreen() {
       />
       <CloudSkyBackground heightRatio={0.34} />
       <LinearGradient
-        colors={mode === 'dark' ? ['#06121F', '#102236', '#07111C'] : ['transparent', '#F8FCFF', '#FFFFFF']}
+        colors={
+          mode === 'dark'
+            ? ['#06121F', '#102236', '#07111C']
+            : (theme.colors.screenGradient as [string, string, ...string[]])
+        }
         style={StyleSheet.absoluteFillObject}
-        locations={[0, 0.28, 1]}
+        locations={mode === 'dark' ? [0, 0.28, 1] : [0, 0.22, 0.55, 1]}
       />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -3883,102 +3889,86 @@ export default function LocaleScreen() {
           essentially zero render cost (no items virtualised, no scroll
           handlers active), so this is also fine for performance. */}
       <View style={[styles.listSlot, activeTab === 'locale' ? null : styles.hidden]} pointerEvents={activeTab === 'locale' ? 'auto' : 'none'}>
-        <FlatList
-          data={[]}
-          renderItem={() => null}
-          keyExtractor={() => 'locale-featured'}
-          showsVerticalScrollIndicator={false}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          ListHeaderComponentStyle={{ width: screenWidth }}
-          contentContainerStyle={{
-            paddingBottom: isTabletLocal ? 80 : 100,
-            paddingHorizontal: 0,
-            width: screenWidth,
-          }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              colors={['#5BBCF8']}
-              tintColor="#5BBCF8"
-            />
-          }
-        />
-        <FlatList
-          data={localesToShow}
-          renderItem={renderAdminLocaleItem}
-          keyExtractor={localeKeyExtractor}
-          showsVerticalScrollIndicator={false}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          ListHeaderComponentStyle={{ width: screenWidth }}
-          contentContainerStyle={{
-            paddingBottom: isTabletLocal ? 80 : 100,
-            paddingHorizontal: 0,
-            width: screenWidth,
-          }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              colors={['#5BBCF8']}
-              tintColor="#5BBCF8"
-            />
-          }
-          ListHeaderComponent={
-            <Text style={[styles.sectionTitle, { color: theme.colors.text, marginBottom: 16, paddingHorizontal: 20, marginTop: 20 }]}>
-              Featured Locales
-            </Text>
-          }
-          ListEmptyComponent={
-            loadingLocales ? (
-              <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginVertical: 20 }} />
-            ) : (
-              <View style={styles.adminLocalesSection}>
-                <View style={styles.emptyContainer}>
-                  <Ionicons name="location-outline" size={60} color={theme.colors.textSecondary} />
-                  <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Locales Found</Text>
-                  <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
-                    {hasActiveFilters
-                      ? 'Try adjusting your search or filters'
-                      : 'Check back later for exciting new destinations!'}
-                  </Text>
+        <View style={{ flex: 1 }}>
+          <Text
+            style={[
+              styles.sectionTitle,
+              { color: theme.colors.text, marginBottom: 10, paddingHorizontal: 20, marginTop: 12 },
+            ]}
+          >
+            Featured Locales
+          </Text>
+          {localesToShow.length === 0 && !loadingLocales ? (
+            <View style={styles.adminLocalesSection}>
+              <View style={styles.emptyContainer}>
+                <Ionicons name="location-outline" size={60} color={theme.colors.textSecondary} />
+                <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Locales Found</Text>
+                <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
+                  {hasActiveFilters
+                    ? 'Try adjusting your search or filters'
+                    : 'Check back later for exciting new destinations!'}
+                </Text>
+              </View>
+            </View>
+          ) : loadingLocales && localesToShow.length === 0 ? (
+            <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginVertical: 20 }} />
+          ) : (
+            <>
+              <View style={{ flex: 1, minHeight: 260, position: 'relative' }}>
+                <FlatList
+                  data={localesToShow}
+                  renderItem={renderAdminLocaleItem}
+                  keyExtractor={localeKeyExtractor}
+                  horizontal
+                  pagingEnabled
+                  showsHorizontalScrollIndicator={false}
+                  snapToInterval={screenWidth}
+                  decelerationRate="fast"
+                  disableIntervalMomentum
+                  getItemLayout={localeGetItemLayout}
+                  onScroll={handleScroll}
+                  scrollEventThrottle={16}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
+                  refreshControl={
+                    <RefreshControl
+                      refreshing={refreshing}
+                      onRefresh={handleRefresh}
+                      colors={['#5BBCF8']}
+                      tintColor="#5BBCF8"
+                    />
+                  }
+                  style={{ flex: 1 }}
+                />
+                <ScrollEdgeFades isDark={isDark} variant="horizontal" horizontalFadeSize={44} />
+              </View>
+              {localesToShow.length > 0 ? (
+                <View style={{ paddingBottom: isTabletLocal ? 24 : 16 }}>
+                  {hasMore && !loadingMore && !loadingLocales && (
+                    <View style={styles.loadMoreButtonContainer}>
+                      <TouchableOpacity
+                        style={[styles.loadMoreButton, { backgroundColor: theme.colors.primary }]}
+                        onPress={handleLoadMore}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.loadMoreText, { color: '#FFFFFF' }]}>Load More</Text>
+                        <Ionicons name="chevron-down" size={20} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {loadingMore && (
+                    <View style={styles.loadMoreContainer}>
+                      <ActivityIndicator size="small" color={theme.colors.primary} />
+                      <Text style={[styles.loadMoreText, { color: theme.colors.textSecondary, marginLeft: 8 }]}>
+                        Loading more locales...
+                      </Text>
+                    </View>
+                  )}
                 </View>
-              </View>
-            )
-          }
-          ListFooterComponent={
-            localesToShow.length > 0 ? (
-              <View>
-                {hasMore && !loadingMore && !loadingLocales && (
-                  <View style={styles.loadMoreButtonContainer}>
-                    <TouchableOpacity
-                      style={[styles.loadMoreButton, { backgroundColor: theme.colors.primary }]}
-                      onPress={handleLoadMore}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[styles.loadMoreText, { color: '#FFFFFF' }]}>Load More</Text>
-                      <Ionicons name="chevron-down" size={20} color="#FFFFFF" style={{ marginLeft: 8 }} />
-                    </TouchableOpacity>
-                  </View>
-                )}
-                {loadingMore && (
-                  <View style={styles.loadMoreContainer}>
-                    <ActivityIndicator size="small" color={theme.colors.primary} />
-                    <Text style={[styles.loadMoreText, { color: theme.colors.textSecondary, marginLeft: 8 }]}>
-                      Loading more locales...
-                    </Text>
-                  </View>
-                )}
-              </View>
-            ) : null
-          }
-        />
+              ) : null}
+            </>
+          )}
+        </View>
       </View>
 
       <View style={[styles.listSlot, activeTab === 'saved' ? null : styles.hidden]} pointerEvents={activeTab === 'saved' ? 'auto' : 'none'}>

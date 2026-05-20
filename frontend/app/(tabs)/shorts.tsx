@@ -46,6 +46,7 @@ import { ErrorBoundary } from '../../utils/errorBoundary';
 import { ShortsNativeAd } from '../../components/ads/ShortsNativeAd';
 import { useAdCap, recordGoogleAdImpression } from '../../services/adCap';
 import Constants from 'expo-constants';
+import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 
 /** Shorts list item: either a reel (PostType) or a full-screen native ad slot. */
 export type ShortsItem = PostType | { type: 'ad'; adIndex: number };
@@ -71,8 +72,8 @@ const isAndroid = Platform.OS === 'android';
 const isExpoGo = (Constants as any)?.appOwnership === 'expo';
 const logger = createLogger('ShortsScreen');
 
-// Tab bar height from (tabs)/_layout - content must sit above it
-const TAB_BAR_HEIGHT = isWeb ? 70 : 88;
+// Tab bar height from (tabs)/_layout — content must sit above it
+const TAB_BAR_HEIGHT = isWeb ? 86 : 104;
 const SHORTS_ITEM_HEIGHT = SCREEN_HEIGHT - TAB_BAR_HEIGHT;
 
 const LIKED_SHORTS_STORAGE_KEY = 'taatom_shorts_liked_ids';
@@ -287,7 +288,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     retryVideoLoad: null as any,
   });
   
-  const { theme, mode } = useTheme();
+  const { theme, mode, isDark } = useTheme();
   const router = useRouter();
   const params = useLocalSearchParams();
   const segments = useSegments();
@@ -2906,6 +2907,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         );
       })()}
 
+      <View style={styles.shortsListClip}>
       <FlatList
         ref={flatListRef}
         data={shortsData}
@@ -2956,6 +2958,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
       />
+      <ScrollEdgeFades isDark={isDark} variant="vertical" edgeColors="video" fadeSize={56} />
+      </View>
 
       {/* Comment Modal */}
       {selectedShortId && (
@@ -3006,6 +3010,10 @@ const styles = StyleSheet.create({
       alignSelf: 'center',
       width: '100%',
     } as any),
+  },
+  shortsListClip: {
+    flex: 1,
+    position: 'relative',
   },
   loadingContainer: {
     flex: 1,

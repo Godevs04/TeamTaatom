@@ -40,6 +40,7 @@ import { savedEvents } from '../../utils/savedEvents';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { LinearGradient } from 'expo-linear-gradient';
 import { CloudSkyBackground, CloudSegmentedControl } from '../../components/cloud';
+import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 import { NativeAdCard } from '../../components/ads/NativeAdCard';
 import { useAdCap, recordGoogleAdImpression } from '../../services/adCap';
 import { flushPendingLikes } from '../../utils/likePersistence';
@@ -191,7 +192,7 @@ export default function HomeScreen() {
   const [unseenMessageCount, setUnseenMessageCount] = useState(0);
   const [isOnline, setIsOnline] = useState(true);
   const [feedMode, setFeedMode] = useState<FeedMode>('recents');
-  const { theme, mode } = useTheme();
+  const { theme, mode, isDark } = useTheme();
   const { showError } = useAlert();
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -1085,6 +1086,10 @@ export default function HomeScreen() {
     postsContainer: {
       flex: 1,
     },
+    feedClip: {
+      flex: 1,
+      position: 'relative',
+    },
     feedTabsContainer: {
       marginHorizontal: isTablet ? theme.spacing.lg : theme.spacing.md,
       marginTop: theme.spacing.sm,
@@ -1230,9 +1235,13 @@ export default function HomeScreen() {
     <>
       <CloudSkyBackground heightRatio={0.28} />
       <LinearGradient
-        colors={mode === 'dark' ? ['#06121F', '#102236', '#07111C'] : ['transparent', '#F8FCFF', '#FFFFFF']}
+        colors={
+          mode === 'dark'
+            ? ['#06121F', '#102236', '#07111C']
+            : (theme.colors.screenGradient as [string, string, ...string[]])
+        }
         style={StyleSheet.absoluteFillObject}
-        locations={[0, 0.22, 1]}
+        locations={mode === 'dark' ? [0, 0.22, 1] : [0, 0.22, 0.55, 1]}
       />
     </>
   );
@@ -1300,61 +1309,64 @@ export default function HomeScreen() {
         {renderTopHeader()}
         {renderFeedTabs()}
 
-        <FlashList
-        key={feedMode}
-        ref={flatListRef}
-        data={feedData}
-        keyExtractor={keyExtractor}
-        renderItem={renderItem}
-        style={styles.postsContainer}
-        contentContainerStyle={styles.postsList}
-        showsVerticalScrollIndicator={false}
-        onScroll={(e) => {
-          homeScrollOffsetRef.current = e.nativeEvent.contentOffset.y;
-          handleScroll(e);
-        }}
-        scrollEventThrottle={16}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={[theme.colors.primary]}
-            tintColor={theme.colors.primary}
-            progressBackgroundColor={theme.colors.surface}
+        <View style={styles.feedClip}>
+          <FlashList
+            key={feedMode}
+            ref={flatListRef}
+            data={feedData}
+            keyExtractor={keyExtractor}
+            renderItem={renderItem}
+            style={styles.postsContainer}
+            contentContainerStyle={styles.postsList}
+            showsVerticalScrollIndicator={false}
+            onScroll={(e) => {
+              homeScrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+              handleScroll(e);
+            }}
+            scrollEventThrottle={16}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                colors={[theme.colors.primary]}
+                tintColor={theme.colors.primary}
+                progressBackgroundColor={theme.colors.surface}
+              />
+            }
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.1}
+            ListHeaderComponent={
+              !isOnline ? (
+                  <View style={styles.offlineBanner}>
+                    <Text style={styles.offlineText}>
+                      You're offline. Some features may be limited.
+                    </Text>
+                  </View>
+              ) : null
+            }
+            ListFooterComponent={
+              hasMore ? (
+                <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
+                  <ActivityIndicator color={theme.colors.primary} />
+                </View>
+              ) : posts.length > 0 ? (
+                <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
+                  <Text style={{
+                    color: theme.colors.textSecondary,
+                    fontSize: theme.typography.small.fontSize,
+                  }}>
+                    You're all caught up!
+                  </Text>
+                </View>
+              ) : null
+            }
+            extraData={visiblePostId}
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
+            drawDistance={screenHeight}
           />
-        }
-        onEndReached={handleLoadMore}
-        onEndReachedThreshold={0.1}
-        ListHeaderComponent={
-          !isOnline ? (
-              <View style={styles.offlineBanner}>
-                <Text style={styles.offlineText}>
-                  You're offline. Some features may be limited.
-                </Text>
-              </View>
-          ) : null
-        }
-        ListFooterComponent={
-          hasMore ? (
-            <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
-              <ActivityIndicator color={theme.colors.primary} />
-            </View>
-          ) : posts.length > 0 ? (
-            <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
-              <Text style={{
-                color: theme.colors.textSecondary,
-                fontSize: theme.typography.small.fontSize,
-              }}>
-                You're all caught up!
-              </Text>
-            </View>
-          ) : null
-        }
-        extraData={visiblePostId}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-        drawDistance={screenHeight}
-      />
+          <ScrollEdgeFades isDark={isDark} variant="vertical" />
+        </View>
       </SafeAreaView>
     </View>
     </ErrorBoundary>
