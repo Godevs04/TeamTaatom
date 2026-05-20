@@ -1,8 +1,7 @@
 import React from 'react';
-import { View, Text, Platform, Dimensions } from 'react-native';
+import { View, Text, Platform, Dimensions, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
-import PremiumGlassCard from './ui/PremiumGlassCard';
 import PremiumIconButton from './ui/PremiumIconButton';
 
 // Responsive dimensions
@@ -21,7 +20,6 @@ interface NavBarProps {
   rightComponent?: React.ReactNode;
 }
 
-// removed duplicate and broken function definition
 export default function NavBar(props: NavBarProps) {
   const { theme } = useTheme();
   const { 
@@ -36,23 +34,31 @@ export default function NavBar(props: NavBarProps) {
   const shouldShowBack = showBack || showBackButton;
   const backHandler = onBack || onBackPress;
   const titleColor = theme.colors.text;
+
   return (
-    <SafeAreaView style={{
-      backgroundColor: 'transparent',
-      zIndex: 10,
-    }} edges={["top"]}>
-      <PremiumGlassCard style={{
+    <SafeAreaView 
+      style={{
+        backgroundColor: theme.colors.background,
+        shadowColor: theme.colors.shadow,
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.1,
+        shadowRadius: 6,
+        elevation: 8,
+        zIndex: 10,
+      }} 
+      edges={["top"]}
+    >
+      <View style={{
         marginHorizontal: isTablet ? 24 : 14,
         marginTop: isAndroid ? 6 : 4,
         marginBottom: 8,
-        borderRadius: 28,
-      }} contentStyle={{
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         paddingHorizontal: isTablet ? 18 : 10,
         paddingVertical: 8,
         minHeight: isTablet ? 64 : 56,
+        backgroundColor: theme.colors.background,
       }}>
         {shouldShowBack && (
           <PremiumIconButton
@@ -75,7 +81,6 @@ export default function NavBar(props: NavBarProps) {
           color: titleColor,
           textAlign: 'center',
           letterSpacing: isIOS ? 0.5 : 0.3,
-          paddingHorizontal: 0,
         }}>{title}</Text>
         {rightComponent ? (
           <View style={{
@@ -91,9 +96,7 @@ export default function NavBar(props: NavBarProps) {
             marginLeft: isTablet ? theme.spacing.md : theme.spacing.sm,
           }} />
         ) : null}
-      </PremiumGlassCard>
+      </View>
     </SafeAreaView>
   );
 }
-
-// ...styles removed, now handled inline

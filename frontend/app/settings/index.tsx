@@ -16,8 +16,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import NavBar from '../../components/NavBar';
-import PremiumScreen from '../../components/ui/PremiumScreen';
-import PremiumGlassCard from '../../components/ui/PremiumGlassCard';
+import { LinearGradient } from 'expo-linear-gradient';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  CloudSkyBackground,
+  CloudGlassSurface,
+  CloudActionGroup,
+  CloudListRow,
+} from '../../components/cloud';
 import { getUserFromStorage } from '../../services/auth';
 import { useSettings } from '../../context/SettingsContext';
 import { createLogger } from '../../utils/logger';
@@ -139,7 +145,8 @@ export default function SettingsScreen() {
   const isMountedRef = useRef(true);
   
   const router = useRouter();
-  const { theme } = useTheme();
+  const { theme, mode } = useTheme();
+  const isDark = mode === 'dark' || theme.colors.background === '#0B1A2B';
 
   const loadUserData = useCallback(async () => {
     try {
@@ -237,17 +244,27 @@ export default function SettingsScreen() {
 
   if (isLoading) {
     return (
-      <PremiumScreen style={styles.container}>
-        <NavBar title="Settings" />
+      <View style={[styles.container, { backgroundColor: isDark ? '#06121F' : '#EDF7FF' }]}>
+        <CloudSkyBackground heightRatio={0.35} />
+        <SafeAreaView style={styles.safeFill} edges={['top']}>
+        <NavBar title="Settings" showBack onBack={() => router.back()} />
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
-      </PremiumScreen>
+        </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <PremiumScreen style={styles.container}>
+    <View style={[styles.container, { backgroundColor: isDark ? '#06121F' : '#EDF7FF' }]}>
+      <CloudSkyBackground heightRatio={0.38} />
+      <LinearGradient
+        colors={isDark ? ['#06121F', '#102236', '#07111C'] : ['transparent', '#F8FCFF', '#FFFFFF']}
+        style={StyleSheet.absoluteFillObject}
+        locations={[0, 0.3, 1]}
+      />
+      <SafeAreaView style={styles.safeFill} edges={['top']}>
       <NavBar 
         title="Settings" 
         showBack={true}
@@ -278,6 +295,8 @@ export default function SettingsScreen() {
       
       <ScrollView
         style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -287,62 +306,42 @@ export default function SettingsScreen() {
           />
         }
       >
-        {/* Travel illustration banner - centered with equal insets */}
-        <View style={styles.settingsBannerOuter}>
-          <View style={[styles.settingsBannerWrapper, { marginBottom: theme.spacing.md }]}>
+        <View style={styles.settingsHero}>
+          <CloudGlassSurface blur borderRadius={22} style={styles.settingsBannerGlass} contentStyle={styles.settingsBannerInner}>
             <Image
               source={require('../../assets/settings_image.png')}
               style={styles.settingsBannerImage}
               resizeMode="cover"
             />
-          </View>
+          </CloudGlassSurface>
         </View>
-        {/* User Info Header */}
-        <PremiumGlassCard style={styles.headerContainer} contentStyle={styles.userInfo} glow>
-          <View style={styles.userInfo}>
-            <Text style={[styles.userName, { color: theme.colors.text }]}>
-              {user?.fullName || 'User'}
-            </Text>
-            <Text style={[styles.userEmail, { color: theme.colors.textSecondary }]}>
-              {user?.email}
-            </Text>
-          </View>
-        </PremiumGlassCard>
 
-        {/* Settings Sections */}
-        <View style={styles.sectionsContainer}>
-          {memoizedSections.map((section) => (
-            <TouchableOpacity key={section.id} onPress={() => navigateToSection(section)} activeOpacity={0.75}>
-              <PremiumGlassCard style={styles.sectionItem} contentStyle={styles.sectionContent}>
-                <View style={[styles.iconContainer, { backgroundColor: theme.colors.primary + '20' }]}>
-                  <Ionicons 
-                    name={section.icon as any} 
-                    size={24} 
-                    color={theme.colors.primary} 
-                  />
-                </View>
-                <View style={styles.sectionText}>
-                  <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-                    {section.title}
-                  </Text>
-                  <Text style={[styles.sectionDescription, { color: theme.colors.textSecondary }]}>
-                    {section.description}
-                  </Text>
-                </View>
-                <Ionicons 
-                  name="chevron-forward" 
-                  size={20} 
-                  color={theme.colors.textSecondary} 
-                />
-              </PremiumGlassCard>
-            </TouchableOpacity>
+        <CloudGlassSurface style={styles.headerContainer} contentStyle={styles.userInfo} borderRadius={18}>
+          <Text style={[styles.userName, { color: theme.colors.text }]}>
+            {user?.fullName || 'User'}
+          </Text>
+          <Text style={[styles.userEmail, { color: theme.colors.textSecondary }]}>
+            {user?.email}
+          </Text>
+        </CloudGlassSurface>
+
+        <CloudActionGroup style={styles.sectionsGroup}>
+          {memoizedSections.map((section, index) => (
+            <CloudListRow
+              key={section.id}
+              icon={section.icon as keyof typeof Ionicons.glyphMap}
+              title={section.title}
+              subtitle={section.description}
+              onPress={() => navigateToSection(section)}
+              showDivider={index > 0}
+              iconTint={theme.colors.primary}
+            />
           ))}
-        </View>
+        </CloudActionGroup>
 
-        {/* Reset Settings */}
         <View style={styles.resetContainer}>
           <TouchableOpacity
-            style={[styles.resetButton, { backgroundColor: theme.colors.error + '20' }]}
+            style={[styles.resetButton, { backgroundColor: theme.colors.error + (isDark ? '18' : '14') }]}
             onPress={handleResetSettings}
           >
             <Ionicons name="refresh-outline" size={20} color={theme.colors.error} />
@@ -352,14 +351,14 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* App Version */}
         <View style={styles.versionContainer}>
           <Text style={[styles.versionText, { color: theme.colors.textSecondary }]}>
             Taatom v{appVersion}
           </Text>
         </View>
       </ScrollView>
-    </PremiumScreen>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -372,24 +371,31 @@ const styles = StyleSheet.create({
       width: '100%',
     } as any),
   },
+  safeFill: {
+    flex: 1,
+  },
   scrollView: {
     flex: 1,
   },
-  settingsBannerOuter: {
-    paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+  scrollContent: {
+    paddingBottom: 32,
   },
-  settingsBannerWrapper: {
+  settingsHero: {
+    paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginTop: 8,
+    marginBottom: 14,
+  },
+  settingsBannerGlass: {
     width: '100%',
-    height: isTablet ? 140 : 120,
-    marginBottom: 0,
-    borderRadius: 24,
+  },
+  settingsBannerInner: {
+    height: isTablet ? 140 : 118,
     overflow: 'hidden',
+    padding: 0,
   },
   settingsBannerImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 24,
-    alignSelf: 'center',
   },
   loadingContainer: {
     flex: 1,
@@ -399,13 +405,16 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
-    marginTop: isTablet ? theme.spacing.md : 8,
-    marginBottom: isTablet ? theme.spacing.md : 12,
-    padding: isTablet ? theme.spacing.xl : 20,
-    borderRadius: theme.borderRadius.md,
+    marginBottom: 14,
   },
   userInfo: {
     alignItems: 'center',
+    paddingVertical: isTablet ? 20 : 18,
+    paddingHorizontal: 16,
+  },
+  sectionsGroup: {
+    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginBottom: 16,
   },
   userName: {
     fontSize: isTablet ? theme.typography.h3.fontSize : 20,
@@ -422,28 +431,6 @@ const styles = StyleSheet.create({
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
-  },
-  sectionsContainer: {
-    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
-    marginBottom: isTablet ? theme.spacing.xl : 20,
-  },
-  sectionItem: {
-    marginBottom: isTablet ? theme.spacing.md : 12,
-    borderRadius: theme.borderRadius.md,
-    overflow: 'hidden',
-  },
-  sectionContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: isTablet ? theme.spacing.lg : theme.spacing.lg,
-  },
-  iconContainer: {
-    width: isTablet ? 56 : 48,
-    height: isTablet ? 56 : 48,
-    borderRadius: isTablet ? 28 : 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: isTablet ? theme.spacing.lg : 16,
   },
   sectionText: {
     flex: 1,

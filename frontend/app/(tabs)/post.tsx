@@ -24,9 +24,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
-import  NavBar from "../../components/NavBar";
-import PremiumScreen from "../../components/ui/PremiumScreen";
-import PremiumSegmentedTabs from "../../components/ui/PremiumSegmentedTabs";
+import { CloudPostMountainBackground, CloudGlassCard } from "../../components/cloud";
+import {
+  PostCreateHeader,
+  PostMediaTypeToggle,
+  PostCreateEmptyCard,
+} from "../../components/post/PostCreateChrome";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { postSchema, shortSchema } from "../../utils/validation";
 import { getCurrentLocation, getAddressFromCoords } from "../../utils/locationUtils";
 import { LocationExtractionService } from "../../services/locationExtraction";
@@ -283,7 +287,7 @@ export default function PostScreen() {
     Alert.alert('Success', 'Place details populated successfully!');
   }, [detectedPlace, detectPlaceName]);
   const router = useRouter();
-  const { theme } = useTheme();
+  const { theme, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const { handleScroll } = useScrollToHideNav();
   
@@ -2460,10 +2464,12 @@ export default function PostScreen() {
       style={{ flex: 1 }}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
-      <PremiumScreen edges={[]} style={{ flex: 1 }}>
-        <NavBar title="New Post" />
+      <View style={{ flex: 1, backgroundColor: mode === 'dark' ? '#06121F' : '#EEF4F8' }}>
+        <CloudPostMountainBackground />
+        <SafeAreaView style={{ flex: 1 }} edges={['top']}>
+        <PostCreateHeader onClose={() => router.push('/(tabs)/home')} />
         <ScrollView 
-          style={{ flex: 1, padding: theme.spacing.md }} 
+          style={{ flex: 1 }} 
           contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 80, 100) }}
           showsVerticalScrollIndicator={false}
           onScroll={handleScroll}
@@ -2472,189 +2478,49 @@ export default function PostScreen() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
         >
-        {/* Travel illustration banner - elegant post page header */}
-        <View style={{ borderRadius: 20, overflow: 'hidden', height: isTablet ? 120 : 100, marginBottom: theme.spacing.md, width: '100%' }}>
-          <Image
-            source={require('../../assets/post_image.png')}
-            style={{ width: '100%', height: '100%' }}
-            resizeMode="cover"
-          />
-        </View>
         {isJourneyCapture && (
-          <View style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 8,
-            paddingHorizontal: 14,
-            paddingVertical: 10,
-            borderRadius: 14,
-            backgroundColor: theme.colors.primary + '12',
-            borderWidth: 1,
-            borderColor: theme.colors.primary + '30',
-            marginBottom: theme.spacing.md,
-          }}>
+          <CloudGlassCard style={{ marginHorizontal: 16, marginBottom: 12 }} contentStyle={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 14 }}>
             <Ionicons name="navigate" size={18} color={theme.colors.primary} />
             <Text style={{ flex: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
               Capture a live moment from your journey. Reels can use in-app audio before upload.
             </Text>
-          </View>
+          </CloudGlassCard>
         )}
-        <PremiumSegmentedTabs
-          tabs={[
-            { key: 'photo', label: 'Photo', icon: 'image' },
-            { key: 'short', label: 'Short', icon: 'videocam' },
-          ]}
-          value={postType}
-          onChange={(value) => setPostType(value as 'photo' | 'short')}
-          style={{ marginBottom: theme.spacing.md }}
+        <PostMediaTypeToggle
+          postType={postType}
+          onPostTypeChange={setPostType}
         />
 
         {!selectedImages.length && !selectedVideo ? (
-          <>
-            <View style={{ 
-              alignItems: 'center', 
-              marginTop: theme.spacing.md, 
-              marginBottom: theme.spacing.sm,
-              paddingVertical: theme.spacing.sm
-            }}>
-              <View style={{
-                width: 120,
-                height: 120,
-                borderRadius: 60,
-                backgroundColor: theme.colors.primary + '15',
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginBottom: theme.spacing.sm
-              }}>
-              <Ionicons 
-                  name={postType === 'photo' ? "image" : "videocam"} 
-                  size={64} 
-                  color={theme.colors.primary} 
-              />
-              </View>
-              <Text style={{
-                color: theme.colors.text,
-                fontSize: theme.typography.h2.fontSize,
-                fontWeight: '600',
-                marginBottom: theme.spacing.xs,
-                textAlign: 'center'
-              }}>
-                {(() => {
-                  if (postType === 'photo' && hasExistingPosts === false) {
-                    return 'No Photos Yet';
-                  } else if (postType === 'short' && hasExistingShorts === false) {
-                    return 'No Shorts Yet';
-                  } else {
-                    return `Create New ${postType === 'photo' ? 'Photo' : 'Short'}`;
-                  }
-                })()}
-              </Text>
-              <Text style={{ 
-                color: theme.colors.textSecondary, 
-                fontSize: theme.typography.body.fontSize, 
-                textAlign: 'center', 
-                marginBottom: theme.spacing.sm,
-                paddingHorizontal: theme.spacing.lg,
-                lineHeight: 22
-              }}>
-                {(() => {
-                  if (postType === 'photo' && hasExistingPosts === false) {
-                    return 'Share your first moment by uploading a photo or taking one now!';
-                  } else if (postType === 'short' && hasExistingShorts === false) {
-                    return 'Share your first short by uploading a video or taking one now!';
-                  } else {
-                    return `Upload a ${postType === 'photo' ? 'photo' : 'video'} or take one now to share with your followers!`;
-                  }
-                })()}
-              </Text>
-            </View>
-            <View style={{ 
-              flexDirection: "row", 
-              justifyContent: "space-between", 
-              marginTop: theme.spacing.sm,
-              marginBottom: theme.spacing.lg,
-              gap: theme.spacing.md
-            }}>
-              <TouchableOpacity 
-                style={{ 
-                  flex: 1,
-                  alignItems: "center", 
-                  justifyContent: "center",
-                  backgroundColor: theme.colors.glassSurface || theme.colors.surface, 
-                  borderRadius: theme.borderRadius.xl, 
-                  padding: theme.spacing.xl, 
-                  ...theme.shadows.medium,
-                  borderWidth: 1,
-                  borderColor: theme.colors.border + '40'
-                }} 
-                onPress={postType === 'photo' ? pickImages : pickVideo}
-                activeOpacity={0.8}
-              >
-                <View style={{
-                  width: 64,
-                  height: 64,
-                  borderRadius: 32,
-                  backgroundColor: theme.colors.primary + '15',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  marginBottom: theme.spacing.md
-                }}>
-                  <Ionicons name={postType === 'photo' ? "images" : "film"} size={32} color={theme.colors.primary} />
-                </View>
-                <Text style={{
-                  color: theme.colors.text,
-                  fontSize: theme.typography.body.fontSize,
-                  fontWeight: '600',
-                  textAlign: "center"
-                }}>
-                  Choose from Library
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={{ 
-                  flex: 1,
-                  alignItems: "center", 
-                  justifyContent: "center",
-                  backgroundColor: theme.colors.glassSurface || theme.colors.surface, 
-                  borderRadius: theme.borderRadius.xl, 
-                  padding: theme.spacing.xl, 
-                  ...theme.shadows.medium,
-                  borderWidth: 1,
-                  borderColor: theme.colors.border + '40'
-                }} 
-                onPress={postType === 'photo' ? takePhoto : takeVideo}
-                activeOpacity={0.8}
-              >
-                <View style={{
-                  width: 64,
-                  height: 64,
-                  borderRadius: 32,
-                  backgroundColor: theme.colors.primary + '15',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  marginBottom: theme.spacing.md
-                }}>
-                  <Ionicons name={postType === 'photo' ? "camera" : "videocam"} size={32} color={theme.colors.primary} />
-                </View>
-                <Text style={{
-                  color: theme.colors.text,
-                  fontSize: theme.typography.body.fontSize,
-                  fontWeight: '600',
-                  textAlign: "center"
-                }}>
-                  Take {postType === 'photo' ? 'Photo' : 'Video'}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </>
+          <PostCreateEmptyCard
+            postType={postType}
+            title={
+              postType === 'photo' && hasExistingPosts === false
+                ? 'No Photos Yet'
+                : postType === 'short' && hasExistingShorts === false
+                  ? 'No Shorts Yet'
+                  : `Create New ${postType === 'photo' ? 'Photo' : 'Short'}`
+            }
+            subtitle={
+              postType === 'photo' && hasExistingPosts === false
+                ? 'Share your first moment by uploading a photo or taking one now!'
+                : postType === 'short' && hasExistingShorts === false
+                  ? 'Share your first short by uploading a video or taking one now!'
+                  : `Upload a ${postType === 'photo' ? 'photo' : 'video'} or take one now to share with your followers!`
+            }
+            onPickLibrary={postType === 'photo' ? pickImages : pickVideo}
+            onTakeMedia={postType === 'photo' ? takePhoto : takeVideo}
+          />
         ) : (
+          <CloudGlassCard
+            style={{ marginHorizontal: 16, marginBottom: 16 }}
+            contentStyle={{ padding: 12 }}
+          >
           <View style={{
             width: '100%',
             position: "relative",
-            marginVertical: theme.spacing.md,
             borderRadius: theme.borderRadius.xl,
             overflow: 'hidden',
-            ...theme.shadows.large
           }}>
             {selectedImages.length > 0 ? (
               <View style={{ width: '100%' }}>
@@ -2966,6 +2832,7 @@ export default function PostScreen() {
               <Ionicons name="close" size={24} color="white" />
             </TouchableOpacity>
           </View>
+          </CloudGlassCard>
         )}
         {(selectedImages.length > 0 || selectedVideo) && (
           <View style={{ 
@@ -4932,7 +4799,8 @@ export default function PostScreen() {
           selectedAspectRatio={selectedAspectRatio}
           onAspectRatioChange={(ar) => { setSelectedAspectRatio(ar); setCropTransform(null); }}
         />
-      </PremiumScreen>
+        </SafeAreaView>
+      </View>
     </KeyboardAvoidingView>
     </ErrorBoundary>
   );

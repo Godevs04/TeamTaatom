@@ -42,6 +42,7 @@ import { useSettings } from '../context/SettingsContext';
 import { createReport } from '../services/report';
 import ReportReasonModal, { ReportReasonType } from './ReportReasonModal';
 import { enqueuePendingLike, clearPendingLike, setLocalLikedId } from '../utils/likePersistence';
+import CloudGlassSurface from './cloud/CloudGlassSurface';
 
 const LIKED_POSTS_STORAGE_KEY = 'taatom_posts_liked_ids';
 const PENDING_LIKES_STORAGE_KEY = 'taatom_pending_post_likes';
@@ -784,7 +785,8 @@ function PhotoCard({
   }, []);
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.colors.surface }]}>
+    <View style={styles.container}>
+      <CloudGlassSurface blur={false} style={styles.glassCard} contentStyle={styles.glassCardInner} borderRadius={20}>
       {/* Header - Must be above image to receive touches */}
       <View pointerEvents="box-none">
         <PostHeader
@@ -828,7 +830,7 @@ function PhotoCard({
 
       {/* Caption */}
       <PostCaption post={post} />
-
+      </CloudGlassSurface>
 
       {/* Elegant Menu Modal */}
       <Modal
@@ -1216,7 +1218,14 @@ export default memo(PhotoCard, (prevProps, nextProps) => {
 const styles = StyleSheet.create({
   container: {
     backgroundColor: 'transparent',
-    marginBottom: 24,
+    marginBottom: 14,
+    marginHorizontal: 12,
+  },
+  glassCard: {
+    overflow: 'hidden',
+  },
+  glassCardInner: {
+    overflow: 'hidden',
   },
   placeholder: {
     height: 400,

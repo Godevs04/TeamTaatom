@@ -17,6 +17,7 @@ import {
   FlatList
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
@@ -32,7 +33,7 @@ import { socketService } from '../../services/socket';
 import { UserType } from '../../types/user';
 import { PostType } from '../../types/post';
 import EditProfile from '../../components/EditProfile';
-import BioDisplay from '../../components/BioDisplay';
+import ProfilePremiumView from '../../components/profile/ProfilePremiumView';
 import KebabMenu from '../../components/common/KebabMenu';
 import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
@@ -41,6 +42,9 @@ import { ErrorBoundary } from '../../utils/errorBoundary';
 import { trackScreenView, trackEngagement, trackFeatureUsage } from '../../services/analytics';
 import { theme } from '../../constants/theme';
 import { optimizeCloudinaryUrl } from '../../utils/imageCache';
+import { CloudSkyBackground } from '../../components/cloud';
+import { cloudDesign } from '../../constants/cloudDesign';
+import PremiumGlassCard from '../../components/ui/PremiumGlassCard';
 
 const logger = createLogger('ProfileScreen');
 
@@ -169,33 +173,45 @@ export default function ProfileScreen() {
   // Theme-aware colors for profile - MUST be called before any conditional returns
   const colorScheme = useColorScheme();
   // Improved dark mode detection - use theme mode if available, otherwise check background color
-  const isDark = mode === 'dark' || (mode === 'auto' && colorScheme === 'dark') || theme.colors.background === '#000000' || theme.colors.background === '#111114';
-  
+  const isDark =
+    mode === 'dark' ||
+    (mode === 'auto' && colorScheme === 'dark') ||
+    theme.colors.background === '#0B1A2B' ||
+    theme.colors.background === '#000000' ||
+    theme.colors.background === '#111114';
+
   const profileTheme = useMemo(() => {
     if (isDark) {
       return {
-        headerGradient: ['#020617', '#0B1120', '#111827'] as const,
-        cardBg: '#111827',
-        cardBorder: 'rgba(255, 255, 255, 0.1)',
-        textPrimary: '#F9FAFB',
-        textSecondary: '#9CA3AF',
-        accent: '#60A5FA',
-        statCardBg: 'rgba(96, 165, 250, 0.1)',
-        statCardBorder: 'rgba(96, 165, 250, 0.2)',
-      };
-    } else {
-      return {
-        headerGradient: ['#F3F6FF', '#E8F0FE', '#FFFFFF'] as const,
-        cardBg: '#FFFFFF',
-        cardBorder: 'rgba(0, 0, 0, 0.08)',
-        textPrimary: '#111827',
-        textSecondary: '#6B7280',
-        accent: '#2563EB',
-        statCardBg: 'rgba(37, 99, 235, 0.08)',
-        statCardBorder: 'rgba(37, 99, 235, 0.15)',
+        headerGradient: ['#0B1A2B', '#102236', '#122236'] as const,
+        cardBg: theme.colors.card,
+        glassCardBg: theme.colors.glassSurface,
+        cardBorder: theme.colors.glassBorder,
+        textPrimary: theme.colors.text,
+        textSecondary: theme.colors.textSecondary,
+        accent: theme.colors.primary,
+        statCardBg: 'rgba(91, 188, 248, 0.12)',
+        statCardBorder: 'rgba(91, 188, 248, 0.22)',
+        pillTabsBg: 'rgba(18, 34, 54, 0.88)',
+        explorerBadgeBg: 'rgba(91, 188, 248, 0.18)',
+        explorerBadgeText: theme.colors.primary,
       };
     }
-  }, [isDark]);
+    return {
+      headerGradient: ['#A8DAFC', '#E8F4FF', '#FFFFFF'] as const,
+      cardBg: '#FFFFFF',
+      glassCardBg: 'rgba(255, 255, 255, 0.78)',
+      cardBorder: 'rgba(255, 255, 255, 0.76)',
+      textPrimary: '#1A2B3C',
+      textSecondary: '#4A6274',
+      accent: '#2B7FD4',
+      statCardBg: 'rgba(91, 188, 248, 0.14)',
+      statCardBorder: 'rgba(91, 188, 248, 0.26)',
+      pillTabsBg: '#F3F4F6',
+      explorerBadgeBg: cloudDesign.skyPale,
+      explorerBadgeText: cloudDesign.blueDeep,
+    };
+  }, [isDark, theme.colors]);
 
   const tripsCount = useMemo(() => countTripsFromLocations(verifiedLocations), [verifiedLocations]);
   const countriesCount = useMemo(() => (profileData?.tripScore?.countries ? Object.keys(profileData.tripScore.countries).length : 0), [profileData?.tripScore?.countries]);
@@ -1054,14 +1070,8 @@ export default function ProfileScreen() {
       }).start();
     };
 
-    // Refined pill-like glass effect for stat cards
-    const cardBgColor = isDark 
-      ? 'rgba(17, 24, 39, 0.9)' // Dark glass - more refined
-      : 'rgba(255, 255, 255, 0.9)'; // Light glass - clean white
-    
-    const borderColor = isDark 
-      ? 'rgba(148, 163, 184, 0.3)' 
-      : 'rgba(148, 163, 184, 0.2)';
+    const cardBgColor = isDark ? theme.colors.glassStrong : 'rgba(255, 255, 255, 0.9)';
+    const borderColor = isDark ? theme.colors.glassBorder : 'rgba(148, 163, 184, 0.2)';
     
     const CardContent = (
       <Animated.View 
@@ -1102,7 +1112,17 @@ export default function ProfileScreen() {
 
   return (
     <ErrorBoundary level="route">
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      {!isDark && <CloudSkyBackground heightRatio={0.38} />}
+      <LinearGradient
+        colors={
+          isDark
+            ? (theme.colors.screenGradient as [string, string, string])
+            : ['transparent', '#F8FCFF', '#FFFFFF']
+        }
+        style={StyleSheet.absoluteFillObject}
+        locations={isDark ? undefined : [0, 0.3, 1]}
+      />
       <ScrollView
         ref={scrollViewRef}
         style={styles.scrollView}
@@ -1137,7 +1157,7 @@ export default function ProfileScreen() {
               <Text style={{
                 fontSize: 30,
                 fontWeight: '600',
-                color: profileTheme.textPrimary,
+                color: isDark ? theme.colors.text : profileTheme.textPrimary,
                 fontFamily: Platform.select({
                   ios: 'Snell Roundhand',
                   android: 'cursive',
@@ -1151,7 +1171,7 @@ export default function ProfileScreen() {
           </View>
           <View style={styles.topActionsRight}>
             <Pressable
-              style={[styles.headerActionButton, { backgroundColor: profileTheme.cardBg + '80' }]}
+              style={[styles.headerActionButton, { backgroundColor: profileTheme.glassCardBg, borderColor: profileTheme.cardBorder }]}
               onPress={() => router.push('/notifications')}
             >
               <Ionicons
@@ -1185,253 +1205,52 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Travel banner image - elegant full-width banner above profile card */}
-        <View style={styles.travelBannerWrapper}>
-          <Image
-            source={require('../../assets/banner1.png')}
-            style={styles.travelBannerImage as ImageStyle}
-            resizeMode="cover"
-          />
-        </View>
-
-        {/* Unified Profile Content Card - Everything in one container */}
         {profileData && (
-          <View style={[styles.unifiedCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder }]}>
-            {/* Subtle travel accent line at top of card */}
-            <View style={[styles.travelAccentStrip, { backgroundColor: profileTheme.accent + (isDark ? '25' : '15') }]} />
-            {/* Profile Header Section */}
-            <View style={styles.profileHeaderSection}>
-              {/* Avatar with Ring */}
-              <View style={styles.avatarContainer}>
-                <View style={[styles.avatarRing, { borderColor: profileTheme.accent + '40' }]}>
-                  <Image
-                    source={profileData.profilePic ? { uri: optimizeCloudinaryUrl(profileData.profilePic, { width: 200, height: 200 }) } : require('../../assets/avatars/male_avatar.png')}
-                    style={[styles.avatar as ImageStyle, { borderColor: profileTheme.cardBg }]}
-                  />
-                </View>
-              </View>
-
-              {/* Username / handle */}
-              {profileData.username && (
-                <Text style={[styles.username, { color: profileTheme.textPrimary }]}>@{profileData.username}</Text>
-              )}
-              
-              {/* Full Name */}
-              <Text style={[styles.profileName, { color: profileTheme.textPrimary }]}>{profileData.fullName}</Text>
-              
-              {/* Join date (no \"Member since\" label text) */}
-              {profileData.createdAt && (
-                <Text style={[styles.memberSince, { color: profileTheme.textSecondary }]}>
-                  {new Date(profileData.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                </Text>
-              )}
-
-              {/* Bio */}
-              {profileData.bio && (
-                <View style={{ marginTop: 8, width: '100%', alignItems: 'center' }}>
-                  <BioDisplay bio={profileData.bio} />
-                </View>
-              )}
-
-              {/* Badge */}
-              <View style={[styles.badge, { backgroundColor: profileTheme.accent + '20', borderColor: profileTheme.accent + '30' }]}>
-                <Ionicons name="airplane" size={12} color={profileTheme.accent} />
-                <Text style={[styles.badgeText, { color: profileTheme.accent }]}>Explorer</Text>
-              </View>
-            </View>
-
-            {/* Divider */}
-            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
-            {/* Stats Row - Posts, Followers, Following */}
-            <View style={styles.statsContainer}>
-              {/* Posts Stat */}
-              <View style={styles.statItem}>
-                <View style={[styles.statsIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-                  <Ionicons name="flame" size={18} color={profileTheme.accent} />
-                </View>
-                <Text style={[styles.statsValue, { color: profileTheme.accent }]}>
-                  {profileData?.postsCount || 0}
-                </Text>
-                <Text style={[styles.statsLabel, { color: profileTheme.textSecondary }]}>POSTS</Text>
-              </View>
-
-              {/* Followers Stat */}
-              <Pressable 
-                style={styles.statItem}
-                onPress={() => {
-                  if (profileData?._id) {
-                    router.push(`/followers?userId=${profileData._id}&type=followers`);
-                  }
-                }}
-              >
-                <View style={[styles.statsIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-                  <Ionicons name="people" size={18} color={profileTheme.accent} />
-                </View>
-                <Text style={[styles.statsValue, { color: profileTheme.accent }]}>
-                  {profileData?.followersCount || 0}
-                </Text>
-                <Text style={[styles.statsLabel, { color: profileTheme.textSecondary }]}>FOLLOWERS</Text>
-              </Pressable>
-
-              {/* Following Stat */}
-              <Pressable 
-                style={styles.statItem}
-                onPress={() => {
-                  if (profileData?._id) {
-                    router.push(`/followers?userId=${profileData._id}&type=following`);
-                  }
-                }}
-              >
-                <View style={[styles.statsIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-                  <Ionicons name="people-outline" size={18} color={profileTheme.accent} />
-                </View>
-                <Text style={[styles.statsValue, { color: profileTheme.accent }]}>
-                  {profileData?.followingCount || 0}
-                </Text>
-                <Text style={[styles.statsLabel, { color: profileTheme.textSecondary }]}>FOLLOWING</Text>
-              </Pressable>
-            </View>
-
-            {/* Divider */}
-            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
-
-            {/* Edit Profile Button */}
-            <Pressable
-              style={styles.editProfileButton}
-              onPress={() => setShowEditProfile(true)}
-            >
-              <Ionicons name="create-outline" size={18} color={profileTheme.accent} />
-              <Text style={[styles.editProfileButtonText, { color: profileTheme.textPrimary }]}>
-                Edit Profile
-              </Text>
-            </Pressable>
-
-            {/* Divider */}
-            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
-
-            {/* TripScore Section - Enhanced with prominent badge and verified travel card */}
-            <Pressable
-              style={styles.unifiedSection}
-              onPress={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
-            >
-              <View style={styles.tripScoreBadgeContainer}>
-                <View style={[styles.tripScoreBadgeBox, { borderColor: profileTheme.accent + '30' }]}>
-                  <Text style={[styles.tripScoreBadgeNumber, { color: '#22C55E' }]}>
-                    {profileData.tripScore?.totalScore ?? 0}
-                  </Text>
-                  <Text style={[styles.tripScoreBadgeLabel, { color: profileTheme.textSecondary }]}>
-                    TripScore
-                  </Text>
-                </View>
-              </View>
-
-              {/* Verified Travel Card */}
-              {verifiedLocationsCount !== null && verifiedLocationsCount > 0 && (
-                <Pressable
-                  style={[styles.verifiedTravelCard, { backgroundColor: profileTheme.accent + '10', borderColor: profileTheme.accent + '25' }]}
-                  onPress={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
-                >
-                  <View style={styles.verifiedTravelContent}>
-                    <View style={[styles.verifiedTravelIcon, { backgroundColor: profileTheme.accent + '20' }]}>
-                      <Ionicons name="checkmark-circle" size={20} color={profileTheme.accent} />
-                    </View>
-                    <View style={styles.verifiedTravelText}>
-                      <Text style={[styles.verifiedTravelTitle, { color: profileTheme.textPrimary }]}>
-                        Verified Travel
-                      </Text>
-                      <Text style={[styles.verifiedTravelCount, { color: profileTheme.textSecondary }]}>
-                        {verifiedLocationsCount} location{verifiedLocationsCount !== 1 ? 's' : ''} verified
-                      </Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color={profileTheme.textSecondary} />
-                  </View>
-                </Pressable>
-              )}
-            </Pressable>
-
-            {/* Divider */}
-            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
-
-            {/* My Location Section - unified card */}
-            <Pressable 
-              style={styles.unifiedSection}
-              onPress={() => {
+          <>
+            <ProfilePremiumView
+              profilePic={profileData.profilePic}
+              fullName={profileData.fullName}
+              username={profileData.username}
+              bio={profileData.bio}
+              createdAt={profileData.createdAt}
+              tripScore={profileData.tripScore?.totalScore ?? 0}
+              followersCount={profileData.followersCount || 0}
+              verifiedCount={verifiedLocationsCount}
+              tripsCount={tripsCount}
+              countriesCount={countriesCount}
+              verifiedLocations={verifiedLocations}
+              highlightPosts={posts}
+              userId={user?._id ?? profileData._id}
+              isDark={isDark}
+              accent={profileTheme.accent}
+              textPrimary={profileTheme.textPrimary}
+              textSecondary={profileTheme.textSecondary}
+              onEditProfile={() => setShowEditProfile(true)}
+              onPublish={() => router.push('/(tabs)/post')}
+              onOpenMap={() => {
                 const id = user?._id ?? profileData?._id;
                 const userId = id != null ? String(id) : undefined;
                 if (userId) router.push(`/map/all-locations?userId=${encodeURIComponent(userId)}`);
               }}
-            >
-              <View style={styles.locationCardHeader}>
-                <View style={[styles.locationIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-                  <Ionicons name="globe" size={24} color={profileTheme.accent} />
-                </View>
-                <View style={styles.locationTextContainer}>
-                  <Text style={[styles.locationTitle, { color: profileTheme.textPrimary }]}>My Location</Text>
-                  <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary }]}>
-                    Your verified travel
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
-              </View>
-              <View style={styles.locationCardBody}>
-                <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary, marginBottom: 8 }]}>
-                  {verifiedLocationsCount !== null && verifiedLocationsCount > 0
-                    ? `${verifiedLocationsCount} verified location${verifiedLocationsCount !== 1 ? 's' : ''} · ${tripsCount} trip${tripsCount !== 1 ? 's' : ''}`
-                    : verifiedLocationsCount === null
-                    ? 'Loading travel summary…'
-                    : (profileData?.tripScore?.totalScore ?? 0) > 0
-                    ? `TripScore ${profileData?.tripScore?.totalScore ?? 0} · Tap to view your travel map`
-                    : 'No verified locations yet. Post with locations to build your map.'}
-                </Text>
-                {countriesCount > 0 ? (
-                  <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary, marginBottom: 12 }]}>
-                    {countriesCount} countr{countriesCount !== 1 ? 'ies' : 'y'} visited
-                  </Text>
-                ) : null}
-              </View>
-              {globeLocations.length === 0 ? (
-                <View style={styles.locationGlobeContainer}>
-                  <View style={[styles.emptyGlobeContainer, { backgroundColor: profileTheme.accent + '10' }]}>
-                    <Ionicons name="globe-outline" size={64} color={profileTheme.accent} />
-                  </View>
-                </View>
-              ) : null}
+              onOpenTripScore={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
+              onOpenJourneys={() => router.push(`/journeys?userId=${user?._id}`)}
+              onOpenConnect={() => router.push('/connect')}
+              onOpenFollowers={() => {
+                if (profileData?._id) {
+                  router.push(`/followers?userId=${profileData._id}&type=followers`);
+                }
+              }}
+            />
 
-            </Pressable>
-
-            {/* Journeys — outside the My Location Pressable so taps work */}
-            <Pressable
-              style={[styles.journeysInlineButton, { backgroundColor: profileTheme.accent + '10', borderColor: profileTheme.accent + '25' }]}
-              onPress={() => router.push(`/journeys?userId=${user?._id}`)}
-            >
-              <View style={[styles.journeysInlineIcon, { backgroundColor: profileTheme.accent + '20' }]}>
-                <Ionicons name="map" size={20} color={profileTheme.accent} />
-              </View>
-              <View style={styles.journeysInlineText}>
-                <Text style={[styles.journeysInlineTitle, { color: profileTheme.textPrimary }]}>My Journeys</Text>
-                <Text style={[styles.journeysInlineSubtitle, { color: profileTheme.textSecondary }]}>View your travels</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={profileTheme.textSecondary} />
-            </Pressable>
-
-            {/* Connect Section */}
-            <Pressable
-              style={[styles.journeysInlineButton, { backgroundColor: profileTheme.accent + '10', borderColor: profileTheme.accent + '25' }]}
-              onPress={() => router.push('/connect')}
-            >
-              <View style={[styles.journeysInlineIcon, { backgroundColor: profileTheme.accent + '20' }]}>
-                <Ionicons name="people" size={20} color={profileTheme.accent} />
-              </View>
-              <View style={styles.journeysInlineText}>
-                <Text style={[styles.journeysInlineTitle, { color: profileTheme.textPrimary }]}>Connect</Text>
-                <Text style={[styles.journeysInlineSubtitle, { color: profileTheme.textSecondary }]}>Find & connect with travelers</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={profileTheme.textSecondary} />
-            </Pressable>
-
-            {/* Divider */}
-            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
-
+          <PremiumGlassCard
+            style={[
+              styles.unifiedCard,
+              isDark && { shadowColor: theme.colors.glowBlue || theme.colors.primary },
+            ]}
+            contentStyle={styles.unifiedCardInner}
+            strong={isDark}
+            subtle
+          >
             {/* Posts/Shorts/Saved Tabs - Pill Style */}
             <View
               style={styles.postsTabsSection}
@@ -1440,7 +1259,7 @@ export default function ProfileScreen() {
                 tabsOffsetRef.current = event.nativeEvent.layout.y;
               }}
             >
-              <View style={[styles.pillTabsContainer, { backgroundColor: isDark ? '#1F2937' : '#F3F4F6' }]}>
+              <View style={[styles.pillTabsContainer, { backgroundColor: profileTheme.pillTabsBg, borderColor: isDark ? 'rgba(255,255,255,0.08)' : profileTheme.cardBorder, borderWidth: StyleSheet.hairlineWidth }]}>
                 {(['posts','shorts','saved'] as const).map(tab => (
                   <Pressable 
                     key={tab} 
@@ -1468,7 +1287,7 @@ export default function ProfileScreen() {
                       styles.pillTabText, 
                       { color: activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary }
                     ]}>
-                      {tab === 'posts' ? 'Posts' : tab === 'shorts' ? 'Shorts' : 'Saved'}
+                      {tab === 'posts' ? 'Posts 📸' : tab === 'shorts' ? 'Shorts 🎬' : 'Saved 🔖'}
                     </Text>
                   </Pressable>
                 ))}
@@ -1701,7 +1520,8 @@ export default function ProfileScreen() {
             </View>
               </View>
             </View>
-          </View>
+          </PremiumGlassCard>
+          </>
         )}
         
         {/* Edit Profile Modal */}
@@ -1789,9 +1609,16 @@ const styles = StyleSheet.create({
   travelBannerWrapper: {
     marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
     marginBottom: 0,
-    borderRadius: 20,
+    borderRadius: 28,
     overflow: 'hidden',
     height: isTablet ? 140 : 120,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.72)',
+    shadowColor: '#4AA3DF',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.22,
+    shadowRadius: 30,
+    elevation: 10,
   },
   travelBannerImage: {
     width: '100%',
@@ -1809,6 +1636,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
+    borderWidth: 1,
+    shadowColor: '#65BDF7',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    elevation: 5,
   },
   notificationBadge: {
     position: 'absolute',
@@ -1831,6 +1664,7 @@ const styles = StyleSheet.create({
   profileHeaderSection: {
     alignItems: 'center',
     paddingBottom: isTablet ? theme.spacing.lg : 16,
+    paddingHorizontal: 16,
   },
   avatarContainer: {
     marginBottom: isTablet ? theme.spacing.lg : 16,
@@ -1843,6 +1677,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 3,
+  },
+  avatarRingCloud: {
+    borderWidth: 4,
+    shadowColor: 'rgba(91, 188, 248, 0.35)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 16,
+    elevation: 8,
   },
   avatar: {
     width: isTablet ? 148 : 120,
@@ -1940,23 +1782,26 @@ const styles = StyleSheet.create({
     marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
     marginTop: isTablet ? 14 : 12,
     marginBottom: isTablet ? theme.spacing.md : 12,
-    padding: isTablet ? theme.spacing.xl : 22,
-    borderRadius: 24,
-    borderWidth: 1,
+    borderRadius: 28,
     overflow: 'hidden',
+  },
+  unifiedCardInner: {
+    paddingTop: isTablet ? theme.spacing.xl : 20,
+    paddingBottom: isTablet ? theme.spacing.lg : 16,
+    paddingHorizontal: 0,
   },
   travelAccentStrip: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    height: 3,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    height: 4,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
   },
   divider: {
-    height: 1,
-    marginVertical: isTablet ? theme.spacing.lg : 20,
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: 16,
   },
   unifiedSection: {
     width: '100%',
@@ -1979,6 +1824,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: isTablet ? theme.spacing.sm : 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.45)',
   },
   statsLabel: {
     fontSize: isTablet ? theme.typography.small.fontSize + 1 : 10,
@@ -2044,9 +1891,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: isTablet ? theme.spacing.lg : 16,
     paddingHorizontal: isTablet ? theme.spacing.xl : 20,
-    borderRadius: 16,
+    borderRadius: 24,
     borderWidth: 1,
     minWidth: isTablet ? 160 : 140,
+    backgroundColor: 'rgba(255,255,255,0.28)',
   },
   tripScoreBadgeNumber: {
     fontSize: isTablet ? 48 : 40,
@@ -2071,8 +1919,13 @@ const styles = StyleSheet.create({
     marginTop: isTablet ? theme.spacing.md : 12,
     paddingVertical: isTablet ? theme.spacing.md : 12,
     paddingHorizontal: isTablet ? theme.spacing.lg : 16,
-    borderRadius: 14,
+    borderRadius: 20,
     borderWidth: 1,
+    shadowColor: '#65BDF7',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 4,
   },
   verifiedTravelContent: {
     flexDirection: 'row',
@@ -2165,6 +2018,31 @@ const styles = StyleSheet.create({
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
   },
+  primaryJourneyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 10,
+    paddingVertical: 14,
+    borderRadius: 999,
+    ...cloudDesign.shadowFloat,
+  },
+  primaryJourneyButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  ghostEditButton: {
+    alignItems: 'center',
+    paddingVertical: 8,
+    marginBottom: 4,
+  },
+  ghostEditText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
   
   // Location Card (legacy, kept for compatibility)
   locationCard: {
@@ -2219,10 +2097,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: 14,
+    borderRadius: 20,
     borderWidth: 1,
     gap: 10,
     marginTop: 4,
+    shadowColor: '#65BDF7',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    elevation: 3,
   },
   journeysInlineIcon: {
     width: 36,
@@ -2281,6 +2164,7 @@ const styles = StyleSheet.create({
   // Posts Container
   postsTabsSection: {
     width: '100%',
+    paddingHorizontal: 16,
   },
   postsContainer: {
     margin: 16,
@@ -2291,9 +2175,11 @@ const styles = StyleSheet.create({
   },
   pillTabsContainer: {
     flexDirection: 'row',
-    borderRadius: 22,
-    padding: 3,
+    borderRadius: 26,
+    padding: 4,
     gap: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.55)',
   },
   pillTab: {
     flex: 1,
@@ -2321,12 +2207,14 @@ const styles = StyleSheet.create({
   postsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 1.5,
+    gap: 10,
+    justifyContent: 'space-between',
+    paddingHorizontal: 2,
   },
   postThumbnail: {
-    width: '32.5%',
-    aspectRatio: 1,
-    borderRadius: 2,
+    width: '48%',
+    aspectRatio: 0.72,
+    borderRadius: 14,
     overflow: 'hidden',
   },
   thumbnailImage: {

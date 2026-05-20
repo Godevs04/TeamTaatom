@@ -37,6 +37,8 @@ import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { audioManager } from '../../utils/audioManager';
 import { ErrorBoundary } from '../../utils/errorBoundary';
+import { LinearGradient } from 'expo-linear-gradient';
+import { CloudSkyBackground, CloudSegmentedControl } from '../../components/cloud';
 import { NativeAdCard } from '../../components/ads/NativeAdCard';
 import { useAdCap, recordGoogleAdImpression } from '../../services/adCap';
 import { flushPendingLikes } from '../../utils/likePersistence';
@@ -993,7 +995,7 @@ export default function HomeScreen() {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: theme.colors.background,
+      backgroundColor: mode === 'dark' ? '#06121F' : '#EDF7FF',
       ...(isWeb && {
         maxWidth: isTablet ? 800 : 600,
         alignSelf: 'center',
@@ -1063,29 +1065,6 @@ export default function HomeScreen() {
       marginHorizontal: isTablet ? theme.spacing.lg : theme.spacing.md,
       marginTop: theme.spacing.sm,
       marginBottom: theme.spacing.md,
-      flexDirection: 'row',
-      backgroundColor: theme.colors.surface,
-      borderRadius: theme.borderRadius.xl,
-      padding: 4,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-    },
-    feedTabButton: {
-      flex: 1,
-      paddingVertical: 9,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderRadius: theme.borderRadius.lg,
-      flexDirection: 'row',
-      gap: 6,
-    },
-    feedTabButtonActive: {
-      backgroundColor: theme.colors.primary,
-    },
-    feedTabText: {
-      fontSize: 14,
-      fontWeight: '600' as const,
-      letterSpacing: 0.2,
     },
     postsList: {
       paddingHorizontal: 0,
@@ -1147,33 +1126,12 @@ export default function HomeScreen() {
   );
 
   const renderFeedTabs = () => (
-    <View style={styles.feedTabsContainer}>
-      {feedTabs.map((tab) => {
-        const active = feedMode === tab.id;
-        return (
-          <TouchableOpacity
-            key={tab.id}
-            activeOpacity={0.7}
-            onPress={() => handleFeedTabPress(tab.id)}
-            style={[styles.feedTabButton, active && styles.feedTabButtonActive]}
-          >
-            <Ionicons
-              name={active ? tab.activeIcon : tab.icon}
-              size={18}
-              color={active ? 'white' : theme.colors.textSecondary}
-            />
-            <Text
-              style={[
-                styles.feedTabText,
-                { color: active ? 'white' : theme.colors.textSecondary },
-              ]}
-            >
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
-    </View>
+    <CloudSegmentedControl
+      style={styles.feedTabsContainer}
+      segments={feedTabs.map((tab) => ({ key: tab.id, label: tab.label }))}
+      value={feedMode}
+      onChange={(id) => handleFeedTabPress(id as FeedMode)}
+    />
   );
 
   // Memoize keyExtractor and renderItem at top level (before conditional returns)
@@ -1244,28 +1202,46 @@ export default function HomeScreen() {
     );
   }, [handleRefresh]);
 
+  const screenBg = (
+    <>
+      <CloudSkyBackground heightRatio={0.28} />
+      <LinearGradient
+        colors={mode === 'dark' ? ['#06121F', '#102236', '#07111C'] : ['transparent', '#F8FCFF', '#FFFFFF']}
+        style={StyleSheet.absoluteFillObject}
+        locations={[0, 0.22, 1]}
+      />
+    </>
+  );
+
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
+        {screenBg}
+        <SafeAreaView style={styles.safeArea}>
         <StatusBar
           barStyle={mode === 'dark' ? 'light-content' : 'dark-content'}
-          backgroundColor={theme.colors.background}
+          backgroundColor="transparent"
+          translucent
         />
         {renderTopHeader()}
         {renderFeedTabs()}
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.colors.primary} />
         </View>
-      </SafeAreaView>
+        </SafeAreaView>
+      </View>
     );
   }
 
   if (posts.length === 0) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
+        {screenBg}
+        <SafeAreaView style={styles.safeArea}>
         <StatusBar 
           barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
-          backgroundColor={theme.colors.background} 
+          backgroundColor="transparent"
+          translucent
         />
         {renderTopHeader()}
         {renderFeedTabs()}
@@ -1278,16 +1254,19 @@ export default function HomeScreen() {
           secondaryActionLabel="Create Post"
           onSecondaryAction={() => router.push('/(tabs)/post')}
         />
-      </SafeAreaView>
+        </SafeAreaView>
+      </View>
     );
   }
 
   return (
     <ErrorBoundary level="route">
     <View style={styles.container}>
+      {screenBg}
       <StatusBar 
         barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
-        backgroundColor={theme.colors.background} 
+        backgroundColor="transparent"
+        translucent
       />
       <SafeAreaView style={styles.safeArea}>
         {renderTopHeader()}

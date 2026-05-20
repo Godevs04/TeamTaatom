@@ -9,12 +9,13 @@ import {
   Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../context/ThemeContext';
 import { ConnectPageType } from '../services/connect';
 import { theme as themeConstants } from '../constants/theme';
 import { optimizeCloudinaryUrl } from '../utils/imageCache';
 import { imageCacheManager } from '../utils/imageCacheManager';
-import PremiumGlassCard from './ui/PremiumGlassCard';
+import CloudGlassSurface, { useCloudGlassTokens } from './cloud/CloudGlassSurface';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -43,12 +44,11 @@ export default function ConnectCard({
   showFollowButton = true,
 }: ConnectCardProps) {
   const { theme } = useTheme();
+  const glass = useCloudGlassTokens();
 
   const ownerName = typeof page.userId === 'object' && page.userId ? page.userId.fullName : '';
-  const ownerUsername = typeof page.userId === 'object' && page.userId ? page.userId.username : '';
   const ownerProfilePic = typeof page.userId === 'object' && page.userId ? page.userId.profilePic : '';
 
-  // Use sync cache lookup — instant if cached, direct URL otherwise
   const rawImageUrl = page.profileImage || ownerProfilePic || '';
   const cachedImageUri = rawImageUrl
     ? imageCacheManager.getCachedPathSync(rawImageUrl) || optimizeCloudinaryUrl(rawImageUrl, { width: 96, height: 96 })
@@ -56,84 +56,82 @@ export default function ConnectCard({
 
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.76} style={styles.touchable}>
-      <PremiumGlassCard style={styles.card} contentStyle={styles.cardContent} glow={isFollowing}>
-        {/* Profile Image */}
+      <CloudGlassSurface style={styles.card} contentStyle={styles.cardContent} borderRadius={18}>
         <View style={styles.imageContainer}>
           {cachedImageUri ? (
             <Image source={{ uri: cachedImageUri }} style={styles.profileImage} onLoad={() => imageCacheManager.cacheAfterDisplay(rawImageUrl)} />
           ) : (
-            <View style={[styles.profileImagePlaceholder, { backgroundColor: theme.colors.border }]}>
-              <Ionicons name="people" size={24} color={theme.colors.textSecondary} />
+            <View style={[styles.profileImagePlaceholder, { backgroundColor: glass.isDark ? 'rgba(255,255,255,0.08)' : theme.colors.border }]}>
+              <Ionicons name="people" size={24} color={glass.textMuted} />
             </View>
           )}
         </View>
 
-        {/* Info */}
         <View style={styles.infoContainer}>
           <View style={styles.nameRow}>
             {page.type === 'private' && (
-              <Ionicons name="lock-closed" size={isTablet ? 15 : 13} color={theme.colors.textSecondary} style={{ marginRight: 4 }} />
+              <Ionicons name="lock-closed" size={isTablet ? 15 : 13} color={glass.textMuted} style={{ marginRight: 4 }} />
             )}
-            <Text style={[styles.pageName, { color: theme.colors.text, flex: 1 }]} numberOfLines={1}>
+            <Text style={[styles.pageName, { color: glass.textPrimary, flex: 1 }]} numberOfLines={1}>
               {page.name}
             </Text>
           </View>
           {ownerName ? (
-            <Text style={[styles.ownerName, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+            <Text style={[styles.ownerName, { color: glass.textSecondary }]} numberOfLines={1}>
               by {ownerName}
             </Text>
           ) : null}
           {page.bio ? (
-            <Text style={[styles.bio, { color: theme.colors.textSecondary }]} numberOfLines={2}>
+            <Text style={[styles.bio, { color: glass.textSecondary }]} numberOfLines={2}>
               {page.bio}
             </Text>
           ) : null}
           <View style={styles.statsRow}>
             <View style={styles.stat}>
-              <Ionicons name="people-outline" size={14} color={theme.colors.textSecondary} />
-              <Text style={[styles.statText, { color: theme.colors.textSecondary }]}>
+              <Ionicons name="people-outline" size={14} color={glass.textMuted} />
+              <Text style={[styles.statText, { color: glass.textMuted }]}>
                 {(page.followerCount || 0) + 1}
               </Text>
             </View>
             {page.features?.website && (
               <View style={styles.stat}>
-                <Ionicons name="globe-outline" size={14} color={theme.colors.textSecondary} />
-                <Text style={[styles.statText, { color: theme.colors.textSecondary }]}>Website</Text>
+                <Ionicons name="globe-outline" size={14} color={glass.textMuted} />
+                <Text style={[styles.statText, { color: glass.textMuted }]}>Website</Text>
               </View>
             )}
             {page.features?.groupChat && (
               <View style={styles.stat}>
-                <Ionicons name="chatbubbles-outline" size={14} color={theme.colors.textSecondary} />
-                <Text style={[styles.statText, { color: theme.colors.textSecondary }]}>Chat</Text>
+                <Ionicons name="chatbubbles-outline" size={14} color={glass.textMuted} />
+                <Text style={[styles.statText, { color: glass.textMuted }]}>Chat</Text>
               </View>
             )}
           </View>
         </View>
 
-        {/* Follow Button */}
-        {showFollowButton && onFollowPress && (
+        {showFollowButton && onFollowPress ? (
           <TouchableOpacity
-            style={[
-              styles.followButton,
-              isFollowing
-                ? { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: 1 }
-                : { backgroundColor: theme.colors.primary },
-            ]}
             onPress={onFollowPress}
             activeOpacity={0.7}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={styles.followHit}
           >
-            <Text
-              style={[
-                styles.followButtonText,
-                { color: isFollowing ? theme.colors.text : '#FFFFFF' },
-              ]}
-            >
-              {isFollowing ? 'Following' : 'Follow'}
-            </Text>
+            {isFollowing ? (
+              <View style={[styles.followGhost, { backgroundColor: glass.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(91,188,248,0.12)' }]}>
+                <Text style={[styles.followButtonText, { color: glass.textPrimary }]}>Following</Text>
+              </View>
+            ) : (
+              <LinearGradient
+                colors={['#5BBCF8', '#2B7FD4']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.followFilled}
+              >
+                <Text style={[styles.followButtonText, { color: '#FFFFFF' }]}>Follow</Text>
+              </LinearGradient>
+            )}
           </TouchableOpacity>
-        )}
-      </PremiumGlassCard>
+        ) : null}
+      </CloudGlassSurface>
     </TouchableOpacity>
   );
 }
@@ -141,14 +139,16 @@ export default function ConnectCard({
 const styles = StyleSheet.create({
   touchable: {
     marginHorizontal: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.md,
-    marginBottom: isTablet ? themeConstants.spacing.md : themeConstants.spacing.sm,
+    marginBottom: isTablet ? themeConstants.spacing.md : 10,
   },
   card: {
-    padding: isTablet ? themeConstants.spacing.lg : themeConstants.spacing.md,
+    marginBottom: 0,
   },
   cardContent: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingVertical: isTablet ? 14 : 12,
+    paddingHorizontal: isTablet ? 14 : 12,
   },
   imageContainer: {
     marginRight: isTablet ? themeConstants.spacing.md : 12,
@@ -158,7 +158,7 @@ const styles = StyleSheet.create({
     height: isTablet ? 56 : 48,
     borderRadius: isTablet ? 28 : 24,
     borderWidth: 2,
-    borderColor: 'rgba(142, 184, 255, 0.55)',
+    borderColor: 'rgba(142, 184, 255, 0.45)',
   },
   profileImagePlaceholder: {
     width: isTablet ? 56 : 48,
@@ -170,6 +170,7 @@ const styles = StyleSheet.create({
   infoContainer: {
     flex: 1,
     marginRight: 8,
+    minWidth: 0,
   },
   nameRow: {
     flexDirection: 'row',
@@ -221,9 +222,19 @@ const styles = StyleSheet.create({
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
   },
-  followButton: {
-    paddingHorizontal: isTablet ? 18 : 14,
-    paddingVertical: isTablet ? 8 : 6,
+  followHit: {
+    alignSelf: 'center',
+  },
+  followFilled: {
+    paddingHorizontal: isTablet ? 16 : 14,
+    paddingVertical: isTablet ? 8 : 7,
+    borderRadius: themeConstants.borderRadius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  followGhost: {
+    paddingHorizontal: isTablet ? 16 : 14,
+    paddingVertical: isTablet ? 8 : 7,
     borderRadius: themeConstants.borderRadius.full,
     alignItems: 'center',
     justifyContent: 'center',
