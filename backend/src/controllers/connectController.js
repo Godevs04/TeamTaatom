@@ -840,12 +840,23 @@ const findUsers = async (req, res) => {
       return sendError(res, 'VALIDATION_FAILED', 'Language is required');
     }
 
+    // Fetch the logged-in user profile to read their interests
+    const currentUser = await User.findById(currentUserId).select('interests languagesKnown nationality');
+
     // Resolve country codes to names so we can match against the
     // free-text `nationality` field (e.g. "IN" → "India").
     const countriesList = require('../data/countries.json');
     const codeToName = {};
     for (const c of countriesList) {
       codeToName[c.code.toUpperCase()] = c.name;
+    }
+
+    // Resolve language codes to names so we can match against the
+    // free-text `languagesKnown` array / account settings (e.g. "ta" → "Tamil").
+    const languagesList = require('../data/languages.json');
+    const langCodeToName = {};
+    for (const l of languagesList) {
+      langCodeToName[l.code.toLowerCase()] = l.name.toLowerCase();
     }
 
     // Build user query based on filters
@@ -855,10 +866,16 @@ const findUsers = async (req, res) => {
 
     // Filter by language: match UI preference, languagesKnown array, or bio text
     if (lang) {
+      const langLower = lang.toLowerCase();
+      const langName = langCodeToName[langLower] || langLower;
+      const langNameEscaped = langName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
       const langConditions = [
-        { 'settings.account.language': lang },
-        { languagesKnown: lang },
-        { bio: { $regex: lang, $options: 'i' } },
+        { 'settings.account.language': langLower },
+        { languagesKnown: langLower },
+        { languagesKnown: { $regex: `^${langNameEscaped}$`, $options: 'i' } },
+        { bio: { $regex: langNameEscaped, $options: 'i' } },
+        { bio: { $regex: langLower, $options: 'i' } }
       ];
       if (userQuery.$or) {
         const existingOr = userQuery.$or;
@@ -936,17 +953,28 @@ const findUsers = async (req, res) => {
       User.countDocuments(userQuery)
     ]);
 
-    // Check if current user follows each user (existing profile follow)
-    const usersWithFollowStatus = users.map(user => ({
-      _id: user._id,
-      username: user.username,
-      fullName: user.fullName,
-      profilePic: user.profilePic,
-      bio: user.bio,
-      language: user.settings?.account?.language || 'en',
-      travelStyle: user.travelStyle || '',
-      isFollowing: user.followers?.some(fId => fId.toString() === currentUserId.toString()) || false
-    }));
+    // Calculate shared interests count with the current user and sort results
+    const currentUserInterests = currentUser?.interests || [];
+    const usersWithFollowStatus = users.map(user => {
+      const sharedInterests = (user.interests || []).filter(interest => 
+        currentUserInterests.some(ci => ci.toLowerCase() === interest.toLowerCase())
+      );
+
+      return {
+        _id: user._id,
+        username: user.username,
+        fullName: user.fullName,
+        profilePic: user.profilePic,
+        bio: user.bio,
+        language: user.settings?.account?.language || 'en',
+        travelStyle: user.travelStyle || '',
+        sharedInterestsCount: sharedInterests.length,
+        isFollowing: user.followers?.some(fId => fId.toString() === currentUserId.toString()) || false
+      };
+    });
+
+    // Sort by shared interests count descending
+    usersWithFollowStatus.sort((a, b) => b.sharedInterestsCount - a.sharedInterestsCount);
 
     return sendSuccess(res, 200, 'Users found', {
       users: usersWithFollowStatus,

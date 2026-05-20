@@ -7,6 +7,8 @@ import { useTheme } from '../../context/ThemeContext';
 import { audioManager } from '../../utils/audioManager';
 import logger from '../../utils/logger';
 
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 const { width: screenWidth } = Dimensions.get('window');
 const isWeb = Platform.OS === 'web';
 const isTablet = screenWidth >= 768;
@@ -49,6 +51,7 @@ export default function TabsLayout() {
   const { theme, isDark } = useTheme();
   const pathname = usePathname();
   const previousPathnameRef = useRef<string | null>(null);
+  const insets = useSafeAreaInsets();
 
   // Stop all audio when switching tabs (except when staying on home or shorts)
   // Use a flag to prevent multiple rapid calls
@@ -106,27 +109,23 @@ export default function TabsLayout() {
     backgroundColor: theme.colors.floatingDock,
     borderTopWidth: 1,
     borderTopColor: theme.colors.glassBorder,
-    elevation: 14,
-    shadowColor: theme.colors.glowBlue || theme.colors.primary,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: isDark ? 0.28 : 0.18,
-    shadowRadius: 24,
+    elevation: 8,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
     position: 'absolute' as const,
-    bottom: isWeb ? 14 : (isIOS ? 20 : 14),
-    left: 14,
-    right: 14,
-    height: isWeb ? 78 : (isIOS ? 88 : 82),
-    borderRadius: 36,
-    paddingBottom: isIOS ? 22 : 14,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: isWeb ? 70 : (isIOS ? (insets.bottom > 0 ? 56 + insets.bottom : 64) : 68),
+    borderRadius: 0,
+    paddingBottom: isWeb ? 10 : (isIOS ? (insets.bottom > 0 ? insets.bottom : 12) : 12),
     paddingTop: 10,
     overflow: 'hidden' as const,
+    zIndex: 1000,
     // Always visible - no transform/animation
     transform: [{ translateY: 0 }],
-    ...(isWeb && {
-      maxWidth: 600,
-      alignSelf: 'center' as const,
-      width: 'calc(100% - 32px)' as any,
-    }),
   };
 
   return (
@@ -179,6 +178,7 @@ export default function TabsLayout() {
         name="post"
         options={{
           title: 'Post',
+          tabBarLabel: () => null,
           tabBarAccessibilityLabel: 'Create post tab',
           tabBarIcon: () => (
             <View
@@ -186,7 +186,7 @@ export default function TabsLayout() {
                 styles.centerTab,
                 {
                   backgroundColor: theme.colors.primary,
-                  shadowColor: theme.colors.glowBlue || theme.colors.primary,
+                  shadowColor: '#000000',
                 },
               ]}
             >
@@ -226,11 +226,11 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 16,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.36,
-    shadowRadius: 16,
-    elevation: 10,
+    marginBottom: 0,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.32)',
   },
@@ -242,11 +242,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
     marginBottom: -1,
-    shadowColor: '#5BBCF8',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.32,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 4,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.48)',
   },

@@ -32,6 +32,7 @@ import {
   ConnectPageType,
   GeoItem,
 } from '../../services/connect';
+import { getUserFromStorage } from '../../services/auth';
 import { getPlaceSuggestions } from '../../utils/locationUtils';
 import { toggleFollow } from '../../services/profile';
 import logger from '../../utils/logger';
@@ -39,6 +40,8 @@ import PremiumScreen from '../../components/ui/PremiumScreen';
 import CloudGlassSurface from '../../components/cloud/CloudGlassSurface';
 import PremiumIconButton from '../../components/ui/PremiumIconButton';
 import PremiumSegmentedTabs from '../../components/ui/PremiumSegmentedTabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -170,8 +173,10 @@ function PickerModal({
 }
 
 export default function ConnectHubScreen() {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const topBarHeight = isWeb ? 56 : (56 + (insets.top || 0));
   const [activeTab, setActiveTab] = useState<TabType>('connect');
 
   // Page list state (Archived + Community tabs)
@@ -225,17 +230,84 @@ export default function ConnectHubScreen() {
   const [loadingUserLocation, setLoadingUserLocation] = useState(false);
   const userLocationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load countries/languages for Find tab
+  // Load countries/languages for Find tab and pre-populate from profile
   useEffect(() => {
     if (!geoLoaded) {
-      Promise.all([getCountries(), getLanguages()])
-        .then(([c, l]) => {
+      Promise.all([getCountries(), getLanguages(), getUserFromStorage()])
+        .then(([c, l, u]) => {
           setCountries(c.countries);
           setLanguages(l.languages);
           setGeoLoaded(true);
+
+          if (u) {
+            let initialLang = '';
+            let initialCountry = '';
+            let initialTravelStyle = '';
+
+            // Find user's first language code matching user's languagesKnown
+            if (u.languagesKnown && u.languagesKnown.length > 0) {
+              const userLang = u.languagesKnown[0].toLowerCase();
+              const matchedLang = l.languages.find(
+                (item: any) =>
+                  item.code.toLowerCase() === userLang ||
+                  item.name.toLowerCase() === userLang
+              );
+              if (matchedLang) {
+                setSelectedLanguage(matchedLang.code);
+                initialLang = matchedLang.code;
+              }
+            }
+
+            // Find user's nationality code
+            if (u.nationality) {
+              const userNationality = u.nationality.toLowerCase();
+              const matchedCountry = c.countries.find(
+                (item: any) =>
+                  item.code.toLowerCase() === userNationality ||
+                  item.name.toLowerCase() === userNationality
+              );
+              if (matchedCountry) {
+                setSelectedCountry(matchedCountry.code);
+                initialCountry = matchedCountry.code;
+              }
+            }
+
+            // Travel style pre-population
+            if (u.travelStyle) {
+              const matchedStyle = TRAVEL_STYLES.find(
+                (s) => s.code.toLowerCase() === u.travelStyle?.toLowerCase()
+              );
+              if (matchedStyle) {
+                setSelectedTravelStyle(matchedStyle.code);
+                initialTravelStyle = matchedStyle.code;
+              }
+            }
+
+            // If we have a language, automatically trigger search so they aren't greeted by an empty state
+            if (initialLang) {
+              setFindLoading(true);
+              findUsers({
+                target_country: initialCountry || undefined,
+                lang: initialLang,
+                travel_style: initialTravelStyle || undefined,
+                page: 1,
+                limit: 30,
+              })
+                .then(response => {
+                  setFoundUsers(response.users);
+                  setFindSearched(true);
+                })
+                .catch(err => {
+                  logger.error('Error auto-finding users:', err);
+                })
+                .finally(() => {
+                  setFindLoading(false);
+                });
+            }
+          }
         })
         .catch(err => {
-          logger.error('Error loading geo data:', err);
+          logger.error('Error loading geo and user data:', err);
           setGeoLoaded(true); // mark done so we don't retry in a loop
         });
     }
@@ -892,21 +964,28 @@ export default function ConnectHubScreen() {
   ];
 
   return (
-    <PremiumScreen style={styles.container} edges={['top']}>
-      {/* Header */}
-      <View style={styles.header}>
-        <PremiumIconButton
-          icon="menu"
-          onPress={() => router.back()}
-          accessibilityLabel="Back"
-        />
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Connect</Text>
-        <PremiumIconButton
-          icon="search"
-          onPress={() => router.push('/connect/search')}
-          accessibilityLabel="Search"
-        />
+    <PremiumScreen style={styles.container} edges={[]} hideBackgroundDesign={true}>
+      {/* Solid Opaque Top Bar */}
+      <View style={[styles.solidTopBar, { height: topBarHeight, paddingTop: topBarHeight - 56, backgroundColor: isDark ? '#0D1B2A' : '#FFFFFF' }]}>
+        <View style={styles.topBarContent}>
+          <PremiumIconButton
+            icon="menu"
+            onPress={() => router.back()}
+            accessibilityLabel="Back"
+          />
+          <Text style={[styles.topBarTitle, { color: isDark ? '#FFFFFF' : '#122236' }]}>Connect</Text>
+          <PremiumIconButton
+            icon="search"
+            onPress={() => router.push('/connect/search')}
+            accessibilityLabel="Search"
+          />
+        </View>
       </View>
+      {/* Shadow Gate */}
+      <LinearGradient
+        colors={[isDark ? 'rgba(13,27,42,0.7)' : 'rgba(0,0,0,0.08)', 'transparent']}
+        style={styles.topBarShadow}
+      />
 
       {/* Tabs */}
       <PremiumSegmentedTabs tabs={tabs} value={activeTab} onChange={handleTabChange} style={styles.tabBar} />
@@ -1295,5 +1374,27 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: getFontFamily('500'),
     fontWeight: '500',
+  },
+  solidTopBar: {
+    justifyContent: 'flex-end',
+    zIndex: 100,
+  },
+  topBarContent: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.md,
+  },
+  topBarTitle: {
+    fontSize: isTablet ? 22 : 18,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+    textAlign: 'center',
+    letterSpacing: isIOS ? 0.3 : 0.2,
+  },
+  topBarShadow: {
+    height: 4,
+    zIndex: 99,
   },
 });

@@ -6,6 +6,7 @@ import { BlurView } from 'expo-blur';
 import Svg, { Rect } from 'react-native-svg';
 import { useCloudGlassCardTokens } from '../cloud/CloudGlassCard';
 import { cloudDesign } from '../../constants/cloudDesign';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 interface PostCreateChromeProps {
   postType: 'photo' | 'short';
@@ -15,28 +16,37 @@ interface PostCreateChromeProps {
 
 export function PostCreateHeader({ onClose }: { onClose?: () => void }) {
   const glass = useCloudGlassCardTokens();
+  const insets = useSafeAreaInsets();
+  const isWeb = Platform.OS === 'web';
+  const topBarHeight = isWeb ? 56 : (56 + (insets.top || 0));
+  const topBarBg = glass.isDark ? '#0D1B2A' : '#FFFFFF';
+  const textColor = glass.isDark ? '#FFFFFF' : '#122236';
+  const subtitleColor = glass.isDark ? 'rgba(255,255,255,0.6)' : 'rgba(18,34,54,0.55)';
 
   return (
-    <View style={styles.headerRow}>
-      <Pressable
-        onPress={onClose}
-        style={[styles.closeBtn, { borderColor: glass.border, backgroundColor: glass.fill }]}
-        accessibilityLabel="Close"
-      >
-        <BlurView
-          intensity={glass.blurIntensity}
-          tint={glass.isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
-          {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
-        />
-        <Ionicons name="close" size={22} color={glass.textPrimary} />
-      </Pressable>
-      <View style={styles.headerCenter}>
-        <Text style={[styles.headerTitle, { color: glass.textPrimary }]}>New Post</Text>
-        <Text style={[styles.headerSub, { color: glass.textSecondary }]}>Share your journey ✨</Text>
+    <>
+      <View style={[styles.solidTopBar, { height: topBarHeight, paddingTop: topBarHeight - 56, backgroundColor: topBarBg }]}>
+        <View style={styles.topBarContent}>
+          <Pressable
+            onPress={onClose}
+            style={styles.topBarButton}
+            accessibilityLabel="Close"
+          >
+            <Ionicons name="close" size={24} color={textColor} />
+          </Pressable>
+          <View style={styles.topBarCenter}>
+            <Text style={[styles.topBarTitle, { color: textColor }]}>New Post</Text>
+            <Text style={[styles.topBarSubtitle, { color: subtitleColor }]}>Share your journey ✨</Text>
+          </View>
+          <View style={{ width: 40 }} />
+        </View>
       </View>
-      <View style={styles.headerSpacer} />
-    </View>
+      {/* Shadow Gate */}
+      <LinearGradient
+        colors={[glass.isDark ? 'rgba(13,27,42,0.7)' : 'rgba(0,0,0,0.08)', 'transparent']}
+        style={styles.topBarShadow}
+      />
+    </>
   );
 }
 
@@ -248,6 +258,41 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
     marginTop: 2,
+  },
+  solidTopBar: {
+    justifyContent: 'flex-end',
+    zIndex: 100,
+  },
+  topBarContent: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+  },
+  topBarButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  topBarCenter: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  topBarTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  topBarSubtitle: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  topBarShadow: {
+    height: 4,
+    zIndex: 99,
   },
   toggleWrap: {
     flexDirection: 'row',

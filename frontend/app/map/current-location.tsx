@@ -666,6 +666,9 @@ function initMap(){
               <Ionicons name="navigate" size={20} color={theme.colors.primary} />
               <Text style={[styles.locationText, { color: theme.colors.text }]}>
                 {(() => {
+                  if (route?.distanceText) {
+                    return `${route.distanceText.toLowerCase()} from your current location`;
+                  }
                   const km = calculateDistance(
                     userCoords.latitude,
                     userCoords.longitude,

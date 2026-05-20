@@ -274,14 +274,7 @@ export default function ProfilePremiumView({
         </PremiumGlassCard>
       ) : null}
 
-      {/* Quote */}
-      <PremiumGlassCard style={[styles.sectionCard, styles.quoteCard]} contentStyle={styles.quoteInner} subtle>
-        <Ionicons name="chatbox-ellipses-outline" size={28} color={accent} style={{ opacity: 0.6, marginBottom: 8 }} />
-        <Text style={[styles.quoteText, { color: textPrimary }]}>
-          Not all those who wander are lost.
-        </Text>
-        <Text style={[styles.quoteAuthor, { color: textSecondary }]}>— J.R.R. Tolkien</Text>
-      </PremiumGlassCard>
+
     </View>
   );
 }
