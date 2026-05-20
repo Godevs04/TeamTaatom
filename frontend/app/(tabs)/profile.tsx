@@ -423,7 +423,11 @@ export default function ProfileScreen() {
       }
       if (!isMountedRef.current) return;
       logger.error('Failed to load profile', error);
-      showError('Failed to load profile data');
+      const isNetwork =
+        error?.message?.includes('Network') ||
+        error?.code === 'ERR_NETWORK' ||
+        error?.message === 'Network Error';
+      showError(isNetwork ? 'Network Error — check your connection and try again.' : 'Failed to load profile data');
     } finally {
       if (isMountedRef.current) {
         setLoading(false);
@@ -988,7 +992,10 @@ export default function ProfileScreen() {
             await deleteShort(postId);
           } else {
             await deletePost(postId);
+            await AsyncStorage.removeItem('postDraft');
           }
+          const { audioManager } = await import('../../utils/audioManager');
+          await audioManager.stopAll();
           
           showSuccess(`${isShort ? 'Short' : 'Post'} deleted successfully!`);
         } catch (error: any) {

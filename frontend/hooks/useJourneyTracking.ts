@@ -31,7 +31,7 @@ const logger = {
 };
 
 const BATCH_SEND_INTERVAL = 30000; // Send coordinates every 30 seconds
-const MIN_LOCATION_DISTANCE = 10; // Minimum 10 meters between tracked points
+const MIN_LOCATION_DISTANCE = 5; // Minimum 5 meters between tracked points (denser paths)
 // AsyncStorage prefix for the unsent-coords queue. Each in-memory push to
 // batchCoordinatesRef also writes here so a crash mid-journey doesn't lose
 // the path between the last successful 60s sync and the crash.
@@ -230,7 +230,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       {
         accuracy: Location.Accuracy.High,
         distanceInterval: 0,
-        timeInterval: 2000,
+        timeInterval: 1000,
       },
       (location) => {
         // Some Android OEMs deliver one more emission after the

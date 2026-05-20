@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { getPostShareUrl, getJourneyShareUrl } from '../utils/config';
 import { getShortUrl, getJourneyShortUrl } from '../services/shortUrl';
-import { sendMessage } from '../services/chat';
+import { sendMessage, sharePostToChat } from '../services/chat';
 import { searchUsers, getSuggestedUsers } from '../services/profile';
 import api from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -301,7 +301,14 @@ export default function ShareModal({
     };
   }, [searchQuery, showUserPicker]);
 
-  // Load initial users when modal opens
+  // Preload chat recipients when share modal opens so "Send to Chat" is instant
+  useEffect(() => {
+    if (visible && (post?._id || journey?._id)) {
+      loadUsers('').catch(() => {});
+    }
+  }, [visible, post?._id, journey?._id]);
+
+  // Load initial users when user picker opens
   useEffect(() => {
     if (showUserPicker && !searchQuery) {
       loadUsers('');
@@ -357,7 +364,15 @@ export default function ShareModal({
         messageText = `[POST_SHARE]${postData}`;
       }
 
-      await sendMessage(userId, messageText);
+      if (post?._id && !isJourneyShare) {
+        try {
+          await sharePostToChat(post._id, { otherUserId: userId });
+        } catch {
+          await sendMessage(userId, messageText);
+        }
+      } else {
+        await sendMessage(userId, messageText);
+      }
 
       setIsSendingMessage(false);
       setSendingToUserId(null);

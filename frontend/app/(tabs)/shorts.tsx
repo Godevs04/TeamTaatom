@@ -1752,6 +1752,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       async () => {
         try {
           await deleteShort(shortId);
+          await audioManager.stopAll();
           
           // Remove from local state
           setShorts(prev => prev.filter(short => short._id !== shortId));

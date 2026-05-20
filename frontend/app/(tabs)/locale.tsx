@@ -605,9 +605,7 @@ export default function LocaleScreen() {
 
       try {
         // Use lower accuracy for faster response (acceptable for distance sorting)
-        const accuracy = isAndroid 
-          ? Location.Accuracy.Low 
-          : Location.Accuracy.Low; // Use Low for both platforms for faster response
+        const accuracy = Location.Accuracy.High;
 
         // Build options object - maximumAge is not directly supported, but we can use it via options
         const locationOptions: Location.LocationOptions = {
@@ -1097,6 +1095,7 @@ export default function LocaleScreen() {
           1,
           BACKEND_LIMIT,
           baseParams.includeInactive,
+          filters.stateProvince || '',
           searchAbortControllerRef.current?.signal
         );
 
@@ -1112,6 +1111,7 @@ export default function LocaleScreen() {
             const bgSearch = baseParams.search || '';
             const bgCountry = baseParams.countryCode || '';
             const bgState = baseParams.stateCode || '';
+            const bgStateProvince = filters.stateProvince || '';
             const bgSpotTypes = spotTypesParam;
             const bgIncludeInactive = baseParams.includeInactive;
             ;(async () => {
@@ -1119,7 +1119,7 @@ export default function LocaleScreen() {
               for (let page = 2; page <= totalPagesCount; page++) {
                 if (!isMountedRef.current || lastFetchKeyRef.current !== bgFetchKey) return;
                 try {
-                  const res = await getLocales(bgSearch, bgCountry, bgState, bgSpotTypes, page, BACKEND_LIMIT, bgIncludeInactive);
+                  const res = await getLocales(bgSearch, bgCountry, bgState, bgSpotTypes, page, BACKEND_LIMIT, bgIncludeInactive, bgStateProvince);
                   if (res?.locales?.length > 0) moreLocales.push(...res.locales);
                   else break;
                 } catch { break; }
@@ -1159,6 +1159,7 @@ export default function LocaleScreen() {
           currentPageRef.current,
           20,
           baseParams.includeInactive,
+          filters.stateProvince || '',
           searchAbortControllerRef.current?.signal
       );
       

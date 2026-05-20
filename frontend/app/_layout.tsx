@@ -278,9 +278,9 @@ function RootLayoutInner() {
         // (e.g., React Query, Zustand, or Context API) is implemented, these handlers
         // should trigger cache invalidation and refetch operations.
         const feedHandler = () => {
-          // Future: Trigger feed refetch via global state management
-          // Example: queryClient.invalidateQueries(['posts']) or feedContext.refetch()
-          logger.debug('Feed invalidation event received - refetch will be implemented with state management');
+          logger.debug('Feed invalidation event received - notifying listeners');
+          const { savedEvents } = require('../utils/savedEvents');
+          savedEvents.emitFeedInvalidate();
         };
         const profileHandler = (userId: string) => {
           // Future: Trigger profile refetch for specific userId via global state management

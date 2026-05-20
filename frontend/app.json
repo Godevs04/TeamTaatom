@@ -155,7 +155,8 @@
         }
       ],
       "expo-asset",
-      "expo-web-browser"
+      "expo-web-browser",
+      "./plugins/withCashfreeSubscriptionAndroid.js"
     ],
     "updates": {
       "enabled": true,

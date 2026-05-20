@@ -115,12 +115,18 @@ export default function JourneyMapView({
   }));
 
   const getPhotoUrl = (waypoint: Waypoint): string | null => {
-    if (waypoint.post?.images && waypoint.post.images.length > 0) {
-      return waypoint.post.images[0].url;
+    const post = waypoint.post as any;
+    if (!post) return null;
+    if (post.images?.length > 0) {
+      const img = post.images[0];
+      return typeof img === 'string' ? img : img?.url || img?.signedUrl || null;
     }
-    if (waypoint.post?.thumbnailUrl) {
-      return waypoint.post.thumbnailUrl;
+    if (post.storageKeys?.length > 0) {
+      const sk = post.storageKeys[0];
+      return sk?.signedUrl || sk?.url || null;
     }
+    if (post.imageUrl) return post.imageUrl;
+    if (post.thumbnailUrl) return post.thumbnailUrl;
     return null;
   };
 

@@ -41,6 +41,8 @@ import {
   CFEnvironment,
   CFSubscriptionSession,
 } from '../../utils/cashfreeShim';
+import { resolveCashfreeEnvironment } from '../../utils/cashfreeCheckout';
+import { ConnectWebsiteAd } from '../../components/ads/ConnectWebsiteAd';
 
 // In Expo Go / web the Cashfree native module is absent and the SDK throws
 // "package not linked" the moment any method is called. Gate every SDK call
@@ -233,16 +235,17 @@ export default function ContentPreviewScreen() {
     try {
       setSubscribing(true);
       const result = await createSubscription(pageData._id);
-      if (result.paymentSessionId && result.cashfreeSubscriptionId) {
+      const subsSessionId = result.subscriptionSessionId || result.paymentSessionId;
+      if (subsSessionId && result.cashfreeSubscriptionId) {
         pendingSubscriptionRef.current = {
           subscriptionId: result.subscriptionId,
           amount: result.amount,
         };
-        const env = __DEV__ ? CFEnvironment.SANDBOX : CFEnvironment.PRODUCTION;
+        const env = resolveCashfreeEnvironment(result.cashfreeEnvironment);
         const session = new CFSubscriptionSession(
-          result.paymentSessionId,
+          subsSessionId,
           result.cashfreeSubscriptionId,
-          env
+          env,
         );
         CFPaymentGatewayService.doSubscriptionPayment(session);
       } else {
@@ -483,6 +486,9 @@ export default function ContentPreviewScreen() {
           contentContainerStyle={styles.contentContainer}
           showsVerticalScrollIndicator={false}
         >
+          {isWebsite && pageId ? (
+            <ConnectWebsiteAd pageId={pageId} skipAds={isOwner} />
+          ) : null}
           {packBlocksIntoRows(sorted).map((row, ri) => {
             const isSingle = row.length === 1 && row[0].blocks.length === 1;
             return isSingle ? (

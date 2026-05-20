@@ -444,6 +444,7 @@ export default function PostScreen() {
         songStartTime,
         songEndTime,
         audioChoice,
+        selectedFilter,
         timestamp: Date.now()
       };
       
@@ -457,7 +458,7 @@ export default function PostScreen() {
     
     const timeoutId = setTimeout(saveDraft, 2000); // Debounce by 2 seconds
     return () => clearTimeout(timeoutId);
-  }, [selectedImages, selectedVideo, videoThumbnail, location, address, locationMetadata, postType, selectedSong, songStartTime, songEndTime, audioChoice]);
+  }, [selectedImages, selectedVideo, videoThumbnail, location, address, locationMetadata, postType, selectedSong, songStartTime, songEndTime, audioChoice, selectedFilter]);
 
   // Enhanced draft recovery: restore all metadata including music selection
   const loadDraft = async () => {
@@ -519,6 +520,8 @@ export default function PostScreen() {
               
               // Restore post type
               if (draft.postType) setPostType(draft.postType);
+
+              if (draft.selectedFilter) setSelectedFilter(draft.selectedFilter);
               
               // Restore music selection
               if (draft.selectedSong) {
@@ -612,7 +615,7 @@ export default function PostScreen() {
     }
     
     clearUploadState();
-  }, [selectedImages, selectedVideo, videoThumbnail, location, address, locationMetadata, postType, selectedSong, songStartTime, songEndTime, audioChoice]);
+  }, [selectedImages, selectedVideo, videoThumbnail, location, address, locationMetadata, postType, selectedSong, songStartTime, songEndTime, audioChoice, selectedFilter]);
 
   // Media memory safety: release references when no longer needed
   const releaseMediaReferences = useCallback(() => {

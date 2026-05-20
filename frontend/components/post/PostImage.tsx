@@ -57,12 +57,12 @@ export default function PostImage({
 }: PostImageProps) {
   const { theme } = useTheme();
   const [blurUpUri, setBlurUpUri] = useState<string | null>(null);
-  const [isMuted, setIsMuted] = useState(true); // Default to muted
+  const [isMuted, setIsMuted] = useState(() => audioManager.getSessionMuted());
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   const songPlayerRef = useRef<any>(null);
   const isTogglingMuteRef = useRef(false);
-  const isMutedRef = useRef(true); // Use ref to track mute state to avoid dependency issues, default to muted
+  const isMutedRef = useRef(audioManager.getSessionMuted());
 
   // Double-tap detection
   const lastTapRef = useRef<number>(0);
@@ -92,13 +92,22 @@ export default function PostImage({
     }
   }, [post.imageUrl, blurUpUri]);
 
-  // Track mute state for this post - reset to muted (default) when post changes
+  // Sync with session-wide mute when scrolling between posts
   useEffect(() => {
-    setIsMuted(true);
-    isMutedRef.current = true;
+    const sessionMuted = audioManager.getSessionMuted();
+    setIsMuted(sessionMuted);
+    isMutedRef.current = sessionMuted;
     setCurrentImageIndex(0);
     scale.value = 1;
   }, [post._id]);
+
+  // Keep in sync when user toggles mute on another post in the feed
+  useEffect(() => {
+    return audioManager.addSessionMuteListener((muted) => {
+      setIsMuted(muted);
+      isMutedRef.current = muted;
+    });
+  }, []);
 
   // Sync ref with state
   useEffect(() => {
@@ -198,7 +207,8 @@ export default function PostImage({
         }
       }
       
-      // Update state - this will trigger SongPlayer's autoPlay prop change
+      // Persist mute preference for the whole feed session
+      audioManager.setSessionMuted(newMutedState);
       setIsMuted(newMutedState);
       isMutedRef.current = newMutedState;
       

@@ -11,7 +11,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
@@ -34,6 +34,8 @@ export default function UserPostsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [user, setUser] = useState<any>(null);
   const flatListRef = useRef<FlatList>(null);
+  const scrollOffsetRef = useRef(0);
+  const shouldRestoreScrollRef = useRef(false);
 
   const fetchUserPosts = useCallback(async () => {
     try {
@@ -58,6 +60,20 @@ export default function UserPostsScreen() {
   useEffect(() => {
     fetchUserPosts();
   }, [fetchUserPosts]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (shouldRestoreScrollRef.current && scrollOffsetRef.current > 0) {
+        requestAnimationFrame(() => {
+          flatListRef.current?.scrollToOffset({ offset: scrollOffsetRef.current, animated: false });
+        });
+        shouldRestoreScrollRef.current = false;
+      }
+      return () => {
+        shouldRestoreScrollRef.current = true;
+      };
+    }, [])
+  );
 
   // Scroll to specific post if postId is provided
   useEffect(() => {
@@ -199,6 +215,10 @@ export default function UserPostsScreen() {
           }
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 20 }}
+          onScroll={(e) => {
+            scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={16}
           onScrollToIndexFailed={(info) => {
             // Fallback if scrollToIndex fails
             logger.debug('Scroll to index failed:', info);
