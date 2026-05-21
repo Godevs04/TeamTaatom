@@ -26,7 +26,7 @@ import { Image as ExpoImage } from 'expo-image';
 import AnimatedHeader from '../../components/AnimatedHeader';
 import EmptyState from '../../components/EmptyState';
 import { PostSkeleton } from '../../components/LoadingSkeleton';
-import { trackScreenView, trackEngagement, trackFeatureUsage } from '../../services/analytics';
+import { trackScreenView, trackPostView, trackEngagement, trackFeatureUsage } from '../../services/analytics';
 import api from '../../services/api';
 import { socketService } from '../../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -39,10 +39,10 @@ import { audioManager } from '../../utils/audioManager';
 import { savedEvents } from '../../utils/savedEvents';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { LinearGradient } from 'expo-linear-gradient';
-import { CloudSegmentedControl } from '../../components/cloud';
+import { CloudSkyBackground, CloudSegmentedControl } from '../../components/cloud';
 import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 import { NativeAdCard } from '../../components/ads/NativeAdCard';
-import { useAdCap, recordGoogleAdImpression, logContentView, injectAds } from '../../services/adCap';
+import { useAdCap, recordGoogleAdImpression } from '../../services/adCap';
 import { flushPendingLikes } from '../../utils/likePersistence';
 import type { FeedMode } from '../../services/posts';
 
@@ -234,13 +234,18 @@ export default function HomeScreen() {
   // Track currently visible post ID for music playback control
   const [visiblePostId, setVisiblePostId] = useState<string | null>(null);
 
+  // Frequency control: only show native ads after user has scrolled past 5 posts and session > 30s (retention-friendly).
+  const [hasScrolledPastFifthPost, setHasScrolledPastFifthPost] = useState(false);
+  const [adsAllowedAfter30s, setAdsAllowedAfter30s] = useState(false);
+  // Persistent 3-per-8h Google AdMob cap, shared with the shorts feed. Once
+  // capped, no ad slots are inserted into the feed (per spec: posts/reels show
+  // no ads after the cap is reached).
   const adCap = useAdCap();
-
-  // Interleave native ad slots.
-  const feedData = useMemo((): FeedItem[] => {
-    if (isWeb || posts.length === 0) return posts as FeedItem[];
-    return injectAds(posts, adCap);
-  }, [posts, adCap]);
+  const hasSetScrollThresholdRef = useRef(false);
+  useEffect(() => {
+    const t = setTimeout(() => setAdsAllowedAfter30s(true), 30000);
+    return () => clearTimeout(t);
+  }, []);
 
   // Persisted liked post IDs so likes survive app restart (same as Shorts)
   const likedPostIdsRef = useRef<Set<string>>(new Set());
@@ -832,7 +837,13 @@ export default function HomeScreen() {
         setVisiblePostId(savedVisiblePostIdRef.current);
       }
 
-      // 3. Background refresh on focus removed to prevent page flashing/reloads during navigation.
+      // 3. Background refresh data on focus
+      if (hasInitializedRef.current && !isFetchingRef.current) {
+        logger.debug('[Home] Screen focused: triggering background refresh of page 1');
+        fetchPosts(1, false).catch((err) => {
+          logger.error('[Home] Background refresh failed:', err);
+        });
+      }
 
       // 4. Refresh unseen count and setup periodic refresh
       fetchUnseenMessageCount();
@@ -880,12 +891,14 @@ export default function HomeScreen() {
     if (hasScrolledToPostIdRef.current === params.postId) {
       return; // Already scrolled to this post (e.g. on initial load); do not scroll again on append.
     }
-    const dataIndex = feedData.findIndex(item => !isAdItem(item) && item._id === params.postId);
-    if (dataIndex === -1) {
-      logger.debug(`Post ${params.postId} not found in current feedData`);
+    const postIndex = posts.findIndex(p => p._id === params.postId);
+    if (postIndex === -1) {
+      logger.debug(`Post ${params.postId} not found in current posts`);
       return;
     }
     hasScrolledToPostIdRef.current = params.postId;
+    const showAds = !isWeb && hasScrolledPastFifthPost && adsAllowedAfter30s;
+    const dataIndex = showAds ? postIndex + Math.floor(postIndex / ADS_AFTER_EVERY) : postIndex;
     const attemptScroll = (attempt: number = 0) => {
       if (attempt > 8) {
         logger.warn(`Failed to scroll to post ${params.postId} after 8 attempts`);
@@ -914,7 +927,7 @@ export default function HomeScreen() {
       }, 150 * (attempt + 1));
     };
     attemptScroll();
-  }, [params.postId, feedData]);
+  }, [params.postId, posts, hasScrolledPastFifthPost, adsAllowedAfter30s]);
 
   // Subscribe to socket events for real-time unread count updates
   useEffect(() => {
@@ -1160,7 +1173,30 @@ export default function HomeScreen() {
     },
   });
 
-
+  // Interleave native ad slots every ADS_AFTER_EVERY posts. Frequency control:
+  //   1. UX gates: scroll past 5 + session > 30s.
+  //   2. Hard cap: max remainingSlots Google ads in the current 8h window (shared with shorts).
+  // Once the cap is reached, no ad slots are inserted at all.
+  const feedData = useMemo((): FeedItem[] => {
+    if (isWeb || posts.length === 0) return posts as FeedItem[];
+    const showAds = hasScrolledPastFifthPost && adsAllowedAfter30s && !adCap.isCapped;
+    if (!showAds) return posts as FeedItem[];
+    const maxAdsInFeed = adCap.remainingSlots;
+    if (maxAdsInFeed <= 0) return posts as FeedItem[];
+    const result: FeedItem[] = [];
+    let adIndex = 0;
+    posts.forEach((post, i) => {
+      result.push(post);
+      if (
+        (i + 1) % ADS_AFTER_EVERY === 0 &&
+        i < posts.length - 1 &&
+        adIndex < maxAdsInFeed
+      ) {
+        result.push({ type: 'ad', adIndex: adIndex++ });
+      }
+    });
+    return result;
+  }, [posts, hasScrolledPastFifthPost, adsAllowedAfter30s, adCap.isCapped, adCap.remainingSlots]);
 
   const renderTopHeader = () => (
     <AnimatedHeader
@@ -1186,6 +1222,7 @@ export default function HomeScreen() {
   }, []);
   
   // Track viewable items for conditional image rendering and analytics
+  // Frequency control: allow ads only after user has scrolled past 5th item (set once).
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: any[] }) => {
     if (viewableItems.length > 0) {
       const visibleItem = viewableItems[0];
@@ -1196,6 +1233,10 @@ export default function HomeScreen() {
         if (!hasScrolledRef.current && newVisibleIndex > 0) {
           hasScrolledRef.current = true;
         }
+        if (!hasSetScrollThresholdRef.current && newVisibleIndex >= 5) {
+          hasSetScrollThresholdRef.current = true;
+          setHasScrolledPastFifthPost(true);
+        }
         if (item && !isAdItem(item)) {
           const postId = item._id;
           setVisiblePostId(postId);
@@ -1204,7 +1245,7 @@ export default function HomeScreen() {
             lastViewedPostIdRef.current !== postId ||
             (now - lastViewTimeRef.current) > VIEW_DEBOUNCE_MS
           ) {
-            logContentView(postId, 'post', { type: 'photo', source: 'home_feed' });
+            trackPostView(postId, { type: 'photo', source: 'home_feed' });
             lastViewedPostIdRef.current = postId;
             lastViewTimeRef.current = now;
           }
@@ -1239,15 +1280,18 @@ export default function HomeScreen() {
   }, [handleRefresh]);
 
   const screenBg = (
-    <LinearGradient
-      colors={
-        mode === 'dark'
-          ? ['#06121F', '#102236', '#07111C']
-          : (theme.colors.screenGradient as [string, string, ...string[]])
-      }
-      style={StyleSheet.absoluteFillObject}
-      locations={mode === 'dark' ? [0, 0.22, 1] : [0, 0.22, 0.55, 1]}
-    />
+    <>
+      <CloudSkyBackground heightRatio={0.28} />
+      <LinearGradient
+        colors={
+          mode === 'dark'
+            ? ['#06121F', '#102236', '#07111C']
+            : (theme.colors.screenGradient as [string, string, ...string[]])
+        }
+        style={StyleSheet.absoluteFillObject}
+        locations={mode === 'dark' ? [0, 0.22, 1] : [0, 0.22, 0.55, 1]}
+      />
+    </>
   );
 
   if (loading) {

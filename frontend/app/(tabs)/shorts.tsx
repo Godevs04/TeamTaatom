@@ -21,6 +21,7 @@ import {
   LayoutChangeEvent,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { PanGestureHandler, State } from 'react-native-gesture-handler';
 import { Video, ResizeMode, AVPlaybackStatus, Audio } from 'expo-av';
 import { Image as ExpoImage } from 'expo-image';
 import { BlurView } from 'expo-blur';
@@ -47,7 +48,7 @@ import { socketService } from '../../services/socket';
 import ShareModal from '../../components/ShareModal';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { ShortsNativeAd } from '../../components/ads/ShortsNativeAd';
-import { useAdCap, recordGoogleAdImpression, logContentView, injectAds } from '../../services/adCap';
+import { useAdCap, recordGoogleAdImpression } from '../../services/adCap';
 import Constants from 'expo-constants';
 import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 
@@ -211,6 +212,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // backdrop stays visible until the native player actually paints a frame.
   // Set via onReadyForDisplay — never cleared manually (unmount handles reset).
   const [videoReady, setVideoReady] = useState<{ [key: string]: boolean }>({});
+  const [videoBuffering, setVideoBuffering] = useState<Record<string, boolean>>({});
   const [showPauseButton, setShowPauseButton] = useState<{ [key: string]: boolean }>({});
   const [showLikeAnimation, setShowLikeAnimation] = useState<{ [key: string]: boolean }>({});
   const [likeAnimationParticles, setLikeAnimationParticles] = useState<{ [key: string]: Array<{ id: string; x: number; y: number }> }>({});
@@ -333,6 +335,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     getVideoUrl: null as any,
     refetchShortWithFreshUrl: null as any,
     retryVideoLoad: null as any,
+    handlePanGesture: null as any,
+    handlePanStateChange: null as any,
   });
   
   const { theme, mode, isDark } = useTheme();
@@ -1843,6 +1847,63 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     );
   };
 
+  const handlePanGesture = useCallback((event: any) => {
+    const { translationX } = event.nativeEvent;
+    
+    // Only handle left swipes (translationX is negative)
+    if (translationX < 0) {
+      // Calculate progress (from 0 to 1) based on a distance of 120px for full swipe
+      const progress = Math.min(Math.abs(translationX) / 120, 1);
+      swipeAnimation.setValue(-progress);
+    } else {
+      swipeAnimation.setValue(0);
+    }
+  }, [swipeAnimation]);
+
+  const handlePanStateChange = useCallback((event: any, userId: string) => {
+    const { state, translationX, velocityX } = event.nativeEvent;
+    
+    if (state === State.END) {
+      const isLeftSwipe = translationX < 0;
+      // Trigger navigation if they swiped left by more than 60px or had high left velocity
+      if (isLeftSwipe && (Math.abs(translationX) > 60 || velocityX < -500)) {
+        // Check if navigation is already in progress to prevent duplicate navigations
+        if (isNavigatingRef.current) {
+          logger.debug('Pan swipe left detected but navigation already in progress, ignoring duplicate swipe');
+          Animated.spring(swipeAnimation, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 100,
+            friction: 8,
+          }).start();
+          return;
+        }
+
+        // Set guard immediately to prevent duplicate swipes
+        isNavigatingRef.current = true;
+        lastNavigationUserIdRef.current = userId;
+
+        logger.debug('Pan swipe left detected, navigating to profile:', userId);
+        handleSwipeLeft(userId);
+      } else {
+        // Reset animation with a spring if not a valid left swipe (right swipe or invalid gesture)
+        Animated.spring(swipeAnimation, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 100,
+          friction: 8,
+        }).start();
+      }
+    } else if (state === State.CANCELLED || state === State.FAILED) {
+      Animated.spring(swipeAnimation, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 100,
+        friction: 8,
+      }).start();
+    }
+  }, [swipeAnimation, handleSwipeLeft]);
+
   const handleTouchStart = (event: any) => {
     const { pageX, pageY } = event.nativeEvent;
     swipeStartXRef.current = pageX;
@@ -1926,17 +1987,39 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   //   2. Per-session counter (defense-in-depth, resets on app restart).
   //   3. Persistent 3-per-8h cap (adCap, shared with home feed).
   // Whichever is most restrictive wins.
-  const showShortsAds = !isWeb && !isExpoGo && !adCap.isCapped && !shortsAdsBroken;
+  const showShortsAds = !isWeb && !isExpoGo && hasWatchedFiveReels && adsAllowedAfter20s && !adCap.isCapped && !shortsAdsBroken;
   const shortsData = useMemo((): ShortsItem[] => {
     if (!showShortsAds || shorts.length === 0) return shorts as ShortsItem[];
-    return injectAds(shorts, adCap) as ShortsItem[];
-  }, [shorts, showShortsAds, adCap]);
+    const maxSlots = Math.min(
+      MAX_SHORTS_ADS,
+      Math.max(0, 3 - adsShownThisSession),
+      adCap.remainingSlots,
+    );
+    if (maxSlots <= 0) return shorts as ShortsItem[];
+    const result: ShortsItem[] = [];
+    let adCount = 0;
+    shorts.forEach((reel, i) => {
+      result.push(reel);
+      if (adCount < maxSlots && (i + 1) % SHORTS_ADS_AFTER_EVERY === 0 && i < shorts.length - 1) {
+        result.push({ type: 'ad', adIndex: adCount++ });
+      }
+    });
+    return result;
+  }, [shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots]);
 
-  // Deep link: scroll to specific short when effectiveShortId is set (URL or props). dataIndex accounts for ad slots.
+  // Deep link: scroll to specific short when effectiveShortId is set (URL or props). dataIndex accounts for ad slots when showShortsAds.
   useEffect(() => {
     if (!effectiveShortId || shorts.length === 0) return;
-    const dataIndex = shortsData.findIndex(item => !isAdItem(item) && item._id === effectiveShortId);
-    if (dataIndex === -1) return;
+    const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
+    if (reelIndex === -1) return;
+    const maxSlots = Math.min(
+      MAX_SHORTS_ADS,
+      Math.max(0, 3 - adsShownThisSession),
+      adCap.remainingSlots,
+    );
+    const dataIndex = showShortsAds
+      ? reelIndex + Math.min(Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY), maxSlots)
+      : reelIndex;
     setCurrentIndex(dataIndex);
     setCurrentVisibleIndex(dataIndex);
     const attemptScroll = (attempt: number = 0) => {
@@ -1954,7 +2037,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }, 100 * (attempt + 1));
     };
     attemptScroll();
-  }, [effectiveShortId, shortsData]);
+  }, [effectiveShortId, shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots]);
 
   // Enhanced: Ensure video playback syncs with currentVisibleIndex (uses shortsData; ad = pause all, reel = play)
   useEffect(() => {
@@ -2031,9 +2114,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         lastViewedShortIdRef.current !== currentShort._id ||
         (now - lastViewTimeRef.current) > VIEW_DEBOUNCE_MS
       ) {
-        logContentView(currentShort._id, 'short', { type: 'short', source: 'shorts_feed' }).catch((err) => {
-          logger.error('Failed to log content view for short:', err);
-        });
+        trackPostView(currentShort._id, { type: 'short', source: 'shorts_feed' });
         lastViewedShortIdRef.current = currentShort._id;
         lastViewTimeRef.current = now;
       }
@@ -2066,8 +2147,27 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       getVideoUrl,
       refetchShortWithFreshUrl,
       retryVideoLoad,
+      handlePanGesture,
+      handlePanStateChange,
     };
-  }, [handleTouchStart, handleTouchMove, handleTouchEnd, toggleVideoPlayback, showPauseButtonTemporarily, handleDeleteShort, handleProfilePress, handleLike, handleComment, handleShare, handleSave, getVideoUrl, refetchShortWithFreshUrl, retryVideoLoad]);
+  }, [
+    handleTouchStart,
+    handleTouchMove,
+    handleTouchEnd,
+    toggleVideoPlayback,
+    showPauseButtonTemporarily,
+    handleDeleteShort,
+    handleProfilePress,
+    handleLike,
+    handleComment,
+    handleShare,
+    handleSave,
+    getVideoUrl,
+    refetchShortWithFreshUrl,
+    retryVideoLoad,
+    handlePanGesture,
+    handlePanStateChange,
+  ]);
 
   // Memoized video item component to prevent unnecessary re-renders
   // Renders either a reel (PostType) or a full-screen ShortsNativeAd (after every 5 reels, max 3).
@@ -2155,18 +2255,40 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       `${shouldShowPauseButton ? 1 : 0}|${shouldShowLikeAnimation ? 1 : 0}|` +
       `${sourceVersions[item._id] ?? 0}|${videoReady[item._id] ? 1 : 0}|` +
       `${item.likesCount ?? 0}|${item.commentsCount ?? 0}|${isLiked ? 1 : 0}|${item.viewsCount ?? 0}|` +
-      `${isOwn ? 1 : 0}|${isScreenFocused ? 1 : 0}`;
+      `${isOwn ? 1 : 0}|${isScreenFocused ? 1 : 0}|${videoBuffering[item._id] ? 1 : 0}`;
+
+    const onPanStateChange = (event: any) => {
+      handlersRef.current.handlePanStateChange(event, item.user._id);
+    };
 
     return (
       <ShortCellMemo cacheKey={cacheKey} render={() => (
-      <View style={[styles.shortItem, { height: dynamicItemHeight }]}>
+        <Animated.View style={[
+          styles.shortItem, 
+          { height: dynamicItemHeight },
+          isVisibleNow && {
+            transform: [{
+              translateX: swipeAnimation.interpolate({
+                inputRange: [-1, 0, 1],
+                outputRange: [-SCREEN_WIDTH, 0, 0],
+              })
+            }]
+          }
+        ]}>
           {/* Video Player with Gesture Handling */}
-          <View
-            style={[styles.videoContainer, { height: dynamicItemHeight }]}
-            onTouchStart={handlersRef.current.handleTouchStart}
-            onTouchMove={handlersRef.current.handleTouchMove}
-            onTouchEnd={(event) => handlersRef.current.handleTouchEnd(event, item.user._id)}
+          <PanGestureHandler
+            activeOffsetX={[-30, 0]}
+            failOffsetY={[-20, 20]}
+            onGestureEvent={isVisibleNow ? handlersRef.current.handlePanGesture : undefined}
+            onHandlerStateChange={isVisibleNow ? onPanStateChange : undefined}
+            enabled={isVisibleNow && !isNavigatingRef.current}
           >
+            <View
+              style={[styles.videoContainer, { height: dynamicItemHeight }]}
+              onTouchStart={handlersRef.current.handleTouchStart}
+              onTouchMove={handlersRef.current.handleTouchMove}
+              onTouchEnd={(event) => handlersRef.current.handleTouchEnd(event, item.user._id)}
+            >
             <TouchableWithoutFeedback
               onPress={() => {
                 handlersRef.current.toggleVideoPlayback(item._id);
@@ -2217,6 +2339,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 shouldRenderVideo={shouldRenderVideo}
                 videoReady={!!videoReady[item._id]}
                 videoState={!!videoStates[item._id]}
+                videoBuffering={!!videoBuffering[item._id]}
                 sourceVersion={sourceVersions[item._id] ?? 0}
                 videoRefs={videoRefs}
                 lastVideoPositionRef={lastVideoPositionRef}
@@ -2228,6 +2351,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 setVideoStates={setVideoStates}
                 setShorts={setShorts}
                 setSourceVersions={setSourceVersions}
+                setVideoBuffering={setVideoBuffering}
                 getVideoUrl={handlersRef.current.getVideoUrl}
                 refetchShortWithFreshUrl={handlersRef.current.refetchShortWithFreshUrl}
                 retryVideoLoad={handlersRef.current.retryVideoLoad}
@@ -2235,9 +2359,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               />
               </View>
             </TouchableWithoutFeedback>
+            {!!videoBuffering[item._id] && (
+              <View style={[styles.bufferingOverlay, StyleSheet.absoluteFillObject]} pointerEvents="none">
+                <ActivityIndicator size="large" color="white" />
+              </View>
+            )}
           </View>
-          
-          {/* Elegant Gradient Overlays */}
+        </PanGestureHandler>
+        
+        {/* Elegant Gradient Overlays */}
           <LinearGradient
             colors={['transparent', 'transparent']}
             style={styles.topGradient}
@@ -2563,13 +2693,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               )}
             </View>
           </View>
-      </View>
+      </Animated.View>
       )} />
     );
     // swipeAnimation / fadeAnimation are Animated.Value refs from useRef ---
     // their identity never changes, so they don't belong in the deps array.
     // Including them was harmless but signaled false volatility.
-  }, [currentVisibleIndex, videoStates, videoReady, followStates, savedShorts, mutedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions]);
+  }, [currentVisibleIndex, videoStates, videoReady, followStates, savedShorts, mutedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions, videoBuffering]);
 
   const keyExtractor = useCallback((item: ShortsItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;
@@ -2777,8 +2907,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         getItemLayout={getItemLayout}
         initialScrollIndex={(() => {
           if (!effectiveShortId || shorts.length === 0) return undefined;
-          const dataIndex = shortsData.findIndex(item => !isAdItem(item) && item._id === effectiveShortId);
-          return dataIndex !== -1 ? dataIndex : undefined;
+          const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
+          if (reelIndex === -1) return undefined;
+          const maxSlots = Math.min(MAX_SHORTS_ADS, Math.max(0, 3 - adsShownThisSession));
+          const dataIndex = showShortsAds ? reelIndex + Math.min(Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY), maxSlots) : reelIndex;
+          return dataIndex;
         })()}
         pagingEnabled
         showsVerticalScrollIndicator={false}
@@ -2979,6 +3112,13 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     backgroundColor: 'black',
+  },
+  bufferingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    zIndex: 10,
   },
   topGradient: {
     position: 'absolute',
@@ -3378,6 +3518,7 @@ interface ShortsVideoComponentProps {
   shouldRenderVideo: boolean;
   videoReady: boolean;
   videoState: boolean;
+  videoBuffering: boolean;
   sourceVersion: number;
   videoRefs: React.MutableRefObject<Record<string, Video | null>>;
   lastVideoPositionRef: React.MutableRefObject<Record<string, number>>;
@@ -3387,6 +3528,7 @@ interface ShortsVideoComponentProps {
   videoCacheRef: React.MutableRefObject<Map<string, { url: string; timestamp: number }>>;
   setVideoReady: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   setVideoStates: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
+  setVideoBuffering: React.Dispatch<React.SetStateAction<Record<string, boolean>>>;
   setShorts: React.Dispatch<React.SetStateAction<PostType[]>>;
   setSourceVersions: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   getVideoUrl: (item: PostType) => string;
@@ -3406,6 +3548,7 @@ const ShortsVideoComponent = React.memo(({
   shouldRenderVideo,
   videoReady,
   videoState,
+  videoBuffering,
   sourceVersion,
   videoRefs,
   lastVideoPositionRef,
@@ -3415,6 +3558,7 @@ const ShortsVideoComponent = React.memo(({
   videoCacheRef,
   setVideoReady,
   setVideoStates,
+  setVideoBuffering,
   setShorts,
   setSourceVersions,
   getVideoUrl,
@@ -3467,6 +3611,7 @@ const ShortsVideoComponent = React.memo(({
       volume={!!(item.song?.songId?._id) ? 0.0 : 1.0}
       onLoad={(status: any) => {
         if (status.isLoaded) {
+          updateKeyedBool(setVideoBuffering, item._id, false);
           if (status.naturalSize) {
             const { width, height } = status.naturalSize;
             if (width && height) {
@@ -3507,6 +3652,7 @@ const ShortsVideoComponent = React.memo(({
       }}
       onLoadStart={() => {
         logger.debug(`Video ${item._id} load started, index: ${index}, currentVisible: ${currentVisibleIndex}`);
+        updateKeyedBool(setVideoBuffering, item._id, true);
         if (index < 2) {
           logger.info(`[RENDER_VIDEO] onLoadStart for short at index ${index}:`, {
             shortId: item._id,
@@ -3528,11 +3674,13 @@ const ShortsVideoComponent = React.memo(({
         if (!videoReady) {
           updateKeyedBool(setVideoReady, item._id, true);
         }
+        updateKeyedBool(setVideoBuffering, item._id, false);
       }}
       onError={(error) => {
         logger.error(`Video ${item._id} failed to load:`, error);
         videoCacheRef.current.delete(item._id);
         updateKeyedBool(setVideoStates, item._id, false);
+        updateKeyedBool(setVideoBuffering, item._id, false);
 
         const errorMessage = typeof error === 'string' ? error : (error as any)?.message || '';
         const errorCode = (error as any)?.code;
@@ -3579,6 +3727,17 @@ const ShortsVideoComponent = React.memo(({
           const wasPlaying = videoState;
           const isNowPlaying = status.isPlaying;
           
+          const isBuffering = !!status.isBuffering;
+          updateKeyedBool(setVideoBuffering, item._id, isBuffering);
+
+          if (index === currentVisibleIndex && currentPlayerRef.current) {
+            if (isBuffering) {
+              currentPlayerRef.current.pauseAsync().catch(() => {});
+            } else if (isNowPlaying) {
+              currentPlayerRef.current.playAsync().catch(() => {});
+            }
+          }
+
           const hasMusic = !!(item.song?.songId?._id);
           if (hasMusic && index === currentVisibleIndex) {
             const video = videoRefs.current[item._id];
@@ -3640,6 +3799,7 @@ const ShortsVideoComponent = React.memo(({
   const isShouldRenderEqual = prev.shouldRenderVideo === next.shouldRenderVideo;
   const isVideoReadyEqual = prev.videoReady === next.videoReady;
   const isVideoStateEqual = prev.videoState === next.videoState;
+  const isVideoBufferingEqual = prev.videoBuffering === next.videoBuffering;
   const isSourceVersionEqual = prev.sourceVersion === next.sourceVersion;
   const isSongIdEqual = prev.item.song?.songId?._id === next.item.song?.songId?._id;
   const isVideoUrlEqual = prev.item.videoUrl === next.item.videoUrl;
@@ -3653,6 +3813,7 @@ const ShortsVideoComponent = React.memo(({
     isShouldRenderEqual &&
     isVideoReadyEqual &&
     isVideoStateEqual &&
+    isVideoBufferingEqual &&
     isSourceVersionEqual &&
     isSongIdEqual &&
     isVideoUrlEqual &&
@@ -3668,6 +3829,7 @@ const ShortsVideoComponent = React.memo(({
     isShouldRenderEqual,
     isVideoReadyEqual,
     isVideoStateEqual,
+    isVideoBufferingEqual,
     isSourceVersionEqual,
     isSongIdEqual,
     isVideoUrlEqual,
