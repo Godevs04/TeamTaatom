@@ -97,12 +97,6 @@ function CloudLocaleCard({
         </TouchableOpacity>
       )}
 
-      {distanceText && distanceText !== '–' ? (
-        <View style={styles.distBadge}>
-          <Ionicons name="navigate" size={10} color={cloudDesign.blueDeep} />
-          <Text style={styles.distText}>{distanceText}</Text>
-        </View>
-      ) : null}
 
       <View
         style={[

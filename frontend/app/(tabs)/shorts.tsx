@@ -47,7 +47,7 @@ import { socketService } from '../../services/socket';
 import ShareModal from '../../components/ShareModal';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { ShortsNativeAd } from '../../components/ads/ShortsNativeAd';
-import { useAdCap, recordGoogleAdImpression } from '../../services/adCap';
+import { useAdCap, recordGoogleAdImpression, logContentView, injectAds } from '../../services/adCap';
 import Constants from 'expo-constants';
 import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 
@@ -1926,39 +1926,17 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   //   2. Per-session counter (defense-in-depth, resets on app restart).
   //   3. Persistent 3-per-8h cap (adCap, shared with home feed).
   // Whichever is most restrictive wins.
-  const showShortsAds = !isWeb && !isExpoGo && hasWatchedFiveReels && adsAllowedAfter20s && !adCap.isCapped && !shortsAdsBroken;
+  const showShortsAds = !isWeb && !isExpoGo && !adCap.isCapped && !shortsAdsBroken;
   const shortsData = useMemo((): ShortsItem[] => {
     if (!showShortsAds || shorts.length === 0) return shorts as ShortsItem[];
-    const maxSlots = Math.min(
-      MAX_SHORTS_ADS,
-      Math.max(0, 3 - adsShownThisSession),
-      adCap.remainingSlots,
-    );
-    if (maxSlots <= 0) return shorts as ShortsItem[];
-    const result: ShortsItem[] = [];
-    let adCount = 0;
-    shorts.forEach((reel, i) => {
-      result.push(reel);
-      if (adCount < maxSlots && (i + 1) % SHORTS_ADS_AFTER_EVERY === 0 && i < shorts.length - 1) {
-        result.push({ type: 'ad', adIndex: adCount++ });
-      }
-    });
-    return result;
-  }, [shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots]);
+    return injectAds(shorts, adCap) as ShortsItem[];
+  }, [shorts, showShortsAds, adCap]);
 
-  // Deep link: scroll to specific short when effectiveShortId is set (URL or props). dataIndex accounts for ad slots when showShortsAds.
+  // Deep link: scroll to specific short when effectiveShortId is set (URL or props). dataIndex accounts for ad slots.
   useEffect(() => {
     if (!effectiveShortId || shorts.length === 0) return;
-    const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
-    if (reelIndex === -1) return;
-    const maxSlots = Math.min(
-      MAX_SHORTS_ADS,
-      Math.max(0, 3 - adsShownThisSession),
-      adCap.remainingSlots,
-    );
-    const dataIndex = showShortsAds
-      ? reelIndex + Math.min(Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY), maxSlots)
-      : reelIndex;
+    const dataIndex = shortsData.findIndex(item => !isAdItem(item) && item._id === effectiveShortId);
+    if (dataIndex === -1) return;
     setCurrentIndex(dataIndex);
     setCurrentVisibleIndex(dataIndex);
     const attemptScroll = (attempt: number = 0) => {
@@ -1976,7 +1954,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }, 100 * (attempt + 1));
     };
     attemptScroll();
-  }, [effectiveShortId, shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots]);
+  }, [effectiveShortId, shortsData]);
 
   // Enhanced: Ensure video playback syncs with currentVisibleIndex (uses shortsData; ad = pause all, reel = play)
   useEffect(() => {
@@ -2053,7 +2031,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         lastViewedShortIdRef.current !== currentShort._id ||
         (now - lastViewTimeRef.current) > VIEW_DEBOUNCE_MS
       ) {
-        trackPostView(currentShort._id, { type: 'short', source: 'shorts_feed' });
+        logContentView(currentShort._id, 'short', { type: 'short', source: 'shorts_feed' }).catch((err) => {
+          logger.error('Failed to log content view for short:', err);
+        });
         lastViewedShortIdRef.current = currentShort._id;
         lastViewTimeRef.current = now;
       }
@@ -2797,11 +2777,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         getItemLayout={getItemLayout}
         initialScrollIndex={(() => {
           if (!effectiveShortId || shorts.length === 0) return undefined;
-          const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
-          if (reelIndex === -1) return undefined;
-          const maxSlots = Math.min(MAX_SHORTS_ADS, Math.max(0, 3 - adsShownThisSession));
-          const dataIndex = showShortsAds ? reelIndex + Math.min(Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY), maxSlots) : reelIndex;
-          return dataIndex;
+          const dataIndex = shortsData.findIndex(item => !isAdItem(item) && item._id === effectiveShortId);
+          return dataIndex !== -1 ? dataIndex : undefined;
         })()}
         pagingEnabled
         showsVerticalScrollIndicator={false}

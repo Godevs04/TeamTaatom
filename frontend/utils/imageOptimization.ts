@@ -28,9 +28,9 @@ export const optimizeImageForUpload = async (
 ): Promise<OptimizedImage> => {
   try {
     const {
-      maxWidth = 1200, // Increased for better quality
-      maxHeight = 1200, // Increased for better quality
-      quality = 0.85, // Increased for better quality while maintaining performance
+      maxWidth = 2048,  // Retain near-original resolution
+      maxHeight = 2048,  // Retain near-original resolution
+      quality = 1.0,     // Near-original quality
       format = 'jpeg',
       compress = true
     } = options;
@@ -185,7 +185,7 @@ export const processImageToAspect = async (
       { resize: { width: scaledW, height: scaledH } },
       { crop: { originX, originY, width: target.w, height: target.h } },
     ],
-    { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG, base64: false }
+    { compress: 1.0, format: ImageManipulator.SaveFormat.JPEG, base64: false }
   );
 
   return result.uri;
@@ -236,8 +236,8 @@ export const shouldOptimizeImage = async (imageUri: string): Promise<boolean> =>
     // Optimize if:
     // 1. File is larger than 2MB (increased threshold for better quality)
     // 2. Image dimensions are larger than 1200x1200
-    const maxFileSize = 2 * 1024 * 1024; // 2MB
-    const maxDimension = 1200;
+    const maxFileSize = 10 * 1024 * 1024; // 10MB — only compress truly huge files
+    const maxDimension = 2048;
     
     const fileSizeTooLarge = (info.size || 0) > maxFileSize;
     const dimensionsTooLarge = imageInfo.width > maxDimension || imageInfo.height > maxDimension;
@@ -253,9 +253,10 @@ export const shouldOptimizeImage = async (imageUri: string): Promise<boolean> =>
  * Get image compression quality based on file size - optimized for quality
  */
 export const getOptimalQuality = (fileSize: number): number => {
-  if (fileSize < 500 * 1024) return 0.95; // < 500KB, very high quality
-  if (fileSize < 1024 * 1024) return 0.9; // < 1MB, high quality
-  if (fileSize < 2 * 1024 * 1024) return 0.85; // < 2MB, good quality
-  if (fileSize < 5 * 1024 * 1024) return 0.8; // < 5MB, medium-high quality
-  return 0.75; // > 5MB, medium quality (still good)
+  // Maximize quality — only reduce when file is extremely large
+  if (fileSize < 5 * 1024 * 1024) return 1.0;   // < 5MB   → original quality
+  if (fileSize < 15 * 1024 * 1024) return 0.95;  // < 15MB  → near-original
+  if (fileSize < 30 * 1024 * 1024) return 0.92;  // < 30MB  → very high
+  if (fileSize < 50 * 1024 * 1024) return 0.90;  // < 50MB  → high
+  return 0.88; // > 50MB → still high quality
 };

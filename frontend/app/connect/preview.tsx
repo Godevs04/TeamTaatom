@@ -42,7 +42,7 @@ import {
   CFSubscriptionSession,
 } from '../../utils/cashfreeShim';
 import { resolveCashfreeEnvironment } from '../../utils/cashfreeCheckout';
-import { ConnectWebsiteAd } from '../../components/ads/ConnectWebsiteAd';
+import { logContentView } from '../../services/adCap';
 
 // In Expo Go / web the Cashfree native module is absent and the SDK throws
 // "package not linked" the moment any method is called. Gate every SDK call
@@ -165,6 +165,9 @@ export default function ContentPreviewScreen() {
             }
           }
         }
+        if (isWebsite) {
+          logContentView(pageId, 'website', { type: 'website', pageId });
+        }
       } catch (error) {
         logger.error('Error loading preview content:', error);
       } finally {
@@ -172,7 +175,7 @@ export default function ContentPreviewScreen() {
       }
     };
     load();
-  }, [pageId, section]);
+  }, [pageId, section, isWebsite]);
 
   // Cashfree subscription payment callback
   const refreshSubscriptionStatus = useCallback(async () => {
@@ -486,9 +489,6 @@ export default function ContentPreviewScreen() {
           contentContainerStyle={styles.contentContainer}
           showsVerticalScrollIndicator={false}
         >
-          {isWebsite && pageId ? (
-            <ConnectWebsiteAd pageId={pageId} skipAds={isOwner} />
-          ) : null}
           {packBlocksIntoRows(sorted).map((row, ri) => {
             const isSingle = row.length === 1 && row[0].blocks.length === 1;
             return isSingle ? (
