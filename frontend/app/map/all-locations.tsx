@@ -11,7 +11,10 @@ import {
   Modal,
   Animated,
   Alert,
+  FlatList,
+  Dimensions,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -23,14 +26,19 @@ import { useAlert } from '../../context/AlertContext';
 import { useJourney } from '../../context/JourneyContext';
 import { MapView, Marker, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
 import PolylineRenderer from '../../components/PolylineRenderer';
+import GlassMapPanel from '../../components/GlassMapPanel';
+import PremiumMapMarker from '../../components/PremiumMapMarker';
 import { getTravelMapData } from '../../services/profile';
 import { getUserJourneys } from '../../services/journey';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
+import { useMapStyle } from '../../hooks/useMapStyle';
 import logger from '../../utils/logger';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 const GROWTH_GREEN = '#22C55E';
 const ALERT_RED = '#EF4444';
 const ACTION_BLUE = '#3B82F6';
+const { width: screenWidth } = Dimensions.get('window');
+
 
 function safeDecodeUriComponent(value: string | string[] | undefined): string | null {
   if (value == null) return null;
@@ -75,6 +83,7 @@ function AllLocationsMapInner() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mapFilter, setMapFilter] = useState<'posts' | 'journeys' | 'both'>('posts');
+  const [selectedLocation, setSelectedLocation] = useState<LocationPin | null>(null);
   const [currentCountry, setCurrentCountry] = useState<string | null>(null);
   const [statistics, setStatistics] = useState<{
     totalLocations: number;
@@ -85,6 +94,7 @@ function AllLocationsMapInner() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme, mode } = useTheme();
+  const mapStyle = useMapStyle();
   const { showAlert } = useAlert();
   const rawUserId = params.userId;
   const userId = typeof rawUserId === 'string' ? rawUserId : Array.isArray(rawUserId) ? rawUserId[0] : undefined;
@@ -92,6 +102,72 @@ function AllLocationsMapInner() {
   const headerTitle = displayName ? `${displayName}'s Locations` : 'My Locations';
   const mapRef = useRef<any>(null);
   const WEBVIEW_API_KEY = getGoogleMapsApiKeyForWebView();
+
+  const validLocations = useMemo(() => {
+    return locations.filter(
+      (loc) => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0
+    );
+  }, [locations]);
+
+  const carouselRef = useRef<FlatList>(null);
+  const isScrollingCarouselRef = useRef(false);
+
+  const centerMapOnLocation = useCallback((latitude: number, longitude: number) => {
+    if (!mapRef.current) return;
+    try {
+      mapRef.current.animateToRegion(
+        {
+          latitude,
+          longitude,
+          latitudeDelta: 0.015,
+          longitudeDelta: 0.015,
+        },
+        400
+      );
+    } catch (err) {
+      logger.error('Error centering map on location:', err);
+    }
+  }, []);
+
+  const getCarouselItemLayout = useCallback((data: any, index: number) => ({
+    length: screenWidth,
+    offset: screenWidth * index,
+    index,
+  }), []);
+
+  const handleCarouselScroll = useCallback((event: any) => {
+    if (!isScrollingCarouselRef.current) return;
+    const contentOffsetX = event.nativeEvent.contentOffset.x;
+    const index = Math.round(contentOffsetX / screenWidth);
+    if (index >= 0 && index < validLocations.length) {
+      const nextLocation = validLocations[index];
+      if (selectedLocation?.number !== nextLocation.number || selectedLocation?.postId !== nextLocation.postId) {
+        setSelectedLocation(nextLocation);
+        centerMapOnLocation(nextLocation.latitude, nextLocation.longitude);
+      }
+    }
+  }, [validLocations, selectedLocation, centerMapOnLocation]);
+
+  useEffect(() => {
+    if (selectedLocation && !isScrollingCarouselRef.current) {
+      const index = validLocations.findIndex(
+        (loc) => loc.postId === selectedLocation.postId || loc.number === selectedLocation.number
+      );
+      if (index !== -1 && carouselRef.current) {
+        setTimeout(() => {
+          try {
+            carouselRef.current?.scrollToIndex({
+              index,
+              animated: true,
+            });
+          } catch (err) {
+            logger.warn('Failed to scroll carousel to index:', err);
+          }
+        }, 50);
+      }
+      centerMapOnLocation(selectedLocation.latitude, selectedLocation.longitude);
+    }
+  }, [selectedLocation, validLocations, centerMapOnLocation]);
 
   // Journey tracking — moved here from /map/current-location so the start /
   // active / paused controls live with the rest of the user's travel data
@@ -266,6 +342,17 @@ function AllLocationsMapInner() {
     ]);
   };
 
+  const openJourneyCapture = (type: 'photo' | 'short') => {
+    router.push({
+      pathname: '/(tabs)/post',
+      params: {
+        journeyCapture: 'true',
+        postType: type,
+        source: 'journey',
+      },
+    });
+  };
+
   // Get current country via reverse geocoding
   useEffect(() => {
     const detectCountry = async () => {
@@ -315,8 +402,17 @@ function AllLocationsMapInner() {
       // Process post locations
       if (travelMapResult.status === 'fulfilled') {
         const response = travelMapResult.value;
-        setLocations(response?.locations ?? []);
+        const fetchedLocations = response?.locations ?? [];
+        setLocations(fetchedLocations);
         setStatistics(response?.statistics ?? null);
+
+        // Auto-select first valid location if nothing is selected
+        const validLocs = fetchedLocations.filter(
+          (loc: any) => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0
+        );
+        if (validLocs.length > 0) {
+          setSelectedLocation(validLocs[0]);
+        }
       }
 
       // Process journey polylines
@@ -482,9 +578,14 @@ function AllLocationsMapInner() {
       lat: loc.latitude,
       lng: loc.longitude,
       title: (loc.address || `Location #${loc.number}`).replace(/"/g, '&quot;'),
+      address: loc.address || `Location #${loc.number}`,
       number: loc.number,
       photo: loc.photo || null,
       postId: loc.postId || null,
+      latitude: loc.latitude,
+      longitude: loc.longitude,
+      date: loc.date,
+      contentType: loc.contentType || null,
     }));
     const filteredJourneys = (mapFilter === 'journeys' || mapFilter === 'both') ? journeys : [];
     const polylinePaths = filteredJourneys.map((j) => ({
@@ -497,7 +598,11 @@ function AllLocationsMapInner() {
       startCity: j.startCity || 'Start',
       endCity: j.endCity || 'End',
     }));
+
+    const centerLat = selectedLocation ? selectedLocation.latitude : region.latitude;
+    const centerLng = selectedLocation ? selectedLocation.longitude : region.longitude;
     const zoomLevel = Math.min(12, Math.max(2, Math.floor(15 - Math.log2(Math.max(region.latitudeDelta, 1)))));
+    const zoomLevelVal = selectedLocation ? 14 : zoomLevel;
 
     return `<!DOCTYPE html>
 <html><head>
@@ -506,8 +611,8 @@ function AllLocationsMapInner() {
 <script>
 function initMap(){
   var map=new google.maps.Map(document.getElementById('map'),{
-    center:{lat:${region.latitude},lng:${region.longitude}},
-    zoom:${zoomLevel},mapTypeId:'terrain',language:'en'
+    center:{lat:${centerLat},lng:${centerLng}},
+    zoom:${zoomLevelVal},mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true
   });
   var bounds=new google.maps.LatLngBounds();
   var activeOverlays=[];
@@ -516,7 +621,8 @@ function initMap(){
   var journeys=${JSON.stringify(polylinePaths)};
   journeys.forEach(function(j){
     if(j.path&&j.path.length>1){
-      new google.maps.Polyline({path:j.path,geodesic:true,strokeColor:'${GROWTH_GREEN}',strokeOpacity:0.9,strokeWeight:4,map:map});
+      new google.maps.Polyline({path:j.path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});
+      new google.maps.Polyline({path:j.path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});
       j.path.forEach(function(p){bounds.extend(new google.maps.LatLng(p.lat,p.lng));});
     }
     // Start marker
@@ -602,7 +708,7 @@ function initMap(){
     activeOverlays.forEach(function(ov){ov.setMap(null);});
     activeOverlays=[];
 
-    var zoom=map.getZoom()||${zoomLevel};
+    var zoom=map.getZoom()||${zoomLevelVal};
     var gs=getGridSize(zoom);
     var clusters=clusterMarkers(markers,gs);
     var sz=56;
@@ -613,11 +719,16 @@ function initMap(){
       var div=document.createElement('div');
       div.style.cssText='position:relative;width:'+sz+'px;height:'+sz+'px;cursor:pointer;display:flex;align-items:center;justify-content:center;';
 
-      // Always render a red teardrop pin for post locations (replacing the
-      // previous photo-tile / number-circle marker). Cluster overflow stays
-      // on the +N badge below.
       var pin=document.createElement('div');
-      pin.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 24 28"><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 16 12 16s12-7 12-16C24 5.4 18.6 0 12 0z" fill="${ALERT_RED}" stroke="white" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="white"/></svg>';
+      var isViewingAny = ${selectedLocation !== null};
+      var isSelected = isViewingAny && (main.number === ${selectedLocation?.number || -1} || main.postId === '${selectedLocation?.postId || ""}');
+      if (isViewingAny && !isSelected) {
+        // Muted, small circular dot (8px diameter) with white border
+        pin.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="4.5" fill="#8A96A8" stroke="white" stroke-width="1.5"/><circle cx="8" cy="8" r="2" fill="none"/></svg>';
+      } else {
+        // Branded teardrop pin (active)
+        pin.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="40" height="48" viewBox="0 0 24 28"><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 16 12 16s12-7 12-16C24 5.4 18.6 0 12 0z" fill="${ALERT_RED}" stroke="white" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="white"/></svg>';
+      }
       div.appendChild(pin);
 
       if(extra>0){
@@ -627,23 +738,18 @@ function initMap(){
         div.appendChild(badge);
       }
 
-      // Tap handler: single marker → navigate to post, cluster → zoom in
+      // Tap handler: single marker opens the native preview card, cluster zooms in.
       div.addEventListener('click',function(e){
         e.stopPropagation();
-        if(cluster.items.length===1&&cluster.items[0].postId){
-          // Navigate to post detail
+        if(cluster.items.length===1){
           if(window.ReactNativeWebView){
-            window.ReactNativeWebView.postMessage(JSON.stringify({type:'navigatePost',postId:cluster.items[0].postId}));
+            window.ReactNativeWebView.postMessage(JSON.stringify({type:'selectLocation',location:cluster.items[0]}));
           }
         }else if(cluster.items.length>1){
           // Zoom into the cluster area
           var cb=new google.maps.LatLngBounds();
           cluster.items.forEach(function(it){cb.extend(new google.maps.LatLng(it.lat,it.lng));});
           map.fitBounds(cb,60);
-        }else if(cluster.items[0].postId){
-          if(window.ReactNativeWebView){
-            window.ReactNativeWebView.postMessage(JSON.stringify({type:'navigatePost',postId:cluster.items[0].postId}));
-          }
         }
       });
 
@@ -654,11 +760,15 @@ function initMap(){
 
   // Initial render + re-render on zoom change
   if(markers.length>0||journeys.some(function(j){return j.path.length>0;})){
-    map.fitBounds(bounds,40);
-    google.maps.event.addListenerOnce(map,'bounds_changed',function(){
-      if(map.getZoom()>15)map.setZoom(15);
+    if (!${selectedLocation !== null}) {
+      map.fitBounds(bounds,40);
+      google.maps.event.addListenerOnce(map,'bounds_changed',function(){
+        if(map.getZoom()>15)map.setZoom(15);
+        renderClusters();
+      });
+    } else {
       renderClusters();
-    });
+    }
   }else{
     renderClusters();
   }
@@ -669,7 +779,7 @@ function initMap(){
 <div id="map"></div>
 <script async defer src="https://maps.googleapis.com/maps/api/js?key=${WEBVIEW_API_KEY || ''}&language=en&callback=initMap"></script>
 </body></html>`;
-  }, [locations, journeys, mapFilter, getMapRegion, WEBVIEW_API_KEY]);
+  }, [locations, journeys, mapFilter, getMapRegion, WEBVIEW_API_KEY, mapStyle.customMapStyle, mapStyle.routeColor, mapStyle.routeGlowColor, selectedLocation]);
 
   // ──────────────────────────────────────────────────────
   // renderMap — native MapView preferred, WebView fallback
@@ -705,6 +815,17 @@ function initMap(){
               const data = JSON.parse(event.nativeEvent.data);
               if (data.type === 'navigatePost' && data.postId) {
                 router.push(`/post/${data.postId}`);
+              } else if (data.type === 'selectLocation' && data.location) {
+                setSelectedLocation({
+                  number: data.location.number,
+                  latitude: data.location.latitude ?? data.location.lat,
+                  longitude: data.location.longitude ?? data.location.lng,
+                  address: data.location.address || data.location.title || `Location #${data.location.number}`,
+                  date: data.location.date || '',
+                  photo: data.location.photo || undefined,
+                  postId: data.location.postId || undefined,
+                  contentType: data.location.contentType || undefined,
+                });
               }
             } catch (err) {
               logger.debug('[AllLocations] WebView message parse error:', err);
@@ -740,6 +861,7 @@ function initMap(){
         ref={mapRef}
         style={styles.map}
         provider={getMapProvider()}
+        {...mapStyle.nativeMapProps}
         initialRegion={region}
         // Show the OS-native current-location dot (with accuracy ring) on top
         // of the post/journey markers. Permission is already requested in the
@@ -751,7 +873,7 @@ function initMap(){
         followsUserLocation={false}
         showsCompass={true}
         showsScale={true}
-        mapType="terrain"
+        mapType={mapStyle.mapType}
         mapPadding={{ top: 100, right: 80, bottom: 100, left: 80 }}
         onMapReady={() => {
           const allCoords = [
@@ -782,7 +904,8 @@ function initMap(){
             <React.Fragment key={`journey-${j._id}`}>
               <PolylineRenderer
                 coordinates={coords}
-                color={GROWTH_GREEN}
+                color={mapStyle.routeColor}
+                glowColor={mapStyle.routeGlowColor}
                 strokeWidth={4}
                 simplifyDistance={10}
                 applyKalman={true}
@@ -822,10 +945,9 @@ function initMap(){
             coordinate={{ latitude: location.latitude, longitude: location.longitude }}
             title={location.address || `Location #${location.number}`}
             description={`Visit #${location.number}`}
+            onPress={() => setSelectedLocation(location)}
           >
-            <View style={styles.markerContainer}>
-              <Ionicons name="location" size={36} color={ALERT_RED} />
-            </View>
+            <PremiumMapMarker icon="location" active={selectedLocation?.postId === location.postId || selectedLocation?.number === location.number} />
           </Marker>
         ))}
       </MapView>
@@ -985,6 +1107,91 @@ function initMap(){
         ) : (
           renderMap()
         )}
+        {validLocations.length > 0 && selectedLocation && (
+          <FlatList
+            ref={carouselRef}
+            data={validLocations}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            snapToInterval={screenWidth}
+            decelerationRate="fast"
+            onScrollBeginDrag={() => {
+              isScrollingCarouselRef.current = true;
+            }}
+            onMomentumScrollEnd={handleCarouselScroll}
+            getItemLayout={getCarouselItemLayout}
+            keyExtractor={(item, idx) => `carousel-${item.postId || item.number}-${idx}`}
+            style={styles.carouselContainer}
+            contentContainerStyle={styles.carouselContent}
+            renderItem={({ item }) => {
+              const isSelected = selectedLocation?.postId === item.postId || selectedLocation?.number === item.number;
+              return (
+                <View style={styles.carouselCardWrapper}>
+                  <GlassMapPanel style={[styles.previewCard, isSelected && styles.previewCardActive]} tint={mapStyle.glassTint}>
+                    <View style={styles.previewContent}>
+                      {item.photo ? (
+                        <ExpoImage
+                          source={{ uri: item.photo }}
+                          style={styles.previewImage}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                          transition={180}
+                        />
+                      ) : (
+                        <View style={[styles.previewImage, styles.previewFallback]}>
+                          <Ionicons name="image-outline" size={24} color={mapStyle.routeColor} />
+                        </View>
+                      )}
+                      <View style={styles.previewText}>
+                        <Text style={[styles.previewTitle, { color: theme.colors.text }]} numberOfLines={1}>
+                          {item.address || `Location #${item.number}`}
+                        </Text>
+                        <Text style={[styles.previewMeta, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                          Shared destination {item.contentType ? `- ${item.contentType}` : ''}
+                        </Text>
+                        <View style={styles.previewActions}>
+                          {item.postId ? (
+                            <TouchableOpacity
+                              style={[styles.previewButton, { borderColor: theme.colors.border }]}
+                              onPress={() => router.push(`/post/${item.postId}`)}
+                            >
+                              <Ionicons name="images-outline" size={16} color={theme.colors.text} />
+                              <Text style={[styles.previewButtonText, { color: theme.colors.text }]}>Post</Text>
+                            </TouchableOpacity>
+                          ) : null}
+                          <TouchableOpacity
+                            style={[styles.previewButton, styles.previewPrimaryButton, { backgroundColor: mapStyle.routeColor }]}
+                            onPress={() => router.push({
+                              pathname: '/map/current-location',
+                              params: {
+                                latitude: String(item.latitude),
+                                longitude: String(item.longitude),
+                                address: item.address || `Location #${item.number}`,
+                              },
+                            })}
+                          >
+                            <Ionicons name="navigate" size={16} color="white" />
+                            <Text style={[styles.previewButtonText, { color: 'white' }]}>Direction</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.previewClose}
+                        onPress={() => {
+                          setSelectedLocation(null);
+                        }}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
+                      </TouchableOpacity>
+                    </View>
+                  </GlassMapPanel>
+                </View>
+              );
+            }}
+          />
+        )}
       </View>
 
       {/* Journey controls — only on own page (not when viewing someone else's). */}
@@ -1056,6 +1263,22 @@ function initMap(){
                 <View style={[journeyStyles.liveDot, { backgroundColor: GROWTH_GREEN }]} />
                 <Text style={[journeyStyles.liveText, { color: GROWTH_GREEN }]}>Recording</Text>
               </View>
+              <View style={journeyStyles.captureRow}>
+                <TouchableOpacity
+                  style={[journeyStyles.captureBtn, { borderColor: ACTION_BLUE }]}
+                  onPress={() => openJourneyCapture('photo')}
+                >
+                  <Ionicons name="camera" size={18} color={ACTION_BLUE} />
+                  <Text style={[journeyStyles.captureText, { color: ACTION_BLUE }]}>Post</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[journeyStyles.captureBtn, { borderColor: ALERT_RED }]}
+                  onPress={() => openJourneyCapture('short')}
+                >
+                  <Ionicons name="videocam" size={18} color={ALERT_RED} />
+                  <Text style={[journeyStyles.captureText, { color: ALERT_RED }]}>Post a reel</Text>
+                </TouchableOpacity>
+              </View>
               <View style={journeyStyles.actionRow}>
                 <TouchableOpacity
                   style={[journeyStyles.pauseBtn, { borderColor: '#F59E0B' }]}
@@ -1091,6 +1314,22 @@ function initMap(){
                 </View>
                 <View style={[journeyStyles.liveDot, { backgroundColor: '#F59E0B' }]} />
                 <Text style={[journeyStyles.liveText, { color: '#F59E0B' }]}>Paused</Text>
+              </View>
+              <View style={journeyStyles.captureRow}>
+                <TouchableOpacity
+                  style={[journeyStyles.captureBtn, { borderColor: ACTION_BLUE }]}
+                  onPress={() => openJourneyCapture('photo')}
+                >
+                  <Ionicons name="camera" size={18} color={ACTION_BLUE} />
+                  <Text style={[journeyStyles.captureText, { color: ACTION_BLUE }]}>Post</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[journeyStyles.captureBtn, { borderColor: ALERT_RED }]}
+                  onPress={() => openJourneyCapture('short')}
+                >
+                  <Ionicons name="videocam" size={18} color={ALERT_RED} />
+                  <Text style={[journeyStyles.captureText, { color: ALERT_RED }]}>Post a reel</Text>
+                </TouchableOpacity>
               </View>
               <View style={journeyStyles.actionRow}>
                 <TouchableOpacity
@@ -1369,6 +1608,89 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
+  carouselContainer: {
+    position: 'absolute',
+    bottom: 18,
+    left: 0,
+    right: 0,
+    height: 155,
+  },
+  carouselContent: {
+    alignItems: 'center',
+    paddingHorizontal: 0,
+  },
+  carouselCardWrapper: {
+    width: screenWidth,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  previewCard: {
+    width: '100%',
+    padding: 12,
+  },
+  previewCardActive: {
+    borderWidth: 1.5,
+    borderColor: '#3B82F6',
+  },
+  previewContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  previewImage: {
+    width: 72,
+    height: 72,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  previewFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(94, 162, 255, 0.14)',
+  },
+  previewText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  previewTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  previewMeta: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 3,
+  },
+  previewActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
+  },
+  previewButton: {
+    minHeight: 34,
+    paddingHorizontal: 12,
+    borderRadius: 17,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  previewPrimaryButton: {
+    borderWidth: 0,
+  },
+  previewButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  previewClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
 
 const markerStyles = StyleSheet.create({
@@ -1473,6 +1795,25 @@ const journeyStyles = StyleSheet.create({
   actionRow: {
     flexDirection: 'row',
     gap: 10,
+  },
+  captureRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  captureBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  captureText: {
+    fontSize: 14,
+    fontWeight: '700',
   },
   pauseBtn: {
     flex: 1,

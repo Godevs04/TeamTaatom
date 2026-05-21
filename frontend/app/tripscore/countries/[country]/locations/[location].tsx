@@ -189,6 +189,20 @@ export default function LocationDetailScreen() {
   // Distance Calculation Guards: Cache calculated distances per session
   const distanceCacheRef = useRef<Map<string, number>>(new Map());
 
+  // Synchronize distance with route params if they change / become available after mount
+  useEffect(() => {
+    if (!isMountedRef.current) return;
+    const paramVal = Array.isArray(distanceKmParam) ? distanceKmParam[0] : distanceKmParam;
+    if (paramVal && paramVal !== '') {
+      const parsed = parseFloat(paramVal as string);
+      if (!isNaN(parsed) && !hasPreSeededDistanceRef.current) {
+        logger.debug('Syncing pre-seeded distance from param:', parsed);
+        hasPreSeededDistanceRef.current = true;
+        setDistance(parsed);
+      }
+    }
+  }, [distanceKmParam]);
+
   // Navigation & Lifecycle Safety: Setup and cleanup
   useEffect(() => {
     isMountedRef.current = true;
@@ -436,20 +450,16 @@ export default function LocationDetailScreen() {
           return;
         }
         
-        // Use OSRM for driving distance (same as locale list page)
-        // Round coordinates for stable cache key (already rounded above for cache key)
-        const roundedCurrentLat = roundCoord(currentLat);
-        const roundedCurrentLng = roundCoord(currentLng);
-        
-        const calculatedDistance = await calculateDrivingDistanceKm(
-          roundedCurrentLat,
-          roundedCurrentLng,
-          roundedTargetLat,
-          roundedTargetLng
+        // Calculate straight-line distance using the Haversine formula
+        const calculatedDistance = calculateDistance(
+          currentLat,
+          currentLng,
+          targetLat,
+          targetLng
         );
         
         // Distance Calculation Guards: Validate calculated distance
-        if (!calculatedDistance || isNaN(calculatedDistance) || calculatedDistance < 0) {
+        if (calculatedDistance === null || isNaN(calculatedDistance) || calculatedDistance < 0) {
           logger.warn('Invalid calculated distance:', calculatedDistance);
           if (isMountedRef.current) {
             setDistance(null);
@@ -460,7 +470,7 @@ export default function LocationDetailScreen() {
         // Cache the calculated distance
         distanceCacheRef.current.set(cacheKey, calculatedDistance);
         
-        logger.debug('Driving distance calculated successfully:', { distance: calculatedDistance, unit: 'km' });
+        logger.debug('Straight-line distance calculated successfully:', { distance: calculatedDistance, unit: 'km' });
         if (isMountedRef.current) {
           setDistance(calculatedDistance);
         }
@@ -958,7 +968,7 @@ export default function LocationDetailScreen() {
       
       // CRITICAL: Calculate distance ONLY for tripscore flow, NOT for locale flow
       // Locale flow distance is calculated above with exact coordinates
-      if (!isAdminLocale && !isFromLocaleFlow && data?.coordinates && 
+      if (!isAdminLocale && !isFromLocaleFlow && !hasPreSeededDistanceRef.current && data?.coordinates && 
           data.coordinates.latitude && data.coordinates.longitude &&
           data.coordinates.latitude !== 0 && data.coordinates.longitude !== 0) {
         // Calculate distance asynchronously after data is set (tripscore flow only)
@@ -1192,14 +1202,22 @@ export default function LocationDetailScreen() {
                   <Ionicons name="navigate" size={18} color={theme.colors.primary} />
                   <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Distance</Text>
                 </View>
-                <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>
+                <Text 
+                  style={[
+                    styles.quickInfoValue, 
+                    { color: theme.colors.text },
+                    distance !== null && distance !== undefined && { fontSize: 16, lineHeight: 22 }
+                  ]}
+                  numberOfLines={2}
+                  adjustsFontSizeToFit
+                >
                   {distance !== null && distance !== undefined
-                    ? distance < 1
-                      ? `${Math.round(distance * 1000)} m`
-                      : `${distance.toFixed(1)} km`
+                    ? `Approximately ${Math.round(distance)} km`
                     : 'Calculating...'}
                 </Text>
-                <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>from your location</Text>
+                <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>
+                  from your location
+                </Text>
               </View>
 
               <View style={[styles.quickInfoCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}>

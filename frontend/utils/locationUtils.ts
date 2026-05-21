@@ -162,12 +162,15 @@ export const getPlaceSuggestions = async (
     const data = await response.json();
     
     if (data.status === 'OK' && data.predictions && data.predictions.length > 0) {
-      // Extract suggested location names
+      // Return full descriptions (city + region + country) for disambiguation
       const suggestions = data.predictions
         .map((pred: any) => {
-          // Extract main location name (usually first part before comma)
-          const mainText = pred.structured_formatting?.main_text || pred.description;
-          return mainText ? mainText.split(',')[0].trim() : null;
+          const description = pred.description?.trim();
+          if (description) return description;
+          const main = pred.structured_formatting?.main_text || '';
+          const secondary = pred.structured_formatting?.secondary_text || '';
+          const combined = [main, secondary].filter(Boolean).join(', ');
+          return combined.trim() || null;
         })
         .filter((name: string | null): name is string => name !== null && name.length > 0);
       

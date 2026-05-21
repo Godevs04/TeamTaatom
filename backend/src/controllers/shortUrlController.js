@@ -212,7 +212,7 @@ const redirectShortUrl = async (req, res) => {
       deepLink = `taatom://navigate/detail?journeyId=${shortUrl.journeyId}`;
       universalLink = `https://taatom.com/journey/${shortUrl.journeyId}`;
     } else {
-      deepLink = `taatom://post/${shortUrl.postId}`;
+      deepLink = `taatom:///post/${shortUrl.postId}`;
       universalLink = `https://taatom.com/post/${shortUrl.postId}`;
     }
     

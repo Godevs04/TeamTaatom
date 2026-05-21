@@ -1,8 +1,10 @@
 type SavedListener = () => void;
+type FeedInvalidateListener = () => void;
 type PostActionListener = (postId: string, action: 'like' | 'unlike' | 'save' | 'unsave' | 'comment', data?: any) => void;
 
 class SavedEvents {
   private savedListeners: Set<SavedListener> = new Set();
+  private feedInvalidateListeners: Set<FeedInvalidateListener> = new Set();
   private postActionListeners: Set<PostActionListener> = new Set();
 
   addListener(listener: SavedListener) {
@@ -17,6 +19,19 @@ class SavedEvents {
     return () => {
       this.postActionListeners.delete(listener);
     };
+  }
+
+  addFeedInvalidateListener(listener: FeedInvalidateListener) {
+    this.feedInvalidateListeners.add(listener);
+    return () => {
+      this.feedInvalidateListeners.delete(listener);
+    };
+  }
+
+  emitFeedInvalidate() {
+    this.feedInvalidateListeners.forEach((l) => {
+      try { l(); } catch {}
+    });
   }
 
   emitChanged() {

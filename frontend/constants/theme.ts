@@ -11,10 +11,17 @@ export const theme = {
     xxl: 48,
   },
   borderRadius: {
-    sm: 10,
-    md: 14,
-    lg: 16,
-    xl: 22,
+    sm: 12,
+    md: 16,
+    lg: 20,
+    xl: 24,
+    full: 9999,
+  },
+  radius: {
+    sm: 12,
+    md: 16,
+    lg: 20,
+    xl: 24,
     full: 9999,
   },
   typography: {
@@ -52,24 +59,59 @@ export const theme = {
   shadows: {
     small: {
       shadowColor: colors.shadow,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.25,
-      shadowRadius: 3.84,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.28,
+      shadowRadius: 10,
       elevation: 3,
     },
     medium: {
       shadowColor: colors.shadow,
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.3,
-      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.34,
+      shadowRadius: 20,
       elevation: 6,
     },
     large: {
       shadowColor: colors.shadow,
-      shadowOffset: { width: 0, height: 10 },
-      shadowOpacity: 0.35,
-      shadowRadius: 14,
+      shadowOffset: { width: 0, height: 14 },
+      shadowOpacity: 0.40,
+      shadowRadius: 32,
       elevation: 10,
     },
   },
+  animation: {
+    spring: {
+      stiffness: 250,
+      damping: 20,
+      mass: 1,
+    },
+    timing: {
+      duration: 300,
+    }
+  },
+  glass: {
+    blurIntensity: 70,
+    blurTint: 'dark' as 'dark' | 'light' | 'default',
+    border: {
+      width: 1,
+      color: colors.glass.border,
+    },
+    blur: {
+      light: 30,
+      medium: 70,
+    }
+  },
+  premium: {
+    screenGradient: colors.screenGradient,
+    glassSurface: colors.glassSurface,
+    glassStrong: colors.glassStrong,
+    glassBorder: colors.glassBorder,
+    glowBlue: colors.glowBlue,
+    innerHighlight: colors.innerHighlight,
+    softShadow: colors.softShadow,
+    floatingDock: colors.floatingDock,
+    cardRadius: 24,
+    pillRadius: 9999,
+    iconWell: 48,
+  }
 };

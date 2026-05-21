@@ -17,8 +17,10 @@ import {
   FlatList
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import NavBar from '../../components/NavBar';
@@ -32,7 +34,7 @@ import { socketService } from '../../services/socket';
 import { UserType } from '../../types/user';
 import { PostType } from '../../types/post';
 import EditProfile from '../../components/EditProfile';
-import BioDisplay from '../../components/BioDisplay';
+import ProfilePremiumView from '../../components/profile/ProfilePremiumView';
 import KebabMenu from '../../components/common/KebabMenu';
 import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
@@ -41,6 +43,10 @@ import { ErrorBoundary } from '../../utils/errorBoundary';
 import { trackScreenView, trackEngagement, trackFeatureUsage } from '../../services/analytics';
 import { theme } from '../../constants/theme';
 import { optimizeCloudinaryUrl } from '../../utils/imageCache';
+import { CloudSkyBackground } from '../../components/cloud';
+import ScrollEdgeFades from '../../components/ScrollEdgeFades';
+import { cloudDesign } from '../../constants/cloudDesign';
+import PremiumGlassCard from '../../components/ui/PremiumGlassCard';
 
 const logger = createLogger('ProfileScreen');
 
@@ -77,6 +83,14 @@ interface Journey {
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+// 3-column grid constants
+// Card has marginHorizontal 0 each side = 0px consumed (occupies fully)
+// postsTabsSection has paddingHorizontal 0 on the grid part
+// 2 gaps between 3 columns
+const GRID_GAP = 2;
+const GRID_CARD_MARGIN = 0; // Set to 0 to occupy screen fully
+const profileColumnWidth = Math.floor((screenWidth - GRID_CARD_MARGIN * 2 - GRID_GAP * 2) / 3);
+const profileShortHeight = Math.round(profileColumnWidth * (16 / 9));
 const isTablet = screenWidth >= 768;
 const isWeb = Platform.OS === 'web';
 const isIOS = Platform.OS === 'ios';
@@ -120,6 +134,7 @@ interface ProfileData extends UserType {
 
 export default function ProfileScreen() {
   const { handleScroll } = useScrollToHideNav();
+  const insets = useSafeAreaInsets();
   const [user, setUser] = useState<UserType | null>(null);
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [posts, setPosts] = useState<PostType[]>([]);
@@ -169,33 +184,47 @@ export default function ProfileScreen() {
   // Theme-aware colors for profile - MUST be called before any conditional returns
   const colorScheme = useColorScheme();
   // Improved dark mode detection - use theme mode if available, otherwise check background color
-  const isDark = mode === 'dark' || (mode === 'auto' && colorScheme === 'dark') || theme.colors.background === '#000000' || theme.colors.background === '#111114';
-  
+  const isDark =
+    mode === 'dark' ||
+    (mode === 'auto' && colorScheme === 'dark') ||
+    theme.colors.background === '#0B1A2B' ||
+    theme.colors.background === '#000000' ||
+    theme.colors.background === '#111114';
+
   const profileTheme = useMemo(() => {
     if (isDark) {
       return {
-        headerGradient: ['#020617', '#0B1120', '#111827'] as const,
-        cardBg: '#111827',
-        cardBorder: 'rgba(255, 255, 255, 0.1)',
-        textPrimary: '#F9FAFB',
-        textSecondary: '#9CA3AF',
-        accent: '#60A5FA',
-        statCardBg: 'rgba(96, 165, 250, 0.1)',
-        statCardBorder: 'rgba(96, 165, 250, 0.2)',
-      };
-    } else {
-      return {
-        headerGradient: ['#F3F6FF', '#E8F0FE', '#FFFFFF'] as const,
-        cardBg: '#FFFFFF',
-        cardBorder: 'rgba(0, 0, 0, 0.08)',
-        textPrimary: '#111827',
-        textSecondary: '#6B7280',
-        accent: '#2563EB',
-        statCardBg: 'rgba(37, 99, 235, 0.08)',
-        statCardBorder: 'rgba(37, 99, 235, 0.15)',
+        headerGradient: ['#0B1A2B', '#102236', '#122236'] as const,
+        cardBg: theme.colors.card,
+        glassCardBg: theme.colors.glassSurface,
+        cardBorder: theme.colors.glassBorder,
+        textPrimary: theme.colors.text,
+        textSecondary: theme.colors.textSecondary,
+        accent: theme.colors.primary,
+        statCardBg: 'rgba(91, 188, 248, 0.12)',
+        statCardBorder: 'rgba(91, 188, 248, 0.22)',
+        pillTabsBg: 'rgba(18, 34, 54, 0.88)',
+        explorerBadgeBg: 'rgba(91, 188, 248, 0.18)',
+        explorerBadgeText: theme.colors.primary,
+        gapBorderColor: '#06121F',
       };
     }
-  }, [isDark]);
+    return {
+      headerGradient: ['#A8DAFC', '#E8F4FF', '#FFFFFF'] as const,
+      cardBg: '#FFFFFF',
+      glassCardBg: 'rgba(255, 255, 255, 0.78)',
+      cardBorder: 'rgba(255, 255, 255, 0.76)',
+      textPrimary: '#1A2B3C',
+      textSecondary: '#4A6274',
+      accent: '#2B7FD4',
+      statCardBg: 'rgba(91, 188, 248, 0.14)',
+      statCardBorder: 'rgba(91, 188, 248, 0.26)',
+      pillTabsBg: '#F3F4F6',
+      explorerBadgeBg: cloudDesign.skyPale,
+      explorerBadgeText: cloudDesign.blueDeep,
+      gapBorderColor: '#EDF7FF',
+    };
+  }, [isDark, theme.colors]);
 
   const tripsCount = useMemo(() => countTripsFromLocations(verifiedLocations), [verifiedLocations]);
   const countriesCount = useMemo(() => (profileData?.tripScore?.countries ? Object.keys(profileData.tripScore.countries).length : 0), [profileData?.tripScore?.countries]);
@@ -214,7 +243,7 @@ export default function ProfileScreen() {
   }, []);
 
   // Profile Data Consistency: Single source of truth - refresh all profile data from API
-  const loadUserData = useCallback(async () => {
+  const loadUserData = useCallback(async (isBackground = false) => {
     // Request Guard: Prevent duplicate calls
     if (isFetchingRef.current) {
       logger.debug('loadUserData already in progress, skipping');
@@ -222,9 +251,11 @@ export default function ProfileScreen() {
     }
     
     isFetchingRef.current = true;
-    setCheckingUser(true);
-    setVerifiedLocations([]);
-    setVerifiedLocationsCount(null);
+    if (!isBackground) {
+      setCheckingUser(true);
+      setVerifiedLocations([]);
+      setVerifiedLocationsCount(null);
+    }
     
     // Cancel previous request if any
     if (abortControllerRef.current) {
@@ -407,7 +438,11 @@ export default function ProfileScreen() {
       }
       if (!isMountedRef.current) return;
       logger.error('Failed to load profile', error);
-      showError('Failed to load profile data');
+      const isNetwork =
+        error?.message?.includes('Network') ||
+        error?.code === 'ERR_NETWORK' ||
+        error?.message === 'Network Error';
+      showError(isNetwork ? 'Network Error — check your connection and try again.' : 'Failed to load profile data');
     } finally {
       if (isMountedRef.current) {
         setLoading(false);
@@ -510,7 +545,7 @@ export default function ProfileScreen() {
         // Small delay to avoid race conditions with navigation
         const refreshTimer = setTimeout(() => {
           if (isMountedRef.current && user?._id) {
-            loadUserData();
+            loadUserData(true);
           }
         }, 100);
         
@@ -972,7 +1007,10 @@ export default function ProfileScreen() {
             await deleteShort(postId);
           } else {
             await deletePost(postId);
+            await AsyncStorage.removeItem('postDraft');
           }
+          const { audioManager } = await import('../../utils/audioManager');
+          await audioManager.stopAll();
           
           showSuccess(`${isShort ? 'Short' : 'Post'} deleted successfully!`);
         } catch (error: any) {
@@ -1013,7 +1051,7 @@ export default function ProfileScreen() {
           </Text>
           <TouchableOpacity
             style={[styles.retryButton, { backgroundColor: theme.colors.primary }]}
-            onPress={loadUserData}
+            onPress={() => loadUserData()}
           >
             <Text style={[styles.retryButtonText, { color: theme.colors.surface }]}>
               Retry
@@ -1054,14 +1092,8 @@ export default function ProfileScreen() {
       }).start();
     };
 
-    // Refined pill-like glass effect for stat cards
-    const cardBgColor = isDark 
-      ? 'rgba(17, 24, 39, 0.9)' // Dark glass - more refined
-      : 'rgba(255, 255, 255, 0.9)'; // Light glass - clean white
-    
-    const borderColor = isDark 
-      ? 'rgba(148, 163, 184, 0.3)' 
-      : 'rgba(148, 163, 184, 0.2)';
+    const cardBgColor = isDark ? theme.colors.glassStrong : 'rgba(255, 255, 255, 0.9)';
+    const borderColor = isDark ? theme.colors.glassBorder : 'rgba(148, 163, 184, 0.2)';
     
     const CardContent = (
       <Animated.View 
@@ -1102,7 +1134,85 @@ export default function ProfileScreen() {
 
   return (
     <ErrorBoundary level="route">
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      {!isDark && <CloudSkyBackground heightRatio={0.38} />}
+      <LinearGradient
+        colors={theme.colors.screenGradient as [string, string, ...string[]]}
+        style={StyleSheet.absoluteFillObject}
+        locations={isDark ? [0, 0.45, 1] : [0, 0.22, 0.55, 1]}
+      />
+
+      {/* Top Bar Container matching Home feed's top bar */}
+      <View style={[styles.topBarContainer, { paddingTop: insets.top, height: 56 + insets.top }]}>
+        <LinearGradient
+          colors={
+            isDark
+              ? ['#06121F', '#102236']
+              : ['#A8DAFC', '#C8E8FF']
+          }
+          style={StyleSheet.absoluteFillObject}
+        />
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={handleRefresh}
+            activeOpacity={0.7}
+            style={styles.logoContainer}
+            accessibilityLabel="Taatom, tap to refresh profile"
+            accessibilityRole="button"
+          >
+            <View style={styles.logoImageContainer}>
+              <Image 
+                source={{ uri: 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png' }}
+                style={[styles.logoImage, { resizeMode: 'contain' }] as ImageStyle[]}
+              />
+            </View>
+            <Text style={[styles.logoText, { color: theme.colors.text }]} allowFontScaling={false}>
+              Taatom
+            </Text>
+          </TouchableOpacity>
+
+          <View style={styles.headerIconsRight}>
+            <Pressable
+              style={styles.iconButton}
+              onPress={() => router.push('/notifications')}
+              accessibilityLabel={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+              accessibilityRole="button"
+            >
+              <Ionicons
+                name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
+                size={22}
+                color={theme.colors.text}
+              />
+              {unreadCount > 0 && (
+                <View style={[styles.headerNotificationBadge, { backgroundColor: theme.colors.error, borderColor: isDark ? '#0A1624' : '#C4E5FF' }]}>
+                  <Text style={[styles.headerBadgeText, { color: '#FFFFFF' }]}>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+            <KebabMenu
+              iconColor={theme.colors.text}
+              iconSize={22}
+              items={[
+                {
+                  label: 'Settings',
+                  icon: 'settings-outline',
+                  onPress: () => router.push('/settings'),
+                },
+                {
+                  label: 'Sign Out',
+                  icon: 'log-out-outline',
+                  onPress: handleSignOut,
+                  destructive: true,
+                },
+              ]}
+            />
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.scrollClip}>
       <ScrollView
         ref={scrollViewRef}
         style={styles.scrollView}
@@ -1122,325 +1232,72 @@ export default function ProfileScreen() {
             onRefresh={handleRefresh}
             colors={[theme.colors.primary]}
             tintColor={theme.colors.primary}
+            progressViewOffset={56 + insets.top}
           />
         }
       >
-        {/* Top Actions - Outside unified card */}
-        <View style={styles.topActionsContainer}>
-          <View style={styles.topActionsLeft}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Image
-                source={{ uri: 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png' }}
-                style={{ width: 56, height: 56 }}
-                resizeMode="contain"
-              />
-              <Text style={{
-                fontSize: 30,
-                fontWeight: '600',
-                color: profileTheme.textPrimary,
-                fontFamily: Platform.select({
-                  ios: 'Snell Roundhand',
-                  android: 'cursive',
-                  default: 'cursive',
-                }),
-                letterSpacing: 0.3,
-              }}>
-                Taatom
-              </Text>
-            </View>
-          </View>
-          <View style={styles.topActionsRight}>
-            <Pressable
-              style={[styles.headerActionButton, { backgroundColor: profileTheme.cardBg + '80' }]}
-              onPress={() => router.push('/notifications')}
-            >
-              <Ionicons
-                name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
-                size={20}
-                color={profileTheme.textPrimary}
-              />
-              {unreadCount > 0 && (
-                <View style={[styles.notificationBadge, { backgroundColor: theme.colors.error }]}>
-                  <Text style={[styles.badgeText, { color: '#FFFFFF' }]}>
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </Text>
-                </View>
-              )}
-            </Pressable>
-            <KebabMenu
-              items={[
-                {
-                  label: 'Settings',
-                  icon: 'settings-outline',
-                  onPress: () => router.push('/settings'),
-                },
-                {
-                  label: 'Sign Out',
-                  icon: 'log-out-outline',
-                  onPress: handleSignOut,
-                  destructive: true,
-                },
-              ]}
-            />
-          </View>
-        </View>
+        {/* Spacer to reserve space for the absolute header */}
+        <View style={{ height: 56 + insets.top }} />
 
-        {/* Travel banner image - elegant full-width banner above profile card */}
-        <View style={styles.travelBannerWrapper}>
-          <Image
-            source={require('../../assets/banner1.png')}
-            style={styles.travelBannerImage as ImageStyle}
-            resizeMode="cover"
-          />
-        </View>
-
-        {/* Unified Profile Content Card - Everything in one container */}
         {profileData && (
-          <View style={[styles.unifiedCard, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.cardBorder }]}>
-            {/* Subtle travel accent line at top of card */}
-            <View style={[styles.travelAccentStrip, { backgroundColor: profileTheme.accent + (isDark ? '25' : '15') }]} />
-            {/* Profile Header Section */}
-            <View style={styles.profileHeaderSection}>
-              {/* Avatar with Ring */}
-              <View style={styles.avatarContainer}>
-                <View style={[styles.avatarRing, { borderColor: profileTheme.accent + '40' }]}>
-                  <Image
-                    source={profileData.profilePic ? { uri: optimizeCloudinaryUrl(profileData.profilePic, { width: 200, height: 200 }) } : require('../../assets/avatars/male_avatar.png')}
-                    style={[styles.avatar as ImageStyle, { borderColor: profileTheme.cardBg }]}
-                  />
-                </View>
-              </View>
-
-              {/* Username / handle */}
-              {profileData.username && (
-                <Text style={[styles.username, { color: profileTheme.textPrimary }]}>@{profileData.username}</Text>
-              )}
-              
-              {/* Full Name */}
-              <Text style={[styles.profileName, { color: profileTheme.textPrimary }]}>{profileData.fullName}</Text>
-              
-              {/* Join date (no \"Member since\" label text) */}
-              {profileData.createdAt && (
-                <Text style={[styles.memberSince, { color: profileTheme.textSecondary }]}>
-                  {new Date(profileData.createdAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-                </Text>
-              )}
-
-              {/* Bio */}
-              {profileData.bio && (
-                <View style={{ marginTop: 8, width: '100%', alignItems: 'center' }}>
-                  <BioDisplay bio={profileData.bio} />
-                </View>
-              )}
-
-              {/* Badge */}
-              <View style={[styles.badge, { backgroundColor: profileTheme.accent + '20', borderColor: profileTheme.accent + '30' }]}>
-                <Ionicons name="airplane" size={12} color={profileTheme.accent} />
-                <Text style={[styles.badgeText, { color: profileTheme.accent }]}>Explorer</Text>
-              </View>
-            </View>
-
-            {/* Divider */}
-            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
-            {/* Stats Row - Posts, Followers, Following */}
-            <View style={styles.statsContainer}>
-              {/* Posts Stat */}
-              <View style={styles.statItem}>
-                <View style={[styles.statsIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-                  <Ionicons name="flame" size={18} color={profileTheme.accent} />
-                </View>
-                <Text style={[styles.statsValue, { color: profileTheme.accent }]}>
-                  {profileData?.postsCount || 0}
-                </Text>
-                <Text style={[styles.statsLabel, { color: profileTheme.textSecondary }]}>POSTS</Text>
-              </View>
-
-              {/* Followers Stat */}
-              <Pressable 
-                style={styles.statItem}
-                onPress={() => {
-                  if (profileData?._id) {
-                    router.push(`/followers?userId=${profileData._id}&type=followers`);
-                  }
-                }}
-              >
-                <View style={[styles.statsIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-                  <Ionicons name="people" size={18} color={profileTheme.accent} />
-                </View>
-                <Text style={[styles.statsValue, { color: profileTheme.accent }]}>
-                  {profileData?.followersCount || 0}
-                </Text>
-                <Text style={[styles.statsLabel, { color: profileTheme.textSecondary }]}>FOLLOWERS</Text>
-              </Pressable>
-
-              {/* Following Stat */}
-              <Pressable 
-                style={styles.statItem}
-                onPress={() => {
-                  if (profileData?._id) {
-                    router.push(`/followers?userId=${profileData._id}&type=following`);
-                  }
-                }}
-              >
-                <View style={[styles.statsIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-                  <Ionicons name="people-outline" size={18} color={profileTheme.accent} />
-                </View>
-                <Text style={[styles.statsValue, { color: profileTheme.accent }]}>
-                  {profileData?.followingCount || 0}
-                </Text>
-                <Text style={[styles.statsLabel, { color: profileTheme.textSecondary }]}>FOLLOWING</Text>
-              </Pressable>
-            </View>
-
-            {/* Divider */}
-            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
-
-            {/* Edit Profile Button */}
-            <Pressable
-              style={styles.editProfileButton}
-              onPress={() => setShowEditProfile(true)}
-            >
-              <Ionicons name="create-outline" size={18} color={profileTheme.accent} />
-              <Text style={[styles.editProfileButtonText, { color: profileTheme.textPrimary }]}>
-                Edit Profile
-              </Text>
-            </Pressable>
-
-            {/* Divider */}
-            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
-
-            {/* TripScore Section - Enhanced with prominent badge and verified travel card */}
-            <Pressable
-              style={styles.unifiedSection}
-              onPress={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
-            >
-              <View style={styles.tripScoreBadgeContainer}>
-                <View style={[styles.tripScoreBadgeBox, { borderColor: profileTheme.accent + '30' }]}>
-                  <Text style={[styles.tripScoreBadgeNumber, { color: '#22C55E' }]}>
-                    {profileData.tripScore?.totalScore ?? 0}
-                  </Text>
-                  <Text style={[styles.tripScoreBadgeLabel, { color: profileTheme.textSecondary }]}>
-                    TripScore
-                  </Text>
-                </View>
-              </View>
-
-              {/* Verified Travel Card */}
-              {verifiedLocationsCount !== null && verifiedLocationsCount > 0 && (
-                <Pressable
-                  style={[styles.verifiedTravelCard, { backgroundColor: profileTheme.accent + '10', borderColor: profileTheme.accent + '25' }]}
-                  onPress={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
-                >
-                  <View style={styles.verifiedTravelContent}>
-                    <View style={[styles.verifiedTravelIcon, { backgroundColor: profileTheme.accent + '20' }]}>
-                      <Ionicons name="checkmark-circle" size={20} color={profileTheme.accent} />
-                    </View>
-                    <View style={styles.verifiedTravelText}>
-                      <Text style={[styles.verifiedTravelTitle, { color: profileTheme.textPrimary }]}>
-                        Verified Travel
-                      </Text>
-                      <Text style={[styles.verifiedTravelCount, { color: profileTheme.textSecondary }]}>
-                        {verifiedLocationsCount} location{verifiedLocationsCount !== 1 ? 's' : ''} verified
-                      </Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={18} color={profileTheme.textSecondary} />
-                  </View>
-                </Pressable>
-              )}
-            </Pressable>
-
-            {/* Divider */}
-            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
-
-            {/* My Location Section - unified card */}
-            <Pressable 
-              style={styles.unifiedSection}
-              onPress={() => {
+          <>
+            <ProfilePremiumView
+              profilePic={profileData.profilePic}
+              fullName={profileData.fullName}
+              username={profileData.username}
+              bio={profileData.bio}
+              createdAt={profileData.createdAt}
+              tripScore={profileData.tripScore?.totalScore ?? 0}
+              followersCount={profileData.followersCount || 0}
+              verifiedCount={verifiedLocationsCount}
+              tripsCount={tripsCount}
+              countriesCount={countriesCount}
+              verifiedLocations={verifiedLocations}
+              highlightPosts={posts}
+              userId={user?._id ?? profileData._id}
+              isDark={isDark}
+              accent={profileTheme.accent}
+              textPrimary={profileTheme.textPrimary}
+              textSecondary={profileTheme.textSecondary}
+              onEditProfile={() => setShowEditProfile(true)}
+              onOpenMap={() => {
                 const id = user?._id ?? profileData?._id;
                 const userId = id != null ? String(id) : undefined;
                 if (userId) router.push(`/map/all-locations?userId=${encodeURIComponent(userId)}`);
               }}
-            >
-              <View style={styles.locationCardHeader}>
-                <View style={[styles.locationIconContainer, { backgroundColor: profileTheme.accent + '20' }]}>
-                  <Ionicons name="globe" size={24} color={profileTheme.accent} />
-                </View>
-                <View style={styles.locationTextContainer}>
-                  <Text style={[styles.locationTitle, { color: profileTheme.textPrimary }]}>My Location</Text>
-                  <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary }]}>
-                    Your verified travel
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color={profileTheme.textSecondary} />
-              </View>
-              <View style={styles.locationCardBody}>
-                <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary, marginBottom: 8 }]}>
-                  {verifiedLocationsCount !== null && verifiedLocationsCount > 0
-                    ? `${verifiedLocationsCount} verified location${verifiedLocationsCount !== 1 ? 's' : ''} · ${tripsCount} trip${tripsCount !== 1 ? 's' : ''}`
-                    : verifiedLocationsCount === null
-                    ? 'Loading travel summary…'
-                    : (profileData?.tripScore?.totalScore ?? 0) > 0
-                    ? `TripScore ${profileData?.tripScore?.totalScore ?? 0} · Tap to view your travel map`
-                    : 'No verified locations yet. Post with locations to build your map.'}
-                </Text>
-                {countriesCount > 0 ? (
-                  <Text style={[styles.locationSubtitle, { color: profileTheme.textSecondary, marginBottom: 12 }]}>
-                    {countriesCount} countr{countriesCount !== 1 ? 'ies' : 'y'} visited
-                  </Text>
-                ) : null}
-              </View>
-              {globeLocations.length === 0 ? (
-                <View style={styles.locationGlobeContainer}>
-                  <View style={[styles.emptyGlobeContainer, { backgroundColor: profileTheme.accent + '10' }]}>
-                    <Ionicons name="globe-outline" size={64} color={profileTheme.accent} />
-                  </View>
-                </View>
-              ) : null}
+              onOpenTripScore={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
+              onOpenJourneys={() => router.push(`/journeys?userId=${user?._id}`)}
+              onOpenConnect={() => router.push('/connect')}
+              followingCount={profileData.followingCount || 0}
+              onOpenFollowers={() => {
+                if (profileData?._id) {
+                  router.push(`/followers?userId=${profileData._id}&type=followers`);
+                }
+              }}
+              onOpenFollowing={() => {
+                if (profileData?._id) {
+                  router.push(`/followers?userId=${profileData._id}&type=following`);
+                }
+              }}
+            />
 
-            </Pressable>
-
-            {/* Journeys — outside the My Location Pressable so taps work */}
-            <Pressable
-              style={[styles.journeysInlineButton, { backgroundColor: profileTheme.accent + '10', borderColor: profileTheme.accent + '25' }]}
-              onPress={() => router.push(`/journeys?userId=${user?._id}`)}
-            >
-              <View style={[styles.journeysInlineIcon, { backgroundColor: profileTheme.accent + '20' }]}>
-                <Ionicons name="map" size={20} color={profileTheme.accent} />
-              </View>
-              <View style={styles.journeysInlineText}>
-                <Text style={[styles.journeysInlineTitle, { color: profileTheme.textPrimary }]}>My Journeys</Text>
-                <Text style={[styles.journeysInlineSubtitle, { color: profileTheme.textSecondary }]}>View your travels</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={profileTheme.textSecondary} />
-            </Pressable>
-
-            {/* Connect Section */}
-            <Pressable
-              style={[styles.journeysInlineButton, { backgroundColor: profileTheme.accent + '10', borderColor: profileTheme.accent + '25' }]}
-              onPress={() => router.push('/connect')}
-            >
-              <View style={[styles.journeysInlineIcon, { backgroundColor: profileTheme.accent + '20' }]}>
-                <Ionicons name="people" size={20} color={profileTheme.accent} />
-              </View>
-              <View style={styles.journeysInlineText}>
-                <Text style={[styles.journeysInlineTitle, { color: profileTheme.textPrimary }]}>Connect</Text>
-                <Text style={[styles.journeysInlineSubtitle, { color: profileTheme.textSecondary }]}>Find & connect with travelers</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={18} color={profileTheme.textSecondary} />
-            </Pressable>
-
-            {/* Divider */}
-            <View style={[styles.divider, { backgroundColor: profileTheme.cardBorder }]} />
-
-            {/* Posts/Shorts/Saved Tabs - Pill Style */}
+          <PremiumGlassCard
+            style={[
+              styles.unifiedCard,
+              isDark && { shadowColor: theme.colors.glowBlue || theme.colors.primary },
+            ]}
+            contentStyle={styles.unifiedCardInner}
+            strong={isDark}
+            subtle
+          >
+            {/* Posts/Shorts/Saved Tabs - Pill Style (padded row) */}
             <View
               style={styles.postsTabsSection}
               onLayout={(event) => {
-                // Capture the vertical position of the tabs section once it's laid out
                 tabsOffsetRef.current = event.nativeEvent.layout.y;
               }}
             >
-              <View style={[styles.pillTabsContainer, { backgroundColor: isDark ? '#1F2937' : '#F3F4F6' }]}>
+              <View style={[styles.pillTabsContainer, { backgroundColor: profileTheme.pillTabsBg, borderColor: isDark ? 'rgba(255,255,255,0.08)' : profileTheme.cardBorder, borderWidth: StyleSheet.hairlineWidth }]}>
                 {(['posts','shorts','saved'] as const).map(tab => (
                   <Pressable 
                     key={tab} 
@@ -1468,14 +1325,15 @@ export default function ProfileScreen() {
                       styles.pillTabText, 
                       { color: activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary }
                     ]}>
-                      {tab === 'posts' ? 'Posts' : tab === 'shorts' ? 'Shorts' : 'Saved'}
+                      {tab === 'posts' ? 'Posts 📸' : tab === 'shorts' ? 'Shorts 🎬' : 'Saved 🔖'}
                     </Text>
                   </Pressable>
                 ))}
               </View>
-              
-              <View style={styles.contentArea}>
-            {/* Profile Tabs: Always rendered with height: 0 when hidden to prevent scroll reset */}
+            </View>
+            
+            {/* Grid content area — full card width, no horizontal padding */}
+            <View style={styles.contentArea}>
             {/* Profile Tabs Lifecycle Safety: Always render all tabs but hide inactive - prevents scroll reset */}
             <View style={activeTab !== 'posts' ? { height: 0, overflow: 'hidden' } : {}}>
               {posts.length > 0 ? (
@@ -1496,7 +1354,7 @@ export default function ProfileScreen() {
                     return (
                       <Pressable 
                         key={post._id} 
-                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg }]}
+                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor }]}
                         onLongPress={() => handleDeletePost(post._id, false)}
                         onPress={() => user?._id && router.push(`/user-posts/${user._id}?postId=${post._id}`)}
                       >
@@ -1506,32 +1364,36 @@ export default function ProfileScreen() {
                             style={styles.thumbnailImage as ImageStyle}
                             resizeMode="cover"
                             onError={(error) => {
-                              // Don't log 403 Forbidden errors - they're expected for expired signed URLs
                               const errorMessage = error?.nativeEvent?.error?.message || '';
                               const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
-                              
                               if (__DEV__ && !is403) {
-                                console.warn('⚠️ [Profile] Image failed:', {
-                                  postId: post._id,
-                                  url: validImageUrl.substring(0, 80),
-                                  error: errorMessage || 'Unknown'
-                                });
+                                console.warn('⚠️ [Profile] Image failed:', { postId: post._id, url: validImageUrl.substring(0, 80), error: errorMessage || 'Unknown' });
                               }
-                              // Only log non-403 errors in production to reduce noise
                               if (!is403) {
-                                logger.warn('Image failed to load', {
-                                  postId: post._id,
-                                  imageUrl: validImageUrl.substring(0, 100),
-                                  error: errorMessage || 'Unknown error'
-                                });
+                                logger.warn('Image failed to load', { postId: post._id, imageUrl: validImageUrl.substring(0, 100), error: errorMessage || 'Unknown error' });
                               }
                             }}
                           />
                         ) : (
                           <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
-                            <Ionicons name="image-outline" size={32} color={profileTheme.textSecondary} />
+                            <Ionicons name="image-outline" size={28} color={profileTheme.textSecondary} />
                           </View>
                         )}
+                        {/* Multi-image indicator */}
+                        {(post as any).images?.length > 1 && (
+                          <View style={styles.multiImageBadge}>
+                            <Ionicons name="copy-outline" size={12} color="#FFFFFF" />
+                          </View>
+                        )}
+                        {/* View count overlay */}
+                        <View style={styles.viewCountOverlay}>
+                          <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
+                          <Text style={styles.viewCountText}>
+                            {((post as any).viewsCount ?? 0) >= 1000
+                              ? `${(((post as any).viewsCount ?? 0) / 1000).toFixed(1)}k`
+                              : String((post as any).viewsCount ?? 0)}
+                          </Text>
+                        </View>
                       </Pressable>
                     );
                   })}
@@ -1566,15 +1428,20 @@ export default function ProfileScreen() {
                       return (
                         <Pressable
                           key={s._id}
-                          style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg }]}
+                          style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor, aspectRatio: 9/16 }]}
                           onLongPress={() => handleDeletePost(s._id, true)}
                           onPress={() => router.push(`/user-shorts/${user?._id || ''}?shortId=${s._id}`)}
                         >
                           <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
-                            <Ionicons name="videocam-outline" size={32} color={profileTheme.textSecondary} />
+                            <Ionicons name="videocam-outline" size={28} color={profileTheme.textSecondary} />
                           </View>
                           <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-                            <Ionicons name="play" size={24} color="#FFFFFF" />
+                            <Ionicons name="play" size={22} color="#FFFFFF" />
+                          </View>
+                          {/* View count overlay */}
+                          <View style={styles.viewCountOverlay}>
+                            <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
+                            <Text style={styles.viewCountText}>0</Text>
                           </View>
                         </Pressable>
                       );
@@ -1582,7 +1449,7 @@ export default function ProfileScreen() {
                     return (
                       <Pressable
                         key={s._id}
-                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg }]}
+                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor, aspectRatio: 9/16 }]}
                         onLongPress={() => handleDeletePost(s._id, true)}
                         onPress={() => router.push(`/user-shorts/${user?._id || ''}?shortId=${s._id}`)}
                       >
@@ -1596,8 +1463,17 @@ export default function ProfileScreen() {
                             }
                           }}
                         />
-                        <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-                          <Ionicons name="play" size={24} color="#FFFFFF" />
+                        <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.35)' }]}>
+                          <Ionicons name="play" size={22} color="#FFFFFF" />
+                        </View>
+                        {/* View count overlay — bottom-left */}
+                        <View style={styles.viewCountOverlay}>
+                          <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
+                          <Text style={styles.viewCountText}>
+                            {((s as any).viewsCount ?? 0) >= 1000
+                              ? `${(((s as any).viewsCount ?? 0) / 1000).toFixed(1)}k`
+                              : String((s as any).viewsCount ?? 0)}
+                          </Text>
                         </View>
                       </Pressable>
                     );
@@ -1641,7 +1517,7 @@ export default function ProfileScreen() {
                     return (
                       <Pressable 
                         key={item._id} 
-                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg }]}
+                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor }]}
                         onPress={() => {
                           // Use the same format as user-posts route
                           router.push(`/saved-posts?postId=${item._id}`);
@@ -1699,9 +1575,9 @@ export default function ProfileScreen() {
               )
               }
             </View>
-              </View>
-            </View>
           </View>
+          </PremiumGlassCard>
+          </>
         )}
         
         {/* Edit Profile Modal */}
@@ -1714,6 +1590,8 @@ export default function ProfileScreen() {
           />
         )}
       </ScrollView>
+      <ScrollEdgeFades isDark={isDark} variant="vertical" hideTop={true} />
+      </View>
     </View>
     </ErrorBoundary>
   );
@@ -1728,8 +1606,115 @@ const styles = StyleSheet.create({
       width: '100%',
     } as any),
   },
+  topBarContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1000,
+    // Shadow Mechanics
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 4,
+    overflow: 'visible',
+    ...(isWeb && {
+      maxWidth: isTablet ? 1200 : 1000,
+      alignSelf: 'center',
+      width: '100%',
+    } as any),
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 2,
+    paddingTop: 0,
+    minHeight: 56,
+    borderBottomWidth: 0,
+    shadowColor: 'transparent',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
+  },
+  logoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  logoImageContainer: {
+    width: 56,
+    height: 56,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+  },
+  logoImage: {
+    width: 56,
+    height: 56,
+  },
+  logoText: {
+    fontSize: 30,
+    fontWeight: '600',
+    fontFamily: Platform.select({
+      ios: 'Snell Roundhand',
+      android: 'cursive',
+      web: '"Dancing Script", "Satisfy", "Brush Script MT", "Lucida Handwriting", cursive',
+      default: 'cursive',
+    }),
+    letterSpacing: 0.3,
+    fontStyle: 'normal',
+    ...(Platform.OS === 'web' && {
+      fontFamily: '"Dancing Script", "Satisfy", "Brush Script MT", "Lucida Handwriting", cursive',
+      fontWeight: '600',
+      WebkitFontSmoothing: 'antialiased',
+      MozOsxFontSmoothing: 'grayscale',
+    } as any),
+  },
+  headerIconsRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginLeft: 'auto',
+  },
+  iconButton: {
+    padding: 4,
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+    minWidth: 32,
+    minHeight: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerNotificationBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -10,
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    zIndex: 10,
+  },
+  headerBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
   scrollView: {
     flex: 1,
+  },
+  scrollClip: {
+    flex: 1,
+    position: 'relative',
   },
   scrollContent: {
     // Add padding for tab bar (88px mobile, 70px web) + extra spacing
@@ -1789,9 +1774,16 @@ const styles = StyleSheet.create({
   travelBannerWrapper: {
     marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
     marginBottom: 0,
-    borderRadius: 20,
+    borderRadius: 28,
     overflow: 'hidden',
     height: isTablet ? 140 : 120,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.72)',
+    shadowColor: '#4AA3DF',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.22,
+    shadowRadius: 30,
+    elevation: 10,
   },
   travelBannerImage: {
     width: '100%',
@@ -1809,6 +1801,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
+    borderWidth: 1,
+    shadowColor: '#65BDF7',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.16,
+    shadowRadius: 18,
+    elevation: 5,
   },
   notificationBadge: {
     position: 'absolute',
@@ -1831,6 +1829,7 @@ const styles = StyleSheet.create({
   profileHeaderSection: {
     alignItems: 'center',
     paddingBottom: isTablet ? theme.spacing.lg : 16,
+    paddingHorizontal: 16,
   },
   avatarContainer: {
     marginBottom: isTablet ? theme.spacing.lg : 16,
@@ -1843,6 +1842,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 3,
+  },
+  avatarRingCloud: {
+    borderWidth: 4,
+    shadowColor: 'rgba(91, 188, 248, 0.35)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 16,
+    elevation: 8,
   },
   avatar: {
     width: isTablet ? 148 : 120,
@@ -1937,26 +1944,29 @@ const styles = StyleSheet.create({
   
   // Unified Profile Content Card - elegant, soft shadow
   unifiedCard: {
-    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginHorizontal: 0,
     marginTop: isTablet ? 14 : 12,
     marginBottom: isTablet ? theme.spacing.md : 12,
-    padding: isTablet ? theme.spacing.xl : 22,
-    borderRadius: 24,
-    borderWidth: 1,
+    borderRadius: 28,
     overflow: 'hidden',
+  },
+  unifiedCardInner: {
+    paddingTop: isTablet ? theme.spacing.xl : 20,
+    paddingBottom: isTablet ? theme.spacing.lg : 16,
+    paddingHorizontal: 0,
   },
   travelAccentStrip: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    height: 3,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    height: 4,
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
   },
   divider: {
-    height: 1,
-    marginVertical: isTablet ? theme.spacing.lg : 20,
+    height: StyleSheet.hairlineWidth,
+    marginHorizontal: 16,
   },
   unifiedSection: {
     width: '100%',
@@ -1979,6 +1989,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: isTablet ? theme.spacing.sm : 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.45)',
   },
   statsLabel: {
     fontSize: isTablet ? theme.typography.small.fontSize + 1 : 10,
@@ -2044,9 +2056,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: isTablet ? theme.spacing.lg : 16,
     paddingHorizontal: isTablet ? theme.spacing.xl : 20,
-    borderRadius: 16,
+    borderRadius: 24,
     borderWidth: 1,
     minWidth: isTablet ? 160 : 140,
+    backgroundColor: 'rgba(255,255,255,0.28)',
   },
   tripScoreBadgeNumber: {
     fontSize: isTablet ? 48 : 40,
@@ -2071,8 +2084,13 @@ const styles = StyleSheet.create({
     marginTop: isTablet ? theme.spacing.md : 12,
     paddingVertical: isTablet ? theme.spacing.md : 12,
     paddingHorizontal: isTablet ? theme.spacing.lg : 16,
-    borderRadius: 14,
+    borderRadius: 20,
     borderWidth: 1,
+    shadowColor: '#65BDF7',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 4,
   },
   verifiedTravelContent: {
     flexDirection: 'row',
@@ -2165,6 +2183,31 @@ const styles = StyleSheet.create({
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
   },
+  primaryJourneyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 10,
+    paddingVertical: 14,
+    borderRadius: 999,
+    ...cloudDesign.shadowFloat,
+  },
+  primaryJourneyButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  ghostEditButton: {
+    alignItems: 'center',
+    paddingVertical: 8,
+    marginBottom: 4,
+  },
+  ghostEditText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
   
   // Location Card (legacy, kept for compatibility)
   locationCard: {
@@ -2219,10 +2262,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     paddingHorizontal: 16,
-    borderRadius: 14,
+    borderRadius: 20,
     borderWidth: 1,
     gap: 10,
     marginTop: 4,
+    shadowColor: '#65BDF7',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    elevation: 3,
   },
   journeysInlineIcon: {
     width: 36,
@@ -2281,6 +2329,11 @@ const styles = StyleSheet.create({
   // Posts Container
   postsTabsSection: {
     width: '100%',
+    paddingHorizontal: 16,
+  },
+  // Grid area has NO horizontal padding — width fills the card's content area
+  postsGridSection: {
+    width: '100%',
   },
   postsContainer: {
     margin: 16,
@@ -2291,9 +2344,11 @@ const styles = StyleSheet.create({
   },
   pillTabsContainer: {
     flexDirection: 'row',
-    borderRadius: 22,
-    padding: 3,
+    borderRadius: 26,
+    padding: 4,
     gap: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.55)',
   },
   pillTab: {
     flex: 1,
@@ -2321,13 +2376,45 @@ const styles = StyleSheet.create({
   postsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 1.5,
+    gap: 0,
+    justifyContent: 'flex-start',
+    paddingHorizontal: 0,
   },
   postThumbnail: {
-    width: '32.5%',
+    width: '33.33%',
     aspectRatio: 1,
-    borderRadius: 2,
+    borderRadius: 6,
     overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  multiImageBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 4,
+    padding: 3,
+    zIndex: 10,
+  },
+  viewCountOverlay: {
+    position: 'absolute',
+    bottom: 6,
+    left: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(0,0,0,0.50)',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    zIndex: 20,
+  },
+  viewCountText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
   thumbnailImage: {
     width: '100%',

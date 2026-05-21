@@ -37,7 +37,8 @@ const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
 
 const formatAmount = (amount: number, currency: string) => {
   const sym = getCurrencySymbol(currency || 'INR');
-  const value = (amount || 0).toLocaleString(undefined, {
+  const n = typeof amount === 'number' && Number.isFinite(amount) ? amount : 0;
+  const value = n.toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -403,8 +404,14 @@ export default function PayoutsScreen() {
     setRefreshing(false);
   };
 
-  const totalEarned = data?.summary.totalEarned ?? 0;
-  const totalPending = data?.summary.totalPending ?? 0;
+  const totalEarned =
+    typeof data?.summary.totalEarned === 'number' && Number.isFinite(data.summary.totalEarned)
+      ? data.summary.totalEarned
+      : 0;
+  const totalPending =
+    typeof data?.summary.totalPending === 'number' && Number.isFinite(data.summary.totalPending)
+      ? data.summary.totalPending
+      : 0;
   const payouts = data?.payouts ?? [];
   // Use the currency of the most recent payout for the summary cards (defaults INR if none).
   const summaryCurrency = payouts[0]?.currency || 'INR';

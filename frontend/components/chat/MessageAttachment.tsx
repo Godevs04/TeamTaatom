@@ -1,37 +1,41 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   Image,
   TouchableOpacity,
   StyleSheet,
-  Dimensions,
-  Modal,
   Linking,
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Video, ResizeMode } from 'expo-av';
 import { useTheme } from '../../context/ThemeContext';
 import { useRouter } from 'expo-router';
 import { ChatAttachment } from '../../services/chat';
+import { CHAT_MEDIA_MAX_WIDTH } from '../cloud/cloudChatBubbleStyles';
+import ChatMediaViewer from './ChatMediaViewer';
 
 interface MessageAttachmentProps {
   attachment: ChatAttachment;
   isOwnMessage: boolean;
 }
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const MAX_IMAGE_WIDTH = SCREEN_WIDTH * 0.55;
-const MAX_IMAGE_HEIGHT = 250;
+const MAX_IMAGE_WIDTH = CHAT_MEDIA_MAX_WIDTH;
+const MAX_IMAGE_HEIGHT = 200;
 
 const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwnMessage }) => {
   const { theme } = useTheme();
   const router = useRouter();
   const [imageLoading, setImageLoading] = useState(true);
-  const [lightboxVisible, setLightboxVisible] = useState(false);
-  const [videoModalVisible, setVideoModalVisible] = useState(false);
-  const videoRef = useRef<Video>(null);
+  const [viewerVisible, setViewerVisible] = useState(false);
+  const [viewerType, setViewerType] = useState<'image' | 'video'>('image');
+  const [viewerUri, setViewerUri] = useState('');
+
+  const openViewer = (type: 'image' | 'video', uri: string) => {
+    setViewerType(type);
+    setViewerUri(uri);
+    setViewerVisible(true);
+  };
 
   const formatFileSize = (bytes?: number) => {
     if (!bytes) return '';
@@ -40,14 +44,10 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  // Image attachment
   if (attachment.type === 'image' && attachment.url) {
     return (
       <>
-        <TouchableOpacity
-          onPress={() => setLightboxVisible(true)}
-          activeOpacity={0.9}
-        >
+        <TouchableOpacity onPress={() => openViewer('image', attachment.url!)} activeOpacity={0.9}>
           <View style={styles.imageContainer}>
             {imageLoading && (
               <View style={[styles.imagePlaceholder, { backgroundColor: theme.colors.surface }]}>
@@ -68,41 +68,23 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
             />
           </View>
         </TouchableOpacity>
-
-        {/* Image Lightbox */}
-        <Modal visible={lightboxVisible} transparent animationType="fade">
-          <TouchableOpacity
-            style={styles.lightbox}
-            activeOpacity={1}
-            onPress={() => setLightboxVisible(false)}
-          >
-            <TouchableOpacity
-              style={styles.lightboxClose}
-              onPress={() => setLightboxVisible(false)}
-            >
-              <Ionicons name="close" size={28} color="#fff" />
-            </TouchableOpacity>
-            <Image
-              source={{ uri: attachment.url }}
-              style={styles.lightboxImage}
-              resizeMode="contain"
-            />
-          </TouchableOpacity>
-        </Modal>
+        <ChatMediaViewer
+          visible={viewerVisible && viewerType === 'image'}
+          type="image"
+          uri={viewerUri}
+          onClose={() => setViewerVisible(false)}
+        />
       </>
     );
   }
 
-  // Video attachment
   if (attachment.type === 'video') {
     return (
       <>
         <TouchableOpacity
-          style={[styles.videoContainer, { backgroundColor: theme.colors.surface }]}
+          style={styles.videoContainer}
           onPress={() => {
-            if (attachment.url) {
-              setVideoModalVisible(true);
-            }
+            if (attachment.url) openViewer('video', attachment.url);
           }}
         >
           {attachment.thumbnailUrl ? (
@@ -123,56 +105,46 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
             </View>
           ) : null}
         </TouchableOpacity>
-
-        {/* Video Player Modal */}
-        <Modal
-          visible={videoModalVisible}
-          transparent
-          animationType="fade"
-          onRequestClose={() => {
-            videoRef.current?.stopAsync().catch(() => {});
-            setVideoModalVisible(false);
-          }}
-        >
-          <View style={styles.lightbox}>
-            <TouchableOpacity
-              style={styles.lightboxClose}
-              onPress={() => {
-                videoRef.current?.stopAsync().catch(() => {});
-                setVideoModalVisible(false);
-              }}
-            >
-              <Ionicons name="close" size={28} color="#fff" />
-            </TouchableOpacity>
-            {videoModalVisible && attachment.url ? (
-              <Video
-                ref={videoRef}
-                source={{ uri: attachment.url }}
-                style={styles.videoPlayer}
-                resizeMode={ResizeMode.CONTAIN}
-                useNativeControls
-                shouldPlay
-                onError={() => {
-                  // In-app playback failed (likely expired signed URL).
-                  // Close the modal and fall back to the system video viewer
-                  // so the user still has a way to watch it.
-                  setVideoModalVisible(false);
-                  if (attachment.url) {
-                    Linking.openURL(attachment.url).catch(() => {});
-                  }
-                }}
-              />
-            ) : null}
-          </View>
-        </Modal>
+        {attachment.url ? (
+          <ChatMediaViewer
+            visible={viewerVisible && viewerType === 'video'}
+            type="video"
+            uri={viewerUri}
+            onClose={() => setViewerVisible(false)}
+          />
+        ) : null}
       </>
     );
   }
 
-  // File attachment
   if (attachment.type === 'file') {
+    const mime = attachment.mimeType || '';
+    // Video files shared as generic "file" attachments should play in-app (Android)
+    if (attachment.url && mime.startsWith('video/')) {
+      return (
+        <>
+          <TouchableOpacity
+            style={styles.videoContainer}
+            onPress={() => openViewer('video', attachment.url!)}
+          >
+            <View style={[styles.videoThumbnail, { backgroundColor: '#000' }]} />
+            <View style={styles.playButtonOverlay}>
+              <View style={styles.playButton}>
+                <Ionicons name="play" size={24} color="#fff" />
+              </View>
+            </View>
+          </TouchableOpacity>
+          <ChatMediaViewer
+            visible={viewerVisible && viewerType === 'video'}
+            type="video"
+            uri={viewerUri}
+            onClose={() => setViewerVisible(false)}
+          />
+        </>
+      );
+    }
+
     const getFileIcon = () => {
-      const mime = attachment.mimeType || '';
       if (mime.includes('pdf')) return 'document-text';
       if (mime.includes('word') || mime.includes('document')) return 'document';
       if (mime.includes('excel') || mime.includes('spreadsheet')) return 'grid';
@@ -184,9 +156,7 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
       <TouchableOpacity
         style={[styles.fileContainer, { backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.15)' : theme.colors.surface }]}
         onPress={() => {
-          if (attachment.url) {
-            Linking.openURL(attachment.url);
-          }
+          if (attachment.url) Linking.openURL(attachment.url);
         }}
       >
         <View style={[styles.fileIcon, { backgroundColor: theme.colors.primary + '20' }]}>
@@ -214,7 +184,6 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
     );
   }
 
-  // Post attachment (shared post)
   if (attachment.type === 'post' && attachment.postPreview) {
     const { postPreview } = attachment;
 
@@ -222,9 +191,7 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
       <TouchableOpacity
         style={[styles.postContainer, { backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.1)' : theme.colors.surface, borderColor: theme.colors.border }]}
         onPress={() => {
-          if (attachment.postId) {
-            router.push(`/post/${attachment.postId}`);
-          }
+          if (attachment.postId) router.push(`/post/${attachment.postId}`);
         }}
       >
         {postPreview.imageUrl ? (
@@ -267,7 +234,6 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
 };
 
 const styles = StyleSheet.create({
-  // Image styles
   imageContainer: {
     borderRadius: 12,
     overflow: 'hidden',
@@ -288,34 +254,14 @@ const styles = StyleSheet.create({
     minWidth: 150,
     minHeight: 100,
   },
-  lightbox: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.95)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  lightboxClose: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    zIndex: 10,
-    padding: 8,
-  },
-  lightboxImage: {
-    width: SCREEN_WIDTH,
-    height: SCREEN_WIDTH,
-  },
-  // Video styles
-  videoPlayer: {
-    width: SCREEN_WIDTH,
-    height: SCREEN_WIDTH * 0.75,
-  },
   videoContainer: {
-    borderRadius: 12,
+    borderRadius: 18,
     overflow: 'hidden',
     width: MAX_IMAGE_WIDTH,
-    height: 160,
+    height: 140,
     marginVertical: 2,
+    backgroundColor: '#1A2B3C',
+    alignSelf: 'flex-start',
   },
   videoThumbnail: {
     width: '100%',
@@ -327,10 +273,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   playButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -338,17 +286,16 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 8,
     right: 8,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    borderRadius: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
   },
   durationText: {
     color: '#fff',
     fontSize: 11,
     fontWeight: '500',
   },
-  // File styles
   fileContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -376,7 +323,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
   },
-  // Post styles
   postContainer: {
     borderRadius: 12,
     overflow: 'hidden',

@@ -41,6 +41,8 @@ import {
   CFEnvironment,
   CFSubscriptionSession,
 } from '../../utils/cashfreeShim';
+import { resolveCashfreeEnvironment } from '../../utils/cashfreeCheckout';
+import { logContentView } from '../../services/adCap';
 
 // In Expo Go / web the Cashfree native module is absent and the SDK throws
 // "package not linked" the moment any method is called. Gate every SDK call
@@ -163,6 +165,9 @@ export default function ContentPreviewScreen() {
             }
           }
         }
+        if (isWebsite) {
+          logContentView(pageId, 'website', { type: 'website', pageId });
+        }
       } catch (error) {
         logger.error('Error loading preview content:', error);
       } finally {
@@ -170,7 +175,7 @@ export default function ContentPreviewScreen() {
       }
     };
     load();
-  }, [pageId, section]);
+  }, [pageId, section, isWebsite]);
 
   // Cashfree subscription payment callback
   const refreshSubscriptionStatus = useCallback(async () => {
@@ -233,16 +238,17 @@ export default function ContentPreviewScreen() {
     try {
       setSubscribing(true);
       const result = await createSubscription(pageData._id);
-      if (result.paymentSessionId && result.cashfreeSubscriptionId) {
+      const subsSessionId = result.subscriptionSessionId || result.paymentSessionId;
+      if (subsSessionId && result.cashfreeSubscriptionId) {
         pendingSubscriptionRef.current = {
           subscriptionId: result.subscriptionId,
           amount: result.amount,
         };
-        const env = __DEV__ ? CFEnvironment.SANDBOX : CFEnvironment.PRODUCTION;
+        const env = resolveCashfreeEnvironment(result.cashfreeEnvironment);
         const session = new CFSubscriptionSession(
-          result.paymentSessionId,
+          subsSessionId,
           result.cashfreeSubscriptionId,
-          env
+          env,
         );
         CFPaymentGatewayService.doSubscriptionPayment(session);
       } else {

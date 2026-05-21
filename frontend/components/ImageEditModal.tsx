@@ -38,11 +38,12 @@ const FILTER_OPTIONS: { id: ImageFilterType; label: string; icon: string }[] = [
   { id: 'bw', label: 'B&W', icon: 'contrast' },
 ];
 
-// Approximate overlays for the in-modal preview. The real filter is a
-// Cloudinary effect chain applied server-side (utils/imageCache.ts:253) and
-// can't run on a local file URI; these tints are a rough visual cue so the
-// user can confirm a filter was selected. B&W especially is heavily faked —
-// a true desaturation needs a native image-filter library.
+// Preview overlays shown while the user picks a filter inside this modal.
+// These are cosmetic tints only — the real filter is permanently baked into
+// the image pixel data by applyImageFilter (utils/applyImageFilter.ts) just
+// before the multipart upload starts, so what lands in storage is already
+// the filtered image. The tint overlay here gives instant visual feedback
+// without the cost of running expo-image-manipulator on every chip tap.
 export const FILTER_PREVIEW_OVERLAY: Record<ImageFilterType, string | null> = {
   original: null,
   vivid: 'rgba(255, 200, 100, 0.15)',
@@ -163,11 +164,6 @@ export default function ImageEditModal({
                     />
                   )}
                 </View>
-                {selectedFilter !== 'original' && (
-                  <Text style={[styles.previewHint, { color: theme.colors.textSecondary }]}>
-                    Approximate preview — exact filter applies after posting.
-                  </Text>
-                )}
               </>
             )}
 
@@ -307,12 +303,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
-  },
-  previewHint: {
-    fontSize: 11,
-    fontStyle: 'italic',
-    marginBottom: 4,
-    textAlign: 'center',
   },
   filterScroll: {
     marginBottom: 20,

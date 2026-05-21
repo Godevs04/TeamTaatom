@@ -18,7 +18,12 @@ import { useTheme } from '../../context/ThemeContext';
 import * as Location from 'expo-location';
 import { MapView, Marker, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
-import { calculateDistance, openDirections } from '../../utils/locationUtils';
+import { calculateDistance } from '../../utils/locationUtils';
+import GlassMapPanel from '../../components/GlassMapPanel';
+import PremiumMapMarker from '../../components/PremiumMapMarker';
+import PolylineRenderer from '../../components/PolylineRenderer';
+import { DirectionsRoute, fetchDirectionsRoute, getManeuverIcon } from '../../services/directions';
+import { useMapStyle } from '../../hooks/useMapStyle';
 import logger from '../../utils/logger';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -146,6 +151,30 @@ const createStyles = () => {
       alignItems: 'center',
       zIndex: 10,
     },
+    routePanel: {
+      position: 'absolute',
+      top: 16,
+      left: 16,
+      right: 16,
+      paddingHorizontal: 16,
+      paddingVertical: 14,
+      zIndex: 12,
+    },
+    routeHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 10,
+      marginBottom: 4,
+    },
+    routeMeta: {
+      fontSize: 12,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+    },
+    routeInstruction: {
+      fontSize: 15,
+      fontWeight: '700',
+    },
   });
 };
 
@@ -162,6 +191,9 @@ export default function CurrentLocationMap() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme } = useTheme();
+  const mapStyle = useMapStyle();
+  const [route, setRoute] = useState<DirectionsRoute | null>(null);
+  const [routeLoading, setRouteLoading] = useState(false);
   const hasLoggedParamsRef = useRef<string>('');
 
   // Journey tracking UI (start / active / paused / instructions popup) was
@@ -351,6 +383,26 @@ export default function CurrentLocationMap() {
     getCurrentLocation();
   };
 
+  const loadRoute = async () => {
+    if (!hasValidCoordinates || !userCoords || !postLatitude || !postLongitude) return;
+    try {
+      setRouteLoading(true);
+      const nextRoute = await fetchDirectionsRoute(
+        userCoords,
+        { latitude: postLatitude, longitude: postLongitude }
+      );
+      setRoute(nextRoute);
+    } catch (err) {
+      logger.error('Failed to load in-app route:', err);
+    } finally {
+      setRouteLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadRoute();
+  }, [hasValidCoordinates, userCoords?.latitude, userCoords?.longitude, postLatitude, postLongitude]);
+
   const renderMap = () => {
     if (loading) {
       return (
@@ -404,8 +456,14 @@ export default function CurrentLocationMap() {
 <style>html,body,#map{height:100%;margin:0;padding:0}</style>
 <script>
 function initMap(){
-  var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${lat},lng:${lng}},zoom:15,mapTypeId:'terrain',language:'en'});
-  var marker=new google.maps.Marker({position:{lat:${lat},lng:${lng}},map:map,title:${safeTitle}});
+  var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${lat},lng:${lng}},zoom:15,mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true});
+  var routePath=${JSON.stringify(route?.coordinates.map((coord) => ({ lat: coord.latitude, lng: coord.longitude })) || [])};
+  if(routePath.length>1){
+    new google.maps.Polyline({path:routePath,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:14,map:map});
+    new google.maps.Polyline({path:routePath,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:5,map:map});
+    var bounds=new google.maps.LatLngBounds();routePath.forEach(function(p){bounds.extend(p);});map.fitBounds(bounds,64);
+  }
+  var marker=new google.maps.Marker({position:{lat:${lat},lng:${lng}},map:map,title:${safeTitle},icon:{url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="42" height="50" viewBox="0 0 42 50"><filter id="g"><feGaussianBlur stdDeviation="4"/></filter><circle cx="21" cy="42" r="7" fill="${mapStyle.routeColor}" opacity=".35" filter="url(%23g)"/><path d="M21 2C11.6 2 4 9.6 4 19c0 12.8 17 29 17 29s17-16.2 17-29C38 9.6 30.4 2 21 2z" fill="${mapStyle.routeColor}" stroke="white" stroke-width="3"/><circle cx="21" cy="19" r="6" fill="white"/></svg>'),scaledSize:new google.maps.Size(42,50),anchor:new google.maps.Point(21,48)}});
   var iw=new google.maps.InfoWindow({content:${infoHtml}});
   marker.addListener('click',function(){iw.open(map,marker);});
   iw.open(map,marker);
@@ -442,7 +500,7 @@ function initMap(){
       <MapView
         style={[styles.map, Platform.OS === 'android' && { flex: 1, minHeight: 200 }]}
         provider={getMapProvider()}
-        {...(Platform.OS === 'ios' ? { customMapStyle: satelliteTheme } : {})}
+        {...mapStyle.nativeMapProps}
         initialRegion={{
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
@@ -453,9 +511,19 @@ function initMap(){
         showsMyLocationButton={!isPostLocation && !hasValidCoordinates}
         showsCompass={true}
         showsScale={true}
-        mapType="terrain"
+        mapType={mapStyle.mapType}
         followsUserLocation={!hasValidCoordinates}
       >
+        {route?.coordinates?.length > 1 && (
+          <PolylineRenderer
+            coordinates={route.coordinates}
+            color={mapStyle.routeColor}
+            glowColor={mapStyle.routeGlowColor}
+            strokeWidth={5}
+            simplifyDistance={4}
+            applyKalman={false}
+          />
+        )}
         <Marker
           coordinate={{
             latitude: location.coords.latitude,
@@ -488,11 +556,7 @@ function initMap(){
             }
           }}
         >
-          <View style={styles.markerContainer}>
-            <View style={styles.customMarker}>
-              <Ionicons name="flag" size={20} color="#FF0000" />
-            </View>
-          </View>
+          <PremiumMapMarker icon={isPostLocation ? 'flag' : 'navigate'} active={isPostLocation} />
         </Marker>
       </MapView>
     );
@@ -556,15 +620,32 @@ function initMap(){
       <View style={styles.mapContainer}>
         {renderMap()}
 
+        {(routeLoading || route) && (
+          <GlassMapPanel style={styles.routePanel} tint={mapStyle.glassTint}>
+            <View style={styles.routeHeader}>
+              <Ionicons
+                name={route ? getManeuverIcon(route.steps[0]?.maneuver) as any : 'navigate'}
+                size={18}
+                color={mapStyle.routeColor}
+              />
+              <Text style={[styles.routeMeta, { color: mapStyle.routeColor }]}>
+                {routeLoading ? 'Finding route' : `${route?.durationText || 'Route'} - ${route?.distanceText || ''}`}
+              </Text>
+            </View>
+            <Text style={[styles.routeInstruction, { color: theme.colors.text }]} numberOfLines={2}>
+              {routeLoading ? 'Preparing in-app navigation...' : route?.steps[0]?.instruction || 'Route ready inside Taatom'}
+            </Text>
+          </GlassMapPanel>
+        )}
+
         {/* Direction Button */}
         {isPostLocation && postLatitude && postLongitude && (
           <TouchableOpacity
             style={[styles.directionButton, { backgroundColor: theme.colors.primary }]}
-            onPress={() => {
-              openDirections(postLatitude, postLongitude, postAddress || 'Destination');
-            }}
+            onPress={loadRoute}
+            disabled={routeLoading}
           >
-            <Ionicons name="map" size={20} color="white" />
+            {routeLoading ? <ActivityIndicator color="white" /> : <Ionicons name="navigate" size={20} color="white" />}
           </TouchableOpacity>
         )}
       </View>
@@ -585,6 +666,9 @@ function initMap(){
               <Ionicons name="navigate" size={20} color={theme.colors.primary} />
               <Text style={[styles.locationText, { color: theme.colors.text }]}>
                 {(() => {
+                  if (route?.distanceText) {
+                    return `${route.distanceText.toLowerCase()} from your current location`;
+                  }
                   const km = calculateDistance(
                     userCoords.latitude,
                     userCoords.longitude,
@@ -622,31 +706,3 @@ function initMap(){
   );
 }
 
-const satelliteTheme = [
-  // Base land geometry in light green (like first image)
-  { elementType: 'geometry', stylers: [{ color: '#e8f5e8' }] },
-  // Water in light blue
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#a8d8ea' }] },
-  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#2c3e50' }] },
-  // Natural landscape in various light greens
-  { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#d4edda' }] },
-  { featureType: 'landscape.natural.terrain', elementType: 'geometry', stylers: [{ color: '#c3e6cb' }] },
-  // Parks in slightly darker green
-  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#b8d4b8' }] },
-  { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#155724' }] },
-  // Roads in light gray (subtle)
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#f8f9fa' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#e9ecef' }] },
-  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#495057' }] },
-  // Buildings in very light gray
-  { featureType: 'poi.business', elementType: 'geometry', stylers: [{ color: '#f1f3f4' }] },
-  { featureType: 'poi.business', elementType: 'labels.text.fill', stylers: [{ color: '#343a40' }] },
-  // Administrative boundaries in light gray
-  { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#dee2e6' }] },
-  { featureType: 'administrative', elementType: 'labels.text.fill', stylers: [{ color: '#495057' }] },
-  // Hide generic POIs for cleaner look
-  { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-  // Labels in dark gray for readability
-  { elementType: 'labels.text.fill', stylers: [{ color: '#2c3e50' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#ffffff' }] },
-];

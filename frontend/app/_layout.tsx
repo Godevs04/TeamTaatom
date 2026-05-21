@@ -118,6 +118,26 @@ function RootLayoutInner() {
   // Apply web optimizations
   useWebOptimizations();
 
+  // Configure audio session once at app start
+  // This ensures proper audio behavior across all platforms
+  useEffect(() => {
+    const configureAudioSession = async () => {
+      try {
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,        // Play audio in silent mode on iOS
+          staysActiveInBackground: false,    // Stop audio when app goes to background
+          shouldDuckAndroid: true,           // Duck audio for notifications on Android
+          allowsRecordingIOS: false,         // Don't allow recording
+        });
+        logger.debug('[RootLayout] Audio session configured successfully');
+      } catch (error) {
+        logger.error('[RootLayout] Failed to configure audio session:', error);
+      }
+    };
+
+    configureAudioSession();
+  }, []);
+
   // Use default Expo splash screen (no longer hiding immediately for Lottie)
   // The native splash screen will show until app is ready
   useEffect(() => {
@@ -227,12 +247,13 @@ function RootLayoutInner() {
   }, []);
 
   // Global Audio Mode Setup (MANDATORY for iOS streaming)
+  // Optimized for Shorts: allows Video + Audio.Sound to play together
   useEffect(() => {
     Audio.setAudioModeAsync({
       allowsRecordingIOS: false,
       playsInSilentModeIOS: true,   // 🔴 REQUIRED for iOS
-      staysActiveInBackground: false,
-      shouldDuckAndroid: true,
+      staysActiveInBackground: false,  // Audio stops when app backgrounded
+      shouldDuckAndroid: true,  // Android audio ducks for notifications
       playThroughEarpieceAndroid: false,
       // 🔴 Allow Audio.Sound (song) to play alongside Video component in Shorts.
       // Without this, muted Video holds the audio session and Audio.Sound is silenced.
@@ -257,9 +278,9 @@ function RootLayoutInner() {
         // (e.g., React Query, Zustand, or Context API) is implemented, these handlers
         // should trigger cache invalidation and refetch operations.
         const feedHandler = () => {
-          // Future: Trigger feed refetch via global state management
-          // Example: queryClient.invalidateQueries(['posts']) or feedContext.refetch()
-          logger.debug('Feed invalidation event received - refetch will be implemented with state management');
+          logger.debug('Feed invalidation event received - notifying listeners');
+          const { savedEvents } = require('../utils/savedEvents');
+          savedEvents.emitFeedInvalidate();
         };
         const profileHandler = (userId: string) => {
           // Future: Trigger profile refetch for specific userId via global state management

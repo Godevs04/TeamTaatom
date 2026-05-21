@@ -1393,6 +1393,7 @@ const getUserShorts = async (req, res) => {
           },
           likesCount: { $size: { $ifNull: ['$likes', []] } },
           commentsCount: { $size: { $ifNull: ['$comments', []] } },
+          viewsCount: { $ifNull: ['$views', 0] },
           isLiked: currentUserId ? { $in: [currentUserId, { $ifNull: ['$likes', []] }] } : false,
           isFollowing: currentUserId && { $in: [currentUserId, { $ifNull: ['$user.followers', []] }] } || false
         }
@@ -1920,6 +1921,7 @@ const getUserPosts = async (req, res) => {
             },
             likesCount: { $size: { $ifNull: ['$likes', []] } },
             commentsCount: { $size: { $ifNull: ['$comments', []] } },
+            viewsCount: { $ifNull: ['$views', 0] },
             isLiked: currentUserId ? { $in: [currentUserId, { $ifNull: ['$likes', []] }] } : false
           }
         },
