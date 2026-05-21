@@ -47,7 +47,7 @@ import { ErrorBoundary } from '../../utils/errorBoundary';
 import { trackFeatureUsage } from '../../services/analytics';
 import TravelLoadingOverlay from '../../components/TravelLoadingOverlay';
 import {
-  CloudSkyBackground,
+
   CloudSegmentedControl,
   CloudSearchDock,
   CloudLocaleFeed,
@@ -1972,7 +1972,9 @@ export default function LocaleScreen() {
         setSavedLocales(cachedSorted);
         if (uniqueLocales.length !== locales.length) {
           // Self-heal AsyncStorage if normalization dropped bad entries.
-          AsyncStorage.setItem('savedLocales', JSON.stringify(cachedSorted)).catch(() => {});
+          // Strip distanceKm before persisting — must always be recalculated from live GPS
+          const stripped = cachedSorted.map(({ distanceKm, ...rest }: any) => rest);
+          AsyncStorage.setItem('savedLocales', JSON.stringify(stripped)).catch(() => {});
         }
       }
 
@@ -2555,8 +2557,9 @@ export default function LocaleScreen() {
       // PRODUCTION-GRADE: Sort by distance (nearest first) before saving
       const sortedLocales = sortLocalesByDistance(uniqueLocales);
       
-      // Atomic write
-      await AsyncStorage.setItem('savedLocales', JSON.stringify(sortedLocales));
+      // Atomic write — strip distanceKm before persisting (must always recalculate from live GPS)
+      const strippedForStorage = sortedLocales.map(({ distanceKm, ...rest }: any) => rest);
+      await AsyncStorage.setItem('savedLocales', JSON.stringify(strippedForStorage));
       
       if (isMountedRef.current) {
         setSavedLocales(sortedLocales);
@@ -2609,8 +2612,9 @@ export default function LocaleScreen() {
       // PRODUCTION-GRADE: Sort by distance (nearest first) after removal
       const sortedLocales = sortLocalesByDistance(filtered);
       
-      // Atomic write
-      await AsyncStorage.setItem('savedLocales', JSON.stringify(sortedLocales));
+      // Atomic write — strip distanceKm before persisting (must always recalculate from live GPS)
+      const strippedForStorage = sortedLocales.map(({ distanceKm, ...rest }: any) => rest);
+      await AsyncStorage.setItem('savedLocales', JSON.stringify(strippedForStorage));
       
       if (isMountedRef.current) {
         setSavedLocales(sortedLocales);
@@ -2638,7 +2642,10 @@ export default function LocaleScreen() {
     if (d !== null && d !== undefined) {
       return d < 1 ? `${Math.round(d * 1000)} m` : `${d.toFixed(1)} km`;
     }
-    return '–';
+    // GPS permission granted but location/distance not yet resolved → show loading state
+    if (locationPermissionGranted) return 'Calculating...';
+    // Permission denied or not asked → no distance available
+    return '-- km';
   }, [userLocation, locationPermissionGranted, getLocaleDistance]);
 
   const openLocaleDetail = useCallback((locale: Locale) => {
@@ -3562,7 +3569,7 @@ export default function LocaleScreen() {
       ? d < 1
         ? `${Math.round(d * 1000)} m`
         : `${d.toFixed(1)} km`
-      : '–';
+      : locationPermissionGranted ? 'Calculating...' : '-- km';
     
     // Debug: Log distance calculation
     if (__DEV__) {
@@ -3616,7 +3623,7 @@ export default function LocaleScreen() {
             showError('Failed to open locale details');
           }
         }}
-        accessibilityLabel={`${locale.name}, ${locale.countryCode}${distanceText && distanceText !== '–' ? `, ${distanceText} away` : ''}`}
+        accessibilityLabel={`${locale.name}, ${locale.countryCode}`}
         accessibilityRole="button"
         accessibilityHint="Opens locale details"
       >
@@ -3706,48 +3713,7 @@ export default function LocaleScreen() {
               </Text>
             </View>
 
-            {/* Right Column: Distance Pill */}
-            {distanceText ? (
-              <View 
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  backgroundColor: 'rgba(255, 255, 255, 0.16)',
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: 'rgba(255, 255, 255, 0.24)',
-                }}
-              >
-                <Ionicons name="location" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
-                <Text 
-                  style={{
-                    color: '#FFFFFF',
-                    fontSize: 11,
-                    fontWeight: '600',
-                    fontFamily: getFontFamily('600'),
-                  }}
-                >
-                  {distanceText}
-                </Text>
-              </View>
-            ) : (userLocation && locationPermissionGranted && locale.latitude && locale.longitude) ? (
-              <View 
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  backgroundColor: 'rgba(255, 255, 255, 0.16)',
-                  paddingHorizontal: 10,
-                  paddingVertical: 6,
-                  borderRadius: 12,
-                  borderWidth: 1,
-                  borderColor: 'rgba(255, 255, 255, 0.24)',
-                }}
-              >
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              </View>
-            ) : null}
+
           </BlurView>
         </View>
       </TouchableOpacity>
@@ -3869,7 +3835,7 @@ export default function LocaleScreen() {
       ? d < 1
         ? `${Math.round(d * 1000)} m`
         : `${d.toFixed(1)} km`
-      : '–';
+      : locationPermissionGranted ? 'Calculating...' : '-- km';
 
     return (
       <TouchableOpacity
@@ -3907,7 +3873,7 @@ export default function LocaleScreen() {
             showError('Failed to open locale details');
           }
         }}
-        accessibilityLabel={`${safeName}, ${safeCountryCode}${distanceText && distanceText !== '–' ? `, ${distanceText} away` : ''}`}
+        accessibilityLabel={`${safeName}, ${safeCountryCode}`}
         accessibilityRole="button"
         accessibilityHint="Opens locale details"
       >
@@ -3949,12 +3915,7 @@ export default function LocaleScreen() {
             </Text>
           ) : null}
         </View>
-        {distanceText && (
-          <View style={styles.distanceBadgeAbsolute}>
-            <Ionicons name="location" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
-            <Text style={styles.distanceText}>{distanceText}</Text>
-          </View>
-        )}
+
         <TouchableOpacity
           style={styles.saveButton}
           onPress={(e) => {
@@ -4006,7 +3967,7 @@ export default function LocaleScreen() {
         backgroundColor="transparent"
         translucent
       />
-      <CloudSkyBackground heightRatio={0.34} />
+
       <LinearGradient
         colors={
           mode === 'dark'
@@ -4186,7 +4147,7 @@ export default function LocaleScreen() {
                 locales={filteredSavedLocales.map(toCloudLocale)}
                 getDistanceText={(l) => {
                   const full = filteredSavedLocales.find((x) => String(x._id) === l._id);
-                  return full ? formatLocaleDistance(full) : '–';
+                  return full ? formatLocaleDistance(full) : '-- km';
                 }}
                 onLocalePress={(l) => {
                   const full = filteredSavedLocales.find((x) => String(x._id) === l._id);
