@@ -156,7 +156,8 @@
       ],
       "expo-asset",
       "expo-web-browser",
-      "./plugins/withCashfreeSubscriptionAndroid.js"
+      "./plugins/withCashfreeSubscriptionAndroid.js",
+      "./plugins/withFfmpegKitIos.js"
     ],
     "updates": {
       "enabled": true,
