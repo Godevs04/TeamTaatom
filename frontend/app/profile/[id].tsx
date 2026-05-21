@@ -28,6 +28,8 @@ import { getUserShorts } from '../../services/posts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const { width } = Dimensions.get('window');
+// Calculate column width taking into account card margins (0 each side), card content padding (0 each side), and grid gaps (2 between items)
+const columnWidth = Math.floor((width - 4) / 3);
 
 const TRIP_GAP_DAYS = 7;
 
@@ -152,6 +154,7 @@ export default function UserProfileScreen() {
         accent: '#60A5FA',
         statCardBg: 'rgba(96, 165, 250, 0.1)',
         statCardBorder: 'rgba(96, 165, 250, 0.2)',
+        gapBorderColor: '#06121F',
       };
     } else {
       return {
@@ -163,6 +166,7 @@ export default function UserProfileScreen() {
         accent: '#2563EB',
         statCardBg: 'rgba(37, 99, 235, 0.08)',
         statCardBorder: 'rgba(37, 99, 235, 0.15)',
+        gapBorderColor: '#EDF7FF',
       };
     }
   }, [isDark]);
@@ -856,11 +860,20 @@ export default function UserProfileScreen() {
                       key={item._id}
                       style={[
                         styles.postThumbnail,
-                        { backgroundColor: profileTheme.cardBg },
+                        { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor, aspectRatio: 1 },
                       ]}
                       onPress={() => router.push(`/user-posts/${profile._id}?postId=${item._id}`)}
                     >
-                      <Image source={{ uri: item.imageUrl }} style={styles.postImage} resizeMode="cover" />
+                      <Image source={{ uri: item.imageUrl }} style={styles.postImage as any} resizeMode="cover" />
+                      {/* View count overlay */}
+                      <View style={styles.viewCountOverlay}>
+                        <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
+                        <Text style={styles.viewCountText}>
+                          {((item as any).viewsCount ?? 0) >= 1000
+                            ? `${(((item as any).viewsCount ?? 0) / 1000).toFixed(1)}k`
+                            : String((item as any).viewsCount ?? 0)}
+                        </Text>
+                      </View>
                     </Pressable>
                     ))
                   )}
@@ -902,7 +915,7 @@ export default function UserProfileScreen() {
                           key={s._id}
                           style={[
                             styles.postThumbnail,
-                            { backgroundColor: profileTheme.cardBg },
+                            { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor, aspectRatio: 9/16 },
                           ]}
                           onPress={() => router.push(`/user-shorts/${id}?shortId=${s._id}`)}
                         >
@@ -912,6 +925,15 @@ export default function UserProfileScreen() {
                           <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
                             <Ionicons name="play" size={24} color="#FFFFFF" />
                           </View>
+                          {/* View count overlay */}
+                          <View style={styles.viewCountOverlay}>
+                            <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
+                            <Text style={styles.viewCountText}>
+                              {((s as any).viewsCount ?? 0) >= 1000
+                                ? `${(((s as any).viewsCount ?? 0) / 1000).toFixed(1)}k`
+                                : String((s as any).viewsCount ?? 0)}
+                            </Text>
+                          </View>
                         </Pressable>
                       );
                     }
@@ -920,13 +942,13 @@ export default function UserProfileScreen() {
                         key={s._id}
                         style={[
                           styles.postThumbnail,
-                          { backgroundColor: profileTheme.cardBg },
+                          { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor, aspectRatio: 9/16 },
                         ]}
                         onPress={() => router.push(`/user-shorts/${id}?shortId=${s._id}`)}
                       >
                         <Image
                           source={{ uri }}
-                          style={styles.postImage}
+                          style={styles.postImage as any}
                           resizeMode="cover"
                           onError={() => {
                             // Only log once per short ID, then show placeholder
@@ -939,6 +961,15 @@ export default function UserProfileScreen() {
                         />
                         <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
                           <Ionicons name="play" size={24} color="#FFFFFF" />
+                        </View>
+                        {/* View count overlay */}
+                        <View style={styles.viewCountOverlay}>
+                          <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
+                          <Text style={styles.viewCountText}>
+                            {((s as any).viewsCount ?? 0) >= 1000
+                              ? `${(((s as any).viewsCount ?? 0) / 1000).toFixed(1)}k`
+                              : String((s as any).viewsCount ?? 0)}
+                          </Text>
                         </View>
                       </Pressable>
                     );
@@ -1158,7 +1189,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   postsContainerInner: {
-    padding: 16,
+    paddingTop: 16,
+    paddingBottom: 16,
+    paddingHorizontal: 0,
   },
   avatarContainer: {
     marginBottom: 16,
@@ -1377,9 +1410,8 @@ const styles = StyleSheet.create({
 
   // Posts Container
   postsContainer: {
-    margin: 16,
+    marginHorizontal: 0,
     marginTop: 8,
-    padding: 20,
     borderRadius: 20,
     borderWidth: 1,
     marginBottom: 24,
@@ -1388,7 +1420,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     marginBottom: 16,
-    paddingHorizontal: 4,
+    paddingHorizontal: 16,
   },
   pillTab: {
     paddingHorizontal: 20,
@@ -1411,16 +1443,34 @@ const styles = StyleSheet.create({
   postsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 1.5,
+    gap: 0,
+    justifyContent: 'flex-start',
   },
   postThumbnail: {
-    width: '32.5%',
-    aspectRatio: 1,
-    borderRadius: 2,
+    width: '33.33%',
+    borderRadius: 12,
     overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
   },
-  postThumbnailLastInRow: {
-    // No longer needed — gap handles spacing
+  viewCountOverlay: {
+    position: 'absolute',
+    bottom: 6,
+    left: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(0,0,0,0.50)',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    zIndex: 20,
+  },
+  viewCountText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
   postImage: {
     width: '100%',

@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useLocalSearchParams } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import NavBar from '../../components/NavBar';
@@ -82,6 +83,14 @@ interface Journey {
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+// 3-column grid constants
+// Card has marginHorizontal 0 each side = 0px consumed (occupies fully)
+// postsTabsSection has paddingHorizontal 0 on the grid part
+// 2 gaps between 3 columns
+const GRID_GAP = 2;
+const GRID_CARD_MARGIN = 0; // Set to 0 to occupy screen fully
+const profileColumnWidth = Math.floor((screenWidth - GRID_CARD_MARGIN * 2 - GRID_GAP * 2) / 3);
+const profileShortHeight = Math.round(profileColumnWidth * (16 / 9));
 const isTablet = screenWidth >= 768;
 const isWeb = Platform.OS === 'web';
 const isIOS = Platform.OS === 'ios';
@@ -125,6 +134,7 @@ interface ProfileData extends UserType {
 
 export default function ProfileScreen() {
   const { handleScroll } = useScrollToHideNav();
+  const insets = useSafeAreaInsets();
   const [user, setUser] = useState<UserType | null>(null);
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [posts, setPosts] = useState<PostType[]>([]);
@@ -196,6 +206,7 @@ export default function ProfileScreen() {
         pillTabsBg: 'rgba(18, 34, 54, 0.88)',
         explorerBadgeBg: 'rgba(91, 188, 248, 0.18)',
         explorerBadgeText: theme.colors.primary,
+        gapBorderColor: '#06121F',
       };
     }
     return {
@@ -211,6 +222,7 @@ export default function ProfileScreen() {
       pillTabsBg: '#F3F4F6',
       explorerBadgeBg: cloudDesign.skyPale,
       explorerBadgeText: cloudDesign.blueDeep,
+      gapBorderColor: '#EDF7FF',
     };
   }, [isDark, theme.colors]);
 
@@ -1129,6 +1141,77 @@ export default function ProfileScreen() {
         style={StyleSheet.absoluteFillObject}
         locations={isDark ? [0, 0.45, 1] : [0, 0.22, 0.55, 1]}
       />
+
+      {/* Top Bar Container matching Home feed's top bar */}
+      <View style={[styles.topBarContainer, { paddingTop: insets.top, height: 56 + insets.top }]}>
+        <LinearGradient
+          colors={
+            isDark
+              ? ['#06121F', '#102236']
+              : ['#A8DAFC', '#C8E8FF']
+          }
+          style={StyleSheet.absoluteFillObject}
+        />
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={handleRefresh}
+            activeOpacity={0.7}
+            style={styles.logoContainer}
+            accessibilityLabel="Taatom, tap to refresh profile"
+            accessibilityRole="button"
+          >
+            <View style={styles.logoImageContainer}>
+              <Image 
+                source={{ uri: 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png' }}
+                style={[styles.logoImage, { resizeMode: 'contain' }] as ImageStyle[]}
+              />
+            </View>
+            <Text style={[styles.logoText, { color: theme.colors.text }]} allowFontScaling={false}>
+              Taatom
+            </Text>
+          </TouchableOpacity>
+
+          <View style={styles.headerIconsRight}>
+            <Pressable
+              style={styles.iconButton}
+              onPress={() => router.push('/notifications')}
+              accessibilityLabel={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+              accessibilityRole="button"
+            >
+              <Ionicons
+                name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
+                size={22}
+                color={theme.colors.text}
+              />
+              {unreadCount > 0 && (
+                <View style={[styles.headerNotificationBadge, { backgroundColor: theme.colors.error, borderColor: isDark ? '#0A1624' : '#C4E5FF' }]}>
+                  <Text style={[styles.headerBadgeText, { color: '#FFFFFF' }]}>
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </Text>
+                </View>
+              )}
+            </Pressable>
+            <KebabMenu
+              iconColor={theme.colors.text}
+              iconSize={22}
+              items={[
+                {
+                  label: 'Settings',
+                  icon: 'settings-outline',
+                  onPress: () => router.push('/settings'),
+                },
+                {
+                  label: 'Sign Out',
+                  icon: 'log-out-outline',
+                  onPress: handleSignOut,
+                  destructive: true,
+                },
+              ]}
+            />
+          </View>
+        </View>
+      </View>
+
       <View style={styles.scrollClip}>
       <ScrollView
         ref={scrollViewRef}
@@ -1149,63 +1232,12 @@ export default function ProfileScreen() {
             onRefresh={handleRefresh}
             colors={[theme.colors.primary]}
             tintColor={theme.colors.primary}
+            progressViewOffset={56 + insets.top}
           />
         }
       >
-        {/* Top Actions - Outside unified card */}
-        <View style={styles.topActionsContainer}>
-          <View style={styles.topActionsLeft}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <Text style={{
-                fontSize: 30,
-                fontWeight: '600',
-                color: isDark ? theme.colors.text : profileTheme.textPrimary,
-                fontFamily: Platform.select({
-                  ios: 'Snell Roundhand',
-                  android: 'cursive',
-                  default: 'cursive',
-                }),
-                letterSpacing: 0.3,
-              }}>
-                Taatom
-              </Text>
-            </View>
-          </View>
-          <View style={styles.topActionsRight}>
-            <Pressable
-              style={[styles.headerActionButton, { backgroundColor: profileTheme.glassCardBg, borderColor: profileTheme.cardBorder }]}
-              onPress={() => router.push('/notifications')}
-            >
-              <Ionicons
-                name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
-                size={20}
-                color={profileTheme.textPrimary}
-              />
-              {unreadCount > 0 && (
-                <View style={[styles.notificationBadge, { backgroundColor: theme.colors.error }]}>
-                  <Text style={[styles.badgeText, { color: '#FFFFFF' }]}>
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </Text>
-                </View>
-              )}
-            </Pressable>
-            <KebabMenu
-              items={[
-                {
-                  label: 'Settings',
-                  icon: 'settings-outline',
-                  onPress: () => router.push('/settings'),
-                },
-                {
-                  label: 'Sign Out',
-                  icon: 'log-out-outline',
-                  onPress: handleSignOut,
-                  destructive: true,
-                },
-              ]}
-            />
-          </View>
-        </View>
+        {/* Spacer to reserve space for the absolute header */}
+        <View style={{ height: 56 + insets.top }} />
 
         {profileData && (
           <>
@@ -1236,9 +1268,15 @@ export default function ProfileScreen() {
               onOpenTripScore={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
               onOpenJourneys={() => router.push(`/journeys?userId=${user?._id}`)}
               onOpenConnect={() => router.push('/connect')}
+              followingCount={profileData.followingCount || 0}
               onOpenFollowers={() => {
                 if (profileData?._id) {
                   router.push(`/followers?userId=${profileData._id}&type=followers`);
+                }
+              }}
+              onOpenFollowing={() => {
+                if (profileData?._id) {
+                  router.push(`/followers?userId=${profileData._id}&type=following`);
                 }
               }}
             />
@@ -1252,11 +1290,10 @@ export default function ProfileScreen() {
             strong={isDark}
             subtle
           >
-            {/* Posts/Shorts/Saved Tabs - Pill Style */}
+            {/* Posts/Shorts/Saved Tabs - Pill Style (padded row) */}
             <View
               style={styles.postsTabsSection}
               onLayout={(event) => {
-                // Capture the vertical position of the tabs section once it's laid out
                 tabsOffsetRef.current = event.nativeEvent.layout.y;
               }}
             >
@@ -1293,9 +1330,10 @@ export default function ProfileScreen() {
                   </Pressable>
                 ))}
               </View>
-              
-              <View style={styles.contentArea}>
-            {/* Profile Tabs: Always rendered with height: 0 when hidden to prevent scroll reset */}
+            </View>
+            
+            {/* Grid content area — full card width, no horizontal padding */}
+            <View style={styles.contentArea}>
             {/* Profile Tabs Lifecycle Safety: Always render all tabs but hide inactive - prevents scroll reset */}
             <View style={activeTab !== 'posts' ? { height: 0, overflow: 'hidden' } : {}}>
               {posts.length > 0 ? (
@@ -1316,7 +1354,7 @@ export default function ProfileScreen() {
                     return (
                       <Pressable 
                         key={post._id} 
-                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg }]}
+                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor }]}
                         onLongPress={() => handleDeletePost(post._id, false)}
                         onPress={() => user?._id && router.push(`/user-posts/${user._id}?postId=${post._id}`)}
                       >
@@ -1326,32 +1364,36 @@ export default function ProfileScreen() {
                             style={styles.thumbnailImage as ImageStyle}
                             resizeMode="cover"
                             onError={(error) => {
-                              // Don't log 403 Forbidden errors - they're expected for expired signed URLs
                               const errorMessage = error?.nativeEvent?.error?.message || '';
                               const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
-                              
                               if (__DEV__ && !is403) {
-                                console.warn('⚠️ [Profile] Image failed:', {
-                                  postId: post._id,
-                                  url: validImageUrl.substring(0, 80),
-                                  error: errorMessage || 'Unknown'
-                                });
+                                console.warn('⚠️ [Profile] Image failed:', { postId: post._id, url: validImageUrl.substring(0, 80), error: errorMessage || 'Unknown' });
                               }
-                              // Only log non-403 errors in production to reduce noise
                               if (!is403) {
-                                logger.warn('Image failed to load', {
-                                  postId: post._id,
-                                  imageUrl: validImageUrl.substring(0, 100),
-                                  error: errorMessage || 'Unknown error'
-                                });
+                                logger.warn('Image failed to load', { postId: post._id, imageUrl: validImageUrl.substring(0, 100), error: errorMessage || 'Unknown error' });
                               }
                             }}
                           />
                         ) : (
                           <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
-                            <Ionicons name="image-outline" size={32} color={profileTheme.textSecondary} />
+                            <Ionicons name="image-outline" size={28} color={profileTheme.textSecondary} />
                           </View>
                         )}
+                        {/* Multi-image indicator */}
+                        {(post as any).images?.length > 1 && (
+                          <View style={styles.multiImageBadge}>
+                            <Ionicons name="copy-outline" size={12} color="#FFFFFF" />
+                          </View>
+                        )}
+                        {/* View count overlay */}
+                        <View style={styles.viewCountOverlay}>
+                          <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
+                          <Text style={styles.viewCountText}>
+                            {((post as any).viewsCount ?? 0) >= 1000
+                              ? `${(((post as any).viewsCount ?? 0) / 1000).toFixed(1)}k`
+                              : String((post as any).viewsCount ?? 0)}
+                          </Text>
+                        </View>
                       </Pressable>
                     );
                   })}
@@ -1386,15 +1428,20 @@ export default function ProfileScreen() {
                       return (
                         <Pressable
                           key={s._id}
-                          style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg }]}
+                          style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor, aspectRatio: 9/16 }]}
                           onLongPress={() => handleDeletePost(s._id, true)}
                           onPress={() => router.push(`/user-shorts/${user?._id || ''}?shortId=${s._id}`)}
                         >
                           <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
-                            <Ionicons name="videocam-outline" size={32} color={profileTheme.textSecondary} />
+                            <Ionicons name="videocam-outline" size={28} color={profileTheme.textSecondary} />
                           </View>
                           <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-                            <Ionicons name="play" size={24} color="#FFFFFF" />
+                            <Ionicons name="play" size={22} color="#FFFFFF" />
+                          </View>
+                          {/* View count overlay */}
+                          <View style={styles.viewCountOverlay}>
+                            <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
+                            <Text style={styles.viewCountText}>0</Text>
                           </View>
                         </Pressable>
                       );
@@ -1402,7 +1449,7 @@ export default function ProfileScreen() {
                     return (
                       <Pressable
                         key={s._id}
-                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg }]}
+                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor, aspectRatio: 9/16 }]}
                         onLongPress={() => handleDeletePost(s._id, true)}
                         onPress={() => router.push(`/user-shorts/${user?._id || ''}?shortId=${s._id}`)}
                       >
@@ -1416,8 +1463,17 @@ export default function ProfileScreen() {
                             }
                           }}
                         />
-                        <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-                          <Ionicons name="play" size={24} color="#FFFFFF" />
+                        <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.35)' }]}>
+                          <Ionicons name="play" size={22} color="#FFFFFF" />
+                        </View>
+                        {/* View count overlay — bottom-left */}
+                        <View style={styles.viewCountOverlay}>
+                          <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
+                          <Text style={styles.viewCountText}>
+                            {((s as any).viewsCount ?? 0) >= 1000
+                              ? `${(((s as any).viewsCount ?? 0) / 1000).toFixed(1)}k`
+                              : String((s as any).viewsCount ?? 0)}
+                          </Text>
                         </View>
                       </Pressable>
                     );
@@ -1461,7 +1517,7 @@ export default function ProfileScreen() {
                     return (
                       <Pressable 
                         key={item._id} 
-                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg }]}
+                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor }]}
                         onPress={() => {
                           // Use the same format as user-posts route
                           router.push(`/saved-posts?postId=${item._id}`);
@@ -1519,8 +1575,7 @@ export default function ProfileScreen() {
               )
               }
             </View>
-              </View>
-            </View>
+          </View>
           </PremiumGlassCard>
           </>
         )}
@@ -1550,6 +1605,109 @@ const styles = StyleSheet.create({
       alignSelf: 'center',
       width: '100%',
     } as any),
+  },
+  topBarContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1000,
+    // Shadow Mechanics
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 4,
+    overflow: 'visible',
+    ...(isWeb && {
+      maxWidth: isTablet ? 1200 : 1000,
+      alignSelf: 'center',
+      width: '100%',
+    } as any),
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 2,
+    paddingTop: 0,
+    minHeight: 56,
+    borderBottomWidth: 0,
+    shadowColor: 'transparent',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
+  },
+  logoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  logoImageContainer: {
+    width: 56,
+    height: 56,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+  },
+  logoImage: {
+    width: 56,
+    height: 56,
+  },
+  logoText: {
+    fontSize: 30,
+    fontWeight: '600',
+    fontFamily: Platform.select({
+      ios: 'Snell Roundhand',
+      android: 'cursive',
+      web: '"Dancing Script", "Satisfy", "Brush Script MT", "Lucida Handwriting", cursive',
+      default: 'cursive',
+    }),
+    letterSpacing: 0.3,
+    fontStyle: 'normal',
+    ...(Platform.OS === 'web' && {
+      fontFamily: '"Dancing Script", "Satisfy", "Brush Script MT", "Lucida Handwriting", cursive',
+      fontWeight: '600',
+      WebkitFontSmoothing: 'antialiased',
+      MozOsxFontSmoothing: 'grayscale',
+    } as any),
+  },
+  headerIconsRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginLeft: 'auto',
+  },
+  iconButton: {
+    padding: 4,
+    borderRadius: 16,
+    backgroundColor: 'transparent',
+    minWidth: 32,
+    minHeight: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  headerNotificationBadge: {
+    position: 'absolute',
+    top: -6,
+    right: -10,
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    zIndex: 10,
+  },
+  headerBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   scrollView: {
     flex: 1,
@@ -1786,7 +1944,7 @@ const styles = StyleSheet.create({
   
   // Unified Profile Content Card - elegant, soft shadow
   unifiedCard: {
-    marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    marginHorizontal: 0,
     marginTop: isTablet ? 14 : 12,
     marginBottom: isTablet ? theme.spacing.md : 12,
     borderRadius: 28,
@@ -2173,6 +2331,10 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingHorizontal: 16,
   },
+  // Grid area has NO horizontal padding — width fills the card's content area
+  postsGridSection: {
+    width: '100%',
+  },
   postsContainer: {
     margin: 16,
     marginTop: 8,
@@ -2214,15 +2376,45 @@ const styles = StyleSheet.create({
   postsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
-    justifyContent: 'space-between',
-    paddingHorizontal: 2,
+    gap: 0,
+    justifyContent: 'flex-start',
+    paddingHorizontal: 0,
   },
   postThumbnail: {
-    width: '48%',
-    aspectRatio: 0.72,
-    borderRadius: 14,
+    width: '33.33%',
+    aspectRatio: 1,
+    borderRadius: 6,
     overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  multiImageBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 4,
+    padding: 3,
+    zIndex: 10,
+  },
+  viewCountOverlay: {
+    position: 'absolute',
+    bottom: 6,
+    left: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(0,0,0,0.50)',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    zIndex: 20,
+  },
+  viewCountText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '600',
+    letterSpacing: 0.2,
   },
   thumbnailImage: {
     width: '100%',

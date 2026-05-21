@@ -30,6 +30,7 @@ export interface ProfilePremiumViewProps {
   createdAt?: string;
   tripScore?: number;
   followersCount: number;
+  followingCount: number;
   verifiedCount: number | null;
   tripsCount: number;
   countriesCount: number;
@@ -46,6 +47,7 @@ export interface ProfilePremiumViewProps {
   onOpenJourneys: () => void;
   onOpenConnect: () => void;
   onOpenFollowers: () => void;
+  onOpenFollowing: () => void;
   onOpenChat?: () => void;
   onHighlightPress?: (postId: string) => void;
 }
@@ -68,11 +70,12 @@ export default function ProfilePremiumView({
   bio,
   tripScore = 0,
   followersCount,
+  followingCount = 0,
   verifiedCount,
   tripsCount,
   countriesCount,
-  verifiedLocations,
-  highlightPosts,
+  verifiedLocations = [],
+  highlightPosts = [],
   userId,
   isDark,
   accent,
@@ -84,136 +87,120 @@ export default function ProfilePremiumView({
   onOpenJourneys,
   onOpenConnect,
   onOpenFollowers,
+  onOpenFollowing,
   onOpenChat,
   onHighlightPress,
 }: ProfilePremiumViewProps) {
   const router = useRouter();
-  const topPercent = tripScore > 0 ? Math.min(99, Math.max(5, Math.round((tripScore % 500) / 5))) : 0;
-
   const timeline = verifiedLocations.slice(0, 4);
-  const tags = countriesCount > 0 ? `${countriesCount} countries` : 'Traveler';
 
   return (
     <View style={styles.wrap}>
-      <View style={[styles.headerBlock, { borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(91,188,248,0.15)' }]}>
+      {/* Floating profile image overlapping the top card */}
+      <View style={{ alignItems: 'center', zIndex: 10, marginTop: 16 }}>
+        <View style={[styles.avatarOuter, {
+          borderColor: isDark ? 'rgba(255,255,255,0.8)' : '#FFFFFF',
+          borderWidth: 4,
+          backgroundColor: isDark ? '#122236' : '#FFFFFF',
+          shadowColor: accent,
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.3,
+          shadowRadius: 16,
+          elevation: 10,
+        }]}>
+          <Image
+            source={
+              profilePic
+                ? { uri: optimizeCloudinaryUrl(profilePic, { width: 200, height: 200 }) }
+                : require('../../assets/avatars/male_avatar.png')
+            }
+            style={styles.avatar as ImageStyle}
+          />
+        </View>
+      </View>
+
+      <View style={[styles.headerBlock, {
+        borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.8)',
+        marginTop: -AVATAR / 2, // Pull up under the floating avatar
+      }]}>
         <LinearGradient
-          colors={isDark ? ['#0F1E30', '#122236', '#152A42'] : ['#E8F4FF', '#F5FAFF', '#FFFFFF']}
+          colors={isDark ? ['#0F1E30', '#122236', '#152A42'] : ['#F5FAFF', '#FFFFFF', '#E8F4FF']}
           style={StyleSheet.absoluteFillObject}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
         />
         <View style={styles.headerInner}>
-          <View style={styles.avatarRow}>
-            <View style={[styles.avatarOuter, { borderColor: isDark ? '#FFFFFF' : `${accent}55` }]}>
-              <Image
-                source={
-                  profilePic
-                    ? { uri: optimizeCloudinaryUrl(profilePic, { width: 200, height: 200 }) }
-                    : require('../../assets/avatars/male_avatar.png')
-                }
-                style={styles.avatar as ImageStyle}
-              />
-            </View>
-            <View style={styles.nameCol}>
-              <Text style={[styles.displayName, { color: textPrimary }]} numberOfLines={1}>
-                {fullName}
+          {/* Phase 3: The Identity Block (Centered Hierarchy below avatar) */}
+          <View style={styles.identityBlock}>
+            <Text style={[styles.displayNameText, { color: textPrimary }]}>
+              {fullName}
+            </Text>
+            {username ? (
+              <Text style={[styles.handleText, { color: textSecondary }]}>
+                @{username}
               </Text>
-              {username ? (
-                <Text style={[styles.handle, { color: textSecondary }]} numberOfLines={1}>
-                  @{username}
-                </Text>
-              ) : null}
-            </View>
+            ) : null}
+            
+            {bio ? (
+              <View style={styles.bioContainer}>
+                <BioDisplay bio={bio} />
+              </View>
+            ) : null}
           </View>
-          <Text style={[styles.tags, { color: textSecondary }]}>{tags}</Text>
-          {bio ? (
-            <View style={styles.bioWrap}>
-              <BioDisplay bio={bio} />
-            </View>
-          ) : null}
-          <View style={styles.actionRow}>
-            <Pressable
-              style={[styles.btnOutline, { borderColor: accent + '60', flex: 1, justifyContent: 'center' }]}
-              onPress={onOpenConnect}
-            >
-              <Ionicons name="people-outline" size={16} color={accent} />
-              <Text style={[styles.btnOutlineText, { color: textPrimary }]}>Connect</Text>
+
+          {/* Phase 2: Pill-styled Metrics */}
+          <View style={styles.metricsContainer}>
+            <Pressable style={styles.metricPill} onPress={onOpenTripScore}>
+              <LinearGradient colors={isDark ? ['#1A2B3C', '#122236'] : ['#F0F8FF', '#FFFFFF']} style={styles.metricPillGrad} />
+              <Ionicons name="compass" size={16} color={accent} style={{ marginBottom: 4 }} />
+              <Text style={[styles.metricValue, { color: textPrimary }]}>{tripScore}</Text>
+              <Text style={[styles.metricLabel, { color: textSecondary }]}>Score</Text>
             </Pressable>
-            {onOpenChat ? (
-              <Pressable
-                style={[styles.btnIcon, { borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(91,188,248,0.25)' }]}
-                onPress={onOpenChat}
-              >
-                <Ionicons name="chatbubble-outline" size={18} color={textPrimary} />
-              </Pressable>
-            ) : (
-              <Pressable
-                style={[styles.btnIcon, { borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(91,188,248,0.25)' }]}
-                onPress={onEditProfile}
-              >
-                <Ionicons name="create-outline" size={18} color={textPrimary} />
-              </Pressable>
-            )}
+            
+            <Pressable style={styles.metricPill} onPress={onOpenFollowers}>
+              <LinearGradient colors={isDark ? ['#1A2B3C', '#122236'] : ['#F0F8FF', '#FFFFFF']} style={styles.metricPillGrad} />
+              <Ionicons name="people" size={16} color={accent} style={{ marginBottom: 4 }} />
+              <Text style={[styles.metricValue, { color: textPrimary }]}>{followersCount}</Text>
+              <Text style={[styles.metricLabel, { color: textSecondary }]}>Followers</Text>
+            </Pressable>
+            
+            <Pressable style={styles.metricPill} onPress={onOpenFollowing}>
+              <LinearGradient colors={isDark ? ['#1A2B3C', '#122236'] : ['#F0F8FF', '#FFFFFF']} style={styles.metricPillGrad} />
+              <Ionicons name="person-add" size={16} color={accent} style={{ marginBottom: 4 }} />
+              <Text style={[styles.metricValue, { color: textPrimary }]}>{followingCount}</Text>
+              <Text style={[styles.metricLabel, { color: textSecondary }]}>Following</Text>
+            </Pressable>
           </View>
         </View>
       </View>
 
-      {/* Stats strip */}
-      <PremiumGlassCard style={styles.statsCard} contentStyle={styles.statsInner} subtle>
-        <Pressable style={styles.statCell} onPress={onOpenTripScore}>
-          <Text style={[styles.statValue, { color: textPrimary }]}>{tripScore}</Text>
-          <Text style={[styles.statLabel, { color: textSecondary }]}>TripScore</Text>
-          {topPercent > 0 ? (
-            <Text style={[styles.statHint, { color: accent }]}>Top {topPercent}%</Text>
-          ) : null}
-        </Pressable>
-        <View style={[styles.statDivider, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(91,188,248,0.15)' }]} />
-        <Pressable style={styles.statCell} onPress={onOpenJourneys}>
-          <Text style={[styles.statValue, { color: textPrimary }]}>{tripsCount}</Text>
-          <Text style={[styles.statLabel, { color: textSecondary }]}>Trips</Text>
-        </Pressable>
-        <View style={[styles.statDivider, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(91,188,248,0.15)' }]} />
-        <Pressable style={styles.statCell} onPress={onOpenFollowers}>
-          <Text style={[styles.statValue, { color: textPrimary }]}>{followersCount}</Text>
-          <Text style={[styles.statLabel, { color: textSecondary }]}>Followers</Text>
-        </Pressable>
-      </PremiumGlassCard>
+      {/* Standalone Rotating Globe with Glowing Backdrop */}
+      <View style={styles.globeWrapper}>
+        <View style={[styles.globeGlow, { backgroundColor: isDark ? 'rgba(91,188,248,0.1)' : 'rgba(91,188,248,0.15)' }]} />
+        <View style={styles.globeContainer}>
+          <RotatingGlobe locations={verifiedLocations} size={160} onPress={onOpenMap} />
+        </View>
+      </View>
 
-      {/* Journey map */}
-      <Pressable onPress={onOpenMap}>
-        <PremiumGlassCard style={styles.sectionCard} contentStyle={styles.journeyInner} subtle>
-          <View style={styles.sectionHead}>
-            <Text style={[styles.sectionTitle, { color: textPrimary }]}>Your Journey Map</Text>
-            <Ionicons name="chevron-forward" size={18} color={textSecondary} />
-          </View>
-          <View style={styles.journeyRow}>
-            <View style={styles.journeyList}>
-              {timeline.length > 0 ? (
-                timeline.map((loc, i) => (
-                  <View key={`${loc.latitude}-${i}`} style={styles.journeyLine}>
-                    <View style={[styles.journeyDot, { backgroundColor: accent }]} />
-                    <Text style={[styles.journeyText, { color: textSecondary }]} numberOfLines={1}>
-                      {formatLocationLine(loc.address, loc.date)}
-                    </Text>
-                  </View>
-                ))
-              ) : (
-                <Text style={[styles.journeyEmpty, { color: textSecondary }]}>
-                  Post with a location to start your map
-                </Text>
-              )}
-            </View>
-            <View style={styles.globeMini}>
-              {verifiedLocations.length > 0 ? (
-                <RotatingGlobe locations={verifiedLocations} size={100} onPress={onOpenMap} />
-              ) : (
-                <Ionicons name="earth" size={48} color={accent} style={{ opacity: 0.5 }} />
-              )}
-            </View>
-          </View>
-        </PremiumGlassCard>
-      </Pressable>
-
-      {/* Achievements */}
-      {/* Achievements section removed as per request */}
+      {/* Standalone Connect Button directly below the globe */}
+      <View style={{ alignItems: 'center', marginBottom: 24, marginTop: -10 }}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.connectButtonPill,
+            { backgroundColor: accent, opacity: pressed ? 0.9 : 1 }
+          ]}
+          onPress={onOpenConnect}
+        >
+          <LinearGradient
+            colors={['rgba(255,255,255,0.2)', 'transparent']}
+            style={StyleSheet.absoluteFillObject}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+          />
+          <Ionicons name="people" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+          <Text style={styles.connectButtonText}>Connect</Text>
+        </Pressable>
+      </View>
 
       {/* Recent highlights */}
       {highlightPosts.length > 0 ? (
@@ -273,8 +260,6 @@ export default function ProfilePremiumView({
           ))}
         </PremiumGlassCard>
       ) : null}
-
-
     </View>
   );
 }
@@ -285,19 +270,83 @@ const styles = StyleSheet.create({
   },
   headerBlock: {
     marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 16,
-    borderRadius: 24,
+    marginTop: 0,
+    marginBottom: 24,
+    borderRadius: 28,
     overflow: 'hidden',
     borderWidth: 1,
   },
   headerInner: {
-    padding: 20,
+    padding: 24,
+    paddingTop: 16, // Reduced top padding to account for floating avatar
+    position: 'relative',
+    alignItems: 'center',
   },
-  avatarRow: {
+  editProfileAbsolute: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  identityBlock: {
+    alignItems: 'center',
+    marginTop: 56, // Push down below floating avatar overlap
+    marginBottom: 24,
+    paddingHorizontal: 8,
+  },
+  displayNameText: {
+    fontSize: 22,
+    fontWeight: '800',
+    marginBottom: 4,
+    letterSpacing: 0.3,
+  },
+  handleText: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginBottom: 12,
+  },
+  bioContainer: {
+    width: '100%',
+    alignItems: 'center',
+  },
+  metricsContainer: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    justifyContent: 'center',
     gap: 12,
+    width: '100%',
+  },
+  metricPill: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.1)',
+    overflow: 'hidden',
+  },
+  metricPillGrad: {
+    ...StyleSheet.absoluteFillObject,
+    opacity: 0.8,
+  },
+  metricValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    marginTop: 4,
+  },
+  metricLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    marginTop: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   avatarOuter: {
     width: AVATAR,
@@ -305,127 +354,18 @@ const styles = StyleSheet.create({
     borderRadius: AVATAR / 2,
     borderWidth: 3,
     borderColor: '#fff',
-    overflow: 'visible',
+    overflow: 'hidden',
   },
   avatar: {
     width: '100%',
     height: '100%',
     borderRadius: AVATAR / 2,
   },
-  verifiedDot: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    borderWidth: 2,
-    borderColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  nameCol: {
-    flex: 1,
-    paddingBottom: 8,
-    minWidth: 0,
-  },
-  displayName: {
-    fontSize: 22,
-    fontWeight: '800',
-  },
-  handle: {
-    fontSize: 13,
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  tags: {
-    fontSize: 12,
-    fontWeight: '600',
-    marginTop: 10,
-  },
-  bioWrap: {
-    marginTop: 8,
-    width: '100%',
-  },
-  actionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginTop: 14,
-  },
-  btnPrimary: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: 999,
-    overflow: 'hidden',
-  },
-  btnPrimaryText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  btnOutline: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 999,
-    borderWidth: 1,
-  },
-  btnOutlineText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  btnIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statsCard: {
-    marginHorizontal: 16,
-    marginBottom: 12,
-  },
-  statsInner: {
-    flexDirection: 'row',
-    paddingVertical: 14,
-    paddingHorizontal: 8,
-  },
-  statCell: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: '900',
-  },
-  statLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    marginTop: 4,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  statHint: {
-    fontSize: 9,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  statDivider: {
-    width: StyleSheet.hairlineWidth,
-    alignSelf: 'stretch',
-    marginVertical: 4,
-  },
   sectionCard: {
-    marginHorizontal: 16,
+    marginHorizontal: 0,
     marginBottom: 12,
+    borderRadius: 0,
+    borderWidth: 0,
   },
   sectionHead: {
     flexDirection: 'row',
@@ -440,39 +380,49 @@ const styles = StyleSheet.create({
   journeyInner: {
     padding: 14,
   },
-  journeyRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  journeyList: {
-    flex: 1,
-    gap: 10,
-    paddingRight: 8,
-  },
-  journeyLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  journeyDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-  },
-  journeyText: {
-    fontSize: 12,
-    fontWeight: '600',
-    flex: 1,
-  },
-  journeyEmpty: {
-    fontSize: 12,
-    fontStyle: 'italic',
-  },
-  globeMini: {
-    width: 110,
-    height: 110,
+  globeWrapper: {
+    position: 'relative',
+    width: '100%',
+    height: 200,
     alignItems: 'center',
     justifyContent: 'center',
+    marginVertical: 4,
+  },
+  globeGlow: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -100 }, { translateY: -100 }],
+    filter: 'blur(30px)', // using generic CSS blur (note: React Native may ignore this or require a different approach depending on platform, but we'll try it and provide a fallback color with opacity).
+  },
+  globeContainer: {
+    width: 160,
+    height: 160,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  connectButtonPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    paddingVertical: 14,
+    borderRadius: 30,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
+    overflow: 'hidden',
+  },
+  connectButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   highlightsBlock: {
     marginBottom: 12,
@@ -482,12 +432,20 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   highlightCard: {
-    width: 120,
-    height: 160,
+    width: 130,
+    height: 170,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 6,
   },
   highlightGlass: {
     flex: 1,
     overflow: 'hidden',
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.2)',
   },
   highlightImg: {
     width: '100%',
@@ -529,24 +487,5 @@ const styles = StyleSheet.create({
   timelineDate: {
     fontSize: 11,
     marginTop: 2,
-  },
-  quoteCard: {
-    marginBottom: 16,
-  },
-  quoteInner: {
-    padding: 18,
-    alignItems: 'center',
-  },
-  quoteText: {
-    fontSize: 15,
-    fontWeight: '600',
-    fontStyle: 'italic',
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  quoteAuthor: {
-    fontSize: 12,
-    marginTop: 8,
-    fontWeight: '600',
   },
 });

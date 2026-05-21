@@ -14,6 +14,7 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import ReAnimated, { useSharedValue, useAnimatedStyle } from 'react-native-reanimated';
 
 const { width: screenWidth } = Dimensions.get('window');
+const CARD_WIDTH = screenWidth - 24;
 
 // Strip the query string from a signed URL so the cache key stays stable across
 // sessions. Without this, a fresh signature on each backend response would miss
@@ -281,18 +282,23 @@ export default function PostImage({
                 ref={flatListRef}
                 data={resolvedImages}
                 horizontal
-                pagingEnabled
+                pagingEnabled={true}
+                snapToInterval={CARD_WIDTH}
+                snapToAlignment="center"
+                decelerationRate="fast"
                 showsHorizontalScrollIndicator={false}
                 scrollEnabled={true}
+                style={{ margin: 0, padding: 0 }}
+                contentContainerStyle={{ marginHorizontal: 0, paddingHorizontal: 0 }}
                 onMomentumScrollEnd={(event) => {
-                  const index = Math.round(event.nativeEvent.contentOffset.x / screenWidth);
+                  const index = Math.round(event.nativeEvent.contentOffset.x / CARD_WIDTH);
                   setCurrentImageIndex(index);
                 }}
                 renderItem={({ item }) => (
                   <TouchableOpacity
                     activeOpacity={1}
                     onPress={handleDoubleTap}
-                    style={{ width: screenWidth, height: '100%' }}
+                    style={{ width: CARD_WIDTH, height: '100%', marginHorizontal: 0, paddingHorizontal: 0 }}
                   >
                     <ExpoImage
                       source={{
