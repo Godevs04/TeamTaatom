@@ -33,7 +33,7 @@ async function muxForUpload(
 ): Promise<string> {
   try {
     // Dynamically import FFmpegKit only when needed
-    const { FFmpegKit, ReturnCode } = await import('ffmpeg-kit-react-native');
+    const { FFmpegKit, ReturnCode } = await import('@wokcito/ffmpeg-kit-react-native');
     
     const outputPath = `${getCachePath()}upload_mux_${Date.now()}.mp4`;
 
