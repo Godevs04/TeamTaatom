@@ -24,6 +24,19 @@ import { getPostById } from '../../services/posts';
 import ChatAttachmentPicker from '../../components/chat/ChatAttachmentPicker';
 import ChatAttachmentPreview from '../../components/chat/ChatAttachmentPreview';
 import MessageAttachment from '../../components/chat/MessageAttachment';
+import {
+  CloudSkyBackground,
+  CloudChatCommandHeader,
+  CloudChatConversationHeader,
+  CloudInputDock,
+  CloudAvatarStack,
+} from '../../components/cloud';
+import {
+  createCloudChatBubbleStyles,
+  CHAT_BUBBLE_MAX_WIDTH,
+} from '../../components/cloud/cloudChatBubbleStyles';
+import { cloudDesign } from '../../constants/cloudDesign';
+import { isChatDarkMode } from '../../utils/chatTheme';
 
 // Clear push notification badge and dismiss tray notifications when messages are read.
 // Works for both Firebase (FCM) and Expo notification channels.
@@ -179,8 +192,13 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
 }) {
   // Render logging removed - too verbose, use React DevTools for component tracking
   
-  const { theme } = useTheme();
+  const { theme, mode } = useTheme();
   const insets = useSafeAreaInsets();
+  const isDark = isChatDarkMode(mode, theme.colors.background);
+  const bubbleStyles = useMemo(
+    () => createCloudChatBubbleStyles(isDark, theme),
+    [isDark, theme]
+  );
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isOnline, setIsOnline] = useState(false);
@@ -1293,7 +1311,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: theme.colors.background,
+      backgroundColor: 'transparent',
       ...(isWeb && {
         maxWidth: isTablet ? 1200 : 1000,
         alignSelf: 'center',
@@ -1660,83 +1678,27 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
           behavior="padding"
           keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
         >
-        {/* Modern Header */}
-        <View style={styles.chatHeader}>
-          <TouchableOpacity
-            onPress={onClose}
-            style={styles.headerBack}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.headerUserInfo}
-            activeOpacity={0.7}
-            onPress={() => {
-              if (chatType === 'connect_page' && connectPageId?._id && router) {
-                router.push(`/connect/page/${connectPageId._id}`);
-              } else if (otherUser?._id && router) {
-                router.push(`/profile/${otherUser._id}`);
-              }
-            }}
-          >
-            <View style={styles.headerAvatarWrap}>
-              {chatType === 'connect_page' && connectPageId?.profileImage ? (
-                <ExpoImage
-                  source={{ uri: connectPageId.profileImage }}
-                  style={styles.headerAvatar}
-                  cachePolicy="memory-disk"
-                  placeholder={require('../../assets/avatars/male_avatar.png')}
-                  onError={(e: any) => logger.warn('[chat header avatar] load failed', {
-                    url: connectPageId.profileImage?.substring(0, 120),
-                    error: e?.error || e?.nativeEvent?.error || String(e),
-                  })}
-                />
-              ) : resolvedProfilePic ? (
-                <ExpoImage
-                  source={{ uri: resolvedProfilePic }}
-                  style={styles.headerAvatar}
-                  cachePolicy="memory-disk"
-                  placeholder={require('../../assets/avatars/male_avatar.png')}
-                  onError={(e: any) => logger.warn('[chat header avatar] load failed', {
-                    url: resolvedProfilePic?.substring(0, 120),
-                    error: e?.error || e?.nativeEvent?.error || String(e),
-                  })}
-                />
-              ) : chatType === 'connect_page' ? (
-                <View style={[styles.headerAvatarPlaceholder, { backgroundColor: theme.colors.primary + '15' }]}>
-                  <Ionicons name="people" size={18} color={theme.colors.primary} />
-                </View>
-              ) : (
-                <View style={[styles.headerAvatarPlaceholder, { backgroundColor: theme.colors.textSecondary + '15' }]}>
-                  <Ionicons name="person" size={18} color={theme.colors.textSecondary} />
-                </View>
-              )}
-              {isOnline && <View style={styles.onlineDot} />}
-            </View>
-
-            <View style={styles.headerCenter}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Text style={styles.chatName} numberOfLines={1} ellipsizeMode="tail">
-                  {otherUser.fullName}
-                </Text>
-                {isTaatomOfficial && (
-                  <Ionicons name="checkmark-circle" size={15} color={theme.colors.success || '#4CAF50'} />
-                )}
-              </View>
-              {isTaatomOfficial && (
-                <Text style={[styles.onlineStatus, { color: theme.colors.primary }]}>Online</Text>
-              )}
-              {chatType === 'connect_page' && connectPageId?.name ? (
-                <Text style={[styles.onlineStatus, { color: theme.colors.textSecondary }]}>{connectPageId.name}</Text>
-              ) : !isTaatomOfficial && otherUser?.username ? (
-                <Text style={[styles.onlineStatus, { color: theme.colors.textSecondary }]}>{otherUser.username}</Text>
-              ) : null}
-            </View>
-          </TouchableOpacity>
-
-          <View style={styles.headerActions}>
+        <CloudChatConversationHeader
+          title={otherUser?.fullName || 'Chat'}
+          onBack={onClose}
+          avatarUris={
+            chatType === 'connect_page' && participants?.length
+              ? participants
+                  .map((p: any) => p?.profilePic)
+                  .filter((u: string | undefined) => typeof u === 'string' && u.length > 0)
+              : resolvedProfilePic
+                ? [resolvedProfilePic]
+                : []
+          }
+          typingText={isTyping ? 'typing…' : null}
+          onTitlePress={() => {
+            if (chatType === 'connect_page' && connectPageId?._id && router) {
+              router.push(`/connect/page/${connectPageId._id}`);
+            } else if (otherUser?._id && router) {
+              router.push(`/profile/${otherUser._id}`);
+            }
+          }}
+          rightAction={
             <ThreeDotMenu
               items={[
                 {
@@ -1833,8 +1795,8 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
               iconColor={theme.colors.text}
               iconSize={20}
             />
-          </View>
-        </View>
+          }
+        />
 
         {/* Messages */}
         <View style={styles.messagesContainer}>
@@ -1907,9 +1869,27 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                 return item.seen === true;
               })();
 
+              const BubbleWrapper = ({ children }: { children: React.ReactNode }) =>
+                isOwn ? (
+                  <LinearGradient
+                    colors={cloudDesign.buttonGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={[bubbleStyles.bubbleOut, { maxWidth: CHAT_BUBBLE_MAX_WIDTH }]}
+                  >
+                    {children}
+                  </LinearGradient>
+                ) : (
+                  <View style={[bubbleStyles.bubbleIn, { maxWidth: CHAT_BUBBLE_MAX_WIDTH }]}>{children}</View>
+                );
+
               return (
-                <View style={isGroupChat && !isOwn ? { flexDirection: 'row', alignItems: 'flex-end', marginBottom: showSenderInfo ? 6 : 2 } : undefined}>
-                  {/* Group chat: sender profile pic */}
+                <View
+                  style={[
+                    bubbleStyles.messageRow,
+                    { justifyContent: isOwn ? 'flex-end' : 'flex-start' },
+                  ]}
+                >
                   {isGroupChat && !isOwn && (
                     showSenderInfo ? (
                       <TouchableOpacity
@@ -1925,30 +1905,21 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                         />
                       </TouchableOpacity>
                     ) : (
-                      <View style={{ width: 28, marginRight: 8 }} />
+                      <View style={bubbleStyles.avatarSpacer} />
                     )
                   )}
-                  <View style={[
-                    styles.bubble,
-                    isOwn ? styles.bubbleOwn : styles.bubbleOther,
-                    isGroupChat && !isOwn ? { maxWidth: '75%' } : undefined
-                  ]}>
-                    {/* Group chat: sender name on first message in sequence */}
-                    {isGroupChat && !isOwn && showSenderInfo && (
-                      <TouchableOpacity
-                        activeOpacity={0.7}
-                        onPress={() => senderId && router.push(`/profile/${senderId}`)}
-                      >
-                        <Text style={{
-                          fontSize: 12,
-                          fontWeight: '600',
-                          color: theme.colors.primary,
-                          marginBottom: 3,
-                        }} numberOfLines={1}>
-                          {resolvedSenderName || 'Unknown'}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
+                  <View
+                    style={[
+                      bubbleStyles.bubbleColumn,
+                      { alignItems: isOwn ? 'flex-end' : 'flex-start' },
+                    ]}
+                  >
+                    {isGroupChat && !isOwn && showSenderInfo && resolvedSenderName ? (
+                      <Text style={[bubbleStyles.senderName, { marginLeft: 0 }]} numberOfLines={1}>
+                        {resolvedSenderName}
+                      </Text>
+                    ) : null}
+                  <BubbleWrapper>
                     {postShare ? (
                       // Render post share as attractive text message with small image thumbnail
                       <TouchableOpacity
@@ -2033,10 +2004,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                         )}
                         {/* Render text if present */}
                         {item.text ? (
-                          <Text style={[
-                            styles.bubbleText,
-                            isOwn ? styles.bubbleOwnText : {}
-                          ]}>
+                          <Text style={isOwn ? bubbleStyles.textOut : bubbleStyles.textIn}>
                             {String(item.text)}
                           </Text>
                         ) : null}
@@ -2050,10 +2018,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                       marginTop: 2,
                       gap: 3,
                     }}>
-                      <Text style={[
-                        styles.bubbleTime,
-                        isOwn ? styles.bubbleOwnTime : styles.bubbleOtherTime
-                      ]}>
+                      <Text style={isOwn ? bubbleStyles.timeOut : bubbleStyles.textIn}>
                         {item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                       </Text>
                       {isOwn && (
@@ -2066,6 +2031,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                         </View>
                       )}
                     </View>
+                  </BubbleWrapper>
                   </View>
                 </View>
               );
@@ -2107,45 +2073,15 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
           />
         )}
 
-        {/* Clean Input Bar */}
-        <View style={styles.inputContainer}>
-          <TouchableOpacity
-            onPress={() => setShowAttachmentPicker(true)}
-            style={styles.attachButton}
-            accessibilityRole="button"
-            accessibilityLabel="Add attachment"
-          >
-            <Ionicons name="add-circle-outline" size={26} color={theme.colors.textSecondary} />
-          </TouchableOpacity>
-
-          <View style={styles.inputWrapper}>
-            <TextInput
-              style={styles.input}
-              value={input}
-              onChangeText={handleInput}
-              placeholder="Type a message..."
-              placeholderTextColor={theme.colors.textSecondary}
-              multiline
-              textAlignVertical="center"
-            />
-          </View>
-
-          {(input.trim() || pendingAttachments.length > 0) && (
-            <TouchableOpacity
-              onPress={handleSend}
-              style={styles.sendButton}
-              accessibilityRole="button"
-              accessibilityLabel="Send message"
-              accessibilityHint="Sends the message in the input field"
-            >
-              <Ionicons
-                name="send"
-                size={18}
-                color="#fff"
-              />
-            </TouchableOpacity>
-          )}
-        </View>
+        <CloudInputDock
+          value={input}
+          onChangeText={handleInput}
+          onSend={handleSend}
+          onAttach={() => setShowAttachmentPicker(true)}
+          placeholder="Type a message…"
+          bottomInset={Math.max(insets.bottom, 10)}
+          canSend={Boolean(input.trim()) || pendingAttachments.length > 0}
+        />
 
         {/* Attachment Picker Modal */}
         <ChatAttachmentPicker
@@ -2226,7 +2162,8 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
 
 export default function ChatModal() {
         logger.debug('ChatModal rendered');
-  const { theme } = useTheme();
+  const { theme, mode } = useTheme();
+  const isDark = isChatDarkMode(mode, theme.colors.background);
   const router = useRouter();
   const params = useLocalSearchParams();
   // Restore local state for conversations, activeChat, activeMessages
@@ -3503,7 +3440,20 @@ export default function ChatModal() {
       justifyContent: 'space-between',
       paddingHorizontal: isTablet ? theme.spacing.xl : 16,
       paddingVertical: isTablet ? theme.spacing.md : 12,
-      backgroundColor: theme.colors.background,
+      marginHorizontal: isTablet ? 24 : 14,
+      marginTop: 8,
+      marginBottom: 12,
+      borderRadius: 28,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.62)',
+      backgroundColor: theme.colors.background === '#000000' || theme.colors.background === '#111114'
+        ? 'rgba(17, 34, 54, 0.72)'
+        : 'rgba(255,255,255,0.68)',
+      shadowColor: '#65BDF7',
+      shadowOffset: { width: 0, height: 14 },
+      shadowOpacity: 0.18,
+      shadowRadius: 24,
+      elevation: 8,
     },
     headerLeft: {
       flexDirection: 'row',
@@ -3538,18 +3488,31 @@ export default function ChatModal() {
       borderRadius: isTablet ? 20 : 18,
       alignItems: 'center',
       justifyContent: 'center',
+      backgroundColor: 'rgba(255,255,255,0.28)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.5)',
     },
     searchContainer: {
       paddingHorizontal: isTablet ? theme.spacing.xl : 16,
-      paddingBottom: 8,
+      paddingBottom: 12,
+      backgroundColor: 'transparent',
     },
     searchBar: {
       flexDirection: 'row',
       alignItems: 'center',
-      backgroundColor: theme.colors.surface,
-      borderRadius: isTablet ? 12 : 10,
+      backgroundColor: theme.colors.background === '#000000' || theme.colors.background === '#111114'
+        ? 'rgba(17, 34, 54, 0.72)'
+        : 'rgba(255,255,255,0.72)',
+      borderRadius: 24,
       paddingHorizontal: isTablet ? 14 : 12,
       height: isTablet ? 40 : 36,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.66)',
+      shadowColor: '#65BDF7',
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.14,
+      shadowRadius: 18,
+      elevation: 5,
     },
     searchInput: {
       flex: 1,
@@ -3566,12 +3529,31 @@ export default function ChatModal() {
     },
     chatList: {
       flex: 1,
+      paddingHorizontal: isTablet ? 18 : 12,
     },
-    chatItem: {
+    chatItemFlat: {
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: isTablet ? theme.spacing.xl : 16,
+      paddingHorizontal: isTablet ? 18 : 14,
       paddingVertical: isTablet ? 14 : 12,
+      marginBottom: 4,
+      backgroundColor: 'transparent',
+    },
+    chatItemUnread: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: isTablet ? 18 : 14,
+      paddingVertical: isTablet ? 14 : 12,
+      borderRadius: 16,
+      marginBottom: 8,
+      backgroundColor: isDark ? theme.colors.glassStrong : '#FFFFFF',
+      borderWidth: isDark ? 1 : 0,
+      borderColor: isDark ? theme.colors.glassBorder : 'transparent',
+      shadowColor: isDark ? (theme.colors.glowBlue || theme.colors.primary) : 'rgba(43, 127, 212, 0.18)',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.14,
+      shadowRadius: 20,
+      elevation: 6,
     },
     avatarContainer: {
       position: 'relative',
@@ -3581,6 +3563,8 @@ export default function ChatModal() {
       width: isTablet ? 56 : 50,
       height: isTablet ? 56 : 50,
       borderRadius: isTablet ? 28 : 25,
+      borderWidth: 2,
+      borderColor: isDark ? theme.colors.glassBorder : 'rgba(255,255,255,0.72)',
     },
     avatarPlaceholder: {
       width: isTablet ? 56 : 50,
@@ -3588,6 +3572,8 @@ export default function ChatModal() {
       borderRadius: isTablet ? 28 : 25,
       alignItems: 'center',
       justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.62)',
     },
     onlineIndicator: {
       position: 'absolute',
@@ -3636,10 +3622,12 @@ export default function ChatModal() {
       marginLeft: 8,
     },
     connectBadge: {
-      backgroundColor: theme.colors.primary + '15',
-      paddingHorizontal: 6,
-      paddingVertical: 1,
-      borderRadius: 4,
+      backgroundColor: theme.colors.primary + '18',
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 999,
+      borderWidth: 1,
+      borderColor: theme.colors.primary + '24',
     },
     connectBadgeText: {
       fontSize: 10,
@@ -3661,7 +3649,6 @@ export default function ChatModal() {
       color: theme.colors.text,
     },
     unreadBadge: {
-      backgroundColor: theme.colors.primary,
       borderRadius: 10,
       minWidth: 20,
       height: 20,
@@ -3669,6 +3656,12 @@ export default function ChatModal() {
       justifyContent: 'center',
       paddingHorizontal: 6,
       marginLeft: 8,
+      overflow: 'hidden',
+      shadowColor: theme.colors.primary,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.28,
+      shadowRadius: 8,
+      elevation: 4,
     },
     unreadText: {
       color: '#fff',
@@ -3686,7 +3679,14 @@ export default function ChatModal() {
     },
     emptyIcon: {
       marginBottom: 16,
-      opacity: 0.5,
+      width: 108,
+      height: 108,
+      borderRadius: 54,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: isDark ? theme.colors.glassSurface : 'rgba(255,255,255,0.42)',
+      borderWidth: 1,
+      borderColor: isDark ? theme.colors.glassBorder : 'rgba(255,255,255,0.66)',
     },
     emptyTitle: {
       fontSize: 16,
@@ -3707,7 +3707,7 @@ export default function ChatModal() {
       left: 0,
       right: 0,
       bottom: 0,
-      backgroundColor: theme.colors.background,
+      backgroundColor: theme.colors.background === '#000000' || theme.colors.background === '#111114' ? '#07111C' : '#EAF8FF',
     },
     newMessageHeader: {
       flexDirection: 'row',
@@ -3715,7 +3715,7 @@ export default function ChatModal() {
       justifyContent: 'space-between',
       paddingHorizontal: 16,
       paddingVertical: 12,
-      backgroundColor: theme.colors.background,
+      backgroundColor: 'transparent',
     },
     newMessageTitle: {
       fontSize: 16,
@@ -3727,6 +3727,13 @@ export default function ChatModal() {
       alignItems: 'center',
       paddingHorizontal: 16,
       paddingVertical: 12,
+      borderRadius: 22,
+      backgroundColor: theme.colors.background === '#000000' || theme.colors.background === '#111114'
+        ? 'rgba(17, 34, 54, 0.72)'
+        : 'rgba(255,255,255,0.68)',
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.52)',
+      marginBottom: 8,
     },
     userAvatar: {
       width: 44,
@@ -3879,61 +3886,24 @@ export default function ChatModal() {
       {__DEV__ && logger.debug('📞 Render check', { showGlobalCallScreen, otherUserId: globalCallState.otherUserId, forceRender })}
       
       <SafeAreaView style={styles.container}>
-      {/* Modern Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backButton}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-          <Text style={styles.title}>Chats</Text>
-        </View>
-
-        <View style={styles.headerActions}>
-          <TouchableOpacity
-            onPress={() => {
-              logger.debug('[Mark All Read] Button pressed');
-              handleMarkAllAsRead();
-            }}
-            style={styles.headerButton}
-            activeOpacity={0.7}
-            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-          >
-            <Ionicons name="checkmark-done" size={20} color={theme.colors.primary || '#007AFF'} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setShowNewMessage(true)}
-            style={styles.headerButton}
-            activeOpacity={0.7}
-            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-          >
-            <Ionicons name="create-outline" size={20} color={theme.colors.text} />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Compact Search Bar */}
-      <View style={styles.searchContainer}>
-        <View style={styles.searchBar}>
-          <Ionicons name="search" size={16} color={theme.colors.textSecondary} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search"
-            placeholderTextColor={theme.colors.textSecondary}
-            value={search}
-            onChangeText={setSearch}
-          />
-          {search.length > 0 && (
-            <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="close-circle" size={16} color={theme.colors.textSecondary} />
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
+      {!isDark && <CloudSkyBackground heightRatio={0.3} />}
+      <LinearGradient
+        colors={
+          isDark
+            ? (theme.colors.screenGradient as [string, string, string])
+            : ['transparent', '#F8FCFF', '#FFFFFF']
+        }
+        style={StyleSheet.absoluteFillObject}
+        locations={isDark ? undefined : [0, 0.25, 1]}
+      />
+      <CloudChatCommandHeader
+        title="Chats"
+        search={search}
+        onSearchChange={setSearch}
+        onBack={() => router.back()}
+        onCompose={() => setShowNewMessage(true)}
+        onMarkAllRead={handleMarkAllAsRead}
+      />
 
       {/* Chat List */}
       {filtered.length === 0 ? (
@@ -4016,9 +3986,13 @@ export default function ChatModal() {
               return isUnseen;
             }).length || 0;
             
+            const isUnread = unreadCount > 0;
             return (
               <TouchableOpacity
-                style={styles.chatItem}
+                style={[
+                  isUnread ? styles.chatItemUnread : styles.chatItemFlat,
+                  isUnread && styles.chatItemUnread,
+                ]}
                 onLongPress={() => {
                   const chatName = (item as any).type === 'connect_page' && (item as any).connectPageId?.name
                     ? (item as any).connectPageId.name
@@ -4196,6 +4170,12 @@ export default function ChatModal() {
                     </View>
                     {unreadCount > 0 && (
                       <View style={styles.unreadBadge}>
+                        <LinearGradient
+                          colors={theme.colors.gradient.button as [string, string]}
+                          style={StyleSheet.absoluteFillObject}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                        />
                         <Text style={styles.unreadText} numberOfLines={1}>
                           {unreadCount > 99 ? '99+' : String(unreadCount)}
                         </Text>
@@ -4206,9 +4186,7 @@ export default function ChatModal() {
               </TouchableOpacity>
             );
           }}
-          ItemSeparatorComponent={() => (
-            <View style={{ height: 0.5, backgroundColor: theme.colors.border, marginLeft: isTablet ? 86 : 78 }} />
-          )}
+          ItemSeparatorComponent={() => <View style={{ height: isTablet ? 10 : 8 }} />}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 20 }}
         />

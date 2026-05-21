@@ -17,9 +17,12 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { useJourney } from '../../context/JourneyContext';
 import { WebView } from 'react-native-webview';
-import { MapView, Marker, useWebViewFallback } from '../../utils/mapsWrapper';
+import { MapView, Marker, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import PolylineRenderer from '../../components/PolylineRenderer';
+import GlassMapPanel from '../../components/GlassMapPanel';
+import PremiumMapMarker from '../../components/PremiumMapMarker';
+import { useMapStyle } from '../../hooks/useMapStyle';
 
 const GROWTH_GREEN = '#22C55E';
 const ACTION_BLUE = '#3B82F6';
@@ -40,6 +43,7 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 export default function CompleteScreen() {
   const router = useRouter();
   const { theme } = useTheme();
+  const mapStyle = useMapStyle();
   const { showAlert } = useAlert();
   const { journey, polyline, distance, duration } = useJourney();
   const params = useLocalSearchParams();
@@ -140,8 +144,8 @@ export default function CompleteScreen() {
             if (!WV_KEY) return <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}><Ionicons name="map-outline" size={48} color="#9CA3AF" /></View>;
             const polyCoords = JSON.stringify(polyline.filter(p => p.latitude && p.longitude).map(p => ({ lat: p.latitude, lng: p.longitude })));
             const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>html,body,#map{height:100%;margin:0;padding:0}</style>
-<script>function initMap(){var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${initialRegion.latitude},lng:${initialRegion.longitude}},zoom:13,mapTypeId:'terrain',gestureHandling:'none',zoomControl:false});
-var path=${polyCoords};if(path.length>1){new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${GROWTH_GREEN}',strokeOpacity:1,strokeWeight:4,map:map});var bounds=new google.maps.LatLngBounds();path.forEach(function(p){bounds.extend(p);});map.fitBounds(bounds,40);}
+<script>function initMap(){var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${initialRegion.latitude},lng:${initialRegion.longitude}},zoom:13,mapTypeId:'roadmap',styles:${JSON.stringify(mapStyle.customMapStyle)},gestureHandling:'none',zoomControl:false,disableDefaultUI:true});
+var path=${polyCoords};if(path.length>1){new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});var bounds=new google.maps.LatLngBounds();path.forEach(function(p){bounds.extend(p);});map.fitBounds(bounds,40);}
 }</script></head><body><div id="map"></div>
 <script async defer src="https://maps.googleapis.com/maps/api/js?key=${WV_KEY}&language=en&callback=initMap"></script></body></html>`;
             return (
@@ -159,6 +163,8 @@ var path=${polyCoords};if(path.length>1){new google.maps.Polyline({path:path,geo
           })() : MapView ? (
             <MapView
               style={styles.map}
+              provider={getMapProvider()}
+              {...mapStyle.nativeMapProps}
               initialRegion={{
                 ...initialRegion,
                 latitudeDelta: 0.1,
@@ -167,11 +173,13 @@ var path=${polyCoords};if(path.length>1){new google.maps.Polyline({path:path,geo
               onMapReady={() => setMapReady(true)}
               scrollEnabled={false}
               zoomEnabled={false}
+              mapType={mapStyle.mapType}
             >
               {polyline.length > 1 && (
                 <PolylineRenderer
                   coordinates={polyline}
-                  color={GROWTH_GREEN}
+                  color={mapStyle.routeColor}
+                  glowColor={mapStyle.routeGlowColor}
                   strokeWidth={4}
                   simplifyDistance={10}
                   applyKalman={false}
@@ -182,8 +190,9 @@ var path=${polyCoords};if(path.length>1){new google.maps.Polyline({path:path,geo
                   key={`waypoint-${index}`}
                   coordinate={{ latitude: waypoint.latitude, longitude: waypoint.longitude }}
                   title={`${waypoint.type === 'photo' ? 'Photo' : 'Video'} #${index + 1}`}
-                  pinColor={waypoint.type === 'photo' ? GROWTH_GREEN : ACTION_BLUE}
-                />
+                >
+                  <PremiumMapMarker icon={waypoint.type === 'photo' ? 'camera' : 'videocam'} />
+                </Marker>
               ))}
             </MapView>
           ) : (
@@ -191,6 +200,12 @@ var path=${polyCoords};if(path.length>1){new google.maps.Polyline({path:path,geo
               <Ionicons name="map-outline" size={48} color="#9CA3AF" />
             </View>
           )}
+          <GlassMapPanel style={styles.mapCompletePanel} tint={mapStyle.glassTint}>
+            <Ionicons name="checkmark-circle" size={16} color={GROWTH_GREEN} />
+            <Text style={[styles.mapCompleteText, { color: theme.colors.text }]}>
+              Journey saved to your social map
+            </Text>
+          </GlassMapPanel>
         </View>
 
         {/* Journey Title */}
@@ -329,6 +344,22 @@ const styles = StyleSheet.create({
   map: {
     width: '100%',
     height: '100%',
+  },
+  mapCompletePanel: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  mapCompleteText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '700',
   },
   journeyTitle: {
     fontSize: 24,

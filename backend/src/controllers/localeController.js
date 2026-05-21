@@ -80,7 +80,7 @@ async function deleteAllLocaleStorageObjects(locale) {
 const getLocales = async (req, res) => {
   try {
     // Backend Defensive Guards: Validate and sanitize query params
-    let { search, countryCode, stateCode, page = 1, limit = 50, includeInactive, spotType, spotTypes } = req.query;
+    let { search, countryCode, stateCode, stateProvince, page = 1, limit = 50, includeInactive, spotType, spotTypes } = req.query;
     
     // Validate and cap limit (max 50)
     const parsedLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 50);
@@ -154,14 +154,28 @@ const getLocales = async (req, res) => {
     // Build state filter conditions (handle optional state fields)
     // Use exact match for stateCode and anchored regex for stateProvince
     // so short codes like "CA" don't substring-match "Yucatan", "Nicaragua", etc.
+    // Cross-match both stateCode and stateProvince to handle database inconsistencies.
     const stateConditions = [];
-    if (stateCode && stateCode.trim() !== '' && stateCode !== 'all') {
-      const escaped = stateCode.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      stateConditions.push(
-        { stateCode: stateCode.trim() },
-        { stateCode: { $regex: `^${escaped}$`, $options: 'i' } },
-        { stateProvince: { $regex: `^${escaped}$`, $options: 'i' } }
-      );
+    const queryCode = (stateCode && typeof stateCode === 'string' && stateCode.trim() !== 'all') ? stateCode.trim() : '';
+    const queryProvince = (stateProvince && typeof stateProvince === 'string' && stateProvince.trim() !== 'all') ? stateProvince.trim() : '';
+    
+    if (queryCode || queryProvince) {
+      if (queryCode) {
+        const escapedCode = queryCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        stateConditions.push(
+          { stateCode: queryCode },
+          { stateCode: { $regex: `^${escapedCode}$`, $options: 'i' } },
+          { stateProvince: { $regex: `^${escapedCode}$`, $options: 'i' } }
+        );
+      }
+      if (queryProvince) {
+        const escapedProvince = queryProvince.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        stateConditions.push(
+          { stateProvince: queryProvince },
+          { stateProvince: { $regex: `^${escapedProvince}$`, $options: 'i' } },
+          { stateCode: { $regex: `^${escapedProvince}$`, $options: 'i' } }
+        );
+      }
     }
     
     // Combine search and state filters properly

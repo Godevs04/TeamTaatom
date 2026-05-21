@@ -103,17 +103,71 @@ const notifyOwnerOfSubscription = async (subscription) => {
   }
 };
 
-/** Cashfree return URL: HTTPS for web checkout, deep link for native apps. */
+/** Client SDK environment — must match server CASHFREE_ENV. */
+function getCashfreeClientEnvironment() {
+  return (process.env.CASHFREE_ENV || 'sandbox').toLowerCase() === 'production'
+    ? 'production'
+    : 'sandbox';
+}
+
+/**
+ * Cashfree subscription checkout requires an HTTPS return_url (valid Referer).
+ * Custom schemes (taatom://) cause hosted checkout to fail with "no referrer" on mobile.
+ */
 function buildSubscriptionReturnUrl(req, connectPageId) {
   const platform = (req.get('x-platform') || '').toLowerCase();
-  const webBase = (process.env.WEB_FRONTEND_URL || '').trim().replace(/\/$/, '');
+  const webBase = (process.env.WEB_FRONTEND_URL || process.env.FRONTEND_URL || '')
+    .trim()
+    .replace(/\/$/, '');
+  const apiBase = (process.env.API_BASE_URL || '').trim().replace(/\/$/, '');
+
   if (platform === 'web' && webBase) {
-    // Do not use `{subscription_status}` — PG subscription flow often leaves macros literal.
-    // Web client detects `subscription_return=1` and refetches subscription status.
     return `${webBase}/connect/page/${connectPageId}?subscription_return=1`;
   }
-  return `${process.env.APP_DEEP_LINK_BASE || 'taatom://'}connect/page/${connectPageId}?subscription_status={subscription_status}`;
+
+  if (apiBase) {
+    return `${apiBase}/api/v1/connect/subscription/return?pageId=${encodeURIComponent(connectPageId)}`;
+  }
+
+  if (webBase) {
+    return `${webBase}/connect/page/${connectPageId}?subscription_return=1`;
+  }
+
+  return `${process.env.APP_DEEP_LINK_BASE || 'taatom://'}connect/page/${connectPageId}?subscription_return=1`;
 }
+
+/**
+ * GET/POST /api/v1/connect/subscription/return — Cashfree redirects here after mandate checkout.
+ * Returns HTML that opens the app via deep link (works from in-app WebView and system browser).
+ */
+const subscriptionReturnRedirect = async (req, res) => {
+  const pageId = req.query.pageId || req.body?.pageId;
+  if (!pageId || !mongoose.Types.ObjectId.isValid(String(pageId))) {
+    return res.status(400).send('Invalid page');
+  }
+
+  const deepLink = `${(process.env.APP_DEEP_LINK_BASE || 'taatom://').replace(/\/?$/, '/')}connect/page/${pageId}?subscription_return=1&optimistic_subscribed=1`;
+
+  const html = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Returning to Taatom</title>
+<script>
+  window.location.href = ${JSON.stringify(deepLink)};
+  setTimeout(function() {
+    document.getElementById('open').style.display = 'block';
+  }, 1200);
+</script>
+</head>
+<body style="font-family:system-ui;text-align:center;padding:48px 24px;">
+<p>Payment complete. Returning to the app…</p>
+<p id="open" style="display:none"><a href="${deepLink.replace(/"/g, '&quot;')}">Tap here if the app does not open</a></p>
+</body></html>`;
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  return res.status(200).send(html);
+};
 
 function isCashfreeNotConfiguredError(error) {
   return (
@@ -201,6 +255,7 @@ const createSubscription = async (req, res) => {
           paymentSessionId: existingSub.cashfreeSubscriptionSessionId,
           subscriptionSessionId: existingSub.cashfreeSubscriptionSessionId,
           amount: existingSub.amount,
+          cashfreeEnvironment: getCashfreeClientEnvironment(),
         });
       }
     }
@@ -275,6 +330,7 @@ const createSubscription = async (req, res) => {
       subscriptionSessionId: cashfreeResult.subscriptionSessionId,
       amount: page.subscriptionPrice,
       currency: page.subscriptionCurrency || 'INR',
+      cashfreeEnvironment: getCashfreeClientEnvironment(),
     });
   } catch (error) {
     if (isCashfreeNotConfiguredError(error)) {
@@ -911,6 +967,7 @@ const devManualCancel = async (req, res) => {
 
 module.exports = {
   createSubscription,
+  subscriptionReturnRedirect,
   getSubscriptionStatus,
   cancelSubscription,
   getMySubscriptions,

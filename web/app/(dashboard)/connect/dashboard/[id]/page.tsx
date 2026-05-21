@@ -67,7 +67,14 @@ export default function ConnectDashboardPage() {
                 {subsQ.data?.totalActiveSubscribers ?? 0}
               </p>
               <p className="mt-1 text-xs text-slate-500">
-                Monthly revenue (reported): {subsQ.data?.monthlyRevenue ?? 0}
+                Monthly revenue (reported):{' '}
+                {typeof subsQ.data?.monthlyRevenue === 'number' &&
+                Number.isFinite(subsQ.data.monthlyRevenue)
+                  ? subsQ.data.monthlyRevenue.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })
+                  : '0.00'}
               </p>
             </div>
           </div>

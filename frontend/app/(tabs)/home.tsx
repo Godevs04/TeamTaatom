@@ -13,7 +13,7 @@ import {
   Dimensions
 } from 'react-native';
 import { FlashList, FlashListRef } from '@shopify/flash-list';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { Ionicons } from '@expo/vector-icons';
@@ -36,7 +36,11 @@ import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { audioManager } from '../../utils/audioManager';
+import { savedEvents } from '../../utils/savedEvents';
 import { ErrorBoundary } from '../../utils/errorBoundary';
+import { LinearGradient } from 'expo-linear-gradient';
+import { CloudSkyBackground, CloudSegmentedControl } from '../../components/cloud';
+import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 import { NativeAdCard } from '../../components/ads/NativeAdCard';
 import { useAdCap, recordGoogleAdImpression } from '../../services/adCap';
 import { flushPendingLikes } from '../../utils/likePersistence';
@@ -179,6 +183,9 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
 
 export default function HomeScreen() {
   const { handleScroll } = useScrollToHideNav();
+  const insets = useSafeAreaInsets();
+  const topBarHeight = 56 + 63 + insets.top;
+  const bottomBarHeight = isWeb ? 70 : (Platform.OS === 'ios' ? (insets.bottom > 0 ? 56 + insets.bottom : 64) : 68);
   const [posts, setPosts] = useState<PostType[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -188,11 +195,18 @@ export default function HomeScreen() {
   const [unseenMessageCount, setUnseenMessageCount] = useState(0);
   const [isOnline, setIsOnline] = useState(true);
   const [feedMode, setFeedMode] = useState<FeedMode>('recents');
-  const { theme, mode } = useTheme();
+  const { theme, mode, isDark } = useTheme();
   const { showError } = useAlert();
   const router = useRouter();
   const params = useLocalSearchParams();
   const flatListRef = useRef<FlashListRef<FeedItem>>(null);
+  const homeScrollOffsetRef = useRef(0);
+  const shouldRestoreHomeScrollRef = useRef(false);
+  const savedVisibleIndexRef = useRef<number | null>(null);
+  const savedVisiblePostIdRef = useRef<string | null>(null);
+  const visibleIndexRef = useRef<number | null>(null);
+  const visiblePostIdRef = useRef<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const isFetchingRef = useRef(false);
   const hasInitializedRef = useRef(false);
   const lastErrorTimeRef = useRef(0);
@@ -311,6 +325,8 @@ export default function HomeScreen() {
         logger.debug(`Discarding stale ${requestFeedMode} response (current tab is ${feedModeRef.current})`);
         return;
       }
+
+      setLoadError(null);
       
       // Handle empty posts array gracefully (don't show error if API succeeded)
       if (!response.posts || response.posts.length === 0) {
@@ -469,13 +485,16 @@ export default function HomeScreen() {
                 setPosts(mergeLikedIntoPosts(parsed.data));
                 setHasMore(false); // Can't paginate with cached data
                 setPage(1);
-                // Don't show error if we have cached data
+                setLoadError(null);
                 return;
               }
             }
           }
         } catch (cacheError) {
           logger.warn('Failed to load cached posts', cacheError);
+        }
+        if (pageNum === 1 && !shouldAppend) {
+          setLoadError('Network Error');
         }
       }
       
@@ -789,47 +808,77 @@ export default function HomeScreen() {
     trackScreenView('home');
   }, [feedMode]); // Re-run when feed mode changes
 
-  // Navigation lifecycle safety: clear visible index tracking and cancel pending fetches
-  const homeHasBlurredRef = useRef(false);
+  // Sync state values to refs for access in focus effect cleanup without stale closures
+  useEffect(() => {
+    visibleIndexRef.current = visibleIndex;
+  }, [visibleIndex]);
+
+  useEffect(() => {
+    visiblePostIdRef.current = visiblePostId;
+  }, [visiblePostId]);
+
+  // Navigation lifecycle safety: clear/restore visible index tracking, resume playback, background refresh
   useFocusEffect(
     useCallback(() => {
-      // Scroll to top every time the Home tab gains focus (after first visit).
-      // Users expect a fresh-from-top feed when tapping the Home tab.
-      if (homeHasBlurredRef.current) {
-        setTimeout(() => {
-          flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
-        }, 50);
+      // 1. Restore scroll position
+      if (shouldRestoreHomeScrollRef.current && homeScrollOffsetRef.current > 0) {
+        const offset = homeScrollOffsetRef.current;
+        requestAnimationFrame(() => {
+          flatListRef.current?.scrollToOffset({ offset, animated: false });
+        });
+        shouldRestoreHomeScrollRef.current = false;
       }
 
-      // Clear visible index when screen loses focus
+      // 2. Restore playback states
+      if (savedVisibleIndexRef.current !== null) {
+        setVisibleIndex(savedVisibleIndexRef.current);
+      }
+      if (savedVisiblePostIdRef.current !== null) {
+        setVisiblePostId(savedVisiblePostIdRef.current);
+      }
+
+      // 3. Background refresh data on focus
+      if (hasInitializedRef.current && !isFetchingRef.current) {
+        logger.debug('[Home] Screen focused: triggering background refresh of page 1');
+        fetchPosts(1, false).catch((err) => {
+          logger.error('[Home] Background refresh failed:', err);
+        });
+      }
+
+      // 4. Refresh unseen count and setup periodic refresh
+      fetchUnseenMessageCount();
+      const interval = setInterval(() => {
+        fetchUnseenMessageCount();
+      }, 10000);
+
       return () => {
-        homeHasBlurredRef.current = true;
+        clearInterval(interval);
+        // Save current visible index and post ID to restore on return
+        savedVisibleIndexRef.current = visibleIndexRef.current;
+        savedVisiblePostIdRef.current = visiblePostIdRef.current;
+        shouldRestoreHomeScrollRef.current = true;
         setVisibleIndex(null);
+        setVisiblePostId(null);
         hasScrolledRef.current = false;
         lastViewedPostIdRef.current = null;
         lastViewTimeRef.current = 0;
-        // Stop all audio when leaving home page
         logger.debug('[Home] Stopping all audio - leaving home page');
         audioManager.stopAll().catch((error) => {
           logger.error('[Home] Error stopping audio:', error);
         });
       };
-    }, [])
+    }, [fetchPosts, fetchUnseenMessageCount])
   );
 
-  // Refresh unseen count when screen comes into focus
-  useFocusEffect(
-    useCallback(() => {
-      fetchUnseenMessageCount();
-      
-      // Set up periodic refresh every 10 seconds when screen is focused
-      const interval = setInterval(() => {
-        fetchUnseenMessageCount();
-      }, 10000);
-      
-      return () => clearInterval(interval);
-    }, [fetchUnseenMessageCount])
-  );
+  // Refresh feed when admin approves content or backend signals invalidation
+  useEffect(() => {
+    const unsub = savedEvents.addFeedInvalidateListener(() => {
+      if (!isFetchingRef.current) {
+        fetchPosts(1, false).catch(() => {});
+      }
+    });
+    return unsub;
+  }, [fetchPosts]);
 
   // Scroll to specific post when postId parameter is provided — only once when post first appears.
   // Prevents scroll jump when loading more (effect would re-run on append and scroll back to post).
@@ -851,23 +900,31 @@ export default function HomeScreen() {
     const showAds = !isWeb && hasScrolledPastFifthPost && adsAllowedAfter30s;
     const dataIndex = showAds ? postIndex + Math.floor(postIndex / ADS_AFTER_EVERY) : postIndex;
     const attemptScroll = (attempt: number = 0) => {
-      if (attempt > 5) {
-        logger.warn(`Failed to scroll to post ${params.postId} after 5 attempts`);
+      if (attempt > 8) {
+        logger.warn(`Failed to scroll to post ${params.postId} after 8 attempts`);
         return;
       }
       setTimeout(() => {
         if (flatListRef.current) {
           try {
-            flatListRef.current.scrollToIndex({ index: dataIndex, animated: true });
+            flatListRef.current.scrollToIndex({
+              index: dataIndex,
+              animated: attempt > 0,
+              viewPosition: 0,
+            });
             logger.debug(`Successfully scrolled to post at index ${dataIndex}`);
           } catch (error) {
             logger.debug(`Scroll attempt ${attempt + 1} failed, retrying...`, error);
+            flatListRef.current?.scrollToOffset({
+              offset: Math.max(0, dataIndex * 500),
+              animated: false,
+            });
             attemptScroll(attempt + 1);
           }
         } else {
           attemptScroll(attempt + 1);
         }
-      }, 100 * (attempt + 1));
+      }, 150 * (attempt + 1));
     };
     attemptScroll();
   }, [params.postId, posts, hasScrolledPastFifthPost, adsAllowedAfter30s]);
@@ -993,7 +1050,7 @@ export default function HomeScreen() {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: theme.colors.background,
+      backgroundColor: mode === 'dark' ? '#06121F' : '#EDF7FF',
       ...(isWeb && {
         maxWidth: isTablet ? 800 : 600,
         alignSelf: 'center',
@@ -1003,6 +1060,27 @@ export default function HomeScreen() {
     safeArea: {
       flex: 1,
       ...(isWeb && {
+        width: '100%',
+      } as any),
+    },
+    topBarContainer: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      paddingTop: insets.top,
+      zIndex: 1000,
+      backgroundColor: mode === 'dark' ? '#06121F' : '#EDF7FF',
+      // Shadow Mechanics
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.15,
+      shadowRadius: 3,
+      elevation: 4,
+      overflow: 'visible',
+      ...(isWeb && {
+        maxWidth: isTablet ? 800 : 600,
+        alignSelf: 'center',
         width: '100%',
       } as any),
     },
@@ -1059,33 +1137,14 @@ export default function HomeScreen() {
     postsContainer: {
       flex: 1,
     },
+    feedClip: {
+      flex: 1,
+      position: 'relative',
+    },
     feedTabsContainer: {
       marginHorizontal: isTablet ? theme.spacing.lg : theme.spacing.md,
       marginTop: theme.spacing.sm,
       marginBottom: theme.spacing.md,
-      flexDirection: 'row',
-      backgroundColor: theme.colors.surface,
-      borderRadius: theme.borderRadius.xl,
-      padding: 4,
-      borderWidth: 1,
-      borderColor: theme.colors.border,
-    },
-    feedTabButton: {
-      flex: 1,
-      paddingVertical: 9,
-      alignItems: 'center',
-      justifyContent: 'center',
-      borderRadius: theme.borderRadius.lg,
-      flexDirection: 'row',
-      gap: 6,
-    },
-    feedTabButtonActive: {
-      backgroundColor: theme.colors.primary,
-    },
-    feedTabText: {
-      fontSize: 14,
-      fontWeight: '600' as const,
-      letterSpacing: 0.2,
     },
     postsList: {
       paddingHorizontal: 0,
@@ -1147,33 +1206,12 @@ export default function HomeScreen() {
   );
 
   const renderFeedTabs = () => (
-    <View style={styles.feedTabsContainer}>
-      {feedTabs.map((tab) => {
-        const active = feedMode === tab.id;
-        return (
-          <TouchableOpacity
-            key={tab.id}
-            activeOpacity={0.7}
-            onPress={() => handleFeedTabPress(tab.id)}
-            style={[styles.feedTabButton, active && styles.feedTabButtonActive]}
-          >
-            <Ionicons
-              name={active ? tab.activeIcon : tab.icon}
-              size={18}
-              color={active ? 'white' : theme.colors.textSecondary}
-            />
-            <Text
-              style={[
-                styles.feedTabText,
-                { color: active ? 'white' : theme.colors.textSecondary },
-              ]}
-            >
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
-    </View>
+    <CloudSegmentedControl
+      style={styles.feedTabsContainer}
+      segments={feedTabs.map((tab) => ({ key: tab.id, label: tab.label }))}
+      value={feedMode}
+      onChange={(id) => handleFeedTabPress(id as FeedMode)}
+    />
   );
 
   // Memoize keyExtractor and renderItem at top level (before conditional returns)
@@ -1225,9 +1263,6 @@ export default function HomeScreen() {
     minimumViewTime: 200, // Minimum time item must be visible (ms)
   }).current;
 
-  // Stable renderItem — does NOT depend on visiblePostId so it won't recreate on every scroll.
-  // isCurrentlyVisible is passed via extraData + the memo comparator inside OptimizedPhotoCard.
-  const visiblePostIdRef = useRef<string | null>(visiblePostId);
   visiblePostIdRef.current = visiblePostId;
 
   const renderItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => {
@@ -1244,108 +1279,184 @@ export default function HomeScreen() {
     );
   }, [handleRefresh]);
 
+  const screenBg = (
+    <>
+      <CloudSkyBackground heightRatio={0.28} />
+      <LinearGradient
+        colors={
+          mode === 'dark'
+            ? ['#06121F', '#102236', '#07111C']
+            : (theme.colors.screenGradient as [string, string, ...string[]])
+        }
+        style={StyleSheet.absoluteFillObject}
+        locations={mode === 'dark' ? [0, 0.22, 1] : [0, 0.22, 0.55, 1]}
+      />
+    </>
+  );
+
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar
-          barStyle={mode === 'dark' ? 'light-content' : 'dark-content'}
-          backgroundColor={theme.colors.background}
-        />
-        {renderTopHeader()}
-        {renderFeedTabs()}
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+      <View style={styles.container}>
+        {screenBg}
+        <View style={styles.safeArea}>
+          <StatusBar
+            barStyle={mode === 'dark' ? 'light-content' : 'dark-content'}
+            backgroundColor="transparent"
+            translucent
+          />
+          <View style={[styles.topBarContainer, { position: 'relative', shadowOpacity: 0, elevation: 0 }]}>
+            <LinearGradient
+              colors={
+                mode === 'dark'
+                  ? ['#06121F', '#102236']
+                  : ['#A8DAFC', '#C8E8FF']
+              }
+              style={StyleSheet.absoluteFillObject}
+            />
+            {renderTopHeader()}
+            {renderFeedTabs()}
+          </View>
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+          </View>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   if (posts.length === 0) {
     return (
-      <SafeAreaView style={styles.container}>
-        <StatusBar 
-          barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
-          backgroundColor={theme.colors.background} 
-        />
-        {renderTopHeader()}
-        {renderFeedTabs()}
-        <EmptyState
-          icon="camera-outline"
-          title="No Content Yet"
-          description="No content yet. Explore other users or share your first photo!"
-          actionLabel="Explore Users"
-          onAction={() => router.push('/search')}
-          secondaryActionLabel="Create Post"
-          onSecondaryAction={() => router.push('/(tabs)/post')}
-        />
-      </SafeAreaView>
+      <View style={styles.container}>
+        {screenBg}
+        <View style={styles.safeArea}>
+          <StatusBar 
+            barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
+            backgroundColor="transparent"
+            translucent
+          />
+          <View style={[styles.topBarContainer, { position: 'relative', shadowOpacity: 0, elevation: 0 }]}>
+            <LinearGradient
+              colors={
+                mode === 'dark'
+                  ? ['#06121F', '#102236']
+                  : ['#A8DAFC', '#C8E8FF']
+              }
+              style={StyleSheet.absoluteFillObject}
+            />
+            {renderTopHeader()}
+            {renderFeedTabs()}
+          </View>
+          <EmptyState
+            icon={loadError ? 'cloud-offline-outline' : 'camera-outline'}
+            title={loadError || 'No Content Yet'}
+            description={
+              loadError
+                ? 'Unable to reach the server. Check your connection and pull down to refresh.'
+                : 'No content yet. Explore other users or share your first photo!'
+            }
+            actionLabel={loadError ? 'Retry' : 'Explore Users'}
+            onAction={() => (loadError ? handleRefresh() : router.push('/search'))}
+            secondaryActionLabel={loadError ? undefined : 'Create Post'}
+            onSecondaryAction={loadError ? undefined : () => router.push('/(tabs)/post')}
+          />
+        </View>
+      </View>
     );
   }
 
   return (
     <ErrorBoundary level="route">
     <View style={styles.container}>
+      {screenBg}
       <StatusBar 
         barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
-        backgroundColor={theme.colors.background} 
+        backgroundColor="transparent"
+        translucent
       />
-      <SafeAreaView style={styles.safeArea}>
-        {renderTopHeader()}
-        {renderFeedTabs()}
+      <View style={styles.safeArea}>
+        {/* Scrollable feed container (zIndex: 1) */}
+        <View style={[styles.feedClip, { zIndex: 1 }]}>
+          <View style={StyleSheet.absoluteFillObject}>
+            <FlashList
+              key={feedMode}
+              ref={flatListRef}
+              data={feedData}
+              keyExtractor={keyExtractor}
+              renderItem={renderItem}
+              style={styles.postsContainer}
+              contentContainerStyle={[
+                styles.postsList,
+                {
+                  paddingTop: topBarHeight,
+                  paddingBottom: bottomBarHeight + 20,
+                }
+              ]}
+              showsVerticalScrollIndicator={false}
+              onScroll={(e) => {
+                homeScrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+                handleScroll(e);
+              }}
+              scrollEventThrottle={16}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={handleRefresh}
+                  colors={[theme.colors.primary]}
+                  tintColor={theme.colors.primary}
+                  progressBackgroundColor={theme.colors.surface}
+                  progressViewOffset={topBarHeight}
+                />
+              }
+              onEndReached={handleLoadMore}
+              onEndReachedThreshold={0.1}
+              ListHeaderComponent={
+                !isOnline ? (
+                    <View style={styles.offlineBanner}>
+                      <Text style={styles.offlineText}>
+                        You're offline. Some features may be limited.
+                      </Text>
+                    </View>
+                ) : null
+              }
+              ListFooterComponent={
+                hasMore ? (
+                  <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
+                    <ActivityIndicator color={theme.colors.primary} />
+                  </View>
+                ) : posts.length > 0 ? (
+                  <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
+                    <Text style={{
+                      color: theme.colors.textSecondary,
+                      fontSize: theme.typography.small.fontSize,
+                    }}>
+                      You're all caught up!
+                    </Text>
+                  </View>
+                ) : null
+              }
+              extraData={visiblePostId}
+              onViewableItemsChanged={onViewableItemsChanged}
+              viewabilityConfig={viewabilityConfig}
+              drawDistance={screenHeight}
+            />
+          </View>
+          <ScrollEdgeFades isDark={isDark} variant="vertical" hideTop={true} />
+        </View>
 
-        <FlashList
-        key={feedMode}
-        ref={flatListRef}
-        data={feedData}
-        keyExtractor={keyExtractor}
-        renderItem={renderItem}
-        style={styles.postsContainer}
-        contentContainerStyle={styles.postsList}
-        showsVerticalScrollIndicator={false}
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={[theme.colors.primary]}
-            tintColor={theme.colors.primary}
-            progressBackgroundColor={theme.colors.surface}
+        {/* Absolute Top Bar (zIndex: 1000) */}
+        <View style={styles.topBarContainer}>
+          <LinearGradient
+            colors={
+              mode === 'dark'
+                ? ['#06121F', '#102236']
+                : ['#A8DAFC', '#C8E8FF']
+            }
+            style={StyleSheet.absoluteFillObject}
           />
-        }
-        onEndReached={handleLoadMore}
-        onEndReachedThreshold={0.1}
-        ListHeaderComponent={
-          !isOnline ? (
-              <View style={styles.offlineBanner}>
-                <Text style={styles.offlineText}>
-                  You're offline. Some features may be limited.
-                </Text>
-              </View>
-          ) : null
-        }
-        ListFooterComponent={
-          hasMore ? (
-            <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
-              <ActivityIndicator color={theme.colors.primary} />
-            </View>
-          ) : posts.length > 0 ? (
-            <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
-              <Text style={{
-                color: theme.colors.textSecondary,
-                fontSize: theme.typography.small.fontSize,
-              }}>
-                You're all caught up!
-              </Text>
-            </View>
-          ) : null
-        }
-        extraData={visiblePostId}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-        drawDistance={screenHeight}
-      />
-      </SafeAreaView>
+          {renderTopHeader()}
+          {renderFeedTabs()}
+        </View>
+      </View>
     </View>
     </ErrorBoundary>
   );

@@ -71,7 +71,9 @@ export const SongBar: React.FC<SongBarProps> = ({
 
         const { sound } = await Audio.Sound.createAsync(
           { uri: song.s3Url },
-          { shouldPlay: true, isLooping: false }
+          { shouldPlay: true, isLooping: false },
+          null,
+          false // Disable downloadFirst to enable instant streaming
         );
         soundRef.current = sound;
       } else {

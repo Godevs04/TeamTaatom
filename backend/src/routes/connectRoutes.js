@@ -76,6 +76,8 @@ router.post('/page/:pageId/content-image', validatePageId, authMiddleware, uploa
 // Subscriptions (Payment)
 // ─────────────────────────────────────────────
 router.post('/subscribe', authMiddleware, endpointLimiters.subscriptionWrite, subscriptionController.createSubscription);
+router.get('/subscription/return', subscriptionController.subscriptionReturnRedirect);
+router.post('/subscription/return', subscriptionController.subscriptionReturnRedirect);
 router.get('/subscription/status/:connectPageId', validateConnectPageId, authMiddleware, endpointLimiters.subscriptionRead, subscriptionController.getSubscriptionStatus);
 router.post('/subscription/cancel', authMiddleware, endpointLimiters.subscriptionWrite, subscriptionController.cancelSubscription);
 router.get('/my-subscriptions', authMiddleware, subscriptionController.getMySubscriptions);

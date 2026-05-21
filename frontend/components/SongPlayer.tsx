@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
 import logger from '../utils/logger';
@@ -18,7 +19,57 @@ interface SongPlayerProps {
   onPlayingChange?: (sound: Audio.Sound | null) => void;
 }
 
-export default function SongPlayer({ post, isVisible = true, autoPlay = false, showPlayPause = false, externalMuted, onPlayingChange }: SongPlayerProps) {
+/**
+ * Cache remote audio files locally to eliminate network buffering latency on seeks & loops.
+ */
+const cacheSongLocally = async (remoteUrl: string): Promise<string> => {
+  try {
+    const cleanUrl = remoteUrl.trim();
+    if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
+      return cleanUrl;
+    }
+    let filename = cleanUrl.split('/').pop()?.split('?')[0] ?? `song_${Date.now()}.mp3`;
+    filename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+    
+    const cacheDir = FileSystem.cacheDirectory;
+    if (!cacheDir) return cleanUrl;
+
+    const localPath = `${cacheDir}songs/${filename}`;
+
+    // Check if the file is already cached and valid
+    const info = await FileSystem.getInfoAsync(localPath);
+    if (info.exists && info.size && info.size > 0) {
+      logger.debug(`[AudioCache] Cache hit: ${filename}`);
+      return localPath;
+    }
+
+    // Ensure directory exists
+    await FileSystem.makeDirectoryAsync(`${cacheDir}songs/`, { intermediates: true });
+
+    // Download to local cache
+    logger.debug(`[AudioCache] Cache miss. Downloading: ${filename}`);
+    const downloadResult = await FileSystem.downloadAsync(cleanUrl, localPath);
+    logger.debug(`[AudioCache] Download completed: ${filename} (status: ${downloadResult.status})`);
+    
+    if (downloadResult.status === 200) {
+      return localPath;
+    }
+    return cleanUrl;
+  } catch (error) {
+    logger.warn('[AudioCache] Failed to cache song locally, falling back to remote URL:', error);
+    return remoteUrl;
+  }
+};
+
+function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPlayPause = false, externalMuted, onPlayingChange }: SongPlayerProps) {
+  if (__DEV__) {
+    logger.debug('[SongPlayerComponent Render]', {
+      postId: post._id,
+      isVisible,
+      autoPlay,
+      externalMuted,
+    });
+  }
   const { theme } = useTheme();
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -172,6 +223,14 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
 
       setIsLoading(true);
       
+      // Cache song locally first to eliminate network buffering latency on seeks & loops
+      const localUri = await cacheSongLocally(audioUrlRaw);
+
+      if (isStale()) {
+        setIsLoading(false);
+        return;
+      }
+
       // Cleanup old sound (cancellations are expected)
       if (soundRef.current) {
         try {
@@ -192,34 +251,33 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         soundRef.current = null;
       }
 
-      // Clean and validate URL
-      let audioUrl = audioUrlRaw.trim();
-      if (!audioUrl.startsWith('http://') && !audioUrl.startsWith('https://')) {
-        logger.error('Invalid audio URL:', audioUrl);
-        throw new Error('Invalid audio URL format');
+      // Clean and validate URL/path
+      let audioUrl = localUri.trim();
+      if (!audioUrl.startsWith('http://') && !audioUrl.startsWith('https://') && !audioUrl.startsWith('file://')) {
+        logger.error('Invalid audio URI:', audioUrl);
+        throw new Error('Invalid audio URI format');
       }
 
-      logger.debug('🎵 Playing audio URL:', audioUrl);
-      logger.debug('   URL starts with https:', audioUrl.startsWith('https://'));
-      logger.debug('   URL length:', audioUrl.length);
+      logger.debug('🎵 Playing audio URI:', audioUrl);
+      logger.debug('   URI length:', audioUrl.length);
 
       // Determine if we should play immediately
       const shouldPlayNow = forcePlay || autoPlay;
 
-      // 🔴 CRITICAL: Use streaming pattern (no download, no timeout waiting)
+      // 🔴 CRITICAL: Use streaming pattern (or local file URI)
       const newSound = new Audio.Sound();
 
-      // Load with streaming - shouldPlay triggers immediate streaming
+      // Load sound - since it is local, it initializes instantly
       await newSound.loadAsync(
         { uri: audioUrl },
         {
-          shouldPlay: shouldPlayNow, // Stream and play immediately
+          shouldPlay: shouldPlayNow, // Play immediately if needed
           progressUpdateIntervalMillis: 150,
-          isLooping: true,
+          isLooping: !endTime,
           volume: isMuted ? 0 : volume,
           positionMillis: startTime * 1000,
         },
-        false // 🔴 MUST be false (no preload blocking - enables streaming)
+        false // Keep false to allow fast initialization
       );
 
       // ABORT GUARD: If the user navigated away (tab switch / reel scroll)
@@ -268,16 +326,16 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
           setIsPlaying(status.isPlaying);
           setIsLoading(false);
           
-          // Handle 60-second loop if endTime is set
-          if (endTime && status.positionMillis >= endTime * 1000) {
+          // Seamless loop: seek slightly before segment end to avoid gap (library assets)
+          if (endTime && status.positionMillis >= endTime * 1000 - 80) {
             newSound.setPositionAsync(startTime * 1000).catch(() => {});
-          } else if (status.didJustFinish && !status.isLooping) {
+          } else if (status.didJustFinish) {
             if (startTime > 0) {
               newSound.setPositionAsync(startTime * 1000).catch(() => {});
-              newSound.playAsync().catch(() => {});
             } else {
-              newSound.replayAsync().catch(() => {});
+              newSound.setPositionAsync(0).catch(() => {});
             }
+            newSound.playAsync().catch(() => {});
           }
         } else if (status.error) {
           // Check if error is -1102 (operation cancelled) - this is expected and shouldn't be logged
@@ -368,12 +426,58 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
       if (autoPlay) {
         // Should play - play song
         const currentPostId = audioManager.getCurrentPostId();
-        // Capture-and-clear: if this sound was preloaded (loaded with shouldPlay:false
-        // while the video was buffering), the reload-detection branch below would
-        // mistake it for an externally-stopped sound and reload it. Skip that branch
-        // and let the normal "wire sound into audioManager" path start playback.
         const wasPreloaded = preloadedRef.current;
         preloadedRef.current = false;
+
+        // CRITICAL SYNC FIX: If audio is preloaded and ready, play it IMMEDIATELY
+        // This ensures audio/video sync from the very start
+        if (soundRef.current && wasPreloaded && post._id) {
+          logger.debug('[SONGPLAYER] Playing preloaded audio immediately for sync');
+          // Play preloaded sound immediately without any checks
+          soundRef.current.playAsync()
+            .then(() => {
+              setIsPlaying(true);
+              audioManager.playSound(soundRef.current!, post._id.toString()).catch(() => {});
+            })
+            .catch((err) => {
+              logger.debug('[SONGPLAYER] Preloaded play failed:', err);
+              // Fallback: reload if preloaded play fails
+              soundRef.current = null;
+              setSound(null);
+              loadAndPlaySong();
+            });
+          return;
+        }
+
+        // OPTIMIZATION: If sound exists and is for the same post, resume immediately
+        // without any status checks to minimize delay when returning to same short
+        if (soundRef.current && post._id && currentPostId === post._id.toString()) {
+          logger.debug('[SONGPLAYER] Resuming same post audio immediately (no status check)');
+          // Resume immediately without awaiting - fire and forget for speed
+          soundRef.current.playAsync().catch((err) => {
+            logger.debug('[SONGPLAYER] Immediate resume failed, attempting recovery:', err);
+            // Only if immediate resume fails, do a status check
+            soundRef.current?.getStatusAsync()
+              .then((status) => {
+                if (status.isLoaded && !status.isPlaying) {
+                  soundRef.current?.playAsync().catch(() => {});
+                } else if (!status.isLoaded) {
+                  // Sound was unloaded, need to reload
+                  soundRef.current = null;
+                  setSound(null);
+                  loadAndPlaySong();
+                }
+              })
+              .catch(() => {
+                // Status check failed, reload
+                soundRef.current = null;
+                setSound(null);
+                loadAndPlaySong();
+              });
+          });
+          setIsPlaying(true);
+          return;
+        }
 
         // Critical check: If soundRef exists but audioManager has no current sound,
         // it means stopAll() was called and the sound was unloaded externally.
@@ -384,17 +488,11 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
           // Check if sound is actually still loaded before reloading
           soundRef.current.getStatusAsync()
             .then((status) => {
-              if (!status.isLoaded) {
-                // Sound was fully unloaded by stopAll() cleanup (leaving screen)
-                // Just clear refs, do NOT reload
-                logger.debug('Sound was unloaded by stopAll cleanup, clearing refs without reload');
-                soundRef.current = null;
-                setSound(null);
-                setIsPlaying(false);
-              } else if (isVisible && autoPlay) {
-                // Sound is still loaded but audioManager lost track (mute toggle case)
-                // Safe to reload
-                logger.debug('Sound still loaded but audioManager detached, reloading');
+              if (isVisible && autoPlay) {
+                // If the post is visible and should play, reload and play it
+                // (handles both the case where it was unloaded natively during mute
+                // and the case where it's still loaded but detached from audioManager)
+                logger.debug('Sound needs playback but audioManager detached/unloaded. Reloading...');
                 soundRef.current = null;
                 setSound(null);
                 loadAndPlaySong()
@@ -405,7 +503,8 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
                     logger.error('Error reloading sound after external stop:', err);
                   });
               } else {
-                // Not visible or not autoPlay — just clean up
+                // Not visible or not autoPlay — just clean up references
+                logger.debug('Sound stopped externally, clearing refs');
                 soundRef.current = null;
                 setSound(null);
                 setIsPlaying(false);
@@ -423,69 +522,34 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
         if (!soundRef.current) {
           // Load and play if not already loaded
           loadAndPlaySong();
+        } else if (post._id && currentPostId !== post._id.toString()) {
+          // Different post is playing, use audioManager to switch
+          audioManager.playSound(soundRef.current, post._id.toString())
+            .then(() => {
+              setIsPlaying(true);
+            })
+            .catch((err) => {
+              logger.error('Error playing sound:', err);
+              // If playSound fails (e.g., sound was unloaded), reload
+              soundRef.current = null;
+              setSound(null);
+              loadAndPlaySong();
+            });
         } else {
-          // If already loaded, check if it's already playing
-          
-          if (post._id && currentPostId !== post._id.toString()) {
-            // Different post is playing, use audioManager to switch
-            audioManager.playSound(soundRef.current, post._id.toString())
-              .then(() => {
-                setIsPlaying(true);
-              })
-              .catch((err) => {
-                logger.error('Error playing sound:', err);
-                // If playSound fails (e.g., sound was unloaded), reload
-                soundRef.current = null;
-                setSound(null);
-                loadAndPlaySong();
-              });
-          } else if (post._id && currentPostId === post._id.toString()) {
-            // Same post - check if sound is actually playing, if not, resume it
-            soundRef.current.getStatusAsync()
-              .then((status) => {
-                if (status.isLoaded && !status.isPlaying) {
-                  // Sound is loaded but paused, resume it
-                  soundRef.current?.playAsync()
-                    .then(() => {
-                      setIsPlaying(true);
-                    })
-                    .catch((err) => {
-                      logger.error('Error resuming sound:', err);
-                    });
-                } else {
-                  // Already playing, just update state
-                  setIsPlaying(true);
-                }
-              })
-              .catch(() => {
-                // If status check fails, the sound might be unloaded (e.g., after stopAll)
-                // Reload and play the song - this is critical for unmuting
-                logger.debug('Sound status check failed, reloading song (likely after unmute)');
-                soundRef.current = null;
-                setSound(null);
-                loadAndPlaySong()
-                  .then(() => {
-                    setIsPlaying(true);
-                  })
-                  .catch((err) => {
-                    logger.error('Error reloading and playing sound:', err);
-                  });
-              });
-          } else {
-            // Post is not currently playing - need to load and play
-            // This can happen when unmuting a post that was stopped
-            logger.debug('Post not currently playing, loading and playing (likely after unmute)');
-            loadAndPlaySong()
-              .then(() => {
-                setIsPlaying(true);
-              })
-              .catch((err) => {
-                logger.error('Error loading and playing sound:', err);
-              });
-          }
+          // Post is not currently playing - need to load and play
+          logger.debug('[SONGPLAYER] Post not currently playing, loading and playing');
+          loadAndPlaySong()
+            .then(() => {
+              setIsPlaying(true);
+            })
+            .catch((err) => {
+              logger.error('Error loading and playing sound:', err);
+            });
         }
       } else {
-        // autoPlay is false
+        // autoPlay is false - PRELOAD mode
+        // For shorts: preload audio in parallel with video buffering
+        // This ensures audio is ready to play immediately when video starts
         if (!soundRef.current) {
           // PRELOAD: load the song silently in parallel with the video buffer.
           // shouldPlayNow inside loadAndPlaySong derives from autoPlay (false here),
@@ -493,54 +557,38 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
           // isPlaying:true and autoPlay flips, the autoPlay branch above starts
           // playback on this already-loaded sound — within a frame instead of
           // trailing the video by the song's load latency (~200-500ms).
+          logger.debug('[SONGPLAYER] Preloading audio for sync with video');
           loadAndPlaySong();
         } else {
           // Sound exists — pause it (muted, paused, or about to lose focus).
           // Check if sound is actually loaded before pausing — loadAsync may
           // still be in-flight, and calling pauseAsync on a loading sound throws.
-          soundRef.current.getStatusAsync()
-            .then((status) => {
-              if (status.isLoaded && soundRef.current) {
-                soundRef.current.pauseAsync().catch(err => {
-                  // pauseAsync routinely rejects when the sound was unloaded
-                  // between the status check above and this call (race with
-                  // the visibility effect's cleanup branch) or when the native
-                  // op was cancelled (-1102). isPlaying state is already set
-                  // false synchronously below, so these are cosmetic noise.
-                  const code = err?.code;
-                  const msg = err?.message || '';
-                  const isExpected =
-                    code === -1102 ||
-                    msg.includes('-1102') ||
-                    msg.includes('NSURLErrorCancelled') ||
-                    msg.includes('cancelled') ||
-                    msg.includes('unloaded') ||
-                    msg.includes('not loaded');
-                  if (!isExpected) logger.error('Error pausing:', err);
-                });
-              }
-            })
-            .catch(() => {
-              // Sound not accessible — already unloaded or not yet loaded
-            });
+          soundRef.current.pauseAsync().catch(err => {
+            // pauseAsync routinely rejects when the sound was unloaded
+            // or when the native op was cancelled (-1102). These are expected.
+            const code = err?.code;
+            const msg = err?.message || '';
+            const isExpected =
+              code === -1102 ||
+              msg.includes('-1102') ||
+              msg.includes('NSURLErrorCancelled') ||
+              msg.includes('cancelled') ||
+              msg.includes('unloaded') ||
+              msg.includes('not loaded');
+            if (!isExpected) logger.error('Error pausing:', err);
+          });
           setIsPlaying(false);
         }
       }
     }
 
-    // Stop and unload when component becomes invisible (only for auto-play mode)
+    // Pause (don't unload) when component becomes invisible — keeps audio for resume
     if (!isVisible && !showPlayPause) {
-      // Bump the load token so any in-flight loadAndPlaySong sees a stale
-      // token when its loadAsync resolves and unloads instead of playing.
       loadTokenRef.current += 1;
       preloadedRef.current = false;
       if (soundRef.current) {
         onPlayingChange?.(null);
-        // Stop + unload instantly to prevent audio bleeding
-        soundRef.current.stopAsync().catch(() => {});
-        soundRef.current.unloadAsync().catch(() => {});
-        soundRef.current = null;
-        setSound(null);
+        soundRef.current.pauseAsync().catch(() => {});
         setIsPlaying(false);
       }
     }
@@ -818,4 +866,41 @@ export default function SongPlayer({ post, isVisible = true, autoPlay = false, s
     </View>
   );
 }
+
+const SongPlayer = React.memo(SongPlayerComponent, (prev, next) => {
+  const isIdEqual = prev.post._id === next.post._id;
+  const isSongIdEqual = prev.post.song?.songId?._id === next.post.song?.songId?._id;
+  const isStartTimeEqual = prev.post.song?.startTime === next.post.song?.startTime;
+  const isEndTimeEqual = prev.post.song?.endTime === next.post.song?.endTime;
+  const isVisibleEqual = prev.isVisible === next.isVisible;
+  const isAutoPlayEqual = prev.autoPlay === next.autoPlay;
+  const isMutedEqual = prev.externalMuted === next.externalMuted;
+
+  const shouldMemoize =
+    isIdEqual &&
+    isSongIdEqual &&
+    isStartTimeEqual &&
+    isEndTimeEqual &&
+    isVisibleEqual &&
+    isAutoPlayEqual &&
+    isMutedEqual;
+
+  logger.debug('[SONGPLAYER MEMO COMPARATOR]', {
+    postId: prev.post._id,
+    shouldMemoize,
+    isIdEqual,
+    isSongIdEqual,
+    isStartTimeEqual,
+    isEndTimeEqual,
+    isVisibleEqual,
+    isAutoPlayEqual,
+    isMutedEqual,
+    prevAutoPlay: prev.autoPlay,
+    nextAutoPlay: next.autoPlay,
+  });
+
+  return shouldMemoize;
+});
+
+export default SongPlayer;
 

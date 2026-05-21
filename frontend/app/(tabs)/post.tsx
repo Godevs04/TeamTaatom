@@ -21,10 +21,19 @@ import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as MediaLibrary from "expo-media-library";
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
-import  NavBar from "../../components/NavBar";
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
+import { CloudPostMountainBackground, CloudGlassCard } from "../../components/cloud";
+import {
+  PostCreateHeader,
+  PostMediaTypeToggle,
+  PostCreateEmptyCard,
+} from "../../components/post/PostCreateChrome";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { postSchema, shortSchema } from "../../utils/validation";
 import { getCurrentLocation, getAddressFromCoords } from "../../utils/locationUtils";
 import { LocationExtractionService } from "../../services/locationExtraction";
@@ -55,6 +64,7 @@ import CopyrightConfirmationModal from '../../components/CopyrightConfirmationMo
 import { trackFeatureUsage } from '../../services/analytics';
 import ImageEditModal, { ImageFilterType, FILTER_PREVIEW_OVERLAY } from '../../components/ImageEditModal';
 import AspectImageCropper, { CropTransform } from '../../components/post/AspectImageCropper';
+import { applyFilterToImages } from '../../utils/applyImageFilter';
 
 const logger = createLogger('PostScreen');
 
@@ -89,6 +99,35 @@ interface ShortFormValues {
 }
 
 export default function PostScreen() {
+  const params = useLocalSearchParams();
+  const initialPostType = params.postType === 'short' ? 'short' : 'photo';
+  const isJourneyCapture = params.journeyCapture === 'true';
+
+  const [permission, requestPermission] = useCameraPermissions();
+  const [latestAssetUri, setLatestAssetUri] = useState<string | null>(null);
+
+  // Fetch the latest asset from MediaLibrary for the gallery preview orb
+  useEffect(() => {
+    async function loadLatestAsset() {
+      try {
+        const { status } = await MediaLibrary.requestPermissionsAsync();
+        if (status === 'granted') {
+          const result = await MediaLibrary.getAssetsAsync({
+            first: 1,
+            sortBy: [MediaLibrary.SortBy.creationTime],
+            mediaType: ['photo', 'video'],
+          });
+          if (result.assets && result.assets.length > 0) {
+            setLatestAssetUri(result.assets[0].uri);
+          }
+        }
+      } catch (err) {
+        logger.error('Error fetching latest asset:', err);
+      }
+    }
+    loadLatestAsset();
+  }, []);
+
   const [selectedImages, setSelectedImages] = useState<Array<{ uri: string; type: string; name: string }>>([]);
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null);
   const [videoThumbnail, setVideoThumbnail] = useState<string | null>(null);
@@ -108,7 +147,7 @@ export default function PostScreen() {
   }>({ current: 0, total: 0, percentage: 0 });
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [postType, setPostType] = useState<'photo' | 'short'>('photo');
+  const [postType, setPostType] = useState<'photo' | 'short'>(initialPostType);
   const [user, setUser] = useState<UserType | null>(null);
   const [hasExistingPosts, setHasExistingPosts] = useState<boolean | null>(null);
   const [hasExistingShorts, setHasExistingShorts] = useState<boolean | null>(null);
@@ -136,6 +175,12 @@ export default function PostScreen() {
   const [showCopyrightModal, setShowCopyrightModal] = useState(false);
   const [copyrightAccepted, setCopyrightAccepted] = useState(false);
   const [pendingShortData, setPendingShortData] = useState<any>(null);
+
+  useEffect(() => {
+    if (params.postType === 'short' || params.postType === 'photo') {
+      setPostType(params.postType);
+    }
+  }, [params.postType]);
   
   // Place detection state
   const [showDetectPlaceModal, setShowDetectPlaceModal] = useState(false);
@@ -272,7 +317,7 @@ export default function PostScreen() {
     Alert.alert('Success', 'Place details populated successfully!');
   }, [detectedPlace, detectPlaceName]);
   const router = useRouter();
-  const { theme } = useTheme();
+  const { theme, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const { handleScroll } = useScrollToHideNav();
   
@@ -429,6 +474,7 @@ export default function PostScreen() {
         songStartTime,
         songEndTime,
         audioChoice,
+        selectedFilter,
         timestamp: Date.now()
       };
       
@@ -442,7 +488,7 @@ export default function PostScreen() {
     
     const timeoutId = setTimeout(saveDraft, 2000); // Debounce by 2 seconds
     return () => clearTimeout(timeoutId);
-  }, [selectedImages, selectedVideo, videoThumbnail, location, address, locationMetadata, postType, selectedSong, songStartTime, songEndTime, audioChoice]);
+  }, [selectedImages, selectedVideo, videoThumbnail, location, address, locationMetadata, postType, selectedSong, songStartTime, songEndTime, audioChoice, selectedFilter]);
 
   // Enhanced draft recovery: restore all metadata including music selection
   const loadDraft = async () => {
@@ -504,6 +550,8 @@ export default function PostScreen() {
               
               // Restore post type
               if (draft.postType) setPostType(draft.postType);
+
+              if (draft.selectedFilter) setSelectedFilter(draft.selectedFilter);
               
               // Restore music selection
               if (draft.selectedSong) {
@@ -597,7 +645,7 @@ export default function PostScreen() {
     }
     
     clearUploadState();
-  }, [selectedImages, selectedVideo, videoThumbnail, location, address, locationMetadata, postType, selectedSong, songStartTime, songEndTime, audioChoice]);
+  }, [selectedImages, selectedVideo, videoThumbnail, location, address, locationMetadata, postType, selectedSong, songStartTime, songEndTime, audioChoice, selectedFilter]);
 
   // Media memory safety: release references when no longer needed
   const releaseMediaReferences = useCallback(() => {
@@ -1629,9 +1677,20 @@ export default function PostScreen() {
         })
       );
 
+      // ── Filter baking ────────────────────────────────────────────────────
+      // Permanently burn the selected photo filter into the pixel data so
+      // the uploaded asset already contains the visual effect.  This replaces
+      // the defunct Cloudinary URL-transform approach (images are in Sevalla/R2
+      // which has no built-in image-processing pipeline).
+      // applyFilterToImages is a no-op for 'original'; it never throws.
+      const filterBaked = selectedFilter !== 'original'
+        ? await applyFilterToImages(aspectProcessed, selectedFilter)
+        : aspectProcessed;
+      logger.debug(`[handlePost] Filter "${selectedFilter}" baking complete. Images ready for upload.`);
+
       // Upload with progress tracking for multiple images
       // Progress is now 50% optimization + 50% upload
-      const totalImages = aspectProcessed.length;
+      const totalImages = filterBaked.length;
       let uploadedCount = 0;
 
       // Determine source for TripScore v2
@@ -1659,7 +1718,7 @@ export default function PostScreen() {
       const finalAddress = values.placeName || address || detectedPlaceData?.name;
 
       const response = await createPostWithProgress({
-        images: aspectProcessed,
+        images: filterBaked,
         caption: sanitizedCaption || '',
         address: finalAddress,
         latitude: finalLatitude,
@@ -2449,247 +2508,139 @@ export default function PostScreen() {
       style={{ flex: 1 }}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
-      <View style={{ flex: 1, backgroundColor: theme.colors.background }}>
-        <NavBar title="New Post" />
-        <ScrollView 
-          style={{ flex: 1, padding: theme.spacing.md }} 
-          contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 80, 100) }}
-          showsVerticalScrollIndicator={false}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
-          nestedScrollEnabled={true}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-        >
-        {/* Travel illustration banner - elegant post page header */}
-        <View style={{ borderRadius: 20, overflow: 'hidden', height: isTablet ? 120 : 100, marginBottom: theme.spacing.md, width: '100%' }}>
-          <Image
-            source={require('../../assets/post_image.png')}
-            style={{ width: '100%', height: '100%' }}
-            resizeMode="cover"
-          />
-        </View>
-        {/* Post Type Selector */}
-        <View style={{
-          flexDirection: 'row',
-          backgroundColor: theme.colors.surface,
-          borderRadius: theme.borderRadius.xl,
-          padding: 4,
-          marginBottom: theme.spacing.md,
-          ...theme.shadows.small,
-          borderWidth: 1,
-          borderColor: theme.colors.border
-        }}>
-          <TouchableOpacity
-            style={[
-              {
-                flex: 1,
-                paddingVertical: 10,
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: theme.borderRadius.lg,
-                flexDirection: 'row',
-                gap: 8
-              },
-              postType === 'photo' && {
-                backgroundColor: theme.colors.primary,
-                ...theme.shadows.small
-              }
-            ]}
-            onPress={() => setPostType('photo')}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name={postType === 'photo' ? "image" : "image-outline"}
-              size={20}
-              color={postType === 'photo' ? 'white' : theme.colors.textSecondary}
-            />
-            <Text style={[
-              { fontSize: theme.typography.body.fontSize, fontWeight: '600' },
-              postType === 'photo' ? { color: 'white' } : { color: theme.colors.textSecondary }
-            ]}>
-              Photo
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[
-              {
-                flex: 1,
-                paddingVertical: 10,
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: theme.borderRadius.lg,
-                flexDirection: 'row',
-                gap: 8
-              },
-              postType === 'short' && {
-                backgroundColor: theme.colors.primary,
-                ...theme.shadows.small
-              }
-            ]}
-            onPress={() => setPostType('short')}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name={postType === 'short' ? "videocam" : "videocam-outline"}
-              size={20}
-              color={postType === 'short' ? 'white' : theme.colors.textSecondary}
-            />
-            <Text style={[
-              { fontSize: theme.typography.body.fontSize, fontWeight: '600' },
-              postType === 'short' ? { color: 'white' } : { color: theme.colors.textSecondary }
-            ]}>
-              Short
-            </Text>
-          </TouchableOpacity>
-        </View>
+      <View style={{ flex: 1, backgroundColor: mode === 'dark' ? '#06121F' : '#EEF4F8' }}>
+        {!selectedImages.length && !selectedVideo && permission?.granted ? (
+          <View style={StyleSheet.absoluteFillObject}>
+            <CameraView style={StyleSheet.absoluteFillObject} facing="back" />
+            <BlurView intensity={25} tint={mode === 'dark' ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
+          </View>
+        ) : (
+          <View style={StyleSheet.absoluteFillObject}>
+            <CloudPostMountainBackground />
+            {(selectedImages.length > 0 || selectedVideo) && (
+              <BlurView intensity={70} tint={mode === 'dark' ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
+            )}
+          </View>
+        )}
+        <View style={{ flex: 1 }}>
+        <PostCreateHeader onClose={() => router.push('/(tabs)/home')} />
 
         {!selectedImages.length && !selectedVideo ? (
-          <>
-            <View style={{ 
-              alignItems: 'center', 
-              marginTop: theme.spacing.md, 
-              marginBottom: theme.spacing.sm,
-              paddingVertical: theme.spacing.sm
-            }}>
-              <View style={{
-                width: 120,
-                height: 120,
-                borderRadius: 60,
-                backgroundColor: theme.colors.primary + '15',
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginBottom: theme.spacing.sm
-              }}>
-              <Ionicons 
-                  name={postType === 'photo' ? "image" : "videocam"} 
-                  size={64} 
-                  color={theme.colors.primary} 
-              />
-              </View>
-              <Text style={{
-                color: theme.colors.text,
-                fontSize: theme.typography.h2.fontSize,
-                fontWeight: '600',
-                marginBottom: theme.spacing.xs,
-                textAlign: 'center'
-              }}>
-                {(() => {
-                  if (postType === 'photo' && hasExistingPosts === false) {
-                    return 'No Photos Yet';
-                  } else if (postType === 'short' && hasExistingShorts === false) {
-                    return 'No Shorts Yet';
-                  } else {
-                    return `Create New ${postType === 'photo' ? 'Photo' : 'Short'}`;
-                  }
-                })()}
-              </Text>
-              <Text style={{ 
-                color: theme.colors.textSecondary, 
-                fontSize: theme.typography.body.fontSize, 
-                textAlign: 'center', 
-                marginBottom: theme.spacing.sm,
-                paddingHorizontal: theme.spacing.lg,
-                lineHeight: 22
-              }}>
-                {(() => {
-                  if (postType === 'photo' && hasExistingPosts === false) {
-                    return 'Share your first moment by uploading a photo or taking one now!';
-                  } else if (postType === 'short' && hasExistingShorts === false) {
-                    return 'Share your first short by uploading a video or taking one now!';
-                  } else {
-                    return `Upload a ${postType === 'photo' ? 'photo' : 'video'} or take one now to share with your followers!`;
-                  }
-                })()}
+          // Immersive Viewfinder and Orbs
+          <View style={{ flex: 1, justifyContent: 'space-between', paddingBottom: insets.bottom + 20 }}>
+            {/* Center Area */}
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 }}>
+              {isJourneyCapture && (
+                <CloudGlassCard style={{ width: '100%', marginBottom: 20 }} contentStyle={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 14 }}>
+                  <Ionicons name="navigate" size={18} color={theme.colors.primary} />
+                  <Text style={{ flex: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
+                    Capture a live moment from your journey. Reels can use in-app audio before upload.
+                  </Text>
+                </CloudGlassCard>
+              )}
+
+              {permission && !permission.granted && (
+                <CloudGlassCard style={{ width: '100%', padding: 24 }} contentStyle={{ alignItems: 'center' }}>
+                  <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
+                    <Ionicons name="camera" size={28} color={theme.colors.primary} />
+                  </View>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: theme.colors.text, textAlign: 'center', marginBottom: 8 }}>
+                    Camera Access Needed
+                  </Text>
+                  <Text style={{ fontSize: 14, color: theme.colors.textSecondary, textAlign: 'center', marginBottom: 20, lineHeight: 20 }}>
+                    Enable camera access to preview and capture photos or videos instantly.
+                  </Text>
+                  <TouchableOpacity
+                    onPress={requestPermission}
+                    style={{
+                      paddingVertical: 12,
+                      paddingHorizontal: 24,
+                      borderRadius: theme.borderRadius.xl,
+                      backgroundColor: theme.colors.primary,
+                      shadowColor: theme.colors.primary,
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.3,
+                      shadowRadius: 6,
+                      elevation: 5,
+                    }}
+                  >
+                    <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>Allow Camera</Text>
+                  </TouchableOpacity>
+                </CloudGlassCard>
+              )}
+            </View>
+
+            {/* Mode Label */}
+            <View style={styles.modeLabelContainer}>
+              <Text style={styles.modeLabelText}>
+                {postType === 'photo' ? 'PHOTO' : 'SHORT'}
               </Text>
             </View>
-            <View style={{ 
-              flexDirection: "row", 
-              justifyContent: "space-between", 
-              marginTop: theme.spacing.sm,
-              marginBottom: theme.spacing.lg,
-              gap: theme.spacing.md
-            }}>
-              <TouchableOpacity 
-                style={{ 
-                  flex: 1,
-                  alignItems: "center", 
-                  justifyContent: "center",
-                  backgroundColor: theme.colors.surface, 
-                  borderRadius: theme.borderRadius.xl, 
-                  padding: theme.spacing.xl, 
-                  ...theme.shadows.medium,
-                  borderWidth: 1,
-                  borderColor: theme.colors.border + '40'
-                }} 
+
+            {/* Tactile Floating Orbs */}
+            <View style={styles.orbsContainer}>
+              <TouchableOpacity
+                style={styles.orbOuter}
                 onPress={postType === 'photo' ? pickImages : pickVideo}
-                activeOpacity={0.8}
+                activeOpacity={0.7}
               >
-                <View style={{
-                  width: 64,
-                  height: 64,
-                  borderRadius: 32,
-                  backgroundColor: theme.colors.primary + '15',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  marginBottom: theme.spacing.md
-                }}>
-                  <Ionicons name={postType === 'photo' ? "images" : "film"} size={32} color={theme.colors.primary} />
-                </View>
-                <Text style={{
-                  color: theme.colors.text,
-                  fontSize: theme.typography.body.fontSize,
-                  fontWeight: '600',
-                  textAlign: "center"
-                }}>
-                  Choose from Library
-                </Text>
+                {latestAssetUri ? (
+                  <Image source={{ uri: latestAssetUri }} style={styles.galleryThumbnail} />
+                ) : (
+                  <View style={[styles.orbGlass, styles.galleryFallback]}>
+                    <Ionicons name="images-outline" size={20} color="#fff" />
+                  </View>
+                )}
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={{ 
-                  flex: 1,
-                  alignItems: "center", 
-                  justifyContent: "center",
-                  backgroundColor: theme.colors.surface, 
-                  borderRadius: theme.borderRadius.xl, 
-                  padding: theme.spacing.xl, 
-                  ...theme.shadows.medium,
-                  borderWidth: 1,
-                  borderColor: theme.colors.border + '40'
-                }} 
+
+              <TouchableOpacity
+                style={[
+                  styles.shutterOuter,
+                  postType === 'short' ? styles.shutterOuterShort : styles.shutterOuterPhoto
+                ]}
                 onPress={postType === 'photo' ? takePhoto : takeVideo}
                 activeOpacity={0.8}
               >
-                <View style={{
-                  width: 64,
-                  height: 64,
-                  borderRadius: 32,
-                  backgroundColor: theme.colors.primary + '15',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  marginBottom: theme.spacing.md
-                }}>
-                  <Ionicons name={postType === 'photo' ? "camera" : "videocam"} size={32} color={theme.colors.primary} />
-                </View>
-                <Text style={{
-                  color: theme.colors.text,
-                  fontSize: theme.typography.body.fontSize,
-                  fontWeight: '600',
-                  textAlign: "center"
-                }}>
-                  Take {postType === 'photo' ? 'Photo' : 'Video'}
-                </Text>
+                <View style={[
+                  styles.shutterInner,
+                  postType === 'short' && styles.shutterInnerShort
+                ]} />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.orbOuter, styles.orbGlass]}
+                onPress={() => setPostType(prev => prev === 'photo' ? 'short' : 'photo')}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={postType === 'photo' ? 'film-outline' : 'image-outline'}
+                  size={22}
+                  color="#fff"
+                />
               </TouchableOpacity>
             </View>
-          </>
+          </View>
         ) : (
+          <ScrollView 
+            style={{ flex: 1 }} 
+            contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 80, 100) }}
+            showsVerticalScrollIndicator={false}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            nestedScrollEnabled={true}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
+
+          <CloudGlassCard
+            style={{ marginHorizontal: 16, marginBottom: 16 }}
+            contentStyle={{ padding: 12 }}
+          >
           <View style={{
             width: '100%',
             position: "relative",
-            marginVertical: theme.spacing.md,
             borderRadius: theme.borderRadius.xl,
             overflow: 'hidden',
-            ...theme.shadows.large
           }}>
             {selectedImages.length > 0 ? (
               <View style={{ width: '100%' }}>
@@ -3001,17 +2952,18 @@ export default function PostScreen() {
               <Ionicons name="close" size={24} color="white" />
             </TouchableOpacity>
           </View>
-        )}
+          </CloudGlassCard>
         {(selectedImages.length > 0 || selectedVideo) && (
-          <View style={{ 
-            backgroundColor: theme.colors.surface, 
-            borderRadius: theme.borderRadius.xl, 
-            padding: theme.spacing.lg, 
-            marginTop: theme.spacing.md, 
-            ...theme.shadows.medium,
-            borderWidth: 1,
-            borderColor: theme.colors.border + '40'
-          }}>
+          <CloudGlassCard
+            style={{ 
+              marginHorizontal: 16,
+              marginBottom: 16,
+              marginTop: theme.spacing.md,
+            }}
+            contentStyle={{
+              padding: theme.spacing.lg,
+            }}
+          >
             {postType === 'photo' ? (
               <Formik
                 initialValues={{ comment: "", placeName: "", tags: "" }}
@@ -4119,9 +4071,10 @@ export default function PostScreen() {
                 }}
               </Formik>
             )}
-          </View>
+          </CloudGlassCard>
         )}
       </ScrollView>
+    )}
       
       {/* Progress Alert.
           For shorts: bytes-uploaded progress goes 0→95% (frontend cap), then
@@ -4967,6 +4920,12 @@ export default function PostScreen() {
           selectedAspectRatio={selectedAspectRatio}
           onAspectRatioChange={(ar) => { setSelectedAspectRatio(ar); setCropTransform(null); }}
         />
+        </View>
+        {/* Shadow Gate above bottom tab bar */}
+        <LinearGradient
+          colors={['transparent', mode === 'dark' ? 'rgba(13,27,42,0.7)' : 'rgba(0,0,0,0.08)']}
+          style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, zIndex: 99 }}
+        />
       </View>
     </KeyboardAvoidingView>
     </ErrorBoundary>
@@ -5059,6 +5018,94 @@ const styles = StyleSheet.create({
     fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  orbsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-evenly',
+    paddingHorizontal: 30,
+    width: '100%',
+    marginBottom: 20,
+  },
+  orbOuter: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    overflow: 'hidden',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  orbGlass: {
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  galleryThumbnail: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  galleryFallback: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  shutterOuter: {
+    width: 78,
+    height: 78,
+    borderRadius: 39,
+    borderWidth: 5,
+    borderColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 10,
+  },
+  shutterOuterPhoto: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  shutterOuterShort: {
+    backgroundColor: 'rgba(255, 59, 48, 0.2)',
+    borderColor: '#ff3b30',
+  },
+  shutterInner: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+  },
+  shutterInnerShort: {
+    backgroundColor: '#ff3b30',
+  },
+  modeLabelContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    width: '100%',
+  },
+  modeLabelText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontFamily: getFontFamily('800'),
+    fontWeight: '800',
+    letterSpacing: 2,
+    textShadowColor: 'rgba(0, 0, 0, 0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),

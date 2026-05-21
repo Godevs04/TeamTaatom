@@ -21,7 +21,8 @@ import {
   Easing,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
@@ -45,6 +46,14 @@ import { localeCache } from '../../cache/localeCache';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { trackFeatureUsage } from '../../services/analytics';
 import TravelLoadingOverlay from '../../components/TravelLoadingOverlay';
+import {
+
+  CloudSegmentedControl,
+  CloudSearchDock,
+  CloudLocaleFeed,
+} from '../../components/cloud';
+import ScrollEdgeFades from '../../components/ScrollEdgeFades';
+import type { CloudLocaleCardData } from '../../components/cloud/CloudLocaleCard';
 
 const logger = createLogger('LocaleScreen');
 
@@ -439,6 +448,8 @@ const filterReducer = (state: FilterState, action: FilterAction): FilterState =>
 export default function LocaleScreen() {
   const { showSuccess, showError, showInfo } = useAlert();
   const { handleScroll } = useScrollToHideNav();
+  const insets = useSafeAreaInsets();
+  const [headerHeight, setHeaderHeight] = useState(0);
   const [savedLocales, setSavedLocales] = useState<Locale[]>([]);
   const [adminLocales, setAdminLocales] = useState<Locale[]>([]);
   const [filteredLocales, setFilteredLocales] = useState<Locale[]>([]);
@@ -473,11 +484,37 @@ export default function LocaleScreen() {
   });
   
   // Responsive dimensions (inside component to ensure they're accessible)
-  const { width: screenWidth } = Dimensions.get('window');
+  const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
   const isTabletLocal = screenWidth >= 768;
   const isWebLocal = Platform.OS === 'web';
   const isIOSLocal = Platform.OS === 'ios';
   const isAndroidLocal = Platform.OS === 'android';
+
+  const CARD_WIDTH = isTabletLocal ? (screenWidth - 48) : (screenWidth - 32);
+  const CARD_HEIGHT = CARD_WIDTH * 10 / 16;
+
+  const scrollY = useRef(new Animated.Value(0)).current;
+  const savedScrollOffsetRef = useRef<number>(0);
+  const flatListRef = useRef<any>(null);
+
+  useEffect(() => {
+    const id = scrollY.addListener(({ value }) => {
+      savedScrollOffsetRef.current = value;
+    });
+    return () => {
+      scrollY.removeListener(id);
+    };
+  }, [scrollY]);
+
+  const handleVerticalScroll = useMemo(() => Animated.event(
+    [{ nativeEvent: { contentOffset: { y: scrollY } } }],
+    {
+      useNativeDriver: true,
+      listener: (event: any) => {
+        handleScroll(event);
+      },
+    }
+  ), [scrollY, handleScroll]);
   
   // Navigation & Lifecycle Safety: Track mounted state
   const isMountedRef = useRef(true);
@@ -529,7 +566,22 @@ export default function LocaleScreen() {
   // Without this the user could thrash the backend by tab-switching.
   const bgRefreshCacheRef = useRef<Map<string, number>>(new Map());
   
-  const { theme, mode } = useTheme();
+  // Refs to prevent stale closure bugs in asynchronous/deferred calls like setTimeout and loadAdminLocalesRef
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+
+  const searchQueryRef = useRef(searchQuery);
+  searchQueryRef.current = searchQuery;
+
+  const userLocationRef = useRef(userLocation);
+  userLocationRef.current = userLocation;
+
+  const locationPermissionGrantedRef = useRef(locationPermissionGranted);
+  locationPermissionGrantedRef.current = locationPermissionGranted;
+  
+  const applyFiltersRef = useRef<any>(null);
+  
+  const { theme, mode, isDark } = useTheme();
   const router = useRouter();
 
   const spotTypeOptions = [
@@ -598,9 +650,7 @@ export default function LocaleScreen() {
 
       try {
         // Use lower accuracy for faster response (acceptable for distance sorting)
-        const accuracy = isAndroid 
-          ? Location.Accuracy.Low 
-          : Location.Accuracy.Low; // Use Low for both platforms for faster response
+        const accuracy = Location.Accuracy.High;
 
         // Build options object - maximumAge is not directly supported, but we can use it via options
         const locationOptions: Location.LocationOptions = {
@@ -979,7 +1029,13 @@ export default function LocaleScreen() {
   }, [getLocationSnapshotKey, userLocation, userCity, userState, userCountryCode]);
   
   // Pagination & Filter Race Safety: Load locales with request guards
-  const loadAdminLocales = useCallback(async (forceRefresh = false) => {
+  const loadAdminLocales = useCallback(async (forceRefresh = false, isBackground = false) => {
+    const currentFilters = filtersRef.current;
+    const currentSearchQuery = searchQueryRef.current;
+    const currentUserLocation = userLocationRef.current;
+    const currentLocationPermissionGranted = locationPermissionGrantedRef.current;
+    const currentApplyFilters = applyFiltersRef.current || applyFilters;
+
     // Request Guard: Prevent duplicate calls
     if (isSearchingRef.current || isPaginatingRef.current) {
       logger.debug('loadAdminLocales already in progress, skipping');
@@ -993,7 +1049,7 @@ export default function LocaleScreen() {
       const localeWithDistance = locale as Locale & { distanceKm?: number | null };
       return localeWithDistance.distanceKm !== undefined && localeWithDistance.distanceKm !== null;
     });
-    const needsDistanceCalculation = hasLocales && !hasDistances && userLocation && locationPermissionGranted;
+    const needsDistanceCalculation = hasLocales && !hasDistances && currentUserLocation && currentLocationPermissionGranted;
     
     if (loadedOnceRef.current && !forceRefresh && hasLocales && !needsDistanceCalculation) {
       logger.debug('Locales already loaded once with distances, skipping unless force refresh');
@@ -1007,7 +1063,7 @@ export default function LocaleScreen() {
     }
     
     // Generate fetch key from params (include stateCode for proper cache invalidation)
-    const fetchKey = `${searchQuery}|${filters.countryCode}|${filters.stateCode}|${filters.spotTypes.join(',')}|${currentPageRef.current}`;
+    const fetchKey = `${currentSearchQuery}|${currentFilters.countryCode}|${currentFilters.stateCode}|${currentFilters.spotTypes.join(',')}|${currentPageRef.current}`;
     
     // LAST FETCH KEY LOCK: If same key, return immediately
     if (!forceRefresh && fetchKey === lastFetchKeyRef.current) {
@@ -1027,7 +1083,7 @@ export default function LocaleScreen() {
     searchAbortControllerRef.current = new AbortController();
     
     try {
-      if (isMountedRef.current) {
+      if (isMountedRef.current && !isBackground) {
         setLoadingLocales(true);
         setLoading(true);
       }
@@ -1047,7 +1103,7 @@ export default function LocaleScreen() {
       // Build query parameters
       // CRITICAL FIX: When user location is available, fetch ALL locales by looping pages
       // Backend caps at 50 per page, so we must paginate client-side to get all locales
-      const shouldFetchAll = userLocation && locationPermissionGranted && (forceRefresh || currentPageRef.current === 1);
+      const shouldFetchAll = currentUserLocation && currentLocationPermissionGranted && (forceRefresh || currentPageRef.current === 1);
       
       // Base params for all requests
       const baseParams: any = {
@@ -1055,23 +1111,23 @@ export default function LocaleScreen() {
       };
       
       // Add search query if provided
-      if (searchQuery.trim()) {
-        baseParams.search = searchQuery.trim();
+      if (currentSearchQuery.trim()) {
+        baseParams.search = currentSearchQuery.trim();
       }
       
       // Add country filter if provided (only if not empty)
-      if (filters.countryCode && filters.countryCode.trim() !== '' && filters.countryCode !== 'all') {
-        baseParams.countryCode = filters.countryCode;
+      if (currentFilters.countryCode && currentFilters.countryCode.trim() !== '' && currentFilters.countryCode !== 'all') {
+        baseParams.countryCode = currentFilters.countryCode;
       }
       
       // Add state filter if provided (only if not empty)
-      if (filters.stateCode && filters.stateCode.trim() !== '' && filters.stateCode !== 'all') {
-        baseParams.stateCode = filters.stateCode;
+      if (currentFilters.stateCode && currentFilters.stateCode.trim() !== '' && currentFilters.stateCode !== 'all') {
+        baseParams.stateCode = currentFilters.stateCode;
       }
       
       // Add spot type filter if provided (send all selected spot types)
-      const spotTypesParam = filters.spotTypes && filters.spotTypes.length > 0 
-        ? filters.spotTypes 
+      const spotTypesParam = currentFilters.spotTypes && currentFilters.spotTypes.length > 0 
+        ? currentFilters.spotTypes 
         : '';
       
       // CRITICAL FIX: Fetch ALL locales by looping pages until exhausted
@@ -1090,6 +1146,7 @@ export default function LocaleScreen() {
           1,
           BACKEND_LIMIT,
           baseParams.includeInactive,
+          currentFilters.stateProvince || '',
           searchAbortControllerRef.current?.signal
         );
 
@@ -1105,6 +1162,7 @@ export default function LocaleScreen() {
             const bgSearch = baseParams.search || '';
             const bgCountry = baseParams.countryCode || '';
             const bgState = baseParams.stateCode || '';
+            const bgStateProvince = currentFilters.stateProvince || '';
             const bgSpotTypes = spotTypesParam;
             const bgIncludeInactive = baseParams.includeInactive;
             ;(async () => {
@@ -1112,7 +1170,7 @@ export default function LocaleScreen() {
               for (let page = 2; page <= totalPagesCount; page++) {
                 if (!isMountedRef.current || lastFetchKeyRef.current !== bgFetchKey) return;
                 try {
-                  const res = await getLocales(bgSearch, bgCountry, bgState, bgSpotTypes, page, BACKEND_LIMIT, bgIncludeInactive);
+                  const res = await getLocales(bgSearch, bgCountry, bgState, bgSpotTypes, page, BACKEND_LIMIT, bgIncludeInactive, bgStateProvince);
                   if (res?.locales?.length > 0) moreLocales.push(...res.locales);
                   else break;
                 } catch { break; }
@@ -1123,8 +1181,8 @@ export default function LocaleScreen() {
               const novel = moreLocales.filter(l => !existingIds.has(l._id));
               if (novel.length === 0) return;
               const snapshot = createLocationSnapshot();
-              const uLat = userLocation?.latitude;
-              const uLon = userLocation?.longitude;
+              const uLat = currentUserLocation?.latitude;
+              const uLon = currentUserLocation?.longitude;
               const novelWithDist = novel.map(l => {
                 if (l.latitude && l.longitude && uLat && uLon) {
                   return { ...l, distanceKm: calculateDistance(uLat, uLon, l.latitude, l.longitude) };
@@ -1152,6 +1210,7 @@ export default function LocaleScreen() {
           currentPageRef.current,
           20,
           baseParams.includeInactive,
+          currentFilters.stateProvince || '',
           searchAbortControllerRef.current?.signal
       );
       
@@ -1185,7 +1244,7 @@ export default function LocaleScreen() {
         if (newLocales.length === 0) {
           if (isMountedRef.current) {
             // Clear if search query OR any filter is active (server returned 0 results deliberately)
-            if (searchQuery.trim() || filters.countryCode || filters.stateCode || filters.spotTypes.length > 0) {
+            if (currentSearchQuery.trim() || currentFilters.countryCode || currentFilters.stateCode || currentFilters.spotTypes.length > 0) {
               setAdminLocales([]);
               setFilteredLocales([]);
             }
@@ -1202,7 +1261,7 @@ export default function LocaleScreen() {
         // Stage 1: Calculate straight-line distance for ALL locales, sort once, render immediately
         // Stage 2: Calculate driving distance ONLY for first N locales (background)
         // Stage 3: Calculate driving distance on-demand when user scrolls
-        if (userLocation && locationPermissionGranted) {
+        if (currentUserLocation && currentLocationPermissionGranted) {
           // STAGE 1: Calculate straight-line distances synchronously (fast, <300ms)
           const localesWithStraightLineDistance = newLocales.map((locale) => {
             if (locale.latitude && locale.longitude && 
@@ -1210,8 +1269,8 @@ export default function LocaleScreen() {
                 !isNaN(locale.latitude) && !isNaN(locale.longitude) &&
                 locale.latitude >= -90 && locale.latitude <= 90 &&
                 locale.longitude >= -180 && locale.longitude <= 180) {
-              const userLat = roundCoord(userLocation.latitude);
-              const userLon = roundCoord(userLocation.longitude);
+              const userLat = roundCoord(currentUserLocation.latitude);
+              const userLon = roundCoord(currentUserLocation.longitude);
               const localeLat = roundCoord(locale.latitude);
               const localeLon = roundCoord(locale.longitude);
               
@@ -1246,7 +1305,7 @@ export default function LocaleScreen() {
               setDisplayedPage(1);
               setHasMore(localesWithStraightLineDistance.length > ITEMS_PER_PAGE);
               setTotalPages(Math.ceil(localesWithStraightLineDistance.length / ITEMS_PER_PAGE));
-              const filtered = applyFilters(firstPage, false);
+              const filtered = currentApplyFilters(firstPage, false);
               setFilteredLocales(filtered);
               setLoadingLocales(false);
               setLoading(false);
@@ -1277,7 +1336,7 @@ export default function LocaleScreen() {
           loadedOnceRef.current = true;
 
           // Update filtered locales
-          const filtered = applyFilters(firstPage, false);
+          const filtered = currentApplyFilters(firstPage, false);
           setFilteredLocales(filtered);
           
           if (__DEV__) {
@@ -1342,8 +1401,8 @@ export default function LocaleScreen() {
                   }
                 }
 
-                const userLat = userLocation.latitude;
-                const userLon = userLocation.longitude;
+                const userLat = currentUserLocation.latitude;
+                const userLon = currentUserLocation.longitude;
                 const localeLat = updatedLocale.latitude;
                 const localeLon = updatedLocale.longitude;
                 
@@ -1456,7 +1515,7 @@ export default function LocaleScreen() {
           }
 
           // Apply client-side filters so filteredLocales stays in sync
-          const filtered = applyFilters(finalLocales, false);
+          const filtered = currentApplyFilters(finalLocales, false);
           setFilteredLocales(filtered);
           setLoadingLocales(false);
           setLoading(false);
@@ -1466,7 +1525,7 @@ export default function LocaleScreen() {
         // Response has no locales property or is empty
         if (isMountedRef.current) {
           // Clear if search query OR any filter is active (server returned 0 results deliberately)
-          if (searchQuery.trim() || filters.countryCode || filters.stateCode || filters.spotTypes.length > 0) {
+          if (currentSearchQuery.trim() || currentFilters.countryCode || currentFilters.stateCode || currentFilters.spotTypes.length > 0) {
             setAdminLocales([]);
             setFilteredLocales([]);
           }
@@ -1493,7 +1552,7 @@ export default function LocaleScreen() {
       if (isMountedRef.current) {
         // On network error, only clear if there's an active search query
         // Otherwise, keep existing locales for offline support
-        if (searchQuery.trim()) {
+        if (currentSearchQuery.trim()) {
           // Search failed - clear search results
           setAdminLocales([]);
           setFilteredLocales([]);
@@ -1511,7 +1570,7 @@ export default function LocaleScreen() {
       }
       isSearchingRef.current = false;
     }
-  }, [searchQuery, filters.countryCode, filters.stateCode, filters.spotTypes, userLocation, locationPermissionGranted]); // Safe dependencies - excludes adminLocales to prevent recreation loops
+  }, []); 
 
   const loadAdminLocalesRef = useRef(loadAdminLocales);
   loadAdminLocalesRef.current = loadAdminLocales;
@@ -1913,7 +1972,9 @@ export default function LocaleScreen() {
         setSavedLocales(cachedSorted);
         if (uniqueLocales.length !== locales.length) {
           // Self-heal AsyncStorage if normalization dropped bad entries.
-          AsyncStorage.setItem('savedLocales', JSON.stringify(cachedSorted)).catch(() => {});
+          // Strip distanceKm before persisting — must always be recalculated from live GPS
+          const stripped = cachedSorted.map(({ distanceKm, ...rest }: any) => rest);
+          AsyncStorage.setItem('savedLocales', JSON.stringify(stripped)).catch(() => {});
         }
       }
 
@@ -2002,28 +2063,32 @@ export default function LocaleScreen() {
   const applyFilters = useCallback((locales: Locale[], isSavedTab = false) => {
     let filtered = [...locales];
     
-    // Filter by country (for saved locales - API handles this for locale tab)
-    if (filters.countryCode && filters.countryCode.trim() !== '' && isSavedTab) {
+    if (filters.countryCode && filters.countryCode.trim() !== '') {
       filtered = filtered.filter(locale => 
         locale.countryCode && locale.countryCode.toUpperCase() === filters.countryCode.toUpperCase()
       );
     }
     
-    // Filter by state/province (for saved locales - API handles this for locale tab)
-    // Handle optional state fields: match by stateCode or stateProvince
-    if (filters.stateCode && filters.stateCode.trim() !== '' && isSavedTab) {
+    if (filters.stateCode && filters.stateCode.trim() !== '') {
       filtered = filtered.filter(locale => {
-        // If locale has stateCode, match exactly
-        if (locale.stateCode && locale.stateCode.trim() !== '') {
-          return locale.stateCode === filters.stateCode || 
-                 locale.stateCode.toUpperCase() === filters.stateCode.toUpperCase();
+        const queryCode = filters.stateCode.trim().toUpperCase();
+        const queryProvince = (filters.stateProvince || '').trim().toLowerCase();
+        
+        const locCode = (locale.stateCode || '').trim().toUpperCase();
+        const locProvince = (locale.stateProvince || '').trim().toLowerCase();
+        
+        // Match if stateCode matches code or name
+        // Or if stateProvince matches code or name
+        if (locCode) {
+          if (locCode === queryCode || locCode.toLowerCase() === queryProvince) {
+            return true;
+          }
         }
-        // If locale has stateProvince, match by name (case-insensitive)
-        if (locale.stateProvince && locale.stateProvince.trim() !== '') {
-          return locale.stateProvince.toLowerCase() === filters.stateProvince.toLowerCase() ||
-                 locale.stateProvince.toLowerCase().includes(filters.stateProvince.toLowerCase());
+        if (locProvince) {
+          if (locProvince === queryProvince || locProvince.toUpperCase() === queryCode) {
+            return true;
+          }
         }
-        // If locale has no state info, exclude it when state filter is applied
         return false;
       });
     }
@@ -2037,14 +2102,16 @@ export default function LocaleScreen() {
       );
     }
     
-    // Filter by search query (client-side for saved, or when not using API)
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
+    // Live text search (client-side on loaded locales)
+    const searchText = searchInput.trim().toLowerCase();
+    if (searchText) {
       filtered = filtered.filter(locale =>
-        locale?.name?.toLowerCase?.().includes(query) ||
-        locale?.description?.toLowerCase?.().includes(query) ||
-        locale?.countryCode?.toLowerCase?.().includes(query) ||
-        locale?.stateProvince?.toLowerCase?.().includes(query)
+        locale?.name?.toLowerCase?.().includes(searchText) ||
+        locale?.description?.toLowerCase?.().includes(searchText) ||
+        locale?.countryCode?.toLowerCase?.().includes(searchText) ||
+        locale?.stateProvince?.toLowerCase?.().includes(searchText) ||
+        (Array.isArray(locale.spotTypes) &&
+          locale.spotTypes.some((t) => typeof t === 'string' && t.toLowerCase().includes(searchText)))
       );
     }
     
@@ -2094,9 +2161,10 @@ export default function LocaleScreen() {
     // Admin displayOrder is completely ignored - user's location determines order
     // Use shared sorting function for consistency
     const sorted = sortLocalesByDistance(filtered);
-    
     return sorted;
-  }, [filters, searchQuery, sortLocalesByDistance, userLocation, locationPermissionGranted, getLocaleDistance]);
+  }, [filters, searchInput, sortLocalesByDistance, userLocation, locationPermissionGranted, getLocaleDistance]);
+  
+  applyFiltersRef.current = applyFilters;
   
   // Memoized filtered saved locales for performance
   const filteredSavedLocales = useMemo(() => {
@@ -2104,7 +2172,7 @@ export default function LocaleScreen() {
       return applyFilters(savedLocales, true);
     }
     return savedLocales;
-  }, [savedLocales, filters, searchQuery, activeTab, applyFilters, userLocation, locationPermissionGranted, calculatingDistances]);
+  }, [savedLocales, filters, searchInput, activeTab, applyFilters, userLocation, locationPermissionGranted, calculatingDistances]);
 
   // Whether any user-applied filter is active (search query or filter modal selection).
   // Lifted out of renderAdminLocales so the list renderer (FlatList) can read it
@@ -2114,8 +2182,8 @@ export default function LocaleScreen() {
     !!filters.stateCode ||
     filters.spotTypes.length > 0 ||
     !!(filters.searchRadius && filters.searchRadius.trim() !== '' && parseFloat(filters.searchRadius.trim()) > 0) ||
-    searchQuery.trim() !== ''
-  ), [filters, searchQuery]);
+    searchInput.trim() !== ''
+  ), [filters, searchInput]);
 
   // Memoized sorted admin locales - always sorted by distance (or createdAt if no location)
   // This ensures locales are always in the correct order for display
@@ -2147,9 +2215,12 @@ export default function LocaleScreen() {
   // The list the locale-tab FlatList actually renders. Lifted from
   // renderAdminLocales() so the FlatList can read it directly and so it
   // doesn't re-allocate on every parent render.
-  const localesToShow = useMemo(() => (
-    (hasActiveFilters || filteredLocales.length > 0) ? filteredLocales : sortedAdminLocales
-  ), [hasActiveFilters, filteredLocales, sortedAdminLocales]);
+  // Always derive display list from sorted data + live filters (search, spot types, radius)
+  const localesToShow = useMemo(() => {
+    if (activeTab !== 'locale') return [];
+    if (sortedAdminLocales.length === 0) return [];
+    return applyFilters(sortedAdminLocales, false);
+  }, [activeTab, sortedAdminLocales, applyFilters, searchInput, filters]);
 
   // Update filtered locales when adminLocales change (but NOT when filters/searchQuery change - handled in loadAdminLocales)
   // Also apply client-side filters for multiple spot types and search radius which require client-side processing
@@ -2163,7 +2234,7 @@ export default function LocaleScreen() {
     } else {
       setFilteredLocales([]);
     }
-  }, [sortedAdminLocales, applyFilters, activeTab, filters.spotTypes, filters.searchRadius, userLocation, locationPermissionGranted]);
+  }, [sortedAdminLocales, applyFilters, activeTab, filters.spotTypes, filters.searchRadius, filters.countryCode, filters.stateCode, searchInput, userLocation, locationPermissionGranted]);
 
   // Re-sort locales when user location becomes available or changes
   // This ensures sorting works even if location becomes available after locales are loaded
@@ -2400,6 +2471,14 @@ export default function LocaleScreen() {
           const filtered = applyFilters(firstPage, false);
           setFilteredLocales(filtered);
           loadedOnceRef.current = true;
+
+          // Restore scroll offset even when restoring from cache
+          if (savedScrollOffsetRef.current > 0 && flatListRef.current) {
+            const offset = savedScrollOffsetRef.current;
+            setTimeout(() => {
+              flatListRef.current?.scrollToOffset({ offset, animated: false });
+            }, 100);
+          }
           return;
         }
       }
@@ -2408,6 +2487,17 @@ export default function LocaleScreen() {
       // userLocation handles the "location became available after load" case.
       if (!loadedOnceRef.current && !isSearchingRef.current) {
         loadAdminLocalesRef.current(true);
+      } else if (loadedOnceRef.current) {
+        // Background refresh: refresh content behind the scenes but preserve visual scroll position
+        loadAdminLocalesRef.current(true, true);
+
+        // Restore scroll offset
+        if (savedScrollOffsetRef.current > 0 && flatListRef.current) {
+          const offset = savedScrollOffsetRef.current;
+          setTimeout(() => {
+            flatListRef.current?.scrollToOffset({ offset, animated: false });
+          }, 100);
+        }
       }
     }, [loadSavedLocales, createLocationSnapshot, applyFilters]) // adminLocales intentionally excluded — using ref to avoid re-trigger loop
   );
@@ -2467,8 +2557,9 @@ export default function LocaleScreen() {
       // PRODUCTION-GRADE: Sort by distance (nearest first) before saving
       const sortedLocales = sortLocalesByDistance(uniqueLocales);
       
-      // Atomic write
-      await AsyncStorage.setItem('savedLocales', JSON.stringify(sortedLocales));
+      // Atomic write — strip distanceKm before persisting (must always recalculate from live GPS)
+      const strippedForStorage = sortedLocales.map(({ distanceKm, ...rest }: any) => rest);
+      await AsyncStorage.setItem('savedLocales', JSON.stringify(strippedForStorage));
       
       if (isMountedRef.current) {
         setSavedLocales(sortedLocales);
@@ -2521,8 +2612,9 @@ export default function LocaleScreen() {
       // PRODUCTION-GRADE: Sort by distance (nearest first) after removal
       const sortedLocales = sortLocalesByDistance(filtered);
       
-      // Atomic write
-      await AsyncStorage.setItem('savedLocales', JSON.stringify(sortedLocales));
+      // Atomic write — strip distanceKm before persisting (must always recalculate from live GPS)
+      const strippedForStorage = sortedLocales.map(({ distanceKm, ...rest }: any) => rest);
+      await AsyncStorage.setItem('savedLocales', JSON.stringify(strippedForStorage));
       
       if (isMountedRef.current) {
         setSavedLocales(sortedLocales);
@@ -2542,6 +2634,61 @@ export default function LocaleScreen() {
   const isLocaleSaved = (localeId: string): boolean => {
     return savedLocales.some(l => l._id === localeId);
   };
+
+  const formatLocaleDistance = useCallback((locale: Locale) => {
+    const d =
+      (locale as Locale & { distanceKm?: number | null }).distanceKm ??
+      (userLocation && locationPermissionGranted ? getLocaleDistance(locale) : null);
+    if (d !== null && d !== undefined) {
+      return d < 1 ? `${Math.round(d * 1000)} m` : `${d.toFixed(1)} km`;
+    }
+    // GPS permission granted but location/distance not yet resolved → show loading state
+    if (locationPermissionGranted) return 'Calculating...';
+    // Permission denied or not asked → no distance available
+    return '-- km';
+  }, [userLocation, locationPermissionGranted, getLocaleDistance]);
+
+  const openLocaleDetail = useCallback((locale: Locale) => {
+    const d =
+      (locale as Locale & { distanceKm?: number | null }).distanceKm ??
+      (userLocation && locationPermissionGranted ? getLocaleDistance(locale) : null);
+    try {
+      trackFeatureUsage('locale_open', { locale_id: locale._id });
+      router.push({
+        pathname: '/tripscore/countries/[country]/locations/[location]',
+        params: {
+          country: locale.countryCode.toLowerCase(),
+          location: locale.name.toLowerCase().replace(/\s+/g, '-'),
+          userId: 'admin-locale',
+          localeId: String(locale._id),
+          imageUrl: locale.imageUrl || '',
+          galleryUrls:
+            Array.isArray(locale.imageUrls) && locale.imageUrls.length > 0
+              ? locale.imageUrls.join('|||')
+              : '',
+          latitude: locale.latitude != null && locale.latitude !== 0 ? locale.latitude.toString() : '',
+          longitude: locale.longitude != null && locale.longitude !== 0 ? locale.longitude.toString() : '',
+          description: locale.description || '',
+          spotTypes: locale.spotTypes?.join(', ') || '',
+          travelInfo: locale.travelInfo || 'Drivable',
+          distanceKm: d !== null && d !== undefined ? d.toString() : '',
+        },
+      });
+    } catch (error) {
+      logger.error('Error navigating to locale detail:', error);
+      showError('Failed to open locale details');
+    }
+  }, [router, userLocation, locationPermissionGranted, getLocaleDistance, showError]);
+
+  const toCloudLocale = useCallback((locale: Locale): CloudLocaleCardData => ({
+    _id: String(locale._id),
+    name: locale.name,
+    countryCode: locale.countryCode,
+    imageUrl: locale.imageUrl,
+    spotTypes: locale.spotTypes,
+    travelInfo: locale.travelInfo,
+    description: locale.description,
+  }), []);
 
   const loadCountries = async () => {
     if (!isMountedRef.current) return;
@@ -3026,12 +3173,31 @@ export default function LocaleScreen() {
     if (!isMountedRef.current) return;
     const next = searchInput.trim();
     setSearchQuery(next);
-  }, [searchInput]);
+    lastFetchKeyRef.current = null;
+    loadedOnceRef.current = false;
+    // Immediate client filter via localesToShow useMemo; API refetch follows searchQuery effect
+    if (sortedAdminLocales.length > 0) {
+      setFilteredLocales(applyFilters(sortedAdminLocales, false));
+    }
+  }, [searchInput, sortedAdminLocales, applyFilters]);
 
-  // When the (already-debounced) searchQuery changes, cancel any in-flight
-  // request and refetch immediately. No inner timer here — the debounce above
-  // is the only one.
+  // Live filter: clear committed API search as soon as the field is emptied
   useEffect(() => {
+    if (!searchInput.trim() && searchQuery.trim()) {
+      setSearchQuery('');
+      lastFetchKeyRef.current = null;
+      loadedOnceRef.current = false;
+      if (activeTab === 'locale' && sortedAdminLocales.length > 0) {
+        setFilteredLocales(applyFilters(sortedAdminLocales, false));
+      }
+      loadAdminLocalesRef.current(true);
+    }
+  }, [searchInput, searchQuery, activeTab, sortedAdminLocales, applyFilters]);
+
+  // API search only when user commits via keyboard/search icon — not on every keystroke.
+  // Client-side filter (searchInput in applyFilters) handles live typing on loaded locales.
+  useEffect(() => {
+    if (!searchQuery.trim()) return;
     if (searchAbortControllerRef.current) {
       searchAbortControllerRef.current.abort();
     }
@@ -3403,19 +3569,30 @@ export default function LocaleScreen() {
       ? d < 1
         ? `${Math.round(d * 1000)} m`
         : `${d.toFixed(1)} km`
-      : '–';
+      : locationPermissionGranted ? 'Calculating...' : '-- km';
     
     // Debug: Log distance calculation
     if (__DEV__) {
       logger.debug(`Locale ${locale.name}: distance=${d}, distanceText=${distanceText}, hasCoords=${!!(locale.latitude && locale.longitude)}, userLocation=${!!userLocation}`);
     }
+
+    const cardTop = 40 + index * (CARD_HEIGHT + 20); // 40px estimated ListHeaderComponent height
+    const translateY = scrollY.interpolate({
+      inputRange: [cardTop - screenHeight, cardTop + CARD_HEIGHT],
+      outputRange: [-24, 24],
+      extrapolate: 'clamp',
+    });
     
     return (
       <TouchableOpacity
         style={[
           styles.locationCard,
-          styles.wideCard,
-          { marginBottom: 16 }
+          {
+            width: CARD_WIDTH,
+            height: CARD_HEIGHT,
+            alignSelf: 'center',
+            marginBottom: 0,
+          }
         ]}
         onPress={() => {
           // Navigate to locale detail - Legacy flow
@@ -3446,18 +3623,29 @@ export default function LocaleScreen() {
             showError('Failed to open locale details');
           }
         }}
-        accessibilityLabel={`${locale.name}, ${locale.countryCode}${distanceText && distanceText !== '–' ? `, ${distanceText} away` : ''}`}
+        accessibilityLabel={`${locale.name}, ${locale.countryCode}`}
         accessibilityRole="button"
         accessibilityHint="Opens locale details"
       >
         {locale.imageUrl ? (
-          <ExpoImage
-            source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: 400, height: 300 }) }}
-            style={styles.cardImage as ImageStyle}
-            contentFit="cover"
-            cachePolicy="memory-disk"
-            transition={120}
-          />
+          <Animated.View
+            style={{
+              width: '100%',
+              height: CARD_HEIGHT + 48,
+              position: 'absolute',
+              top: -24,
+              left: 0,
+              transform: [{ translateY }],
+            }}
+          >
+            <ExpoImage
+              source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: 600, height: 450 }) }}
+              style={{ width: '100%', height: '100%' }}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={120}
+            />
+          </Animated.View>
         ) : (
           <LinearGradient
             colors={['#D4EDDA', '#A8DADC']}
@@ -3470,32 +3658,67 @@ export default function LocaleScreen() {
             </View>
           </LinearGradient>
         )}
-        <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.45)', 'rgba(0,0,0,0.85)']}
-          locations={[0, 0.5, 1]}
-          style={styles.cardGradient}
-        />
-        <View style={styles.cardContent}>
-          <View style={styles.cardTitleRow}>
-            <Text style={styles.cardTitle}>{locale.name}</Text>
-          </View>
-          <Text style={[styles.cardSubtitle, { color: '#FFFFFF' }]}>
-            {locale.countryCode}
-          </Text>
+
+        {/* Bottom Glassmorphic Metadata Panel */}
+        <View
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: '30%',
+            overflow: 'hidden',
+            borderBottomLeftRadius: 24,
+            borderBottomRightRadius: 24,
+            borderTopWidth: 1,
+            borderTopColor: 'rgba(255, 255, 255, 0.15)',
+          }}
+        >
+          <BlurView
+            intensity={45}
+            tint="dark"
+            style={{
+              flex: 1,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+            }}
+          >
+            {/* Left Column: Primary Title & Location Tag */}
+            <View style={{ flex: 1, marginRight: 12, justifyContent: 'center' }}>
+              <Text 
+                style={{
+                  color: '#FFFFFF',
+                  fontSize: 16,
+                  fontWeight: '700',
+                  fontFamily: getFontFamily('700'),
+                  marginBottom: 2,
+                }}
+                numberOfLines={1}
+              >
+                {locale.name}
+              </Text>
+              <Text 
+                style={{
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  fontSize: 12,
+                  fontWeight: '500',
+                  fontFamily: getFontFamily('500'),
+                }}
+                numberOfLines={1}
+              >
+                {locale.countryCode}
+              </Text>
+            </View>
+
+
+          </BlurView>
         </View>
-        {distanceText ? (
-          <View style={styles.distanceBadgeAbsolute}>
-            <Ionicons name="location" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
-            <Text style={styles.distanceText}>{distanceText}</Text>
-          </View>
-        ) : (userLocation && locationPermissionGranted && locale.latitude && locale.longitude) ? (
-          <View style={styles.distanceBadgeAbsolute}>
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          </View>
-        ) : null}
       </TouchableOpacity>
     );
-  }, [router, theme, userLocation, locationPermissionGranted, getLocaleDistance]);
+  }, [router, theme, userLocation, locationPermissionGranted, getLocaleDistance, CARD_WIDTH, CARD_HEIGHT, scrollY, screenHeight]);
 
   const renderAdminLocales = () => {
     // Always use filteredLocales when filters are active, even if empty
@@ -3573,19 +3796,16 @@ export default function LocaleScreen() {
   // Stable callbacks for the locale-tab FlatList. Using a separate render
   // function (not the useCallback'd renderAdminLocaleCard) keeps the FlatList
   // happy with a `(item) =>` signature without re-allocating per render.
-  const renderAdminLocaleItem = useCallback(({ item, index }: { item: Locale; index: number }) => (
-    renderAdminLocaleCard({ locale: item, index })
-  ), [renderAdminLocaleCard]);
+  const renderAdminLocaleItem = useCallback(
+    ({ item, index }: { item: Locale; index: number }) => renderAdminLocaleCard({ locale: item, index }),
+    [renderAdminLocaleCard],
+  );
 
   const localeKeyExtractor = useCallback((item: Locale, index: number) => String(item?._id ?? `locale-${index}`), []);
 
   const localeGetItemLayout = useCallback((_data: ArrayLike<Locale> | null | undefined, index: number) => {
-    // Card height comes from styles.wideCard: 200 on tablet, 160 on phone.
-    // Plus the inline marginBottom: 16 applied in renderAdminLocaleCard.
-    const cardHeight = isTabletLocal ? 200 : 160;
-    const totalHeight = cardHeight + 16;
-    return { length: totalHeight, offset: totalHeight * index, index };
-  }, []);
+    return { length: screenWidth, offset: screenWidth * index, index };
+  }, [screenWidth]);
 
   const renderCustomLayout = useCallback(() => {
     return (
@@ -3615,7 +3835,7 @@ export default function LocaleScreen() {
       ? d < 1
         ? `${Math.round(d * 1000)} m`
         : `${d.toFixed(1)} km`
-      : '–';
+      : locationPermissionGranted ? 'Calculating...' : '-- km';
 
     return (
       <TouchableOpacity
@@ -3653,7 +3873,7 @@ export default function LocaleScreen() {
             showError('Failed to open locale details');
           }
         }}
-        accessibilityLabel={`${safeName}, ${safeCountryCode}${distanceText && distanceText !== '–' ? `, ${distanceText} away` : ''}`}
+        accessibilityLabel={`${safeName}, ${safeCountryCode}`}
         accessibilityRole="button"
         accessibilityHint="Opens locale details"
       >
@@ -3695,12 +3915,7 @@ export default function LocaleScreen() {
             </Text>
           ) : null}
         </View>
-        {distanceText && (
-          <View style={styles.distanceBadgeAbsolute}>
-            <Ionicons name="location" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
-            <Text style={styles.distanceText}>{distanceText}</Text>
-          </View>
-        )}
+
         <TouchableOpacity
           style={styles.saveButton}
           onPress={(e) => {
@@ -3744,13 +3959,23 @@ export default function LocaleScreen() {
 
   return (
     <ErrorBoundary level="route">
-    <SafeAreaView
+    <View
       style={[styles.container, { backgroundColor: theme.colors.background }]}
-      edges={['top']}
     >
       <StatusBar
         barStyle={mode === 'dark' ? 'light-content' : 'dark-content'}
-        backgroundColor={theme.colors.background}
+        backgroundColor="transparent"
+        translucent
+      />
+
+      <LinearGradient
+        colors={
+          mode === 'dark'
+            ? ['#06121F', '#102236', '#07111C']
+            : (theme.colors.screenGradient as [string, string, ...string[]])
+        }
+        style={StyleSheet.absoluteFillObject}
+        locations={mode === 'dark' ? [0, 0.28, 1] : [0, 0.22, 0.55, 1]}
       />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -3762,96 +3987,42 @@ export default function LocaleScreen() {
           mode={mode}
           theme={theme}
         />
-      {/* Elegant Top Navigation */}
-      <View style={styles.topNavigation}>
-        <View style={[styles.tabContainer, { backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border }]}>
-          <TouchableOpacity
-            style={[
-              styles.tabButton,
-              activeTab === 'locale' && { backgroundColor: theme.colors.primary }
+      
+      <View
+        style={[
+          styles.headerPanel,
+          {
+            backgroundColor: isDark ? '#0B1A2B' : '#FFFFFF',
+            paddingTop: insets.top,
+            shadowColor: '#000000',
+            shadowOffset: { width: 0, height: 6 },
+            shadowOpacity: 0.15,
+            shadowRadius: 12,
+            elevation: 6,
+          }
+        ]}
+        onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
+      >
+        <View style={styles.topNavigation}>
+          <CloudSegmentedControl
+            segments={[
+              { key: 'locale', label: 'Locale' },
+              { key: 'saved', label: 'Saved' },
             ]}
-            onPress={() => setActiveTab('locale')}
-            activeOpacity={0.7}
-            accessibilityLabel="Locale tab"
-            accessibilityRole="tab"
-            accessibilityState={{ selected: activeTab === 'locale' }}
-          >
-            <Ionicons
-              name={activeTab === 'locale' ? "location" : "location-outline"}
-              size={20}
-              color={activeTab === 'locale' ? 'white' : theme.colors.textSecondary}
-            />
-            <Text style={[
-              styles.tabText,
-              { color: activeTab === 'locale' ? 'white' : theme.colors.textSecondary }
-            ]}>
-              Locale
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.tabButton,
-              activeTab === 'saved' && { backgroundColor: theme.colors.primary }
-            ]}
-            onPress={() => setActiveTab('saved')}
-            activeOpacity={0.7}
-            accessibilityLabel="Saved tab"
-            accessibilityRole="tab"
-            accessibilityState={{ selected: activeTab === 'saved' }}
-          >
-            <Ionicons
-              name={activeTab === 'saved' ? "bookmark" : "bookmark-outline"}
-              size={20}
-              color={activeTab === 'saved' ? 'white' : theme.colors.textSecondary}
-            />
-            <Text style={[
-              styles.tabText,
-              { color: activeTab === 'saved' ? 'white' : theme.colors.textSecondary }
-            ]}>
-              Saved
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Search Bar */}
-      <View style={[styles.searchContainer, { backgroundColor: theme.colors.background }]}>
-        <View style={[styles.searchBar, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-          <TouchableOpacity
-            onPress={handleSearchSubmit}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            accessibilityLabel="Search"
-            accessibilityRole="button"
-            activeOpacity={0.7}
-          >
-            <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} />
-          </TouchableOpacity>
-          <TextInput
-            style={[styles.searchInput, { color: theme.colors.text }]}
-            placeholder="Search"
-            placeholderTextColor={theme.colors.textSecondary}
-            value={searchInput}
-            onChangeText={setSearchInput}
-            returnKeyType="search"
-            onSubmitEditing={handleSearchSubmit}
+            value={activeTab}
+            onChange={(tab) => setActiveTab(tab as 'locale' | 'saved')}
           />
         </View>
-        <TouchableOpacity
-          style={[styles.filterButton, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
-          onPress={() => setShowFilterModal(true)}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          activeOpacity={0.7}
-          accessibilityLabel={activeFilterCount > 0 ? `Filters, ${activeFilterCount} active` : 'Filters'}
-          accessibilityRole="button"
-        >
-          <Ionicons name="filter" size={isTabletLocal ? 22 : 20} color={theme.colors.text} />
-          {activeFilterCount > 0 && (
-            <View style={[styles.filterButtonBadge, { backgroundColor: theme.colors.primary }]}>
-              <Text style={styles.filterButtonBadgeText}>{activeFilterCount}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
+
+        <CloudSearchDock
+          value={searchInput}
+          onChangeText={setSearchInput}
+          onSubmit={handleSearchSubmit}
+          onFilterPress={() => setShowFilterModal(true)}
+          filterBadgeCount={activeFilterCount}
+          placeholder="Search destinations"
+          style={{ marginBottom: 12 }}
+        />
       </View>
 
       {/* Content
@@ -3866,97 +4037,131 @@ export default function LocaleScreen() {
           essentially zero render cost (no items virtualised, no scroll
           handlers active), so this is also fine for performance. */}
       <View style={[styles.listSlot, activeTab === 'locale' ? null : styles.hidden]} pointerEvents={activeTab === 'locale' ? 'auto' : 'none'}>
-        <FlatList
-          data={localesToShow}
-          renderItem={renderAdminLocaleItem}
-          keyExtractor={localeKeyExtractor}
-          getItemLayout={localeGetItemLayout}
-          removeClippedSubviews
-          initialNumToRender={6}
-          maxToRenderPerBatch={4}
-          windowSize={7}
-          showsVerticalScrollIndicator={false}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          contentContainerStyle={{
-            paddingBottom: isTabletLocal ? 80 : 100,
-            paddingHorizontal: 0,
-          }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={handleRefresh}
-              colors={['#4A90E2']}
-              tintColor="#4A90E2"
-            />
-          }
-          ListHeaderComponent={
-            <View style={[styles.adminLocalesSection, { paddingBottom: 0 }]}>
-              <Text style={[styles.sectionTitle, { color: theme.colors.text, marginBottom: 12 }]}>Featured Locales</Text>
+        <View style={{ flex: 1 }}>
+          {localesToShow.length === 0 && !loadingLocales ? (
+            <View style={styles.adminLocalesSection}>
+              <Text
+                style={[
+                  styles.sectionTitle,
+                  { color: theme.colors.text, marginBottom: 10, paddingHorizontal: 20, marginTop: 12 },
+                ]}
+              >
+                Featured Locales
+              </Text>
+              <View style={styles.emptyContainer}>
+                <Ionicons name="location-outline" size={60} color={theme.colors.textSecondary} />
+                <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Locales Found</Text>
+                <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
+                  {hasActiveFilters
+                    ? 'Try adjusting your search or filters'
+                    : 'Check back later for exciting new destinations!'}
+                </Text>
+              </View>
             </View>
-          }
-          ListEmptyComponent={
-            loadingLocales ? (
-              <View style={styles.adminLocalesSection}>
-                <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginVertical: 20 }} />
-              </View>
-            ) : (
-              <View style={styles.adminLocalesSection}>
-                <View style={styles.emptyContainer}>
-                  <Ionicons name="location-outline" size={60} color={theme.colors.textSecondary} />
-                  <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Locales Found</Text>
-                  <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
-                    {hasActiveFilters
-                      ? 'Try adjusting your search or filters'
-                      : 'Check back later for exciting new destinations!'}
+          ) : loadingLocales && localesToShow.length === 0 ? (
+            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+              <ActivityIndicator size="small" color={theme.colors.primary} />
+            </View>
+          ) : (
+            <View style={{ flex: 1, position: 'relative' }}>
+              <Animated.FlatList
+                ref={flatListRef}
+                data={localesToShow}
+                renderItem={renderAdminLocaleItem}
+                keyExtractor={localeKeyExtractor}
+                showsVerticalScrollIndicator={true}
+                onScroll={handleVerticalScroll}
+                scrollEventThrottle={16}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+                contentContainerStyle={{
+                  paddingHorizontal: isTabletLocal ? 24 : 16,
+                  paddingTop: headerHeight > 0 ? headerHeight + 12 : 12,
+                  paddingBottom: Platform.OS === 'ios' ? 120 : 140,
+                }}
+                ItemSeparatorComponent={() => <View style={{ height: 20 }} />}
+                ListHeaderComponent={
+                  <Text
+                    style={[
+                      styles.sectionTitle,
+                      { color: theme.colors.text, marginBottom: 16, paddingHorizontal: 4, marginTop: 12 },
+                    ]}
+                  >
+                    Featured Locales
                   </Text>
-                </View>
-              </View>
-            )
-          }
-          ListFooterComponent={
-            localesToShow.length > 0 ? (
-              <View>
-                {hasMore && !loadingMore && !loadingLocales && (
-                  <View style={styles.loadMoreButtonContainer}>
-                    <TouchableOpacity
-                      style={[styles.loadMoreButton, { backgroundColor: theme.colors.primary }]}
-                      onPress={handleLoadMore}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[styles.loadMoreText, { color: '#FFFFFF' }]}>Load More</Text>
-                      <Ionicons name="chevron-down" size={20} color="#FFFFFF" style={{ marginLeft: 8 }} />
-                    </TouchableOpacity>
-                  </View>
-                )}
-                {loadingMore && (
-                  <View style={styles.loadMoreContainer}>
-                    <ActivityIndicator size="small" color={theme.colors.primary} />
-                    <Text style={[styles.loadMoreText, { color: theme.colors.textSecondary, marginLeft: 8 }]}>
-                      Loading more locales...
-                    </Text>
-                  </View>
-                )}
-              </View>
-            ) : null
-          }
-        />
+                }
+                ListFooterComponent={
+                  localesToShow.length > 0 ? (
+                    <View style={{ paddingTop: 20, paddingBottom: 16 }}>
+                      {hasMore && !loadingMore && !loadingLocales && (
+                        <View style={styles.loadMoreButtonContainer}>
+                          <TouchableOpacity
+                            style={[styles.loadMoreButton, { backgroundColor: theme.colors.primary }]}
+                            onPress={handleLoadMore}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={[styles.loadMoreText, { color: '#FFFFFF' }]}>Load More</Text>
+                            <Ionicons name="chevron-down" size={20} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                      {loadingMore && (
+                        <View style={styles.loadMoreContainer}>
+                          <ActivityIndicator size="small" color={theme.colors.primary} />
+                          <Text style={[styles.loadMoreText, { color: theme.colors.textSecondary, marginLeft: 8 }]}>
+                            Loading more locales...
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  ) : null
+                }
+                refreshControl={
+                  <RefreshControl
+                    refreshing={refreshing}
+                    onRefresh={handleRefresh}
+                    colors={['#5BBCF8']}
+                    tintColor="#5BBCF8"
+                  />
+                }
+                style={{ flex: 1 }}
+              />
+            </View>
+          )}
+        </View>
       </View>
 
       <View style={[styles.listSlot, activeTab === 'saved' ? null : styles.hidden]} pointerEvents={activeTab === 'saved' ? 'auto' : 'none'}>
         <FlatList
-          data={filteredSavedLocales}
-          renderItem={({ item, index }) => renderSavedLocaleCard({ locale: item, index })}
-          keyExtractor={(item, index) => String(item?._id ?? `locale-${index}`)}
-          initialNumToRender={6}
-          maxToRenderPerBatch={4}
-          windowSize={7}
+          data={[]}
+          renderItem={() => null}
+          keyExtractor={() => 'saved-featured'}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
+          ListHeaderComponentStyle={{ width: screenWidth }}
+          ListHeaderComponent={
+            filteredSavedLocales.length > 0 ? (
+              <CloudLocaleFeed
+                featuredTitle="Saved Locales 🔖"
+                showNearest={Boolean(userLocation && locationPermissionGranted)}
+                locales={filteredSavedLocales.map(toCloudLocale)}
+                getDistanceText={(l) => {
+                  const full = filteredSavedLocales.find((x) => String(x._id) === l._id);
+                  return full ? formatLocaleDistance(full) : '-- km';
+                }}
+                onLocalePress={(l) => {
+                  const full = filteredSavedLocales.find((x) => String(x._id) === l._id);
+                  if (full) openLocaleDetail(full);
+                }}
+                onSavePress={(l) => {
+                  if (l._id) unsaveLocale(l._id);
+                }}
+                isSaved={() => true}
+              />
+            ) : null
+          }
           ListEmptyComponent={
-            savedLocales.length === 0
+            filteredSavedLocales.length > 0 ? null : savedLocales.length === 0
               ? renderEmptySavedState()
               : filteredSavedLocales.length === 0
                 ? (
@@ -3995,14 +4200,17 @@ export default function LocaleScreen() {
             />
           }
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.listContainer, { paddingHorizontal: 20, paddingTop: 20 }]}
+          contentContainerStyle={[
+            styles.listContainer,
+            { width: screenWidth, paddingHorizontal: 20, paddingTop: headerHeight > 0 ? headerHeight + 20 : 20, paddingBottom: isTabletLocal ? 80 : 100 },
+          ]}
         />
       </View>
 
       {/* Filter Modal */}
       {renderFilterModal()}
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
     </ErrorBoundary>
   );
 }
@@ -4018,11 +4226,19 @@ const createStyles = () => {
   return StyleSheet.create({
     container: {
       flex: 1,
+      backgroundColor: '#EDF8FF',
       ...(isWebLocal && {
         maxWidth: isTabletLocal ? 1200 : 1000,
         alignSelf: 'center',
         width: '100%',
       } as any),
+    },
+    headerPanel: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      zIndex: 10,
     },
     topNavigation: {
       paddingHorizontal: isTabletLocal ? theme.spacing.xl : theme.spacing.md,
@@ -4032,17 +4248,23 @@ const createStyles = () => {
     },
     tabContainer: {
       flexDirection: 'row',
-      borderRadius: theme.borderRadius.xl,
+      borderRadius: 28,
       padding: 4,
+      shadowColor: '#62B9FF',
+      shadowOffset: { width: 0, height: 14 },
+      shadowOpacity: 0.18,
+      shadowRadius: 26,
+      elevation: 8,
     },
     tabButton: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
       paddingVertical: 10,
-      borderRadius: theme.borderRadius.lg,
+      borderRadius: 24,
       flex: 1,
       gap: 8,
+      overflow: 'hidden',
     },
     activeTab: {
       // backgroundColor applied inline via theme from useTheme()
@@ -4058,6 +4280,7 @@ const createStyles = () => {
       paddingHorizontal: isTabletLocal ? theme.spacing.xl : 14,
       paddingVertical: isTabletLocal ? theme.spacing.md : 6,
       gap: 10,
+      backgroundColor: 'transparent',
     },
     searchBar: {
       flex: 1,
@@ -4066,9 +4289,14 @@ const createStyles = () => {
       borderRadius: 22,
       paddingHorizontal: isTabletLocal ? theme.spacing.lg : 14,
       paddingVertical: isTabletLocal ? theme.spacing.md : 8,
-      borderWidth: 0,
+      borderWidth: 1,
       maxWidth: isTabletLocal ? 800 : undefined,
       height: 38,
+      shadowColor: '#72C3FF',
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.14,
+      shadowRadius: 18,
+      elevation: 5,
     },
     searchInput: {
       flex: 1,
@@ -4088,7 +4316,12 @@ const createStyles = () => {
       borderRadius: 19,
       alignItems: 'center' as const,
       justifyContent: 'center' as const,
-      borderWidth: 0,
+      borderWidth: 1,
+      shadowColor: '#72C3FF',
+      shadowOffset: { width: 0, height: 10 },
+      shadowOpacity: 0.14,
+      shadowRadius: 18,
+      elevation: 5,
       ...(isWebLocal && {
         cursor: 'pointer',
         transition: 'all 0.2s ease',
@@ -4119,12 +4352,16 @@ const createStyles = () => {
       marginBottom: isTabletLocal ? theme.spacing.md : 12,
     },
     locationCard: {
-      borderRadius: isTabletLocal ? theme.borderRadius.lg : 16,
+      borderRadius: 24,
       overflow: 'hidden',
-      marginBottom: isTabletLocal ? theme.spacing.md : 10,
       position: 'relative',
-      borderWidth: 0.5,
-      borderColor: 'rgba(0,0,0,0.08)',
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.15)',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.10,
+      shadowRadius: 8,
+      elevation: 4,
     },
     halfCard: {
       width: isTabletLocal ? (screenWidth - theme.spacing.xxl * 2 - theme.spacing.md) / 2 : (screenWidth - 36) / 2,
@@ -4132,7 +4369,7 @@ const createStyles = () => {
     },
     wideCard: {
       width: isTabletLocal ? screenWidth - theme.spacing.xxl * 2 : screenWidth - 40,
-      height: isTabletLocal ? 200 : 160,
+      height: isTabletLocal ? 220 : 176,
       alignSelf: 'center',
     },
   cardImage: {
@@ -4378,11 +4615,12 @@ const createStyles = () => {
     paddingBottom: isTabletLocal ? 30 : 40, // Increased to ensure load more button is fully visible above bottom nav
   },
   sectionTitle: {
-    fontSize: 17,
+    fontSize: 19,
     fontFamily: getFontFamily('600'),
-    fontWeight: '600',
+    fontWeight: '700',
     marginBottom: 16,
     marginTop: 8,
+    letterSpacing: 0.2,
   },
   localesList: {
     flexDirection: 'column',
@@ -4402,8 +4640,13 @@ const createStyles = () => {
     justifyContent: 'center',
     paddingVertical: isTabletLocal ? theme.spacing.md : 14,
     paddingHorizontal: isTabletLocal ? theme.spacing.xl : 24,
-    borderRadius: theme.borderRadius.md,
+    borderRadius: theme.borderRadius.full,
     minWidth: isTabletLocal ? 200 : 160,
+    shadowColor: '#32A8FF',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
+    elevation: 8,
   },
   loadMoreText: {
     fontSize: isTabletLocal ? 16 : 15,
@@ -4439,10 +4682,12 @@ const createStyles = () => {
     right: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    backgroundColor: 'rgba(255, 255, 255, 0.22)',
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.36)',
     zIndex: 10,
   },
   distanceText: {
@@ -4450,6 +4695,9 @@ const createStyles = () => {
     fontFamily: getFontFamily('500'),
     fontWeight: '500',
     color: '#FFFFFF',
+    textShadowColor: 'rgba(0,0,0,0.28)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
     ...(isWebLocal && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
@@ -4698,10 +4946,12 @@ const createStyles = () => {
       width: 36,
       height: 36,
       borderRadius: 18,
-      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      backgroundColor: 'rgba(255, 255, 255, 0.24)',
       justifyContent: 'center',
       alignItems: 'center',
       zIndex: 10,
+      borderWidth: 1,
+      borderColor: 'rgba(255,255,255,0.36)',
     },
   });
 };

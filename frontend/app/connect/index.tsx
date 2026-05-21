@@ -13,7 +13,6 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
@@ -33,9 +32,16 @@ import {
   ConnectPageType,
   GeoItem,
 } from '../../services/connect';
+import { getUserFromStorage } from '../../services/auth';
 import { getPlaceSuggestions } from '../../utils/locationUtils';
 import { toggleFollow } from '../../services/profile';
 import logger from '../../utils/logger';
+import PremiumScreen from '../../components/ui/PremiumScreen';
+import CloudGlassSurface from '../../components/cloud/CloudGlassSurface';
+import PremiumIconButton from '../../components/ui/PremiumIconButton';
+import PremiumSegmentedTabs from '../../components/ui/PremiumSegmentedTabs';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -167,8 +173,10 @@ function PickerModal({
 }
 
 export default function ConnectHubScreen() {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const topBarHeight = isWeb ? 56 : (56 + (insets.top || 0));
   const [activeTab, setActiveTab] = useState<TabType>('connect');
 
   // Page list state (Archived + Community tabs)
@@ -222,17 +230,84 @@ export default function ConnectHubScreen() {
   const [loadingUserLocation, setLoadingUserLocation] = useState(false);
   const userLocationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load countries/languages for Find tab
+  // Load countries/languages for Find tab and pre-populate from profile
   useEffect(() => {
     if (!geoLoaded) {
-      Promise.all([getCountries(), getLanguages()])
-        .then(([c, l]) => {
+      Promise.all([getCountries(), getLanguages(), getUserFromStorage()])
+        .then(([c, l, u]) => {
           setCountries(c.countries);
           setLanguages(l.languages);
           setGeoLoaded(true);
+
+          if (u) {
+            let initialLang = '';
+            let initialCountry = '';
+            let initialTravelStyle = '';
+
+            // Find user's first language code matching user's languagesKnown
+            if (u.languagesKnown && u.languagesKnown.length > 0) {
+              const userLang = u.languagesKnown[0].toLowerCase();
+              const matchedLang = l.languages.find(
+                (item: any) =>
+                  item.code.toLowerCase() === userLang ||
+                  item.name.toLowerCase() === userLang
+              );
+              if (matchedLang) {
+                setSelectedLanguage(matchedLang.code);
+                initialLang = matchedLang.code;
+              }
+            }
+
+            // Find user's nationality code
+            if (u.nationality) {
+              const userNationality = u.nationality.toLowerCase();
+              const matchedCountry = c.countries.find(
+                (item: any) =>
+                  item.code.toLowerCase() === userNationality ||
+                  item.name.toLowerCase() === userNationality
+              );
+              if (matchedCountry) {
+                setSelectedCountry(matchedCountry.code);
+                initialCountry = matchedCountry.code;
+              }
+            }
+
+            // Travel style pre-population
+            if (u.travelStyle) {
+              const matchedStyle = TRAVEL_STYLES.find(
+                (s) => s.code.toLowerCase() === u.travelStyle?.toLowerCase()
+              );
+              if (matchedStyle) {
+                setSelectedTravelStyle(matchedStyle.code);
+                initialTravelStyle = matchedStyle.code;
+              }
+            }
+
+            // If we have a language, automatically trigger search so they aren't greeted by an empty state
+            if (initialLang) {
+              setFindLoading(true);
+              findUsers({
+                target_country: initialCountry || undefined,
+                lang: initialLang,
+                travel_style: initialTravelStyle || undefined,
+                page: 1,
+                limit: 30,
+              })
+                .then(response => {
+                  setFoundUsers(response.users);
+                  setFindSearched(true);
+                })
+                .catch(err => {
+                  logger.error('Error auto-finding users:', err);
+                })
+                .finally(() => {
+                  setFindLoading(false);
+                });
+            }
+          }
         })
         .catch(err => {
-          logger.error('Error loading geo data:', err);
+          logger.error('Error loading geo and user data:', err);
           setGeoLoaded(true); // mark done so we don't retry in a loop
         });
     }
@@ -458,15 +533,15 @@ export default function ConnectHubScreen() {
   const renderUserItem = (user: FoundUser) => (
     <TouchableOpacity
       key={user._id}
-      style={[styles.userCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
+      style={styles.userCardTouchable}
       onPress={() => { setSelectedUser(user); setShowUserSheet(true); }}
       activeOpacity={0.7}
     >
-      <View style={styles.userCardContent}>
+      <CloudGlassSurface style={styles.userCard} contentStyle={styles.userCardContent} borderRadius={18}>
         {user.profilePic ? (
           <Image source={{ uri: user.profilePic }} style={styles.userAvatar} />
         ) : (
-          <View style={[styles.userAvatarPlaceholder, { backgroundColor: theme.colors.border }]}>
+          <View style={[styles.userAvatarPlaceholder, { backgroundColor: 'rgba(91,188,248,0.12)' }]}>
             <Ionicons name="person" size={22} color={theme.colors.textSecondary} />
           </View>
         )}
@@ -492,7 +567,7 @@ export default function ConnectHubScreen() {
           style={[
             styles.followBtn,
             user.isFollowing
-              ? { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: 1 }
+              ? { backgroundColor: 'rgba(255,255,255,0.1)' }
               : { backgroundColor: theme.colors.primary },
           ]}
           onPress={() => handleProfileFollowToggle(user)}
@@ -503,7 +578,7 @@ export default function ConnectHubScreen() {
             {user.isFollowing ? 'Following' : 'Follow'}
           </Text>
         </TouchableOpacity>
-      </View>
+      </CloudGlassSurface>
     </TouchableOpacity>
   );
 
@@ -692,7 +767,7 @@ export default function ConnectHubScreen() {
       showsVerticalScrollIndicator={false}
     >
       {/* Filter Form */}
-      <View style={[styles.filterCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+      <CloudGlassSurface style={styles.filterCard} contentStyle={styles.filterCardContent} borderRadius={20}>
         <Text style={[styles.filterTitle, { color: theme.colors.text }]}>
           Find Fellow Travelers
         </Text>
@@ -826,7 +901,7 @@ export default function ConnectHubScreen() {
             </>
           )}
         </TouchableOpacity>
-      </View>
+      </CloudGlassSurface>
 
       {/* User Results */}
       {findSearched && foundUsers.length === 0 && (
@@ -882,58 +957,38 @@ export default function ConnectHubScreen() {
     );
   };
 
-  const tabs: { key: TabType; label: string }[] = [
-    { key: 'connect', label: 'Connect' },
-    { key: 'community', label: 'Community' },
-    { key: 'find', label: 'Find' },
+  const tabs: { key: TabType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+    { key: 'connect', label: 'Connect', icon: 'sparkles-outline' },
+    { key: 'community', label: 'Community', icon: 'people-outline' },
+    { key: 'find', label: 'Find', icon: 'compass-outline' },
   ];
 
   return (
-    <SafeAreaView
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
-      edges={['top']}
-    >
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="arrow-back" size={isTablet ? 28 : 24} color={theme.colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Connect</Text>
-        <TouchableOpacity
-          style={styles.searchButton}
-          onPress={() => router.push('/connect/search')}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="search" size={isTablet ? 26 : 22} color={theme.colors.text} />
-        </TouchableOpacity>
+    <PremiumScreen style={styles.container} edges={[]} hideBackgroundDesign={true}>
+      {/* Solid Opaque Top Bar */}
+      <View style={[styles.solidTopBar, { height: topBarHeight, paddingTop: topBarHeight - 56, backgroundColor: isDark ? '#0D1B2A' : '#FFFFFF' }]}>
+        <View style={styles.topBarContent}>
+          <PremiumIconButton
+            icon="menu"
+            onPress={() => router.back()}
+            accessibilityLabel="Back"
+          />
+          <Text style={[styles.topBarTitle, { color: isDark ? '#FFFFFF' : '#122236' }]}>Connect</Text>
+          <PremiumIconButton
+            icon="search"
+            onPress={() => router.push('/connect/search')}
+            accessibilityLabel="Search"
+          />
+        </View>
       </View>
+      {/* Shadow Gate */}
+      <LinearGradient
+        colors={[isDark ? 'rgba(13,27,42,0.7)' : 'rgba(0,0,0,0.08)', 'transparent']}
+        style={styles.topBarShadow}
+      />
 
       {/* Tabs */}
-      <View style={[styles.tabBar, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
-        {tabs.map(tab => {
-          const isActive = activeTab === tab.key;
-          return (
-            <TouchableOpacity
-              key={tab.key}
-              style={[styles.tab, isActive && { borderBottomColor: theme.colors.primary, borderBottomWidth: 2 }]}
-              onPress={() => handleTabChange(tab.key)}
-              activeOpacity={0.7}
-            >
-              <Text
-                style={[styles.tabText, { color: isActive ? theme.colors.primary : theme.colors.textSecondary }, isActive && styles.tabTextActive]}
-              >
-                {tab.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
+      <PremiumSegmentedTabs tabs={tabs} value={activeTab} onChange={handleTabChange} style={styles.tabBar} />
 
       {/* Tab Content */}
       {activeTab === 'connect' ? renderConnectTab() : activeTab === 'find' ? renderFindTab() : renderPageListTab()}
@@ -941,7 +996,7 @@ export default function ConnectHubScreen() {
       {/* FAB — Create Connect Page (Connect tab only) */}
       {activeTab === 'connect' && (
         <TouchableOpacity
-          style={[styles.fab, { backgroundColor: theme.colors.primary }]}
+          style={[styles.fab, { backgroundColor: theme.colors.primary, shadowColor: theme.colors.glowBlue }]}
           onPress={() => router.push('/connect/create')}
           activeOpacity={0.8}
         >
@@ -957,7 +1012,7 @@ export default function ConnectHubScreen() {
       {renderPickerModal(showCurrentCountryPicker, countries, selectedCurrentCountry, setSelectedCurrentCountry, () => setShowCurrentCountryPicker(false), 'Currently in')}
       {renderPickerModal(showLanguagePicker, languages, selectedLanguage, setSelectedLanguage, () => setShowLanguagePicker(false), 'Select Language')}
       {renderPickerModal(showTravelStylePicker, TRAVEL_STYLES, selectedTravelStyle, setSelectedTravelStyle, () => setShowTravelStylePicker(false), 'Select Travel Style')}
-    </SafeAreaView>
+    </PremiumScreen>
   );
 }
 
@@ -968,15 +1023,15 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.md,
-    paddingVertical: isTablet ? themeConstants.spacing.md : 12,
-    borderBottomWidth: 1,
+    paddingTop: isTablet ? themeConstants.spacing.md : 12,
+    paddingBottom: 10,
   },
   backButton: {
     padding: isTablet ? themeConstants.spacing.sm : 8,
   },
   headerTitle: {
-    flex: 1,
     fontSize: isTablet ? 22 : 18,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
@@ -987,28 +1042,19 @@ const styles = StyleSheet.create({
     padding: isTablet ? themeConstants.spacing.sm : 8,
   },
   tabBar: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-  },
-  tab: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: isTablet ? 14 : 12,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
-  },
-  tabText: {
-    fontSize: isTablet ? 16 : 14,
-    fontFamily: getFontFamily('500'),
-    fontWeight: '500',
-  },
-  tabTextActive: {
-    fontWeight: '600',
+    marginHorizontal: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.md,
+    marginBottom: 10,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.36,
+    shadowRadius: 18,
+    elevation: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
   },
   footerLoader: {
     paddingVertical: 16,
@@ -1033,10 +1079,11 @@ const styles = StyleSheet.create({
     paddingBottom: 80,
   },
   filterCard: {
-    borderRadius: themeConstants.borderRadius.md,
-    borderWidth: 1,
-    padding: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.lg,
+    borderRadius: 30,
     marginBottom: isTablet ? themeConstants.spacing.lg : themeConstants.spacing.md,
+  },
+  filterCardContent: {
+    padding: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.lg,
   },
   filterTitle: {
     fontSize: isTablet ? 17 : 16,
@@ -1052,11 +1099,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderRadius: themeConstants.borderRadius.sm,
+    borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: isTablet ? 14 : 12,
     marginBottom: 12,
     gap: 10,
+    shadowColor: '#65BDF7',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 2,
   },
   filterSelectText: {
     flex: 1,
@@ -1101,8 +1153,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     paddingVertical: isTablet ? 14 : 12,
-    borderRadius: themeConstants.borderRadius.sm,
+    borderRadius: themeConstants.borderRadius.full,
     marginTop: 4,
+    shadowColor: '#32A8FF',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
+    elevation: 8,
   },
   findButtonText: {
     color: '#FFFFFF',
@@ -1121,15 +1178,16 @@ const styles = StyleSheet.create({
     maxWidth: 280,
   },
   // User Card (Find tab results)
-  userCard: {
-    borderRadius: themeConstants.borderRadius.md,
-    borderWidth: 1,
+  userCardTouchable: {
     marginBottom: isTablet ? themeConstants.spacing.md : themeConstants.spacing.sm,
-    padding: isTablet ? themeConstants.spacing.lg : themeConstants.spacing.md,
+  },
+  userCard: {
+    borderRadius: 26,
   },
   userCardContent: {
     flexDirection: 'row',
     alignItems: 'center',
+    padding: isTablet ? themeConstants.spacing.lg : themeConstants.spacing.md,
   },
   userAvatar: {
     width: isTablet ? 52 : 44,
@@ -1316,5 +1374,27 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontFamily: getFontFamily('500'),
     fontWeight: '500',
+  },
+  solidTopBar: {
+    justifyContent: 'flex-end',
+    zIndex: 100,
+  },
+  topBarContent: {
+    height: 56,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.md,
+  },
+  topBarTitle: {
+    fontSize: isTablet ? 22 : 18,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+    textAlign: 'center',
+    letterSpacing: isIOS ? 0.3 : 0.2,
+  },
+  topBarShadow: {
+    height: 4,
+    zIndex: 99,
   },
 });

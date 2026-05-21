@@ -2,19 +2,66 @@ import { colors as darkColors } from './colors';
 
 export const lightColors = {
   ...darkColors,
-  background: '#F5F7FA',
+
+  // Core brand (restore light-mode values)
+  primary: '#2B7FD4',
+  lightBlue: '#A8DAFC',
+  secondary: '#5BBCF8',
+  accent: '#43B89C',
+  coral: '#FF8F70',
+  sun: '#FFD166',
+  softGray: '#EDF7FF',
+  white: '#FFFFFF',
+
+  // Surfaces
+  background: '#E8F4FF',
   surface: '#FFFFFF',
-  surfaceSecondary: '#F0F2F5',
-  text: '#181A20',
-  textSecondary: '#5A5F6B',
-  border: 'rgba(0,0,0,0.08)',
-  hairline: 'rgba(0,0,0,0.10)',
+  surfaceSecondary: '#D9EFFF',
+
+  // Content
+  text: '#1A2B3C',
+  textSecondary: '#4A6274',
+  textMuted: '#8FAABB',
+
+  // Lines / hairlines
+  border: 'rgba(91, 188, 248, 0.16)',
+  hairline: 'rgba(91, 188, 248, 0.10)',
+
+  // Card tint
   card: '#FFFFFF',
-  shadow: 'rgba(0, 0, 0, 0.08)',
-  overlay: 'rgba(0,0,0,0.04)',
+  shadow: 'rgba(43, 127, 212, 0.14)',
+  overlay: 'rgba(26, 43, 60, 0.36)',
+  
+  // Glass tokens
+  glass: {
+    background: 'rgba(255, 255, 255, 0.76)',
+    border: 'rgba(255, 255, 255, 0.72)',
+    highlight: 'rgba(255, 255, 255, 0.9)',
+  },
+  glassBackground: 'rgba(255, 255, 255, 0.58)',
+  frostTint: 'rgba(255, 255, 255, 0.55)',
+  frostTintMedium: 'rgba(255, 255, 255, 0.68)',
+  frostTintStrong: 'rgba(255, 255, 255, 0.86)',
+  /** Day theme: subtle vertical depth (aligned with dark theme’s graded sky) */
+  appBackgroundGradient: ['#C8E8FF', '#E8F4FF', '#F8FCFF', '#FFFFFF'],
+  screenGradient: ['#C8E8FF', '#E8F4FF', '#F8FCFF', '#FFFFFF'],
+  glassSurface: 'rgba(255, 255, 255, 0.76)',
+  glassStrong: 'rgba(255, 255, 255, 0.92)',
+  glassBorder: 'rgba(255, 255, 255, 0.76)',
+  glowBlue: 'rgba(91, 188, 248, 0.34)',
+  innerHighlight: 'rgba(255, 255, 255, 0.94)',
+  softShadow: 'rgba(43, 127, 212, 0.18)',
+  /** Solid tab bar (not translucent) */
+  floatingDock: '#FFFFFF',
+  cloudSurface: '#EDF7FF',
+  skyPale: '#D9EFFF',
+  blueDeep: '#2B7FD4',
+  blueMid: '#4BA3E8',
+
   gradient: {
-    primary: ['#F5F7FA', '#E3E8EF'],
-    secondary: ['#0A84FF', '#7F5AF0'],
-    dark: ['#E3E8EF', '#F5F7FA']
+    primary: ['#E8F4FF', '#F5FAFF', '#FFFFFF'],
+    secondary: ['#5BBCF8', '#2B7FD4'],
+    dark: ['#E8F4FF', '#F5FAFF', '#FFFFFF'],
+    button: ['#5BBCF8', '#2B7FD4']
   }
 };

@@ -35,6 +35,7 @@ import {
   cancelSubscription as cancelSubApi,
   getPayoutPreview,
   getCurrencySymbol,
+  formatConnectMoney,
   ConnectPageType,
   ContentBlock,
   PayoutPreview,
@@ -52,6 +53,7 @@ import {
   CFEnvironment,
   CFSubscriptionSession,
 } from '../../../utils/cashfreeShim';
+import { resolveCashfreeEnvironment } from '../../../utils/cashfreeCheckout';
 
 // The Cashfree SDK ships a Proxy that throws "package not linked" the moment
 // any method is called when the native module is absent (Expo Go, web). Gate
@@ -117,11 +119,13 @@ export default function ConnectPageDetailScreen() {
     optimistic_subscribed,
     optimistic_subscription_id,
     optimistic_amount,
+    subscription_return,
   } = useLocalSearchParams<{
     id: string;
     optimistic_subscribed?: string;
     optimistic_subscription_id?: string;
     optimistic_amount?: string;
+    subscription_return?: string;
   }>();
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState<ConnectPageType | null>(null);
@@ -251,6 +255,14 @@ export default function ConnectPageDetailScreen() {
     }
   }, [optimistic_subscribed, optimistic_subscription_id, optimistic_amount]);
 
+  // After Cashfree HTTPS return redirect opens the app again
+  useEffect(() => {
+    if (subscription_return === '1' && page && !isOwner) {
+      loadSubscriptionStatus();
+      loadPageDetail();
+    }
+  }, [subscription_return, page, isOwner, loadSubscriptionStatus, loadPageDetail]);
+
   const handleSubscribe = async () => {
     if (!page || subscribing) return;
     if (!isCashfreeNativeAvailable) {
@@ -263,19 +275,19 @@ export default function ConnectPageDetailScreen() {
     try {
       setSubscribing(true);
       const result = await createSubscription(page._id);
-      if (result.paymentSessionId && result.cashfreeSubscriptionId) {
+      const subsSessionId = result.subscriptionSessionId || result.paymentSessionId;
+      if (subsSessionId && result.cashfreeSubscriptionId) {
         // Store pending data so onVerify can optimistically flip the UI
         // before the webhook arrives and syncs DB status to 'active'.
         pendingSubscriptionRef.current = {
           subscriptionId: result.subscriptionId,
           amount: result.amount,
         };
-        // Use Cashfree React Native SDK for subscription checkout
-        const env = __DEV__ ? CFEnvironment.SANDBOX : CFEnvironment.PRODUCTION;
+        const env = resolveCashfreeEnvironment(result.cashfreeEnvironment);
         const session = new CFSubscriptionSession(
-          result.paymentSessionId,
+          subsSessionId,
           result.cashfreeSubscriptionId,
-          env
+          env,
         );
         CFPaymentGatewayService.doSubscriptionPayment(session);
       } else {
@@ -1389,7 +1401,9 @@ export default function ConnectPageDetailScreen() {
               <View style={styles.payoutDetails}>
                 <View style={styles.payoutRow}>
                   <Text style={[styles.payoutLabel, { color: theme.colors.textSecondary }]}>{subscriberLabel} pays</Text>
-                  <Text style={[styles.payoutValue, { color: theme.colors.text }]}>{payoutPreview.currencySymbol || currSym}{payoutPreview.grossAmount}</Text>
+                  <Text style={[styles.payoutValue, { color: theme.colors.text }]}>
+                    {formatConnectMoney(payoutPreview.grossAmount, payoutPreview.currency)}
+                  </Text>
                 </View>
                 <View style={[styles.payoutDivider, { backgroundColor: theme.colors.border }]} />
 
@@ -1398,7 +1412,7 @@ export default function ConnectPageDetailScreen() {
                     Payment gateway ({payoutPreview.gatewayFeePercent}%)
                   </Text>
                   <Text style={[styles.payoutDeduction, { color: theme.colors.error }]}>
-                    -{payoutPreview.currencySymbol || currSym}{payoutPreview.gatewayFee}
+                    −{formatConnectMoney(payoutPreview.gatewayFee, payoutPreview.currency)}
                   </Text>
                 </View>
 
@@ -1408,7 +1422,7 @@ export default function ConnectPageDetailScreen() {
                       FX charge ({payoutPreview.isInternational ? '1.5%' : '0%'})
                     </Text>
                     <Text style={[styles.payoutDeduction, { color: theme.colors.error }]}>
-                      -{payoutPreview.currencySymbol || currSym}{payoutPreview.fxCharge}
+                      −{formatConnectMoney(payoutPreview.fxCharge, payoutPreview.currency)}
                     </Text>
                   </View>
                 )}
@@ -1417,7 +1431,9 @@ export default function ConnectPageDetailScreen() {
                   <Text style={[styles.payoutLabel, { color: theme.colors.textSecondary }]}>
                     Net after gateway
                   </Text>
-                  <Text style={[styles.payoutValue, { color: theme.colors.text }]}>{payoutPreview.currencySymbol || currSym}{payoutPreview.netAfterGateway}</Text>
+                  <Text style={[styles.payoutValue, { color: theme.colors.text }]}>
+                    {formatConnectMoney(payoutPreview.netAfterGateway, payoutPreview.currency)}
+                  </Text>
                 </View>
                 <View style={[styles.payoutDivider, { backgroundColor: theme.colors.border }]} />
 
@@ -1426,7 +1442,7 @@ export default function ConnectPageDetailScreen() {
                     Taatom commission ({payoutPreview.commissionPercent}%)
                   </Text>
                   <Text style={[styles.payoutDeduction, { color: theme.colors.error }]}>
-                    -{payoutPreview.currencySymbol || currSym}{payoutPreview.commissionAmount}
+                    −{formatConnectMoney(payoutPreview.commissionAmount, payoutPreview.currency)}
                   </Text>
                 </View>
 
@@ -1435,7 +1451,7 @@ export default function ConnectPageDetailScreen() {
                     GST on commission ({payoutPreview.gstPercent}%)
                   </Text>
                   <Text style={[styles.payoutDeduction, { color: theme.colors.error }]}>
-                    -{payoutPreview.currencySymbol || currSym}{payoutPreview.gstAmount}
+                    −{formatConnectMoney(payoutPreview.gstAmount, payoutPreview.currency)}
                   </Text>
                 </View>
 
@@ -1445,7 +1461,7 @@ export default function ConnectPageDetailScreen() {
                       Wise transfer fee ({payoutPreview.wiseFeePercent}%)
                     </Text>
                     <Text style={[styles.payoutDeduction, { color: theme.colors.error }]}>
-                      -{payoutPreview.currencySymbol || currSym}{payoutPreview.wiseFee}
+                      −{formatConnectMoney(payoutPreview.wiseFee, payoutPreview.currency)}
                     </Text>
                   </View>
                 )}
@@ -1455,7 +1471,7 @@ export default function ConnectPageDetailScreen() {
                 <View style={styles.payoutRow}>
                   <Text style={[styles.payoutLabelBold, { color: theme.colors.text }]}>You receive</Text>
                   <Text style={[styles.payoutTotal, { color: theme.colors.success }]}>
-                    {payoutPreview.currencySymbol || currSym}{payoutPreview.creatorPayout}
+                    {formatConnectMoney(payoutPreview.creatorPayout, payoutPreview.currency)}
                   </Text>
                 </View>
 

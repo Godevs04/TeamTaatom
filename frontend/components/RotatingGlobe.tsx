@@ -17,14 +17,13 @@ interface RotatingGlobeProps {
   onLocationPress?: (location: Location) => void;
 }
 
-export default function RotatingGlobe({ locations, size = 24, onPress, onLocationPress }: RotatingGlobeProps) {
+export default function RotatingGlobe({ locations = [], size = 24, onPress, onLocationPress }: RotatingGlobeProps) {
   const { theme } = useTheme();
   const router = useRouter();
   const rotateAnim = useRef(new Animated.Value(0)).current;
-  const hasLocations = locations.length > 0;
+  const hasLocations = locations && locations.length > 0;
 
   useEffect(() => {
-    if (!hasLocations) return;
     const startRotation = () => {
       Animated.loop(
         Animated.timing(rotateAnim, {
@@ -35,7 +34,7 @@ export default function RotatingGlobe({ locations, size = 24, onPress, onLocatio
       ).start();
     };
     startRotation();
-  }, [rotateAnim, hasLocations]);
+  }, [rotateAnim]);
 
   const rotation = rotateAnim.interpolate({
     inputRange: [0, 1],
@@ -52,25 +51,18 @@ export default function RotatingGlobe({ locations, size = 24, onPress, onLocatio
   });
 
   const handlePress = () => {
-    if (!hasLocations) return;
     if (onPress) {
       onPress();
       return;
     }
-    if (onLocationPress) {
-      onLocationPress(locations[0]);
-      return;
+    if (hasLocations) {
+      if (onLocationPress) {
+        onLocationPress(locations[0]);
+        return;
+      }
     }
     router.push('/map/current-location');
   };
-
-  if (!hasLocations) {
-    return (
-      <View style={styles.container}>
-        <Ionicons name="globe-outline" size={size} color={theme.colors.primary} />
-      </View>
-    );
-  }
 
   return (
     <TouchableOpacity
