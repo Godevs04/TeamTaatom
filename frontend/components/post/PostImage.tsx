@@ -11,7 +11,7 @@ import SongPlayer from '../SongPlayer';
 import { audioManager } from '../../utils/audioManager';
 import { Audio } from 'expo-av';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import ReAnimated, { useSharedValue, useAnimatedStyle } from 'react-native-reanimated';
+import ReAnimated, { useSharedValue, useAnimatedStyle, runOnJS } from 'react-native-reanimated';
 
 const { width: screenWidth } = Dimensions.get('window');
 const CARD_WIDTH = screenWidth - 24;
@@ -65,17 +65,77 @@ export default function PostImage({
   const isTogglingMuteRef = useRef(false);
   const isMutedRef = useRef(audioManager.getSessionMuted());
 
-  // Double-tap detection
-  const lastTapRef = useRef<number>(0);
-  const doubleTapTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Heart pop animation values
   const heartScale = useRef(new Animated.Value(0)).current;
   const heartOpacity = useRef(new Animated.Value(0)).current;
 
+  // Trigger double-tap to like with heart animation
+  const triggerDoubleTapLike = useCallback(() => {
+    if (onDoubleTap) {
+      onDoubleTap();
+      
+      // Show heart animation
+      heartScale.setValue(0);
+      heartOpacity.setValue(1);
+      
+      Animated.parallel([
+        Animated.spring(heartScale, {
+          toValue: 1.2,
+          useNativeDriver: true,
+          tension: 50,
+          friction: 3,
+        }),
+        Animated.sequence([
+          Animated.delay(100),
+          Animated.timing(heartOpacity, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]).start(() => {
+        heartScale.setValue(0);
+        heartOpacity.setValue(0);
+      });
+    }
+  }, [onDoubleTap, heartScale, heartOpacity]);
+
+  // RNGH Gestures
+  const doubleTapGesture = Gesture.Tap()
+    .numberOfTaps(2)
+    .onEnd((_event, success) => {
+      if (success) {
+        runOnJS(triggerDoubleTapLike)();
+      }
+    });
+
+  const singleTapGesture = Gesture.Tap()
+    .numberOfTaps(1)
+    .requireExternalGestureToFail(doubleTapGesture)
+    .onEnd((_event, success) => {
+      if (success) {
+        runOnJS(onPress)();
+      }
+    });
+
+  const pinchGesture = Gesture.Pinch()
+    .onUpdate((e) => {
+      scale.value = Math.max(1, e.scale);
+    })
+    .onEnd(() => {
+      scale.value = 1;
+    });
+
+  // Composed Gestures
+  const composedGesture = Gesture.Simultaneous(
+    pinchGesture,
+    Gesture.Exclusive(doubleTapGesture, singleTapGesture)
+  );
+
+  const listComposedGesture = Gesture.Exclusive(doubleTapGesture, singleTapGesture);
+
   // Pinch-to-zoom (center only, no pan)
   const scale = useSharedValue(1);
-  const pinchGesture = Gesture.Pinch()
-    .onUpdate((e) => { scale.value = Math.max(1, e.scale); })
-    .onEnd(() => { scale.value = 1; });
   const animatedImageStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
 
   // expo-image handles caching natively; we just pass the array through.
@@ -115,75 +175,7 @@ export default function PostImage({
     isMutedRef.current = isMuted;
   }, [isMuted]);
 
-  // Handle double-tap to like
-  const handleDoubleTap = useCallback(() => {
-    const now = Date.now();
-    const DOUBLE_TAP_DELAY = 300; // 300ms window for double-tap
-    
-    if (lastTapRef.current && (now - lastTapRef.current) < DOUBLE_TAP_DELAY) {
-      // Double-tap detected - cancel single tap timer
-      if (doubleTapTimerRef.current) {
-        clearTimeout(doubleTapTimerRef.current);
-        doubleTapTimerRef.current = null;
-      }
-      
-      // Trigger like if callback is provided
-      if (onDoubleTap) {
-        onDoubleTap();
-        
-        // Show heart animation
-        heartScale.setValue(0);
-        heartOpacity.setValue(1);
-        
-        Animated.parallel([
-          Animated.spring(heartScale, {
-            toValue: 1.2,
-            useNativeDriver: true,
-            tension: 50,
-            friction: 3,
-          }),
-          Animated.sequence([
-            Animated.delay(100),
-            Animated.timing(heartOpacity, {
-              toValue: 0,
-              duration: 300,
-              useNativeDriver: true,
-            }),
-          ]),
-        ]).start(() => {
-          heartScale.setValue(0);
-          heartOpacity.setValue(0);
-        });
-      }
-      
-      lastTapRef.current = 0;
-    } else {
-      // First tap - wait for potential second tap
-      lastTapRef.current = now;
-      
-      // Clear any existing timer
-      if (doubleTapTimerRef.current) {
-        clearTimeout(doubleTapTimerRef.current);
-      }
-      
-      // Set timer for single tap (only if no second tap occurs)
-      doubleTapTimerRef.current = setTimeout(() => {
-        // Single tap - navigate to post detail
-        lastTapRef.current = 0;
-        doubleTapTimerRef.current = null;
-        onPress();
-      }, DOUBLE_TAP_DELAY);
-    }
-  }, [onDoubleTap, onPress, heartScale, heartOpacity]);
 
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (doubleTapTimerRef.current) {
-        clearTimeout(doubleTapTimerRef.current);
-      }
-    };
-  }, []);
 
   // Handle mute/unmute toggle with guard to prevent multiple simultaneous calls
   const handleToggleMute = useCallback(async () => {
@@ -295,36 +287,34 @@ export default function PostImage({
                   setCurrentImageIndex(index);
                 }}
                 renderItem={({ item }) => (
-                  <TouchableOpacity
-                    activeOpacity={1}
-                    onPress={handleDoubleTap}
-                    style={{ width: CARD_WIDTH, height: '100%', marginHorizontal: 0, paddingHorizontal: 0 }}
-                  >
-                    <ExpoImage
-                      source={{
-                        uri: applyCloudinaryFilter(item, post.filter),
-                        cacheKey: getStableCacheKey(item) ? `${getStableCacheKey(item)}:${post.filter || 'original'}` : undefined,
-                      }}
-                      cachePolicy="memory-disk"
-                      contentFit="cover"
-                      transition={250}
-                      style={styles.image}
-                    />
-                    {/* Heart animation overlay */}
-                    <View style={styles.heartContainer} pointerEvents="none">
-                      <Animated.View
-                        style={[
-                          styles.heartAnimation,
-                          {
-                            transform: [{ scale: heartScale }],
-                            opacity: heartOpacity,
-                          },
-                        ]}
-                      >
-                        <Ionicons name="heart" size={80} color="#fff" />
-                      </Animated.View>
+                  <GestureDetector gesture={listComposedGesture}>
+                    <View style={{ width: CARD_WIDTH, height: '100%', marginHorizontal: 0, paddingHorizontal: 0 }}>
+                      <ExpoImage
+                        source={{
+                          uri: applyCloudinaryFilter(item, post.filter),
+                          cacheKey: getStableCacheKey(item) ? `${getStableCacheKey(item)}:${post.filter || 'original'}` : undefined,
+                        }}
+                        cachePolicy="memory-disk"
+                        contentFit="cover"
+                        transition={250}
+                        style={styles.image}
+                      />
+                      {/* Heart animation overlay */}
+                      <View style={styles.heartContainer} pointerEvents="none">
+                        <Animated.View
+                          style={[
+                            styles.heartAnimation,
+                            {
+                              transform: [{ scale: heartScale }],
+                              opacity: heartOpacity,
+                            },
+                          ]}
+                        >
+                          <Ionicons name="heart" size={80} color="#fff" />
+                        </Animated.View>
+                      </View>
                     </View>
-                  </TouchableOpacity>
+                  </GestureDetector>
                 )}
                 keyExtractor={(item, index) => index.toString()}
               />
@@ -354,72 +344,64 @@ export default function PostImage({
               </View>
             </View>
           ) : (
-            <GestureDetector gesture={pinchGesture}>
+            <GestureDetector gesture={composedGesture}>
               <ReAnimated.View style={[StyleSheet.absoluteFill, animatedImageStyle]}>
-                <TouchableOpacity
-                  onPress={handleDoubleTap}
-                  activeOpacity={0.9}
-                  style={StyleSheet.absoluteFill}
-                >
-                  <ExpoImage
-                    source={{
-                      uri: applyCloudinaryFilter(imageUri, post.filter),
-                      cacheKey: getStableCacheKey(imageUri) ? `${getStableCacheKey(imageUri)}:${post.filter || 'original'}` : undefined,
-                    }}
-                    placeholder={blurUpUri ? { uri: blurUpUri } : undefined}
-                    placeholderContentFit="cover"
-                    cachePolicy="memory-disk"
-                    contentFit="cover"
-                    transition={250}
-                    priority="high"
-                    style={styles.image}
-                    onError={() => onImageError()}
-                  />
+                <ExpoImage
+                  source={{
+                    uri: applyCloudinaryFilter(imageUri, post.filter),
+                    cacheKey: getStableCacheKey(imageUri) ? `${getStableCacheKey(imageUri)}:${post.filter || 'original'}` : undefined,
+                  }}
+                  placeholder={blurUpUri ? { uri: blurUpUri } : undefined}
+                  placeholderContentFit="cover"
+                  cachePolicy="memory-disk"
+                  contentFit="cover"
+                  transition={250}
+                  priority="high"
+                  style={styles.image}
+                  onError={() => onImageError()}
+                />
 
-                  {/* Heart animation overlay */}
-                  <View style={styles.heartContainer} pointerEvents="none">
-                    <Animated.View
-                      style={[
-                        styles.heartAnimation,
-                        {
-                          transform: [{ scale: heartScale }],
-                          opacity: heartOpacity,
-                        },
-                      ]}
-                    >
-                      <Ionicons name="heart" size={80} color="#fff" />
-                    </Animated.View>
-                  </View>
-                </TouchableOpacity>
+                {/* Heart animation overlay */}
+                <View style={styles.heartContainer} pointerEvents="none">
+                  <Animated.View
+                    style={[
+                      styles.heartAnimation,
+                      {
+                        transform: [{ scale: heartScale }],
+                        opacity: heartOpacity,
+                      },
+                    ]}
+                  >
+                    <Ionicons name="heart" size={80} color="#fff" />
+                  </Animated.View>
+                </View>
               </ReAnimated.View>
             </GestureDetector>
           )}
         </View>
         ) : imageError ? (
-          <TouchableOpacity 
-            onPress={handleDoubleTap}
-            activeOpacity={0.9}
-            style={StyleSheet.absoluteFill}
-          >
-            <View style={[styles.image, styles.imageError]} pointerEvents="box-none">
-              <Ionicons name="image-outline" size={50} color={theme.colors.textSecondary} />
-              <Text style={[styles.errorText, { color: theme.colors.textSecondary }]}>
-                Failed to load image
-              </Text>
-              <TouchableOpacity 
-                style={styles.retryButton}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  onRetry();
-                }}
-              >
-                <Ionicons name="refresh" size={20} color={theme.colors.primary} />
-                <Text style={[styles.retryText, { color: theme.colors.primary }]}>
-                  Retry
+          <GestureDetector gesture={listComposedGesture}>
+            <View style={StyleSheet.absoluteFill}>
+              <View style={[styles.image, styles.imageError]} pointerEvents="box-none">
+                <Ionicons name="image-outline" size={50} color={theme.colors.textSecondary} />
+                <Text style={[styles.errorText, { color: theme.colors.textSecondary }]}>
+                  Failed to load image
                 </Text>
-              </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.retryButton}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onRetry();
+                  }}
+                >
+                  <Ionicons name="refresh" size={20} color={theme.colors.primary} />
+                  <Text style={[styles.retryText, { color: theme.colors.primary }]}>
+                    Retry
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </TouchableOpacity>
+          </GestureDetector>
         ) : null}
 
       {/* Song Player - Hidden but active for audio playback */}
