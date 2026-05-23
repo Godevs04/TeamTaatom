@@ -181,6 +181,64 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
   return 'Roboto';
 };
 
+interface FeedListItemProps {
+  item: FeedItem;
+  isCurrentlyVisible: boolean;
+  onRefresh: () => void;
+}
+
+const FeedListItem = React.memo(
+  ({ item, isCurrentlyVisible, onRefresh }: FeedListItemProps) => {
+    if (isAdItem(item)) {
+      return <NativeAdCard adIndex={item.adIndex} onImpression={recordGoogleAdImpression} />;
+    }
+    return (
+      <OptimizedPhotoCard
+        post={item}
+        onRefresh={onRefresh}
+        isCurrentlyVisible={isCurrentlyVisible}
+      />
+    );
+  },
+  (prevProps, nextProps) => {
+    if (prevProps.isCurrentlyVisible !== nextProps.isCurrentlyVisible) {
+      return false;
+    }
+    if (prevProps.onRefresh !== nextProps.onRefresh) {
+      return false;
+    }
+    
+    const prevItem = prevProps.item;
+    const nextItem = nextProps.item;
+    
+    const prevIsAd = isAdItem(prevItem);
+    const nextIsAd = isAdItem(nextItem);
+    
+    if (prevIsAd !== nextIsAd) {
+      return false;
+    }
+    
+    if (prevIsAd && nextIsAd) {
+      return (prevItem as { adIndex: number }).adIndex === (nextItem as { adIndex: number }).adIndex;
+    }
+    
+    const pPost = prevItem as PostType;
+    const nPost = nextItem as PostType;
+    
+    return (
+      pPost._id === nPost._id &&
+      pPost.isLiked === nPost.isLiked &&
+      pPost.likesCount === nPost.likesCount &&
+      pPost.commentsCount === nPost.commentsCount &&
+      pPost.viewsCount === nPost.viewsCount &&
+      pPost.imageUrl === nPost.imageUrl &&
+      pPost.caption === nPost.caption &&
+      pPost.user?.fullName === nPost.user?.fullName &&
+      pPost.user?.profilePic === nPost.user?.profilePic
+    );
+  }
+);
+
 export default function HomeScreen() {
   const { handleScroll } = useScrollToHideNav();
   const insets = useSafeAreaInsets();
@@ -1266,15 +1324,11 @@ export default function HomeScreen() {
   visiblePostIdRef.current = visiblePostId;
 
   const renderItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => {
-    if (isAdItem(item)) {
-      return <NativeAdCard adIndex={item.adIndex} onImpression={recordGoogleAdImpression} />;
-    }
     return (
-      <OptimizedPhotoCard
-        post={item}
+      <FeedListItem
+        item={item}
+        isCurrentlyVisible={!isAdItem(item) && visiblePostIdRef.current === item._id}
         onRefresh={handleRefresh}
-        isCurrentlyVisible={visiblePostIdRef.current === item._id}
-        key={item._id}
       />
     );
   }, [handleRefresh]);
@@ -1383,6 +1437,7 @@ export default function HomeScreen() {
               data={feedData}
               keyExtractor={keyExtractor}
               renderItem={renderItem}
+              extraData={visiblePostId}
               style={styles.postsContainer}
               contentContainerStyle={[
                 styles.postsList,
@@ -1434,7 +1489,6 @@ export default function HomeScreen() {
                   </View>
                 ) : null
               }
-              extraData={visiblePostId}
               onViewableItemsChanged={onViewableItemsChanged}
               viewabilityConfig={viewabilityConfig}
               drawDistance={screenHeight}
