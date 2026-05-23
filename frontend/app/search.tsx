@@ -6,7 +6,6 @@ import {
   StatusBar,
   TextInput,
   FlatList,
-  Image,
   TouchableOpacity,
   ActivityIndicator,
   Modal,
@@ -32,6 +31,7 @@ import { useRouter } from 'expo-router';
 import { theme } from '../constants/theme';
 import logger from '../utils/logger';
 import { getUserFromStorage } from '../services/auth';
+import FastImage from '../components/ui/FastImage';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -249,7 +249,7 @@ export default function SearchScreen() {
       }}
     >
       {item.profilePic ? (
-        <Image source={{ uri: item.profilePic }} style={styles.userAvatar} />
+        <FastImage source={{ uri: item.profilePic }} style={styles.userAvatar} />
       ) : (
         <View style={[styles.userAvatar, { backgroundColor: theme.colors.border, justifyContent: 'center', alignItems: 'center' }]}>
           <Ionicons name="person" size={22} color={theme.colors.textSecondary} />
@@ -294,7 +294,7 @@ export default function SearchScreen() {
       style={[styles.postItem, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}
       onPress={() => router.push(`/(tabs)/home?postId=${item._id}`)} // Post detail page commented out - navigate to home with postId
     >
-      <Image source={{ uri: item.imageUrl }} style={styles.postImage} />
+      <FastImage source={{ uri: item.imageUrl }} style={styles.postImage} />
       <View style={styles.postInfo}>
         <Text style={[styles.postCaption, { color: theme.colors.text }]} numberOfLines={2}>
           {item.caption}
