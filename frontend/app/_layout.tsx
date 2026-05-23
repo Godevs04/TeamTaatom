@@ -958,6 +958,8 @@ function RootLayoutInner() {
           screenOptions={{
             headerShown: false,
             contentStyle: { backgroundColor: theme.colors.background },
+            gestureEnabled: true,
+            gestureDirection: 'horizontal',
           }}
         >
           {/* Public routes - accessible without authentication */}
@@ -973,8 +975,8 @@ function RootLayoutInner() {
           <Stack.Screen name="navigate" options={{ presentation: 'card' }} />
           <Stack.Screen name="tripscore" options={{ presentation: 'card' }} />
           {/* Dynamic routes - use pattern matching */}
-          <Stack.Screen name="post/[id]" options={{ presentation: 'card' }} />
-          <Stack.Screen name="profile/[id]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="post/[id]" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
+          <Stack.Screen name="profile/[id]" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
           {/* Direct routes */}
           <Stack.Screen name="search" options={{ presentation: 'card' }} />
           <Stack.Screen name="followers" options={{ presentation: 'card' }} />
@@ -985,22 +987,22 @@ function RootLayoutInner() {
           <Stack.Screen name="saved-posts/index" options={{ presentation: 'card' }} />
           {/* Collections routes */}
           <Stack.Screen name="collections/index" options={{ presentation: 'card' }} />
-          <Stack.Screen name="collections/[id]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="collections/[id]" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
           <Stack.Screen name="collections/create" options={{ presentation: 'card' }} />
           {/* Settings routes */}
           <Stack.Screen name="settings" options={{ presentation: 'card' }} />
           {/* Hashtag dynamic route */}
-          <Stack.Screen name="hashtag/[hashtag]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="hashtag/[hashtag]" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
           {/* User posts dynamic route */}
-          <Stack.Screen name="user-posts/[userId]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="user-posts/[userId]" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
           {/* User shorts dynamic route */}
-          <Stack.Screen name="user-shorts/[userId]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="user-shorts/[userId]" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
           {/* Journeys list */}
           <Stack.Screen name="journeys" options={{ presentation: 'card' }} />
           {/* Connect pages */}
           <Stack.Screen name="connect" options={{ presentation: 'card' }} />
           {/* Map routes */}
-          <Stack.Screen name="map/current-location" options={{ presentation: 'card' }} />
+          <Stack.Screen name="map/current-location" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
         </Stack>
       </Suspense>
     </ResponsiveContainer>
