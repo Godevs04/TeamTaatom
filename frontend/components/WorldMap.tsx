@@ -80,25 +80,37 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
   const [mapError, setMapError] = useState<string | null>(null);
   const [travelMapData, setTravelMapData] = useState<TravelMapData | null>(null);
   const [loading, setLoading] = useState(false);
+  const debounceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Fetch travel map data when component becomes visible
   useEffect(() => {
     if (visible && userId) {
-      fetchTravelMapData();
+      fetchTravelMapData(false);
     }
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
   }, [visible, userId]);
 
-  const fetchTravelMapData = async () => {
+  const fetchTravelMapData = async (silent: boolean = false) => {
     try {
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      }
       setMapError(null);
       const data = await getTravelMapData(userId);
       setTravelMapData(data.data);
     } catch (error) {
       logger.error('Error fetching travel map data:', error);
-      setMapError('Failed to load travel data');
+      if (!silent) {
+        setMapError('Failed to load travel data');
+      }
     } finally {
-      setLoading(false);
+      if (!silent) {
+        setLoading(false);
+      }
     }
   };
 
@@ -213,10 +225,10 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
     // Calculate bounds to fit all locations
     const lats = finalLocations.map(loc => loc.latitude);
     const lngs = finalLocations.map(loc => loc.longitude);
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLng = Math.min(...lngs);
-    const maxLng = Math.max(...lngs);
+    const minLat = lats.length > 0 ? Math.min(...lats) : 12.9716;
+    const maxLat = lats.length > 0 ? Math.max(...lats) : 12.9716;
+    const minLng = lngs.length > 0 ? Math.min(...lngs) : 77.5946;
+    const maxLng = lngs.length > 0 ? Math.max(...lngs) : 77.5946;
     
     // Add padding to bounds
     const latPadding = Math.max((maxLat - minLat) * 0.2, 0.01);
@@ -235,6 +247,8 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+        <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.css" />
+        <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.4.1/dist/MarkerCluster.Default.css" />
         <style>
           body { 
             margin: 0; 
@@ -252,10 +266,9 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
         <div id="map"></div>
         
         <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <script src="https://unpkg.com/leaflet.markercluster@1.4.1/dist/leaflet.markercluster.js"></script>
         <script>
           try {
-            logger.debug('Starting map initialization...');
-            
             // Create map
             const map = L.map('map').fitBounds([
               [${bounds.south}, ${bounds.west}],
@@ -268,32 +281,59 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
               maxZoom: 18
             }).addTo(map);
             
-            logger.debug('Map created successfully');
+            // Create MarkerClusterGroup with custom style matching app theme
+            const markersGroup = L.markerClusterGroup({
+              iconCreateFunction: function(cluster) {
+                const childCount = cluster.getChildCount();
+                return L.divIcon({
+                  html: '<div style="background: rgba(59, 130, 246, 0.6); backdrop-filter: blur(8px); border: 2px solid white; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px; box-shadow: 0 4px 6px rgba(0,0,0,0.15);">' + childCount + '</div>',
+                  className: 'custom-marker-cluster',
+                  iconSize: [40, 40],
+                  iconAnchor: [20, 20]
+                });
+              }
+            });
             
             // Add dynamic markers based on travel map data
             const locations = ${JSON.stringify(finalLocations)};
-            logger.debug('Adding markers for locations:', locations);
             
             locations.forEach((location, index) => {
               const marker = L.marker([location.latitude, location.longitude])
-                .addTo(map)
                 .bindPopup(\`<b>\${location.address}</b><br/>📅 \${new Date(location.date).toLocaleDateString()}\`);
               
               const icon = L.divIcon({
                 className: 'custom-marker',
-                html: \`<div style="background: #FF3040; border: 2px solid white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">\${location.number}</div>\`,
+                html: \`<div style="background: #FF3040; border: 2px solid white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 11px; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">\${location.number}</div>\`,
                 iconSize: [24, 24],
                 iconAnchor: [12, 12]
               });
               
               marker.setIcon(icon);
-              logger.debug(\`Marker \${location.number} added at \${location.address}\`);
+              markersGroup.addLayer(marker);
             });
             
-            logger.debug(\`Map initialization completed with \${locations.length} markers\`);
+            map.addLayer(markersGroup);
+            
+            // Listen to moveend event to notify React Native about region change
+            map.on('moveend', function() {
+              const center = map.getCenter();
+              const zoom = map.getZoom();
+              const bounds = map.getBounds();
+              const message = {
+                type: 'regionChange',
+                center: { latitude: center.lat, longitude: center.lng },
+                zoom: zoom,
+                bounds: {
+                  latitudeDelta: Math.abs(bounds.getNorth() - bounds.getSouth()),
+                  longitudeDelta: Math.abs(bounds.getEast() - bounds.getWest()),
+                }
+              };
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify(message));
+              }
+            });
             
           } catch (error) {
-            logger.error('Map initialization error:', error);
             document.body.innerHTML = '<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f5f5f5; color: #333; font-family: Arial, sans-serif;"><div style="font-size: 48px; margin-bottom: 20px;">⚠️</div><div style="font-size: 24px; font-weight: bold; margin-bottom: 10px;">Map Error</div><div style="font-size: 16px; text-align: center;">Failed to load map. Please check your internet connection.</div></div>';
           }
         </script>
@@ -359,6 +399,21 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
               domStorageEnabled={true}
               startInLoadingState={true}
               scalesPageToFit={true}
+              onMessage={(event) => {
+                try {
+                  const data = JSON.parse(event.nativeEvent.data);
+                  if (data.type === 'regionChange') {
+                    if (debounceTimerRef.current) {
+                      clearTimeout(debounceTimerRef.current);
+                    }
+                    debounceTimerRef.current = setTimeout(() => {
+                      fetchTravelMapData(true);
+                    }, 400);
+                  }
+                } catch (e) {
+                  logger.debug('Error parsing WebView message in WorldMap:', e);
+                }
+              }}
               onError={(syntheticEvent) => {
                 const { nativeEvent } = syntheticEvent;
                 logger.error('WebView error: ', nativeEvent);

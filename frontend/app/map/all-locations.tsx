@@ -77,6 +77,58 @@ interface JourneyPolyline {
   endCity?: string;
 }
 
+interface OptimizedMarkerProps {
+  coordinate: { latitude: number; longitude: number };
+  title: string;
+  description: string;
+  onPress: () => void;
+  active: boolean;
+  icon: keyof typeof Ionicons.glyphMap;
+}
+
+const OptimizedMarker = React.memo(({
+  coordinate,
+  title,
+  description,
+  onPress,
+  active,
+  icon
+}: OptimizedMarkerProps) => {
+  const [tracksViewChanges, setTracksViewChanges] = useState(true);
+
+  useEffect(() => {
+    if (active) {
+      setTracksViewChanges(true);
+    } else {
+      const timer = setTimeout(() => {
+        setTracksViewChanges(false);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [active]);
+
+  return (
+    <Marker
+      coordinate={coordinate}
+      title={title}
+      description={description}
+      onPress={onPress}
+      tracksViewChanges={tracksViewChanges}
+    >
+      <PremiumMapMarker icon={icon} active={active} />
+    </Marker>
+  );
+}, (prev, next) => {
+  return (
+    prev.active === next.active &&
+    prev.coordinate.latitude === next.coordinate.latitude &&
+    prev.coordinate.longitude === next.coordinate.longitude &&
+    prev.title === next.title &&
+    prev.description === next.description &&
+    prev.icon === next.icon
+  );
+});
+
 function AllLocationsMapInner() {
   const [locations, setLocations] = useState<LocationPin[]>([]);
   const [journeys, setJourneys] = useState<JourneyPolyline[]>([]);
@@ -85,6 +137,7 @@ function AllLocationsMapInner() {
   const [mapFilter, setMapFilter] = useState<'posts' | 'journeys' | 'both'>('posts');
   const [selectedLocation, setSelectedLocation] = useState<LocationPin | null>(null);
   const [currentCountry, setCurrentCountry] = useState<string | null>(null);
+  const [currentRegion, setCurrentRegion] = useState<any>(null);
   const [statistics, setStatistics] = useState<{
     totalLocations: number;
     totalDistance: number;
@@ -108,6 +161,93 @@ function AllLocationsMapInner() {
       (loc) => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0
     );
   }, [locations]);
+
+  const clusteredLocations = useMemo(() => {
+    const latDelta = currentRegion?.latitudeDelta || 0.1;
+    
+    const dedupedLocations: LocationPin[] = [];
+    const seenCoords = new Set<string>();
+    validLocations.forEach((m) => {
+      const key = `${m.latitude.toFixed(4)},${m.longitude.toFixed(4)}`;
+      if (!seenCoords.has(key)) {
+        seenCoords.add(key);
+        dedupedLocations.push(m);
+      }
+    });
+
+    if (!latDelta || latDelta < 0.05 || dedupedLocations.length < 5) {
+      return dedupedLocations.map(loc => ({
+        id: `single-${loc.postId || loc.number}`,
+        isCluster: false,
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        location: loc,
+        locations: [loc],
+      }));
+    }
+
+    const gridSize = latDelta / 8.0;
+    const grid: { [key: string]: LocationPin[] } = {};
+
+    dedupedLocations.forEach((loc) => {
+      const gridX = Math.floor(loc.longitude / gridSize);
+      const gridY = Math.floor(loc.latitude / gridSize);
+      const key = `${gridX},${gridY}`;
+      if (!grid[key]) {
+        grid[key] = [];
+      }
+      grid[key].push(loc);
+    });
+
+    return Object.keys(grid).map((key) => {
+      const group = grid[key];
+      if (group.length === 1) {
+        return {
+          id: `single-${group[0].postId || group[0].number}`,
+          isCluster: false,
+          latitude: group[0].latitude,
+          longitude: group[0].longitude,
+          location: group[0],
+          locations: group,
+        };
+      }
+
+      let sumLat = 0;
+      let sumLng = 0;
+      group.forEach((loc) => {
+        sumLat += loc.latitude;
+        sumLng += loc.longitude;
+      });
+
+      return {
+        id: `cluster-${key}`,
+        isCluster: true,
+        latitude: sumLat / group.length,
+        longitude: sumLng / group.length,
+        locations: group,
+      };
+    });
+  }, [validLocations, currentRegion]);
+
+  const handleClusterPress = useCallback((cluster: any) => {
+    if (!mapRef.current) return;
+    try {
+      const coords = cluster.locations.map((loc: any) => ({
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+      }));
+      mapRef.current.fitToCoordinates(coords, {
+        edgePadding: { top: 100, right: 100, bottom: 100, left: 100 },
+        animated: true,
+      });
+    } catch (err) {
+      logger.error('Error fitting to cluster coordinates:', err);
+    }
+  }, []);
+
+  const handleRegionChangeComplete = useCallback((newRegion: any) => {
+    setCurrentRegion(newRegion);
+  }, []);
 
   const carouselRef = useRef<FlatList>(null);
   const isScrollingCarouselRef = useRef(false);
@@ -863,6 +1003,7 @@ function initMap(){
         provider={getMapProvider()}
         {...mapStyle.nativeMapProps}
         initialRegion={region}
+        onRegionChangeComplete={handleRegionChangeComplete}
         // Show the OS-native current-location dot (with accuracy ring) on top
         // of the post/journey markers. Permission is already requested in the
         // useEffect at the top of this component, so the SDK silently no-ops
@@ -939,17 +1080,36 @@ function initMap(){
         })}
 
         {/* Post location markers — hidden when filter is 'journeys' */}
-        {(mapFilter === 'posts' || mapFilter === 'both') && validLocations.map((location, index) => (
-          <Marker
-            key={`marker-${location.number}-${index}`}
-            coordinate={{ latitude: location.latitude, longitude: location.longitude }}
-            title={location.address || `Location #${location.number}`}
-            description={`Visit #${location.number}`}
-            onPress={() => setSelectedLocation(location)}
-          >
-            <PremiumMapMarker icon="location" active={selectedLocation?.postId === location.postId || selectedLocation?.number === location.number} />
-          </Marker>
-        ))}
+        {(mapFilter === 'posts' || mapFilter === 'both') && clusteredLocations.map((cluster) => {
+          if (cluster.isCluster) {
+            return (
+              <Marker
+                key={cluster.id}
+                coordinate={{ latitude: cluster.latitude, longitude: cluster.longitude }}
+                onPress={() => handleClusterPress(cluster)}
+                tracksViewChanges={false}
+              >
+                <View style={markerStyles.clusterBadge}>
+                  <Text style={markerStyles.clusterText}>{cluster.locations.length}</Text>
+                </View>
+              </Marker>
+            );
+          } else {
+            const location = cluster.location!;
+            const isActive = selectedLocation?.postId === location.postId || selectedLocation?.number === location.number;
+            return (
+              <OptimizedMarker
+                key={cluster.id}
+                coordinate={{ latitude: location.latitude, longitude: location.longitude }}
+                title={location.address || `Location #${location.number}`}
+                description={`Visit #${location.number}`}
+                onPress={() => setSelectedLocation(location)}
+                active={isActive}
+                icon="location"
+              />
+            );
+          }
+        })}
       </MapView>
     );
   };
@@ -1716,6 +1876,26 @@ const markerStyles = StyleSheet.create({
     color: '#fff',
     fontSize: 14,
     fontWeight: '700',
+  },
+  clusterBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#3B82F6',
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+  },
+  clusterText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
 });
 

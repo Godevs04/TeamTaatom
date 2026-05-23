@@ -20,6 +20,7 @@ import { socketService } from '../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, usePathname, useSegments } from 'expo-router';
 import * as Notifications from 'expo-notifications';
+import * as Linking from 'expo-linking';
 import ResponsiveContainer from '../components/ResponsiveContainer';
 import { useWebOptimizations } from '../hooks/useWebOptimizations';
 import { analyticsService } from '../services/analytics';
@@ -108,6 +109,7 @@ function RootLayoutInner() {
   const pathname = usePathname();
   const segments = useSegments();
   const previousPathnameRef = useRef<string | null>(null);
+  const pendingDeepLinkRef = useRef<string | null>(null);
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === 'web' ? 0 : insets.top;
 
@@ -174,6 +176,55 @@ function RootLayoutInner() {
 
     return () => unsubscribe();
   }, [showWarning, showSuccess]);
+  
+  const handleDeepLink = (url: string) => {
+    try {
+      const parsed = Linking.parse(url);
+      let targetPath = parsed.path;
+      if (!targetPath) return;
+
+      if (!targetPath.startsWith('/')) {
+        targetPath = '/' + targetPath;
+      }
+
+      // Reconstruct query parameters
+      if (parsed.queryParams && Object.keys(parsed.queryParams).length > 0) {
+        const queryString = Object.entries(parsed.queryParams)
+          .map(([key, val]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(val))}`)
+          .join('&');
+        targetPath = `${targetPath}?${queryString}`;
+      }
+
+      logger.debug('[DeepLinking] Parsed deep link target:', targetPath);
+
+      if (isAuthenticated) {
+        router.push(targetPath as any);
+      } else {
+        logger.debug('[DeepLinking] Queueing deep link until auth resolves:', targetPath);
+        pendingDeepLinkRef.current = targetPath;
+      }
+    } catch (err) {
+      logger.error('[DeepLinking] Error handling deep link:', err);
+    }
+  };
+
+  // Listen for initial deep link (cold boot)
+  const initialUrl = Linking.useURL();
+  useEffect(() => {
+    if (initialUrl) {
+      logger.debug('[DeepLinking] Cold-boot deep link received:', initialUrl);
+      handleDeepLink(initialUrl);
+    }
+  }, [initialUrl]);
+
+  // Listen for deep links when app is backgrounded/active
+  useEffect(() => {
+    const subscription = Linking.addEventListener('url', (event) => {
+      logger.debug('[DeepLinking] Foreground deep link received:', event.url);
+      handleDeepLink(event.url);
+    });
+    return () => subscription.remove();
+  }, [isAuthenticated]);
 
   // Stop all audio when navigating away from tabs (home/shorts) to other routes
   // Use a flag to prevent multiple rapid calls and conflicts with tabs layout
@@ -704,8 +755,15 @@ function RootLayoutInner() {
 
         // Only navigate to home if we're not already on a valid route
         if (!isOnValidRoute) {
-          logger.debug('[Navigation] User authenticated, navigating to home', { currentPath, segments, isOnValidRoute });
-          router.replace('/(tabs)/home');
+          if (pendingDeepLinkRef.current) {
+            const target = pendingDeepLinkRef.current;
+            pendingDeepLinkRef.current = null;
+            logger.debug('[Navigation] User authenticated, redirecting to pending deep link:', target);
+            router.replace(target as any);
+          } else {
+            logger.debug('[Navigation] User authenticated, navigating to home', { currentPath, segments, isOnValidRoute });
+            router.replace('/(tabs)/home');
+          }
         }
       } else if (isAuthenticated === false && !sessionExpired) {
         // If already on auth screen, don't navigate (prevents flash during refresh)
@@ -782,9 +840,16 @@ function RootLayoutInner() {
           if (process.env.NODE_ENV === 'development') {
             logger.debug('Notification opened with data:', data);
           }
-          const screen = data?.screen;
+          const screen = data?.screen || data?.path || data?.url;
+          const postId = data?.postId || data?.post_id;
+          const userId = data?.userId || data?.user_id || data?.profileId || data?.profile_id;
+          
           if (screen && typeof screen === 'string') {
-            router.push(screen);
+            router.push(screen as any);
+          } else if (postId && typeof postId === 'string') {
+            router.push(`/post/${postId}` as any);
+          } else if (userId && typeof userId === 'string') {
+            router.push(`/profile/${userId}` as any);
           }
         });
       } catch (err: unknown) {
@@ -815,11 +880,14 @@ function RootLayoutInner() {
         logger.debug('Push notification response received:', data);
         const screen = data.screen || data.path || data.url;
         const postId = data.postId || data.post_id;
+        const userId = data.userId || data.user_id || data.profileId || data.profile_id;
         
         if (screen && typeof screen === 'string') {
           router.push(screen as any);
         } else if (postId && typeof postId === 'string') {
           router.push(`/post/${postId}` as any);
+        } else if (userId && typeof userId === 'string') {
+          router.push(`/profile/${userId}` as any);
         }
       } catch (err) {
         logger.error('Error handling notification response:', err);

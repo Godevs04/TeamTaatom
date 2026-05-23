@@ -7,7 +7,7 @@
 // Note: EXPO_PUBLIC_ prefix is required for client-side access in Expo/React Native
 
 import * as Location from 'expo-location';
-import { Platform, Linking } from 'react-native';
+import { Platform, Linking, Alert } from 'react-native';
 import logger from './logger';
 
 // Import platform-specific Google Maps API key getter
@@ -446,11 +446,43 @@ export const getLocationDetails = async (latitude: number, longitude: number): P
  * Get current device location using Expo Location
  */
 export const getCurrentLocation = async () => {
-  const { status } = await Location.requestForegroundPermissionsAsync();
-  if (status !== 'granted') {
-    throw new Error('Location permission denied');
+  try {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        'Location Permission Denied',
+        'Taatom needs location permissions to show your position on the map. Defaulting to Bangalore, India.',
+        [{ text: 'OK' }]
+      );
+      return {
+        coords: {
+          latitude: 12.9716,
+          longitude: 77.5946,
+          altitude: null,
+          accuracy: 100,
+          altitudeAccuracy: null,
+          heading: null,
+          speed: null,
+        },
+        timestamp: Date.now(),
+      } as Location.LocationObject;
+    }
+    return await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+  } catch (error) {
+    logger.error('Failed to get current location:', error);
+    return {
+      coords: {
+        latitude: 12.9716,
+        longitude: 77.5946,
+        altitude: null,
+        accuracy: 100,
+        altitudeAccuracy: null,
+        heading: null,
+        speed: null,
+      },
+      timestamp: Date.now(),
+    } as Location.LocationObject;
   }
-  return Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
 };
 
 /**
