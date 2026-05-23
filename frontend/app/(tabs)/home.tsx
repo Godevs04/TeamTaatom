@@ -26,7 +26,9 @@ import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Image as ExpoImage } from 'expo-image';
 import AnimatedHeader from '../../components/AnimatedHeader';
 import EmptyState from '../../components/EmptyState';
+import FeedEmptyState from '../../components/ui/EmptyState';
 import { PostSkeleton } from '../../components/LoadingSkeleton';
+import { PostCardSkeleton } from '../../components/ui/Skeleton';
 import { trackScreenView, trackPostView, trackEngagement, trackFeatureUsage } from '../../services/analytics';
 import api from '../../services/api';
 import { socketService } from '../../services/socket';
@@ -245,7 +247,19 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const topBarHeight = 56 + 63 + insets.top;
   const bottomBarHeight = isWeb ? 70 : (Platform.OS === 'ios' ? (insets.bottom > 0 ? 56 + insets.bottom : 64) : 68);
-  const [posts, setPosts] = useState<PostType[]>([]);
+  const [posts, setRawPosts] = useState<PostType[]>([]);
+  const setPosts = useCallback((value: React.SetStateAction<PostType[]>) => {
+    setRawPosts((prev) => {
+      const resolved = typeof value === 'function' ? (value as any)(prev) : value;
+      const seen = new Set<string>();
+      return resolved.filter((p: PostType) => {
+        if (!p || !p._id) return false;
+        if (seen.has(p._id)) return false;
+        seen.add(p._id);
+        return true;
+      });
+    });
+  }, []);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [page, setPage] = useState(1);
@@ -1371,53 +1385,23 @@ export default function HomeScreen() {
             {renderTopHeader()}
             {renderFeedTabs()}
           </View>
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-          </View>
+          <ScrollView
+            style={styles.postsContainer}
+            contentContainerStyle={{
+              paddingTop: 10,
+              paddingBottom: bottomBarHeight + 20,
+            }}
+            showsVerticalScrollIndicator={false}
+          >
+            <PostCardSkeleton />
+            <PostCardSkeleton />
+            <PostCardSkeleton />
+          </ScrollView>
         </View>
       </View>
     );
   }
 
-  if (posts.length === 0) {
-    return (
-      <View style={styles.container}>
-        {screenBg}
-        <View style={styles.safeArea}>
-          <StatusBar 
-            barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
-            backgroundColor="transparent"
-            translucent
-          />
-          <View style={[styles.topBarContainer, { position: 'relative', shadowOpacity: 0, elevation: 0 }]}>
-            <LinearGradient
-              colors={
-                mode === 'dark'
-                  ? ['#06121F', '#102236']
-                  : ['#A8DAFC', '#C8E8FF']
-              }
-              style={StyleSheet.absoluteFillObject}
-            />
-            {renderTopHeader()}
-            {renderFeedTabs()}
-          </View>
-          <EmptyState
-            icon={loadError ? 'cloud-offline-outline' : 'camera-outline'}
-            title={loadError || 'No Content Yet'}
-            description={
-              loadError
-                ? 'Unable to reach the server. Check your connection and pull down to refresh.'
-                : 'No content yet. Explore other users or share your first photo!'
-            }
-            actionLabel={loadError ? 'Retry' : 'Explore Users'}
-            onAction={() => (loadError ? handleRefresh() : router.push('/search'))}
-            secondaryActionLabel={loadError ? undefined : 'Create Post'}
-            onSecondaryAction={loadError ? undefined : () => router.push('/(tabs)/post')}
-          />
-        </View>
-      </View>
-    );
-  }
 
   return (
     <ErrorBoundary level="route">
@@ -1473,6 +1457,21 @@ export default function HomeScreen() {
                         You're offline. Some features may be limited.
                       </Text>
                     </View>
+                ) : null
+              }
+              ListEmptyComponent={
+                !loading ? (
+                  <FeedEmptyState
+                    icon={loadError ? 'cloud-offline-outline' : 'camera-outline'}
+                    title={loadError || 'No Content Yet'}
+                    description={
+                      loadError
+                        ? 'Unable to reach the server. Check your connection.'
+                        : 'No content yet. Explore other users or share your first photo!'
+                    }
+                    actionLabel={loadError ? 'Retry' : 'Refresh'}
+                    onAction={handleRefresh}
+                  />
                 ) : null
               }
               ListFooterComponent={
