@@ -26,6 +26,7 @@ import { Video, ResizeMode, AVPlaybackStatus, Audio, InterruptionModeIOS, Interr
 import { Image as ExpoImage } from 'expo-image';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
+import { Asset } from 'expo-asset';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import { getShorts, getUserShorts, toggleLike, addComment, getPostById, deleteShort } from '../../services/posts';
@@ -2163,7 +2164,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       const nextItem = shortsData[i] as ShortsItem;
       if (nextItem && !isAdItem(nextItem)) {
         const nextShort = nextItem as PostType;
-        setTimeout(() => logger.debug('Preloading next video:', nextShort._id), 1000);
+        const nextUrl = getVideoUrl(nextShort);
+        if (nextUrl) {
+          Asset.fromURI(nextUrl).downloadAsync().catch(err => {
+            logger.debug('Silent video prefetch failed in useEffect:', err);
+          });
+        }
         break;
       }
     }
@@ -2824,7 +2830,21 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     } else {
       activeVideoIdRef.current = null;
     }
-  }, [shortsData, stopAndUnloadVideo, currentVisibleIndex, updateKeyedBool]);
+
+    // Prefetch the next item's video url to eliminate blank screen buffering delays
+    const nextIndex = newVisibleIndex + 1;
+    if (nextIndex < shortsData.length) {
+      const nextItem = shortsData[nextIndex];
+      if (nextItem && !isAdItem(nextItem)) {
+        const nextUrl = getVideoUrl(nextItem);
+        if (nextUrl) {
+          Asset.fromURI(nextUrl).downloadAsync().catch(err => {
+            logger.debug('Silent prefetch failed in onViewableItemsChanged:', err);
+          });
+        }
+      }
+    }
+  }, [shortsData, stopAndUnloadVideo, currentVisibleIndex, updateKeyedBool, getVideoUrl]);
 
   const viewabilityConfig = useRef({
     itemVisiblePercentThreshold: 60, // Lower threshold so visibility triggers sooner during snap animation

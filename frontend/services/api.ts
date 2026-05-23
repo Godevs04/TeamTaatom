@@ -6,6 +6,7 @@ import { getApiBaseUrl } from '../utils/config';
 import logger from '../utils/logger';
 import { parseError } from '../utils/errorCodes';
 import * as Sentry from '@sentry/react-native';
+import NetInfo from '@react-native-community/netinfo';
 
 // Request throttling to prevent rate limiting
 const requestQueue = new Map();
@@ -20,6 +21,42 @@ let failedQueue: Array<{
   resolve: (token: string) => void;
   reject: (err: any) => void;
 }> = [];
+
+// Offline queue variables to store requests that failed during offline/timeout
+let offlineQueue: Array<{
+  config: any;
+  resolve: (value: any) => void;
+  reject: (reason: any) => void;
+}> = [];
+
+let wasOffline = false;
+
+// Monitor network connection state. Upon reconnect, replay failed requests.
+NetInfo.addEventListener((state) => {
+  const isOnline = !!state.isConnected && state.isInternetReachable !== false;
+  if (isOnline && wasOffline) {
+    logger.debug('[API] Network reconnected, flushing offline queue...');
+    flushOfflineQueue();
+  }
+  wasOffline = !isOnline;
+});
+
+const flushOfflineQueue = async () => {
+  const queueToProcess = [...offlineQueue];
+  offlineQueue = [];
+  
+  for (const request of queueToProcess) {
+    try {
+      logger.debug(`[API] Replaying queued offline request: ${request.config.url}`);
+      const config = { ...request.config, _retry: false };
+      const response = await api(config);
+      request.resolve(response);
+    } catch (error) {
+      logger.error(`[API] Failed replaying queued offline request: ${request.config.url}`, error);
+      request.reject(error);
+    }
+  }
+};
 
 const processQueue = (error: any, token: string | null = null) => {
   failedQueue.forEach((prom) => {
@@ -408,10 +445,33 @@ api.interceptors.response.use(
       }
     }
     
-    // Handle network errors (no response) with retry logic
-    if (!error.response && error.request && originalRequest) {
-      const isTimeoutError = error.code === 'ECONNABORTED' || 
-        (error.message && error.message.toLowerCase().includes('timeout'));
+    // Handle network errors (no response) or timeouts (ECONNABORTED)
+    const isTimeout = error.code === 'ECONNABORTED' || (error.message && error.message.toLowerCase().includes('timeout'));
+    const isNetworkError = !error.response && error.request;
+
+    if ((isNetworkError || isTimeout) && originalRequest) {
+      // Check network status to see if we're offline
+      let isOffline = false;
+      try {
+        const state = await NetInfo.fetch();
+        isOffline = !state.isConnected || state.isInternetReachable === false;
+      } catch (err) {
+        logger.warn('Failed to fetch NetInfo status in error interceptor:', err);
+      }
+
+      // If offline or timeout, queue the request for replaying when network is restored
+      if (isOffline || isTimeout) {
+        logger.debug(`[API] Request failed due to offline/timeout. Queuing: ${originalRequest.url}`);
+        return new Promise((resolve, reject) => {
+          offlineQueue.push({
+            config: originalRequest,
+            resolve,
+            reject,
+          });
+        });
+      }
+
+      // Transient network issue retry logic (if online)
       const maxRetries = 2;
       const currentRetryCount = originalRequest._retryCount || 0;
 
@@ -419,14 +479,14 @@ api.interceptors.response.use(
         originalRequest._retryCount = currentRetryCount + 1;
         // Exponential backoff: 1s, 2s
         const delay = Math.pow(2, originalRequest._retryCount - 1) * 1000;
-        logger.debug(`Network error (isTimeout: ${isTimeoutError}), retrying in ${delay}ms (attempt ${originalRequest._retryCount}/${maxRetries})`);
+        logger.debug(`Transient network error, retrying in ${delay}ms (attempt ${originalRequest._retryCount}/${maxRetries})`);
         
         await new Promise(resolve => setTimeout(resolve, delay));
         return api(originalRequest);
       } else {
         // Final attempt failed
         const parsedError = parseError(error);
-        if (isTimeoutError) {
+        if (isTimeout) {
           try {
             const AlertService = require('./alertService').default;
             AlertService.showWarning('Network Timeout', 'Network timeout, please try again.');
