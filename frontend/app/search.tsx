@@ -176,8 +176,18 @@ export default function SearchScreen() {
         user => user._id !== currentUserId
       );
       
+      // Deduplicate users by _id to prevent key collisions
+      const uniqueUsers: UserType[] = [];
+      const seenUserIds = new Set<string>();
+      filteredUsers.forEach(user => {
+        if (user._id && !seenUserIds.has(user._id)) {
+          seenUserIds.add(user._id);
+          uniqueUsers.push(user);
+        }
+      });
+      
       setSearchResults({
-        users: filteredUsers,
+        users: uniqueUsers,
         posts: [], // Posts tab commented out
         hashtags: [], // Hashtags tab commented out
       });

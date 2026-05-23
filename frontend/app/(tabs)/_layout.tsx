@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
-import { Tabs, usePathname } from 'expo-router';
+import { Tabs, usePathname, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Platform, Dimensions, StyleSheet, View } from 'react-native';
+import { Platform, Dimensions, StyleSheet, View, BackHandler } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import { audioManager } from '../../utils/audioManager';
@@ -50,8 +50,38 @@ function CloudTabIcon({
 export default function TabsLayout() {
   const { theme, isDark } = useTheme();
   const pathname = usePathname();
+  const router = useRouter();
   const previousPathnameRef = useRef<string | null>(null);
   const insets = useSafeAreaInsets();
+
+  useEffect(() => {
+    // Intercept hardware back button on Android
+    if (Platform.OS !== 'android') return;
+
+    const onBackPress = () => {
+      // 1. If we can go back in the general navigation history, do it
+      if (router.canGoBack()) {
+        router.back();
+        return true; // Intercepted
+      }
+
+      // 2. If we are in tabs but not on the home tab, redirect to the home tab
+      const isCurrentTabHome = pathname === '/(tabs)/home' || pathname === '/home' || pathname?.endsWith('/home');
+      if (!isCurrentTabHome) {
+        logger.debug('[TabsLayout] Intercepted back press. Redirecting to home tab.');
+        router.replace('/(tabs)/home');
+        return true; // Intercepted
+      }
+
+      // 3. Otherwise, let default OS behavior take place (closes the app)
+      return false;
+    };
+
+    const subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress);
+    return () => {
+      subscription.remove();
+    };
+  }, [pathname, router]);
 
   // Stop all audio when switching tabs (except when staying on home or shorts)
   // Use a flag to prevent multiple rapid calls

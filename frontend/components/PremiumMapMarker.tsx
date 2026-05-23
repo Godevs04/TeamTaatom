@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, memo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Svg, { Path, Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
@@ -57,7 +57,7 @@ function PinSvg({
   );
 }
 
-export default function PremiumMapMarker({
+const PremiumMapMarker = memo(function PremiumMapMarker({
   icon = 'location',
   color = '#FF3B30', // Vibrant branded red as default pin color
   active = false,
@@ -115,7 +115,15 @@ export default function PremiumMapMarker({
       </Animated.View>
     </View>
   );
-}
+}, (prevProps, nextProps) => {
+  return (
+    prevProps.active === nextProps.active &&
+    prevProps.icon === nextProps.icon &&
+    prevProps.color === nextProps.color
+  );
+});
+
+export default PremiumMapMarker;
 
 const styles = StyleSheet.create({
   container: {
