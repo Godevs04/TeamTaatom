@@ -54,6 +54,16 @@ export default function ChatMediaViewer({ visible, type, uri, onClose }: ChatMed
     }
   }, [visible]);
 
+  // Handle status bar visibility (immersive mode) for BUG-008
+  useEffect(() => {
+    if (visible) {
+      StatusBar.setHidden(true, 'fade');
+    }
+    return () => {
+      StatusBar.setHidden(false, 'fade');
+    };
+  }, [visible]);
+
   // Gestures definition
   const pinchGesture = Gesture.Pinch()
     .onUpdate((event) => {
@@ -164,7 +174,7 @@ export default function ChatMediaViewer({ visible, type, uri, onClose }: ChatMed
       statusBarTranslucent
       onRequestClose={handleClose}
     >
-      <StatusBar barStyle="light-content" backgroundColor="#000" />
+      <StatusBar barStyle="light-content" backgroundColor="#000" hidden={visible} />
       <View style={styles.container}>
         <TouchableOpacity style={styles.closeBtn} onPress={handleClose} hitSlop={16}>
           <Ionicons name="close" size={30} color="#fff" />

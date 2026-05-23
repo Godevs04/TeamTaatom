@@ -649,6 +649,21 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       const currentShort = shortsRef.current?.[currentVisibleIndex];
       if (currentShort) {
         const currentVideoId = currentShort._id;
+        
+        // Bump source versions for the current video and its immediate neighbors (prev + next)
+        // to force them to reload and buffer after being unloaded on blur
+        setSourceVersions(prev => {
+          const nextVersions = { ...prev };
+          for (let i = -1; i <= 1; i++) {
+            const indexToBump = currentVisibleIndex + i;
+            const itemToBump = shortsRef.current?.[indexToBump];
+            if (itemToBump && !isAdItem(itemToBump)) {
+              nextVersions[itemToBump._id] = (prev[itemToBump._id] || 0) + 1;
+            }
+          }
+          return nextVersions;
+        });
+
         activeVideoIdRef.current = currentVideoId;
         const video = videoRefs.current[currentVideoId];
         if (video) {
@@ -675,10 +690,27 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           currentPlayerRef.current.pauseAsync?.().catch(() => {});
           currentPlayerRef.current = null;
         }
+
+        // Aggressively pause and unload all active videos in videoRefs to free up hardware decoders
+        Object.keys(videoRefs.current).forEach((videoId) => {
+          const video = videoRefs.current[videoId];
+          if (video) {
+            video.getStatusAsync()
+              .then((status) => {
+                if (status.isLoaded) {
+                  return video.pauseAsync().then(() => video.unloadAsync());
+                }
+              })
+              .catch((err) => {
+                logger.debug(`Error during focus-blur unload of video ${videoId}:`, err);
+              });
+          }
+        });
+
         logger.debug('[Shorts] Stopping all audio - leaving shorts page');
         audioManager.stopAll().catch(() => {});
       };
-    }, [currentVisibleIndex, pauseCurrentVideo])
+    }, [currentVisibleIndex, pauseCurrentVideo, setSourceVersions])
   );
 
   // Pause when user navigates away from Shorts (tab or /user-shorts stack)
@@ -3567,6 +3599,7 @@ const ShortsVideoComponent = React.memo(({
   updateKeyedBool
 }: ShortsVideoComponentProps) => {
   const [aspectRatio, setAspectRatio] = useState<number | null>(null);
+  const lastVideoRef = useRef<Video | null>(null);
 
   if (__DEV__) {
     logger.debug('[ShortsVideoComponent Render]', {
@@ -3587,14 +3620,30 @@ const ShortsVideoComponent = React.memo(({
     <Video
       key={`video-${item._id}-${sourceVersion}`}
       ref={(ref) => {
-        videoRefs.current[item._id] = ref;
-        if (index < 2) {
-          logger.info(`[RENDER_VIDEO] Video component mounted for short at index ${index}:`, {
-            shortId: item._id,
-            shouldRenderVideo,
-            sourceVersion,
-            timestamp: new Date().toISOString()
-          });
+        if (ref) {
+          lastVideoRef.current = ref;
+          videoRefs.current[item._id] = ref;
+          if (index < 2) {
+            logger.info(`[RENDER_VIDEO] Video component mounted for short at index ${index}:`, {
+              shortId: item._id,
+              shouldRenderVideo,
+              sourceVersion,
+              timestamp: new Date().toISOString()
+            });
+          }
+        } else {
+          // React is unmounting the Video component (because shouldRenderVideo became false, or cell was recycled)
+          const videoToUnload = lastVideoRef.current;
+          if (videoToUnload) {
+            logger.debug(`[ShortsVideoComponent Ref Cleanup] Unloading video ${item._id}`);
+            videoToUnload.pauseAsync()
+              .then(() => videoToUnload.unloadAsync())
+              .catch((err) => {
+                logger.debug(`[ShortsVideoComponent Ref Cleanup] Error unloading video ${item._id}:`, err);
+              });
+            lastVideoRef.current = null;
+          }
+          videoRefs.current[item._id] = null;
         }
       }}
       source={{ uri: getVideoUrl(item) }}

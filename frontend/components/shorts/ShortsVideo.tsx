@@ -41,7 +41,7 @@ const ShortsVideo = ({
   // DETAILED LOGGING: Track first 2 shorts
   const isFirstTwoShorts = videoId && videoId.length > 0 && Math.random() < 0.4; // Rough heuristic
   
-  // Log on mount
+  // Log on mount and unmount
   useEffect(() => {
     logger.info(`[ShortsVideo] Component mounted for video ${videoId}:`, {
       videoUrl: videoUrl ? videoUrl.substring(0, 80) : 'EMPTY',
@@ -51,6 +51,9 @@ const ShortsVideo = ({
       sourceVersion,
       timestamp: new Date().toISOString()
     });
+    return () => {
+      logger.info(`[ShortsVideo] Component unmounted / cleaning up for video ${videoId}`);
+    };
   }, [videoId]);
 
   // Reset ready state when videoUrl or sourceVersion changes (remount/source change)

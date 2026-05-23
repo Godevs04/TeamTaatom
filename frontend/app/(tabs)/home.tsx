@@ -13,6 +13,7 @@ import {
   Dimensions
 } from 'react-native';
 import { FlashList, FlashListRef } from '@shopify/flash-list';
+const AnyFlashList = FlashList as any;
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
@@ -1431,13 +1432,14 @@ export default function HomeScreen() {
         {/* Scrollable feed container (zIndex: 1) */}
         <View style={[styles.feedClip, { zIndex: 1 }]}>
           <View style={StyleSheet.absoluteFillObject}>
-            <FlashList
+            <AnyFlashList
               key={feedMode}
               ref={flatListRef}
               data={feedData}
               keyExtractor={keyExtractor}
               renderItem={renderItem}
               extraData={visiblePostId}
+              estimatedItemSize={580}
               style={styles.postsContainer}
               contentContainerStyle={[
                 styles.postsList,
