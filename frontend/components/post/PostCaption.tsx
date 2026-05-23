@@ -14,6 +14,7 @@ export default function PostCaption({ post }: PostCaptionProps) {
   const { theme } = useTheme();
   const router = useRouter();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [hasMoreLines, setHasMoreLines] = useState(false);
 
   if (!post.caption) return null;
 
@@ -30,17 +31,19 @@ export default function PostCaption({ post }: PostCaptionProps) {
     }
   };
 
-  // Calculate number of lines in caption
-  const captionLines = post.caption ? post.caption.split('\n').length : 0;
-  const MAX_COLLAPSED_LINES = 3;
-  const shouldShowMoreButton = captionLines > MAX_COLLAPSED_LINES && !isExpanded;
+  const handleTextLayout = (e: any) => {
+    if (!isExpanded) {
+      setHasMoreLines(e.nativeEvent.lines.length > 3);
+    }
+  };
 
   return (
     <View style={styles.captionContainer}>
       <View style={styles.captionWrapper}>
         <Text 
           style={[styles.captionText, { color: theme.colors.text }]}
-          numberOfLines={shouldShowMoreButton ? MAX_COLLAPSED_LINES : undefined}
+          numberOfLines={isExpanded ? undefined : 3}
+          onTextLayout={handleTextLayout}
         >
           <Text 
             onPress={handleUserPress}
@@ -55,18 +58,18 @@ export default function PostCaption({ post }: PostCaptionProps) {
           />
         </Text>
       </View>
-      {shouldShowMoreButton && (
+      {hasMoreLines && !isExpanded && (
         <TouchableOpacity
           onPress={() => setIsExpanded(true)}
           style={styles.moreButton}
           activeOpacity={0.7}
         >
           <Text style={[styles.moreButtonText, { color: theme.colors.textSecondary }]}>
-            more...
+            Read more
           </Text>
         </TouchableOpacity>
       )}
-      {isExpanded && captionLines > MAX_COLLAPSED_LINES && (
+      {isExpanded && hasMoreLines && (
         <TouchableOpacity
           onPress={() => setIsExpanded(false)}
           style={styles.moreButton}
