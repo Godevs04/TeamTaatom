@@ -1032,9 +1032,17 @@ export default function HomeScreen() {
   }, [isOnline, fetchUnseenMessageCount]);
 
   const handleRefresh = useCallback(async () => {
+    // Request guard: prevent refresh if offline
+    if (!isOnline) {
+      logger.debug('Refresh blocked: offline');
+      setRefreshing(false);
+      return;
+    }
+
     // Request guard: prevent refresh if a same-tab refresh or pagination is in flight.
     if (fetchingTabsRef.current.has(feedMode) || isPaginatingRef.current) {
       logger.debug('Refresh blocked: already in progress');
+      setRefreshing(false);
       return;
     }
     
@@ -1073,7 +1081,7 @@ export default function HomeScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [fetchPosts, fetchUnseenMessageCount, posts.length, feedMode]);
+  }, [fetchPosts, fetchUnseenMessageCount, posts.length, feedMode, isOnline]);
 
   const handleFeedTabPress = useCallback((mode: FeedMode) => {
     if (mode === feedMode) return;

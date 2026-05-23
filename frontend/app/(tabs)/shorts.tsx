@@ -22,7 +22,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PanGestureHandler, State } from 'react-native-gesture-handler';
-import { Video, ResizeMode, AVPlaybackStatus, Audio } from 'expo-av';
+import { Video, ResizeMode, AVPlaybackStatus, Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import { Image as ExpoImage } from 'expo-image';
 import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
@@ -639,8 +639,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         staysActiveInBackground: false,
         shouldDuckAndroid: true,
         playThroughEarpieceAndroid: false,
-        interruptionModeIOS: 0, // MIX_WITH_OTHERS — required for video + song coexistence
-        interruptionModeAndroid: 1, // DO_NOT_MIX (default; Android handles mixing via audioFocus)
+        interruptionModeIOS: InterruptionModeIOS.DoNotMix,
+        interruptionModeAndroid: InterruptionModeAndroid.DoNotMix,
       }).catch(err => {
         logger.error('Error setting audio mode for shorts:', err);
       });
@@ -1674,23 +1674,31 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   };
 
   const handleFollow = async (userId: string) => {
-    if (actionLoading === userId) return;
+    const prevIsFollowing = followStates[userId] || false;
     
+    // Optimistic update
+    setFollowStates(prev => ({
+      ...prev,
+      [userId]: !prevIsFollowing
+    }));
+
     try {
-      setActionLoading(userId);
       const response = await toggleFollow(userId);
       
+      // Sync with actual response
       setFollowStates(prev => ({
         ...prev,
-        [userId]: response.isFollowing
+        [userId]: Boolean(response.isFollowing)
       }));
-      
-      // No success alert - silent update for better UX
     } catch (error) {
       logger.error('Error toggling follow', error);
       showError('Failed to update follow status');
-    } finally {
-      setActionLoading(null);
+      
+      // Rollback on error
+      setFollowStates(prev => ({
+        ...prev,
+        [userId]: prevIsFollowing
+      }));
     }
   };
 
@@ -2368,6 +2376,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 item={item}
                 index={index}
                 currentVisibleIndex={currentVisibleIndex}
+                isScreenFocused={isScreenFocused}
                 shouldRenderVideo={shouldRenderVideo}
                 videoReady={!!videoReady[item._id]}
                 videoState={!!videoStates[item._id]}
@@ -2502,13 +2511,22 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   defaulting to visible (which previously flashed Follow on the
                   user's own shorts during the load race). */}
               {!!currentUser?._id && String(item.user._id) !== String(currentUser._id) && (
-                <View style={[styles.followButton, isFollowing && styles.followingButton]}>
+                <TouchableOpacity
+                  style={[styles.followButton, isFollowing && styles.followingButton]}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    handleFollow(item.user._id);
+                  }}
+                  activeOpacity={0.8}
+                  accessibilityLabel={isFollowing ? "Unfollow user" : "Follow user"}
+                  accessibilityRole="button"
+                >
                   <Ionicons
                     name={isFollowing ? "checkmark" : "add"}
                     size={12}
                     color="white"
                   />
-                </View>
+                </TouchableOpacity>
               )}
             </TouchableOpacity>
 
@@ -3547,6 +3565,7 @@ interface ShortsVideoComponentProps {
   item: PostType;
   index: number;
   currentVisibleIndex: number;
+  isScreenFocused: boolean;
   shouldRenderVideo: boolean;
   videoReady: boolean;
   videoState: boolean;
@@ -3577,6 +3596,7 @@ const ShortsVideoComponent = React.memo(({
   item,
   index,
   currentVisibleIndex,
+  isScreenFocused,
   shouldRenderVideo,
   videoReady,
   videoState,
@@ -3653,7 +3673,7 @@ const ShortsVideoComponent = React.memo(({
         { opacity: videoReady ? 1 : 0 },
       ]}
       resizeMode={resizeMode}
-      shouldPlay={index === currentVisibleIndex}
+      shouldPlay={index === currentVisibleIndex && isScreenFocused}
       isLooping
       progressUpdateIntervalMillis={100}
       isMuted={index !== currentVisibleIndex || !!(item.song?.songId?._id)}
@@ -3845,6 +3865,7 @@ const ShortsVideoComponent = React.memo(({
   const isIdEqual = prev.item._id === next.item._id;
   const isIndexEqual = prev.index === next.index;
   const isVisibilityStateEqual = (prev.index === prev.currentVisibleIndex) === (next.index === next.currentVisibleIndex);
+  const isScreenFocusedEqual = prev.isScreenFocused === next.isScreenFocused;
   const isShouldRenderEqual = prev.shouldRenderVideo === next.shouldRenderVideo;
   const isVideoReadyEqual = prev.videoReady === next.videoReady;
   const isVideoStateEqual = prev.videoState === next.videoState;
@@ -3859,6 +3880,7 @@ const ShortsVideoComponent = React.memo(({
     isIdEqual &&
     isIndexEqual &&
     isVisibilityStateEqual &&
+    isScreenFocusedEqual &&
     isShouldRenderEqual &&
     isVideoReadyEqual &&
     isVideoStateEqual &&

@@ -37,7 +37,7 @@ const processQueue = (error: any, token: string | null = null) => {
 const initialBaseUrl = getApiBaseUrl();
 const api = axios.create({
   baseURL: initialBaseUrl, // Get fresh URL at creation time
-  timeout: 30000,
+  timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -409,23 +409,37 @@ api.interceptors.response.use(
     }
     
     // Handle network errors (no response) with retry logic
-    if (!error.response && error.request && !originalRequest._retry) {
-      // Network error - retry for all request types
-      originalRequest._retry = true;
-      originalRequest._retryCount = (originalRequest._retryCount || 0) + 1;
-      
-      const maxRetries = 2; // Retry network errors
-      if (originalRequest._retryCount <= maxRetries) {
+    if (!error.response && error.request && originalRequest) {
+      const isTimeoutError = error.code === 'ECONNABORTED' || 
+        (error.message && error.message.toLowerCase().includes('timeout'));
+      const maxRetries = 2;
+      const currentRetryCount = originalRequest._retryCount || 0;
+
+      if (currentRetryCount < maxRetries) {
+        originalRequest._retryCount = currentRetryCount + 1;
         // Exponential backoff: 1s, 2s
         const delay = Math.pow(2, originalRequest._retryCount - 1) * 1000;
-        logger.debug(`Network error, retrying in ${delay}ms (attempt ${originalRequest._retryCount}/${maxRetries})`);
+        logger.debug(`Network error (isTimeout: ${isTimeoutError}), retrying in ${delay}ms (attempt ${originalRequest._retryCount}/${maxRetries})`);
         
         await new Promise(resolve => setTimeout(resolve, delay));
         return api(originalRequest);
       } else {
-        // After max retries, provide user-friendly error
+        // Final attempt failed
         const parsedError = parseError(error);
-        return Promise.reject(new Error(parsedError.userMessage || 'Unable to connect to the server. Please check your internet connection.'));
+        if (isTimeoutError) {
+          try {
+            const AlertService = require('./alertService').default;
+            AlertService.showWarning('Network Timeout', 'Network timeout, please try again.');
+          } catch (alertErr) {
+            logger.error('Failed to show AlertService warning:', alertErr);
+          }
+          parsedError.userMessage = 'Network timeout, please try again.';
+        }
+        const finalError = new Error(parsedError.userMessage || 'Unable to connect to the server. Please check your internet connection.');
+        (finalError as any).parsedError = parsedError;
+        (finalError as any).userMessage = parsedError.userMessage || 'Unable to connect to the server. Please check your internet connection.';
+        (finalError as any).code = parsedError.code;
+        return Promise.reject(finalError);
       }
     }
     

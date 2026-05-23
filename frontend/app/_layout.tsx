@@ -4,6 +4,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useFonts } from 'expo-font';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { initializeAuth, getLastAuthError, getUserFromStorage, refreshAuthState, getCurrentUser } from '../services/auth';
 import { PROFILE_ONBOARDING_VERSION } from '../constants/profileOnboarding';
 import { updateFCMPushToken, saveExpoPushToken } from '../services/profile';
@@ -91,6 +93,10 @@ if (Platform.OS !== 'web') {
 }
 
 function RootLayoutInner() {
+  const [fontsLoaded, fontError] = useFonts({
+    ...Ionicons.font,
+  });
+
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [isOffline, setIsOffline] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -483,14 +489,19 @@ function RootLayoutInner() {
         }
       } finally {
         setIsInitializing(false);
-        // Native splash is already hidden, just ensure it's hidden
-        SplashScreen.hideAsync().catch(() => {
-          // Ignore errors - splash might already be hidden
-        });
       }
     };
     initialize();
   }, []);
+
+  // Hide splash screen once fonts and initial auth states have resolved
+  useEffect(() => {
+    if (!isInitializing && (fontsLoaded || fontError)) {
+      SplashScreen.hideAsync().catch((error) => {
+        logger.error('[RootLayout] Error hiding splash screen:', error);
+      });
+    }
+  }, [isInitializing, fontsLoaded, fontError]);
 
   // Periodic check for auth state changes (detects signout)
   useEffect(() => {
@@ -910,7 +921,7 @@ function RootLayoutInner() {
     }
   }, [isAuthenticated, isOffline, sessionExpired]);
 
-  if (isAuthenticated === null || isInitializing) {
+  if (isAuthenticated === null || isInitializing || (!fontsLoaded && !fontError)) {
     return <LottieSplashScreen visible={true} />;
   }
 
