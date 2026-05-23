@@ -2397,6 +2397,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 refetchShortWithFreshUrl={handlersRef.current.refetchShortWithFreshUrl}
                 retryVideoLoad={handlersRef.current.retryVideoLoad}
                 updateKeyedBool={updateKeyedBool}
+                dynamicItemHeight={dynamicItemHeight}
               />
               </View>
             </TouchableWithoutFeedback>
@@ -2485,7 +2486,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           )}
         
           {/* Right Side Action Buttons - Outside TouchableWithoutFeedback to prevent pause button flexing */}
-          <View style={styles.rightActions} pointerEvents="box-none">
+          <View style={[styles.rightActions, { bottom: (bottomInset || 0) + (Platform.OS === 'ios' ? 16 : 12) }]} pointerEvents="box-none">
             {/* Profile Picture */}
             <TouchableOpacity
               style={styles.profileButton}
@@ -2610,7 +2611,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           </View>
 
           {/* Bottom Content with Elegant Design */}
-          <View style={styles.bottomContent}>
+          <View style={[styles.bottomContent, { paddingBottom: (bottomInset || 0) + (Platform.OS === 'ios' ? (isWeb ? 16 : 16) : (isWeb ? 16 : 12)) }]}>
             <LinearGradient
               colors={['transparent', 'transparent', 'transparent']}
               style={styles.bottomGradientOverlay}
@@ -2749,7 +2750,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // swipeAnimation / fadeAnimation are Animated.Value refs from useRef ---
     // their identity never changes, so they don't belong in the deps array.
     // Including them was harmless but signaled false volatility.
-  }, [currentVisibleIndex, videoStates, videoReady, followStates, savedShorts, mutedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions, videoBuffering]);
+  }, [currentVisibleIndex, videoStates, videoReady, followStates, savedShorts, mutedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions, videoBuffering, bottomInset, dynamicItemHeight]);
 
   const keyExtractor = useCallback((item: ShortsItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;
@@ -3590,6 +3591,7 @@ interface ShortsVideoComponentProps {
     key: string,
     value: boolean
   ) => void;
+  dynamicItemHeight: number;
 }
 
 const ShortsVideoComponent = React.memo(({
@@ -3616,10 +3618,33 @@ const ShortsVideoComponent = React.memo(({
   getVideoUrl,
   refetchShortWithFreshUrl,
   retryVideoLoad,
-  updateKeyedBool
+  updateKeyedBool,
+  dynamicItemHeight
 }: ShortsVideoComponentProps) => {
   const [aspectRatio, setAspectRatio] = useState<number | null>(null);
   const lastVideoRef = useRef<Video | null>(null);
+
+  const videoStyle = useMemo(() => {
+    if (!aspectRatio) {
+      return StyleSheet.absoluteFillObject;
+    }
+    const containerRatio = SCREEN_WIDTH / dynamicItemHeight;
+    if (aspectRatio < containerRatio) {
+      return {
+        position: 'absolute' as const,
+        height: '100%' as const,
+        aspectRatio,
+        alignSelf: 'center' as const,
+      };
+    } else {
+      return {
+        position: 'absolute' as const,
+        width: '100%' as const,
+        aspectRatio,
+        alignSelf: 'center' as const,
+      };
+    }
+  }, [aspectRatio, dynamicItemHeight]);
 
   if (__DEV__) {
     logger.debug('[ShortsVideoComponent Render]', {
@@ -3669,7 +3694,7 @@ const ShortsVideoComponent = React.memo(({
       source={{ uri: getVideoUrl(item) }}
       style={[
         styles.shortVideo,
-        StyleSheet.absoluteFillObject,
+        videoStyle,
         { opacity: videoReady ? 1 : 0 },
       ]}
       resizeMode={resizeMode}
