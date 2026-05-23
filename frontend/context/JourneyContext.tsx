@@ -41,6 +41,8 @@ const JourneyContext = createContext<JourneyContextValue | null>(null);
 
 export const JourneyProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // Single call site. All other screens read from useJourney() below.
+  // Note: useJourneyTracking internally handles saving/rehydrating state
+  // from AsyncStorage to ensure active journeys survive app termination.
   const value = useJourneyTracking();
   return (
     <JourneyContext.Provider value={value}>
