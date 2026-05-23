@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { View, ScrollView, ActivityIndicator, StyleSheet, TouchableOpacity, Image, Dimensions } from 'react-native';
+import { View, ScrollView, ActivityIndicator, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
@@ -11,6 +11,7 @@ import PostCaption from '../../components/post/PostCaption';
 import PostLikesCount from '../../components/post/PostLikesCount';
 import PostComments from '../../components/post/PostComments';
 import { createLogger } from '../../utils/logger';
+import FastImage from '../../components/ui/FastImage';
 
 const logger = createLogger('PostDetail');
 const { width: screenWidth } = Dimensions.get('window');
@@ -121,10 +122,10 @@ export default function PostDetail() {
       <ScrollView showsVerticalScrollIndicator={false} bounces={true}>
         {/* Post Image */}
         {post.imageUrl && (
-          <Image
+          <FastImage
             source={{ uri: post.imageUrl }}
             style={[styles.image, { height: imageHeight }]}
-            resizeMode="cover"
+            contentFit="cover"
           />
         )}
 

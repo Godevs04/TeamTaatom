@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { View, Text, Image, StyleSheet, ActivityIndicator, TouchableOpacity, FlatList, Modal, ScrollView, Dimensions, Pressable, Animated, useColorScheme, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity, FlatList, Modal, ScrollView, Dimensions, Pressable, Animated, useColorScheme, Platform, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +26,7 @@ import PremiumGlassCard from '../../components/ui/PremiumGlassCard';
 import logger from '../../utils/logger';
 import { getUserShorts } from '../../services/posts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import FastImage from '../../components/ui/FastImage';
 
 const { width } = Dimensions.get('window');
 // Calculate column width taking into account card margins (0 each side), card content padding (0 each side), and grid gaps (2 between items)
@@ -662,9 +663,10 @@ export default function UserProfileScreen() {
               {/* Avatar with Ring */}
               <View style={styles.avatarContainer}>
                 <View style={[styles.avatarRing, { borderColor: profileTheme.accent + '40' }]}>
-                  <Image
+                  <FastImage
                     source={profile.profilePic ? { uri: profile.profilePic } : require('../../assets/avatars/male_avatar.png')}
                     style={[styles.avatar, { borderColor: profileTheme.cardBg }]}
+                    contentFit="cover"
                   />
                 </View>
               </View>
@@ -864,7 +866,7 @@ export default function UserProfileScreen() {
                       ]}
                       onPress={() => router.push(`/user-posts/${profile._id}?postId=${item._id}`)}
                     >
-                      <Image source={{ uri: item.imageUrl }} style={styles.postImage as any} resizeMode="cover" />
+                      <FastImage source={{ uri: item.imageUrl }} style={styles.postImage as any} contentFit="cover" />
                       {/* View count overlay */}
                       <View style={styles.viewCountOverlay}>
                         <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
@@ -946,10 +948,10 @@ export default function UserProfileScreen() {
                         ]}
                         onPress={() => router.push(`/user-shorts/${id}?shortId=${s._id}`)}
                       >
-                        <Image
+                        <FastImage
                           source={{ uri }}
                           style={styles.postImage as any}
-                          resizeMode="cover"
+                          contentFit="cover"
                           onError={() => {
                             // Only log once per short ID, then show placeholder
                             if (!failedThumbnailsRef.current.has(s._id)) {
