@@ -1,5 +1,5 @@
-import React, { useRef, useState, useEffect, memo, useCallback } from 'react';
-import { View, StyleSheet, ActivityIndicator, Image, TouchableOpacity, Text } from 'react-native';
+import React, { useRef, useState, useEffect, memo, useCallback, useMemo } from 'react';
+import { View, StyleSheet, ActivityIndicator, Image, TouchableOpacity, Text, Dimensions } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import Video, { VideoRef } from 'react-native-video';
@@ -37,6 +37,40 @@ const ShortsVideo = ({
   const [hasError, setHasError] = useState(false);
   const [showPoster, setShowPoster] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
+  const [aspectRatio, setAspectRatio] = useState<number | null>(null);
+
+  const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+  const videoStyle = useMemo(() => {
+    if (!aspectRatio) {
+      return StyleSheet.absoluteFillObject;
+    }
+    const containerRatio = screenWidth / screenHeight;
+    if (aspectRatio < containerRatio) {
+      return {
+        position: 'absolute' as const,
+        height: '100%' as const,
+        aspectRatio,
+        alignSelf: 'center' as const,
+      };
+    } else {
+      return {
+        position: 'absolute' as const,
+        width: '100%' as const,
+        aspectRatio,
+        alignSelf: 'center' as const,
+      };
+    }
+  }, [aspectRatio, screenWidth, screenHeight]);
+
+  const handleLoad = useCallback((data: any) => {
+    if (data?.naturalSize) {
+      const { width, height } = data.naturalSize;
+      if (width && height) {
+        setAspectRatio(width / height);
+        logger.debug(`[ShortsVideo] Video metadata loaded for ${videoId}. naturalSize: ${width}x${height}, ratio: ${width / height}`);
+      }
+    }
+  }, [videoId]);
 
   // DETAILED LOGGING: Track first 2 shorts
   const isFirstTwoShorts = videoId && videoId.length > 0 && Math.random() < 0.4; // Rough heuristic
@@ -142,7 +176,7 @@ const ShortsVideo = ({
         <Video
           ref={videoRef}
           source={{ uri: videoUrl }}
-          style={StyleSheet.absoluteFill}
+          style={videoStyle}
           resizeMode="cover"
           repeat={true}
           paused={isPaused}
@@ -151,6 +185,7 @@ const ShortsVideo = ({
           onReadyForDisplay={handleReadyForDisplay}
           onError={handleVideoError}
           onProgress={handlePlaybackStatusUpdate}
+          onLoad={handleLoad}
           bufferConfig={{
             minBufferMs: 2500,
             maxBufferMs: 10000,

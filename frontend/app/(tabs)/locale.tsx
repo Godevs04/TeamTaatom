@@ -3631,11 +3631,11 @@ export default function LocaleScreen() {
           <Animated.View
             style={{
               width: '100%',
-              height: CARD_HEIGHT + 48,
+              height: CARD_HEIGHT + 64,
               position: 'absolute',
-              top: -24,
+              top: -32,
               left: 0,
-              transform: [{ translateY }],
+              transform: [{ translateY }, { scale: 1.05 }],
             }}
           >
             <ExpoImage
@@ -3712,8 +3712,14 @@ export default function LocaleScreen() {
                 {locale.countryCode}
               </Text>
             </View>
-
-
+            {distanceText ? (
+              <View style={[styles.distanceBadge, { flexShrink: 1 }]}>
+                <Ionicons name="location-outline" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
+                <Text style={[styles.distanceText, { flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
+                  {distanceText}
+                </Text>
+              </View>
+            ) : null}
           </BlurView>
         </View>
       </TouchableOpacity>
@@ -3915,6 +3921,14 @@ export default function LocaleScreen() {
             </Text>
           ) : null}
         </View>
+        {distanceText ? (
+          <View style={[styles.distanceBadgeAbsolute, { flexShrink: 1 }]}>
+            <Ionicons name="location-outline" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
+            <Text style={[styles.distanceText, { flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
+              {distanceText}
+            </Text>
+          </View>
+        ) : null}
 
         <TouchableOpacity
           style={styles.saveButton}

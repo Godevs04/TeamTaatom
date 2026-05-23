@@ -97,6 +97,14 @@ function CloudLocaleCard({
         </TouchableOpacity>
       )}
 
+      {distanceText ? (
+        <View style={[styles.distBadge, { flexShrink: 1, maxWidth: '60%' }]}>
+          <Ionicons name="location-sharp" size={10} color={cloudDesign.blueDeep} />
+          <Text style={[styles.distText, { flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
+            {distanceText}
+          </Text>
+        </View>
+      ) : null}
 
       <View
         style={[
