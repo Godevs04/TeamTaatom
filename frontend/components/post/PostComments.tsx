@@ -302,8 +302,6 @@ export default function PostComments({
                   { scale: scale }
                 ],
                 opacity: opacity,
-                // Force Bottom Sheet container to lift using animated marginBottom
-                marginBottom: keyboardHeight,
               },
             ]}
           >
@@ -325,9 +323,9 @@ export default function PostComments({
 
             {/* Wrap only the Bottom Sheet CONTENT (not the sheet container) with KeyboardAvoidingView */}
             <KeyboardAvoidingView 
-              behavior="padding" 
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
               style={styles.container}
-              keyboardVerticalOffset={0}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? insets.bottom + 64 : 0}
             >
               <FlatList
                 ref={flatListRef}

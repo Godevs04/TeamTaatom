@@ -21,7 +21,7 @@ export const colors = {
 
   // Content
   text: '#E8F4FF',
-  textSecondary: '#8FAABB',
+  textSecondary: '#BACFDA',
   textMuted: '#4A6274',
 
   // Lines / hairlines

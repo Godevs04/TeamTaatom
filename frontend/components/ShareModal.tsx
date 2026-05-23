@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
   View,
   Text,
@@ -23,6 +23,8 @@ import { searchUsers, getSuggestedUsers } from '../services/profile';
 import api from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import logger from '../utils/logger';
+import BottomSheet, { BottomSheetView, BottomSheetBackdrop } from '@gorhom/bottom-sheet';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 interface ShareModalProps {
   visible: boolean;
@@ -58,6 +60,35 @@ export default function ShareModal({
 }: ShareModalProps) {
   const isJourneyShare = !!journey;
   const { theme } = useTheme();
+  const bottomSheetRef = useRef<BottomSheet>(null);
+  const snapPoints = useMemo(() => ['65%'], []);
+
+  const handleSheetChanges = useCallback((index: number) => {
+    if (index === -1) {
+      onClose();
+    }
+  }, [onClose]);
+
+  const renderBackdrop = useCallback(
+    (props: any) => (
+      <BottomSheetBackdrop
+        {...props}
+        disappearsOnIndex={-1}
+        appearsOnIndex={0}
+        opacity={0.5}
+      />
+    ),
+    []
+  );
+
+  useEffect(() => {
+    if (visible) {
+      bottomSheetRef.current?.expand();
+    } else {
+      bottomSheetRef.current?.close();
+    }
+  }, [visible]);
+
   const [shortUrl, setShortUrl] = useState<string>('');
   const [isLoadingUrl, setIsLoadingUrl] = useState(false);
   const [showUserPicker, setShowUserPicker] = useState(false);
@@ -440,168 +471,165 @@ export default function ShareModal({
     <Modal
       visible={visible}
       transparent
-      animationType="slide"
+      animationType="none"
       onRequestClose={onClose}
     >
-      <View style={styles.modalOverlay}>
-        <TouchableOpacity
-          style={styles.backdrop}
-          activeOpacity={1}
-          onPress={onClose}
-        />
-        <View style={[styles.modalContent, { backgroundColor: theme.colors.surface }]}>
-          <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
-          
-          <Text style={[styles.title, { color: theme.colors.text }]}>
-            {isJourneyShare ? 'Share Journey' : 'Share Post'}
-          </Text>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <BottomSheet
+          ref={bottomSheetRef}
+          index={visible ? 0 : -1}
+          snapPoints={snapPoints}
+          enablePanDownToClose
+          onChange={handleSheetChanges}
+          backdropComponent={renderBackdrop}
+          backgroundStyle={{ backgroundColor: theme.colors.surface }}
+          handleIndicatorStyle={{ backgroundColor: theme.colors.border }}
+        >
+          <BottomSheetView style={styles.modalContent}>
+            <Text style={[styles.title, { color: theme.colors.text }]}>
+              {isJourneyShare ? 'Share Journey' : 'Share Post'}
+            </Text>
 
-          {/* Journey Preview Card */}
-          {isJourneyShare && journey && (
-            <View style={[styles.previewCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
-              <View style={[styles.journeyPreviewIcon, { backgroundColor: '#22C55E20' }]}>
-                <Ionicons name="navigate" size={28} color="#22C55E" />
-              </View>
-              <View style={styles.previewContent}>
-                <Text style={[styles.previewAuthor, { color: theme.colors.text }]}>
-                  {journey.title || 'Journey'}
-                </Text>
-                <Text style={[styles.previewCaption, { color: theme.colors.textSecondary }]}>
-                  {journey.distanceTraveled
-                    ? journey.distanceTraveled >= 1000
-                      ? `${(journey.distanceTraveled / 1000).toFixed(1)} km`
-                      : `${Math.round(journey.distanceTraveled)} m`
-                    : ''}
-                  {journey.status ? ` • ${journey.status.charAt(0).toUpperCase() + journey.status.slice(1)}` : ''}
-                </Text>
-                <View style={styles.urlContainer}>
-                  <Text style={[styles.previewUrl, { color: theme.colors.primary }]} numberOfLines={1}>
-                    {getShareUrl()}
-                  </Text>
-                  {isLoadingUrl && (
-                    <View style={styles.loadingIndicator}>
-                      <ActivityIndicator size="small" color={theme.colors.primary} />
-                    </View>
-                  )}
+            {/* Journey Preview Card */}
+            {isJourneyShare && journey && (
+              <View style={[styles.previewCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+                <View style={[styles.journeyPreviewIcon, { backgroundColor: '#22C55E20' }]}>
+                  <Ionicons name="navigate" size={28} color="#22C55E" />
                 </View>
-              </View>
-            </View>
-          )}
-
-          {/* Post Preview Card */}
-          {!isJourneyShare && post && (
-            <View style={[styles.previewCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
-              {post.imageUrl && (
-                <Image
-                  source={{ uri: post.imageUrl }}
-                  style={styles.previewImage}
-                  resizeMode="cover"
-                />
-              )}
-              <View style={styles.previewContent}>
-                {post.user && (
+                <View style={styles.previewContent}>
                   <Text style={[styles.previewAuthor, { color: theme.colors.text }]}>
-                    {post.user.fullName}
+                    {journey.title || 'Journey'}
                   </Text>
-                )}
-                {post.caption && (
-                  <Text
-                    style={[styles.previewCaption, { color: theme.colors.textSecondary }]}
-                    numberOfLines={2}
-                  >
-                    {post.caption}
+                  <Text style={[styles.previewCaption, { color: theme.colors.textSecondary }]}>
+                    {journey.distanceTraveled
+                      ? journey.distanceTraveled >= 1000
+                        ? `${(journey.distanceTraveled / 1000).toFixed(1)} km`
+                        : `${Math.round(journey.distanceTraveled)} m`
+                      : ''}
+                    {journey.status ? ` • ${journey.status.charAt(0).toUpperCase() + journey.status.slice(1)}` : ''}
                   </Text>
-                )}
-                <View style={styles.urlContainer}>
-                  <Text style={[styles.previewUrl, { color: theme.colors.primary }]} numberOfLines={1}>
-                    {getShareUrl()}
-                  </Text>
-                  {isLoadingUrl && (
-                    <View style={styles.loadingIndicator}>
-                      <ActivityIndicator size="small" color={theme.colors.primary} />
-                    </View>
-                  )}
+                  <View style={styles.urlContainer}>
+                    <Text style={[styles.previewUrl, { color: theme.colors.primary }]} numberOfLines={1}>
+                      {getShareUrl()}
+                    </Text>
+                    {isLoadingUrl && (
+                      <View style={styles.loadingIndicator}>
+                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                      </View>
+                    )}
+                  </View>
                 </View>
               </View>
+            )}
+
+            {/* Post Preview Card */}
+            {!isJourneyShare && post && (
+              <View style={[styles.previewCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+                {post.imageUrl && (
+                  <Image
+                    source={{ uri: post.imageUrl }}
+                    style={styles.previewImage}
+                    resizeMode="cover"
+                  />
+                )}
+                <View style={styles.previewContent}>
+                  {post.user && (
+                    <Text style={[styles.previewAuthor, { color: theme.colors.text }]}>
+                      {post.user.fullName}
+                    </Text>
+                  )}
+                  {post.caption && (
+                    <Text
+                      style={[styles.previewCaption, { color: theme.colors.textSecondary }]}
+                      numberOfLines={2}
+                    >
+                      {post.caption}
+                    </Text>
+                  )}
+                  <View style={styles.urlContainer}>
+                    <Text style={[styles.previewUrl, { color: theme.colors.primary }]} numberOfLines={1}>
+                      {getShareUrl()}
+                    </Text>
+                    {isLoadingUrl && (
+                      <View style={styles.loadingIndicator}>
+                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                      </View>
+                    )}
+                  </View>
+                </View>
+              </View>
+            )}
+
+            <View style={styles.shareGrid}>
+              {/* Native Share */}
+              <TouchableOpacity
+                style={[styles.shareOption, { backgroundColor: theme.colors.background }]}
+                onPress={handleNativeShare}
+              >
+                <Ionicons name="share-outline" size={28} color={theme.colors.primary} />
+                <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>
+                  Share
+                </Text>
+              </TouchableOpacity>
+
+              {/* Instagram */}
+              <TouchableOpacity
+                style={[styles.shareOption, { backgroundColor: theme.colors.background }]}
+                onPress={handleInstagramShare}
+              >
+                <Ionicons name="logo-instagram" size={28} color="#E4405F" />
+                <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>
+                  Instagram
+                </Text>
+              </TouchableOpacity>
+
+              {/* Facebook */}
+              <TouchableOpacity
+                style={[styles.shareOption, { backgroundColor: theme.colors.background }]}
+                onPress={handleFacebookShare}
+              >
+                <Ionicons name="logo-facebook" size={28} color="#1877F2" />
+                <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>
+                  Facebook
+                </Text>
+              </TouchableOpacity>
+
+              {/* Twitter */}
+              <TouchableOpacity
+                style={[styles.shareOption, { backgroundColor: theme.colors.background }]}
+                onPress={handleTwitterShare}
+              >
+                <Ionicons name="logo-twitter" size={28} color="#1DA1F2" />
+                <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>
+                  Twitter
+                </Text>
+              </TouchableOpacity>
+
+              {/* Send to Chat */}
+              <TouchableOpacity
+                style={[styles.shareOption, { backgroundColor: theme.colors.background }]}
+                onPress={handleSendToChat}
+              >
+                <Ionicons name="chatbubble-outline" size={28} color={theme.colors.primary} />
+                <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>
+                  Send to Chat
+                </Text>
+              </TouchableOpacity>
             </View>
-          )}
 
-          <View style={styles.shareOptions}>
-            {/* Native Share */}
+            {/* Copy Link Button (Full-width row) */}
             <TouchableOpacity
-              style={[styles.shareOption, { backgroundColor: theme.colors.background }]}
-              onPress={handleNativeShare}
-            >
-              <Ionicons name="share-outline" size={32} color={theme.colors.primary} />
-              <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>
-                {Platform.OS === 'ios' ? 'Share' : 'Share'}
-              </Text>
-            </TouchableOpacity>
-
-            {/* Instagram */}
-            <TouchableOpacity
-              style={[styles.shareOption, { backgroundColor: theme.colors.background }]}
-              onPress={handleInstagramShare}
-            >
-              <Ionicons name="logo-instagram" size={32} color="#E4405F" />
-              <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>
-                Instagram
-              </Text>
-            </TouchableOpacity>
-
-            {/* Facebook */}
-            <TouchableOpacity
-              style={[styles.shareOption, { backgroundColor: theme.colors.background }]}
-              onPress={handleFacebookShare}
-            >
-              <Ionicons name="logo-facebook" size={32} color="#1877F2" />
-              <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>
-                Facebook
-              </Text>
-            </TouchableOpacity>
-
-            {/* Twitter */}
-            <TouchableOpacity
-              style={[styles.shareOption, { backgroundColor: theme.colors.background }]}
-              onPress={handleTwitterShare}
-            >
-              <Ionicons name="logo-twitter" size={32} color="#1DA1F2" />
-              <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>
-                Twitter
-              </Text>
-            </TouchableOpacity>
-
-            {/* Copy Link */}
-            <TouchableOpacity
-              style={[styles.shareOption, { backgroundColor: theme.colors.background }]}
+              style={[styles.copyLinkButton, { backgroundColor: theme.colors.background }]}
               onPress={handleCopyLink}
             >
-              <Ionicons name="link-outline" size={32} color={theme.colors.primary} />
-              <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>
+              <Ionicons name="link-outline" size={24} color={theme.colors.primary} />
+              <Text style={[styles.copyLinkText, { color: theme.colors.text }]}>
                 Copy Link
               </Text>
             </TouchableOpacity>
-
-            {/* Send to Chat */}
-            <TouchableOpacity
-              style={[styles.shareOption, { backgroundColor: theme.colors.background }]}
-              onPress={handleSendToChat}
-            >
-              <Ionicons name="chatbubble-outline" size={32} color={theme.colors.primary} />
-              <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>
-                Send to Chat
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity
-            style={[styles.cancelButton, { backgroundColor: theme.colors.background }]}
-            onPress={onClose}
-          >
-            <Text style={[styles.cancelButtonText, { color: theme.colors.text }]}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+          </BottomSheetView>
+        </BottomSheet>
+      </GestureHandlerRootView>
 
       {/* User Picker Modal */}
       <Modal
@@ -729,30 +757,35 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     textAlign: 'center',
   },
-  shareOptions: {
+  shareGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    marginBottom: 24,
+    marginBottom: 20,
   },
   shareOption: {
     width: '30%',
     alignItems: 'center',
-    padding: 16,
+    padding: 12,
     borderRadius: 12,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   shareOptionText: {
     fontSize: 12,
     marginTop: 8,
     textAlign: 'center',
+    fontWeight: '500',
   },
-  cancelButton: {
+  copyLinkButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     padding: 16,
     borderRadius: 12,
-    alignItems: 'center',
+    marginTop: 8,
+    gap: 8,
   },
-  cancelButtonText: {
+  copyLinkText: {
     fontSize: 16,
     fontWeight: '600',
   },

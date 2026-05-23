@@ -799,25 +799,37 @@ function RootLayoutInner() {
     }
   }, [isAuthenticated]);
 
-  // When user taps a push notification (Expo, iOS): navigate to data.screen (aligned with backend getScreenForType)
+  // When user taps a push notification: navigate to screen, path, url, or post details (both iOS & Android)
   useEffect(() => {
-    if (Platform.OS === 'web' || Platform.OS !== 'ios') return;
+    if (Platform.OS === 'web') return;
 
-    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content?.data as Record<string, unknown> | undefined;
-      const screen = data?.screen;
-      if (screen && typeof screen === 'string') {
-        router.push(screen);
+    const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
+      try {
+        const data = response.notification.request.content?.data as Record<string, unknown> | undefined;
+        if (!data) return;
+        
+        logger.debug('Push notification response received:', data);
+        const screen = data.screen || data.path || data.url;
+        const postId = data.postId || data.post_id;
+        
+        if (screen && typeof screen === 'string') {
+          router.push(screen as any);
+        } else if (postId && typeof postId === 'string') {
+          router.push(`/post/${postId}` as any);
+        }
+      } catch (err) {
+        logger.error('Error handling notification response:', err);
       }
-    });
+    };
+
+    const subscription = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
 
     Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (!response) return;
-      const data = response.notification.request.content?.data as Record<string, unknown> | undefined;
-      const screen = data?.screen;
-      if (screen && typeof screen === 'string') {
-        router.push(screen);
+      if (response) {
+        handleNotificationResponse(response);
       }
+    }).catch(err => {
+      logger.error('Error getting last notification response:', err);
     });
 
     return () => subscription.remove();
