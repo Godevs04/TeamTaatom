@@ -40,6 +40,7 @@ interface PostCommentsProps {
   comments: Comment[];
   onClose: () => void;
   onCommentAdded: (newComment: Comment) => void;
+  onCommentDeleted?: (commentId: string) => void;
   commentsDisabled?: boolean;
 }
 
@@ -49,6 +50,7 @@ export default function PostComments({
   comments,
   onClose,
   onCommentAdded,
+  onCommentDeleted,
   commentsDisabled = false,
 }: PostCommentsProps) {
   const { theme } = useTheme();
@@ -237,6 +239,16 @@ export default function PostComments({
             {item.text}
           </Text>
         </View>
+        {currentUser && commentUser._id === currentUser._id && (
+          <TouchableOpacity 
+            style={styles.deleteCommentButton}
+            onPress={() => onCommentDeleted && onCommentDeleted(item._id)}
+            accessibilityLabel="Delete comment"
+            accessibilityRole="button"
+          >
+            <Ionicons name="trash-outline" size={18} color={theme.colors.error || '#FF3B30'} />
+          </TouchableOpacity>
+        )}
       </View>
     );
   };
@@ -580,6 +592,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 12,
+  },
+  deleteCommentButton: {
+    padding: 8,
+    alignSelf: 'center',
+    marginLeft: 8,
   },
 });
 

@@ -118,10 +118,10 @@ export default function TabsLayout() {
     bottom: 0,
     left: 0,
     right: 0,
-    height: isWeb ? 70 : (isIOS ? (insets.bottom > 0 ? 56 + insets.bottom : 64) : 68),
+    height: isWeb ? 70 : 56 + insets.bottom,
     borderRadius: 0,
-    paddingBottom: isWeb ? 10 : (isIOS ? (insets.bottom > 0 ? insets.bottom : 12) : 12),
-    paddingTop: 10,
+    paddingBottom: isWeb ? 10 : insets.bottom,
+    paddingTop: 8,
     overflow: 'hidden' as const,
     zIndex: 1000,
     // Always visible - no transform/animation
@@ -139,6 +139,10 @@ export default function TabsLayout() {
         ),
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.textSecondary,
+        tabBarItemStyle: {
+          justifyContent: 'center',
+          alignItems: 'center',
+        },
         tabBarLabelStyle: {
           fontSize: isTablet ? (isWeb ? 11 : 10) : (isWeb ? 10 : 10),
           fontFamily: isWeb ? 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' : (isIOS ? 'System' : 'Roboto'),

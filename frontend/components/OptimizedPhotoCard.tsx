@@ -16,7 +16,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
-import { toggleLike, deletePost, archivePost, unarchivePost, hidePost, unhidePost, toggleComments, updatePost } from '../services/posts';
+import { toggleLike, deletePost, archivePost, unarchivePost, hidePost, unhidePost, toggleComments, updatePost, deleteComment } from '../services/posts';
 import { getUserFromStorage } from '../services/auth';
 import { useRouter } from 'expo-router';
 import CustomAlert from './CustomAlert';
@@ -483,55 +483,49 @@ function PhotoCard({
     }
   };
 
-  const handleSave = async () => {
-    // Prevent duplicate actions
-    const actionKey = `save-${post._id}`;
-    if (actionLoading.has(actionKey)) {
-      return;
-    }
-
-    setActionLoading(prev => new Set(prev).add(actionKey));
-
+  const handleSave = () => {
     // Store previous state for revert
     const previousSaveState = isSaved;
     const newSaveState = !isSaved;
 
-    try {
-      // Toggle local + module cache so any other card on screen showing
-      // this same post id flips immediately on the next render.
-      setIsSaved(newSaveState);
-      setSavedInCache(post._id, newSaveState);
+    // Toggle local + module cache immediately and synchronously
+    setIsSaved(newSaveState);
+    setSavedInCache(post._id, newSaveState);
 
-      // Persist to AsyncStorage for Saved tab
-      const stored = await AsyncStorage.getItem(SAVED_POSTS_STORAGE_KEY);
-      const arr = stored ? JSON.parse(stored) : [];
-      let next: string[] = Array.isArray(arr) ? arr : [];
-      if (newSaveState) {
-        if (!next.includes(post._id)) next.push(post._id);
-      } else {
-        next = next.filter(id => id !== post._id);
+    // Fire the AsyncStorage and event emission logic in the background
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(SAVED_POSTS_STORAGE_KEY);
+        const arr = stored ? JSON.parse(stored) : [];
+        let next: string[] = Array.isArray(arr) ? arr : [];
+        if (newSaveState) {
+          if (!next.includes(post._id)) next.push(post._id);
+        } else {
+          next = next.filter(id => id !== post._id);
+        }
+        await AsyncStorage.setItem(SAVED_POSTS_STORAGE_KEY, JSON.stringify(next));
+        logger.debug(newSaveState ? 'Post saved' : 'Post unsaved', { postId: post._id });
+
+        // Emit events to notify other pages
+        savedEvents.emitChanged();
+        savedEvents.emitPostAction(post._id, newSaveState ? 'save' : 'unsave', {
+          isBookmarked: newSaveState
+        });
+      } catch (error) {
+        logger.error('Error saving post in background', error);
+        // Revert on error
+        setIsSaved(previousSaveState);
+        setSavedInCache(post._id, previousSaveState);
+        
+        // Re-emit reverted state
+        savedEvents.emitChanged();
+        savedEvents.emitPostAction(post._id, previousSaveState ? 'save' : 'unsave', {
+          isBookmarked: previousSaveState
+        });
+        
+        showCustomAlertMessage('Error', 'Failed to save post', 'error');
       }
-      await AsyncStorage.setItem(SAVED_POSTS_STORAGE_KEY, JSON.stringify(next));
-      logger.debug(newSaveState ? 'Post saved' : 'Post unsaved', { postId: post._id });
-
-      // Emit events to notify other pages
-      savedEvents.emitChanged();
-      savedEvents.emitPostAction(post._id, newSaveState ? 'save' : 'unsave', {
-        isBookmarked: newSaveState
-      });
-    } catch (error) {
-      logger.error('Error saving post', error);
-      // Revert on error
-      setIsSaved(previousSaveState);
-      setSavedInCache(post._id, previousSaveState);
-      showCustomAlertMessage('Error', 'Failed to save post', 'error');
-    } finally {
-      setActionLoading(prev => {
-        const next = new Set(prev);
-        next.delete(actionKey);
-        return next;
-      });
-    }
+    })();
   };
 
   const showCustomAlertMessage = (
@@ -559,6 +553,23 @@ function PhotoCard({
   const handleCommentAdded = (newComment: any) => {
     triggerCommentHaptic();
     upsertComment(newComment);
+  };
+
+  const handleCommentDeleted = async (commentId: string) => {
+    const originalComments = [...comments];
+    
+    // Optimistic UI Update: immediately filter out the deleted comment
+    setComments(prev => prev.filter(c => c._id !== commentId));
+    
+    try {
+      await deleteComment(post._id, commentId);
+      logger.debug('Comment deleted successfully:', commentId);
+    } catch (error) {
+      logger.error('Failed to delete comment, rolling back:', error);
+      // Revert local state to the original list of comments
+      setComments(originalComments);
+      Alert.alert('Error', 'Failed to delete comment. Please try again.');
+    }
   };
 
   const handleOpenComments = () => {
@@ -1150,6 +1161,7 @@ function PhotoCard({
         comments={comments}
         onClose={() => setShowCommentModal(false)}
         onCommentAdded={handleCommentAdded}
+        onCommentDeleted={handleCommentDeleted}
         commentsDisabled={commentsDisabled}
       />
 

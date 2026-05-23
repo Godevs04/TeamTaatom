@@ -572,6 +572,8 @@ export default function SignUpScreen() {
                     error={errors.username}
                     touched={touched.username}
                     autoCapitalize="none"
+                    autoCorrect={false}
+                    spellCheck={false}
                     alwaysShowError
                     success={usernameAvailable ? 'Username is available!' : undefined}
                   />
