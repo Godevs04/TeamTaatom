@@ -12,6 +12,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import ReAnimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -27,6 +33,85 @@ export default function ChatMediaViewer({ visible, type, uri, onClose }: ChatMed
   const [imageLoading, setImageLoading] = useState(true);
   const [videoReady, setVideoReady] = useState(false);
 
+  // Zoom and Pan States
+  const scale = useSharedValue(1);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+
+  const savedScale = useSharedValue(1);
+  const savedTranslateX = useSharedValue(0);
+  const savedTranslateY = useSharedValue(0);
+
+  // Reset zoom on visibility changes
+  useEffect(() => {
+    if (!visible) {
+      scale.value = 1;
+      translateX.value = 0;
+      translateY.value = 0;
+      savedScale.value = 1;
+      savedTranslateX.value = 0;
+      savedTranslateY.value = 0;
+    }
+  }, [visible]);
+
+  // Gestures definition
+  const pinchGesture = Gesture.Pinch()
+    .onUpdate((event) => {
+      scale.value = Math.min(3, Math.max(1, savedScale.value * event.scale));
+    })
+    .onEnd(() => {
+      savedScale.value = scale.value;
+      if (scale.value < 1.1) {
+        scale.value = withSpring(1);
+        translateX.value = withSpring(0);
+        translateY.value = withSpring(0);
+        savedScale.value = 1;
+        savedTranslateX.value = 0;
+        savedTranslateY.value = 0;
+      }
+    });
+
+  const panGesture = Gesture.Pan()
+    .onUpdate((event) => {
+      if (scale.value > 1) {
+        translateX.value = savedTranslateX.value + event.translationX / scale.value;
+        translateY.value = savedTranslateY.value + event.translationY / scale.value;
+      }
+    })
+    .onEnd(() => {
+      if (scale.value <= 1.1) {
+        translateX.value = withSpring(0);
+        translateY.value = withSpring(0);
+        savedTranslateX.value = 0;
+        savedTranslateY.value = 0;
+      } else {
+        // Limit pan translation to maintain image within device bounds
+        const maxTx = (SCREEN_WIDTH * (scale.value - 1)) / 2;
+        const maxTy = (SCREEN_HEIGHT * (scale.value - 1)) / 2;
+
+        translateX.value = withSpring(
+          Math.min(maxTx, Math.max(-maxTx, translateX.value))
+        );
+        translateY.value = withSpring(
+          Math.min(maxTy, Math.max(-maxTy, translateY.value))
+        );
+
+        savedTranslateX.value = Math.min(maxTx, Math.max(-maxTx, translateX.value));
+        savedTranslateY.value = Math.min(maxTy, Math.max(-maxTy, translateY.value));
+      }
+    });
+
+  const gesture = Gesture.Simultaneous(pinchGesture, panGesture);
+
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        { scale: scale.value },
+        { translateX: translateX.value * scale.value },
+        { translateY: translateY.value * scale.value },
+      ] as any,
+    };
+  });
   const handleClose = useCallback(async () => {
     try {
       await videoRef.current?.pauseAsync();
@@ -90,12 +175,14 @@ export default function ChatMediaViewer({ visible, type, uri, onClose }: ChatMed
             {imageLoading ? (
               <ActivityIndicator size="large" color="#5BBCF8" style={styles.loader} />
             ) : null}
-            <Image
-              source={{ uri }}
-              style={styles.fullImage}
-              resizeMode="contain"
-              onLoadEnd={() => setImageLoading(false)}
-            />
+            <GestureDetector gesture={gesture}>
+              <ReAnimated.Image
+                source={{ uri }}
+                style={[styles.fullImage, animatedStyle as any]}
+                resizeMode="contain"
+                onLoadEnd={() => setImageLoading(false)}
+              />
+            </GestureDetector>
           </View>
         ) : (
           <View style={styles.mediaWrap}>
