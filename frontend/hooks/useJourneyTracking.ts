@@ -298,6 +298,38 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           journeyIdRef.current = storedJourneyId;
           setIsTracking(true);
 
+          // Rehydrate active journey state from AsyncStorage immediately to survive app kill
+          try {
+            const cachedStateRaw = await AsyncStorage.getItem('@active_journey_state');
+            if (cachedStateRaw) {
+              const cached = JSON.parse(cachedStateRaw);
+              if (cached && cached.journey && cached.journey._id === storedJourneyId) {
+                setJourney(cached.journey);
+                const normalizedPolyline: Coordinate[] = (cached.polyline || []).map((p: any) => ({
+                  latitude: p.latitude ?? p.lat,
+                  longitude: p.longitude ?? p.lng,
+                  timestamp: typeof p.timestamp === 'string' ? new Date(p.timestamp).getTime() : (p.timestamp || 0),
+                  accuracy: p.accuracy ?? 0,
+                }));
+                setPolyline(normalizedPolyline);
+                setDistance(cached.distance || 0);
+                setDuration(cached.duration || 0);
+                if (normalizedPolyline.length > 0) {
+                  lastCoordinateRef.current = normalizedPolyline[normalizedPolyline.length - 1];
+                }
+                if (cached.journey.status !== 'paused' && cached.timestamp) {
+                  const startedAtMs = new Date(cached.journey.startedAt).getTime();
+                  startTimeRef.current = startedAtMs;
+                  const elapsed = Math.floor((Date.now() - startedAtMs) / 1000);
+                  setDuration(Math.max(0, elapsed));
+                }
+                logger.debug('[Journey] Rehydrated state from AsyncStorage:', cached.journey._id);
+              }
+            }
+          } catch (cacheErr) {
+            logger.warn('[Journey] Failed to rehydrate from AsyncStorage:', cacheErr);
+          }
+
           // Fetch journey details from backend
           try {
             const { journey: fetchedJourney } = await getActiveJourney();
@@ -567,21 +599,15 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       const already = await Location.hasStartedLocationUpdatesAsync(BG_LOCATION_TASK).catch(() => false);
       if (already) return true;
       await Location.startLocationUpdatesAsync(BG_LOCATION_TASK, {
-        accuracy: Location.Accuracy.High,
-        timeInterval: 5000,
-        distanceInterval: 10,
-        // iOS: omit the blue indicator bar; the journey UI itself signals
-        // recording. Set true if the App Store reviewer asks for it.
-        showsBackgroundLocationIndicator: false,
-        // Android: required foreground service for background location
-        // post-Android 8. The notification is what keeps the OS from
-        // killing the task.
+        accuracy: Location.Accuracy.Balanced, // Adjusted for battery/precision balance
+        timeInterval: 10000, // Reduced frequency to 10 seconds to save battery
+        distanceInterval: 10, // Maintain 10 meters distance interval
+        showsBackgroundLocationIndicator: true, // Enable indicator to prevent OS suspension
         foregroundService: {
           notificationTitle: 'Recording your journey',
           notificationBody: 'Path is being tracked while the app is in the background',
+          notificationColor: '#22C55E',
         },
-        // Android: don't pause when device is stationary — we want full
-        // coverage even at rest stops.
         pausesUpdatesAutomatically: false,
       });
       logger.debug('[Journey] Background location updates started');
@@ -1024,6 +1050,23 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       throw err;
     }
   }, [stopBackgroundUpdates, drainBackgroundQueue, persistPendingCoords, clearPersistedCoords]);
+
+  // Save active journey state to AsyncStorage whenever it updates to survive app force-closes
+  useEffect(() => {
+    const id = journeyIdRef.current;
+    if (initialized && isTracking && id && journey) {
+      const stateToSave = {
+        journey,
+        polyline,
+        distance,
+        duration,
+        timestamp: Date.now(),
+      };
+      AsyncStorage.setItem('@active_journey_state', JSON.stringify(stateToSave)).catch(() => {});
+    } else if (initialized && !isTracking) {
+      AsyncStorage.removeItem('@active_journey_state').catch(() => {});
+    }
+  }, [isTracking, isPaused, journey, polyline, distance, duration, initialized]);
 
   return {
     initialized,

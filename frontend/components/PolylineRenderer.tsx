@@ -118,8 +118,40 @@ export function simplifyPolyline(
   return simplified;
 }
 
+/**
+ * Deduplicate coordinates that fall within a strict radius of the last kept coordinate.
+ *
+ * @param coords Array of coordinates
+ * @param radiusMeters Radius in meters to deduplicate points (default: 2)
+ * @returns Deduplicated coordinates
+ */
+export function deduplicateCoords<T extends { latitude: number; longitude: number }>(
+  coords: T[],
+  radiusMeters: number = 2
+): T[] {
+  if (coords.length <= 1) return coords;
+
+  const deduplicated: T[] = [coords[0]];
+
+  for (let i = 1; i < coords.length; i++) {
+    const lastKept = deduplicated[deduplicated.length - 1];
+    const distance = calculateCoordinateDistance(
+      lastKept.latitude,
+      lastKept.longitude,
+      coords[i].latitude,
+      coords[i].longitude
+    );
+
+    if (distance >= radiusMeters) {
+      deduplicated.push(coords[i]);
+    }
+  }
+
+  return deduplicated;
+}
+
 interface PolylineRendererProps {
-  coordinates: Array<{ latitude: number; longitude: number }>;
+  coordinates: Array<{ latitude: number; longitude: number; timestamp?: number }>;
   color?: string;
   glowColor?: string;
   strokeWidth?: number;
@@ -133,12 +165,10 @@ interface PolylineRendererProps {
  * Renders a polyline path on react-native-maps
  * - Default color: Growth Green (#22C55E)
  * - Default stroke width: 4
+ * - Applies sorting and deduplication to prevent crisscrossing and jagged lines
  * - Applies simplification to skip closely-spaced points
  * - Works with native MapView (react-native-maps Polyline component)
  * - For WebView maps, pass coordinates as props to a custom HTML renderer
- *
- * Note: On WebView-based maps, this component doesn't render directly.
- * Instead, extract the processed coordinates and pass them to your WebView's initMap function.
  */
 export default function PolylineRenderer({
   coordinates,
@@ -148,20 +178,30 @@ export default function PolylineRenderer({
   simplifyDistance = 5,
   applyKalman = false,
 }: PolylineRendererProps) {
-  // Process coordinates: simplify and optionally smooth with Kalman
-  let processedCoords = coordinates;
+  if (coordinates.length < 2) {
+    return null;
+  }
 
-  // Simplify to remove closely-spaced points
+  // 1. Sort by timestamp to prevent jagged/crisscrossing paths from out-of-order data
+  let processedCoords = [...coordinates];
+  if (processedCoords.some(c => c.timestamp !== undefined)) {
+    processedCoords.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+  }
+
+  // 2. Deduplicate coordinates within a strict 2-meter radius to smooth out path
+  processedCoords = deduplicateCoords(processedCoords, 2);
+
+  // 3. Simplify to remove closely-spaced points
   if (processedCoords.length > 1) {
     processedCoords = simplifyPolyline(processedCoords, simplifyDistance);
   }
 
-  // Apply Kalman filter if requested
+  // 4. Apply Kalman filter if requested
   if (applyKalman && processedCoords.length > 1) {
     processedCoords = kalmanFilter(processedCoords);
   }
 
-  // Skip rendering if we don't have enough points
+  // Skip rendering if we don't have enough points left
   if (processedCoords.length < 2) {
     return null;
   }
@@ -216,24 +256,27 @@ export default function PolylineRenderer({
  * @param strokeWidth Stroke width (default: 4)
  * @param simplifyDistance Minimum distance in meters to keep points (default: 5)
  * @returns JavaScript code string to inject into WebView initMap function
- *
- * @example
- * const jsCode = generatePolylineJS([
- *   { latitude: 10.5, longitude: 20.5 },
- *   { latitude: 10.6, longitude: 20.6 }
- * ]);
- * // Returns: `const path = [{lat: 10.5, lng: 20.5}, ...]; new google.maps.Polyline({...})`
  */
 export function generatePolylineJS(
-  coordinates: Array<{ latitude: number; longitude: number }>,
+  coordinates: Array<{ latitude: number; longitude: number; timestamp?: number }>,
   color: string = '#22C55E',
   strokeWidth: number = 4,
   simplifyDistance: number = 5
 ): string {
   if (coordinates.length < 2) return '';
 
+  let processed = [...coordinates];
+
+  // Sort by timestamp
+  if (processed.some(c => c.timestamp !== undefined)) {
+    processed.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+  }
+
+  // Deduplicate
+  processed = deduplicateCoords(processed, 2);
+
   // Simplify coordinates
-  const simplified = simplifyPolyline(coordinates, simplifyDistance);
+  const simplified = simplifyPolyline(processed, simplifyDistance);
   if (simplified.length < 2) return '';
 
   // Build path array for Google Maps

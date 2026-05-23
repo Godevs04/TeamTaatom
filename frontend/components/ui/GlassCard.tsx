@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, ViewProps, StyleProp, ViewStyle, Pressable } from 'react-native';
+import { View, StyleSheet, ViewProps, StyleProp, ViewStyle, Pressable, Platform } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
@@ -95,6 +95,22 @@ export const GlassCard = ({
   const borderColor = error ? theme.colors.error : theme.colors.glass.border;
   const innerRadius = Math.max(0, theme.borderRadius.md - borderWidth);
 
+  const isAndroid = Platform.OS === 'android';
+
+  // Fallback background color on Android to ensure readability without blur
+  const backgroundColor = isAndroid
+    ? (isDark ? 'rgba(30, 30, 30, 0.9)' : 'rgba(255, 255, 255, 0.9)')
+    : (isDark ? frostTint : theme.colors.glassBackground);
+
+  // Standard elevation/shadow for Android performance fallback
+  const androidShadow = isAndroid && !error ? {
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+  } : {};
+
   const content = (
     <Pressable
       onPress={onPress}
@@ -119,6 +135,7 @@ export const GlassCard = ({
                 borderRadius: theme.borderRadius.md,
                 // @ts-ignore - shadows might not be strongly typed here
                 ...(theme.shadows.medium),
+                ...androidShadow,
               }
             ]}
           >
@@ -126,13 +143,15 @@ export const GlassCard = ({
               flex: 1,
               borderRadius: innerRadius,
               overflow: 'hidden',
-              backgroundColor: isDark ? frostTint : theme.colors.glassBackground,
+              backgroundColor: backgroundColor,
             }}>
-              <BlurView
-                intensity={isDark ? blurIntensity : blurIntensity * 0.8}
-                tint={blurTint}
-                style={StyleSheet.absoluteFillObject}
-              />
+              {!isAndroid && (
+                <BlurView
+                  intensity={isDark ? blurIntensity : blurIntensity * 0.8}
+                  tint={blurTint}
+                  style={StyleSheet.absoluteFillObject}
+                />
+              )}
               <View style={styles.content}>
                 {children}
               </View>
@@ -143,15 +162,18 @@ export const GlassCard = ({
             borderColor: borderColor,
             borderWidth: borderWidth,
             borderRadius: theme.borderRadius.md,
-            backgroundColor: isDark ? frostTint : theme.colors.glassBackground,
+            backgroundColor: backgroundColor,
             // @ts-ignore
             ...(error ? {} : theme.shadows.medium),
+            ...androidShadow,
           }]}>
-            <BlurView
-              intensity={isDark ? blurIntensity : blurIntensity * 0.8}
-              tint={blurTint}
-              style={StyleSheet.absoluteFillObject}
-            />
+            {!isAndroid && (
+              <BlurView
+                intensity={isDark ? blurIntensity : blurIntensity * 0.8}
+                tint={blurTint}
+                style={StyleSheet.absoluteFillObject}
+              />
+            )}
             <View style={styles.content}>
               {children}
             </View>
