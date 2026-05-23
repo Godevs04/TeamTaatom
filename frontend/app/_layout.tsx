@@ -13,8 +13,9 @@ import { fcmService } from '../services/fcm';
 import { registerForPushNotificationsAsync } from '../services/pushNotifications';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
 import { SettingsProvider } from '../context/SettingsContext';
-import { AlertProvider } from '../context/AlertContext';
+import { AlertProvider, useAlert } from '../context/AlertContext';
 import { ScrollProvider } from '../context/ScrollContext';
+import NetInfo from '@react-native-community/netinfo';
 import { socketService } from '../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, usePathname, useSegments } from 'expo-router';
@@ -103,6 +104,7 @@ function RootLayoutInner() {
   const [showSessionBanner, setShowSessionBanner] = useState(true);
   const [isInitializing, setIsInitializing] = useState(true);
   const router = useRouter();
+  const { showWarning, showSuccess } = useAlert();
   const pathname = usePathname();
   const segments = useSegments();
   const previousPathnameRef = useRef<string | null>(null);
@@ -151,36 +153,27 @@ function RootLayoutInner() {
     // populate/cleanup is needed at startup.
   }, []);
 
-  // Re-check connectivity when app comes to foreground and periodically when active.
-  // Uses a 2-consecutive-failure rule to avoid false-offline from a single slow/cold-start request.
-  const connectivityFailCountRef = useRef(0);
+  // Robust network connectivity tracking using @react-native-community/netinfo.
+  // Triggers global offline warnings and automatic dismiss on reconnect.
+  const wasConnectedRef = useRef<boolean | null>(null);
   useEffect(() => {
-    const checkAndSetOffline = async () => {
-      const ok = await testAPIConnectivity();
-      if (ok) {
-        connectivityFailCountRef.current = 0;
-        setIsOffline(false);
-      } else {
-        connectivityFailCountRef.current += 1;
-        if (connectivityFailCountRef.current >= 2) {
-          setIsOffline(true);
-        }
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      const isConnected = !!state.isConnected;
+      setIsOffline(!isConnected);
+
+      // Warning when transitioning from online to offline
+      if (!isConnected && (wasConnectedRef.current === null || wasConnectedRef.current === true)) {
+        showWarning('Offline Mode', 'You are offline. Some features may not work.');
+      } 
+      // Success when transitioning from offline to online
+      else if (isConnected && wasConnectedRef.current === false) {
+        showSuccess('Back Online', 'Your internet connection has been restored.');
       }
-    };
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') {
-        // Reset fail count on foreground so a single success immediately clears the banner
-        connectivityFailCountRef.current = 0;
-        checkAndSetOffline();
-      }
+      wasConnectedRef.current = isConnected;
     });
-    const interval = setInterval(checkAndSetOffline, 30000);
-    // No immediate check here — auth init already sets the initial offline state
-    return () => {
-      sub.remove();
-      clearInterval(interval);
-    };
-  }, []);
+
+    return () => unsubscribe();
+  }, [showWarning, showSuccess]);
 
   // Stop all audio when navigating away from tabs (home/shorts) to other routes
   // Use a flag to prevent multiple rapid calls and conflicts with tabs layout
@@ -941,8 +934,14 @@ function RootLayoutInner() {
           </Text>
           <TouchableOpacity
             onPress={async () => {
-              const ok = await testAPIConnectivity();
-              if (ok) setIsOffline(false);
+              const state = await NetInfo.refresh();
+              const isConnected = !!state.isConnected;
+              setIsOffline(!isConnected);
+              if (isConnected) {
+                showSuccess('Back Online', 'Your internet connection has been restored.');
+              } else {
+                showWarning('Still Offline', 'Please check your internet connection.');
+              }
             }}
             style={styles.offlineRetryButton}
             accessibilityRole="button"

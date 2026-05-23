@@ -2,7 +2,7 @@ import React, { useRef, useState, useEffect, memo, useCallback, useMemo } from '
 import { View, StyleSheet, ActivityIndicator, Image, TouchableOpacity, Text, Dimensions } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
-import Video, { VideoRef } from 'react-native-video';
+import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import logger from '../../utils/logger';
 
 interface ShortsVideoProps {
@@ -32,7 +32,7 @@ const ShortsVideo = ({
   onError,
   onProgress,
 }: ShortsVideoProps) => {
-  const videoRef = useRef<VideoRef>(null);
+  const videoRef = useRef<Video>(null);
   const [isReady, setIsReady] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [showPoster, setShowPoster] = useState(true);
@@ -72,10 +72,7 @@ const ShortsVideo = ({
     }
   }, [videoId]);
 
-  // DETAILED LOGGING: Track first 2 shorts
-  const isFirstTwoShorts = videoId && videoId.length > 0 && Math.random() < 0.4; // Rough heuristic
-  
-  // Log on mount and unmount
+  // Log on mount and unmount & handle explicit unloadAsync on unmount
   useEffect(() => {
     logger.info(`[ShortsVideo] Component mounted for video ${videoId}:`, {
       videoUrl: videoUrl ? videoUrl.substring(0, 80) : 'EMPTY',
@@ -85,8 +82,16 @@ const ShortsVideo = ({
       sourceVersion,
       timestamp: new Date().toISOString()
     });
+    
     return () => {
-      logger.info(`[ShortsVideo] Component unmounted / cleaning up for video ${videoId}`);
+      logger.info(`[ShortsVideo] Component unmounting/cleaning up for video ${videoId}`);
+      if (videoRef.current) {
+        const video = videoRef.current;
+        logger.debug(`[ShortsVideo] Unmounting: calling unloadAsync for ${videoId}`);
+        video.unloadAsync().catch(err => {
+          logger.debug(`[ShortsVideo] Error unloading video ${videoId} on unmount (non-blocking):`, err);
+        });
+      }
     };
   }, [videoId]);
 
@@ -101,9 +106,6 @@ const ShortsVideo = ({
     setHasError(false);
     setShowPoster(true);
   }, [videoUrl, sourceVersion, videoId]);
-
-  // Handle active status to control play/pause
-  const isPaused = !isActive;
 
   const handleReadyForDisplay = useCallback(() => {
     if (!isReady) {
@@ -136,14 +138,21 @@ const ShortsVideo = ({
     setRetryCount(retryCount + 1);
   }, [videoId, retryCount]);
 
-  const handlePlaybackStatusUpdate = useCallback((status: any) => {
-    if (status.isLoaded && onProgress) {
-      onProgress({
-        currentTime: (status.currentTime || 0) / 1000,
-        seekableDuration: (status.duration || 0) / 1000,
-      });
+  const handlePlaybackStatusUpdate = useCallback((status: AVPlaybackStatus) => {
+    if (status.isLoaded) {
+      if (onProgress) {
+        onProgress({
+          currentTime: (status.positionMillis || 0) / 1000,
+          seekableDuration: (status.durationMillis || 0) / 1000,
+        });
+      }
+    } else {
+      const errStatus = status as any;
+      if (errStatus.error) {
+        handleVideoError(errStatus.error);
+      }
     }
-  }, [onProgress]);
+  }, [onProgress, handleVideoError]);
 
   return (
     <View style={styles.container}>
@@ -177,25 +186,16 @@ const ShortsVideo = ({
           ref={videoRef}
           source={{ uri: videoUrl }}
           style={videoStyle}
-          resizeMode="cover"
-          repeat={true}
-          paused={isPaused}
-          muted={false}
-          volume={1.0}
+          resizeMode={ResizeMode.COVER}
+          isLooping={true}
+          shouldPlay={isActive}
+          isMuted={isMuted}
+          volume={volume}
           onReadyForDisplay={handleReadyForDisplay}
           onError={handleVideoError}
-          onProgress={handlePlaybackStatusUpdate}
+          onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
           onLoad={handleLoad}
-          bufferConfig={{
-            minBufferMs: 2500,
-            maxBufferMs: 10000,
-            bufferForPlaybackMs: 1000,
-            bufferForPlaybackAfterRebufferMs: 2000,
-          }}
-          ignoreSilentSwitch="obey"
-          playInBackground={false}
-          playWhenInactive={false}
-          progressUpdateInterval={500}
+          progressUpdateIntervalMillis={500}
         />
       )}
 
