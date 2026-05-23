@@ -1,5 +1,6 @@
 import React, { useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated, Image, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
@@ -23,6 +24,7 @@ export default function AnimatedHeader({
 }: AnimatedHeaderProps) {
   const router = useRouter();
   const { theme, mode } = useTheme();
+  const insets = useSafeAreaInsets();
   
   // Animation refs
   const titleAnim = useRef(new Animated.Value(0)).current;
@@ -129,7 +131,7 @@ export default function AnimatedHeader({
   const styles = getStyles(theme);
 
   return (
-    <View style={[styles.header, { backgroundColor: 'transparent' }]}>
+    <View style={[styles.header, { backgroundColor: 'transparent', paddingTop: insets.top }]}>
       {(showSearch || showChat) && (
         <TouchableOpacity
           onPress={handleLogoPress}

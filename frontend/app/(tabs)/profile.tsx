@@ -2376,12 +2376,12 @@ const styles = StyleSheet.create({
   postsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 0,
+    gap: GRID_GAP,
     justifyContent: 'flex-start',
     paddingHorizontal: 0,
   },
   postThumbnail: {
-    width: '33.33%',
+    width: profileColumnWidth,
     aspectRatio: 1,
     borderRadius: 6,
     overflow: 'hidden',
