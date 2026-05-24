@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -30,7 +30,9 @@ const ShortsOverlay = ({
   onLocationPress,
   onSongPlayingChange,
 }: ShortsOverlayProps) => {
+  // Strike 16: Shorts gesture cleanup. Ensuring layout hierarchy doesn't capture feed gestures.
   const { theme } = useTheme();
+  const [isExpanded, setIsExpanded] = React.useState(false);
 
   return (
     <View style={styles.bottomContent} pointerEvents="box-none">
@@ -75,9 +77,17 @@ const ShortsOverlay = ({
             {/* Glassmorphic Caption Card */}
             {post.caption && (
               <View style={[styles.captionCard, { backgroundColor: theme.colors.glassSurface, borderColor: theme.colors.glassBorder }]}>
-                <Text style={styles.captionText} numberOfLines={2}>
-                  {post.caption}
-                </Text>
+                <Pressable
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    setIsExpanded(!isExpanded);
+                  }}
+                  style={styles.captionPressable}
+                >
+                  <Text style={styles.captionText} numberOfLines={isExpanded ? undefined : 2}>
+                    {post.caption}
+                  </Text>
+                </Pressable>
               </View>
             )}
             
@@ -151,7 +161,7 @@ const styles = StyleSheet.create({
     right: 90,
     height: 320,
     justifyContent: 'flex-end',
-    zIndex: 2,
+    zIndex: 10,
   },
   gradientOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -218,6 +228,10 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     borderWidth: 0.5,
     borderColor: 'rgba(255, 255, 255, 0.08)',
+    zIndex: 10,
+  },
+  captionPressable: {
+    width: '100%',
   },
   captionText: {
     color: 'rgba(255, 255, 255, 0.95)',

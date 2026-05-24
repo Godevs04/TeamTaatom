@@ -89,9 +89,9 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 // postsTabsSection has paddingHorizontal 0 on the grid part
 // 2 gaps between 3 columns
 const GRID_GAP = 2;
-const GRID_CARD_MARGIN = 0; // Set to 0 to occupy screen fully
-const profileColumnWidth = Math.floor((screenWidth - GRID_CARD_MARGIN * 2 - GRID_GAP * 2) / 3);
-const profileShortHeight = Math.round(profileColumnWidth * (16 / 9));
+const horizontalPadding = 0;
+const profileColumnWidth = (screenWidth - (horizontalPadding * 2) - (GRID_GAP * 2)) / 3;
+const profileShortHeight = profileColumnWidth; // cropped square for grid consistency
 const isTablet = screenWidth >= 768;
 const isWeb = Platform.OS === 'web';
 const isIOS = Platform.OS === 'ios';
@@ -150,6 +150,8 @@ export default function ProfileScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
   const [checkingUser, setCheckingUser] = useState(true);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [verifiedLocationsCount, setVerifiedLocationsCount] = useState<number | null>(null);
   const [verifiedLocations, setVerifiedLocations] = useState<Array<{ latitude: number; longitude: number; address: string; date?: string }>>([]);
@@ -1073,6 +1075,55 @@ export default function ProfileScreen() {
     );
   };
 
+  const handleBulkDelete = () => {
+    if (selectedItemIds.length === 0) return;
+    const typeLabel = activeTab === 'shorts' ? 'shorts' : 'posts';
+    showConfirm(
+      `Are you sure you want to delete the ${selectedItemIds.length} selected ${typeLabel}?`,
+      async () => {
+        const idsToDelete = [...selectedItemIds];
+        // Optimistic update
+        const previousPosts = [...posts];
+        const previousShorts = [...userShorts];
+        const previousProfileData = profileData;
+
+        try {
+          // Reset selection states immediately
+          setIsSelectionMode(false);
+          setSelectedItemIds([]);
+
+          if (activeTab === 'shorts') {
+            setUserShorts(prev => prev.filter(s => !idsToDelete.includes(s._id)));
+            await Promise.all(idsToDelete.map(id => deleteShort(id)));
+          } else {
+            setPosts(prev => prev.filter(p => !idsToDelete.includes(p._id)));
+            await Promise.all(idsToDelete.map(id => deletePost(id)));
+          }
+
+          if (profileData) {
+            setProfileData(prev => prev ? {
+              ...prev,
+              postsCount: activeTab === 'shorts' ? prev.postsCount : Math.max(0, prev.postsCount - idsToDelete.length)
+            } : null);
+          }
+
+          showSuccess(`${idsToDelete.length} ${typeLabel} deleted successfully!`);
+        } catch (error: any) {
+          // Revert optimistic updates
+          setPosts(previousPosts);
+          setUserShorts(previousShorts);
+          setProfileData(previousProfileData);
+
+          logger.error('Failed to perform bulk deletion', error);
+          showError(error.message || 'Failed to delete selected items.');
+        }
+      },
+      'Delete All',
+      'Delete',
+      'Cancel'
+    );
+  };
+
   if (loading || checkingUser) {
     return (
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
@@ -1356,6 +1407,8 @@ export default function ProfileScreen() {
                         logger.debug('Tab switch blocked - fetch in progress');
                         return;
                       }
+                      setIsSelectionMode(false);
+                      setSelectedItemIds([]);
                       setActiveTab(tab);
                     }}
                   >
@@ -1380,8 +1433,12 @@ export default function ProfileScreen() {
             {/* Profile Tabs Lifecycle Safety: Always render all tabs but hide inactive - prevents scroll reset */}
             <View style={activeTab !== 'posts' ? { height: 0, overflow: 'hidden' } : {}}>
               {posts.length > 0 ? (
-                <View style={styles.postsGrid}>
-                  {posts.map((post) => {
+                <FlatList
+                  data={posts}
+                  numColumns={3}
+                  scrollEnabled={false}
+                  keyExtractor={(item) => item._id}
+                  renderItem={({ item: post }) => {
                     // Try multiple possible image URL fields
                     const imageUrl = post.imageUrl 
                       || (post as any).image_url 
@@ -1394,12 +1451,28 @@ export default function ProfileScreen() {
                       : null;
                     const validImageUrl = rawUrl ? optimizeCloudinaryUrl(rawUrl, { width: 300, height: 300 }) : null;
                     
+                    const isSelected = selectedItemIds.includes(post._id);
+                    const handlePress = () => {
+                      if (isSelectionMode) {
+                        setSelectedItemIds(prev => 
+                          prev.includes(post._id) ? prev.filter(id => id !== post._id) : [...prev, post._id]
+                        );
+                      } else {
+                        if (user?._id) router.push(`/user-posts/${user._id}?postId=${post._id}`);
+                      }
+                    };
+                    const handleLongPress = () => {
+                      if (!isSelectionMode) {
+                        setIsSelectionMode(true);
+                        setSelectedItemIds([post._id]);
+                      }
+                    };
+
                     return (
                       <Pressable 
-                        key={post._id} 
-                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor }]}
-                        onLongPress={() => handleDeletePost(post._id, false)}
-                        onPress={() => user?._id && router.push(`/user-posts/${user._id}?postId=${post._id}`)}
+                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: isSelected ? theme.colors.primary : profileTheme.gapBorderColor }]}
+                        onLongPress={handleLongPress}
+                        onPress={handlePress}
                       >
                         {validImageUrl ? (
                           <Image 
@@ -1422,6 +1495,13 @@ export default function ProfileScreen() {
                             <Ionicons name="image-outline" size={28} color={profileTheme.textSecondary} />
                           </View>
                         )}
+                        {isSelected && (
+                          <View style={[styles.selectionOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.4)' }]}>
+                            <View style={[styles.checkmarkCircle, { backgroundColor: theme.colors.primary }]}>
+                              <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                            </View>
+                          </View>
+                        )}
                         {/* Multi-image indicator */}
                         {(post as any).images?.length > 1 && (
                           <View style={styles.multiImageBadge}>
@@ -1439,8 +1519,10 @@ export default function ProfileScreen() {
                         </View>
                       </Pressable>
                     );
-                  })}
-                </View>
+                  }}
+                  columnWrapperStyle={styles.postsGridWrapper}
+                  contentContainerStyle={styles.postsGridContainer}
+                />
               ) : (
                 <View style={styles.emptyState}>
                   <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
@@ -1457,23 +1539,48 @@ export default function ProfileScreen() {
                     <Text style={[styles.createPostButtonText, { color: profileTheme.accent }]}>Create Post</Text>
                   </Pressable>
                 </View>
-              )
-              }
+              )}
             </View>
             <View style={activeTab !== 'shorts' ? { height: 0, overflow: 'hidden' } : {}}>
               {userShorts.length > 0 ? (
-                <View style={styles.postsGrid}>
-                  {userShorts.map((s) => {
-                    const rawUri = (s as any).imageUrl || (s as any).thumbnailUrl || (s as any).mediaUrl || '';
+                <FlatList
+                  data={userShorts}
+                  numColumns={3}
+                  scrollEnabled={false}
+                  keyExtractor={(item) => item._id}
+                  renderItem={({ item: s }) => {
+                    const isVideo = (url: any) => {
+                      if (typeof url !== 'string') return false;
+                      const cleanUrl = url.split('?')[0].toLowerCase();
+                      return cleanUrl.endsWith('.mp4') || cleanUrl.endsWith('.mov') || cleanUrl.endsWith('.m4v') || cleanUrl.endsWith('.webm') || cleanUrl.includes('/videos/') || cleanUrl.includes('/shorts/') || url === (s as any).videoUrl;
+                    };
+                    const rawUri = (s as any).imageUrl && !isVideo((s as any).imageUrl) ? (s as any).imageUrl : 
+                                   (s as any).thumbnailUrl && !isVideo((s as any).thumbnailUrl) ? (s as any).thumbnailUrl : '';
                     const uri = rawUri ? optimizeCloudinaryUrl(rawUri, { width: 300, height: 300 }) : '';
                     const hasFailed = failedShortThumbs.has(s._id);
+                    const isSelected = selectedItemIds.includes(s._id);
+                    const handlePress = () => {
+                      if (isSelectionMode) {
+                        setSelectedItemIds(prev => 
+                          prev.includes(s._id) ? prev.filter(id => id !== s._id) : [...prev, s._id]
+                        );
+                      } else {
+                        router.push(`/user-shorts/${user?._id || ''}?shortId=${s._id}`);
+                      }
+                    };
+                    const handleLongPress = () => {
+                      if (!isSelectionMode) {
+                        setIsSelectionMode(true);
+                        setSelectedItemIds([s._id]);
+                      }
+                    };
+
                     if (!rawUri || hasFailed) {
                       return (
                         <Pressable
-                          key={s._id}
-                          style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor, aspectRatio: 9/16 }]}
-                          onLongPress={() => handleDeletePost(s._id, true)}
-                          onPress={() => router.push(`/user-shorts/${user?._id || ''}?shortId=${s._id}`)}
+                          style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: isSelected ? theme.colors.primary : profileTheme.gapBorderColor }]}
+                          onLongPress={handleLongPress}
+                          onPress={handlePress}
                         >
                           <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
                             <Ionicons name="videocam-outline" size={28} color={profileTheme.textSecondary} />
@@ -1484,17 +1591,27 @@ export default function ProfileScreen() {
                           {/* View count overlay */}
                           <View style={styles.viewCountOverlay}>
                             <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
-                            <Text style={styles.viewCountText}>0</Text>
+                            <Text style={styles.viewCountText}>
+                              {((s as any).viewsCount ?? 0) >= 1000
+                                ? `${(((s as any).viewsCount ?? 0) / 1000).toFixed(1)}k`
+                                : String((s as any).viewsCount ?? 0)}
+                            </Text>
                           </View>
+                          {isSelected && (
+                            <View style={[styles.selectionOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.4)' }]}>
+                              <View style={[styles.checkmarkCircle, { backgroundColor: theme.colors.primary }]}>
+                                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                              </View>
+                            </View>
+                          )}
                         </Pressable>
                       );
                     }
                     return (
                       <Pressable
-                        key={s._id}
-                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor, aspectRatio: 9/16 }]}
-                        onLongPress={() => handleDeletePost(s._id, true)}
-                        onPress={() => router.push(`/user-shorts/${user?._id || ''}?shortId=${s._id}`)}
+                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: isSelected ? theme.colors.primary : profileTheme.gapBorderColor }]}
+                        onLongPress={handleLongPress}
+                        onPress={handlePress}
                       >
                         <Image
                           source={{ uri }}
@@ -1518,10 +1635,19 @@ export default function ProfileScreen() {
                               : String((s as any).viewsCount ?? 0)}
                           </Text>
                         </View>
+                        {isSelected && (
+                          <View style={[styles.selectionOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.4)' }]}>
+                            <View style={[styles.checkmarkCircle, { backgroundColor: theme.colors.primary }]}>
+                              <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                            </View>
+                          </View>
+                        )}
                       </Pressable>
                     );
-                  })}
-                </View>
+                  }}
+                  columnWrapperStyle={styles.postsGridWrapper}
+                  contentContainerStyle={styles.postsGridContainer}
+                />
               ) : (
                 <View style={styles.emptyState}>
                   <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
@@ -1538,19 +1664,27 @@ export default function ProfileScreen() {
                     <Text style={[styles.createPostButtonText, { color: profileTheme.accent }]}>Create Short</Text>
                   </Pressable>
                 </View>
-              )
-              }
+              )}
             </View>
             <View style={activeTab !== 'saved' ? { height: 0, overflow: 'hidden' } : {}}>
               {savedItems.length > 0 ? (
-                <View style={styles.postsGrid}>
-                  {savedItems.map((item) => {
+                <FlatList
+                  data={savedItems}
+                  numColumns={3}
+                  scrollEnabled={false}
+                  keyExtractor={(item) => item._id}
+                  renderItem={({ item }) => {
                     // Try multiple possible image URL fields
-                    const imageUrl = (item as any).imageUrl 
-                      || (item as any).image_url 
-                      || (item as any).mediaUrl 
-                      || (item as any).images?.[0]
-                      || (item as any).thumbnailUrl;
+                    const isVideo = (url: any) => {
+                      if (typeof url !== 'string') return false;
+                      const cleanUrl = url.split('?')[0].toLowerCase();
+                      return cleanUrl.endsWith('.mp4') || cleanUrl.endsWith('.mov') || cleanUrl.endsWith('.m4v') || cleanUrl.endsWith('.webm') || cleanUrl.includes('/videos/') || cleanUrl.includes('/shorts/') || url === (item as any).videoUrl;
+                    };
+                    
+                    const imageUrl = (item as any).imageUrl && !isVideo((item as any).imageUrl) ? (item as any).imageUrl : 
+                                     (item as any).image_url && !isVideo((item as any).image_url) ? (item as any).image_url : 
+                                     (item as any).thumbnailUrl && !isVideo((item as any).thumbnailUrl) ? (item as any).thumbnailUrl : 
+                                     (item as any).images?.[0] && !isVideo((item as any).images?.[0]) ? (item as any).images?.[0] : '';
                     
                     const rawUrl = imageUrl && String(imageUrl).trim() && String(imageUrl).trim().length > 0
                       ? String(imageUrl).trim()
@@ -1559,7 +1693,6 @@ export default function ProfileScreen() {
                     
                     return (
                       <Pressable 
-                        key={item._id} 
                         style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor }]}
                         onPress={() => {
                           // Use the same format as user-posts route
@@ -1603,8 +1736,10 @@ export default function ProfileScreen() {
                         </View>
                       </Pressable>
                     );
-                  })}
-                </View>
+                  }}
+                  columnWrapperStyle={styles.postsGridWrapper}
+                  contentContainerStyle={styles.postsGridContainer}
+                />
               ) : (
                 <View style={styles.emptyState}>
                   <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
@@ -1615,8 +1750,7 @@ export default function ProfileScreen() {
                     Save posts you love to view later
                   </Text>
                 </View>
-              )
-              }
+              )}
             </View>
           </View>
           </PremiumGlassCard>
@@ -1634,6 +1768,33 @@ export default function ProfileScreen() {
         )}
       </ScrollView>
       <ScrollEdgeFades isDark={isDark} variant="vertical" hideTop={true} />
+
+      {isSelectionMode && selectedItemIds.length > 0 && (
+        <View style={[styles.floatingActionBar, { backgroundColor: isDark ? 'rgba(16, 34, 54, 0.95)' : 'rgba(255, 255, 255, 0.95)', borderColor: profileTheme.cardBorder }]}>
+          <Text style={[styles.actionBarText, { color: profileTheme.textPrimary }]}>
+            {selectedItemIds.length} selected
+          </Text>
+          <View style={styles.actionBarButtons}>
+            <TouchableOpacity
+              style={[styles.actionBarCancelBtn, { borderColor: profileTheme.textSecondary }]}
+              onPress={() => {
+                setIsSelectionMode(false);
+                setSelectedItemIds([]);
+              }}
+            >
+              <Text style={[styles.actionBarCancelText, { color: profileTheme.textSecondary }]}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.actionBarDeleteBtn, { backgroundColor: theme.colors.error }]}
+              onPress={handleBulkDelete}
+            >
+              <Ionicons name="trash-outline" size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
+              <Text style={styles.actionBarDeleteText}>Delete</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       </View>
     </View>
     </ErrorBoundary>
@@ -2423,6 +2584,13 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     paddingHorizontal: 0,
   },
+  postsGridWrapper: {
+    justifyContent: 'flex-start',
+    gap: GRID_GAP,
+  },
+  postsGridContainer: {
+    gap: GRID_GAP,
+  },
   postThumbnail: {
     width: profileColumnWidth,
     aspectRatio: 1,
@@ -2564,5 +2732,70 @@ const styles = StyleSheet.create({
   modalText: {
     fontSize: 16,
     lineHeight: 24,
+  },
+  selectionOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 30,
+  },
+  checkmarkCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  floatingActionBar: {
+    position: 'absolute',
+    bottom: isTablet ? 90 : 80,
+    left: 20,
+    right: 20,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 8,
+    zIndex: 100,
+  },
+  actionBarText: {
+    fontSize: 15,
+    fontWeight: '700',
+    fontFamily: getFontFamily('700'),
+  },
+  actionBarButtons: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  actionBarCancelBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  actionBarCancelText: {
+    fontSize: 13,
+    fontWeight: '600',
+    fontFamily: getFontFamily('600'),
+  },
+  actionBarDeleteBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionBarDeleteText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '700',
+    fontFamily: getFontFamily('700'),
   },
 });

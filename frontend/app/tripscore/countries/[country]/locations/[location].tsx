@@ -26,6 +26,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Locale, getLocaleById, getLocales } from '../../../../../services/locale';
 import { savedEvents } from '../../../../../utils/savedEvents';
 import logger from '../../../../../utils/logger';
+import { fetchDirectionsRoute } from '../../../../../services/directions';
 
 interface LocationDetail {
   name: string;
@@ -450,13 +451,37 @@ export default function LocationDetailScreen() {
           return;
         }
         
-        // Calculate straight-line distance using the Haversine formula
-        const calculatedDistance = calculateDistance(
-          currentLat,
-          currentLng,
-          targetLat,
-          targetLng
-        );
+        // First try to fetch routing distance using Google Directions API
+        let calculatedDistance = null;
+        try {
+          const route = await fetchDirectionsRoute(
+            { latitude: currentLat, longitude: currentLng },
+            { latitude: targetLat, longitude: targetLng }
+          );
+          if (route && route.distanceValue !== undefined) {
+            calculatedDistance = route.distanceValue / 1000; // convert to km
+          } else if (route && route.distanceText) {
+            // fallback: parse distanceText if distanceValue is missing (e.g. "12.3 km")
+            const match = route.distanceText.match(/([\d.]+)\s*(km|m)/i);
+            if (match) {
+              const val = parseFloat(match[1]);
+              const unit = match[2].toLowerCase();
+              calculatedDistance = unit === 'm' ? val / 1000 : val;
+            }
+          }
+        } catch (routeError) {
+          logger.warn('Failed to fetch directions route, falling back to straight-line:', routeError);
+        }
+
+        // Fallback to straight-line distance (Haversine) if routing fails
+        if (calculatedDistance === null || isNaN(calculatedDistance) || calculatedDistance < 0) {
+          calculatedDistance = calculateDistance(
+            currentLat,
+            currentLng,
+            targetLat,
+            targetLng
+          );
+        }
         
         // Distance Calculation Guards: Validate calculated distance
         if (calculatedDistance === null || isNaN(calculatedDistance) || calculatedDistance < 0) {
@@ -470,7 +495,7 @@ export default function LocationDetailScreen() {
         // Cache the calculated distance
         distanceCacheRef.current.set(cacheKey, calculatedDistance);
         
-        logger.debug('Straight-line distance calculated successfully:', { distance: calculatedDistance, unit: 'km' });
+        logger.debug('Distance calculated successfully (routing/fallback):', { distance: calculatedDistance, unit: 'km' });
         if (isMountedRef.current) {
           setDistance(calculatedDistance);
         }
@@ -1212,7 +1237,9 @@ export default function LocationDetailScreen() {
                   adjustsFontSizeToFit
                 >
                   {distance !== null && distance !== undefined
-                    ? `Approximately ${Math.round(distance)} km`
+                    ? distance < 1
+                      ? `${Math.round(distance * 1000)} m`
+                      : `${distance.toFixed(1)} km`
                     : 'Calculating...'}
                 </Text>
                 <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>

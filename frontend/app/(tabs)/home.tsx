@@ -260,6 +260,11 @@ export default function HomeScreen() {
       });
     });
   }, []);
+
+  const postsRef = useRef(posts);
+  useEffect(() => {
+    postsRef.current = posts;
+  }, [posts]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [page, setPage] = useState(1);
@@ -306,6 +311,18 @@ export default function HomeScreen() {
   const hasScrolledRef = useRef(false);
   // Track currently visible post ID for music playback control
   const [visiblePostId, setVisiblePostId] = useState<string | null>(null);
+
+  // Strike 20: Force Initial Viewability on mount and load completion
+  useEffect(() => {
+    if (posts && posts.length > 0) {
+      const hasCurrent = posts.some(p => p._id === visiblePostId);
+      if (!visiblePostId || !hasCurrent) {
+        setVisiblePostId(posts[0]._id);
+      }
+    } else {
+      setVisiblePostId(null);
+    }
+  }, [posts, visiblePostId]);
 
   // Frequency control: only show native ads after user has scrolled past 5 posts and session > 30s (retention-friendly).
   const [hasScrolledPastFifthPost, setHasScrolledPastFifthPost] = useState(false);
@@ -1053,7 +1070,7 @@ export default function HomeScreen() {
     triggerRefreshHaptic();
     
     // Animated scroll to top for visual feedback (scrolls the old list).
-    if (flatListRef.current && posts.length > 0) {
+    if (flatListRef.current && postsRef.current.length > 0) {
       try {
         flatListRef.current.scrollToOffset({ offset: 0, animated: true });
       } catch (error) {
@@ -1081,7 +1098,7 @@ export default function HomeScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [fetchPosts, fetchUnseenMessageCount, posts.length, feedMode, isOnline]);
+  }, [fetchPosts, fetchUnseenMessageCount, feedMode, isOnline]);
 
   const handleFeedTabPress = useCallback((mode: FeedMode) => {
     if (mode === feedMode) return;
@@ -1299,7 +1316,7 @@ export default function HomeScreen() {
   // MUST be defined before conditional returns to follow Rules of Hooks
   const keyExtractor = useCallback((item: FeedItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;
-    return item._id;
+    return item._id?.toString() || '';
   }, []);
   
   // Track viewable items for conditional image rendering and analytics

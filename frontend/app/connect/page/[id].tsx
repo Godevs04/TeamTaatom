@@ -15,6 +15,7 @@ import {
   Linking,
   TextInput,
   KeyboardAvoidingView,
+  Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
@@ -83,7 +84,7 @@ const sectionContentWidth = screenWidth - (isTablet ? themeConstants.spacing.lg 
 // Aspect ratio overrides from editor: 'square' → 1, 'landscape' → 16/9, 'portrait' → 3/4
 const AR_MAP: Record<string, number> = { square: 1, landscape: 16 / 9, portrait: 3 / 4 };
 
-function ContentImage({ uri, inRow, inStack, arOverride }: { uri: string; inRow?: boolean; inStack?: boolean; arOverride?: string }) {
+function ContentImage({ uri, inRow, inStack, arOverride, blurRadius }: { uri: string; inRow?: boolean; inStack?: boolean; arOverride?: string; blurRadius?: number }) {
   const [aspectRatio, setAspectRatio] = useState<number>(4 / 3);
 
   useEffect(() => {
@@ -99,6 +100,7 @@ function ContentImage({ uri, inRow, inStack, arOverride }: { uri: string; inRow?
         source={{ uri }}
         style={{ flex: 1, width: '100%', borderRadius: 8 }}
         resizeMode="cover"
+        blurRadius={blurRadius}
       />
     );
   }
@@ -107,12 +109,13 @@ function ContentImage({ uri, inRow, inStack, arOverride }: { uri: string; inRow?
       source={{ uri }}
       style={[styles.contentImage, { aspectRatio: resolvedAR }]}
       resizeMode="cover"
+      blurRadius={blurRadius}
     />
   );
 }
 
 export default function ConnectPageDetailScreen() {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const { showSuccess } = useAlert();
   const { updateSubscriptionStatus } = useSubscription();
   const router = useRouter();
@@ -139,6 +142,7 @@ export default function ConnectPageDetailScreen() {
   const [followersLoading, setFollowersLoading] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [subscribing, setSubscribing] = useState(false);
+  const [isRevealed, setIsRevealed] = useState(false);
   // Stores the pending subscription response so onVerify can optimistically
   // flip the UI before the webhook arrives and DB status updates to 'active'.
   const pendingSubscriptionRef = useRef<{ subscriptionId: string; amount: number } | null>(null);
@@ -494,7 +498,7 @@ export default function ConnectPageDetailScreen() {
     return rows;
   };
 
-  const renderContentBlock = (block: ContentBlock, index: number, pageTextColor?: string, inRow = false, inStack = false) => {
+  const renderContentBlock = (block: ContentBlock, index: number, pageTextColor?: string, inRow = false, inStack = false, obfuscate = false) => {
     // Per-block override > page-level override > theme default.
     const effectiveTextColor = block.color || pageTextColor || theme.colors.text;
     const effectiveBg = block.backgroundColor || '';
@@ -525,27 +529,31 @@ export default function ConnectPageDetailScreen() {
         <React.Fragment key={block._id || index}>{node}</React.Fragment>
       );
 
+    let node = null;
     switch (block.type) {
       case 'heading':
-        return wrap(
+        node = wrap(
           <Text style={[styles.contentHeading, { color: effectiveTextColor, textAlign, fontSize: headingFontSize }, block.bold ? { fontWeight: '800' } : undefined]}>
             {block.content}
           </Text>
         );
+        break;
       case 'text':
-        return wrap(
+        node = wrap(
           <Text style={[styles.contentText, { color: effectiveTextColor, textAlign, fontSize: textFontSize }, block.bold ? { fontWeight: '700', fontFamily: getFontFamily('700') } : undefined]}>
             {block.content}
           </Text>
         );
+        break;
       case 'image':
-        return block.content ? (
+        node = block.content ? (
           <View key={block._id || index} style={blockRadius !== undefined ? { borderRadius: blockRadius, overflow: 'hidden' } : undefined}>
-            <ContentImage uri={block.content} inRow={inRow} inStack={inStack} arOverride={block.aspectRatio} />
+            <ContentImage uri={block.content} inRow={inRow} inStack={inStack} arOverride={block.aspectRatio} blurRadius={obfuscate ? 15 : undefined} />
           </View>
         ) : null;
+        break;
       case 'video':
-        return (
+        node = (
           <TouchableOpacity
             key={block._id || index}
             style={[styles.videoPlaceholder, { backgroundColor: effectiveBg || theme.colors.border }]}
@@ -557,6 +565,7 @@ export default function ConnectPageDetailScreen() {
             </Text>
           </TouchableOpacity>
         );
+        break;
       case 'button': {
         // Defensive scheme prefix: backend normalizes button URLs on save,
         // but rows saved before that fix may still have bare domains like
@@ -565,7 +574,7 @@ export default function ConnectPageDetailScreen() {
         const buttonUrl = rawUrl && /^[a-z][a-z0-9+.-]*:/i.test(rawUrl)
           ? rawUrl
           : (rawUrl ? `https://${rawUrl}` : '');
-        return (
+        node = (
           <TouchableOpacity
             key={block._id || index}
             style={[styles.contentButton, { backgroundColor: effectiveBg || theme.colors.primary }]}
@@ -579,16 +588,18 @@ export default function ConnectPageDetailScreen() {
             </Text>
           </TouchableOpacity>
         );
+        break;
       }
       case 'divider':
-        return (
+        node = (
           <View
             key={block._id || index}
             style={[styles.contentDivider, { backgroundColor: theme.colors.border }]}
           />
         );
+        break;
       case 'embed':
-        return (
+        node = (
           <TouchableOpacity
             key={block._id || index}
             style={[styles.embedPlaceholder, { backgroundColor: effectiveBg || theme.colors.border }]}
@@ -606,9 +617,27 @@ export default function ConnectPageDetailScreen() {
             </Text>
           </TouchableOpacity>
         );
+        break;
       default:
-        return null;
+        node = null;
     }
+
+    if (obfuscate && block.type !== 'image' && node) {
+      return (
+        <View key={block._id || index} style={{ position: 'relative', overflow: 'hidden', borderRadius: blockRadius ?? 12 }}>
+          {node}
+          <View
+            style={{
+              ...StyleSheet.absoluteFillObject,
+              backgroundColor: isDark ? 'rgba(30, 30, 30, 0.92)' : 'rgba(240, 240, 240, 0.92)',
+              zIndex: 10,
+            }}
+          />
+        </View>
+      );
+    }
+
+    return node;
   };
 
   if (loading) {
@@ -981,69 +1010,94 @@ export default function ConnectPageDetailScreen() {
             )}
 
             <View style={styles.sectionContent}>
-              {isOwner || subscriptionStatus?.isSubscribed ? (
-                page.subscriptionContent && page.subscriptionContent.length > 0 ? (
-                  <>
-                    {packBlocksIntoRows(
-                      page.subscriptionContent.slice().sort((a, b) => a.order - b.order)
-                    ).map((row, ri) => (
-                      (() => {
-                        const isSingle = row.length === 1 && row[0].blocks.length === 1;
-                        return isSingle ? (
-                          <React.Fragment key={`srow-${ri}`}>{renderContentBlock(row[0].blocks[0], ri, page.subscriptionTextColor, false, false)}</React.Fragment>
-                        ) : (
-                          <View key={`srow-${ri}`} style={{ flexDirection: 'row', gap: 3, marginVertical: 1, alignItems: 'flex-start' }}>
-                            {row.map((cell, ci) => {
-                              const isStackedCell = cell.blocks.length > 1;
-                              const va = cell.blocks[0]?.verticalAlign;
-                              const alignSelf = va === 'center' ? 'center' as const : va === 'bottom' ? 'flex-end' as const : undefined;
-                              return (
-                                <View key={`sc-${ri}-${ci}`} style={isStackedCell ? { flex: cell.col, flexDirection: 'column', gap: 6 } : { flex: cell.col, alignSelf }}>
-                                  {cell.blocks.map((block, bi) =>
-                                    isStackedCell ? (
-                                      <View key={block._id || `ss-${ri}-${ci}-${bi}`} style={{ flex: 1 }}>
-                                        {renderContentBlock(block, bi, page.subscriptionTextColor, true, true)}
-                                      </View>
-                                    ) : (
-                                      <React.Fragment key={block._id || `ss-${ri}-${ci}-${bi}`}>
-                                        {renderContentBlock(block, bi, page.subscriptionTextColor, row.length > 1, false)}
-                                      </React.Fragment>
-                                    )
-                                  )}
-                                </View>
-                              );
-                            })}
-                          </View>
-                        );
-                      })()
-                    ))}
-                    {!isOwner && (
-                      <TouchableOpacity
-                        onPress={() => router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`)}
-                        activeOpacity={0.7}
-                        style={[styles.viewButton, { borderColor: theme.colors.primary }]}
+              {page.subscriptionContent && page.subscriptionContent.length > 0 ? (
+                (() => {
+                  const isAuthorized = isOwner || subscriptionStatus?.isSubscribed;
+                  const shouldObfuscate = !isRevealed;
+
+                  const contentList = (
+                    <>
+                      {packBlocksIntoRows(
+                        page.subscriptionContent.slice().sort((a, b) => a.order - b.order)
+                      ).map((row, ri) => (
+                        (() => {
+                          const isSingle = row.length === 1 && row[0].blocks.length === 1;
+                          return isSingle ? (
+                            <React.Fragment key={`srow-${ri}`}>
+                              {renderContentBlock(row[0].blocks[0], ri, page.subscriptionTextColor, false, false, shouldObfuscate)}
+                            </React.Fragment>
+                          ) : (
+                            <View key={`srow-${ri}`} style={{ flexDirection: 'row', gap: 3, marginVertical: 1, alignItems: 'flex-start' }}>
+                              {row.map((cell, ci) => {
+                                const isStackedCell = cell.blocks.length > 1;
+                                const va = cell.blocks[0]?.verticalAlign;
+                                const alignSelf = va === 'center' ? 'center' as const : va === 'bottom' ? 'flex-end' as const : undefined;
+                                return (
+                                  <View key={`sc-${ri}-${ci}`} style={isStackedCell ? { flex: cell.col, flexDirection: 'column', gap: 6 } : { flex: cell.col, alignSelf }}>
+                                    {cell.blocks.map((block, bi) =>
+                                      isStackedCell ? (
+                                        <View key={block._id || `ss-${ri}-${ci}-${bi}`} style={{ flex: 1 }}>
+                                          {renderContentBlock(block, bi, page.subscriptionTextColor, true, true, shouldObfuscate)}
+                                        </View>
+                                      ) : (
+                                        <React.Fragment key={block._id || `ss-${ri}-${ci}-${bi}`}>
+                                          {renderContentBlock(block, bi, page.subscriptionTextColor, row.length > 1, false, shouldObfuscate)}
+                                        </React.Fragment>
+                                      )
+                                    )}
+                                  </View>
+                                );
+                              })}
+                            </View>
+                          );
+                        })()
+                      ))}
+
+                      {isAuthorized && isRevealed && !isOwner && (
+                        <TouchableOpacity
+                          onPress={() => router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`)}
+                          activeOpacity={0.7}
+                          style={[styles.viewButton, { borderColor: theme.colors.primary }]}
+                        >
+                          <Ionicons name="eye-outline" size={16} color={theme.colors.primary} />
+                          <Text style={[styles.viewButtonText, { color: theme.colors.primary }]}>
+                            View {subLabel}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </>
+                  );
+
+                  if (shouldObfuscate) {
+                    return (
+                      <Pressable
+                        onPress={() => {
+                          if (isAuthorized) {
+                            setIsRevealed(true);
+                          } else {
+                            handleSubscribe();
+                          }
+                        }}
+                        style={{ position: 'relative' }}
                       >
-                        <Ionicons name="eye-outline" size={16} color={theme.colors.primary} />
-                        <Text style={[styles.viewButtonText, { color: theme.colors.primary }]}>
-                          View {subLabel}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  </>
-                ) : (
-                  <Text style={[styles.placeholderText, { color: theme.colors.textSecondary }]}>
-                    {isOwner ? 'Tap the edit icon to list your services.' : 'No services listed yet.'}
-                  </Text>
-                )
+                        {contentList}
+                        <View
+                          style={{
+                            ...StyleSheet.absoluteFillObject,
+                            backgroundColor: 'transparent',
+                            zIndex: 20,
+                          }}
+                        />
+                      </Pressable>
+                    );
+                  }
+
+                  return contentList;
+                })()
               ) : (
-                <View style={{ alignItems: 'center', paddingVertical: 16 }}>
-                  <Ionicons name="lock-closed-outline" size={28} color={theme.colors.textSecondary} style={{ marginBottom: 8 }} />
-                  <Text style={[styles.placeholderText, { color: theme.colors.textSecondary, textAlign: 'center' }]}>
-                    {isCommunity
-                      ? 'Buy to unlock exclusive content from this community.'
-                      : 'Subscribe to unlock exclusive content from this creator.'}
-                  </Text>
-                </View>
+                <Text style={[styles.placeholderText, { color: theme.colors.textSecondary }]}>
+                  {isOwner ? 'Tap the edit icon to list your services.' : 'No services listed yet.'}
+                </Text>
               )}
             </View>
 
@@ -1116,7 +1170,7 @@ export default function ConnectPageDetailScreen() {
               }
 
               // Visitor view — show subscribed status or prompt to view subscription page
-              if (approvalStatus === 'approved' && approvedPrice) {
+              if (page.subscriptionPrice && page.subscriptionPrice > 0) {
                 if (subscriptionStatus?.isSubscribed) {
                   return (
                     <View style={[styles.subscriptionPriceSection, { borderTopColor: theme.colors.border }]}>
@@ -1156,7 +1210,7 @@ export default function ConnectPageDetailScreen() {
                         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
                           <Ionicons name={isCommunity ? 'cart-outline' : 'star'} size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
                           <Text style={styles.subscribeButtonText}>
-                            {subButtonText} · {currSym}{approvedPrice}/month
+                            {subButtonText} · {currSym}{page.subscriptionPrice}/month
                           </Text>
                         </View>
                       )}

@@ -474,7 +474,7 @@ export default function LocaleScreen() {
   const [states, setStates] = useState<State[]>([]);
   const [loadingCountries, setLoadingCountries] = useState(false);
   const [loadingStates, setLoadingStates] = useState(false);
-  const [filters, dispatchFilter] = useReducer(filterReducer, {
+  const [activeLocaleFilters, dispatchLocaleFilter] = useReducer(filterReducer, {
     country: '',
     countryCode: '',
     stateProvince: '',
@@ -482,6 +482,18 @@ export default function LocaleScreen() {
     spotTypes: [],
     searchRadius: '',
   });
+
+  const [activeSavedFilters, dispatchSavedFilter] = useReducer(filterReducer, {
+    country: '',
+    countryCode: '',
+    stateProvince: '',
+    stateCode: '',
+    spotTypes: [],
+    searchRadius: '',
+  });
+
+  const filters = activeTab === 'locale' ? activeLocaleFilters : activeSavedFilters;
+  const dispatchFilter = activeTab === 'locale' ? dispatchLocaleFilter : dispatchSavedFilter;
   
   // Responsive dimensions (inside component to ensure they're accessible)
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -505,6 +517,29 @@ export default function LocaleScreen() {
       scrollY.removeListener(id);
     };
   }, [scrollY]);
+
+  // Pulsing animation for skeletons
+  const skeletonAnim = useRef(new Animated.Value(0.3)).current;
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(skeletonAnim, {
+          toValue: 0.7,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(skeletonAnim, {
+          toValue: 0.3,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    animation.start();
+    return () => {
+      animation.stop();
+    };
+  }, [skeletonAnim]);
 
   const handleVerticalScroll = useMemo(() => Animated.event(
     [{ nativeEvent: { contentOffset: { y: scrollY } } }],
@@ -2642,9 +2677,10 @@ export default function LocaleScreen() {
     if (d !== null && d !== undefined) {
       return d < 1 ? `${Math.round(d * 1000)} m` : `${d.toFixed(1)} km`;
     }
-    // GPS permission granted but location/distance not yet resolved → show loading state
-    if (locationPermissionGranted) return 'Calculating...';
-    // Permission denied or not asked → no distance available
+    // If coordinates are null, return 'Calculating...' (which triggers the skeleton/shimmer in UI)
+    if (userLocation === null) {
+      return 'Calculating...';
+    }
     return '-- km';
   }, [userLocation, locationPermissionGranted, getLocaleDistance]);
 
@@ -3234,225 +3270,129 @@ export default function LocaleScreen() {
           setShowFilterModal(false);
         }}
       >
-        <SafeAreaView style={[styles.filterModalContainer, { backgroundColor: theme.colors.background }]}>
-          <StatusBar barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} />
-        
-        {/* Header */}
-        <View style={[styles.filterHeader, { borderBottomColor: theme.colors.border }]}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => {
-              setCountrySearchQuery('');
-              setStateSearchQuery('');
-              setShowFilterModal(false);
-            }}
-          >
-            <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-          <View style={styles.filterTitleContainer}>
-            <Text style={[styles.filterTitle, { color: theme.colors.text }]}>FILTER</Text>
-            {activeFilterCount > 0 && (
-              <View style={[styles.filterBadge, { backgroundColor: theme.colors.primary }]}>
-                <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
-              </View>
-            )}
-          </View>
-          {activeFilterCount > 0 && (
-            <TouchableOpacity 
-              style={styles.clearButton}
-              onPress={handleClearFilters}
-            >
-              <Text style={[styles.clearButtonText, { color: theme.colors.primary }]}>Clear</Text>
-            </TouchableOpacity>
-          )}
-          {activeFilterCount === 0 && <View style={styles.placeholder} />}
-        </View>
-
-        <ScrollView 
-          style={styles.filterContent} 
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.filterScrollContent}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
         >
-          {/* Country */}
-          <View style={styles.filterSection}>
-            <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>COUNTRY</Text>
+          <SafeAreaView style={[styles.filterModalContainer, { backgroundColor: theme.colors.background }]}>
+            <StatusBar barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} />
+          
+          {/* Header */}
+          <View style={[styles.filterHeader, { borderBottomColor: theme.colors.border }]}>
             <TouchableOpacity 
-              style={[styles.dropdownField, { 
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.border,
-              }]}
-              onPress={() => setShowCountryDropdown(!showCountryDropdown)}
-            >
-              <Text style={[styles.dropdownText, { color: theme.colors.text }]}>
-                {filters.country || 'Select Country'}
-              </Text>
-              <View style={styles.dropdownIconContainer}>
-                {loadingCountries ? (
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
-                ) : (
-                  <Ionicons 
-                    name={showCountryDropdown ? "chevron-up" : "chevron-down"} 
-                    size={20} 
-                    color={theme.colors.textSecondary} 
-                  />
-                )}
-              </View>
-            </TouchableOpacity>
-            
-            {/* Country Dropdown */}
-            {showCountryDropdown && (
-              <View style={[styles.dropdownList, { 
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.border,
-              }]}>
-                <View style={[styles.countrySearchContainer, { 
-                  backgroundColor: theme.colors.surface,
-                  borderBottomColor: theme.colors.border,
-                }]}>
-                  <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} style={styles.countrySearchIcon} />
-                  <TextInput
-                    style={[styles.countrySearchInput, { color: theme.colors.text }]}
-                    placeholder="Search countries..."
-                    placeholderTextColor={theme.colors.textSecondary}
-                    value={countrySearchQuery}
-                    onChangeText={setCountrySearchQuery}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                  {countrySearchQuery.length > 0 && (
-                    <TouchableOpacity
-                      onPress={() => setCountrySearchQuery('')}
-                      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                      style={styles.countrySearchClear}
-                    >
-                      <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
-                    </TouchableOpacity>
-                  )}
-                </View>
-                <ScrollView style={styles.dropdownScrollView} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                  {filteredCountriesForFilter.length > 0 ? (
-                    filteredCountriesForFilter.map((country, index) => (
-                      <TouchableOpacity
-                        key={country.code || index}
-                        style={[styles.dropdownItem, { 
-                          backgroundColor: filters.countryCode === country.code ? theme.colors.primary + '15' : 'transparent',
-                          borderBottomColor: theme.colors.border,
-                        }]}
-                        onPress={() => {
-                          if (country && country.code) {
-                            handleCountrySelect(country).catch(err => {
-                              logger.error('Error in country selection:', err);
-                            });
-                          }
-                        }}
-                      >
-                        <Text style={[styles.dropdownItemText, { 
-                          color: filters.countryCode === country.code ? theme.colors.primary : theme.colors.text,
-                          fontWeight: filters.countryCode === country.code ? '600' : '400',
-                        }]}>
-                          {country.name}
-                        </Text>
-                        {filters.countryCode === country.code && (
-                          <Ionicons name="checkmark" size={16} color={theme.colors.primary} />
-                        )}
-                      </TouchableOpacity>
-                    ))
-                  ) : (
-                    <View style={[styles.dropdownItem, { borderBottomWidth: 0 }]}>
-                      <Text style={[styles.dropdownItemText, { color: theme.colors.textSecondary, fontStyle: 'italic' }]}>
-                        No countries match "{countrySearchQuery}"
-                      </Text>
-                    </View>
-                  )}
-                </ScrollView>
-              </View>
-            )}
-          </View>
-
-          {/* State/Province */}
-          <View style={styles.filterSection}>
-            <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>STATE/PROVINCE</Text>
-            <TouchableOpacity 
-              style={[styles.dropdownField, { 
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.border,
-                opacity: !filters.countryCode ? 0.5 : 1,
-              }]}
+              style={styles.backButton}
               onPress={() => {
-                if (!filters.countryCode) return;
-                // Load states only when opening dropdown (no loading on country select)
-                if (!showStateDropdown && states.length === 0) {
-                  loadStatesForCountry(filters.countryCode);
-                }
-                setShowStateDropdown(!showStateDropdown);
+                setCountrySearchQuery('');
+                setStateSearchQuery('');
+                setShowFilterModal(false);
               }}
-              disabled={!filters.countryCode}
             >
-              <Text style={[styles.dropdownText, { color: theme.colors.text }]}>
-                {filters.stateProvince || 'Select State/Province'}
-              </Text>
-              <View style={styles.dropdownIconContainer}>
-                {loadingStates ? (
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
-                ) : (
-                  <Ionicons 
-                    name={showStateDropdown ? "chevron-up" : "chevron-down"} 
-                    size={20} 
-                    color={theme.colors.textSecondary} 
-                  />
-                )}
-              </View>
+              <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
             </TouchableOpacity>
-            
-            {/* State Dropdown */}
-            {showStateDropdown && (
-              <View style={[styles.dropdownList, { 
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.border,
-              }]}>
-                <View style={[styles.countrySearchContainer, { 
+            <View style={styles.filterTitleContainer}>
+              <Text style={[styles.filterTitle, { color: theme.colors.text }]}>FILTER</Text>
+              {activeFilterCount > 0 && (
+                <View style={[styles.filterBadge, { backgroundColor: theme.colors.primary }]}>
+                  <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+                </View>
+              )}
+            </View>
+            {activeFilterCount > 0 && (
+              <TouchableOpacity 
+                style={styles.clearButton}
+                onPress={handleClearFilters}
+              >
+                <Text style={[styles.clearButtonText, { color: theme.colors.primary }]}>Clear</Text>
+              </TouchableOpacity>
+            )}
+            {activeFilterCount === 0 && <View style={styles.placeholder} />}
+          </View>
+  
+          <ScrollView 
+            style={styles.filterContent} 
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.filterScrollContent}
+          >
+            {/* Country */}
+            <View style={styles.filterSection}>
+              <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>COUNTRY</Text>
+              <TouchableOpacity 
+                style={[styles.dropdownField, { 
                   backgroundColor: theme.colors.surface,
-                  borderBottomColor: theme.colors.border,
-                }]}>
-                  <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} style={styles.countrySearchIcon} />
-                  <TextInput
-                    style={[styles.countrySearchInput, { color: theme.colors.text }]}
-                    placeholder="Search states..."
-                    placeholderTextColor={theme.colors.textSecondary}
-                    value={stateSearchQuery}
-                    onChangeText={setStateSearchQuery}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                  {stateSearchQuery.length > 0 && (
-                    <TouchableOpacity
-                      onPress={() => setStateSearchQuery('')}
-                      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                      style={styles.countrySearchClear}
-                    >
-                      <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
-                    </TouchableOpacity>
+                  borderColor: theme.colors.border,
+                }]}
+                onPress={() => setShowCountryDropdown(!showCountryDropdown)}
+              >
+                <Text style={[styles.dropdownText, { color: theme.colors.text }]}>
+                  {filters.country || 'Select Country'}
+                </Text>
+                <View style={styles.dropdownIconContainer}>
+                  {loadingCountries ? (
+                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                  ) : (
+                    <Ionicons 
+                      name={showCountryDropdown ? "chevron-up" : "chevron-down"} 
+                      size={20} 
+                      color={theme.colors.textSecondary} 
+                    />
                   )}
                 </View>
-                {states.length > 0 ? (
+              </TouchableOpacity>
+              
+              {/* Country Dropdown */}
+              {showCountryDropdown && (
+                <View style={[styles.dropdownList, { 
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                }]}>
+                  <View style={[styles.countrySearchContainer, { 
+                    backgroundColor: theme.colors.surface,
+                    borderBottomColor: theme.colors.border,
+                  }]}>
+                    <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} style={styles.countrySearchIcon} />
+                    <TextInput
+                      style={[styles.countrySearchInput, { color: theme.colors.text }]}
+                      placeholder="Search countries..."
+                      placeholderTextColor={theme.colors.textSecondary}
+                      value={countrySearchQuery}
+                      onChangeText={setCountrySearchQuery}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    {countrySearchQuery.length > 0 && (
+                      <TouchableOpacity
+                        onPress={() => setCountrySearchQuery('')}
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                        style={styles.countrySearchClear}
+                      >
+                        <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
                   <ScrollView style={styles.dropdownScrollView} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                    {filteredStatesForFilter.length > 0 ? (
-                      filteredStatesForFilter.map((state, index) => (
+                    {filteredCountriesForFilter.length > 0 ? (
+                      filteredCountriesForFilter.map((country, index) => (
                         <TouchableOpacity
-                          key={state.code || index}
+                          key={country.code || index}
                           style={[styles.dropdownItem, { 
-                            backgroundColor: filters.stateCode === state.code ? theme.colors.primary + '15' : 'transparent',
+                            backgroundColor: filters.countryCode === country.code ? theme.colors.primary + '15' : 'transparent',
                             borderBottomColor: theme.colors.border,
                           }]}
-                          onPress={() => handleStateSelect(state)}
+                          onPress={() => {
+                            if (country && country.code) {
+                              handleCountrySelect(country).catch(err => {
+                                logger.error('Error in country selection:', err);
+                              });
+                            }
+                          }}
                         >
                           <Text style={[styles.dropdownItemText, { 
-                            color: filters.stateCode === state.code ? theme.colors.primary : theme.colors.text,
-                            fontWeight: filters.stateCode === state.code ? '600' : '400',
+                            color: filters.countryCode === country.code ? theme.colors.primary : theme.colors.text,
+                            fontWeight: filters.countryCode === country.code ? '600' : '400',
                           }]}>
-                            {state.name}
+                            {country.name}
                           </Text>
-                          {filters.stateCode === state.code && (
+                          {filters.countryCode === country.code && (
                             <Ionicons name="checkmark" size={16} color={theme.colors.primary} />
                           )}
                         </TouchableOpacity>
@@ -3460,100 +3400,201 @@ export default function LocaleScreen() {
                     ) : (
                       <View style={[styles.dropdownItem, { borderBottomWidth: 0 }]}>
                         <Text style={[styles.dropdownItemText, { color: theme.colors.textSecondary, fontStyle: 'italic' }]}>
-                          No states match "{stateSearchQuery}"
+                          No countries match "{countrySearchQuery}"
                         </Text>
                       </View>
                     )}
                   </ScrollView>
-                ) : (
-                  <View style={[styles.dropdownItem, { 
-                    backgroundColor: 'transparent',
-                    borderBottomColor: theme.colors.border,
-                  }]}>
-                    <Text style={[styles.dropdownItemText, { 
-                      color: theme.colors.textSecondary,
-                      fontStyle: 'italic',
-                    }]}>
-                      No states/provinces available
-                    </Text>
-                  </View>
-                )}
-              </View>
-            )}
-          </View>
-
-          {/* Type of Spot */}
-          <View style={styles.filterSection}>
-            <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>TYPE OF SPOT</Text>
-            {spotTypeOptions.map((spotType, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.spotTypeOption}
-                onPress={() => toggleSpotType(spotType)}
-              >
-                <View style={[
-                  styles.checkbox,
-                  { 
-                    borderColor: theme.colors.border,
-                    backgroundColor: theme.colors.surface,
-                  },
-                  filters.spotTypes.includes(spotType) && {
-                    backgroundColor: theme.colors.primary,
-                    borderColor: theme.colors.primary,
+                </View>
+              )}
+            </View>
+  
+            {/* State/Province */}
+            <View style={styles.filterSection}>
+              <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>STATE/PROVINCE</Text>
+              <TouchableOpacity 
+                style={[styles.dropdownField, { 
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                  opacity: !filters.countryCode ? 0.5 : 1,
+                }]}
+                onPress={() => {
+                  if (!filters.countryCode) return;
+                  // Load states only when opening dropdown (no loading on country select)
+                  if (!showStateDropdown && states.length === 0) {
+                    loadStatesForCountry(filters.countryCode);
                   }
-                ]}>
-                  {filters.spotTypes.includes(spotType) && (
-                    <Ionicons name="checkmark" size={16} color="white" />
+                  setShowStateDropdown(!showStateDropdown);
+                }}
+                disabled={!filters.countryCode}
+              >
+                <Text style={[styles.dropdownText, { color: theme.colors.text }]}>
+                  {filters.stateProvince || 'Select State/Province'}
+                </Text>
+                <View style={styles.dropdownIconContainer}>
+                  {loadingStates ? (
+                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                  ) : (
+                    <Ionicons 
+                      name={showStateDropdown ? "chevron-up" : "chevron-down"} 
+                      size={20} 
+                      color={theme.colors.textSecondary} 
+                    />
                   )}
                 </View>
-                <Text style={[styles.spotTypeText, { color: theme.colors.text }]}>{spotType}</Text>
               </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Search Radius */}
-          <View style={styles.filterSection}>
-            <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>SEARCH RADIUS</Text>
-            <View style={[styles.radiusContainer, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-              <TextInput
-                style={[styles.radiusInput, { color: theme.colors.text }]}
-                placeholder="Enter radius in km"
-                placeholderTextColor={theme.colors.textSecondary}
-                value={filters.searchRadius}
-                onChangeText={(text) => dispatchFilter({ type: 'SET_SEARCH_RADIUS', payload: text })}
-                keyboardType="numeric"
-              />
-              <Text style={[styles.radiusUnit, { color: theme.colors.textSecondary }]}>km</Text>
+              
+              {/* State Dropdown */}
+              {showStateDropdown && (
+                <View style={[styles.dropdownList, { 
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                }]}>
+                  <View style={[styles.countrySearchContainer, { 
+                    backgroundColor: theme.colors.surface,
+                    borderBottomColor: theme.colors.border,
+                  }]}>
+                    <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} style={styles.countrySearchIcon} />
+                    <TextInput
+                      style={[styles.countrySearchInput, { color: theme.colors.text }]}
+                      placeholder="Search states..."
+                      placeholderTextColor={theme.colors.textSecondary}
+                      value={stateSearchQuery}
+                      onChangeText={setStateSearchQuery}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    {stateSearchQuery.length > 0 && (
+                      <TouchableOpacity
+                        onPress={() => setStateSearchQuery('')}
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                        style={styles.countrySearchClear}
+                      >
+                        <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  {states.length > 0 ? (
+                    <ScrollView style={styles.dropdownScrollView} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                      {filteredStatesForFilter.length > 0 ? (
+                        filteredStatesForFilter.map((state, index) => (
+                          <TouchableOpacity
+                            key={state.code || index}
+                            style={[styles.dropdownItem, { 
+                              backgroundColor: filters.stateCode === state.code ? theme.colors.primary + '15' : 'transparent',
+                              borderBottomColor: theme.colors.border,
+                            }]}
+                            onPress={() => handleStateSelect(state)}
+                          >
+                            <Text style={[styles.dropdownItemText, { 
+                              color: filters.stateCode === state.code ? theme.colors.primary : theme.colors.text,
+                              fontWeight: filters.stateCode === state.code ? '600' : '400',
+                            }]}>
+                              {state.name}
+                            </Text>
+                            {filters.stateCode === state.code && (
+                              <Ionicons name="checkmark" size={16} color={theme.colors.primary} />
+                            )}
+                          </TouchableOpacity>
+                        ))
+                      ) : (
+                        <View style={[styles.dropdownItem, { borderBottomWidth: 0 }]}>
+                          <Text style={[styles.dropdownItemText, { color: theme.colors.textSecondary, fontStyle: 'italic' }]}>
+                            No states match "{stateSearchQuery}"
+                          </Text>
+                        </View>
+                      )}
+                    </ScrollView>
+                  ) : (
+                    <View style={[styles.dropdownItem, { 
+                      backgroundColor: 'transparent',
+                      borderBottomColor: theme.colors.border,
+                    }]}>
+                      <Text style={[styles.dropdownItemText, { 
+                        color: theme.colors.textSecondary,
+                        fontStyle: 'italic',
+                      }]}>
+                        No states/provinces available
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
+  
+            {/* Type of Spot */}
+            <View style={styles.filterSection}>
+              <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>TYPE OF SPOT</Text>
+              {spotTypeOptions.map((spotType, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={styles.spotTypeOption}
+                  onPress={() => toggleSpotType(spotType)}
+                >
+                  <View style={[
+                    styles.checkbox,
+                    { 
+                      borderColor: theme.colors.border,
+                      backgroundColor: theme.colors.surface,
+                    },
+                    filters.spotTypes.includes(spotType) && {
+                      backgroundColor: theme.colors.primary,
+                      borderColor: theme.colors.primary,
+                    }
+                  ]}>
+                    {filters.spotTypes.includes(spotType) && (
+                      <Ionicons name="checkmark" size={16} color="white" />
+                    )}
+                  </View>
+                  <Text style={[styles.spotTypeText, { color: theme.colors.text }]}>{spotType}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+  
+            {/* Search Radius */}
+            <View style={styles.filterSection}>
+              <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>SEARCH RADIUS</Text>
+              <View style={[styles.radiusContainer, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+                <TextInput
+                  style={[styles.radiusInput, { color: theme.colors.text }]}
+                  placeholder="Enter radius in km"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  value={filters.searchRadius}
+                  onChangeText={(text) => dispatchFilter({ type: 'SET_SEARCH_RADIUS', payload: text })}
+                  keyboardType="numeric"
+                />
+                <Text style={[styles.radiusUnit, { color: theme.colors.textSecondary }]}>km</Text>
+              </View>
+            </View>
+          </ScrollView>
+  
+          {/* Search Button */}
+          <View style={[styles.filterFooter, { backgroundColor: theme.colors.background, borderTopColor: theme.colors.border }]}>
+            <View style={styles.filterFooterButtons}>
+              <TouchableOpacity 
+                style={[styles.resetButton, { 
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                }]} 
+                onPress={handleClearFilters}
+              >
+                <Ionicons name="refresh-outline" size={18} color={theme.colors.text} />
+                <Text style={[styles.resetButtonText, { color: theme.colors.text }]}>Reset</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.searchButton, { backgroundColor: theme.colors.primary }]} 
+                onPress={handleSearch}
+              >
+                <Ionicons name="search" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                <Text style={styles.searchButtonText}>
+                  {activeFilterCount > 0 ? `Search (${activeFilterCount})` : 'Search'}
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
-        </ScrollView>
-
-        {/* Search Button */}
-        <View style={[styles.filterFooter, { backgroundColor: theme.colors.background, borderTopColor: theme.colors.border }]}>
-          <View style={styles.filterFooterButtons}>
-            <TouchableOpacity 
-              style={[styles.resetButton, { 
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.border,
-              }]} 
-              onPress={handleClearFilters}
-            >
-              <Ionicons name="refresh-outline" size={18} color={theme.colors.text} />
-              <Text style={[styles.resetButtonText, { color: theme.colors.text }]}>Reset</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.searchButton, { backgroundColor: theme.colors.primary }]} 
-              onPress={handleSearch}
-            >
-              <Ionicons name="search" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-              <Text style={styles.searchButtonText}>
-                {activeFilterCount > 0 ? `Search (${activeFilterCount})` : 'Search'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </SafeAreaView>
-    </Modal>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
+      </Modal>
     );
   };
 
@@ -3569,7 +3610,7 @@ export default function LocaleScreen() {
       ? d < 1
         ? `${Math.round(d * 1000)} m`
         : `${d.toFixed(1)} km`
-      : locationPermissionGranted ? 'Calculating...' : '-- km';
+      : userLocation === null ? 'Calculating...' : '-- km';
     
     // Debug: Log distance calculation
     if (__DEV__) {
@@ -3629,6 +3670,7 @@ export default function LocaleScreen() {
       >
         {locale.imageUrl ? (
           <Animated.View
+            key={String(locale._id)}
             style={{
               width: '100%',
               height: CARD_HEIGHT + 64,
@@ -3712,7 +3754,23 @@ export default function LocaleScreen() {
                 {locale.countryCode}
               </Text>
             </View>
-            {distanceText ? (
+            {distanceText === 'Calculating...' ? (
+              <Animated.View
+                style={[
+                  styles.distanceBadge,
+                  {
+                    opacity: skeletonAnim,
+                    width: 70,
+                    height: 20,
+                    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }
+                ]}
+              >
+                <View style={{ width: 45, height: 8, backgroundColor: 'rgba(255,255,255,0.4)', borderRadius: 4 }} />
+              </Animated.View>
+            ) : distanceText && distanceText !== '-- km' ? (
               <View style={[styles.distanceBadge, { flexShrink: 1 }]}>
                 <Ionicons name="location-outline" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
                 <Text style={[styles.distanceText, { flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
@@ -3841,7 +3899,7 @@ export default function LocaleScreen() {
       ? d < 1
         ? `${Math.round(d * 1000)} m`
         : `${d.toFixed(1)} km`
-      : locationPermissionGranted ? 'Calculating...' : '-- km';
+      : userLocation === null ? 'Calculating...' : '-- km';
 
     return (
       <TouchableOpacity
@@ -3921,7 +3979,23 @@ export default function LocaleScreen() {
             </Text>
           ) : null}
         </View>
-        {distanceText ? (
+        {distanceText === 'Calculating...' ? (
+          <Animated.View
+            style={[
+              styles.distanceBadgeAbsolute,
+              {
+                opacity: skeletonAnim,
+                width: 70,
+                height: 22,
+                backgroundColor: 'rgba(255, 255, 255, 0.25)',
+                justifyContent: 'center',
+                alignItems: 'center',
+              }
+            ]}
+          >
+            <View style={{ width: 45, height: 8, backgroundColor: 'rgba(255,255,255,0.4)', borderRadius: 4 }} />
+          </Animated.View>
+        ) : distanceText && distanceText !== '-- km' ? (
           <View style={[styles.distanceBadgeAbsolute, { flexShrink: 1 }]}>
             <Ionicons name="location-outline" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
             <Text style={[styles.distanceText, { flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">

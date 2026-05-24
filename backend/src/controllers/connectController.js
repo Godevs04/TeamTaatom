@@ -238,16 +238,17 @@ const createPage = async (req, res) => {
       if (parsedPayout.wiseEmail) pageData.creatorPayoutInfo.wiseEmail = parsedPayout.wiseEmail;
     }
 
-    // Set subscription price if provided — requires admin approval before going live
+    // Set subscription price if provided — democratized: approved instantly
     if (pageData.features.subscription && subscriptionPrice) {
       const price = parseFloat(subscriptionPrice);
       const priceValidation = validatePrice(price, resolvedCurrency);
       if (priceValidation.valid) {
+        pageData.subscriptionPrice = price;
         pageData.subscriptionApproval = {
-          status: 'pending',
+          status: 'approved',
           requestedPrice: price,
+          approvedAt: new Date(),
         };
-        // subscriptionPrice stays null until admin approves
       }
     }
 
@@ -502,22 +503,22 @@ const updatePage = async (req, res) => {
       if (parsedPayout.wiseEmail !== undefined) updates['creatorPayoutInfo'].wiseEmail = parsedPayout.wiseEmail;
     }
 
-    // Handle subscription price change — goes to pending approval
+    // Handle subscription price change — democratized: approved instantly
     if (req.body.subscriptionPrice !== undefined) {
       const { validatePrice, getCurrencyConfig } = require('../utils/currencyConfig');
       const currency = updates['subscriptionCurrency'] || page.subscriptionCurrency || 'INR';
       const price = parseFloat(req.body.subscriptionPrice);
       const priceValidation = validatePrice(price, currency);
       if (priceValidation.valid) {
+        updates['subscriptionPrice'] = price;
         updates['subscriptionApproval'] = {
-          status: 'pending',
+          status: 'approved',
           requestedPrice: price,
-          approvedAt: null,
+          approvedAt: new Date(),
           rejectedAt: null,
           rejectionReason: '',
           reviewedBy: null
         };
-        // Don't update subscriptionPrice directly — wait for admin approval
       } else {
         const config = getCurrencyConfig(currency);
         return sendError(res, 'VALIDATION_FAILED', `Price must be between ${config.symbol}${config.minPrice} and ${config.symbol}${config.maxPrice}`);

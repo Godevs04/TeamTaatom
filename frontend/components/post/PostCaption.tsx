@@ -44,6 +44,7 @@ export default function PostCaption({ post }: PostCaptionProps) {
           style={[styles.captionText, { color: theme.colors.text }]}
           numberOfLines={isExpanded ? undefined : 3}
           onTextLayout={handleTextLayout}
+          onPress={() => setIsExpanded(!isExpanded)}
         >
           <Text 
             onPress={handleUserPress}
@@ -101,6 +102,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 6,
     paddingBottom: 10,
+    zIndex: 10,
   },
   captionWrapper: {
     flexDirection: 'row',

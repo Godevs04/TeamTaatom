@@ -2147,11 +2147,11 @@ const getTripScoreLocations = async (req, res) => {
         if (p.imageUrl) return p.imageUrl;
         if (p.images && p.images.length > 0) return p.images[0];
       } else {
+        // For shorts: resolve the image thumbnail, not the video
+        if (p.storageKeys && p.storageKeys.length > 1) return await generateSignedUrl(p.storageKeys[1], 'IMAGE');
+        if (p.thumbnailUrl) return p.thumbnailUrl;
         if (p.imageUrl) return p.imageUrl;
         if (p.images && p.images.length > 0) return p.images[0];
-        if (p.storageKey) return await generateSignedUrl(p.storageKey, 'VIDEO');
-        if (p.storageKeys && p.storageKeys.length > 0) return await generateSignedUrl(p.storageKeys[0], 'VIDEO');
-        if (p.videoUrl) return p.videoUrl;
       }
       return null;
     };
@@ -2328,13 +2328,23 @@ const getTravelMapData = async (req, res) => {
         let photo = null;
         let needsSignedUrl = null;
         if (postDoc) {
-          const hasStorageKey = postDoc.storageKey || (postDoc.storageKeys && postDoc.storageKeys.length > 0);
-          if (hasStorageKey) {
-            needsSignedUrl = (postDoc.storageKeys && postDoc.storageKeys.length > 0) ? postDoc.storageKeys[0] : postDoc.storageKey;
-          } else if (postDoc.thumbnailUrl) {
-            photo = postDoc.thumbnailUrl;
-          } else if (postDoc.imageUrl) {
-            photo = postDoc.imageUrl;
+          const isShort = postDoc.type === 'short' || contentType === 'short';
+          if (isShort) {
+            if (postDoc.storageKeys && postDoc.storageKeys.length > 1) {
+              needsSignedUrl = postDoc.storageKeys[1];
+            } else if (postDoc.thumbnailUrl) {
+              photo = postDoc.thumbnailUrl;
+            } else if (postDoc.imageUrl) {
+              photo = postDoc.imageUrl;
+            }
+          } else {
+            // Photo
+            const hasStorageKey = postDoc.storageKey || (postDoc.storageKeys && postDoc.storageKeys.length > 0);
+            if (hasStorageKey) {
+              needsSignedUrl = (postDoc.storageKeys && postDoc.storageKeys.length > 0) ? postDoc.storageKeys[0] : postDoc.storageKey;
+            } else if (postDoc.imageUrl) {
+              photo = postDoc.imageUrl;
+            }
           }
         }
 

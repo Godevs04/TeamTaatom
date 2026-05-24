@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+// Strike 20: Initial Audio Mount & Viewability Mandate integration.
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
