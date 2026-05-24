@@ -217,6 +217,222 @@ async function transcodeIfNeeded(inputBuffer, inputMimetype) {
   }
 }
 
+function transcodeToHLS(inputPath, outputDir) {
+  return new Promise((resolve, reject) => {
+    const ff = tryLoadFfmpeg();
+    if (!ff) return reject(new Error('ffmpeg not available'));
+
+    ff(inputPath)
+      .videoCodec('libx264')
+      .audioCodec('aac')
+      .outputOptions([
+        '-preset veryfast',
+        '-profile:v main',
+        '-level 4.0',
+        '-pix_fmt yuv420p',
+        '-crf 23',
+        '-b:v 5M',
+        '-maxrate 5M',
+        '-bufsize 10M',
+        '-vf scale=-2:min(720\\,ih)',
+        '-r 30',
+        '-b:a 128k',
+        '-hls_time 2',
+        '-hls_playlist_type vod',
+        `-hls_segment_filename ${path.join(outputDir, 'segment_%03d.ts')}`
+      ])
+      .format('hls')
+      .on('end', resolve)
+      .on('error', reject)
+      .save(path.join(outputDir, 'index.m3u8'));
+  });
+}
+
+function extractThumbnail(inputPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    const ff = tryLoadFfmpeg();
+    if (!ff) return reject(new Error('ffmpeg not available'));
+
+    ff(inputPath)
+      .screenshots({
+        timestamps: [1.0],
+        filename: path.basename(outputPath),
+        folder: path.dirname(outputPath),
+        size: '720x?'
+      })
+      .on('end', resolve)
+      .on('error', reject);
+  });
+}
+
+async function processJob(job, Post) {
+  const { GetObjectCommand } = require('@aws-sdk/client-s3');
+  const { s3Client, BUCKET_NAME, uploadObject, deleteObject } = require('./storage');
+
+  const rawKey = job.rawStorageKey;
+  const postId = job.post.toString();
+
+  logger.debug(`[transcodeWorker] Downloading raw video: ${rawKey}`);
+  const s3Response = await s3Client.send(new GetObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: rawKey
+  }));
+
+  const tempInPath = tmpFile('raw.mp4');
+  const tempOutDir = path.join(os.tmpdir(), `hls-${postId}`);
+  if (!fs.existsSync(tempOutDir)) {
+    fs.mkdirSync(tempOutDir, { recursive: true });
+  }
+
+  await new Promise((resolve, reject) => {
+    const writer = fs.createWriteStream(tempInPath);
+    s3Response.Body.pipe(writer);
+    writer.on('finish', resolve);
+    writer.on('error', reject);
+  });
+
+  try {
+    const postDoc = await Post.findById(postId);
+    if (!postDoc) {
+      throw new Error(`Post document for ${postId} not found`);
+    }
+
+    logger.debug(`[transcodeWorker] Transcoding raw video to HLS at ${tempOutDir}`);
+    await transcodeToHLS(tempInPath, tempOutDir);
+
+    const files = fs.readdirSync(tempOutDir);
+    const uploadedKeys = [];
+    let masterPlaylistUrl = '';
+
+    for (const file of files) {
+      const filePath = path.join(tempOutDir, file);
+      const fileBuffer = fs.readFileSync(filePath);
+      const fileExt = file.split('.').pop() || '';
+
+      let contentType = 'application/x-mpegURL';
+      if (fileExt === 'ts') {
+        contentType = 'video/MP2T';
+      }
+
+      const s3Key = `shorts/hls/${postId}/${file}`;
+      logger.debug(`[transcodeWorker] Uploading HLS file: ${s3Key}`);
+      const uploadResult = await uploadObject(fileBuffer, s3Key, contentType);
+
+      uploadedKeys.push(s3Key);
+      if (file === 'index.m3u8') {
+        masterPlaylistUrl = uploadResult.url;
+      }
+    }
+
+    if (!masterPlaylistUrl) {
+      throw new Error('index.m3u8 not generated or uploaded');
+    }
+
+    // Preserve custom thumbnail if one exists in the postDoc's storageKeys
+    const customThumbnailKey = postDoc.storageKeys.find(
+      (k) => k !== rawKey && (k.endsWith('.jpg') || k.endsWith('.png') || k.endsWith('.jpeg'))
+    );
+
+    let finalImageUrl = postDoc.imageUrl || '';
+
+    if (customThumbnailKey) {
+      uploadedKeys.push(customThumbnailKey);
+      logger.debug(`[transcodeWorker] Preserved custom thumbnail: ${customThumbnailKey}`);
+    } else {
+      // Auto-extract thumbnail
+      const tempThumbPath = tmpFile('thumb.jpg');
+      try {
+        logger.debug(`[transcodeWorker] Extracting thumbnail from video: ${tempInPath}`);
+        await extractThumbnail(tempInPath, tempThumbPath);
+
+        const thumbBuffer = fs.readFileSync(tempThumbPath);
+        const thumbS3Key = `shorts/hls/${postId}/thumbnail.jpg`;
+        logger.debug(`[transcodeWorker] Uploading auto-generated thumbnail to S3: ${thumbS3Key}`);
+        const uploadResult = await uploadObject(thumbBuffer, thumbS3Key, 'image/jpeg');
+        uploadedKeys.push(thumbS3Key);
+        finalImageUrl = uploadResult.url || '';
+      } catch (thumbErr) {
+        logger.error('[transcodeWorker] Failed to extract/upload thumbnail:', thumbErr);
+      } finally {
+        try { fs.unlinkSync(tempThumbPath); } catch (_) {}
+      }
+    }
+
+    await Post.findByIdAndUpdate(postId, {
+      status: 'active',
+      videoUrl: masterPlaylistUrl,
+      imageUrl: finalImageUrl,
+      thumbnailUrl: finalImageUrl,
+      storageKey: `shorts/hls/${postId}/index.m3u8`,
+      storageKeys: uploadedKeys
+    });
+
+    logger.debug(`[transcodeWorker] Deleting S3 raw file: ${rawKey}`);
+    await deleteObject(rawKey);
+
+  } finally {
+    try { fs.unlinkSync(tempInPath); } catch (_) {}
+    try {
+      const files = fs.readdirSync(tempOutDir);
+      for (const file of files) {
+        fs.unlinkSync(path.join(tempOutDir, file));
+      }
+      fs.rmdirSync(tempOutDir);
+    } catch (_) {}
+  }
+}
+
+let workerRunning = false;
+let workerIntervalId = null;
+
+function startTranscodeWorker() {
+  if (workerIntervalId) return;
+  logger.info('[transcodeWorker] Initializing background MongoDB transcode worker');
+
+  workerIntervalId = setInterval(async () => {
+    if (workerRunning) return;
+    workerRunning = true;
+
+    try {
+      const mongoose = require('mongoose');
+      require('../models/Post');
+      const TranscodeJob = mongoose.model('TranscodeJob');
+      const Post = mongoose.model('Post');
+
+      const job = await TranscodeJob.findOneAndUpdate(
+        { status: 'pending', attempts: { $lt: 3 } },
+        { status: 'processing' },
+        { sort: { createdAt: 1 }, new: true }
+      );
+
+      if (job) {
+        logger.info(`[transcodeWorker] Found pending transcode job for post ${job.post}`);
+        try {
+          await processJob(job, Post);
+          job.status = 'completed';
+          await job.save();
+          logger.info(`[transcodeWorker] Successfully completed job for post ${job.post}`);
+        } catch (jobErr) {
+          logger.error(`[transcodeWorker] Error processing job ${job._id}:`, jobErr);
+          job.attempts += 1;
+          job.error = jobErr.message || String(jobErr);
+          job.status = job.attempts >= 3 ? 'failed' : 'pending';
+          await job.save();
+
+          if (job.status === 'failed') {
+            await Post.findByIdAndUpdate(job.post, { status: 'failed' });
+          }
+        }
+      }
+    } catch (err) {
+      logger.error('[transcodeWorker] Worker poll error:', err);
+    } finally {
+      workerRunning = false;
+    }
+  }, 5000);
+}
+
 module.exports = {
   transcodeIfNeeded,
+  startTranscodeWorker,
 };
