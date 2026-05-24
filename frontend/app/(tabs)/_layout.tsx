@@ -3,6 +3,7 @@ import { Tabs, usePathname, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Platform, Dimensions, StyleSheet, View, BackHandler } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../context/ThemeContext';
 import { audioManager } from '../../utils/audioManager';
 import logger from '../../utils/logger';
@@ -53,6 +54,37 @@ export default function TabsLayout() {
   const router = useRouter();
   const previousPathnameRef = useRef<string | null>(null);
   const insets = useSafeAreaInsets();
+  const isRestoredRef = useRef(false);
+
+  // Restore last active tab on mount
+  useEffect(() => {
+    const restoreLastTab = async () => {
+      if (isRestoredRef.current) return;
+      isRestoredRef.current = true;
+      try {
+        const lastTab = await AsyncStorage.getItem('lastActiveTabPath');
+        if (lastTab && isTabPath(lastTab) && pathname !== lastTab) {
+          // Extract tab segment to navigate cleanly
+          const tabSegment = lastTab.split('/').pop() || '';
+          logger.debug(`[TabsLayout] Restoring last active tab segment: ${tabSegment} from path ${lastTab}`);
+          router.replace(`/(tabs)/${tabSegment}` as any);
+        }
+      } catch (err) {
+        logger.error('[TabsLayout] Failed to restore last active tab:', err);
+      }
+    };
+
+    restoreLastTab();
+  }, [router, pathname]);
+
+  // Persist current tab pathname whenever it changes
+  useEffect(() => {
+    if (pathname && isTabPath(pathname)) {
+      AsyncStorage.setItem('lastActiveTabPath', pathname).catch((err) => {
+        logger.error('[TabsLayout] Failed to save active tab path:', err);
+      });
+    }
+  }, [pathname]);
 
   useEffect(() => {
     // Intercept hardware back button on Android
