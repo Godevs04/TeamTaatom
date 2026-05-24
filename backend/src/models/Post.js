@@ -201,7 +201,7 @@ const postSchema = new mongoose.Schema({
   // Post status for DMCA compliance
   status: {
     type: String,
-    enum: ['active', 'flagged', 'removed'],
+    enum: ['active', 'flagged', 'removed', 'processing', 'failed'],
     default: 'active'
   },
   removalReason: {
@@ -263,6 +263,7 @@ const postSchema = new mongoose.Schema({
 });
 
 // Index for efficient queries
+postSchema.index({ createdAt: -1, _id: -1 }); // Compound index for cursor pagination
 postSchema.index({ user: 1, createdAt: -1 }); // User posts sorted by date
 postSchema.index({ createdAt: -1 }); // All posts sorted by date
 postSchema.index({ isActive: 1 }); // Filter active posts
@@ -361,4 +362,18 @@ postSchema.statics.getPostsWithUserData = function(filter = {}, options = {}) {
     .lean();
 };
 
-module.exports = mongoose.model('Post', postSchema);
+const PostModel = mongoose.model('Post', postSchema);
+
+// Schema for tracking background transcoding worker tasks (MongoDB-Backed Task Queue)
+const transcodeJobSchema = new mongoose.Schema({
+  post: { type: mongoose.Schema.Types.ObjectId, ref: 'Post', required: true },
+  rawStorageKey: { type: String, required: true },
+  status: { type: String, enum: ['pending', 'processing', 'completed', 'failed'], default: 'pending' },
+  attempts: { type: Number, default: 0 },
+  error: { type: String, default: null }
+}, { timestamps: true });
+
+// Register TranscodeJob model globally with mongoose
+mongoose.model('TranscodeJob', transcodeJobSchema);
+
+module.exports = PostModel;

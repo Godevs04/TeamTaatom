@@ -1,45 +1,56 @@
 import React, { useRef, useState, useEffect, memo, useCallback, useMemo } from 'react';
-import { View, StyleSheet, ActivityIndicator, Image, TouchableOpacity, Text, Dimensions } from 'react-native';
-import { Image as ExpoImage } from 'expo-image';
+import { View, StyleSheet, ActivityIndicator, Image, TouchableOpacity, Text, Dimensions, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import { useRecoilValue, useSetRecoilState } from 'recoil';
 import logger from '../../utils/logger';
+import { activeShortIndexAtom, videoPlayingFamily, videoReadyFamily, videoBufferingFamily } from '../../app/(tabs)/shorts';
 
 interface ShortsVideoProps {
   videoId: string;
   videoUrl: string;
   imageUrl?: string;
-  isActive: boolean;
-  shouldRender: boolean;
+  index: number;
   isMuted: boolean;
   volume: number;
   sourceVersion?: number;
-  onReady?: () => void;
+  videoRefCallback?: (ref: Video | null) => void;
   onError?: (error: any) => void;
-  onProgress?: (progress: { currentTime: number; seekableDuration: number }) => void;
 }
 
 const ShortsVideo = ({
   videoId,
   videoUrl,
   imageUrl,
-  isActive,
-  shouldRender,
+  index,
   isMuted,
   volume,
   sourceVersion = 0,
-  onReady,
+  videoRefCallback,
   onError,
-  onProgress,
 }: ShortsVideoProps) => {
-  const videoRef = useRef<Video>(null);
-  const [isReady, setIsReady] = useState(false);
-  const [hasError, setHasError] = useState(false);
   const [showPoster, setShowPoster] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
   const [aspectRatio, setAspectRatio] = useState<number | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [positionMillis, setPositionMillis] = useState(0);
+  const [hasError, setHasError] = useState(false);
+  const posterOpacity = useRef(new Animated.Value(1)).current;
+  const lastVideoRef = useRef<Video | null>(null);
+
+  // Recoil states
+  const activeIndex = useRecoilValue(activeShortIndexAtom);
+  const isPlaying = useRecoilValue(videoPlayingFamily(videoId));
+  const setVideoReady = useSetRecoilState(videoReadyFamily(videoId));
+  const setVideoBuffering = useSetRecoilState(videoBufferingFamily(videoId));
+  const isBuffering = useRecoilValue(videoBufferingFamily(videoId));
+  const isReady = useRecoilValue(videoReadyFamily(videoId));
+
+  const shouldRender = Math.abs(index - activeIndex) <= 2;
+  const isActive = index === activeIndex && isPlaying;
 
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+  
   const videoStyle = useMemo(() => {
     if (!aspectRatio) {
       return StyleSheet.absoluteFillObject;
@@ -85,13 +96,15 @@ const ShortsVideo = ({
     
     return () => {
       logger.info(`[ShortsVideo] Component unmounting/cleaning up for video ${videoId}`);
-      if (videoRef.current) {
-        const video = videoRef.current;
+      const videoToUnload = lastVideoRef.current;
+      if (videoToUnload) {
         logger.debug(`[ShortsVideo] Unmounting: calling unloadAsync for ${videoId}`);
-        video.unloadAsync().catch(err => {
+        videoToUnload.unloadAsync().catch(err => {
           logger.debug(`[ShortsVideo] Error unloading video ${videoId} on unmount (non-blocking):`, err);
         });
       }
+      setVideoReady(false);
+      setVideoBuffering(false);
     };
   }, [videoId]);
 
@@ -102,21 +115,51 @@ const ShortsVideo = ({
     } else {
       logger.warn(`[ShortsVideo] videoUrl is EMPTY for ${videoId}, cannot play`);
     }
-    setIsReady(false);
+    setIsLoaded(false);
+    setPositionMillis(0);
     setHasError(false);
     setShowPoster(true);
+    posterOpacity.setValue(1);
+    setVideoReady(false);
+    setVideoBuffering(false);
   }, [videoUrl, sourceVersion, videoId]);
 
-  const handleReadyForDisplay = useCallback(() => {
-    if (!isReady) {
-      setIsReady(true);
-      setShowPoster(false);
-      if (onReady) {
-        onReady();
-      }
-      logger.debug(`[ShortsVideo] Video ${videoId} is ready for display`);
+  // Virtualization cleanups: reset internal loader states when unrendered
+  useEffect(() => {
+    if (!shouldRender) {
+      setIsLoaded(false);
+      setPositionMillis(0);
+      setShowPoster(true);
+      posterOpacity.setValue(1);
+      setVideoReady(false);
+      setVideoBuffering(false);
     }
-  }, [isReady, videoId, onReady]);
+  }, [shouldRender]);
+
+  const handleReadyForDisplay = useCallback(() => {
+    setVideoReady(true);
+    setVideoBuffering(false);
+    logger.debug(`[ShortsVideo] Video ${videoId} is ready for display`);
+  }, [videoId, setVideoReady, setVideoBuffering]);
+
+  // Thumbnail visible computed state to prevent blank flashes
+  const thumbnailVisible = !(isLoaded && positionMillis > 0);
+
+  // Poster crossfade effect
+  useEffect(() => {
+    if (!thumbnailVisible) {
+      Animated.timing(posterOpacity, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => {
+        setShowPoster(false);
+      });
+    } else {
+      setShowPoster(true);
+      posterOpacity.setValue(1);
+    }
+  }, [thumbnailVisible]);
 
   const handleVideoError = useCallback((error: any) => {
     logger.error(`[ShortsVideo] Error playing video ${videoId}:`, {
@@ -125,53 +168,59 @@ const ShortsVideo = ({
       timestamp: new Date().toISOString()
     });
     setHasError(true);
+    setVideoReady(false);
+    setVideoBuffering(false);
     if (onError) {
       onError(error);
     }
-  }, [videoId, videoUrl, onError]);
+  }, [videoId, videoUrl, onError, setVideoReady, setVideoBuffering]);
 
   const handleRetry = useCallback(() => {
     logger.debug(`[ShortsVideo] Retrying video ${videoId} (attempt ${retryCount + 1})`);
     setHasError(false);
-    setIsReady(false);
+    setIsLoaded(false);
+    setPositionMillis(0);
     setShowPoster(true);
+    posterOpacity.setValue(1);
+    setVideoReady(false);
+    setVideoBuffering(false);
     setRetryCount(retryCount + 1);
   }, [videoId, retryCount]);
 
   const handlePlaybackStatusUpdate = useCallback((status: AVPlaybackStatus) => {
     if (status.isLoaded) {
-      if (onProgress) {
-        onProgress({
-          currentTime: (status.positionMillis || 0) / 1000,
-          seekableDuration: (status.durationMillis || 0) / 1000,
-        });
-      }
+      setIsLoaded(true);
+      setPositionMillis(status.positionMillis);
+      setVideoBuffering(status.isBuffering);
     } else {
+      setIsLoaded(false);
       const errStatus = status as any;
       if (errStatus.error) {
         handleVideoError(errStatus.error);
       }
     }
-  }, [onProgress, handleVideoError]);
+  }, [handleVideoError, setVideoBuffering]);
 
   return (
     <View style={styles.container}>
       {/* Thumbnail backdrop shown until video is ready — prevents black flash */}
       {showPoster && imageUrl ? (
-        <Image
-          source={{ uri: imageUrl }}
-          style={StyleSheet.absoluteFill}
-          resizeMode="cover"
-        />
+        <Animated.View style={[StyleSheet.absoluteFill, { opacity: posterOpacity, zIndex: 2 }]}>
+          <Image
+            source={{ uri: imageUrl }}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+          />
+        </Animated.View>
       ) : showPoster ? (
-        <View style={[StyleSheet.absoluteFill, styles.loaderContainer]}>
+        <Animated.View style={[StyleSheet.absoluteFill, styles.loaderContainer, { opacity: posterOpacity, zIndex: 2 }]}>
           <ActivityIndicator size="small" color="rgba(255,255,255,0.6)" />
-        </View>
+        </Animated.View>
       ) : null}
 
       {/* Error state — show instead of black screen */}
       {hasError && (
-        <View style={[StyleSheet.absoluteFill, styles.errorContainer]}>
+        <View style={[StyleSheet.absoluteFill, styles.errorContainer, { zIndex: 4 }]}>
           <Ionicons name="alert-circle" size={48} color="rgba(255,255,255,0.7)" />
           <Text style={styles.errorText}>Failed to load video</Text>
           <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
@@ -183,8 +232,28 @@ const ShortsVideo = ({
       {/* Video component - only rendered when shouldRender is true and no error */}
       {shouldRender && !hasError && (
         <Video
-          ref={videoRef}
-          source={{ uri: videoUrl }}
+          ref={(ref) => {
+            if (ref) {
+              lastVideoRef.current = ref;
+            } else {
+              const videoToUnload = lastVideoRef.current;
+              if (videoToUnload) {
+                videoToUnload.pauseAsync()
+                  .then(() => videoToUnload.unloadAsync())
+                  .catch(err => logger.debug(`[ShortsVideo] Ref cleanup unload failed:`, err));
+                lastVideoRef.current = null;
+              }
+            }
+            if (videoRefCallback) {
+              videoRefCallback(ref);
+            }
+          }}
+          source={{
+            uri: videoUrl,
+            ...(videoUrl.includes('hls=master') || videoUrl.includes('.m3u8')
+              ? { overrideFileExtensionOrMimeType: 'm3u8' }
+              : {})
+          }}
           style={videoStyle}
           resizeMode={ResizeMode.COVER}
           isLooping={true}
@@ -195,13 +264,14 @@ const ShortsVideo = ({
           onError={handleVideoError}
           onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
           onLoad={handleLoad}
+          onLoadStart={() => setVideoBuffering(true)}
           progressUpdateIntervalMillis={500}
         />
       )}
 
-      {/* Spinner visible during the loading phase */}
-      {shouldRender && !isReady && !hasError && (
-        <View style={[StyleSheet.absoluteFill, styles.loaderContainer, { backgroundColor: 'transparent' }]}>
+      {/* Spinner visible during the loading/buffering phase */}
+      {shouldRender && (isBuffering || !isReady) && !hasError && (
+        <View style={[StyleSheet.absoluteFill, styles.loaderContainer, { backgroundColor: 'transparent', zIndex: 3 }]}>
           <ActivityIndicator size="small" color="rgba(255,255,255,0.6)" />
         </View>
       )}
@@ -224,7 +294,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.8)',
-    zIndex: 10,
   },
   errorText: {
     color: 'rgba(255, 255, 255, 0.8)',

@@ -927,6 +927,9 @@ export default function HomeScreen() {
         setVisiblePostId(savedVisiblePostIdRef.current);
       }
 
+      // Lift any audio freeze
+      audioManager.unfreeze();
+
       // 3. Background refresh data on focus
       if (hasInitializedRef.current && !isFetchingRef.current) {
         logger.debug('[Home] Screen focused: triggering background refresh of page 1');
@@ -953,6 +956,7 @@ export default function HomeScreen() {
         lastViewedPostIdRef.current = null;
         lastViewTimeRef.current = 0;
         logger.debug('[Home] Stopping all audio - leaving home page');
+        audioManager.freeze(3000);
         audioManager.stopAll().catch((error) => {
           logger.error('[Home] Error stopping audio:', error);
         });

@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
+import { useIsFocused } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
 import logger from '../utils/logger';
@@ -62,10 +63,13 @@ const cacheSongLocally = async (remoteUrl: string): Promise<string> => {
 };
 
 function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPlayPause = false, externalMuted, onPlayingChange }: SongPlayerProps) {
+  const isFocused = useIsFocused();
+  const isEffectiveVisible = isVisible && isFocused;
+
   if (__DEV__) {
     logger.debug('[SongPlayerComponent Render]', {
       postId: post._id,
-      isVisible,
+      isVisible: isEffectiveVisible,
       autoPlay,
       externalMuted,
     });
@@ -84,7 +88,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
   // Mirrors the isVisible prop synchronously so loadAndPlaySong can detect a
   // nav-during-load (tab switch or scroll to next reel) and abort instead of
   // starting playback in the background after the user has already navigated.
-  const isVisibleRef = useRef(isVisible);
+  const isVisibleRef = useRef(isEffectiveVisible);
   // Token bumped on every loadAndPlaySong invocation. After awaiting loadAsync
   // we compare the captured token against the current ref — if they differ a
   // newer load was started or the component unmounted, and this stale load
@@ -109,11 +113,11 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
     if (post.song && __DEV__) {
       logger.debug('[SONGPLAYER] Mount/update:', {
         postId: String(post._id),
-        isVisible,
+        isVisible: isEffectiveVisible,
         autoPlay,
       });
     }
-  }, [post.song, isVisible, autoPlay, post._id]);
+  }, [post.song, isEffectiveVisible, autoPlay, post._id]);
 
   // If backend URL generation failed (s3Url/cloudinaryUrl missing), fetch a fresh URL via API
   useEffect(() => {
@@ -151,7 +155,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
   // hands us the new prop — before commit, before child effects run. A
   // useEffect-based sync leaves a brief race window during which an
   // in-flight loadAsync can resolve and decide it's still "visible".
-  isVisibleRef.current = isVisible;
+  isVisibleRef.current = isEffectiveVisible;
 
   // Cleanup on unmount
   useEffect(() => {
@@ -422,7 +426,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
   useEffect(() => {
     // For shorts and home page: sync with visibility and autoPlay prop
     const audioUrl = song?.s3Url || (song as any)?.cloudinaryUrl || fetchedUrl;
-    if (isVisible && !showPlayPause && audioUrl) {
+    if (isEffectiveVisible && !showPlayPause && audioUrl) {
       if (autoPlay) {
         // Should play - play song
         const currentPostId = audioManager.getCurrentPostId();
@@ -488,7 +492,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
           // Check if sound is actually still loaded before reloading
           soundRef.current.getStatusAsync()
             .then((status) => {
-              if (isVisible && autoPlay) {
+              if (isEffectiveVisible && autoPlay) {
                 // If the post is visible and should play, reload and play it
                 // (handles both the case where it was unloaded natively during mute
                 // and the case where it's still loaded but detached from audioManager)
@@ -583,7 +587,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
     }
 
     // Pause (don't unload) when component becomes invisible — keeps audio for resume
-    if (!isVisible && !showPlayPause) {
+    if (!isEffectiveVisible && (!showPlayPause || !isFocused)) {
       loadTokenRef.current += 1;
       preloadedRef.current = false;
       if (soundRef.current) {
@@ -592,7 +596,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
         setIsPlaying(false);
       }
     }
-  }, [isVisible, autoPlay, showPlayPause, song?.s3Url, (song as any)?.cloudinaryUrl, fetchedUrl, loadAndPlaySong, post._id, onPlayingChange]);
+  }, [isEffectiveVisible, isFocused, autoPlay, showPlayPause, song?.s3Url, (song as any)?.cloudinaryUrl, fetchedUrl, loadAndPlaySong, post._id, onPlayingChange]);
 
   const togglePlayPause = useCallback(async () => {
     logger.debug('Toggle play/pause - soundRef exists:', !!soundRef.current);
