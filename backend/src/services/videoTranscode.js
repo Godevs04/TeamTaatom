@@ -113,19 +113,40 @@ async function transcodeIfNeeded(inputBuffer, inputMimetype) {
       const videoOk = videoStream && (videoStream.codec_name === 'h264' || videoStream.codec_name === 'avc1');
       const audioOk = !audioStream || audioStream.codec_name === 'aac';
       const heightOk = !videoStream || !videoStream.height || videoStream.height <= 1080;
-      if (videoOk && audioOk && heightOk) {
+      
+      // Calculate input frame rate
+      let fps = 30;
+      if (videoStream && videoStream.r_frame_rate) {
+        const parts = videoStream.r_frame_rate.split('/');
+        if (parts.length === 2 && parseFloat(parts[1]) > 0) {
+          fps = parseFloat(parts[0]) / parseFloat(parts[1]);
+        } else if (!isNaN(parseFloat(videoStream.r_frame_rate))) {
+          fps = parseFloat(videoStream.r_frame_rate);
+        }
+      }
+      
+      // Calculate input bitrate
+      const bitrate = videoStream && videoStream.bit_rate ? parseInt(videoStream.bit_rate) : 0;
+      const fpsOk = Math.abs(fps - 30) < 0.1;
+      const bitrateOk = bitrate > 0 && bitrate <= 5000000; // Capped at 5Mbps
+
+      if (videoOk && audioOk && heightOk && fpsOk && bitrateOk) {
         needsTranscode = false;
-        logger.info('[videoTranscode] Input is already H.264/AAC ≤1080p — passthrough', {
+        logger.info('[videoTranscode] Input is already H.264/AAC ≤1080p, 30fps, ≤5Mbps — passthrough', {
           videoCodec: videoStream && videoStream.codec_name,
           audioCodec: audioStream && audioStream.codec_name,
           height: videoStream && videoStream.height,
+          fps: fps.toFixed(2),
+          bitrate: (bitrate / 1000000).toFixed(2) + ' Mbps',
         });
       } else {
         logger.info('[videoTranscode] Input needs transcoding', {
           videoCodec: videoStream && videoStream.codec_name,
           audioCodec: audioStream && audioStream.codec_name,
           height: videoStream && videoStream.height,
-          reason: !videoOk ? 'video codec' : !audioOk ? 'audio codec' : 'resolution',
+          fps: fps.toFixed(2),
+          bitrate: bitrate ? (bitrate / 1000000).toFixed(2) + ' Mbps' : 'unknown',
+          reason: !videoOk ? 'video codec' : !audioOk ? 'audio codec' : !heightOk ? 'resolution' : !fpsOk ? 'framerate' : 'bitrate',
         });
       }
     } catch (probeErr) {
@@ -137,7 +158,7 @@ async function transcodeIfNeeded(inputBuffer, inputMimetype) {
     }
 
     // Transcode: H.264 Main profile, 720p max height (preserves portrait
-    // aspect via -2 width), CRF 23 (visually-lossless-ish), AAC 128k.
+    // aspect via -2 width), CRF 23, constant 30fps, 5Mbps bitrate cap, AAC 128k.
     // The +faststart movflag puts the moov atom up front so the file is
     // streamable from byte 0 — important for our R2-hosted playback.
     const transcodeStart = Date.now();
@@ -151,8 +172,9 @@ async function transcodeIfNeeded(inputBuffer, inputMimetype) {
           '-level 4.0',
           '-pix_fmt yuv420p',
           '-crf 23',
-          '-maxrate 3M',
-          '-bufsize 6M',
+          '-b:v 5M',
+          '-maxrate 5M',
+          '-bufsize 10M',
           '-vf scale=-2:min(720\\,ih)',
           '-r 30',
           '-b:a 128k',

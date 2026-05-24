@@ -395,8 +395,8 @@ const uploadLocale = async (req, res) => {
       
       if (!isNaN(lat) && !isNaN(lng)) {
         if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-          processedLatitude = lat;
-          processedLongitude = lng;
+          processedLatitude = Math.round(lat * 1000) / 1000;
+          processedLongitude = Math.round(lng * 1000) / 1000;
         } else {
           logger.warn('Invalid coordinates provided:', { latitude: lat, longitude: lng });
         }
@@ -657,15 +657,14 @@ const updateLocale = async (req, res) => {
       }
     }
 
-    // Handle latitude and longitude update
     if (latitude !== undefined && longitude !== undefined) {
       const lat = parseFloat(latitude);
       const lng = parseFloat(longitude);
       
       if (!isNaN(lat) && !isNaN(lng)) {
         if (lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
-          locale.latitude = lat;
-          locale.longitude = lng;
+          locale.latitude = Math.round(lat * 1000) / 1000;
+          locale.longitude = Math.round(lng * 1000) / 1000;
         } else {
           logger.warn('Invalid coordinates provided for update:', { latitude: lat, longitude: lng });
           // Don't fail the update, just log the warning

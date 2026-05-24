@@ -39,6 +39,7 @@ import KebabMenu from '../../components/common/KebabMenu';
 import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
+import { useSubscription } from '../../context/SubscriptionContext';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { trackScreenView, trackEngagement, trackFeatureUsage } from '../../services/analytics';
 import { theme } from '../../constants/theme';
@@ -135,6 +136,7 @@ interface ProfileData extends UserType {
 export default function ProfileScreen() {
   const { handleScroll } = useScrollToHideNav();
   const insets = useSafeAreaInsets();
+  const { subscriptionStatuses, refreshSubscriptionStatus, updateSubscriptionStatus } = useSubscription();
   const [user, setUser] = useState<UserType | null>(null);
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [posts, setPosts] = useState<PostType[]>([]);
@@ -465,6 +467,47 @@ export default function ProfileScreen() {
       }
     };
   }, [loadUserData]);
+
+  // Sync subscriptions on mount to keep SubscriptionContext in sync
+  const [subSyncLoading, setSubSyncLoading] = useState(false);
+  useEffect(() => {
+    let active = true;
+    async function syncSubscriptions() {
+      if (subSyncLoading) return;
+      setSubSyncLoading(true);
+      try {
+        const { getMySubscriptions } = require('../../services/connect');
+        const res = await getMySubscriptions();
+        if (active && res?.subscriptions) {
+          for (const sub of res.subscriptions) {
+            if (sub.connectPageId?._id) {
+              const status = {
+                isSubscribed: sub.status === 'active',
+                subscription: {
+                  _id: sub._id,
+                  status: sub.status,
+                  amount: sub.amount,
+                  activatedAt: sub.activatedAt,
+                  currentPeriodEnd: sub.currentPeriodEnd,
+                }
+              };
+              updateSubscriptionStatus(sub.connectPageId._id, status);
+            }
+          }
+        }
+      } catch (err) {
+        logger.warn('Failed to sync subscriptions on profile mount:', err);
+      } finally {
+        if (active) {
+          setSubSyncLoading(false);
+        }
+      }
+    }
+    syncSubscriptions();
+    return () => {
+      active = false;
+    };
+  }, [updateSubscriptionStatus]);
 
   // Real-time notification badge: increment count when a new notification arrives via socket
   useEffect(() => {
