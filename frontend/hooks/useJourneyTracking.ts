@@ -4,6 +4,7 @@ import * as TaskManager from 'expo-task-manager';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, Platform } from 'react-native';
+import { registerResetCallback } from '../services/auth';
 
 // True when running inside Expo Go. The native bits behind expo-task-manager
 // + the iOS background-location capability aren't bundled there, so any
@@ -1067,6 +1068,47 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       AsyncStorage.removeItem('@active_journey_state').catch(() => {});
     }
   }, [isTracking, isPaused, journey, polyline, distance, duration, initialized]);
+
+  const resetTrackingState = useCallback(async () => {
+    try {
+      if (locationWatcherRef.current) {
+        locationWatcherRef.current.remove();
+        locationWatcherRef.current = null;
+      }
+      if (durationTimerRef.current) {
+        clearInterval(durationTimerRef.current);
+        durationTimerRef.current = null;
+      }
+      if (batchSendTimerRef.current) {
+        clearInterval(batchSendTimerRef.current);
+        batchSendTimerRef.current = null;
+      }
+      await stopBackgroundUpdates();
+      journeyIdRef.current = null;
+      startTimeRef.current = null;
+      lastCoordinateRef.current = null;
+      batchCoordinatesRef.current = [];
+      setIsTracking(false);
+      setIsPaused(false);
+      setJourney(null);
+      setPolyline([]);
+      setDistance(0);
+      setDuration(0);
+      setAccuracy(null);
+      setCurrentCoordinate(null);
+      setError(null);
+      logger.debug('[Journey] Reset tracking state complete');
+    } catch (e) {
+      logger.error('[Journey] Failed to reset tracking state:', e);
+    }
+  }, [stopBackgroundUpdates]);
+
+  useEffect(() => {
+    const unregister = registerResetCallback(() => {
+      resetTrackingState();
+    });
+    return () => unregister();
+  }, [resetTrackingState]);
 
   return {
     initialized,

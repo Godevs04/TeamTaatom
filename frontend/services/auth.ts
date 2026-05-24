@@ -377,9 +377,21 @@ export const signOut = async (): Promise<void> => {
     await AsyncStorage.removeItem('onboarding_completed');
     await AsyncStorage.removeItem('taatom_shorts_liked_ids');
     await AsyncStorage.removeItem('taatom_posts_liked_ids');
+    await AsyncStorage.removeItem('activeJourneyId');
+    await AsyncStorage.removeItem('@active_journey_state');
+    await AsyncStorage.removeItem('lastActiveTabPath');
     
     // Clear last auth error
     lastAuthError = null;
+
+    // Clear React contexts via registered callbacks
+    resetCallbacks.forEach(cb => {
+      try {
+        cb();
+      } catch (err) {
+        logger.warn('Failed to call reset callback during signout:', err);
+      }
+    });
     
     // On web, trigger storage event to notify other tabs/windows
     if (isWeb && typeof window !== 'undefined') {
@@ -402,6 +414,9 @@ export const signOut = async (): Promise<void> => {
       await AsyncStorage.removeItem('onboarding_completed');
       await AsyncStorage.removeItem('taatom_shorts_liked_ids');
       await AsyncStorage.removeItem('taatom_posts_liked_ids');
+      await AsyncStorage.removeItem('activeJourneyId');
+      await AsyncStorage.removeItem('@active_journey_state');
+      await AsyncStorage.removeItem('lastActiveTabPath');
       lastAuthError = null;
     } catch (clearError) {
       logger.error('Failed to clear storage during signout:', clearError);
@@ -476,4 +491,14 @@ export const refreshAuthState = async (): Promise<UserType | null> => {
       logger.error('refreshAuthState', error);
     return null;
   }
+};
+
+type ResetCallback = () => void;
+const resetCallbacks = new Set<ResetCallback>();
+
+export const registerResetCallback = (cb: ResetCallback) => {
+  resetCallbacks.add(cb);
+  return () => {
+    resetCallbacks.delete(cb);
+  };
 };
