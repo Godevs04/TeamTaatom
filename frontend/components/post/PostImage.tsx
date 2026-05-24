@@ -448,7 +448,13 @@ export default function PostImage({
       {/* Music plays when post is visible and unmuted, pauses when scrolled away (Instagram-style) */}
       {post.song?.songId && imageUri && !imageError && (
         <View style={styles.hiddenSongPlayer} pointerEvents="box-none">
-          <SongPlayer post={post} isVisible={isCurrentlyVisible} autoPlay={isCurrentlyVisible && !isMuted} showPlayPause={false} />
+          <SongPlayer 
+            post={post} 
+            isVisible={isCurrentlyVisible} 
+            autoPlay={isCurrentlyVisible && !isMuted} 
+            showPlayPause={false} 
+            externalMuted={isMuted}
+          />
         </View>
       )}
 
