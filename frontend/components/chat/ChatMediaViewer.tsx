@@ -22,13 +22,75 @@ import ReAnimated, {
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 interface ChatMediaViewerProps {
+  visible?: boolean;
+  type?: 'image' | 'video';
+  uri?: string;
+  onClose?: () => void;
+  isGlobal?: boolean;
+}
+
+interface ViewerState {
   visible: boolean;
   type: 'image' | 'video';
   uri: string;
   onClose: () => void;
 }
 
-export default function ChatMediaViewer({ visible, type, uri, onClose }: ChatMediaViewerProps) {
+let globalState: ViewerState = {
+  visible: false,
+  type: 'image',
+  uri: '',
+  onClose: () => {},
+};
+
+const listeners = new Set<(state: ViewerState) => void>();
+
+export function setGlobalViewerState(state: Partial<ViewerState>) {
+  globalState = { ...globalState, ...state };
+  listeners.forEach((l) => l(globalState));
+}
+
+export function subscribeToGlobalViewer(listener: (state: ViewerState) => void) {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+export default function ChatMediaViewer({
+  visible,
+  type: initialType,
+  uri: initialUri,
+  onClose: initialOnClose,
+  isGlobal = false,
+}: ChatMediaViewerProps) {
+  if (!isGlobal) {
+    // Local instance: sync its props to the global manager
+    useEffect(() => {
+      if (visible) {
+        setGlobalViewerState({
+          visible: true,
+          type: initialType || 'image',
+          uri: initialUri || '',
+          onClose: initialOnClose || (() => {}),
+        });
+      }
+    }, [visible, initialType, initialUri, initialOnClose]);
+
+    return null;
+  }
+
+  // Global instance: renders the actual modal and manages state synchronized with global manager
+  const [state, setState] = useState<ViewerState>(globalState);
+
+  useEffect(() => {
+    return subscribeToGlobalViewer((nextState) => {
+      setState(nextState);
+    });
+  }, []);
+
+  const { visible: isVisible, type, uri, onClose } = state;
+
   const videoRef = useRef<Video>(null);
   const [imageLoading, setImageLoading] = useState(true);
   const [videoReady, setVideoReady] = useState(false);
@@ -44,7 +106,7 @@ export default function ChatMediaViewer({ visible, type, uri, onClose }: ChatMed
 
   // Reset zoom on visibility changes
   useEffect(() => {
-    if (!visible) {
+    if (!isVisible) {
       scale.value = 1;
       translateX.value = 0;
       translateY.value = 0;
@@ -52,17 +114,17 @@ export default function ChatMediaViewer({ visible, type, uri, onClose }: ChatMed
       savedTranslateX.value = 0;
       savedTranslateY.value = 0;
     }
-  }, [visible]);
+  }, [isVisible]);
 
   // Handle status bar visibility (immersive mode) for BUG-008
   useEffect(() => {
-    if (visible) {
+    if (isVisible) {
       StatusBar.setHidden(true, 'fade');
     }
     return () => {
       StatusBar.setHidden(false, 'fade');
     };
-  }, [visible]);
+  }, [isVisible]);
 
   // Gestures definition
   const pinchGesture = Gesture.Pinch()
@@ -122,6 +184,7 @@ export default function ChatMediaViewer({ visible, type, uri, onClose }: ChatMed
       ] as any,
     };
   });
+
   const handleClose = useCallback(async () => {
     try {
       await videoRef.current?.pauseAsync();
@@ -129,11 +192,14 @@ export default function ChatMediaViewer({ visible, type, uri, onClose }: ChatMed
     } catch {
       // ignore
     }
-    onClose();
+    if (onClose) {
+      onClose();
+    }
+    setGlobalViewerState({ visible: false });
   }, [onClose]);
 
   useEffect(() => {
-    if (!visible) {
+    if (!isVisible) {
       setImageLoading(true);
       setVideoReady(false);
       return;
@@ -148,7 +214,7 @@ export default function ChatMediaViewer({ visible, type, uri, onClose }: ChatMed
       }, 80);
       return () => clearTimeout(t);
     }
-  }, [visible, type, uri]);
+  }, [isVisible, type, uri]);
 
   const onVideoStatus = useCallback((status: AVPlaybackStatus) => {
     if (!status.isLoaded) return;
@@ -167,14 +233,14 @@ export default function ChatMediaViewer({ visible, type, uri, onClose }: ChatMed
 
   return (
     <Modal
-      visible={visible}
+      visible={isVisible}
       transparent={false}
       animationType="fade"
       presentationStyle="fullScreen"
       statusBarTranslucent
       onRequestClose={handleClose}
     >
-      <StatusBar barStyle="light-content" backgroundColor="#000" hidden={visible} />
+      <StatusBar barStyle="light-content" backgroundColor="#000" hidden={isVisible} />
       <View style={styles.container}>
         <TouchableOpacity style={styles.closeBtn} onPress={handleClose} hitSlop={16}>
           <Ionicons name="close" size={30} color="#fff" />

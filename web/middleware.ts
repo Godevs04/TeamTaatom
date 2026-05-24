@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { BACKEND_ORIGIN } from "./lib/constants";
 
 // Auth routes that logged-in users should not see (redirect to feed)
 const AUTH_ROUTES = ["/auth/login", "/auth/register"];
@@ -30,8 +31,55 @@ function isProtected(pathname: string) {
   return PROTECTED_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  // Intercept short URLs
+  if (pathname.startsWith("/s/")) {
+    const match = pathname.match(/^\/s\/([^\/]+)$/);
+    const shortCode = match ? match[1] : null;
+    if (shortCode) {
+      try {
+        const res = await fetch(`${BACKEND_ORIGIN}/s/${shortCode}`);
+        if (res.status === 200) {
+          const html = await res.text();
+          const urlMatch = html.match(/universalLink\s*=\s*['"]([^'"]+)['"]/);
+          if (urlMatch && urlMatch[1]) {
+            const targetUrl = new URL(urlMatch[1]);
+            let path = targetUrl.pathname;
+            if (path.startsWith("/journey/")) {
+              const id = path.substring("/journey/".length);
+              path = `/journeys/${id}`;
+            } else if (path.startsWith("/post/")) {
+              const id = path.substring("/post/".length);
+              path = `/trip/${id}`;
+            }
+            const redirectUrl = req.nextUrl.clone();
+            redirectUrl.pathname = path;
+            redirectUrl.search = ""; // clear short URL search parameters
+            return NextResponse.redirect(redirectUrl);
+          }
+        }
+      } catch (err) {
+        console.error("Error resolving short URL:", err);
+      }
+    }
+  }
+
+  // Intercept universal link paths directly accessed on web
+  if (pathname.startsWith("/post/")) {
+    const id = pathname.substring(6);
+    const redirectUrl = req.nextUrl.clone();
+    redirectUrl.pathname = `/trip/${id}`;
+    return NextResponse.redirect(redirectUrl);
+  }
+
+  if (pathname.startsWith("/journey/")) {
+    const id = pathname.substring(9);
+    const redirectUrl = req.nextUrl.clone();
+    redirectUrl.pathname = `/journeys/${id}`;
+    return NextResponse.redirect(redirectUrl);
+  }
 
   // Cashfree subscription return_url may receive POST (form body); pages only handle GET.
   if (req.method === "POST" && /^\/connect\/page\/[^/]+$/.test(pathname)) {
@@ -67,6 +115,9 @@ export function middleware(req: NextRequest) {
 // Keep in sync with PROTECTED_PREFIXES and AUTH_ROUTES (Next.js requires static matcher)
 export const config = {
   matcher: [
+    "/s/:path*",
+    "/post/:path*",
+    "/journey/:path*",
     "/onboarding",
     "/onboarding/:path*",
     "/auth/login",

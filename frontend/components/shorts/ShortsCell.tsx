@@ -1,11 +1,14 @@
 import React, { useState, useRef, useEffect, memo, useCallback } from 'react';
-import { View, StyleSheet, TouchableWithoutFeedback, Animated, ViewStyle } from 'react-native';
+import { View, StyleSheet, Animated, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { runOnJS } from 'react-native-reanimated';
 import { PostType } from '../../types/post';
 import ShortsVideo from './ShortsVideo';
 import ShortsActions from './ShortsActions';
 import ShortsOverlay from './ShortsOverlay';
 import logger from '../../utils/logger';
+import { trackPostView } from '../../services/analytics';
 
 interface ShortsCellProps {
   item: PostType;
@@ -75,10 +78,47 @@ const ShortsCell = ({
   const pauseTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastTapRef = useRef<number | null>(null);
   const cacheRetryCountRef = useRef<number>(0);
+  
+  const [views, setViews] = useState(item.viewsCount || (item as any).views || 0);
+  const hasViewedRef = useRef(false);
+  const viewTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const distanceFromVisible = index - currentVisibleIndex;
   const shouldRenderVideo = Math.abs(distanceFromVisible) <= SHORTS_PRELOAD_WINDOW;
   const isActive = index === currentVisibleIndex && isScreenFocused;
+
+  // Sync views count state when active item changes
+  useEffect(() => {
+    setViews(item.viewsCount || (item as any).views || 0);
+    hasViewedRef.current = false;
+  }, [item._id]);
+
+  // Track video view when playing actively for 2.5 seconds
+  useEffect(() => {
+    const isActivelyPlaying = isActive && videoPlaying;
+
+    if (isActivelyPlaying && !hasViewedRef.current) {
+      viewTimerRef.current = setTimeout(() => {
+        hasViewedRef.current = true;
+        // Fire API dispatch
+        trackPostView(item._id, { type: 'short', source: 'shorts_feed' });
+        // Optimistically increment views count state
+        setViews(prev => prev + 1);
+      }, 2500);
+    } else {
+      if (viewTimerRef.current) {
+        clearTimeout(viewTimerRef.current);
+        viewTimerRef.current = null;
+      }
+    }
+
+    return () => {
+      if (viewTimerRef.current) {
+        clearTimeout(viewTimerRef.current);
+        viewTimerRef.current = null;
+      }
+    };
+  }, [isActive, videoPlaying, item._id]);
 
   // Clean up timer on unmount
   useEffect(() => {
@@ -144,9 +184,10 @@ const ShortsCell = ({
         friction: 5,
         useNativeDriver: true,
       }),
+      Animated.delay(300),
       Animated.timing(likeAnimValue, {
         toValue: 0,
-        duration: 200,
+        duration: 300,
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -154,21 +195,21 @@ const ShortsCell = ({
     });
   };
 
-  const handlePress = () => {
-    const now = Date.now();
-    if (lastTapRef.current && now - lastTapRef.current < 300) {
-      handleDoubleTapLike();
-    } else {
-      toggleVideoPlayback();
-    }
-    lastTapRef.current = now;
-  };
+  const doubleTapGesture = Gesture.Tap()
+    .numberOfTaps(2)
+    .onStart(() => {
+      runOnJS(handleDoubleTapLike)();
+    });
 
-  const handleLongPress = () => {
-    if (item.user._id === currentUser?._id) {
-      onDeletePress(item._id);
-    }
-  };
+  const singleTapGesture = Gesture.Tap()
+    .numberOfTaps(1)
+    .onStart(() => {
+      runOnJS(toggleVideoPlayback)();
+    });
+
+  const composedGesture = Gesture.Exclusive(doubleTapGesture, singleTapGesture);
+
+
 
   // Video progress callback
   const handleVideoProgress = () => {
@@ -195,14 +236,13 @@ const ShortsCell = ({
         onTouchMove={onTouchMove}
         onTouchEnd={(e) => onTouchEnd(e, item.user._id)}
       >
-        <TouchableWithoutFeedback
-          onPress={handlePress}
-          onLongPress={handleLongPress}
-          accessible={true}
-          accessibilityLabel="Tap to play or pause video, double tap to like"
-          accessibilityRole="button"
-        >
-          <View style={StyleSheet.absoluteFill}>
+        <GestureDetector gesture={composedGesture}>
+          <View 
+            style={StyleSheet.absoluteFill}
+            accessible={true}
+            accessibilityLabel="Tap to play or pause video, double tap to like"
+            accessibilityRole="button"
+          >
             <ShortsVideo
               videoId={item._id}
               videoUrl={getVideoUrl(item)}
@@ -217,7 +257,7 @@ const ShortsCell = ({
               onProgress={handleVideoProgress}
             />
           </View>
-        </TouchableWithoutFeedback>
+        </GestureDetector>
       </View>
 
       {/* Elegant overlays and descriptions */}

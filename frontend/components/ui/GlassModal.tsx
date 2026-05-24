@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, Modal, TouchableWithoutFeedback, ViewProps } from 'react-native';
+import { View, StyleSheet, Modal, TouchableWithoutFeedback, ViewProps, KeyboardAvoidingView, Platform } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { useTheme } from '../../context/ThemeContext';
 import Animated, { SlideInDown, SlideOutDown } from 'react-native-reanimated';
@@ -20,7 +20,11 @@ export const GlassModal = ({ visible, onClose, children, style, ...props }: Glas
           <BlurView intensity={20} tint="dark" style={StyleSheet.absoluteFillObject} />
         </View>
       </TouchableWithoutFeedback>
-      <View style={styles.modalContainer} pointerEvents="box-none">
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.modalContainer} 
+        pointerEvents="box-none"
+      >
         <Animated.View 
           entering={SlideInDown.springify().damping(16).stiffness(120)}
           exiting={SlideOutDown}
@@ -43,7 +47,7 @@ export const GlassModal = ({ visible, onClose, children, style, ...props }: Glas
             {children}
           </View>
         </Animated.View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 };

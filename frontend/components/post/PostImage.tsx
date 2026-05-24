@@ -11,7 +11,7 @@ import SongPlayer from '../SongPlayer';
 import { audioManager } from '../../utils/audioManager';
 import { Audio } from 'expo-av';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import ReAnimated, { useSharedValue, useAnimatedStyle, runOnJS } from 'react-native-reanimated';
+import ReAnimated, { useSharedValue, useAnimatedStyle, runOnJS, withSpring } from 'react-native-reanimated';
 
 const { width: screenWidth } = Dimensions.get('window');
 const CARD_WIDTH = screenWidth - 24;
@@ -118,25 +118,7 @@ export default function PostImage({
       }
     });
 
-  const pinchGesture = Gesture.Pinch()
-    .onUpdate((e) => {
-      scale.value = Math.max(1, e.scale);
-    })
-    .onEnd(() => {
-      scale.value = 1;
-    });
-
-  // Composed Gestures
-  const composedGesture = Gesture.Simultaneous(
-    pinchGesture,
-    Gesture.Exclusive(doubleTapGesture, singleTapGesture)
-  );
-
-  const listComposedGesture = Gesture.Exclusive(doubleTapGesture, singleTapGesture);
-
-  // Pinch-to-zoom (center only, no pan)
-  const scale = useSharedValue(1);
-  const animatedImageStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  // Gestures and animated style are defined below to ensure aspectRatioValue is in scope
 
   // expo-image handles caching natively; we just pass the array through.
   const resolvedImages = post.images && post.images.length > 1 ? post.images : (post.images || []);
@@ -256,6 +238,64 @@ export default function PostImage({
       : post.aspectRatio === 'full'
         ? (naturalAspect ?? 1)
         : 1;
+
+  // Pinch-to-zoom shared values
+  const scale = useSharedValue(1);
+  const focalX = useSharedValue(0);
+  const focalY = useSharedValue(0);
+
+  const pinchGesture = Gesture.Pinch()
+    .onUpdate((e) => {
+      // Clamp scale within the UI worklet to prevent crashes (Max 5, Min 1)
+      const currentScale = (e.scale && !isNaN(e.scale) && isFinite(e.scale)) ? e.scale : 1;
+      scale.value = Math.max(1, Math.min(currentScale, 5));
+      focalX.value = (e.focalX && !isNaN(e.focalX) && isFinite(e.focalX)) ? e.focalX : 0;
+      focalY.value = (e.focalY && !isNaN(e.focalY) && isFinite(e.focalY)) ? e.focalY : 0;
+    })
+    .onEnd(() => {
+      // Automatic snap-back feature (BUG-002) using withSpring for smooth reset
+      scale.value = withSpring(1);
+      focalX.value = withSpring(0);
+      focalY.value = withSpring(0);
+    });
+
+  // Composed Gestures
+  const composedGesture = Gesture.Simultaneous(
+    pinchGesture,
+    Gesture.Exclusive(doubleTapGesture, singleTapGesture)
+  );
+
+  const listComposedGesture = Gesture.Exclusive(doubleTapGesture, singleTapGesture);
+
+  const animatedImageStyle = useAnimatedStyle(() => {
+    // Null reference and bounds guard
+    const s = (scale.value && !isNaN(scale.value) && isFinite(scale.value)) ? scale.value : 1;
+    const fx = (focalX.value && !isNaN(focalX.value) && isFinite(focalX.value)) ? focalX.value : 0;
+    const fy = (focalY.value && !isNaN(focalY.value) && isFinite(focalY.value)) ? focalY.value : 0;
+
+    const width = CARD_WIDTH;
+    const height = aspectRatioValue ? (CARD_WIDTH / aspectRatioValue) : CARD_WIDTH;
+    const safeHeight = (height && !isNaN(height) && isFinite(height)) ? height : CARD_WIDTH;
+
+    // Calculate translation relative to center
+    const x = fx - width / 2;
+    const y = fy - safeHeight / 2;
+
+    const tx = x * (1 - s);
+    const ty = y * (1 - s);
+
+    // Guard tx/ty against NaN
+    const safeTx = (!isNaN(tx) && isFinite(tx)) ? tx : 0;
+    const safeTy = (!isNaN(ty) && isFinite(ty)) ? ty : 0;
+
+    return {
+      transform: [
+        { translateX: safeTx },
+        { translateY: safeTy },
+        { scale: s },
+      ] as any,
+    };
+  });
 
   return (
     <View style={[styles.imageContainer, { aspectRatio: aspectRatioValue }]}>

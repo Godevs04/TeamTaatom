@@ -319,7 +319,9 @@ postSchema.methods.toggleLike = function(userId) {
     return false; // unliked
   } else {
     // Like
-    this.likes.push(userId);
+    if (!this.likes.some(like => like.toString() === userId.toString())) {
+      this.likes.push(userId);
+    }
     return true; // liked
   }
 };

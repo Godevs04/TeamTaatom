@@ -31,6 +31,52 @@ const trackEvents = async (req, res) => {
     // Bulk insert events
     await AnalyticsEvent.insertMany(eventsToSave);
 
+    // Increment post/short views count in database
+    const Post = require('../models/Post');
+    for (const event of eventsToSave) {
+      if (event.event === 'post_view') {
+        const postId = event.properties?.post_id || event.properties?.postId;
+        if (postId) {
+          try {
+            const post = await Post.findById(postId);
+            if (post) {
+              const isCreator = post.user && event.userId && post.user.toString() === event.userId.toString();
+              let shouldIncrement = true;
+
+              if (isCreator) {
+                // Self-view check: allow creator's own views capped at 1 per day
+                const startOfDay = new Date();
+                startOfDay.setHours(0, 0, 0, 0);
+
+                const existingCreatorView = await AnalyticsEvent.findOne({
+                  event: 'post_view',
+                  userId: event.userId,
+                  $or: [
+                    { 'properties.post_id': postId },
+                    { 'properties.postId': postId }
+                  ],
+                  timestamp: { $gte: startOfDay, $lt: event.timestamp }
+                });
+
+                if (existingCreatorView) {
+                  shouldIncrement = false;
+                  logger.debug(`[VIEW TRACKING] Creator ${event.userId} already viewed own post ${postId} today, skipping view increment.`);
+                }
+              }
+
+              if (shouldIncrement) {
+                post.views = (post.views || 0) + 1;
+                await post.save();
+                logger.debug(`[VIEW TRACKING] Post ${postId} view count incremented to ${post.views}.`);
+              }
+            }
+          } catch (err) {
+            logger.error(`[VIEW TRACKING] Error incrementing views for post ${postId}:`, err);
+          }
+        }
+      }
+    }
+
     res.json({
       success: true,
       message: 'Events tracked successfully',

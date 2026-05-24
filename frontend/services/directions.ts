@@ -21,6 +21,7 @@ export interface DirectionsRoute {
   steps: DirectionStep[];
   distanceText: string;
   durationText: string;
+  distanceValue?: number; // distance in meters
 }
 
 const directionsCache = new Map<string, DirectionsRoute>();
@@ -123,6 +124,7 @@ export async function fetchDirectionsRoute(
       steps,
       distanceText: leg?.distance?.text || '',
       durationText: leg?.duration?.text || '',
+      distanceValue: leg?.distance?.value || 0,
     };
 
     directionsCache.set(cacheKey, parsed);

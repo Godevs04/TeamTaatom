@@ -1,4 +1,5 @@
 import React from 'react';
+// Strike 17: Profile Bulk Selection & Action Mandate integration.
 import {
   View,
   Text,

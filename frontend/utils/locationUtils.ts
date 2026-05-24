@@ -613,12 +613,18 @@ export const roundCoord = (num: number): number => {
  * @returns Distance in kilometers, or null if invalid coordinates
  */
 export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number | null => {
+  // Coerce inputs to numbers to handle potential string/undefined types defensively
+  const nLat1 = Number(lat1);
+  const nLon1 = Number(lon1);
+  const nLat2 = Number(lat2);
+  const nLon2 = Number(lon2);
+
   // Validate inputs
   if (
     lat1 == null || lon1 == null || lat2 == null || lon2 == null ||
-    isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2) ||
-    lat1 < -90 || lat1 > 90 || lat2 < -90 || lat2 > 90 ||
-    lon1 < -180 || lon1 > 180 || lon2 < -180 || lon2 > 180
+    isNaN(nLat1) || isNaN(nLon1) || isNaN(nLat2) || isNaN(nLon2) ||
+    nLat1 < -90 || nLat1 > 90 || nLat2 < -90 || nLat2 > 90 ||
+    nLon1 < -180 || nLon1 > 180 || nLon2 < -180 || nLon2 > 180
   ) {
     if (__DEV__) {
       console.log('DISTANCE_ERROR: Invalid coordinates', { lat1, lon1, lat2, lon2 });
@@ -627,17 +633,17 @@ export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2
   }
 
   const R = 6371; // Earth's radius in kilometers
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const dLat = ((nLat2 - nLat1) * Math.PI) / 180;
+  const dLon = ((nLon2 - nLon1) * Math.PI) / 180;
 
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+    Math.cos((nLat1 * Math.PI) / 180) * Math.cos((nLat2 * Math.PI) / 180) *
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   const d = R * c;
-  return d; // Distance in kilometers
+  return isNaN(d) ? null : d; // Distance in kilometers
 };
 
 /**
@@ -697,7 +703,7 @@ const calculateDrivingDistanceWithGoogleMaps = async (
       
       if (data.status === 'OK' && data.rows && data.rows[0] && data.rows[0].elements && data.rows[0].elements[0]) {
         const element = data.rows[0].elements[0];
-        if (element.status === 'OK' && element.distance) {
+        if (element.status === 'OK' && element.distance && typeof element.distance.value === 'number' && !isNaN(element.distance.value)) {
           // Distance is in meters, convert to kilometers
           const distanceKm = element.distance.value / 1000;
           
@@ -820,7 +826,7 @@ export const calculateDrivingDistanceKm = async (
       
       const data = await response.json();
       
-      if (data.code === 'Ok' && data.routes && data.routes[0] && data.routes[0].distance) {
+      if (data.code === 'Ok' && data.routes && data.routes[0] && typeof data.routes[0].distance === 'number' && !isNaN(data.routes[0].distance)) {
         // Distance is in meters, convert to kilometers
         const distanceKm = data.routes[0].distance / 1000;
         
@@ -889,10 +895,16 @@ export const getLocaleDistanceKm = async (
   localeLat: number | undefined,
   localeLon: number | undefined
 ): Promise<number | null> => {
+  const nUserLat = Number(userLat);
+  const nUserLon = Number(userLon);
+  const nLocaleLat = localeLat !== undefined ? Number(localeLat) : NaN;
+  const nLocaleLon = localeLon !== undefined ? Number(localeLon) : NaN;
+
   // Validate locale coordinates from database
-  if (!localeLat || !localeLon || localeLat === 0 || localeLon === 0 || 
-      isNaN(localeLat) || isNaN(localeLon) ||
-      localeLat < -90 || localeLat > 90 || localeLon < -180 || localeLon > 180) {
+  if (localeLat == null || localeLon == null || 
+      nLocaleLat === 0 || nLocaleLon === 0 || 
+      isNaN(nLocaleLat) || isNaN(nLocaleLon) ||
+      nLocaleLat < -90 || nLocaleLat > 90 || nLocaleLon < -180 || nLocaleLon > 180) {
     if (__DEV__) {
       logger.warn(`Invalid locale coordinates for ${localeId}:`, { localeLat, localeLon });
     }
@@ -900,8 +912,9 @@ export const getLocaleDistanceKm = async (
   }
 
   // Validate user coordinates
-  if (!userLat || !userLon || isNaN(userLat) || isNaN(userLon) ||
-      userLat < -90 || userLat > 90 || userLon < -180 || userLon > 180) {
+  if (userLat == null || userLon == null || 
+      isNaN(nUserLat) || isNaN(nUserLon) ||
+      nUserLat < -90 || nUserLat > 90 || userLon < -180 || userLon > 180) {
     if (__DEV__) {
       logger.warn(`Invalid user coordinates for ${localeId}:`, { userLat, userLon });
     }

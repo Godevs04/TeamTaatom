@@ -1,5 +1,5 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ImageStyle, Dimensions } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ImageStyle, Dimensions, Animated } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -61,6 +61,34 @@ function CloudLocaleCard({
     ? { height, width: LOCALE_HERO_CARD_WIDTH, minWidth: LOCALE_HERO_CARD_WIDTH, maxWidth: LOCALE_HERO_CARD_WIDTH }
     : { height, width };
 
+  // Pulsing animation for skeleton shimmers
+  const pulseAnim = useRef(new Animated.Value(0.3)).current;
+  useEffect(() => {
+    let animation: Animated.CompositeAnimation | null = null;
+    if (distanceText === 'Calculating...' || distanceText === 'loading') {
+      animation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 0.7,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 0.3,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      animation.start();
+    }
+    return () => {
+      if (animation) {
+        animation.stop();
+      }
+    };
+  }, [distanceText, pulseAnim]);
+
   return (
     <TouchableOpacity
       activeOpacity={0.88}
@@ -72,24 +100,26 @@ function CloudLocaleCard({
         cloudDesign.shadowCard,
       ]}
     >
-      {locale.imageUrl ? (
-        <ExpoImage
-          source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: isHero ? 800 : 220, height: isHero ? 500 : 260 }) }}
-          style={styles.image as ImageStyle}
-          contentFit="cover"
-          cachePolicy="memory-disk"
-          transition={120}
-        />
-      ) : (
-        <LinearGradient
-          colors={[cloudDesign.skyLight, cloudDesign.sky]}
-          style={styles.image}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        >
-          <Ionicons name="location" size={isHero ? 48 : 28} color="#fff" style={{ alignSelf: 'center', marginTop: isHero ? 60 : 36 }} />
-        </LinearGradient>
-      )}
+      <View style={[styles.imageWrapper, { height }]} key={String(locale._id || '')}>
+        {locale.imageUrl ? (
+          <ExpoImage
+            source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: isHero ? 800 : 220, height: isHero ? 500 : 260 }) }}
+            style={styles.image as ImageStyle}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={120}
+          />
+        ) : (
+          <LinearGradient
+            colors={[cloudDesign.skyLight, cloudDesign.sky]}
+            style={styles.image}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <Ionicons name="location" size={isHero ? 48 : 28} color="#fff" style={{ alignSelf: 'center', marginTop: isHero ? 60 : 36 }} />
+          </LinearGradient>
+        )}
+      </View>
 
       {onSavePress && (
         <TouchableOpacity style={styles.cutout} onPress={(e) => { e?.stopPropagation?.(); onSavePress(); }} hitSlop={10}>
@@ -98,12 +128,30 @@ function CloudLocaleCard({
       )}
 
       {distanceText ? (
-        <View style={[styles.distBadge, { flexShrink: 1, maxWidth: '60%' }]}>
-          <Ionicons name="location-sharp" size={10} color={cloudDesign.blueDeep} />
-          <Text style={[styles.distText, { flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
-            {distanceText}
-          </Text>
-        </View>
+        distanceText === 'Calculating...' || distanceText === 'loading' ? (
+          <Animated.View
+            style={[
+              styles.distBadge,
+              {
+                opacity: pulseAnim,
+                width: 70,
+                height: 22,
+                backgroundColor: 'rgba(91,188,248,0.15)',
+                justifyContent: 'center',
+                alignItems: 'center',
+              }
+            ]}
+          >
+            <View style={{ width: 45, height: 8, backgroundColor: 'rgba(91,188,248,0.3)', borderRadius: 4 }} />
+          </Animated.View>
+        ) : (
+          <View style={[styles.distBadge, { flexShrink: 1, maxWidth: '60%' }]}>
+            <Ionicons name="location-sharp" size={10} color={cloudDesign.blueDeep} />
+            <Text style={[styles.distText, { flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
+              {distanceText}
+            </Text>
+          </View>
+        )
       ) : null}
 
       <View
@@ -144,6 +192,13 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     position: 'absolute',
+  },
+  imageWrapper: {
+    width: '100%',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    overflow: 'hidden',
   },
   cutout: {
     position: 'absolute',

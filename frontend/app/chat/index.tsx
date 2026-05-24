@@ -24,6 +24,7 @@ import { getPostById } from '../../services/posts';
 import ChatAttachmentPicker from '../../components/chat/ChatAttachmentPicker';
 import ChatAttachmentPreview from '../../components/chat/ChatAttachmentPreview';
 import MessageAttachment from '../../components/chat/MessageAttachment';
+import ChatMediaViewer from '../../components/chat/ChatMediaViewer';
 import {
   CloudSkyBackground,
   CloudChatCommandHeader,
@@ -2156,6 +2157,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
         )}
       </View>
     )}
+    <ChatMediaViewer isGlobal />
     </>
   );
 }
@@ -4251,6 +4253,7 @@ export default function ChatModal() {
         </SafeAreaView>
       )}
     </SafeAreaView>
+    <ChatMediaViewer isGlobal />
     </>
   );
 }

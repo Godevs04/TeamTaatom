@@ -215,9 +215,6 @@ const createSubscription = async (req, res) => {
     if (!page.subscriptionPrice || page.subscriptionPrice < 100) {
       return sendError(res, 'BUSINESS_INVALID_OPERATION', 'This page has not set a subscription price');
     }
-    if (page.subscriptionApproval?.status !== 'approved') {
-      return sendError(res, 'BUSINESS_INVALID_OPERATION', 'Subscription pricing is pending admin approval');
-    }
 
     // Cashfree subscriptions only support INR. Reject upfront with a clear,
     // user-facing error rather than letting the gateway return an opaque failure.

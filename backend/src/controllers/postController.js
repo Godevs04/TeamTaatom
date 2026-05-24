@@ -2047,137 +2047,166 @@ const toggleLike = async (req, res) => {
     // Check current like status BEFORE update
     const currentlyLiked = post.likes.some(like => like.toString() === req.user._id.toString());
     
-    // Determine the update operation and final state
-    const update = currentlyLiked
-      ? { $pull: { likes: req.user._id } }  // Remove like
-      : { $addToSet: { likes: req.user._id } };  // Add like
-    
-    // After update, the state will be opposite of current state
-    const isLiked = !currentlyLiked;
-    
-    // Update and get the updated post to get correct likes count
-    const updatedPost = await Post.findByIdAndUpdate(req.params.id, update, { new: true });
-    const updatedLikesCount = updatedPost ? updatedPost.likes.length : post.likes.length;
-    
-    // Verify the final state matches what we expect (use actual database state)
-    const finalIsLiked = updatedPost ? updatedPost.likes.some(like => like.toString() === req.user._id.toString()) : isLiked;
+    let updatedPost;
+    let operationExecuted = false;
 
-    // Handle activity creation/deletion to prevent duplicates
-    // Check if activity already exists for this user, post, and type
-    const existingActivity = await Activity.findOne({
-      user: req.user._id,
-      type: 'post_liked',
-      post: req.params.id
-    });
+    if (currentlyLiked) {
+      // We want to UNLIKE. Only match if user is currently in likes.
+      updatedPost = await Post.findOneAndUpdate(
+        { _id: req.params.id, likes: req.user._id },
+        { $pull: { likes: req.user._id } },
+        { new: true }
+      );
+      if (updatedPost) {
+        operationExecuted = true;
+      }
+    } else {
+      // We want to LIKE. Only match if user is NOT currently in likes.
+      updatedPost = await Post.findOneAndUpdate(
+        { _id: req.params.id, likes: { $ne: req.user._id } },
+        { $addToSet: { likes: req.user._id } },
+        { new: true }
+      );
+      if (updatedPost) {
+        operationExecuted = true;
+      }
+    }
 
-    if (finalIsLiked) {
-      // User liked the post
-      const user = await User.findById(req.user._id).select('settings.privacy.shareActivity').lean();
-      const shareActivity = user?.settings?.privacy?.shareActivity !== false; // Default to true if not set
-      
-      if (existingActivity) {
-        // Activity already exists, just update the timestamp to reflect the latest like
-        existingActivity.createdAt = new Date();
-        existingActivity.isPublic = shareActivity;
-        await existingActivity.save().catch(err => logger.error('Error updating activity:', err));
+    let finalIsLiked;
+    let updatedLikesCount;
+
+    if (operationExecuted) {
+      finalIsLiked = !currentlyLiked;
+      updatedLikesCount = updatedPost.likes.length;
+    } else {
+      // Duplicate concurrent request, state was already updated.
+      // Fetch fresh post to return accurate status to client.
+      const freshPost = await Post.findById(req.params.id).lean();
+      if (!freshPost) {
+        return sendError(res, 'RES_3001', 'Post does not exist');
+      }
+      finalIsLiked = freshPost.likes.some(like => like.toString() === req.user._id.toString());
+      updatedLikesCount = freshPost.likes.length;
+    }
+
+    if (operationExecuted) {
+      // Handle activity creation/deletion to prevent duplicates
+      // Check if activity already exists for this user, post, and type
+      const existingActivity = await Activity.findOne({
+        user: req.user._id,
+        type: 'post_liked',
+        post: req.params.id
+      });
+
+      if (finalIsLiked) {
+        // User liked the post
+        const user = await User.findById(req.user._id).select('settings.privacy.shareActivity').lean();
+        const shareActivity = user?.settings?.privacy?.shareActivity !== false; // Default to true if not set
+        
+        if (existingActivity) {
+          // Activity already exists, just update the timestamp to reflect the latest like
+          existingActivity.createdAt = new Date();
+          existingActivity.isPublic = shareActivity;
+          await existingActivity.save().catch(err => logger.error('Error updating activity:', err));
+        } else {
+          // Create new activity only if it doesn't exist
+          Activity.createActivity({
+            user: req.user._id,
+            type: 'post_liked',
+            post: req.params.id,
+            targetUser: post.user,
+            isPublic: shareActivity
+          }).catch(err => logger.error('Error creating activity:', err));
+        }
       } else {
-        // Create new activity only if it doesn't exist
-        Activity.createActivity({
-          user: req.user._id,
-          type: 'post_liked',
-          post: req.params.id,
-          targetUser: post.user,
-          isPublic: shareActivity
-        }).catch(err => logger.error('Error creating activity:', err));
+        // User unliked the post - remove the activity if it exists
+        if (existingActivity) {
+          await Activity.deleteOne({ _id: existingActivity._id }).catch(err => logger.error('Error deleting activity:', err));
+        }
       }
-    } else {
-      // User unliked the post - remove the activity if it exists
-      if (existingActivity) {
-        await Activity.deleteOne({ _id: existingActivity._id }).catch(err => logger.error('Error deleting activity:', err));
-      }
-    }
 
-    // Invalidate cache
-    await deleteCache(CacheKeys.post(req.params.id));
-    await deleteCacheByPattern('posts:*');
-    await deleteCache(CacheKeys.userPosts(post.user.toString(), 1, 20));
+      // Invalidate cache
+      await deleteCache(CacheKeys.post(req.params.id));
+      await deleteCacheByPattern('posts:*');
+      await deleteCache(CacheKeys.userPosts(post.user.toString(), 1, 20));
 
-    // Update user's total likes if this is their post - use final verified state
-    if (finalIsLiked) {
-      await User.findByIdAndUpdate(post.user, { $inc: { totalLikes: 1 } });
-      
-      // Create notification for like (only if it's not the user's own post)
-      if (post.user._id.toString() !== req.user._id.toString()) {
-        try {
-          logger.debug('🔔 Creating like notification:', {
-            fromUser: req.user._id,
-            toUser: post.user._id,
-            post: post._id
-          });
-          
-          const notification = await Notification.createNotification({
-            type: 'like',
-            fromUser: req.user._id,
-            toUser: post.user._id,
-            post: post._id
-          });
-          
-          logger.debug('Like notification created successfully:', notification._id);
-
-          // Send push notification
-          await sendNotificationToUser({
-            userId: post.user._id.toString(),
-            title: 'New Like',
-            body: `${req.user.fullName} liked your post`,
-            data: {
-              type: 'like',
-              postId: post._id.toString(), // Frontend expects postId
-              entityId: post._id.toString(), // Keep for backward compatibility
-              fromUserId: req.user._id.toString(), // Frontend expects fromUserId
-              senderId: req.user._id.toString() // Keep for backward compatibility
-            }
-          }).catch(err => logger.error('Error sending push notification for like:', err));
-
-          // Emit real-time notification to recipient only
-          const io = getIO();
-          if (io) {
-            const nsp = io.of('/app');
-            nsp.to(`user:${post.user._id}`).emit('notification', {
-              type: 'like',
-              fromUser: {
-                _id: req.user._id,
-                fullName: req.user.fullName,
-                profilePic: req.user.profilePic
-              },
-              post: {
-                _id: post._id,
-                imageUrl: post.imageUrl
-              },
-              createdAt: new Date()
+      // Update user's total likes if this is their post - use final verified state
+      if (finalIsLiked) {
+        await User.findByIdAndUpdate(post.user, { $inc: { totalLikes: 1 } });
+        
+        // Create notification for like (only if it's not the user's own post)
+        if (post.user.toString() !== req.user._id.toString()) {
+          try {
+            logger.debug('🔔 Creating like notification:', {
+              fromUser: req.user._id,
+              toUser: post.user,
+              post: post._id
             });
-          }
-        } catch (notificationError) {
-          logger.error('Error creating like notification:', notificationError);
-        }
-      }
-    } else {
-      await User.findByIdAndUpdate(post.user, { $inc: { totalLikes: -1 } });
-    }
+            
+            const notification = await Notification.createNotification({
+              type: 'like',
+              fromUser: req.user._id,
+              toUser: post.user,
+              post: post._id
+            });
+            
+            logger.debug('Like notification created successfully:', notification._id);
 
-    // Emit real-time post like update to all connected users
-    try {
-      const io = getIO();
-      if (io) {
-        const nsp = io.of('/app');
-        // Emit the new real-time post like update with correct final state
-        nsp.emitPostLike(post._id.toString(), finalIsLiked, updatedLikesCount, req.user._id.toString());
-        // Also emit the legacy notification event (only for likes, not unlikes)
-        if (finalIsLiked) {
-          nsp.emitEvent('post:liked', [post.user.toString()], { postId: post._id });
+            // Send push notification
+            await sendNotificationToUser({
+              userId: post.user.toString(),
+              title: 'New Like',
+              body: `${req.user.fullName} liked your post`,
+              data: {
+                type: 'like',
+                postId: post._id.toString(), // Frontend expects postId
+                entityId: post._id.toString(), // Keep for backward compatibility
+                fromUserId: req.user._id.toString(), // Frontend expects fromUserId
+                senderId: req.user._id.toString() // Keep for backward compatibility
+              }
+            }).catch(err => logger.error('Error sending push notification for like:', err));
+
+            // Emit real-time notification to recipient only
+            const io = getIO();
+            if (io) {
+              const nsp = io.of('/app');
+              nsp.to(`user:${post.user}`).emit('notification', {
+                type: 'like',
+                fromUser: {
+                  _id: req.user._id,
+                  fullName: req.user.fullName,
+                  profilePic: req.user.profilePic
+                },
+                post: {
+                  _id: post._id,
+                  imageUrl: post.imageUrl
+                },
+                createdAt: new Date()
+              });
+            }
+          } catch (notificationError) {
+            logger.error('Error creating like notification:', notificationError);
+          }
         }
+      } else {
+        await User.findByIdAndUpdate(post.user, { $inc: { totalLikes: -1 } });
       }
-    } catch (socketError) {
-      logger.error('Socket error:', socketError);
+
+      // Emit real-time post like update to all connected users
+      try {
+        const io = getIO();
+        if (io) {
+          const nsp = io.of('/app');
+          // Emit the new real-time post like update with correct final state
+          nsp.emitPostLike(post._id.toString(), finalIsLiked, updatedLikesCount, req.user._id.toString());
+          // Also emit the legacy notification event (only for likes, not unlikes)
+          if (finalIsLiked) {
+            nsp.emitEvent('post:liked', [post.user.toString()], { postId: post._id });
+          }
+        }
+      } catch (socketError) {
+        logger.error('Socket error:', socketError);
+      }
     }
 
     return sendSuccess(res, 200, finalIsLiked ? 'Post liked' : 'Post unliked', {
