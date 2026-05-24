@@ -33,7 +33,8 @@ config.server = {
 
 // Production build optimizations
 if (isProduction) {
-  // Minify code in production
+  // Configure minification, dead-code elimination, and separate source maps for production.
+  // Note: Fast Refresh is inherently development-only and disabled by default in production builds.
   config.transformer = {
     ...config.transformer,
     minifierConfig: {
@@ -53,7 +54,7 @@ if (isProduction) {
       },
       toplevel: false,
       compress: {
-        // Aggressive compression for production
+        // Aggressive compression for production (dead-code elimination)
         dead_code: true,
         drop_console: false, // Handled by Babel
         drop_debugger: true,
@@ -69,16 +70,11 @@ if (isProduction) {
         unsafe_undefined: false,
       },
     },
-  };
-
-  // Source map configuration for production
-  config.transformer = {
-    ...config.transformer,
-    // Generate separate source maps (not inline) for production
+    // Source map and compilation configuration for production
     getTransformOptions: async () => ({
       transform: {
         experimentalImportSupport: false,
-        inlineRequires: false,
+        inlineRequires: true, // Optimize startup performance via lazy loading
       },
     }),
   };
