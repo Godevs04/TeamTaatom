@@ -30,6 +30,7 @@ import { ErrorBoundary } from '../utils/errorBoundary';
 import { registerServiceWorker } from '../utils/serviceWorker';
 import JourneyStatusBar from '../components/JourneyStatusBar';
 import { JourneyProvider, useJourney } from '../context/JourneyContext';
+import { SubscriptionProvider } from '../context/SubscriptionContext';
 import * as Sentry from '@sentry/react-native';
 // Note: expo-av is deprecated but still needed for Audio.setAudioModeAsync
 // Will migrate to expo-audio in future SDK update
@@ -1112,9 +1113,11 @@ export default Sentry.wrap(function RootLayout() {
                     one GPS watcher, one batch-send timer for the whole
                     app tree. */}
                 <JourneyProvider>
-                  <View style={styles.rootContainer}>
-                    <RootLayoutInner />
-                  </View>
+                  <SubscriptionProvider>
+                    <View style={styles.rootContainer}>
+                      <RootLayoutInner />
+                    </View>
+                  </SubscriptionProvider>
                 </JourneyProvider>
               </ScrollProvider>
             </AlertProvider>

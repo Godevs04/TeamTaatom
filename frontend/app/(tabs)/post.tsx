@@ -44,6 +44,7 @@ import { getProfile } from "../../services/profile";
 import { UserType } from "../../types/user";
 import ProgressAlert from "../../components/ProgressAlert";
 import { optimizeImageForUpload, shouldOptimizeImage, getOptimalQuality, processImageToAspect } from "../../utils/imageOptimization";
+import { prepareImageForUpload } from "../../services/mediaService";
 import * as VideoThumbnails from "expo-video-thumbnails";
 import { Video, Audio, ResizeMode, AVPlaybackStatus } from "expo-av";
 import HashtagSuggest from "../../components/HashtagSuggest";
@@ -1610,48 +1611,20 @@ export default function PostScreen() {
       const imagesData = await Promise.all(
         selectedImages.map(async (img, index) => {
           try {
-            // Check if image needs optimization
-            const needsOptimization = await shouldOptimizeImage(img.uri);
-            if (needsOptimization) {
-              // Optimize image
-              const fileInfo = await FileSystem.getInfoAsync(img.uri);
-              const fileSize = (fileInfo.exists && (fileInfo as any).size) || 0;
-              const optimized = await optimizeImageForUpload(img.uri, {
-                maxWidth: 1200,
-                maxHeight: 1200,
-                quality: getOptimalQuality(fileSize),
-                format: 'jpeg'
-              });
-              
-              // Update progress
-              setUploadProgress({
-                current: index + 1,
-                total: selectedImages.length,
-                percentage: ((index + 1) / selectedImages.length) * 50 // First 50% is optimization
-              });
-              
-              return {
-                uri: optimized.uri,
-                type: 'image/jpeg',
-                name: img.name || 'image.jpg'
-              };
-            }
+            // [BUG-056 & BUG-058] Run all images through mediaService to strip EXIF and apply compression scaling
+            const prepared = await prepareImageForUpload(img.uri, img.name);
             
-            // Update progress even if no optimization needed
+            // Update progress
             setUploadProgress({
               current: index + 1,
               total: selectedImages.length,
-              percentage: ((index + 1) / selectedImages.length) * 50
+              percentage: ((index + 1) / selectedImages.length) * 50 // First 50% is optimization
             });
             
-            return {
-              uri: img.uri,
-              type: img.type,
-              name: img.name
-            };
+            return prepared;
           } catch (error) {
-            logger.error('Error optimizing image', error);
-            // Fallback to original image if optimization fails
+            logger.error('Error optimizing/preparing image', error);
+            // Fallback to original image if processing fails
             return {
               uri: img.uri,
               type: img.type,

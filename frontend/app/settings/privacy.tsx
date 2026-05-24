@@ -23,6 +23,7 @@ import { createLogger } from '../../utils/logger';
 import { getProfile } from '../../services/profile';
 import { theme } from '../../constants/theme';
 import { showConsentForm } from '../../services/admob';
+import AlertService from '../../services/alertService';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -42,7 +43,7 @@ const logger = createLogger('PrivacySettings');
 
 export default function PrivacySettingsScreen() {
   // Settings State Single Source of Truth: Use SettingsContext
-  const { settings, loading: settingsLoading, updateSetting, refreshSettings } = useSettings();
+  const { settings, loading: settingsLoading, updateSetting, updateAllSettings, refreshSettings } = useSettings();
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({
     title: '',
@@ -126,8 +127,9 @@ export default function PrivacySettingsScreen() {
     }
   }, [settings, updateSetting, showSuccess]);
 
-  // Cross-Module Consistency: Refresh profile after privacy settings update
-  const updateProfileVisibilitySettings = useCallback(async (profileVisibility: string, requireFollowApproval: boolean, allowFollowRequests: boolean) => {
+  // [BUG-060] Privacy: User Data Visibility Toggle
+  // Triggers API patch, updates local state optimistically, and provides AlertService feedback
+  const handleToggleVisibility = useCallback(async (profileVisibility: 'public' | 'followers' | 'private', requireFollowApproval: boolean, allowFollowRequests: boolean) => {
     if (!settings) return;
     
     const key = 'profileVisibility';
@@ -139,37 +141,39 @@ export default function PrivacySettingsScreen() {
     updatingKeysRef.current.add(key);
     
     try {
-      // Update all three related settings
-      await Promise.all([
-        updateSetting('privacy', 'profileVisibility', profileVisibility),
-        updateSetting('privacy', 'requireFollowApproval', requireFollowApproval),
-        updateSetting('privacy', 'allowFollowRequests', allowFollowRequests)
-      ]);
+      // Optimistic update of multiple related settings at once to prevent race condition
+      await updateAllSettings({
+        privacy: {
+          ...settings.privacy,
+          profileVisibility,
+          requireFollowApproval,
+          allowFollowRequests
+        }
+      });
       
       if (isMountedRef.current) {
-        showSuccess('Profile visibility updated successfully');
+        // Show success message using AlertService
+        AlertService.showSuccess('Visibility Updated', `Your account visibility has been set to ${profileVisibility}.`);
         
         // Cross-Module Consistency: Refresh profile to reflect privacy changes
         try {
           const user = await getUserFromStorage();
           if (user?._id) {
             await getProfile(user._id);
-            // Profile will refresh on next focus (handled in profile.tsx useFocusEffect)
           }
         } catch (profileError) {
           logger.warn('Failed to refresh profile after privacy update', profileError);
-          // Non-critical - profile will refresh on next navigation
         }
       }
     } catch (error: any) {
       if (isMountedRef.current) {
         logger.error('Failed to update profile visibility', error);
-        showError(error.message || 'Failed to update profile visibility');
+        AlertService.showError('Update Failed', error.message || 'Failed to update profile visibility');
       }
     } finally {
       updatingKeysRef.current.delete(key);
     }
-  }, [settings, updateSetting, showSuccess, showError]);
+  }, [settings, updateAllSettings]);
 
   const handleProfileVisibilityChange = () => {
     const options: CustomOption[] = [
@@ -178,7 +182,7 @@ export default function PrivacySettingsScreen() {
         icon: 'globe-outline',
         onPress: () => {
           setCustomOptionsVisible(false);
-          updateProfileVisibilitySettings('public', false, true);
+          handleToggleVisibility('public', false, true);
         }
       },
       {
@@ -186,7 +190,7 @@ export default function PrivacySettingsScreen() {
         icon: 'people-outline',
         onPress: () => {
           setCustomOptionsVisible(false);
-          updateProfileVisibilitySettings('followers', false, true);
+          handleToggleVisibility('followers', false, true);
         }
       },
       {
@@ -194,7 +198,7 @@ export default function PrivacySettingsScreen() {
         icon: 'shield-checkmark-outline',
         onPress: () => {
           setCustomOptionsVisible(false);
-          updateProfileVisibilitySettings('private', true, true);
+          handleToggleVisibility('private', true, true);
         }
       }
     ];

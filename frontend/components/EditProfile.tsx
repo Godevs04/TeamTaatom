@@ -18,6 +18,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '../context/ThemeContext';
 import { UserType } from '../types/user';
 import { updateProfile } from '../services/profile';
+import { prepareImageForUpload } from '../services/mediaService';
 import { sanitizeErrorForDisplay } from '../utils/errorSanitizer';
 import logger from '../utils/logger';
 
@@ -128,11 +129,8 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       };
 
       if (selectedImage) {
-        updateData.profilePic = {
-          uri: selectedImage,
-          type: 'image/jpeg',
-          name: `profile_${Date.now()}.jpg`,
-        };
+        const prepared = await prepareImageForUpload(selectedImage, `profile_${Date.now()}.jpg`);
+        updateData.profilePic = prepared;
       }
 
       const response = await updateProfile(user._id, updateData);

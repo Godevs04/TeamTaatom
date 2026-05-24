@@ -46,6 +46,7 @@ import { crashReportingService } from '../../../services/crashReporting';
 import { setPendingChatRoomId } from '../../../utils/connectChatBridge';
 import { optimizeCloudinaryUrl } from '../../../utils/imageCache';
 import logger from '../../../utils/logger';
+import { useSubscription } from '../../../context/SubscriptionContext';
 import { NativeModules } from 'react-native';
 import {
   CFErrorResponse,
@@ -113,6 +114,7 @@ function ContentImage({ uri, inRow, inStack, arOverride }: { uri: string; inRow?
 export default function ConnectPageDetailScreen() {
   const { theme } = useTheme();
   const { showSuccess } = useAlert();
+  const { updateSubscriptionStatus } = useSubscription();
   const router = useRouter();
   const {
     id,
@@ -197,39 +199,70 @@ export default function ConnectPageDetailScreen() {
     CFPaymentGatewayService.setCallback({
       onVerify(orderID: string): void {
         logger.info('Cashfree subscription verified, orderID:', orderID);
-        // Optimistic update: flip UI to "Subscribed" immediately.
-        // The webhook may not have reached the server yet, so getSubscriptionStatus
-        // can still return isSubscribed:false if called right now.
-        if (pendingSubscriptionRef.current) {
-          setSubscriptionStatus({
+        try {
+          if (!id) {
+            throw new Error('Connect Page ID is missing during Cashfree callback sync');
+          }
+
+          let newStatus: SubscriptionStatus = {
             isSubscribed: true,
-            subscription: {
-              _id: pendingSubscriptionRef.current.subscriptionId,
-              status: 'active',
-              amount: pendingSubscriptionRef.current.amount,
-              activatedAt: new Date().toISOString(),
-              currentPeriodEnd: null,
-            },
-          });
-          pendingSubscriptionRef.current = null;
+            subscription: null
+          };
+
+          if (pendingSubscriptionRef.current) {
+            newStatus = {
+              isSubscribed: true,
+              subscription: {
+                _id: pendingSubscriptionRef.current.subscriptionId,
+                status: 'active' as const,
+                amount: pendingSubscriptionRef.current.amount,
+                activatedAt: new Date().toISOString(),
+                currentPeriodEnd: null,
+              },
+            };
+            setSubscriptionStatus(newStatus);
+            updateSubscriptionStatus(id, newStatus);
+            pendingSubscriptionRef.current = null;
+          } else {
+            newStatus = {
+              isSubscribed: true,
+              subscription: {
+                _id: orderID || 'unknown',
+                status: 'active' as const,
+                amount: page?.subscriptionPrice || 0,
+                activatedAt: new Date().toISOString(),
+                currentPeriodEnd: null,
+              }
+            };
+            setSubscriptionStatus(newStatus);
+            updateSubscriptionStatus(id, newStatus);
+          }
+
+          // Refresh from server in background to get accurate period dates etc.
+          loadSubscriptionStatus();
+          loadPageDetail();
+          showSuccess(
+            isCommunity ? 'Your purchase was completed.' : 'Your subscription is now active.',
+            'Payment received',
+          );
+        } catch (err) {
+          logger.error('Error handling Cashfree onVerify callback sync:', err);
+          Alert.alert('Payment Verification Error', 'An error occurred while updating your subscription status.');
         }
-        // Refresh from server in background to get accurate period dates etc.
-        loadSubscriptionStatus();
-        loadPageDetail();
-        showSuccess(
-          isCommunity ? 'Your purchase was completed.' : 'Your subscription is now active.',
-          'Payment received',
-        );
       },
       onError(error: CFErrorResponse, orderID: string): void {
-        logger.error('Cashfree subscription error:', JSON.stringify(error), 'orderID:', orderID);
-        Alert.alert('Payment Failed', 'Could not complete payment. Please try again.');
+        try {
+          logger.error('Cashfree subscription error:', JSON.stringify(error), 'orderID:', orderID);
+          Alert.alert('Payment Failed', 'Could not complete payment. Please try again.');
+        } catch (err) {
+          logger.error('Error handling Cashfree onError callback:', err);
+        }
       },
     });
     return () => {
       CFPaymentGatewayService.removeCallback();
     };
-  }, [loadSubscriptionStatus, loadPageDetail, isCommunity, showSuccess]);
+  }, [loadSubscriptionStatus, loadPageDetail, isCommunity, showSuccess, id, page, updateSubscriptionStatus]);
 
   // Load subscription status after page loads (non-owner only)
   useEffect(() => {
