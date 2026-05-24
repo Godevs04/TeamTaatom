@@ -9,11 +9,10 @@ export let isHighLatency = false;
 
 // Listen to network state changes to dynamically flag high-latency/metered connection
 NetInfo.addEventListener((state: NetInfoState) => {
-  const isMetered = !!state.isMetered;
+  const details = state.details as any;
+  const isMetered = !!details?.isConnectionExpensive;
   const isCellular = state.type === 'cellular';
-  const cellGen = state.details && 'cellularGeneration' in state.details 
-    ? state.details.cellularGeneration 
-    : null;
+  const cellGen = details?.cellularGeneration || null;
   
   // High latency if:
   // 1. Connection is metered, OR
