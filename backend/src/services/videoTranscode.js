@@ -175,7 +175,7 @@ async function transcodeIfNeeded(inputBuffer, inputMimetype) {
           '-b:v 5M',
           '-maxrate 5M',
           '-bufsize 10M',
-          '-vf scale=-2:min(720\\,ih)',
+          '-vf scale=-2:min(1080\\,ih)',
           '-r 30',
           '-b:a 128k',
           '-movflags +faststart',
@@ -234,7 +234,7 @@ function transcodeToHLS(inputPath, outputDir) {
         '-b:v 5M',
         '-maxrate 5M',
         '-bufsize 10M',
-        '-vf scale=-2:min(720\\,ih)',
+        '-vf scale=-2:min(1080\\,ih)',
         '-r 30',
         '-b:a 128k',
         '-hls_time 2',
@@ -258,7 +258,7 @@ function extractThumbnail(inputPath, outputPath) {
         timestamps: [1.0],
         filename: path.basename(outputPath),
         folder: path.dirname(outputPath),
-        size: '720x?'
+        size: '1080x?'
       })
       .on('end', resolve)
       .on('error', reject);

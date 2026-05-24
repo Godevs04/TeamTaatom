@@ -50,6 +50,7 @@ CLAUDE.md
 BSD-*.md
 IMAGE_MIGRATION_REPORT.md
 feature1.md
+short.md
 
 # ─── Production-risk files: NOT listed here ────────────────────────────────
 # package.json, package-lock.json, app.json, eas.json are TRACKED on purpose

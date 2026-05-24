@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { getPostById, toggleLike } from '../../services/posts';
+import { trackPostView } from '../../services/analytics';
 import PostHeader from '../../components/post/PostHeader';
 import PostActions from '../../components/post/PostActions';
 import PostCaption from '../../components/post/PostCaption';
@@ -52,6 +53,17 @@ export default function PostDetail() {
 
     fetchPost();
   }, [id]);
+
+  // View tracking: send view event after 2 seconds (2-second rule)
+  useEffect(() => {
+    if (!post?._id) return;
+
+    const timer = setTimeout(() => {
+      trackPostView(post._id, { type: post.type || 'photo', source: 'post_detail' });
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, [post?._id]);
 
   // Handle like toggle
   const handleLike = useCallback(async () => {

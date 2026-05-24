@@ -541,76 +541,9 @@ const getPostById = async (req, res) => {
     const cacheKey = CacheKeys.post(id);
 
     // FIRST: Handle view increment (this must happen regardless of cache)
-    // We need to check if we should increment BEFORE fetching from cache
-    // So we'll fetch the post owner info first to determine if increment is needed
-    let shouldIncrementViews = false;
-    let postOwnerId = null;
-    
-    // Quick check to get post owner for view increment decision
-    try {
-      const postOwnerCheck = await Post.findById(id).select('user').lean();
-      if (postOwnerCheck) {
-        postOwnerId = postOwnerCheck.user?.toString();
-        
-        // Check if user is viewing someone else's post
-        if (userId) {
-          if (postOwnerId && postOwnerId !== userId) {
-            shouldIncrementViews = true;
-            const msg = `[VIEW TRACKING] Post ${id} - User ${userId} viewing another user's post (owner: ${postOwnerId}), will increment views`;
-            logger.info(msg);
-            logger.debug(msg);
-          } else {
-            const msg = `[VIEW TRACKING] Post ${id} - User ${userId} viewing own post (owner: ${postOwnerId}), skipping view increment`;
-            logger.info(msg);
-            logger.debug(msg);
-          }
-        } else {
-          // Anonymous user - allow view increment
-          shouldIncrementViews = true;
-          const msg = `[VIEW TRACKING] Post ${id} - Anonymous user viewing post, will increment views`;
-          logger.info(msg);
-          logger.debug(msg);
-        }
-      }
-    } catch (err) {
-      logger.error(`[VIEW TRACKING] Error checking post owner for ${id}:`, err);
-    }
-
-    // Increment views BEFORE fetching from cache (if needed)
+    // Disabled in getPostById to support the client-side "2-Second Rule" and prevent double-counting.
+    // View increments now happen exclusively via the POST /analytics/events ('post_view' event) pathway.
     let incrementedViews = null;
-    if (shouldIncrementViews) {
-      try {
-        const incrementMsg = `[VIEW TRACKING] Post ${id} - Incrementing views, userId: ${userId || 'anonymous'}, postOwnerId: ${postOwnerId}`;
-        logger.info(incrementMsg);
-        logger.debug(incrementMsg);
-        
-        const updateResult = await Post.findOneAndUpdate(
-          { _id: id },
-          { $inc: { views: 1 } },
-          { new: true, projection: { views: 1 }, lean: true }
-        );
-        
-        if (updateResult && updateResult.views !== undefined && updateResult.views !== null) {
-          incrementedViews = updateResult.views;
-          const successMsg = `[VIEW TRACKING] Post ${id} views incremented to ${incrementedViews}`;
-          logger.info(successMsg);
-          logger.debug(successMsg);
-          
-          // Invalidate cache so fresh data is fetched
-          await deleteCache(cacheKey).catch(() => {});
-        } else {
-          // Fallback: fetch updated views
-          const postDoc = await Post.findById(id).select('views').lean();
-          if (postDoc && postDoc.views !== undefined) {
-            incrementedViews = postDoc.views;
-            logger.info(`[VIEW TRACKING] Post ${id} views fetched after increment: ${incrementedViews}`);
-            await deleteCache(cacheKey).catch(() => {});
-          }
-        }
-      } catch (err) {
-        logger.error(`[VIEW TRACKING] Error incrementing post views for post ${id}:`, err);
-      }
-    }
 
     // NOW: Use cache wrapper with aggregation pipeline to avoid N+1 queries
     const post = await cacheWrapper(cacheKey, async () => {
@@ -930,7 +863,7 @@ const getPostById = async (req, res) => {
       }
     }
 
-    postOwnerId = post.user?._id?.toString();
+    const postOwnerId = post.user?._id?.toString();
     const hideLocation = postOwnerId !== userId && post.user?.settings?.privacy?.showLocation === false;
     const postWithDetails = {
       ...post,

@@ -23,6 +23,7 @@ import { PostType } from '../../types/post';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { Audio } from 'expo-av';
 import { Image as ExpoImage } from 'expo-image';
 import AnimatedHeader from '../../components/AnimatedHeader';
 import EmptyState from '../../components/EmptyState';
@@ -304,6 +305,7 @@ export default function HomeScreen() {
   const lastViewedPostIdRef = useRef<string | null>(null);
   const lastViewTimeRef = useRef<number>(0);
   const VIEW_DEBOUNCE_MS = 2000; // Prevent duplicate view events within 2 seconds
+  const viewTimerRef = useRef<NodeJS.Timeout | null>(null);
   
   // Track visible index for conditional image rendering
   const [visibleIndex, setVisibleIndex] = useState<number | null>(null);
@@ -930,6 +932,19 @@ export default function HomeScreen() {
       // Lift any audio freeze
       audioManager.unfreeze();
 
+      // CRITICAL: Re-assert global audio session mode on focus to prevent OS swallowing it.
+      Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+        interruptionModeIOS: 0, // MIX_WITH_OTHERS
+        interruptionModeAndroid: 1, // DO_NOT_MIX
+      }).catch(err => {
+        logger.error('Error setting audio mode for home:', err);
+      });
+
       // 3. Background refresh data on focus
       if (hasInitializedRef.current && !isFetchingRef.current) {
         logger.debug('[Home] Screen focused: triggering background refresh of page 1');
@@ -946,6 +961,11 @@ export default function HomeScreen() {
 
       return () => {
         clearInterval(interval);
+        // Clear active view timer when leaving home page
+        if (viewTimerRef.current) {
+          clearTimeout(viewTimerRef.current);
+          viewTimerRef.current = null;
+        }
         // Save current visible index and post ID to restore on return
         savedVisibleIndexRef.current = visibleIndexRef.current;
         savedVisiblePostIdRef.current = visiblePostIdRef.current;
@@ -1342,20 +1362,33 @@ export default function HomeScreen() {
         if (item && !isAdItem(item)) {
           const postId = item._id;
           setVisiblePostId(postId);
-          const now = Date.now();
-          if (
-            lastViewedPostIdRef.current !== postId ||
-            (now - lastViewTimeRef.current) > VIEW_DEBOUNCE_MS
-          ) {
-            trackPostView(postId, { type: 'photo', source: 'home_feed' });
-            lastViewedPostIdRef.current = postId;
-            lastViewTimeRef.current = now;
+          
+          // Clear any active timer for a previous post
+          if (viewTimerRef.current) {
+            clearTimeout(viewTimerRef.current);
+            viewTimerRef.current = null;
           }
+
+          // Start a 2-second timer. User must stay on this post for 2s to count as a view.
+          viewTimerRef.current = setTimeout(() => {
+            trackPostView(postId, { type: 'photo', source: 'home_feed' });
+            viewTimerRef.current = null;
+          }, 2000);
         } else {
+          // Clear any active timer if visible item is an ad or empty
+          if (viewTimerRef.current) {
+            clearTimeout(viewTimerRef.current);
+            viewTimerRef.current = null;
+          }
           setVisiblePostId(null);
         }
       }
     } else {
+      // Clear timer if no viewable items
+      if (viewTimerRef.current) {
+        clearTimeout(viewTimerRef.current);
+        viewTimerRef.current = null;
+      }
       setVisiblePostId(null);
     }
   }, []);

@@ -1,20 +1,32 @@
 import React, { useState, useRef, useEffect, memo, useCallback } from 'react';
-import { View, StyleSheet, Animated } from 'react-native';
+import { View, StyleSheet, TouchableWithoutFeedback, Animated, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { runOnJS } from 'react-native-reanimated';
-import { useRecoilState, useRecoilValue } from 'recoil';
 import { PostType } from '../../types/post';
 import ShortsVideo from './ShortsVideo';
 import ShortsActions from './ShortsActions';
 import ShortsOverlay from './ShortsOverlay';
 import logger from '../../utils/logger';
-import { trackPostView } from '../../services/analytics';
-import { activeShortIndexAtom, videoPlayingFamily, videoReadyFamily } from '../../app/(tabs)/shorts';
+
+const MemoizedShortsVideo = memo(
+  ShortsVideo,
+  (prevProps, nextProps) => {
+    return (
+      prevProps.videoId === nextProps.videoId &&
+      prevProps.videoUrl === nextProps.videoUrl &&
+      prevProps.imageUrl === nextProps.imageUrl &&
+      prevProps.isActive === nextProps.isActive &&
+      prevProps.shouldRender === nextProps.shouldRender &&
+      prevProps.isMuted === nextProps.isMuted &&
+      prevProps.volume === nextProps.volume &&
+      prevProps.sourceVersion === nextProps.sourceVersion
+    );
+  }
+);
 
 interface ShortsCellProps {
   item: PostType;
   index: number;
+  currentVisibleIndex: number;
   isScreenFocused: boolean;
   currentUser: any;
   isFollowing: boolean;
@@ -34,13 +46,20 @@ interface ShortsCellProps {
   onTouchStart: (e: any) => void;
   onTouchMove: (e: any) => void;
   onTouchEnd: (e: any, userId: string) => void;
+  videoReady: boolean;
+  onVideoReady: (shortId: string) => void;
+  videoPlaying: boolean;
+  onVideoPlaybackChange: (shortId: string, isPlaying: boolean) => void;
   videoRefCallback?: (ref: any) => void;
   onError: (shortId: string, error: any) => void;
 }
 
+const SHORTS_PRELOAD_WINDOW = 2; // Flagship ±2 preloading strategy
+
 const ShortsCell = ({
   item,
   index,
+  currentVisibleIndex,
   isScreenFocused,
   currentUser,
   isFollowing,
@@ -60,6 +79,10 @@ const ShortsCell = ({
   onTouchStart,
   onTouchMove,
   onTouchEnd,
+  videoReady,
+  onVideoReady,
+  videoPlaying,
+  onVideoPlaybackChange,
   videoRefCallback,
   onError,
 }: ShortsCellProps) => {
@@ -68,49 +91,12 @@ const ShortsCell = ({
   const [localSourceVersion, setLocalSourceVersion] = useState(sourceVersion);
   const likeAnimValue = useRef(new Animated.Value(0)).current;
   const pauseTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTapRef = useRef<number | null>(null);
   const cacheRetryCountRef = useRef<number>(0);
-  
-  const [views, setViews] = useState(item.viewsCount || (item as any).views || 0);
-  const hasViewedRef = useRef(false);
-  const viewTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Recoil playback decoupling
-  const activeIndex = useRecoilValue(activeShortIndexAtom);
-  const [videoPlaying, setVideoPlaying] = useRecoilState(videoPlayingFamily(item._id));
-  const videoReady = useRecoilValue(videoReadyFamily(item._id));
-
-  const isActive = index === activeIndex && isScreenFocused;
-
-  // Sync views count state when active item changes
-  useEffect(() => {
-    setViews(item.viewsCount || (item as any).views || 0);
-    hasViewedRef.current = false;
-  }, [item._id]);
-
-  // Track video view when playing actively for 2.5 seconds
-  useEffect(() => {
-    const isActivelyPlaying = isActive && videoPlaying;
-
-    if (isActivelyPlaying && !hasViewedRef.current) {
-      viewTimerRef.current = setTimeout(() => {
-        hasViewedRef.current = true;
-        trackPostView(item._id, { type: 'short', source: 'shorts_feed' });
-        setViews(prev => prev + 1);
-      }, 2500);
-    } else {
-      if (viewTimerRef.current) {
-        clearTimeout(viewTimerRef.current);
-        viewTimerRef.current = null;
-      }
-    }
-
-    return () => {
-      if (viewTimerRef.current) {
-        clearTimeout(viewTimerRef.current);
-        viewTimerRef.current = null;
-      }
-    };
-  }, [isActive, videoPlaying, item._id]);
+  const distanceFromVisible = index - currentVisibleIndex;
+  const shouldRenderVideo = Math.abs(distanceFromVisible) <= SHORTS_PRELOAD_WINDOW;
+  const isActive = index === currentVisibleIndex && isScreenFocused;
 
   // Clean up timer on unmount
   useEffect(() => {
@@ -125,6 +111,7 @@ const ShortsCell = ({
   const handleVideoError = useCallback((error: any) => {
     logger.error(`[ShortsCell] Video error for ${item._id}:`, error);
     
+    // Check if this is a cache miss or file not found error
     const isCacheMissError = 
       error?.message?.toLowerCase().includes('cache') ||
       error?.message?.toLowerCase().includes('not found') ||
@@ -132,10 +119,12 @@ const ShortsCell = ({
       error?.message?.toLowerCase().includes('enoent');
     
     if (isCacheMissError && cacheRetryCountRef.current < 2) {
+      // Trigger re-download by incrementing source version
       logger.debug(`[ShortsCell] Cache miss detected, triggering re-download (attempt ${cacheRetryCountRef.current + 1})`);
       cacheRetryCountRef.current += 1;
       setLocalSourceVersion(prev => prev + 1);
     } else {
+      // Max retries exceeded or non-cache error, propagate to parent
       cacheRetryCountRef.current = 0;
       onError(item._id, error);
     }
@@ -143,7 +132,7 @@ const ShortsCell = ({
 
   const toggleVideoPlayback = () => {
     const nextPlaying = !videoPlaying;
-    setVideoPlaying(nextPlaying);
+    onVideoPlaybackChange(item._id, nextPlaying);
     showPauseButtonTemporarily();
   };
 
@@ -158,10 +147,12 @@ const ShortsCell = ({
   };
 
   const handleDoubleTapLike = () => {
+    // Trigger optimistic like if not already liked
     if (!item.isLiked) {
       onLikePress(item._id);
     }
     
+    // Heart popping animation
     setShowLikeAnimation(true);
     likeAnimValue.setValue(0);
     Animated.sequence([
@@ -171,10 +162,9 @@ const ShortsCell = ({
         friction: 5,
         useNativeDriver: true,
       }),
-      Animated.delay(300),
       Animated.timing(likeAnimValue, {
         toValue: 0,
-        duration: 300,
+        duration: 200,
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -182,34 +172,28 @@ const ShortsCell = ({
     });
   };
 
-  const doubleTapGesture = Gesture.Tap()
-    .numberOfTaps(2)
-    .onStart(() => {
-      runOnJS(handleDoubleTapLike)();
-    });
-
-  const singleTapGesture = Gesture.Tap()
-    .numberOfTaps(1)
-    .onStart(() => {
-      runOnJS(toggleVideoPlayback)();
-    });
-
-  const longPressGesture = Gesture.LongPress()
-    .onStart(() => {
-      if (item.user._id === currentUser?._id) {
-        runOnJS(onDeletePress)(item._id);
-      }
-    });
-
-  const composedGesture = Gesture.Race(
-    Gesture.Exclusive(doubleTapGesture, singleTapGesture),
-    longPressGesture
-  );
-
-  const handleVideoProgress = () => {
-    // Progress callback can be used for syncing if needed
+  const handlePress = () => {
+    const now = Date.now();
+    if (lastTapRef.current && now - lastTapRef.current < 300) {
+      handleDoubleTapLike();
+    } else {
+      toggleVideoPlayback();
+    }
+    lastTapRef.current = now;
   };
 
+  const handleLongPress = () => {
+    if (item.user._id === currentUser?._id) {
+      onDeletePress(item._id);
+    }
+  };
+
+  // Video progress callback
+  const handleVideoProgress = () => {
+    // Loop syncing or time updates can go here if needed in future
+  };
+
+  // Big Heart double tap like scales
   const likeOpacity = likeAnimValue.interpolate({
     inputRange: [0, 0.5, 1, 1.2],
     outputRange: [0, 0.4, 0.5, 0.5],
@@ -222,34 +206,40 @@ const ShortsCell = ({
 
   return (
     <View style={styles.container}>
+      {/* Gesture recognizer view container */}
       <View
         style={styles.videoContainer}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={(e) => onTouchEnd(e, item.user._id)}
       >
-        <GestureDetector gesture={composedGesture}>
-          <View 
-            style={StyleSheet.absoluteFill}
-            accessible={true}
-            accessibilityLabel="Tap to play or pause video, double tap to like"
-            accessibilityRole="button"
-          >
-            <ShortsVideo
+        <TouchableWithoutFeedback
+          onPress={handlePress}
+          onLongPress={handleLongPress}
+          accessible={true}
+          accessibilityLabel="Tap to play or pause video, double tap to like"
+          accessibilityRole="button"
+        >
+          <View style={StyleSheet.absoluteFill}>
+            <MemoizedShortsVideo
               videoId={item._id}
               videoUrl={getVideoUrl(item)}
               imageUrl={item.imageUrl}
-              index={index}
-              isMuted={!isActive || !!item.song?.songId?._id || isMuted}
+              isActive={isActive && videoPlaying}
+              shouldRender={shouldRenderVideo}
+              isMuted={!isActive || !!item.song?.songId?._id}
               volume={item.song?.songId?._id ? 0.0 : 1.0}
               sourceVersion={localSourceVersion}
               videoRefCallback={videoRefCallback}
+              onReady={() => onVideoReady(item._id)}
               onError={handleVideoError}
+              onProgress={handleVideoProgress}
             />
           </View>
-        </GestureDetector>
+        </TouchableWithoutFeedback>
       </View>
 
+      {/* Elegant overlays and descriptions */}
       <ShortsOverlay
         post={item}
         isActive={isActive}
@@ -262,6 +252,7 @@ const ShortsCell = ({
         onSongPlayingChange={onSongPlayingChange}
       />
 
+      {/* Action buttons (Likes, Comments, Saves, Shares, profile nav) */}
       <ShortsActions
         shortId={item._id}
         userId={item.user._id}
@@ -281,6 +272,7 @@ const ShortsCell = ({
         onSavePress={onSavePress}
       />
 
+      {/* Big heart popping double tap indicator */}
       {showLikeAnimation && (
         <Animated.View
           style={[
@@ -296,6 +288,7 @@ const ShortsCell = ({
         </Animated.View>
       )}
 
+      {/* Translucent Play/Pause overlay */}
       {showPauseButton && (
         <View style={styles.playButton} pointerEvents="none">
           <View style={styles.playButtonBlur}>
