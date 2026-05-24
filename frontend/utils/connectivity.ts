@@ -1,8 +1,32 @@
+import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
 import { createLogger } from './logger';
 import { getApiUrl } from './config';
 import { showGlobalAlert } from './globalAlertHandler';
 
 const logger = createLogger('Connectivity');
+
+export let isHighLatency = false;
+
+// Listen to network state changes to dynamically flag high-latency/metered connection
+NetInfo.addEventListener((state: NetInfoState) => {
+  const isMetered = !!state.isMetered;
+  const isCellular = state.type === 'cellular';
+  const cellGen = state.details && 'cellularGeneration' in state.details 
+    ? state.details.cellularGeneration 
+    : null;
+  
+  // High latency if:
+  // 1. Connection is metered, OR
+  // 2. Cellular is 2G or 3G, OR
+  // 3. No connection or internet is unreachable
+  const slowCellular = cellGen === '2g' || cellGen === '3g';
+  const noInternet = !state.isConnected || state.isInternetReachable === false;
+  
+  isHighLatency = isMetered || slowCellular || noInternet;
+  logger.debug(
+    `[Connectivity] type=${state.type}, isMetered=${isMetered}, cellularGen=${cellGen}, isHighLatency=${isHighLatency}`
+  );
+});
 
 export const testAPIConnectivity = async (): Promise<boolean> => {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
