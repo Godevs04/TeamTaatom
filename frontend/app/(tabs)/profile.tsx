@@ -55,6 +55,43 @@ const logger = createLogger('ProfileScreen');
 
 const TRIP_GAP_DAYS = 7;
 
+const readSavedIds = async (key: 'savedShorts' | 'savedPosts', context: string): Promise<string[]> => {
+  try {
+    const stored = await AsyncStorage.getItem(key);
+    if (!stored) return [];
+
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string' && id.length > 0) : [];
+  } catch (error) {
+    logger.warn(`Failed to parse ${key} ${context}, resetting`, error);
+    try {
+      await AsyncStorage.setItem(key, JSON.stringify([]));
+    } catch {}
+    return [];
+  }
+};
+
+const readAllSavedIds = async (context: string): Promise<string[]> => {
+  const [postsArr, shortsArr] = await Promise.all([
+    readSavedIds('savedPosts', context),
+    readSavedIds('savedShorts', context),
+  ]);
+
+  return Array.from(new Set([...postsArr, ...shortsArr]));
+};
+
+const isSavedItemUnavailable = (reason: any): boolean => {
+  const status = reason?.response?.status;
+  const message = reason?.response?.data?.error?.message || reason?.response?.data?.message || reason?.message || '';
+
+  return (
+    status === 403 ||
+    status === 404 ||
+    status === 410 ||
+    (status === 401 && typeof message === 'string' && message.toLowerCase().includes('not available'))
+  );
+};
+
 function countTripsFromLocations(locations: Array<{ date?: string }>): number {
   if (!locations?.length) return 0;
   const sorted = [...locations].filter((l) => l.date).sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime());
@@ -240,6 +277,12 @@ export default function ProfileScreen() {
     return profileData?.locations || [];
   }, [verifiedLocations, profileData?.locations]);
 
+  const screenGradientLocations = useMemo(() => {
+    const colors = theme.colors.screenGradient;
+    const preferred: readonly [number, number, ...number[]] = isDark ? [0, 0.45, 1] : [0, 0.22, 0.55, 1];
+    return colors.length === preferred.length ? preferred : undefined;
+  }, [isDark, theme.colors.screenGradient]);
+
   const loadUnreadCount = useCallback(async () => {
     try {
       const response = await getUnreadCount();
@@ -417,20 +460,9 @@ export default function ProfileScreen() {
       Promise.allSettled([
         // Load saved IDs (defensive parsing)
         (async () => {
-          try {
-            const stored = await AsyncStorage.getItem('savedShorts');
-            if (stored) {
-              const parsed = JSON.parse(stored);
-              if (Array.isArray(parsed)) {
-                setSavedIds(parsed);
-              }
-            }
-          } catch (storageError) {
-            logger.warn('Failed to parse savedShorts from AsyncStorage', storageError);
-            // Recover corrupted storage by resetting
-            try {
-              await AsyncStorage.setItem('savedShorts', JSON.stringify([]));
-            } catch {}
+          const uniqueIds = await readAllSavedIds('from AsyncStorage');
+          if (isMountedRef.current) {
+            setSavedIds(uniqueIds);
           }
         })(),
         loadUnreadCount()
@@ -568,33 +600,7 @@ export default function ProfileScreen() {
       if (activeTab === 'saved' && isMountedRef.current) {
         const reloadSaved = async () => {
           try {
-            const savedShorts = await AsyncStorage.getItem('savedShorts');
-            const savedPosts = await AsyncStorage.getItem('savedPosts');
-            
-            let shortsArr: string[] = [];
-            let postsArr: string[] = [];
-            
-            try {
-              if (savedShorts) {
-                const parsed = JSON.parse(savedShorts);
-                shortsArr = Array.isArray(parsed) ? parsed : [];
-              }
-            } catch (error) {
-              logger.warn('Failed to parse savedShorts on focus', error);
-            }
-            
-            try {
-              if (savedPosts) {
-                const parsed = JSON.parse(savedPosts);
-                postsArr = Array.isArray(parsed) ? parsed : [];
-              }
-            } catch (error) {
-              logger.warn('Failed to parse savedPosts on focus', error);
-            }
-            
-            const allIds = [...postsArr, ...shortsArr];
-            const uniqueIds = Array.from(new Set(allIds));
-            
+            const uniqueIds = await readAllSavedIds('on focus');
             if (isMountedRef.current) {
               setSavedIds(uniqueIds);
             }
@@ -697,41 +703,7 @@ export default function ProfileScreen() {
       if (!isMountedRef.current) return;
       
       try {
-        const savedShorts = await AsyncStorage.getItem('savedShorts');
-        const savedPosts = await AsyncStorage.getItem('savedPosts');
-        
-        // Defensive JSON parsing with recovery
-        let shortsArr: string[] = [];
-        let postsArr: string[] = [];
-        
-        try {
-          if (savedShorts) {
-            const parsed = JSON.parse(savedShorts);
-            shortsArr = Array.isArray(parsed) ? parsed : [];
-          }
-        } catch (error) {
-          logger.warn('Failed to parse savedShorts, resetting', error);
-          try {
-            await AsyncStorage.setItem('savedShorts', JSON.stringify([]));
-          } catch {}
-        }
-        
-        try {
-          if (savedPosts) {
-            const parsed = JSON.parse(savedPosts);
-            postsArr = Array.isArray(parsed) ? parsed : [];
-          }
-        } catch (error) {
-          logger.warn('Failed to parse savedPosts, resetting', error);
-          try {
-            await AsyncStorage.setItem('savedPosts', JSON.stringify([]));
-          } catch {}
-        }
-        
-        // Deduplicate by combining and using Set
-        const allIds = [...postsArr, ...shortsArr];
-        const uniqueIds = Array.from(new Set(allIds));
-        
+        const uniqueIds = await readAllSavedIds('after saved event');
         if (isMountedRef.current) {
           setSavedIds(uniqueIds);
         }
@@ -750,41 +722,7 @@ export default function ProfileScreen() {
       if (activeTab !== 'saved' || !isMountedRef.current) return;
       
       try {
-        const savedShorts = await AsyncStorage.getItem('savedShorts');
-        const savedPosts = await AsyncStorage.getItem('savedPosts');
-        
-        // Defensive JSON parsing
-        let shortsArr: string[] = [];
-        let postsArr: string[] = [];
-        
-        try {
-          if (savedShorts) {
-            const parsed = JSON.parse(savedShorts);
-            shortsArr = Array.isArray(parsed) ? parsed : [];
-          }
-        } catch (error) {
-          logger.warn('Failed to parse savedShorts on tab switch, resetting', error);
-          try {
-            await AsyncStorage.setItem('savedShorts', JSON.stringify([]));
-          } catch {}
-        }
-        
-        try {
-          if (savedPosts) {
-            const parsed = JSON.parse(savedPosts);
-            postsArr = Array.isArray(parsed) ? parsed : [];
-          }
-        } catch (error) {
-          logger.warn('Failed to parse savedPosts on tab switch, resetting', error);
-          try {
-            await AsyncStorage.setItem('savedPosts', JSON.stringify([]));
-          } catch {}
-        }
-        
-        // Deduplicate
-        const allIds = [...postsArr, ...shortsArr];
-        const uniqueIds = Array.from(new Set(allIds));
-        
+        const uniqueIds = await readAllSavedIds('on tab switch');
         if (isMountedRef.current) {
           setSavedIds(uniqueIds);
         }
@@ -857,8 +795,9 @@ export default function ProfileScreen() {
               const id = batches[batchIndex][itemIndex];
               const reason = (r as any).reason;
               
-              // Only treat as permanently deleted if the server explicitly returns a 404 Not Found
-              if (reason && reason.response && reason.response.status === 404) {
+              // Remove saved IDs that the API says are deleted or no longer visible.
+              // A real expired-token 401 is handled by the API interceptor before this point.
+              if (isSavedItemUnavailable(reason)) {
                 failedIds.push(id);
               } else {
                 logger.warn(`Saved item ${id} fetch failed transiently (will retry next time):`, reason?.message || reason);
@@ -867,7 +806,7 @@ export default function ProfileScreen() {
           });
         });
         
-        // Clean up AsyncStorage by removing deleted post IDs (atomic read-modify-write)
+        // Clean up AsyncStorage by removing unavailable post IDs (atomic read-modify-write)
         if (failedIds.length > 0 && isMountedRef.current) {
           try {
             const savedShorts = await AsyncStorage.getItem('savedShorts');
@@ -914,7 +853,7 @@ export default function ProfileScreen() {
               setSavedIds(uniqueCleanedIds);
             }
             
-            logger.debug(`Cleaned up ${failedIds.length} deleted posts from saved items`);
+            logger.debug(`Cleaned up ${failedIds.length} unavailable posts from saved items`);
           } catch (cleanupError) {
             logger.error('Error cleaning up deleted posts from AsyncStorage', cleanupError);
           }
@@ -1263,7 +1202,7 @@ export default function ProfileScreen() {
       <LinearGradient
         colors={theme.colors.screenGradient as [string, string, ...string[]]}
         style={StyleSheet.absoluteFillObject}
-        locations={isDark ? [0, 0.45, 1] : [0, 0.22, 0.55, 1]}
+        locations={screenGradientLocations}
       />
 
       {/* Top Bar Container matching Home feed's top bar */}

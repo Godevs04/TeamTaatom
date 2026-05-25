@@ -693,10 +693,10 @@ const getPostById = async (req, res) => {
       const isFollower = viewerObjId ? authorFollowers.includes(viewerObjId.toString()) : false;
 
       if (visibility === 'followers' && !isFollower) {
-        return sendError(res, 'AUTH_1003', 'This post is not available');
+        return sendError(res, 'AUTH_1006', 'This post is not available');
       }
       if (visibility === 'private' && !isFollower) {
-        return sendError(res, 'AUTH_1003', 'This post is not available');
+        return sendError(res, 'AUTH_1006', 'This post is not available');
       }
     }
 
