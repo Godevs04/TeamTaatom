@@ -30,6 +30,7 @@ export interface ProfilePremiumViewProps {
   bio?: string;
   createdAt?: string;
   tripScore?: number;
+  postCount: number;
   followersCount: number;
   followingCount: number;
   verifiedCount: number | null;
@@ -70,6 +71,7 @@ export default function ProfilePremiumView({
   username,
   bio,
   tripScore = 0,
+  postCount,
   followersCount,
   followingCount = 0,
   verifiedCount,
@@ -131,6 +133,10 @@ export default function ProfilePremiumView({
           end={{ x: 1, y: 1 }}
         />
         <View style={styles.headerInner}>
+          <Pressable style={styles.editProfileAbsolute} onPress={onEditProfile}>
+            <Ionicons name="create-outline" size={18} color={textPrimary} />
+          </Pressable>
+
           {/* Phase 3: The Identity Block (Centered Hierarchy below avatar) */}
           <View style={styles.identityBlock}>
             <Text style={[styles.displayNameText, { color: textPrimary }]}>
@@ -151,12 +157,12 @@ export default function ProfilePremiumView({
 
           {/* Phase 2: Pill-styled Metrics */}
           <View style={styles.metricsContainer}>
-            <Pressable style={styles.metricPill} onPress={onOpenTripScore}>
+            <View style={styles.metricPill}>
               <LinearGradient colors={isDark ? ['#1A2B3C', '#122236'] : ['#F0F8FF', '#FFFFFF']} style={styles.metricPillGrad} />
-              <Ionicons name="compass" size={16} color={accent} style={{ marginBottom: 4 }} />
-              <Text style={[styles.metricValue, { color: textPrimary }]}>{tripScore}</Text>
-              <Text style={[styles.metricLabel, { color: textSecondary }]}>Score</Text>
-            </Pressable>
+              <Ionicons name="images" size={16} color={accent} style={{ marginBottom: 4 }} />
+              <Text style={[styles.metricValue, { color: textPrimary }]}>{postCount}</Text>
+              <Text style={[styles.metricLabel, { color: textSecondary }]}>Post Count</Text>
+            </View>
             
             <Pressable style={styles.metricPill} onPress={onOpenFollowers}>
               <LinearGradient colors={isDark ? ['#1A2B3C', '#122236'] : ['#F0F8FF', '#FFFFFF']} style={styles.metricPillGrad} />
@@ -172,12 +178,16 @@ export default function ProfilePremiumView({
               <Text style={[styles.metricLabel, { color: textSecondary }]}>Following</Text>
             </Pressable>
           </View>
+          <Pressable style={styles.tripScoreInline} onPress={onOpenTripScore}>
+            <Ionicons name="compass" size={16} color={accent} />
+            <Text style={[styles.tripScoreInlineLabel, { color: textSecondary }]}>Trip Score</Text>
+            <Text style={[styles.tripScoreInlineValue, { color: textPrimary }]}>{tripScore}</Text>
+          </Pressable>
         </View>
       </View>
 
-      {/* Standalone Rotating Globe with Glowing Backdrop */}
+      {/* Standalone Rotating Globe */}
       <View style={styles.globeWrapper}>
-        <View style={[styles.globeGlow, { backgroundColor: isDark ? 'rgba(91,188,248,0.1)' : 'rgba(91,188,248,0.15)' }]} />
         <View style={styles.globeContainer}>
           <RotatingGlobe locations={verifiedLocations} size={160} onPress={onOpenMap} />
         </View>
@@ -206,9 +216,6 @@ export default function ProfilePremiumView({
       {/* Recent highlights */}
       {highlightPosts.length > 0 ? (
         <View style={styles.highlightsBlock}>
-          <Text style={[styles.sectionTitle, { color: textPrimary, marginHorizontal: 16, marginBottom: 10 }]}>
-            Recent Highlights
-          </Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.highlightsScroll}>
             {highlightPosts.slice(0, 6).map((p) => {
               const uri = p.imageUrl ? optimizeCloudinaryUrl(p.imageUrl, { width: 280, height: 360 }) : null;
@@ -249,7 +256,7 @@ export default function ProfilePremiumView({
               </View>
               <View style={styles.timelineBody}>
                 <Text style={[styles.timelinePlace, { color: textPrimary }]} numberOfLines={1}>
-                  {loc.address?.split(',')[0] || 'Location'}
+                  {loc.address?.split(',')[0] || 'Place'}
                 </Text>
                 {loc.date ? (
                   <Text style={[styles.timelineDate, { color: textSecondary }]}>
@@ -311,6 +318,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     marginBottom: 12,
+    textAlign: 'center',
   },
   bioContainer: {
     width: '100%',
@@ -348,6 +356,30 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
+  },
+  tripScoreInline: {
+    width: '100%',
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 18,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.1)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    overflow: 'hidden',
+  },
+  tripScoreInlineLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  tripScoreInlineValue: {
+    fontSize: 16,
+    fontWeight: '800',
   },
   avatarOuter: {
     width: AVATAR,

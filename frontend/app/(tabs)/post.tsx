@@ -152,7 +152,7 @@ export default function PostScreen() {
   const [user, setUser] = useState<UserType | null>(null);
   const [hasExistingPosts, setHasExistingPosts] = useState<boolean | null>(null);
   const [hasExistingShorts, setHasExistingShorts] = useState<boolean | null>(null);
-  const [selectedAspectRatio, setSelectedAspectRatio] = useState<'1:1' | '16:9' | 'full'>('full');
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState<'9:16' | '16:9'>('9:16');
   const [naturalImageAspect, setNaturalImageAspect] = useState<number | null>(null);
   const [cropTransform, setCropTransform] = useState<CropTransform | null>(null);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
@@ -1634,9 +1634,9 @@ export default function PostScreen() {
         })
       );
 
-      // Apply chosen aspect ratio (1:1 1080×1080, 16:9 1080×1920 portrait) via cover-fit + crop.
+      // Apply chosen aspect ratio (9:16 or 16:9) via cover-fit + crop.
       // For single-image posts we honor the user's pinch+pan from the cropper; multi-image posts
-      // and 'full' fall through to default center-crop / no-op.
+      // while multi-image posts use the selected fixed frame without freestyle variants.
       const aspectProcessed = await Promise.all(
         imagesData.map(async (img, idx) => {
           try {
@@ -2621,7 +2621,7 @@ export default function PostScreen() {
                 {selectedImages.length === 1 ? (
                   // Single image — aspect chosen in Edit Photos chips. For 1:1 / 16:9 we render
                   // the AspectImageCropper inline (pinch + pan); for 'full' we just show the image.
-                  selectedAspectRatio === 'full' ? (
+                  true ? (
                     <View style={{
                       width: '100%',
                       aspectRatio: naturalImageAspect ?? 1,
@@ -2640,7 +2640,7 @@ export default function PostScreen() {
                   ) : (
                     <AspectImageCropper
                       uri={selectedImages[0].uri}
-                      aspectRatio={selectedAspectRatio === '16:9' ? 9 / 16 : 1}
+                      aspectRatio={selectedAspectRatio === '16:9' ? 16 / 9 : 9 / 16}
                       borderRadius={theme.borderRadius.xl}
                       showHint={false}
                       showReset={true}
@@ -2747,22 +2747,6 @@ export default function PostScreen() {
                         ))}
                       </View>
                     </View>
-                    {/* Horizontal scrollable view for all images */}
-                    <ScrollView 
-                      horizontal 
-                      showsHorizontalScrollIndicator={false}
-                      style={{ marginTop: theme.spacing.sm }}
-                      contentContainerStyle={{ gap: theme.spacing.xs, paddingRight: theme.spacing.md }}
-                    >
-                      {selectedImages.map((image, index) => (
-                        <View key={index} style={{ width: 80, height: 80, borderRadius: theme.borderRadius.md, overflow: 'hidden', marginRight: theme.spacing.xs }}>
-                          <Image 
-                            source={{ uri: image.uri }} 
-                            style={{ width: "100%", height: "100%", resizeMode: "cover" }} 
-                          />
-                        </View>
-                      ))}
-                    </ScrollView>
                   </View>
                 )}
 
@@ -2856,7 +2840,7 @@ export default function PostScreen() {
             ) : selectedVideo && selectedVideo.trim() ? (
               <View>
                 {/* Video preview */}
-                <View style={{ width: "100%", height: 300, borderRadius: theme.borderRadius.lg, overflow: 'hidden', backgroundColor: theme.colors.surface }}>
+                <View style={{ width: "100%", aspectRatio: 9 / 16, borderRadius: theme.borderRadius.lg, overflow: 'hidden', backgroundColor: theme.colors.surface }}>
                   <Video
                     source={{ uri: selectedVideo }}
                     style={{ width: '100%', height: '100%' }}
@@ -2867,36 +2851,6 @@ export default function PostScreen() {
                     isMuted={false}
                     volume={audioChoice === 'background' && selectedSong ? 0.6 : 1.0}
                   />
-                </View>
-                {/* Thumbnail preview below */}
-                <View style={{ marginTop: theme.spacing.sm }}>
-                  {videoThumbnail && videoThumbnail.trim() ? (
-                    <Image source={{ uri: videoThumbnail }} style={{ width: "100%", height: 160, borderRadius: theme.borderRadius.lg, resizeMode: "cover" }} />
-                  ) : (
-                    <View style={{ width: "100%", height: 160, borderRadius: theme.borderRadius.lg, backgroundColor: theme.colors.surface, justifyContent: 'center', alignItems: 'center' }}>
-                      <Ionicons name="image-outline" size={48} color={theme.colors.primary} />
-                      <Text style={{ color: theme.colors.text, marginTop: theme.spacing.xs }}>Generating thumbnail...</Text>
-                    </View>
-                  )}
-                  {/* Change/Regenerate thumbnail button */}
-                  <TouchableOpacity
-                    onPress={async () => {
-                      const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                      if (libPerm.status !== ImagePicker.PermissionStatus.GRANTED) {
-                        Alert.alert('Permission needed', 'Please grant photo library permissions.');
-                        return;
-                      }
-                      const pick = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [9, 16], quality: 0.9 });
-                      if (!pick.canceled && pick.assets?.[0] && pick.assets[0].uri && pick.assets[0].uri.trim()) {
-                        setVideoThumbnail(pick.assets[0].uri);
-                      } else {
-                        setVideoThumbnail(null);
-                      }
-                    }}
-                    style={{ position: 'absolute', right: theme.spacing.sm, bottom: theme.spacing.sm, backgroundColor: theme.colors.background, paddingHorizontal: theme.spacing.md, paddingVertical: 8, borderRadius: theme.borderRadius.md, opacity: 0.9 }}
-                  >
-                    <Text style={{ color: theme.colors.text, fontWeight: '600' }}>Change Thumbnail</Text>
-                  </TouchableOpacity>
                 </View>
               </View>
             ) : null}

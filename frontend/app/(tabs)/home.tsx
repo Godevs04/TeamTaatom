@@ -30,7 +30,7 @@ import EmptyState from '../../components/EmptyState';
 import FeedEmptyState from '../../components/ui/EmptyState';
 import { PostSkeleton } from '../../components/LoadingSkeleton';
 import { PostCardSkeleton } from '../../components/ui/Skeleton';
-import { trackScreenView, trackPostView, trackEngagement, trackFeatureUsage } from '../../services/analytics';
+import { trackScreenView, trackEngagement, trackFeatureUsage } from '../../services/analytics';
 import api from '../../services/api';
 import { socketService } from '../../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -46,8 +46,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { CloudSkyBackground, CloudSegmentedControl } from '../../components/cloud';
 import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 import { NativeAdCard } from '../../components/ads/NativeAdCard';
-import { useAdCap, recordGoogleAdImpression } from '../../services/adCap';
+import { useAdCap, recordGoogleAdImpression, logContentView, injectAds } from '../../services/adCap';
 import { flushPendingLikes } from '../../utils/likePersistence';
+import { realtimePostsService } from '../../services/realtimePosts';
 import type { FeedMode } from '../../services/posts';
 
 /** Feed list item: either a post or a native ad placeholder (inserted every ADS_AFTER_EVERY posts). */
@@ -58,6 +59,8 @@ function isAdItem(item: FeedItem): item is { type: 'ad'; adIndex: number } {
 }
 
 const ADS_AFTER_EVERY = 6;
+const POST_VIEW_DWELL_MS = 1000;
+const HOME_AD_START_DELAY_MS = __DEV__ ? 1000 : 30000;
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -266,6 +269,17 @@ export default function HomeScreen() {
   useEffect(() => {
     postsRef.current = posts;
   }, [posts]);
+
+  useEffect(() => {
+    const unsubscribe = realtimePostsService.subscribeToViews(({ postId, viewsCount }) => {
+      setPosts(prev => prev.map(post => (
+        post._id === postId
+          ? { ...post, viewsCount, views: viewsCount } as any
+          : post
+      )));
+    });
+    return unsubscribe;
+  }, [setPosts]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [page, setPage] = useState(1);
@@ -304,7 +318,7 @@ export default function HomeScreen() {
   // View tracking de-duplication: track last viewed post ID and timestamp
   const lastViewedPostIdRef = useRef<string | null>(null);
   const lastViewTimeRef = useRef<number>(0);
-  const VIEW_DEBOUNCE_MS = 2000; // Prevent duplicate view events within 2 seconds
+  const VIEW_DEBOUNCE_MS = POST_VIEW_DWELL_MS; // Prevent duplicate view events within 1 second
   const viewTimerRef = useRef<NodeJS.Timeout | null>(null);
   
   // Track visible index for conditional image rendering
@@ -326,16 +340,16 @@ export default function HomeScreen() {
     }
   }, [posts, visiblePostId]);
 
-  // Frequency control: only show native ads after user has scrolled past 5 posts and session > 30s (retention-friendly).
+  // Frequency control: only show native ads after user has scrolled past 5 posts and session > 30s (1s in dev).
   const [hasScrolledPastFifthPost, setHasScrolledPastFifthPost] = useState(false);
   const [adsAllowedAfter30s, setAdsAllowedAfter30s] = useState(false);
-  // Persistent 3-per-8h Google AdMob cap, shared with the shorts feed. Once
+  // Persistent 5-per-8h Google AdMob cap, shared with the shorts feed. Once
   // capped, no ad slots are inserted into the feed (per spec: posts/reels show
   // no ads after the cap is reached).
   const adCap = useAdCap();
   const hasSetScrollThresholdRef = useRef(false);
   useEffect(() => {
-    const t = setTimeout(() => setAdsAllowedAfter30s(true), 30000);
+    const t = setTimeout(() => setAdsAllowedAfter30s(true), HOME_AD_START_DELAY_MS);
     return () => clearTimeout(t);
   }, []);
 
@@ -1263,11 +1277,11 @@ export default function HomeScreen() {
       flex: 1,
       position: 'relative',
     },
-    feedTabsContainer: {
-      marginHorizontal: isTablet ? theme.spacing.lg : theme.spacing.md,
-      marginTop: theme.spacing.sm,
-      marginBottom: theme.spacing.md,
-    },
+  feedTabsContainer: {
+    marginHorizontal: isTablet ? theme.spacing.lg : theme.spacing.md,
+    marginTop: theme.spacing.xs,
+    marginBottom: theme.spacing.md,
+  },
     postsList: {
       paddingHorizontal: 0,
       // Add padding for tab bar (88px mobile, 70px web) + extra spacing
@@ -1295,30 +1309,14 @@ export default function HomeScreen() {
     },
   });
 
-  // Interleave native ad slots every ADS_AFTER_EVERY posts. Frequency control:
-  //   1. UX gates: scroll past 5 + session > 30s.
-  //   2. Hard cap: max remainingSlots Google ads in the current 8h window (shared with shorts).
-  // Once the cap is reached, no ad slots are inserted at all.
+  // Interleave native ad slots through the shared ad/view engine.
+  // This honors the 30s/1s startup window, ignored bootstrap views, and global 5-per-8h cap.
   const feedData = useMemo((): FeedItem[] => {
     if (isWeb || posts.length === 0) return posts as FeedItem[];
     const showAds = hasScrolledPastFifthPost && adsAllowedAfter30s && !adCap.isCapped;
     if (!showAds) return posts as FeedItem[];
-    const maxAdsInFeed = adCap.remainingSlots;
-    if (maxAdsInFeed <= 0) return posts as FeedItem[];
-    const result: FeedItem[] = [];
-    let adIndex = 0;
-    posts.forEach((post, i) => {
-      result.push(post);
-      if (
-        (i + 1) % ADS_AFTER_EVERY === 0 &&
-        i < posts.length - 1 &&
-        adIndex < maxAdsInFeed
-      ) {
-        result.push({ type: 'ad', adIndex: adIndex++ });
-      }
-    });
-    return result;
-  }, [posts, hasScrolledPastFifthPost, adsAllowedAfter30s, adCap.isCapped, adCap.remainingSlots]);
+    return injectAds(posts, adCap) as FeedItem[];
+  }, [posts, hasScrolledPastFifthPost, adsAllowedAfter30s, adCap]);
 
   const renderTopHeader = () => (
     <AnimatedHeader
@@ -1355,7 +1353,8 @@ export default function HomeScreen() {
         if (!hasScrolledRef.current && newVisibleIndex > 0) {
           hasScrolledRef.current = true;
         }
-        if (!hasSetScrollThresholdRef.current && newVisibleIndex >= 5) {
+        const threshold = __DEV__ ? 1 : 5;
+        if (!hasSetScrollThresholdRef.current && newVisibleIndex >= threshold) {
           hasSetScrollThresholdRef.current = true;
           setHasScrolledPastFifthPost(true);
         }
@@ -1369,11 +1368,29 @@ export default function HomeScreen() {
             viewTimerRef.current = null;
           }
 
-          // Start a 2-second timer. User must stay on this post for 2s to count as a view.
-          viewTimerRef.current = setTimeout(() => {
-            trackPostView(postId, { type: 'photo', source: 'home_feed' });
+          // Start a 1-second timer. User must stay on this post for 1s to count as a view.
+          viewTimerRef.current = setTimeout(async () => {
+            if (currentUser?._id && item.user?._id === currentUser._id) {
+              viewTimerRef.current = null;
+              return;
+            }
+            const result = await logContentView(postId, 'post', { type: 'photo', source: 'home_feed' });
+            if (result.incremented) {
+              const existing = postsRef.current.find(post => post._id === postId);
+              const emittedViewsCount = existing
+                ? (((existing as any).viewsCount ?? (existing as any).views ?? 0) + 1)
+                : null;
+              setPosts(prev => prev.map(post => {
+                if (post._id !== postId) return post;
+                const nextViews = emittedViewsCount ?? (((post as any).viewsCount ?? (post as any).views ?? 0) + 1);
+                return { ...post, viewsCount: nextViews, views: nextViews } as any;
+              }));
+              if (emittedViewsCount !== null) {
+                realtimePostsService.emitLocalView(postId, emittedViewsCount, currentUser?._id);
+              }
+            }
             viewTimerRef.current = null;
-          }, 2000);
+          }, POST_VIEW_DWELL_MS);
         } else {
           // Clear any active timer if visible item is an ad or empty
           if (viewTimerRef.current) {
@@ -1391,7 +1408,7 @@ export default function HomeScreen() {
       }
       setVisiblePostId(null);
     }
-  }, []);
+  }, [currentUser?._id, setPosts]);
 
   const viewabilityConfig = useRef({
     itemVisiblePercentThreshold: 50, // Item is considered visible when 50% is on screen

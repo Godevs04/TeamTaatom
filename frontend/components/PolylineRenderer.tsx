@@ -157,6 +157,7 @@ interface PolylineRendererProps {
   strokeWidth?: number;
   simplifyDistance?: number; // Minimum distance in meters to keep points
   applyKalman?: boolean; // Whether to apply Kalman filter for smoothing
+  onPress?: () => void;
 }
 
 /**
@@ -177,6 +178,7 @@ export default function PolylineRenderer({
   strokeWidth = 4,
   simplifyDistance = 5,
   applyKalman = false,
+  onPress,
 }: PolylineRendererProps) {
   if (coordinates.length < 2) {
     return null;
@@ -228,6 +230,8 @@ export default function PolylineRenderer({
             lineCap="round"
             lineJoin="round"
             geodesic={true}
+            tappable={!!onPress}
+            onPress={onPress}
           />
         ) : null}
         <Polyline
@@ -237,6 +241,8 @@ export default function PolylineRenderer({
           lineCap="round"
           lineJoin="round"
           geodesic={true} // Follow Earth's curvature for long distances
+          tappable={!!onPress}
+          onPress={onPress}
         />
       </>
     );

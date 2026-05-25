@@ -13,7 +13,6 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const GROWTH_GREEN = '#22C55E';
 const ALERT_RED = '#EF4444';
 const ACTION_BLUE = '#3B82F6';
 
@@ -111,7 +110,7 @@ export default function JourneyStatusBar({
     outputRange: [1, 0.5],
   });
 
-  const statusColor = isPaused ? ACTION_BLUE : GROWTH_GREEN;
+  const statusColor = isPaused ? ACTION_BLUE : ALERT_RED;
   const statusText = isPaused ? 'Paused' : 'Recording';
 
   return (

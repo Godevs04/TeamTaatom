@@ -8,6 +8,8 @@ export const colors = {
   sun: '#FFD166',
   softGray: '#1A2A3A',
   white: '#FFFFFF',
+  pinActive: '#FF0000',
+  pinInactive: '#FFFFFF',
 
   // System
   success: '#34C759',

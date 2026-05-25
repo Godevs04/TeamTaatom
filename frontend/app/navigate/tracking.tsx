@@ -9,6 +9,7 @@ import {
   SafeAreaView,
   Platform,
   Dimensions,
+  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -62,6 +63,7 @@ export default function TrackingScreen() {
 
   const [mapReady, setMapReady] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const pulseAnim = React.useRef(new Animated.Value(1)).current;
   // Set when the user intentionally ends/pauses — prevents the redirect
   // effect from competing with the deliberate navigation.
   const isNavigatingAwayRef = React.useRef(false);
@@ -78,6 +80,29 @@ export default function TrackingScreen() {
     const last = polyline[polyline.length - 1];
     return { latitude: last.latitude, longitude: last.longitude };
   }, [currentCoordinate, polyline]);
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1.4,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 900,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    if (isTracking && !isPaused) {
+      loop.start();
+    } else {
+      pulseAnim.setValue(1);
+    }
+    return () => loop.stop();
+  }, [isTracking, isPaused, pulseAnim]);
 
   // Redirect to home if no journey (only after hook has initialized).
   // Skip when the user intentionally stopped/paused — the handler navigates
@@ -169,6 +194,20 @@ export default function TrackingScreen() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
+        <View style={styles.recordingTitleRow}>
+          <Animated.View
+            style={[
+              styles.recordingDot,
+              {
+                backgroundColor: ALERT_RED,
+                transform: [{ scale: pulseAnim }],
+              },
+            ]}
+          />
+          <Text style={[styles.recordingTitle, { color: theme.colors.text }]} numberOfLines={1}>
+            {`Recording \u2022 ${journey?.title || 'Journey'}`}
+          </Text>
+        </View>
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
             <Ionicons name="navigate" size={16} color={GROWTH_GREEN} />
@@ -267,15 +306,6 @@ ${currentLocation ? `new google.maps.Marker({position:{lat:${currentLocation.lat
                   <PremiumMapMarker icon="navigate" active />
                 </Marker>
               )}
-              {Marker && journey?.waypoints?.map((waypoint, index) => (
-                <Marker
-                  key={`waypoint-${index}`}
-                  coordinate={{ latitude: waypoint.latitude, longitude: waypoint.longitude }}
-                  title={`${waypoint.type === 'photo' ? 'Photo' : 'Video'} #${index + 1}`}
-                >
-                  <PremiumMapMarker icon={waypoint.type === 'photo' ? 'camera' : 'videocam'} />
-                </Marker>
-              ))}
             </MapView>
           ) : (
             <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}>
@@ -322,14 +352,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    minHeight: 72,
+    minHeight: 88,
+    gap: 10,
+  },
+  recordingTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 16,
+    gap: 8,
+  },
+  recordingDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+  },
+  recordingTitle: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '700',
   },
   statsContainer: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-start',

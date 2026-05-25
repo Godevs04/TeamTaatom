@@ -82,7 +82,7 @@ interface OptimizedMarkerProps {
   title: string;
   description: string;
   onPress: () => void;
-  active: boolean;
+  isActive: boolean;
   icon: keyof typeof Ionicons.glyphMap;
 }
 
@@ -91,13 +91,13 @@ const OptimizedMarker = React.memo(({
   title,
   description,
   onPress,
-  active,
+  isActive,
   icon
 }: OptimizedMarkerProps) => {
   const [tracksViewChanges, setTracksViewChanges] = useState(true);
 
   useEffect(() => {
-    if (active) {
+    if (isActive) {
       setTracksViewChanges(true);
     } else {
       const timer = setTimeout(() => {
@@ -105,7 +105,7 @@ const OptimizedMarker = React.memo(({
       }, 500);
       return () => clearTimeout(timer);
     }
-  }, [active]);
+  }, [isActive]);
 
   return (
     <Marker
@@ -115,12 +115,12 @@ const OptimizedMarker = React.memo(({
       onPress={onPress}
       tracksViewChanges={tracksViewChanges}
     >
-      <PremiumMapMarker icon={icon} active={active} />
+      <PremiumMapMarker icon={icon} isActive={isActive} />
     </Marker>
   );
 }, (prev, next) => {
   return (
-    prev.active === next.active &&
+    prev.isActive === next.isActive &&
     prev.coordinate.latitude === next.coordinate.latitude &&
     prev.coordinate.longitude === next.coordinate.longitude &&
     prev.title === next.title &&
@@ -136,6 +136,7 @@ function AllLocationsMapInner() {
   const [error, setError] = useState<string | null>(null);
   const [mapFilter, setMapFilter] = useState<'posts' | 'journeys' | 'both'>('posts');
   const [selectedLocation, setSelectedLocation] = useState<LocationPin | null>(null);
+  const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const [currentCountry, setCurrentCountry] = useState<string | null>(null);
   const [currentRegion, setCurrentRegion] = useState<any>(null);
   const [statistics, setStatistics] = useState<{
@@ -155,6 +156,10 @@ function AllLocationsMapInner() {
   const headerTitle = displayName ? `${displayName}'s Locations` : 'My Locations';
   const mapRef = useRef<any>(null);
   const WEBVIEW_API_KEY = getGoogleMapsApiKeyForWebView();
+
+  const getLocationMarkerId = useCallback((loc: LocationPin) => (
+    loc.postId ? `post-${loc.postId}` : `location-${loc.number}`
+  ), []);
 
   const validLocations = useMemo(() => {
     return locations.filter(
@@ -283,10 +288,11 @@ function AllLocationsMapInner() {
       const nextLocation = validLocations[index];
       if (selectedLocation?.number !== nextLocation.number || selectedLocation?.postId !== nextLocation.postId) {
         setSelectedLocation(nextLocation);
+        setSelectedMarkerId(getLocationMarkerId(nextLocation));
         centerMapOnLocation(nextLocation.latitude, nextLocation.longitude);
       }
     }
-  }, [validLocations, selectedLocation, centerMapOnLocation]);
+  }, [validLocations, selectedLocation, centerMapOnLocation, getLocationMarkerId]);
 
   useEffect(() => {
     if (selectedLocation && !isScrollingCarouselRef.current) {
@@ -552,6 +558,7 @@ function AllLocationsMapInner() {
         );
         if (validLocs.length > 0) {
           setSelectedLocation(validLocs[0]);
+          setSelectedMarkerId(getLocationMarkerId(validLocs[0]));
         }
       }
 
@@ -966,6 +973,7 @@ function initMap(){
                   postId: data.location.postId || undefined,
                   contentType: data.location.contentType || undefined,
                 });
+                setSelectedMarkerId(data.location.postId ? `post-${data.location.postId}` : `location-${data.location.number}`);
               }
             } catch (err) {
               logger.debug('[AllLocations] WebView message parse error:', err);
@@ -1039,8 +1047,6 @@ function initMap(){
         {(mapFilter === 'journeys' || mapFilter === 'both') && journeys.map((j) => {
           if (!j.polyline || j.polyline.length < 2) return null;
           const coords = j.polyline.map((p) => ({ latitude: p.lat, longitude: p.lng }));
-          const startLetter = j.startCity ? j.startCity[0].toUpperCase() : 'S';
-          const endLetter = j.endCity ? j.endCity[0].toUpperCase() : 'E';
           return (
             <React.Fragment key={`journey-${j._id}`}>
               <PolylineRenderer
@@ -1058,9 +1064,7 @@ function initMap(){
                   title={j.startCity || 'Start'}
                   anchor={{ x: 0.5, y: 0.5 }}
                 >
-                  <View style={markerStyles.journeyMarker}>
-                    <Text style={markerStyles.journeyMarkerText}>{startLetter}</Text>
-                  </View>
+                  <PremiumMapMarker pointType="start" isActive={false} />
                 </Marker>
               )}
               {/* End marker */}
@@ -1070,9 +1074,7 @@ function initMap(){
                   title={j.endCity || 'End'}
                   anchor={{ x: 0.5, y: 0.5 }}
                 >
-                  <View style={[markerStyles.journeyMarker, markerStyles.journeyMarkerEnd]}>
-                    <Text style={markerStyles.journeyMarkerText}>{endLetter}</Text>
-                  </View>
+                  <PremiumMapMarker pointType="end" isActive={false} />
                 </Marker>
               )}
             </React.Fragment>
@@ -1096,15 +1098,19 @@ function initMap(){
             );
           } else {
             const location = cluster.location!;
-            const isActive = selectedLocation?.postId === location.postId || selectedLocation?.number === location.number;
+            const markerId = getLocationMarkerId(location);
+            const isActive = selectedMarkerId === markerId;
             return (
               <OptimizedMarker
                 key={cluster.id}
                 coordinate={{ latitude: location.latitude, longitude: location.longitude }}
                 title={location.address || `Location #${location.number}`}
                 description={`Visit #${location.number}`}
-                onPress={() => setSelectedLocation(location)}
-                active={isActive}
+                onPress={() => {
+                  setSelectedLocation(location);
+                  setSelectedMarkerId(markerId);
+                }}
+                isActive={isActive}
                 icon="location"
               />
             );
@@ -1340,6 +1346,7 @@ function initMap(){
                         style={styles.previewClose}
                         onPress={() => {
                           setSelectedLocation(null);
+                          setSelectedMarkerId(null);
                         }}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                       >

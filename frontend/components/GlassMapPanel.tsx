@@ -39,7 +39,7 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   content: {
-    padding: 16,
+    padding: 12,
+    flexShrink: 1,
   },
 });
-

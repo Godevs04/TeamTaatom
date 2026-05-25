@@ -77,7 +77,13 @@ export default function AspectImageCropper({
     ty.value = 0;
     savedTx.value = 0;
     savedTy.value = 0;
-    onTransformChange?.(null);
+    onTransformChange?.({
+      userScale: 1,
+      viewportTx: 0,
+      viewportTy: 0,
+      viewportW: viewportWidth,
+      viewportH,
+    });
   }, [uri, aspectRatio, viewportWidth]);
 
   useEffect(() => {
@@ -157,7 +163,13 @@ export default function AspectImageCropper({
     ty.value = withTiming(0, { duration: 200 });
     savedTx.value = 0;
     savedTy.value = 0;
-    onTransformChange?.(null);
+    onTransformChange?.({
+      userScale: 1,
+      viewportTx: 0,
+      viewportTy: 0,
+      viewportW: viewportWidth,
+      viewportH,
+    });
   };
 
   // If we don't yet know the width (waiting on layout), render a placeholder of the

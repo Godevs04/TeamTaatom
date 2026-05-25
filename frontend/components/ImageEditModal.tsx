@@ -16,7 +16,7 @@ import { useTheme } from '../context/ThemeContext';
 export type { CropTransform } from './post/AspectImageCropper';
 
 export type ImageFilterType = 'original' | 'vivid' | 'warm' | 'cool' | 'bw';
-export type AspectRatioChoice = '1:1' | '16:9' | 'full';
+export type AspectRatioChoice = '9:16' | '16:9';
 
 export interface SelectedImageItem {
   uri: string;
@@ -25,9 +25,8 @@ export interface SelectedImageItem {
 }
 
 const ASPECT_OPTIONS: { id: AspectRatioChoice; label: string; icon: string }[] = [
-  { id: '1:1', label: '1:1', icon: 'square-outline' },
-  { id: '16:9', label: '16:9', icon: 'tablet-portrait-outline' },
-  { id: 'full', label: 'Full Image', icon: 'expand-outline' },
+  { id: '9:16', label: '9:16', icon: 'phone-portrait-outline' },
+  { id: '16:9', label: '16:9', icon: 'phone-landscape-outline' },
 ];
 
 const FILTER_OPTIONS: { id: ImageFilterType; label: string; icon: string }[] = [
@@ -70,7 +69,7 @@ export default function ImageEditModal({
   onImagesChange,
   selectedFilter,
   onFilterChange,
-  selectedAspectRatio = '1:1',
+  selectedAspectRatio = '9:16',
   onAspectRatioChange,
 }: ImageEditModalProps) {
   const { theme } = useTheme();
@@ -101,7 +100,7 @@ export default function ImageEditModal({
           </View>
 
           <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-            {/* Aspect ratio — Square / 16:9 / Full Image (zoom-to-fill, non-destructive) */}
+            {/* Aspect ratio */}
             <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>
               Aspect ratio
             </Text>
@@ -137,15 +136,6 @@ export default function ImageEditModal({
 
             {/* Photos — informational thumbnails. Pinch+pan cropping happens on the post creation
                 screen itself, not in this modal. */}
-            <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary, marginTop: 16 }]}>
-              Photos
-            </Text>
-            <View style={styles.thumbRow}>
-              {images.map((img, index) => (
-                <Image key={`${img.uri}-${index}`} source={{ uri: img.uri }} style={styles.thumbSmall} />
-              ))}
-            </View>
-
             {/* Filter preview — first selected image with approximate overlay. */}
             {images.length > 0 && (
               <>
@@ -278,18 +268,6 @@ const styles = StyleSheet.create({
   aspectLabel: {
     fontSize: 14,
     fontWeight: '700',
-  },
-  thumbRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 4,
-  },
-  thumbSmall: {
-    width: 64,
-    height: 64,
-    borderRadius: 8,
-    backgroundColor: '#eee',
   },
   previewContainer: {
     width: '100%',
