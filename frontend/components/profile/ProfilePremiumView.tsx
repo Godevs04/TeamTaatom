@@ -136,6 +136,7 @@ export default function ProfilePremiumView({
           shadowOpacity: 0.45,
           shadowRadius: 32,
           elevation: 10,
+          backgroundColor: isDark ? 'rgba(25, 25, 25, 0.72)' : 'transparent',
         }]}
         contentStyle={styles.headerInner}
       >

@@ -660,7 +660,12 @@ export default function UserProfileScreen() {
             </View>
 
             {/* Profile Card */}
-            <PremiumGlassCard style={styles.profileCard} contentStyle={styles.profileCardInner} subtle>
+            <PremiumGlassCard
+              style={[styles.profileCard, { backgroundColor: isDark ? undefined : 'transparent' }]}
+              contentStyle={styles.profileCardInner}
+              subtle
+              blur={isDark}
+            >
               {/* Avatar with Ring */}
               <View style={styles.avatarContainer}>
                 <View style={[styles.avatarRing, { borderColor: profileTheme.accent + '40' }]}>
