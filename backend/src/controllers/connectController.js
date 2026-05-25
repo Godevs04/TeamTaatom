@@ -301,6 +301,28 @@ const getMyPages = async (req, res) => {
   }
 };
 
+const maskSubscriptionContent = (content) => {
+  if (!content || !Array.isArray(content)) return [];
+  return content.map(block => {
+    const masked = { ...block };
+    if (block.type === 'heading') {
+      masked.content = 'Premium Section';
+    } else if (block.type === 'text') {
+      masked.content = 'This premium content is locked. Subscribe to unlock this section and access all premium services, links, and exclusive content.';
+    } else if (block.type === 'image') {
+      masked.content = 'https://images.unsplash.com/photo-1508739773434-c26b3d09e071?auto=format&fit=crop&q=80&w=600';
+    } else if (block.type === 'video') {
+      masked.content = '';
+    } else if (block.type === 'button') {
+      masked.content = 'Unlock Content';
+      masked.url = '';
+    } else if (block.type === 'embed') {
+      masked.content = '';
+    }
+    return masked;
+  });
+};
+
 /**
  * Get single page detail
  * GET /api/v1/connect/page/:pageId
@@ -427,7 +449,7 @@ const getPageDetail = async (req, res) => {
       ? false
       : await userCanReadSubscriptionContent(currentUserId, pageOwnerId, pageId);
     if (!isOwner && !isSubscribed) {
-      page.subscriptionContent = [];
+      page.subscriptionContent = maskSubscriptionContent(page.subscriptionContent);
     }
 
     return sendSuccess(res, 200, 'Page detail fetched', {

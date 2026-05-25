@@ -21,6 +21,7 @@ import {
   CloudTripScoreHero,
   CloudActionGroup,
   CloudListRow,
+  CloudGlassSurface,
 } from '../../components/cloud';
 import PremiumGlassCard from '../../components/ui/PremiumGlassCard';
 import logger from '../../utils/logger';
@@ -147,27 +148,27 @@ export default function UserProfileScreen() {
   const profileTheme = useMemo(() => {
     if (isDark) {
       return {
-        headerGradient: ['#020617', '#0B1120', '#111827'] as const,
-        cardBg: '#111827',
+        headerGradient: ['#000000', '#000000', '#000000'] as const,
+        cardBg: '#121212',
         cardBorder: 'rgba(255, 255, 255, 0.1)',
         textPrimary: '#F9FAFB',
         textSecondary: '#9CA3AF',
         accent: '#60A5FA',
         statCardBg: 'rgba(96, 165, 250, 0.1)',
         statCardBorder: 'rgba(96, 165, 250, 0.2)',
-        gapBorderColor: '#06121F',
+        gapBorderColor: '#000000',
       };
     } else {
       return {
-        headerGradient: ['#F3F6FF', '#E8F0FE', '#FFFFFF'] as const,
+        headerGradient: ['#F5F7FA', '#F5F7FA'] as const,
         cardBg: '#FFFFFF',
-        cardBorder: 'rgba(0, 0, 0, 0.08)',
-        textPrimary: '#111827',
-        textSecondary: '#6B7280',
-        accent: '#2563EB',
-        statCardBg: 'rgba(37, 99, 235, 0.08)',
-        statCardBorder: 'rgba(37, 99, 235, 0.15)',
-        gapBorderColor: '#EDF7FF',
+        cardBorder: 'rgba(255, 255, 255, 0.90)',
+        textPrimary: '#121212',
+        textSecondary: '#667085',
+        accent: '#121212',
+        statCardBg: 'rgba(255, 255, 255, 0.55)',
+        statCardBorder: 'rgba(255, 255, 255, 0.90)',
+        gapBorderColor: '#F5F7FA',
       };
     }
   }, [isDark]);
@@ -609,10 +610,10 @@ export default function UserProfileScreen() {
       : '-';
 
   return (
-    <View style={[styles.container, { backgroundColor: isDark ? '#06121F' : '#EDF7FF' }]}>
+    <View style={[styles.container, { backgroundColor: isDark ? '#000000' : '#F5F7FA' }]}>
       <CloudSkyBackground heightRatio={0.42} />
       <ExpoLinearGradient
-        colors={isDark ? ['transparent', '#102236', '#07111C'] : ['transparent', '#F8FCFF', '#FFFFFF']}
+        colors={isDark ? ['transparent', '#000000', '#000000'] : ['transparent', '#F5F7FA', '#F5F7FA']}
         style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}
         locations={[0, 0.35, 1]}
         pointerEvents="none"
@@ -812,7 +813,12 @@ export default function UserProfileScreen() {
 
         {/* Posts/Shorts Section */}
         {profile.canViewPosts && (
-          <PremiumGlassCard style={styles.postsContainer} contentStyle={styles.postsContainerInner} subtle>
+          <CloudGlassSurface
+            style={styles.postsContainer}
+            contentStyle={styles.postsContainerInner}
+            blur={false}
+            borderRadius={20}
+          >
             {/* Tabs */}
             <View style={styles.postsTabsSection}>
               <Pressable
@@ -824,7 +830,7 @@ export default function UserProfileScreen() {
               >
                 <Text style={[
                   styles.pillTabText,
-                  { color: activeTab === 'posts' ? '#FFFFFF' : profileTheme.textSecondary }
+                  { color: activeTab === 'posts' ? (isDark ? '#121212' : '#FFFFFF') : profileTheme.textSecondary }
                 ]}>
                   Posts
                 </Text>
@@ -838,7 +844,7 @@ export default function UserProfileScreen() {
               >
                 <Text style={[
                   styles.pillTabText,
-                  { color: activeTab === 'shorts' ? '#FFFFFF' : profileTheme.textSecondary }
+                  { color: activeTab === 'shorts' ? (isDark ? '#121212' : '#FFFFFF') : profileTheme.textSecondary }
                 ]}>
                   Shorts
                 </Text>
@@ -990,7 +996,7 @@ export default function UserProfileScreen() {
               )
               }
             </View>
-          </PremiumGlassCard>
+          </CloudGlassSurface>
         )}
 
         {!profile.canViewPosts && (

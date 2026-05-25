@@ -1,8 +1,9 @@
-import React, { useRef, useState, useEffect, memo, useCallback } from 'react';
+import React, { useRef, useState, useEffect, memo, useCallback, useMemo } from 'react';
 import { View, StyleSheet, ActivityIndicator, Image, TouchableOpacity, Text } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import Video, { VideoRef } from 'react-native-video';
+import { useIsFocused } from '@react-navigation/native';
 import logger from '../../utils/logger';
 
 interface ShortsVideoProps {
@@ -19,6 +20,13 @@ interface ShortsVideoProps {
   onProgress?: (progress: { currentTime: number; seekableDuration: number }) => void;
   videoRefCallback?: (ref: any) => void;
 }
+
+const BUFFER_CONFIG = {
+  minBufferMs: 2500,
+  maxBufferMs: 10000,
+  bufferForPlaybackMs: 1000,
+  bufferForPlaybackAfterRebufferMs: 2000,
+};
 
 const ShortsVideo = ({
   videoId,
@@ -39,6 +47,9 @@ const ShortsVideo = ({
   const [hasError, setHasError] = useState(false);
   const [showPoster, setShowPoster] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
+
+  const isFocused = useIsFocused();
+  const shouldPlay = isActive && isFocused;
 
   // DETAILED LOGGING: Track first 2 shorts
   const isFirstTwoShorts = videoId && videoId.length > 0 && Math.random() < 0.4; // Rough heuristic
@@ -67,8 +78,19 @@ const ShortsVideo = ({
     setShowPoster(true);
   }, [videoUrl, sourceVersion, videoId]);
 
+  // Lifecycle Override to strictly obey shouldPlay boolean
+  useEffect(() => {
+    if (videoRef.current) {
+      if (shouldPlay) {
+        (videoRef.current as any).playAsync?.();
+      } else {
+        (videoRef.current as any).pauseAsync?.();
+      }
+    }
+  }, [shouldPlay]);
+
   // Handle active status to control play/pause
-  const isPaused = !isActive;
+  const isPaused = !shouldPlay;
 
   const handleReadyForDisplay = useCallback(() => {
     if (!isReady) {
@@ -110,6 +132,15 @@ const ShortsVideo = ({
     }
   }, [onProgress]);
 
+  const setRef = useCallback((ref: any) => {
+    (videoRef as any).current = ref;
+    if (videoRefCallback) {
+      videoRefCallback(ref);
+    }
+  }, [videoRefCallback]);
+
+  const videoSource = useMemo(() => ({ uri: videoUrl }), [videoUrl]);
+
   return (
     <View style={styles.container}>
       {/* Thumbnail backdrop shown until video is ready — prevents black flash */}
@@ -139,13 +170,8 @@ const ShortsVideo = ({
       {/* Video component - only rendered when shouldRender is true and no error */}
       {shouldRender && !hasError && (
         <Video
-          ref={(ref) => {
-            (videoRef as any).current = ref;
-            if (videoRefCallback) {
-              videoRefCallback(ref);
-            }
-          }}
-          source={{ uri: videoUrl }}
+          ref={setRef}
+          source={videoSource}
           style={StyleSheet.absoluteFill}
           resizeMode="cover"
           repeat={true}
@@ -155,12 +181,7 @@ const ShortsVideo = ({
           onReadyForDisplay={handleReadyForDisplay}
           onError={handleVideoError}
           onProgress={handlePlaybackStatusUpdate}
-          bufferConfig={{
-            minBufferMs: 2500,
-            maxBufferMs: 10000,
-            bufferForPlaybackMs: 1000,
-            bufferForPlaybackAfterRebufferMs: 2000,
-          }}
+          bufferConfig={BUFFER_CONFIG}
           ignoreSilentSwitch="obey"
           playInBackground={false}
           playWhenInactive={false}

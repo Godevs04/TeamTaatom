@@ -170,20 +170,7 @@ export default function PostDetail() {
             showBookmark={true}
           />
 
-          {/* Comments count indicator */}
-          {comments.length > 0 && (
-            <TouchableOpacity
-              onPress={() => setCommentsVisible(true)}
-              style={styles.viewCommentsBtn}
-            >
-              <Ionicons
-                name="chatbubble-outline"
-                size={14}
-                color={isDark ? '#999' : '#666'}
-                style={{ marginRight: 6 }}
-              />
-            </TouchableOpacity>
-          )}
+
         </View>
       </ScrollView>
 
@@ -224,10 +211,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  viewCommentsBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 12,
-    paddingVertical: 8,
-  },
+
 });

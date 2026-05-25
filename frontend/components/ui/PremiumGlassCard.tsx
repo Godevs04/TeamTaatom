@@ -33,6 +33,10 @@ export default function PremiumGlassCard({
       ? (isDark ? 0.26 : 0.24)
       : (isDark ? 0.18 : 0.16);
 
+  const finalShadowColor = isDark ? '#000000' : cardShadow;
+  const finalShadowOpacity = isDark ? 0.45 : shadowOpacity;
+  const finalShadowRadius = isDark ? (subtle ? 16 : 32) : (subtle ? 16 : 24);
+
   return (
     <View
       style={[
@@ -40,12 +44,12 @@ export default function PremiumGlassCard({
         {
           borderRadius: radius,
           borderColor: subtle
-            ? (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(91, 188, 248, 0.12)')
+            ? (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0, 0, 0, 0.08)')
             : (theme.colors.glassBorder || theme.colors.border),
-          shadowColor: cardShadow,
+          shadowColor: finalShadowColor,
           backgroundColor: surface,
-          shadowOpacity,
-          shadowRadius: subtle ? 16 : 24,
+          shadowOpacity: finalShadowOpacity,
+          shadowRadius: finalShadowRadius,
           elevation: subtle ? 4 : 8,
         },
         style,
@@ -70,7 +74,7 @@ export default function PremiumGlassCard({
         <LinearGradient
           colors={[
             'rgba(255,255,255,0.36)',
-            'rgba(91,188,248,0.08)',
+            'rgba(0,0,0,0)',
           ]}
           style={[styles.innerLift, subtle && styles.innerLiftSubtle]}
           start={{ x: 0, y: 0 }}

@@ -348,6 +348,7 @@ userSchema.methods.getPublicProfile = function() {
     profilePic: this.profilePic,
     followers: this.followers.length,
     following: this.following.length,
+    followingIds: this.following ? this.following.map(f => (f && (f._id || f)).toString()).filter(Boolean) : [],
     totalLikes: this.totalLikes,
     isVerified: this.isVerified,
     createdAt: this.createdAt,

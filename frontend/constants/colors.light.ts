@@ -4,64 +4,68 @@ export const lightColors = {
   ...darkColors,
 
   // Core brand (restore light-mode values)
-  primary: '#2B7FD4',
-  lightBlue: '#A8DAFC',
-  secondary: '#5BBCF8',
-  accent: '#43B89C',
+  primary: '#121212',
+  lightBlue: '#F5F7FA',
+  secondary: '#667085',
+  accent: '#121212',
   coral: '#FF8F70',
   sun: '#FFD166',
-  softGray: '#EDF7FF',
+  softGray: '#F5F7FA',
   white: '#FFFFFF',
 
   // Surfaces
-  background: '#E8F4FF',
+  background: '#F5F7FA',
   surface: '#FFFFFF',
-  surfaceSecondary: '#D9EFFF',
+  surfaceSecondary: 'rgba(255, 255, 255, 0.55)',
+  surfaceTertiary: 'rgba(255, 255, 255, 0.72)',
+  glassBorderHighlight: 'rgba(255, 255, 255, 0.90)',
+  glassBorderShadow: 'rgba(0, 0, 0, 0.04)',
 
   // Content
-  text: '#1A2B3C',
-  textSecondary: '#4A6274',
-  textMuted: '#8FAABB',
+  text: '#121212',
+  textSecondary: '#667085',
+  textMuted: '#667085',
 
   // Lines / hairlines
-  border: 'rgba(91, 188, 248, 0.16)',
-  hairline: 'rgba(91, 188, 248, 0.10)',
+  border: 'rgba(0, 0, 0, 0.04)',
+  hairline: 'rgba(0, 0, 0, 0.02)',
 
   // Card tint
-  card: '#FFFFFF',
-  shadow: 'rgba(43, 127, 212, 0.14)',
-  overlay: 'rgba(26, 43, 60, 0.36)',
+  card: 'rgba(255, 255, 255, 0.55)',
+  shadow: 'rgba(0, 0, 0, 0.04)',
+  overlay: 'rgba(0, 0, 0, 0.40)',
   
   // Glass tokens
   glass: {
-    background: 'rgba(255, 255, 255, 0.76)',
-    border: 'rgba(255, 255, 255, 0.72)',
-    highlight: 'rgba(255, 255, 255, 0.9)',
+    background: 'rgba(255, 255, 255, 0.55)',
+    border: 'rgba(255, 255, 255, 0.90)',
+    highlight: 'rgba(255, 255, 255, 0.90)',
   },
-  glassBackground: 'rgba(255, 255, 255, 0.58)',
+  glassBackground: 'rgba(255, 255, 255, 0.55)',
   frostTint: 'rgba(255, 255, 255, 0.55)',
-  frostTintMedium: 'rgba(255, 255, 255, 0.68)',
-  frostTintStrong: 'rgba(255, 255, 255, 0.86)',
+  frostTintMedium: 'rgba(255, 255, 255, 0.55)',
+  frostTintStrong: 'rgba(255, 255, 255, 0.72)',
   /** Day theme: subtle vertical depth (aligned with dark theme’s graded sky) */
-  appBackgroundGradient: ['#C8E8FF', '#E8F4FF', '#F8FCFF', '#FFFFFF'],
-  screenGradient: ['#C8E8FF', '#E8F4FF', '#F8FCFF', '#FFFFFF'],
-  glassSurface: 'rgba(255, 255, 255, 0.76)',
-  glassStrong: 'rgba(255, 255, 255, 0.92)',
-  glassBorder: 'rgba(255, 255, 255, 0.76)',
-  glowBlue: 'rgba(91, 188, 248, 0.34)',
+  appBackgroundGradient: ['#F5F7FA', '#F5F7FA'],
+  screenGradient: ['#F5F7FA', '#F5F7FA'],
+  glassSurface: 'rgba(255, 255, 255, 0.55)',
+  glassStrong: 'rgba(255, 255, 255, 0.72)',
+  glassBorder: 'rgba(255, 255, 255, 0.90)',
+  glowBlue: 'rgba(255, 255, 255, 0.55)',
   innerHighlight: 'rgba(255, 255, 255, 0.94)',
-  softShadow: 'rgba(43, 127, 212, 0.18)',
+  softShadow: 'rgba(0, 0, 0, 0.04)',
   /** Solid tab bar (not translucent) */
-  floatingDock: '#FFFFFF',
-  cloudSurface: '#EDF7FF',
-  skyPale: '#D9EFFF',
-  blueDeep: '#2B7FD4',
-  blueMid: '#4BA3E8',
+  floatingDock: 'rgba(255, 255, 255, 0.60)',
+  cloudSurface: '#F5F7FA',
+  skyPale: '#F5F7FA',
+  blueDeep: '#121212',
+  blueMid: '#667085',
 
   gradient: {
-    primary: ['#E8F4FF', '#F5FAFF', '#FFFFFF'],
-    secondary: ['#5BBCF8', '#2B7FD4'],
-    dark: ['#E8F4FF', '#F5FAFF', '#FFFFFF'],
-    button: ['#5BBCF8', '#2B7FD4']
+    primary: ['#F5F7FA', '#F5F7FA'],
+    secondary: ['#121212', '#667085'],
+    dark: ['#F5F7FA', '#F5F7FA'],
+    button: ['#121212', '#667085']
   }
 };
+

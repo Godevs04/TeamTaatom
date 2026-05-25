@@ -11,14 +11,14 @@ export default function CloudSkyBackground({ heightRatio = 0.32 }: CloudSkyBackg
   const { mode } = useTheme();
   const isDark = mode === 'dark';
   const colors: [string, string, ...string[]] = isDark
-    ? ['#06121F', '#102236', '#07111C']
-    : ['#A8DAFC', '#C8E8FF', '#EDF7FF', '#FFFFFF'];
+    ? ['#000000', '#000000', '#000000']
+    : ['#EAEFF4', '#F5F7FA', '#F5F7FA'];
 
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <LinearGradient
         colors={colors}
-        locations={isDark ? undefined : [0, 0.35, 0.65, 1]}
+        locations={isDark ? undefined : [0, 0.35, 1]}
         style={[styles.skyBand, { height: `${Math.round(heightRatio * 100)}%` }]}
       />
     </View>

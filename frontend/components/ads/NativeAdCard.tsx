@@ -36,7 +36,7 @@ export type NativeAdCardProps = {
   adIndex: number;
   /** Fired exactly once when the ad finishes loading and is about to render.
    *  Used by the home-feed cap tracker to count Google ad impressions toward
-   *  the 3-per-8h limit. Does NOT fire if the ad fails to load (no impression
+   *  the 5-per-8h limit. Does NOT fire if the ad fails to load (no impression
    *  to count in that case). */
   onImpression?: () => void;
 };

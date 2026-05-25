@@ -33,10 +33,10 @@ export default function CloudSegmentedControl<T extends string>({
       style={[
         styles.wrap,
         {
-          backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.45)',
-          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(91,188,248,0.12)',
+          backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.55)',
+          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.90)',
         },
-        cloudDesign.shadowCard,
+        isDark ? cloudDesign.shadowCard : styles.lightShadow,
         style,
       ]}
     >
@@ -65,10 +65,10 @@ export default function CloudSegmentedControl<T extends string>({
                   color: active
                     ? isDark
                       ? '#FFFFFF'
-                      : cloudDesign.blueDeep
+                      : '#121212'
                     : isDark
                       ? theme.colors.textSecondary
-                      : cloudDesign.textMuted,
+                      : '#667085',
                 },
               ]}
             >
@@ -99,17 +99,24 @@ const styles = StyleSheet.create({
   },
   segActiveLight: {
     backgroundColor: '#FFFFFF',
-    shadowColor: 'rgba(91, 188, 248, 0.2)',
+    shadowColor: 'rgba(0, 0, 0, 0.04)',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 1,
-    shadowRadius: 10,
-    elevation: 4,
+    shadowRadius: 6,
+    elevation: 2,
   },
   segActiveDark: {
-    backgroundColor: 'rgba(91, 188, 248, 0.38)',
+    backgroundColor: '#000000',
   },
   label: {
     fontSize: 11,
     fontWeight: '800',
+  },
+  lightShadow: {
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
 });

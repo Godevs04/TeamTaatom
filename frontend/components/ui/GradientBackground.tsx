@@ -13,7 +13,7 @@ export const GradientBackground = ({ children, style }: GradientBackgroundProps)
   const { theme, isDark } = useTheme();
 
   // Atmospheric gradient configuration
-  const backgroundColors = theme.colors.appBackgroundGradient as [string, string, string];
+  const backgroundColors = theme.colors.appBackgroundGradient as [string, string, ...string[]];
 
   return (
     <View style={[styles.container, style]}>
@@ -29,22 +29,22 @@ export const GradientBackground = ({ children, style }: GradientBackgroundProps)
           <Defs>
             {/* Top Right Vibrant Cobalt Glow */}
             <RadialGradient id="glowTopRight" cx="85%" cy="15%" rx="55%" ry="45%" fx="85%" fy="15%">
-              <Stop offset="0%" stopColor={theme.colors.primary} stopOpacity={isDark ? 0.22 : 0.14} />
-              <Stop offset="50%" stopColor={theme.colors.primary} stopOpacity={isDark ? 0.08 : 0.04} />
-              <Stop offset="100%" stopColor={theme.colors.primary} stopOpacity="0" />
+              <Stop offset="0%" stopColor="#FFFFFF" stopOpacity={isDark ? 0.08 : 0.04} />
+              <Stop offset="50%" stopColor="#FFFFFF" stopOpacity={isDark ? 0.03 : 0.01} />
+              <Stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
             </RadialGradient>
 
             {/* Mid Left Smooth Indigo/Royal Glow */}
             <RadialGradient id="glowMidLeft" cx="10%" cy="50%" rx="50%" ry="40%" fx="10%" fy="50%">
-              <Stop offset="0%" stopColor={theme.colors.secondary} stopOpacity={isDark ? 0.16 : 0.10} />
-              <Stop offset="60%" stopColor={theme.colors.secondary} stopOpacity={isDark ? 0.05 : 0.02} />
-              <Stop offset="100%" stopColor={theme.colors.secondary} stopOpacity="0" />
+              <Stop offset="0%" stopColor="#FFFFFF" stopOpacity={isDark ? 0.06 : 0.03} />
+              <Stop offset="60%" stopColor="#FFFFFF" stopOpacity={isDark ? 0.02 : 0.01} />
+              <Stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
             </RadialGradient>
 
             {/* Bottom Right Soft Cyan/Sky Glow */}
             <RadialGradient id="glowBottomRight" cx="90%" cy="85%" rx="48%" ry="40%" fx="90%" fy="85%">
-              <Stop offset="0%" stopColor={theme.colors.accent} stopOpacity={isDark ? 0.15 : 0.08} />
-              <Stop offset="100%" stopColor={theme.colors.accent} stopOpacity="0" />
+              <Stop offset="0%" stopColor="#FFFFFF" stopOpacity={isDark ? 0.04 : 0.02} />
+              <Stop offset="100%" stopColor="#FFFFFF" stopOpacity="0" />
             </RadialGradient>
 
             {/* Premium structural matrix grid */}

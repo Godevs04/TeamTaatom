@@ -36,8 +36,8 @@ export interface ProfilePremiumViewProps {
   verifiedCount: number | null;
   tripsCount: number;
   countriesCount: number;
-  verifiedLocations: Array<{ latitude: number; longitude: number; address: string; date?: string }>;
-  highlightPosts: Array<{ _id: string; imageUrl?: string }>;
+  verifiedLocations?: Array<{ latitude: number; longitude: number; address: string; date?: string }>;
+  highlightPosts?: Array<{ _id: string; imageUrl?: string }>;
   userId?: string;
   isDark: boolean;
   accent: string;
@@ -95,12 +95,11 @@ export default function ProfilePremiumView({
   onHighlightPress,
 }: ProfilePremiumViewProps) {
   const router = useRouter();
-  const timeline = verifiedLocations.slice(0, 4);
 
   return (
     <View style={styles.wrap}>
       {/* Floating profile image overlapping the top card */}
-      <View style={{ alignItems: 'center', zIndex: 10, marginTop: 16 }}>
+      <View pointerEvents="box-none" style={{ alignItems: 'center', zIndex: 10, marginTop: 16 }}>
         <View style={[styles.avatarOuter, {
           borderColor: isDark ? 'rgba(255,255,255,0.8)' : '#FFFFFF',
           borderWidth: 4,
@@ -122,71 +121,110 @@ export default function ProfilePremiumView({
         </View>
       </View>
 
-      <View style={[styles.headerBlock, {
-        borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.8)',
-        marginTop: -AVATAR / 2, // Pull up under the floating avatar
-      }]}>
-        <LinearGradient
-          colors={isDark ? ['#0F1E30', '#122236', '#152A42'] : ['#F5FAFF', '#FFFFFF', '#E8F4FF']}
-          style={StyleSheet.absoluteFillObject}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        />
-        <View style={styles.headerInner}>
-          <Pressable style={styles.editProfileAbsolute} onPress={onEditProfile}>
-            <Ionicons name="create-outline" size={18} color={textPrimary} />
-          </Pressable>
+      <CloudGlassSurface
+        blur={isDark}
+        borderRadius={28}
+        style={[styles.headerBlock, {
+          marginTop: -AVATAR / 2, // Pull up under the floating avatar
+          borderWidth: 1.5,
+          borderTopColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.85)',
+          borderLeftColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.85)',
+          borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)',
+          borderRightColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)',
+          shadowColor: '#000000',
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.45,
+          shadowRadius: 32,
+          elevation: 10,
+        }]}
+        contentStyle={styles.headerInner}
+      >
+        <Pressable 
+          style={styles.editProfileAbsolute} 
+          onPress={onEditProfile}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+        >
+          <Ionicons name="create-outline" size={18} color={textPrimary} />
+        </Pressable>
 
-          {/* Phase 3: The Identity Block (Centered Hierarchy below avatar) */}
-          <View style={styles.identityBlock}>
-            <Text style={[styles.displayNameText, { color: textPrimary }]}>
-              {fullName}
+        {/* Phase 3: The Identity Block (Centered Hierarchy below avatar) */}
+        <View style={styles.identityBlock}>
+          <Text style={[styles.displayNameText, { color: textPrimary }]}>
+            {fullName}
+          </Text>
+          {username ? (
+            <Text style={[styles.handleText, { color: textSecondary }]}>
+              @{username}
             </Text>
-            {username ? (
-              <Text style={[styles.handleText, { color: textSecondary }]}>
-                @{username}
-              </Text>
-            ) : null}
-            
-            {bio ? (
-              <View style={styles.bioContainer}>
-                <BioDisplay bio={bio} />
-              </View>
-            ) : null}
-          </View>
-
-          {/* Phase 2: Pill-styled Metrics */}
-          <View style={styles.metricsContainer}>
-            <View style={styles.metricPill}>
-              <LinearGradient colors={isDark ? ['#1A2B3C', '#122236'] : ['#F0F8FF', '#FFFFFF']} style={styles.metricPillGrad} />
-              <Ionicons name="images" size={16} color={accent} style={{ marginBottom: 4 }} />
-              <Text style={[styles.metricValue, { color: textPrimary }]}>{postCount}</Text>
-              <Text style={[styles.metricLabel, { color: textSecondary }]}>Post Count</Text>
+          ) : null}
+          
+          {bio ? (
+            <View style={styles.bioContainer}>
+              <BioDisplay bio={bio} />
             </View>
-            
-            <Pressable style={styles.metricPill} onPress={onOpenFollowers}>
-              <LinearGradient colors={isDark ? ['#1A2B3C', '#122236'] : ['#F0F8FF', '#FFFFFF']} style={styles.metricPillGrad} />
-              <Ionicons name="people" size={16} color={accent} style={{ marginBottom: 4 }} />
-              <Text style={[styles.metricValue, { color: textPrimary }]}>{followersCount}</Text>
-              <Text style={[styles.metricLabel, { color: textSecondary }]}>Followers</Text>
-            </Pressable>
-            
-            <Pressable style={styles.metricPill} onPress={onOpenFollowing}>
-              <LinearGradient colors={isDark ? ['#1A2B3C', '#122236'] : ['#F0F8FF', '#FFFFFF']} style={styles.metricPillGrad} />
-              <Ionicons name="person-add" size={16} color={accent} style={{ marginBottom: 4 }} />
-              <Text style={[styles.metricValue, { color: textPrimary }]}>{followingCount}</Text>
-              <Text style={[styles.metricLabel, { color: textSecondary }]}>Following</Text>
-            </Pressable>
+          ) : null}
+        </View>
+
+        {/* Phase 2: Pill-styled Metrics */}
+        <View style={styles.metricsContainer}>
+          <View style={[styles.metricPill, {
+            borderWidth: 1,
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+            borderTopColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.6)',
+            borderLeftColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.6)',
+          }]}>
+            <LinearGradient colors={isDark ? ['rgba(255, 255, 255, 0.04)', 'rgba(255, 255, 255, 0.01)'] : ['rgba(0, 0, 0, 0.02)', 'rgba(0, 0, 0, 0.005)']} style={styles.metricPillGrad} />
+            <Ionicons name="images" size={16} color={accent} style={{ marginBottom: 4, zIndex: 1 }} />
+            <Text style={[styles.metricValue, { color: textPrimary, zIndex: 1 }]}>{postCount}</Text>
+            <Text style={[styles.metricLabel, { color: textSecondary, zIndex: 1 }]}>Post Count</Text>
           </View>
-          <Pressable style={styles.tripScoreInline} onPress={onOpenTripScore}>
-            <Ionicons name="compass" size={16} color={accent} />
-            <Text style={[styles.tripScoreInlineLabel, { color: textSecondary }]}>Trip Score</Text>
-            <Text style={[styles.tripScoreInlineValue, { color: textPrimary }]}>{tripScore}</Text>
+          
+          <Pressable 
+            style={[styles.metricPill, {
+              borderWidth: 1,
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+              borderTopColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.6)',
+              borderLeftColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.6)',
+            }]} 
+            onPress={onOpenFollowers}
+          >
+            <LinearGradient colors={isDark ? ['rgba(255, 255, 255, 0.04)', 'rgba(255, 255, 255, 0.01)'] : ['rgba(0, 0, 0, 0.02)', 'rgba(0, 0, 0, 0.005)']} style={styles.metricPillGrad} />
+            <Ionicons name="people" size={16} color={accent} style={{ marginBottom: 4, zIndex: 1 }} />
+            <Text style={[styles.metricValue, { color: textPrimary, zIndex: 1 }]}>{followersCount}</Text>
+            <Text style={[styles.metricLabel, { color: textSecondary, zIndex: 1 }]}>Followers</Text>
+          </Pressable>
+          
+          <Pressable 
+            style={[styles.metricPill, {
+              borderWidth: 1,
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+              borderTopColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.6)',
+              borderLeftColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.6)',
+            }]} 
+            onPress={onOpenFollowing}
+          >
+            <LinearGradient colors={isDark ? ['rgba(255, 255, 255, 0.04)', 'rgba(255, 255, 255, 0.01)'] : ['rgba(0, 0, 0, 0.02)', 'rgba(0, 0, 0, 0.005)']} style={styles.metricPillGrad} />
+            <Ionicons name="person-add" size={16} color={accent} style={{ marginBottom: 4, zIndex: 1 }} />
+            <Text style={[styles.metricValue, { color: textPrimary, zIndex: 1 }]}>{followingCount}</Text>
+            <Text style={[styles.metricLabel, { color: textSecondary, zIndex: 1 }]}>Following</Text>
           </Pressable>
         </View>
-      </View>
+        <Pressable 
+          style={[styles.tripScoreInline, {
+            borderWidth: 1,
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+            borderTopColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.6)',
+            borderLeftColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.6)',
+          }]} 
+          onPress={onOpenTripScore}
+        >
+          <LinearGradient colors={isDark ? ['rgba(255, 255, 255, 0.04)', 'rgba(255, 255, 255, 0.01)'] : ['rgba(0, 0, 0, 0.02)', 'rgba(0, 0, 0, 0.005)']} style={StyleSheet.absoluteFillObject} />
+          <Ionicons name="compass" size={16} color={accent} style={{ zIndex: 1 }} />
+          <Text style={[styles.tripScoreInlineLabel, { color: textSecondary, zIndex: 1 }]}>Trip Score</Text>
+          <Text style={[styles.tripScoreInlineValue, { color: textPrimary, zIndex: 1 }]}>{tripScore}</Text>
+        </Pressable>
+      </CloudGlassSurface>
 
-      {/* Standalone Rotating Globe */}
       <View style={styles.globeWrapper}>
         <View style={styles.globeContainer}>
           <RotatingGlobe locations={verifiedLocations} size={160} onPress={onOpenMap} />
@@ -208,8 +246,8 @@ export default function ProfilePremiumView({
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
           />
-          <Ionicons name="people" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-          <Text style={styles.connectButtonText}>Connect</Text>
+          <Ionicons name="people" size={18} color={isDark ? '#121212' : '#FFFFFF'} style={{ marginRight: 6 }} />
+          <Text style={[styles.connectButtonText, { color: isDark ? '#121212' : '#FFFFFF' }]}>Connect</Text>
         </Pressable>
       </View>
 
@@ -242,32 +280,7 @@ export default function ProfilePremiumView({
         </View>
       ) : null}
 
-      {/* Travel timeline */}
-      {timeline.length > 1 ? (
-        <PremiumGlassCard style={styles.sectionCard} contentStyle={styles.timelineInner} subtle>
-          <Text style={[styles.sectionTitle, { color: textPrimary, marginBottom: 12 }]}>Travel Timeline</Text>
-          {timeline.map((loc, i) => (
-            <View key={`tl-${i}`} style={styles.timelineRow}>
-              <View style={styles.timelineRail}>
-                <View style={[styles.timelineDot, { backgroundColor: accent }]} />
-                {i < timeline.length - 1 ? (
-                  <View style={[styles.timelineLine, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(91,188,248,0.2)' }]} />
-                ) : null}
-              </View>
-              <View style={styles.timelineBody}>
-                <Text style={[styles.timelinePlace, { color: textPrimary }]} numberOfLines={1}>
-                  {loc.address?.split(',')[0] || 'Place'}
-                </Text>
-                {loc.date ? (
-                  <Text style={[styles.timelineDate, { color: textSecondary }]}>
-                    {new Date(loc.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-          ))}
-        </PremiumGlassCard>
-      ) : null}
+
     </View>
   );
 }

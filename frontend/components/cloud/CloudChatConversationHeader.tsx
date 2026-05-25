@@ -34,7 +34,7 @@ export default function CloudChatConversationHeader({
   return (
     <View style={styles.wrap}>
       <LinearGradient
-        colors={isDark ? ['#102236', '#07111C'] : ['#A8DAFC', 'rgba(200,232,255,0.7)']}
+        colors={isDark ? ['#102236', '#07111C'] : ['#FFFFFF', '#F5F7FA']}
         style={StyleSheet.absoluteFillObject}
       />
       <BlurView intensity={isDark ? 40 : 20} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
@@ -48,9 +48,9 @@ export default function CloudChatConversationHeader({
           {typingText ? (
             <View style={styles.typingPill}>
               <View style={styles.typingDots}>
-                <View style={styles.dot} />
-                <View style={[styles.dot, styles.dot2]} />
-                <View style={[styles.dot, styles.dot3]} />
+                <View style={[styles.dot, { backgroundColor: isDark ? '#FFFFFF' : '#121212' }]} />
+                <View style={[styles.dot, styles.dot2, { backgroundColor: isDark ? '#FFFFFF' : '#121212' }]} />
+                <View style={[styles.dot, styles.dot3, { backgroundColor: isDark ? '#FFFFFF' : '#121212' }]} />
               </View>
               <Text style={styles.typingText} numberOfLines={1}>{typingText}</Text>
             </View>
@@ -106,7 +106,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     marginTop: 4,
-    backgroundColor: 'rgba(91,188,248,0.15)',
+    backgroundColor: 'rgba(0, 0, 0, 0.06)',
     borderRadius: cloudDesign.radius.pill,
     paddingHorizontal: 10,
     paddingVertical: 3,

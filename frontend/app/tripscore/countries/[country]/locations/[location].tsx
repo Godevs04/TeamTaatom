@@ -20,7 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../../../../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import api from '../../../../../services/api';
-import { calculateDistance, geocodeAddress, calculateDrivingDistanceKm, roundCoord } from '../../../../../utils/locationUtils';
+import { calculateDistance, geocodeAddress, calculateDrivingDistanceKm, roundCoord, distanceCache } from '../../../../../utils/locationUtils';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Locale, getLocaleById, getLocales } from '../../../../../services/locale';
@@ -147,7 +147,7 @@ export default function LocationDetailScreen() {
 
   const { theme } = useTheme();
   const router = useRouter();
-  const { country, location, userId, imageUrl, latitude, longitude, description, spotTypes, travelInfo, localeId, galleryUrls: galleryUrlsParam, distanceKm: distanceKmParam } = useLocalSearchParams();
+  const { country, location, userId, imageUrl, latitude, longitude, description, spotTypes, travelInfo, localeId, galleryUrls: galleryUrlsParam, distanceKm: distanceKmParam, isDrivingDistance } = useLocalSearchParams();
 
   // Check if coming from locale flow (general) or tripscore flow or admin locale
   const countryParam = Array.isArray(country) ? country[0] : country;
@@ -165,7 +165,8 @@ export default function LocationDetailScreen() {
   const hasPreSeededDistanceRef = useRef(false);
   const [distance, setDistance] = useState<number | null>(() => {
     const paramVal = Array.isArray(distanceKmParam) ? distanceKmParam[0] : distanceKmParam;
-    if (paramVal && paramVal !== '') {
+    const isDrivingStr = Array.isArray(isDrivingDistance) ? isDrivingDistance[0] : isDrivingDistance;
+    if (paramVal && paramVal !== '' && isDrivingStr === 'true') {
       const parsed = parseFloat(paramVal as string);
       if (!isNaN(parsed)) {
         hasPreSeededDistanceRef.current = true;
@@ -194,7 +195,8 @@ export default function LocationDetailScreen() {
   useEffect(() => {
     if (!isMountedRef.current) return;
     const paramVal = Array.isArray(distanceKmParam) ? distanceKmParam[0] : distanceKmParam;
-    if (paramVal && paramVal !== '') {
+    const isDrivingStr = Array.isArray(isDrivingDistance) ? isDrivingDistance[0] : isDrivingDistance;
+    if (paramVal && paramVal !== '' && isDrivingStr === 'true') {
       const parsed = parseFloat(paramVal as string);
       if (!isNaN(parsed) && !hasPreSeededDistanceRef.current) {
         logger.debug('Syncing pre-seeded distance from param:', parsed);
@@ -202,7 +204,7 @@ export default function LocationDetailScreen() {
         setDistance(parsed);
       }
     }
-  }, [distanceKmParam]);
+  }, [distanceKmParam, isDrivingDistance]);
 
   // Navigation & Lifecycle Safety: Setup and cleanup
   useEffect(() => {
@@ -450,6 +452,22 @@ export default function LocationDetailScreen() {
           }
           return;
         }
+
+        // Check shared distanceCache first!
+        const roundedUserLat = roundCoord(currentLat);
+        const roundedUserLon = roundCoord(currentLng);
+        const cleanLocaleId = String((Array.isArray(localeId) ? localeId[0] : localeId) || '');
+        const sharedCacheKey = cleanLocaleId ? `${cleanLocaleId}-${roundedUserLat}-${roundedUserLon}` : null;
+        if (sharedCacheKey && distanceCache.has(sharedCacheKey)) {
+          const cached = distanceCache.get(sharedCacheKey);
+          if (cached !== undefined && cached !== null) {
+            logger.debug('Using shared cache distance on detail page:', cached);
+            if (isMountedRef.current) {
+              setDistance(cached);
+            }
+            return;
+          }
+        }
         
         // First try to fetch routing distance using Google Directions API
         let calculatedDistance = null;
@@ -470,10 +488,24 @@ export default function LocationDetailScreen() {
             }
           }
         } catch (routeError) {
-          logger.warn('Failed to fetch directions route, falling back to straight-line:', routeError);
+          logger.warn('Failed to fetch directions route, falling back to OSRM:', routeError);
         }
 
-        // Fallback to straight-line distance (Haversine) if routing fails
+        // Fallback to OSRM driving distance if Google Directions fails
+        if (calculatedDistance === null || isNaN(calculatedDistance) || calculatedDistance < 0) {
+          try {
+            calculatedDistance = await calculateDrivingDistanceKm(
+              currentLat,
+              currentLng,
+              targetLat,
+              targetLng
+            );
+          } catch (osrmError) {
+            logger.warn('Failed to calculate OSRM driving distance:', osrmError);
+          }
+        }
+
+        // Fallback to straight-line distance (Haversine) if both routing/OSRM fail
         if (calculatedDistance === null || isNaN(calculatedDistance) || calculatedDistance < 0) {
           calculatedDistance = calculateDistance(
             currentLat,
@@ -492,8 +524,13 @@ export default function LocationDetailScreen() {
           return;
         }
         
-        // Cache the calculated distance
+        // Cache the calculated distance locally
         distanceCacheRef.current.set(cacheKey, calculatedDistance);
+
+        // Cache in the shared distanceCache as well!
+        if (sharedCacheKey && calculatedDistance !== null && !isNaN(calculatedDistance)) {
+          distanceCache.set(sharedCacheKey, calculatedDistance);
+        }
         
         logger.debug('Distance calculated successfully (routing/fallback):', { distance: calculatedDistance, unit: 'km' });
         if (isMountedRef.current) {

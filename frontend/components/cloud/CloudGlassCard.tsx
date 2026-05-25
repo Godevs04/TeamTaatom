@@ -43,7 +43,6 @@ export function useCloudGlassCardTokens() {
   };
 }
 
-/** Post-screen glass card — rgba fill + blur(20) + inset highlight; iOS & Android */
 export default function CloudGlassCard({
   children,
   style,
@@ -52,39 +51,64 @@ export default function CloudGlassCard({
   blur = true,
 }: CloudGlassCardProps) {
   const glass = useCloudGlassCardTokens();
+  const isDark = glass.isDark;
+
+  const cardStyle = isDark
+    ? {
+        borderRadius,
+        backgroundColor: 'rgba(25, 25, 25, 0.72)',
+        borderTopWidth: 1,
+        borderLeftWidth: 1,
+        borderBottomWidth: 1,
+        borderRightWidth: 1,
+        borderTopColor: 'rgba(255, 255, 255, 0.08)',
+        borderLeftColor: 'rgba(255, 255, 255, 0.08)',
+        borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+        borderRightColor: 'rgba(255, 255, 255, 0.08)',
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.45,
+        shadowRadius: 32,
+        elevation: 10,
+      }
+    : {
+        borderRadius,
+        borderColor: glass.border,
+        backgroundColor: glass.fill,
+        shadowColor: glass.shadowColor,
+        shadowOpacity: glass.shadowOpacity as number,
+        shadowOffset: cloudDesign.postGlass.shadowOffset,
+        shadowRadius: cloudDesign.postGlass.shadowRadius,
+        elevation: cloudDesign.postGlass.elevation,
+        borderWidth: 1,
+      };
 
   return (
-    <View
-      style={[
-        styles.card,
-        {
-          borderRadius,
-          borderColor: glass.border,
-          backgroundColor: glass.fill,
-          shadowColor: glass.shadowColor,
-          shadowOpacity: glass.shadowOpacity as number,
-          shadowOffset: cloudDesign.postGlass.shadowOffset,
-          shadowRadius: cloudDesign.postGlass.shadowRadius,
-          elevation: cloudDesign.postGlass.elevation,
-        },
-        style,
-      ]}
-    >
+    <View style={[styles.card, cardStyle, style]}>
       {blur ? (
         <BlurView
-          intensity={glass.blurIntensity}
-          tint={glass.isDark ? 'dark' : 'light'}
+          intensity={isDark ? 15 : glass.blurIntensity}
+          tint={isDark ? 'dark' : 'light'}
           style={StyleSheet.absoluteFillObject}
           {...(Platform.OS === 'android'
             ? { experimentalBlurMethod: 'dimezisBlurView' as const }
             : {})}
         />
       ) : null}
-      <LinearGradient
-        colors={[glass.insetTop, 'transparent']}
-        style={[styles.insetHighlight, { borderTopLeftRadius: borderRadius, borderTopRightRadius: borderRadius }]}
-        pointerEvents="none"
-      />
+      {isDark ? (
+        <LinearGradient
+          colors={['rgba(255, 255, 255, 0.08)', 'rgba(255, 255, 255, 0.01)']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={StyleSheet.absoluteFillObject}
+        />
+      ) : (
+        <LinearGradient
+          colors={[glass.insetTop, 'transparent']}
+          style={[styles.insetHighlight, { borderTopLeftRadius: borderRadius, borderTopRightRadius: borderRadius }]}
+          pointerEvents="none"
+        />
+      )}
       <View style={[styles.content, contentStyle]}>{children}</View>
     </View>
   );

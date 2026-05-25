@@ -77,6 +77,14 @@ const trackEvents = async (req, res) => {
                 post.views = (post.views || 0) + 1;
                 await post.save();
                 logger.info(`[VIEW TRACKING] Post/short ${postId} view count incremented to ${post.views} for ${event.userId ? 'User ' + event.userId : 'Session ' + event.sessionId}.`);
+
+                try {
+                  const io = global.socketIO || req.app?.get?.('io');
+                  const nsp = io?.of?.('/app');
+                  nsp?.emitPostView?.(postId, post.views, event.userId || null);
+                } catch (socketError) {
+                  logger.debug(`[VIEW TRACKING] Failed to emit view update for ${postId}:`, socketError);
+                }
                 
                 // Invalidate post cache so fresh views count is fetched next time
                 await deleteCache(CacheKeys.post(postId)).catch(() => {});

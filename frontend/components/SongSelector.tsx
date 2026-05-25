@@ -19,6 +19,7 @@ import {
 import { Image as ExpoImage } from 'expo-image';
 import { getSongs, Song } from '../services/songs';
 import { useTheme } from '../context/ThemeContext';
+import { useIsFocused } from '@react-navigation/native';
 import logger from '../utils/logger';
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
@@ -226,6 +227,15 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   const [loadingSongId, setLoadingSongId] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState<'list' | 'trimmer'>('list');
   const [isPlaying, setIsPlaying] = useState(false);
+
+  const isFocused = useIsFocused();
+
+  // Stop preview when screen loses focus (user navigates away)
+  useEffect(() => {
+    if (!isFocused) {
+      stopAudio();
+    }
+  }, [isFocused]);
   const [currentTime, setCurrentTime] = useState(0);
   const [startTime, setStartTime] = useState(selectedStartTime);
   const [endTime, setEndTime] = useState(selectedEndTime);

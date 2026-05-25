@@ -38,7 +38,7 @@ export default function CloudInputDock({
           styles.dock,
           {
             backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.9)',
-            borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(91,188,248,0.1)',
+            borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0, 0, 0, 0.08)',
           },
           cloudDesign.shadowCard,
         ]}
@@ -55,7 +55,7 @@ export default function CloudInputDock({
             styles.input,
             {
               color: theme.colors.text,
-              backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(237,247,255,0.9)',
+              backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(0, 0, 0, 0.03)',
             },
           ]}
           placeholder={placeholder}
@@ -94,7 +94,7 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: 'rgba(91,188,248,0.4)',
+    shadowColor: 'rgba(0, 0, 0, 0.16)',
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 1,
     shadowRadius: 10,
@@ -110,7 +110,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     borderWidth: 1,
-    borderColor: 'rgba(91,188,248,0.12)',
+    borderColor: 'rgba(0, 0, 0, 0.04)',
   },
   send: {
     width: 36,

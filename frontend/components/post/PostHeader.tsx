@@ -86,11 +86,6 @@ export default function PostHeader({ post, onMenuPress, onReportPress, showRepor
       </TouchableOpacity>
 
       <View style={styles.headerActions}>
-        {showReportButton && onReportPress && (
-          <TouchableOpacity style={styles.menuButton} onPress={onReportPress}>
-            <Ionicons name="flag-outline" size={20} color={theme.colors.text} />
-          </TouchableOpacity>
-        )}
         <TouchableOpacity style={styles.menuButton} onPress={onMenuPress}>
           <Ionicons name="ellipsis-horizontal" size={20} color={theme.colors.text} />
         </TouchableOpacity>

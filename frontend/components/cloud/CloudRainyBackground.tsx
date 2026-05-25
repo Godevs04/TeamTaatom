@@ -13,7 +13,7 @@ export default function CloudRainyBackground() {
     theme.colors.background === '#000000';
 
   const colors: [string, string, ...string[]] = isDark
-    ? ['#06121F', '#0B1A2B', '#102236', '#07111C']
+    ? ['#000000', '#000000', '#000000', '#000000']
     : ['#8EC8F0', '#B8DFF9', '#D9EFFF', '#F4FAFF'];
 
   return (

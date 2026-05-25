@@ -12,6 +12,7 @@ interface AnimatedHeaderProps {
   adjustRightComponent?: boolean;
   unseenMessageCount?: number;
   onRefresh?: () => void;
+  disableSafeArea?: boolean;
 }
 
 export default function AnimatedHeader({
@@ -21,6 +22,7 @@ export default function AnimatedHeader({
   adjustRightComponent = false,
   unseenMessageCount = 0,
   onRefresh,
+  disableSafeArea = false,
 }: AnimatedHeaderProps) {
   const router = useRouter();
   const { theme, mode } = useTheme();
@@ -131,7 +133,7 @@ export default function AnimatedHeader({
   const styles = getStyles(theme);
 
   return (
-    <View style={[styles.header, { backgroundColor: 'transparent', paddingTop: insets.top }]}>
+    <View style={[styles.header, { backgroundColor: 'transparent', paddingTop: disableSafeArea ? 0 : insets.top }]}>
       {(showSearch || showChat) && (
         <TouchableOpacity
           onPress={handleLogoPress}

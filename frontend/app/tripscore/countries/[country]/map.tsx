@@ -7,6 +7,7 @@ import {
    ActivityIndicator,
    Dimensions,
    Platform,
+   Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -58,6 +59,28 @@ export default function CountryMapScreen() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<TripScoreCountryResponse | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
+  const [renderedLocation, setRenderedLocation] = useState<Location | null>(null);
+  const slideAnim = useRef(new Animated.Value(300)).current;
+
+  useEffect(() => {
+    if (selectedLocation) {
+      setRenderedLocation(selectedLocation);
+      Animated.spring(slideAnim, {
+        toValue: 0,
+        tension: 50,
+        friction: 8,
+        useNativeDriver: true,
+      }).start();
+    } else {
+      Animated.timing(slideAnim, {
+        toValue: 300,
+        duration: 250,
+        useNativeDriver: true,
+      }).start(() => {
+        setRenderedLocation(null);
+      });
+    }
+  }, [selectedLocation]);
   const { theme } = useTheme();
   const router = useRouter();
   const { country, userId } = useLocalSearchParams();
@@ -427,6 +450,7 @@ export default function CountryMapScreen() {
             const map = new google.maps.Map(document.getElementById('map'), {
               center: { lat: ${center.latitude}, lng: ${center.longitude} },
               zoom: ${Math.max(4, Math.min(10, Math.log2(360 / delta.latitudeDelta)))},
+              minZoom: 3,
               mapTypeId: 'terrain',
             });
             ${markers}
@@ -523,6 +547,7 @@ export default function CountryMapScreen() {
             provider={getMapProvider()}
             style={styles.map}
             customMapStyle={forestStyle}
+            minZoomLevel={3}
             initialRegion={{
               latitude: getCountryCenter(displayCountryName || '').latitude,
               longitude: getCountryCenter(displayCountryName || '').longitude,
@@ -599,59 +624,69 @@ export default function CountryMapScreen() {
             </Text>
           </View>
         )}
-        {selectedLocation && (
-          <GlassMapPanel style={styles.previewCard} tint="dark">
-            <View style={styles.previewContent}>
-              {selectedLocation.imageUrl ? (
-                <ExpoImage
-                  source={{ uri: selectedLocation.imageUrl }}
-                  style={styles.previewImage}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                  transition={180}
-                />
-              ) : (
-                <View style={[styles.previewImage, styles.previewFallback]}>
-                  <Ionicons name="image-outline" size={24} color="#FF3B30" />
+        {renderedLocation && (
+          <Animated.View
+            style={[
+              styles.previewCard,
+              {
+                transform: [{ translateY: slideAnim }],
+                padding: 0,
+              }
+            ]}
+          >
+            <GlassMapPanel style={{ width: '100%', padding: 12, borderRadius: 30 }} tint="dark">
+              <View style={styles.previewContent}>
+                {renderedLocation.imageUrl ? (
+                  <ExpoImage
+                    source={{ uri: renderedLocation.imageUrl }}
+                    style={styles.previewImage}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    transition={180}
+                  />
+                ) : (
+                  <View style={[styles.previewImage, styles.previewFallback]}>
+                    <Ionicons name="image-outline" size={24} color="#FF3B30" />
+                  </View>
+                )}
+                <View style={styles.previewText}>
+                  <Text style={[styles.previewTitle, { color: theme.colors.text }]} numberOfLines={1}>
+                    {renderedLocation.name}
+                  </Text>
+                  <Text style={[styles.previewMeta, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                    Score: {renderedLocation.score} {renderedLocation.category?.typeOfSpot ? `- ${renderedLocation.category.typeOfSpot}` : ''}
+                  </Text>
+                  <View style={styles.previewActions}>
+                    <TouchableOpacity
+                      style={[styles.previewButton, styles.previewPrimaryButton, { backgroundColor: '#FF3B30' }]}
+                      onPress={() => {
+                        const locationSlug = renderedLocation.name.toLowerCase().replace(/\s+/g, '-');
+                        const countryParam = Array.isArray(country) ? country[0] : country;
+                        router.push({
+                          pathname: '/tripscore/countries/[country]/locations/[location]',
+                          params: { 
+                            country: countryParam as string, 
+                            location: locationSlug, 
+                            userId: (Array.isArray(userId) ? userId[0] : userId) as string 
+                          }
+                        });
+                      }}
+                    >
+                      <Ionicons name="eye-outline" size={16} color="white" />
+                      <Text style={[styles.previewButtonText, { color: 'white' }]}>Details</Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              )}
-              <View style={styles.previewText}>
-                <Text style={[styles.previewTitle, { color: theme.colors.text }]} numberOfLines={1}>
-                  {selectedLocation.name}
-                </Text>
-                <Text style={[styles.previewMeta, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-                  Score: {selectedLocation.score} {selectedLocation.category?.typeOfSpot ? `- ${selectedLocation.category.typeOfSpot}` : ''}
-                </Text>
-                <View style={styles.previewActions}>
-                  <TouchableOpacity
-                    style={[styles.previewButton, styles.previewPrimaryButton, { backgroundColor: '#FF3B30' }]}
-                    onPress={() => {
-                      const locationSlug = selectedLocation.name.toLowerCase().replace(/\s+/g, '-');
-                      const countryParam = Array.isArray(country) ? country[0] : country;
-                      router.push({
-                        pathname: '/tripscore/countries/[country]/locations/[location]',
-                        params: { 
-                          country: countryParam as string, 
-                          location: locationSlug, 
-                          userId: (Array.isArray(userId) ? userId[0] : userId) as string 
-                        }
-                      });
-                    }}
-                  >
-                    <Ionicons name="eye-outline" size={16} color="white" />
-                    <Text style={[styles.previewButtonText, { color: 'white' }]}>Details</Text>
-                  </TouchableOpacity>
-                </View>
+                <TouchableOpacity
+                  style={styles.previewClose}
+                  onPress={() => setSelectedLocation(null)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
+                </TouchableOpacity>
               </View>
-              <TouchableOpacity
-                style={styles.previewClose}
-                onPress={() => setSelectedLocation(null)}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
-              </TouchableOpacity>
-            </View>
-          </GlassMapPanel>
+            </GlassMapPanel>
+          </Animated.View>
         )}
       </View>
 

@@ -17,7 +17,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
 import { toggleLike, deletePost, archivePost, unarchivePost, hidePost, unhidePost, toggleComments, updatePost, deleteComment } from '../services/posts';
-import { getUserFromStorage } from '../services/auth';
+import { toggleFollow } from '../services/profile';
+import { getUserFromStorage, getCurrentUser } from '../services/auth';
 import { useRouter } from 'expo-router';
 import CustomAlert from './CustomAlert';
 import PostComments from './post/PostComments';
@@ -85,6 +86,70 @@ const setSavedInCache = (postId: string, saved: boolean) => {
   else savedPostsCache.ids.delete(postId);
 };
 
+// Helper function to normalize IDs from various formats (string, ObjectId, Buffer)
+const normalizeId = (id: any): string | null => {
+  if (!id) return null;
+  if (typeof id === 'string') {
+    return id;
+  }
+  if (id._id) {
+    return normalizeId(id._id);
+  }
+  if (id.buffer && typeof id.buffer === 'object') {
+    try {
+      const bufferObj = id.buffer;
+      const bytes: number[] = [];
+      for (let i = 0; i < 12; i++) {
+        const byte = bufferObj[i] ?? bufferObj[String(i)];
+        if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
+          bytes.push(byte);
+        }
+      }
+      if (bytes.length === 12) {
+        const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+        if (/^[0-9a-fA-F]{24}$/.test(hex)) {
+          return hex;
+        }
+      }
+    } catch {}
+  }
+  if (typeof id === 'object' && !Array.isArray(id)) {
+    const keys = Object.keys(id);
+    if (keys.length >= 12 && keys.every(k => /^\d+$/.test(k) && parseInt(k) < 12)) {
+      try {
+        const bytes: number[] = [];
+        for (let i = 0; i < 12; i++) {
+          const byte = id[i] ?? id[String(i)];
+          if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
+            bytes.push(byte);
+          }
+        }
+        if (bytes.length === 12) {
+          const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+          if (/^[0-9a-fA-F]{24}$/.test(hex)) {
+            return hex;
+          }
+        }
+      } catch {}
+    }
+  }
+  if (id.toString && typeof id.toString === 'function') {
+    try {
+      const str = id.toString();
+      if (typeof str === 'string' && /^[0-9a-fA-F]{24}$/.test(str)) {
+        return str;
+      }
+    } catch {}
+  }
+  try {
+    const str = String(id);
+    if (/^[0-9a-fA-F]{24}$/.test(str)) {
+      return str;
+    }
+  } catch {}
+  return null;
+};
+
 interface PhotoCardProps {
   post: PostType;
   onRefresh?: () => void;
@@ -150,10 +215,50 @@ function PhotoCard({
   React.useEffect(() => {
     const loadUser = async () => {
       const user = await getUserFromStorage();
+      if (user) {
+        if (Array.isArray(user.followingIds)) {
+          user.followingIds = user.followingIds.map(f => normalizeId(f)).filter(Boolean);
+        } else if (Array.isArray(user.following)) {
+          user.followingIds = user.following.map(f => normalizeId(f)).filter(Boolean);
+        }
+      }
       setCurrentUser(user);
     };
     loadUser();
   }, []);
+
+  // Refresh currentUser when the menu modal opens to ensure we display the up-to-date follow status
+  React.useEffect(() => {
+    if (showMenu) {
+      const refreshUser = async () => {
+        try {
+          // 1. Get from AsyncStorage instantly (handles offline / local changes)
+          const cachedUser = await getUserFromStorage();
+          if (cachedUser) {
+            if (Array.isArray(cachedUser.followingIds)) {
+              cachedUser.followingIds = cachedUser.followingIds.map(f => normalizeId(f)).filter(Boolean);
+            } else if (Array.isArray(cachedUser.following)) {
+              cachedUser.followingIds = cachedUser.following.map(f => normalizeId(f)).filter(Boolean);
+            }
+            setCurrentUser(cachedUser);
+          }
+          // 2. Fetch fresh user data from server to guarantee absolute latest state
+          const freshUser = await getCurrentUser();
+          if (freshUser && freshUser !== 'network-error') {
+            if (Array.isArray(freshUser.followingIds)) {
+              freshUser.followingIds = freshUser.followingIds.map(f => normalizeId(f)).filter(Boolean);
+            } else if (Array.isArray(freshUser.following)) {
+              freshUser.followingIds = freshUser.following.map(f => normalizeId(f)).filter(Boolean);
+            }
+            setCurrentUser(freshUser);
+          }
+        } catch (error) {
+          logger.debug('Failed to refresh current user for menu:', error);
+        }
+      };
+      refreshUser();
+    }
+  }, [showMenu]);
 
   // Seed the module-level saved-posts cache the first time any card
   // mounts. Subsequent card mounts read it synchronously via the
@@ -586,7 +691,7 @@ function PhotoCard({
       return;
     }
 
-    if (currentUser._id !== postUser._id) {
+    if (normalizeId(currentUser._id) !== normalizeId(postUser._id)) {
       Alert.alert('Error', 'You can only delete your own posts.');
       return;
     }
@@ -801,7 +906,7 @@ function PhotoCard({
         <PostHeader
           post={post}
           onMenuPress={() => setShowMenu(true)}
-          showReportButton={!!currentUser && postUser._id !== currentUser._id}
+          showReportButton={!!currentUser && normalizeId(postUser._id) !== normalizeId(currentUser._id)}
           onReportPress={() => setShowReportModal(true)}
         />
       </View>
@@ -859,7 +964,7 @@ function PhotoCard({
                 <ActivityIndicator size="small" color={theme.colors.primary} />
               </View>
             )}
-            {currentUser && currentUser._id === postUser._id ? (
+            {currentUser && normalizeId(currentUser._id) === normalizeId(postUser._id) ? (
               // Own post options
               <>
                 {/* Archive ↔ Unarchive — flips based on the post's current state.
@@ -1008,48 +1113,88 @@ function PhotoCard({
                   <Text style={[styles.menuText, { color: theme.colors.text }]}>Report</Text>
                 </TouchableOpacity>
                 {(() => {
-                  const followingList = Array.isArray((currentUser as any)?.following) ? (currentUser as any).following : [];
+                  const followingList = Array.isArray((currentUser as any)?.followingIds)
+                    ? (currentUser as any).followingIds
+                    : (Array.isArray((currentUser as any)?.following) ? (currentUser as any).following : []);
+                  const postUserIdNormalized = normalizeId(postUser._id);
                   const isFollowingPostUser = followingList.some((f: any) => {
-                    const id = typeof f === 'string' ? f : f?._id?.toString?.();
-                    return id === postUser._id;
+                    const id = normalizeId(f);
+                    return id === postUserIdNormalized;
                   });
-                  if (!isFollowingPostUser) return null;
-                  return (
-                    <TouchableOpacity
-                      style={[styles.menuItem, { borderBottomColor: theme.colors.border }]}
-                      onPress={() => {
-                        setShowMenu(false);
-                        showCustomAlertMessage(
-                          'Unfollow User',
-                          `Are you sure you want to unfollow ${postUser.fullName || 'Unknown User'}? You won't see their posts in your feed anymore.`,
-                          'warning',
-                          () => {
-                            // No success alert - silent update for better UX
+                  if (isFollowingPostUser) {
+                    return (
+                      <TouchableOpacity
+                        style={[styles.menuItem, { borderBottomColor: theme.colors.border }]}
+                        onPress={() => {
+                          setShowMenu(false);
+                          showCustomAlertMessage(
+                            'Unfollow User',
+                            `Are you sure you want to unfollow ${postUser.fullName || 'Unknown User'}? You won't see their posts in your feed anymore.`,
+                            'warning',
+                            async () => {
+                              try {
+                                setIsMenuLoading(true);
+                                await toggleFollow(postUser._id);
+                                const updatedFollowing = followingList
+                                  .map((id: any) => normalizeId(id))
+                                  .filter((id: string | null) => id !== postUserIdNormalized);
+                                const updatedUser = { 
+                                  ...currentUser, 
+                                  followingIds: updatedFollowing,
+                                  following: updatedFollowing.length
+                                };
+                                setCurrentUser(updatedUser);
+                                await AsyncStorage.setItem('userData', JSON.stringify(updatedUser));
+                              } catch (err: any) {
+                                showCustomAlertMessage('Error', sanitizeErrorForDisplay(err, 'OptimizedPhotoCard.unfollow') || 'Failed to unfollow user', 'error');
+                              } finally {
+                                setIsMenuLoading(false);
+                              }
+                            }
+                          );
+                        }}
+                        disabled={isMenuLoading}
+                      >
+                        <View style={styles.menuIconContainer}>
+                          <Ionicons name="person-remove-outline" size={22} color={theme.colors.text} />
+                        </View>
+                        <Text style={[styles.menuText, { color: theme.colors.text }]}>Unfollow</Text>
+                      </TouchableOpacity>
+                    );
+                  } else {
+                    return (
+                      <TouchableOpacity
+                        style={[styles.menuItem, { borderBottomColor: theme.colors.border }]}
+                        onPress={async () => {
+                          setShowMenu(false);
+                          try {
+                            setIsMenuLoading(true);
+                            await toggleFollow(postUser._id);
+                            const updatedFollowing = [...followingList.map((id: any) => normalizeId(id)), postUserIdNormalized].filter(Boolean);
+                            const updatedUser = { 
+                              ...currentUser, 
+                              followingIds: updatedFollowing,
+                              following: updatedFollowing.length
+                            };
+                            setCurrentUser(updatedUser);
+                            await AsyncStorage.setItem('userData', JSON.stringify(updatedUser));
+                            showCustomAlertMessage('Success', `Following ${postUser.fullName || 'User'}!`, 'success');
+                          } catch (err: any) {
+                            showCustomAlertMessage('Error', sanitizeErrorForDisplay(err, 'OptimizedPhotoCard.follow') || 'Failed to follow user', 'error');
+                          } finally {
+                            setIsMenuLoading(false);
                           }
-                        );
-                      }}
-                      disabled={isMenuLoading}
-                    >
-                      <View style={styles.menuIconContainer}>
-                        <Ionicons name="person-remove-outline" size={22} color={theme.colors.text} />
-                      </View>
-                      <Text style={[styles.menuText, { color: theme.colors.text }]}>Unfollow</Text>
-                    </TouchableOpacity>
-                  );
+                        }}
+                        disabled={isMenuLoading}
+                      >
+                        <View style={styles.menuIconContainer}>
+                          <Ionicons name="person-add-outline" size={22} color={theme.colors.text} />
+                        </View>
+                        <Text style={[styles.menuText, { color: theme.colors.text }]}>Follow</Text>
+                      </TouchableOpacity>
+                    );
+                  }
                 })()}
-                <TouchableOpacity
-                  style={[styles.menuItem, { borderBottomWidth: 0 }]}
-                  onPress={() => {
-                    setShowMenu(false);
-                    handleShare();
-                  }}
-                  disabled={isMenuLoading}
-                >
-                  <View style={styles.menuIconContainer}>
-                    <Ionicons name="share-outline" size={22} color={theme.colors.text} />
-                  </View>
-                  <Text style={[styles.menuText, { color: theme.colors.text }]}>Share</Text>
-                </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.menuItem, { borderBottomWidth: 0 }]}
                   onPress={() => {
@@ -1228,11 +1373,24 @@ export default memo(PhotoCard, (prevProps, nextProps) => {
 const styles = StyleSheet.create({
   container: {
     backgroundColor: 'transparent',
-    marginBottom: 14,
-    marginHorizontal: 12,
+    marginBottom: 20,
+    marginHorizontal: 16,
+    // Premium soft shadow for Airbnb/Notion vibe
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.04,
+    shadowRadius: 16,
+    elevation: 4,
   },
   glassCard: {
     overflow: 'hidden',
+    borderWidth: 0,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.12)',
+    borderLeftColor: 'rgba(255, 255, 255, 0.12)',
+    borderBottomWidth: 0,
+    borderRightWidth: 0,
   },
   glassCardInner: {
     overflow: 'hidden',

@@ -20,6 +20,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import { useTheme } from '../../../context/ThemeContext';
 import { useAlert } from '../../../context/AlertContext';
 import { theme as themeConstants } from '../../../constants/theme';
@@ -548,7 +549,7 @@ export default function ConnectPageDetailScreen() {
       case 'image':
         node = block.content ? (
           <View key={block._id || index} style={blockRadius !== undefined ? { borderRadius: blockRadius, overflow: 'hidden' } : undefined}>
-            <ContentImage uri={block.content} inRow={inRow} inStack={inStack} arOverride={block.aspectRatio} blurRadius={obfuscate ? 15 : undefined} />
+            <ContentImage uri={block.content} inRow={inRow} inStack={inStack} arOverride={block.aspectRatio} blurRadius={obfuscate ? 25 : undefined} />
           </View>
         ) : null;
         break;
@@ -626,10 +627,16 @@ export default function ConnectPageDetailScreen() {
       return (
         <View key={block._id || index} style={{ position: 'relative', overflow: 'hidden', borderRadius: blockRadius ?? 12 }}>
           {node}
+          <BlurView
+            intensity={35}
+            tint={isDark ? 'dark' : 'light'}
+            style={StyleSheet.absoluteFillObject}
+            {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
+          />
           <View
             style={{
               ...StyleSheet.absoluteFillObject,
-              backgroundColor: isDark ? 'rgba(30, 30, 30, 0.92)' : 'rgba(240, 240, 240, 0.92)',
+              backgroundColor: isDark ? 'rgba(30, 30, 30, 0.4)' : 'rgba(240, 240, 240, 0.4)',
               zIndex: 10,
             }}
           />
@@ -868,42 +875,54 @@ export default function ConnectPageDetailScreen() {
             </View>
             <View style={styles.sectionContent}>
               {page.websiteContent && page.websiteContent.length > 0 ? (
-                packBlocksIntoRows(
-                  page.websiteContent
-                    .slice()
-                    .sort((a, b) => a.order - b.order)
-                    .slice(0, isOwner ? undefined : 2)
-                ).map((row, ri) => (
-                  (() => {
-                    const isSingle = row.length === 1 && row[0].blocks.length === 1;
-                    return isSingle ? (
-                      <React.Fragment key={`wrow-${ri}`}>{renderContentBlock(row[0].blocks[0], ri, page.websiteTextColor, false, false)}</React.Fragment>
-                    ) : (
-                      <View key={`wrow-${ri}`} style={{ flexDirection: 'row', gap: 3, marginVertical: 1, alignItems: 'flex-start' }}>
-                        {row.map((cell, ci) => {
-                          const isStackedCell = cell.blocks.length > 1;
-                          const va = cell.blocks[0]?.verticalAlign;
-                          const alignSelf = va === 'center' ? 'center' as const : va === 'bottom' ? 'flex-end' as const : undefined;
-                          return (
-                            <View key={`wc-${ri}-${ci}`} style={isStackedCell ? { flex: cell.col, flexDirection: 'column', gap: 6 } : { flex: cell.col, alignSelf }}>
-                              {cell.blocks.map((block, bi) =>
-                                isStackedCell ? (
-                                  <View key={block._id || `ws-${ri}-${ci}-${bi}`} style={{ flex: 1 }}>
-                                    {renderContentBlock(block, bi, page.websiteTextColor, true, true)}
-                                  </View>
-                                ) : (
-                                  <React.Fragment key={block._id || `ws-${ri}-${ci}-${bi}`}>
-                                    {renderContentBlock(block, bi, page.websiteTextColor, row.length > 1, false)}
-                                  </React.Fragment>
-                                )
-                              )}
-                            </View>
-                          );
-                        })}
-                      </View>
-                    );
-                  })()
-                ))
+                <Pressable
+                  onPress={() => router.push(`/connect/preview?pageId=${id}&section=website&pageName=${encodeURIComponent(page.name)}`)}
+                  style={{ position: 'relative' }}
+                >
+                  {packBlocksIntoRows(
+                    page.websiteContent
+                      .slice()
+                      .sort((a, b) => a.order - b.order)
+                      .slice(0, isOwner ? undefined : 2)
+                  ).map((row, ri) => (
+                    (() => {
+                      const isSingle = row.length === 1 && row[0].blocks.length === 1;
+                      return isSingle ? (
+                        <React.Fragment key={`wrow-${ri}`}>{renderContentBlock(row[0].blocks[0], ri, page.websiteTextColor, false, false, true)}</React.Fragment>
+                      ) : (
+                        <View key={`wrow-${ri}`} style={{ flexDirection: 'row', gap: 3, marginVertical: 1, alignItems: 'flex-start' }}>
+                          {row.map((cell, ci) => {
+                            const isStackedCell = cell.blocks.length > 1;
+                            const va = cell.blocks[0]?.verticalAlign;
+                            const alignSelf = va === 'center' ? 'center' as const : va === 'bottom' ? 'flex-end' as const : undefined;
+                            return (
+                              <View key={`wc-${ri}-${ci}`} style={isStackedCell ? { flex: cell.col, flexDirection: 'column', gap: 6 } : { flex: cell.col, alignSelf }}>
+                                {cell.blocks.map((block, bi) =>
+                                  isStackedCell ? (
+                                    <View key={block._id || `ws-${ri}-${ci}-${bi}`} style={{ flex: 1 }}>
+                                      {renderContentBlock(block, bi, page.websiteTextColor, true, true, true)}
+                                    </View>
+                                  ) : (
+                                    <React.Fragment key={block._id || `ws-${ri}-${ci}-${bi}`}>
+                                      {renderContentBlock(block, bi, page.websiteTextColor, row.length > 1, false, true)}
+                                    </React.Fragment>
+                                  )
+                                )}
+                              </View>
+                            );
+                          })}
+                        </View>
+                      );
+                    })()
+                  ))}
+                  <View
+                    style={{
+                      ...StyleSheet.absoluteFillObject,
+                      backgroundColor: 'transparent',
+                      zIndex: 20,
+                    }}
+                  />
+                </Pressable>
               ) : (
                 <Text style={[styles.placeholderText, { color: theme.colors.textSecondary }]}>
                   {isOwner ? 'Add content to your website.' : 'No content yet.'}

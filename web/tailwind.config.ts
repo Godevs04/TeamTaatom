@@ -1,4 +1,5 @@
 import type { Config } from "tailwindcss";
+import plugin from "tailwindcss/plugin";
 
 const config: Config = {
   darkMode: ["class"],
@@ -26,7 +27,7 @@ const config: Config = {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
-        background: "hsl(var(--background))",
+        background: "rgb(var(--background))",
         foreground: "hsl(var(--foreground))",
         primary: {
           DEFAULT: "hsl(var(--primary))",
@@ -71,7 +72,24 @@ const config: Config = {
       },
     },
   },
-  plugins: [],
+  plugins: [
+    plugin(function({ addUtilities }) {
+      addUtilities({
+        ".glass-panel": {
+          backdropFilter: "blur(16px)",
+          WebkitBackdropFilter: "blur(16px)",
+          background: "rgba(var(--glass-surface), var(--glass-opacity-base))",
+          backgroundColor: "rgb(var(--glass-surface) / var(--glass-opacity-base))",
+          backgroundImage: "var(--glass-gradient)",
+          borderTop: "1px solid var(--glass-border-light)",
+          borderLeft: "1px solid var(--glass-border-light)",
+          borderBottom: "1px solid var(--glass-border-dark)",
+          borderRight: "1px solid var(--glass-border-dark)",
+          boxShadow: "var(--glass-shadow)",
+        },
+      });
+    }),
+  ],
 };
 
 export default config;

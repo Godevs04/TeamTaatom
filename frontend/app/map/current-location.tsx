@@ -195,6 +195,7 @@ export default function CurrentLocationMap() {
   const [route, setRoute] = useState<DirectionsRoute | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const hasLoggedParamsRef = useRef<string>('');
+  const mapRef = useRef<any>(null);
 
   // Journey tracking UI (start / active / paused / instructions popup) was
   // moved to /map/all-locations so it lives alongside past journeys, post
@@ -384,11 +385,29 @@ export default function CurrentLocationMap() {
   };
 
   const loadRoute = async () => {
-    if (!hasValidCoordinates || !userCoords || !postLatitude || !postLongitude) return;
+    if (!hasValidCoordinates || !postLatitude || !postLongitude) return;
     try {
       setRouteLoading(true);
+      let coords = userCoords;
+      if (!coords) {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          coords = {
+            latitude: current.coords.latitude,
+            longitude: current.coords.longitude,
+          };
+          setUserCoords(coords);
+        }
+      }
+
+      if (!coords) {
+        logger.error('Cannot load route: user location is not available');
+        return;
+      }
+
       const nextRoute = await fetchDirectionsRoute(
-        userCoords,
+        coords,
         { latitude: postLatitude, longitude: postLongitude }
       );
       setRoute(nextRoute);
@@ -400,8 +419,13 @@ export default function CurrentLocationMap() {
   };
 
   useEffect(() => {
-    loadRoute();
-  }, [hasValidCoordinates, userCoords?.latitude, userCoords?.longitude, postLatitude, postLongitude]);
+    if (route?.coordinates && route.coordinates.length > 0 && mapRef.current) {
+      mapRef.current.fitToCoordinates(route.coordinates, {
+        edgePadding: { top: 120, right: 50, bottom: 50, left: 50 },
+        animated: true,
+      });
+    }
+  }, [route]);
 
   const renderMap = () => {
     if (loading) {
@@ -447,6 +471,7 @@ export default function CurrentLocationMap() {
       }
       const lat = location.coords.latitude;
       const lng = location.coords.longitude;
+      const userCoordsJson = userCoords ? JSON.stringify(userCoords) : 'null';
       const rawTitle = isPostLocation ? (postAddress || 'Post Location') : (locationName || 'Your Current Location');
       const safeTitle = JSON.stringify(rawTitle);
       const htmlEsc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -462,6 +487,19 @@ function initMap(){
     new google.maps.Polyline({path:routePath,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:14,map:map});
     new google.maps.Polyline({path:routePath,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:5,map:map});
     var bounds=new google.maps.LatLngBounds();routePath.forEach(function(p){bounds.extend(p);});map.fitBounds(bounds,64);
+  }
+  var userCoords=${userCoordsJson};
+  if(routePath.length>1 && userCoords){
+    new google.maps.Marker({
+      position: { lat: userCoords.latitude, lng: userCoords.longitude },
+      map: map,
+      title: "Your Location",
+      icon: {
+        url: 'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30"><circle cx="15" cy="15" r="10" fill="#4285F4" stroke="white" stroke-width="3"/></svg>'),
+        scaledSize: new google.maps.Size(30, 30),
+        anchor: new google.maps.Point(15, 15)
+      }
+    });
   }
   var marker=new google.maps.Marker({position:{lat:${lat},lng:${lng}},map:map,title:${safeTitle},icon:{url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="42" height="50" viewBox="0 0 42 50"><filter id="g"><feGaussianBlur stdDeviation="4"/></filter><circle cx="21" cy="42" r="7" fill="${mapStyle.routeColor}" opacity=".35" filter="url(%23g)"/><path d="M21 2C11.6 2 4 9.6 4 19c0 12.8 17 29 17 29s17-16.2 17-29C38 9.6 30.4 2 21 2z" fill="${mapStyle.routeColor}" stroke="white" stroke-width="3"/><circle cx="21" cy="19" r="6" fill="white"/></svg>'),scaledSize:new google.maps.Size(42,50),anchor:new google.maps.Point(21,48)}});
   var iw=new google.maps.InfoWindow({content:${infoHtml}});
@@ -498,6 +536,7 @@ function initMap(){
 
     return (
       <MapView
+        ref={mapRef}
         style={[styles.map, Platform.OS === 'android' && { flex: 1, minHeight: 200 }]}
         provider={getMapProvider()}
         {...mapStyle.nativeMapProps}
@@ -507,12 +546,12 @@ function initMap(){
           latitudeDelta: 0.1,
           longitudeDelta: 0.1,
         }}
-        showsUserLocation={!isPostLocation && !hasValidCoordinates}
-        showsMyLocationButton={!isPostLocation && !hasValidCoordinates}
+        showsUserLocation={(!isPostLocation && !hasValidCoordinates) || !!route}
+        showsMyLocationButton={(!isPostLocation && !hasValidCoordinates) || !!route}
         showsCompass={true}
         showsScale={true}
         mapType={mapStyle.mapType}
-        followsUserLocation={!hasValidCoordinates}
+        followsUserLocation={!hasValidCoordinates && !route}
       >
         {route?.coordinates?.length > 1 && (
           <PolylineRenderer

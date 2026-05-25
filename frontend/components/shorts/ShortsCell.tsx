@@ -1,24 +1,17 @@
-import React, { useState, useRef, useEffect, memo, useCallback } from 'react';
-import { View, StyleSheet, TouchableWithoutFeedback, Animated, ViewStyle } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import React, { memo, useCallback, useMemo } from 'react';
+import { View, StyleSheet } from 'react-native';
 import { PostType } from '../../types/post';
 import ShortsVideo from './ShortsVideo';
-import ShortsActions from './ShortsActions';
 import ShortsOverlay from './ShortsOverlay';
-import logger from '../../utils/logger';
 
 const MemoizedShortsVideo = memo(
   ShortsVideo,
   (prevProps, nextProps) => {
+    // Directive 2: Brutally restrict the comparator to only trigger on critical play, mute, or url changes
     return (
-      prevProps.videoId === nextProps.videoId &&
-      prevProps.videoUrl === nextProps.videoUrl &&
-      prevProps.imageUrl === nextProps.imageUrl &&
       prevProps.isActive === nextProps.isActive &&
-      prevProps.shouldRender === nextProps.shouldRender &&
       prevProps.isMuted === nextProps.isMuted &&
-      prevProps.volume === nextProps.volume &&
-      prevProps.sourceVersion === nextProps.sourceVersion
+      prevProps.videoUrl === nextProps.videoUrl
     );
   }
 );
@@ -86,216 +79,71 @@ const ShortsCell = ({
   videoRefCallback,
   onError,
 }: ShortsCellProps) => {
-  const [showPauseButton, setShowPauseButton] = useState(false);
-  const [showLikeAnimation, setShowLikeAnimation] = useState(false);
-  const [localSourceVersion, setLocalSourceVersion] = useState(sourceVersion);
-  const likeAnimValue = useRef(new Animated.Value(0)).current;
-  const pauseTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const lastTapRef = useRef<number | null>(null);
-  const cacheRetryCountRef = useRef<number>(0);
-
   const distanceFromVisible = index - currentVisibleIndex;
   const shouldRenderVideo = Math.abs(distanceFromVisible) <= SHORTS_PRELOAD_WINDOW;
   const isActive = index === currentVisibleIndex && isScreenFocused;
 
-  // Clean up timer on unmount
-  useEffect(() => {
-    return () => {
-      if (pauseTimerRef.current) {
-        clearTimeout(pauseTimerRef.current);
-      }
-    };
-  }, []);
+  // Directive 1: Strict Prop Equality Enforcement
+  // Wrap functions in useCallback and objects in useMemo
 
-  // Handle video errors and trigger recovery
+  const handleVideoReady = useCallback(() => {
+    onVideoReady(item._id);
+  }, [item._id, onVideoReady]);
+
   const handleVideoError = useCallback((error: any) => {
-    logger.error(`[ShortsCell] Video error for ${item._id}:`, error);
-    
-    // Check if this is a cache miss or file not found error
-    const isCacheMissError = 
-      error?.message?.toLowerCase().includes('cache') ||
-      error?.message?.toLowerCase().includes('not found') ||
-      error?.message?.toLowerCase().includes('file') ||
-      error?.message?.toLowerCase().includes('enoent');
-    
-    if (isCacheMissError && cacheRetryCountRef.current < 2) {
-      // Trigger re-download by incrementing source version
-      logger.debug(`[ShortsCell] Cache miss detected, triggering re-download (attempt ${cacheRetryCountRef.current + 1})`);
-      cacheRetryCountRef.current += 1;
-      setLocalSourceVersion(prev => prev + 1);
-    } else {
-      // Max retries exceeded or non-cache error, propagate to parent
-      cacheRetryCountRef.current = 0;
-      onError(item._id, error);
-    }
+    onError(item._id, error);
   }, [item._id, onError]);
 
-  const toggleVideoPlayback = () => {
-    const nextPlaying = !videoPlaying;
-    onVideoPlaybackChange(item._id, nextPlaying);
-    showPauseButtonTemporarily();
-  };
-
-  const showPauseButtonTemporarily = () => {
-    setShowPauseButton(true);
-    if (pauseTimerRef.current) {
-      clearTimeout(pauseTimerRef.current);
-    }
-    pauseTimerRef.current = setTimeout(() => {
-      setShowPauseButton(false);
-    }, 800);
-  };
-
-  const handleDoubleTapLike = () => {
-    // Trigger optimistic like if not already liked
-    if (!item.isLiked) {
-      onLikePress(item._id);
-    }
-    
-    // Heart popping animation
-    setShowLikeAnimation(true);
-    likeAnimValue.setValue(0);
-    Animated.sequence([
-      Animated.spring(likeAnimValue, {
-        toValue: 1.2,
-        tension: 140,
-        friction: 5,
-        useNativeDriver: true,
-      }),
-      Animated.timing(likeAnimValue, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setShowLikeAnimation(false);
-    });
-  };
-
-  const handlePress = () => {
-    const now = Date.now();
-    if (lastTapRef.current && now - lastTapRef.current < 300) {
-      handleDoubleTapLike();
-    } else {
-      toggleVideoPlayback();
-    }
-    lastTapRef.current = now;
-  };
-
-  const handleLongPress = () => {
-    if (item.user._id === currentUser?._id) {
-      onDeletePress(item._id);
-    }
-  };
-
-  // Video progress callback
-  const handleVideoProgress = () => {
+  const handleVideoProgress = useCallback(() => {
     // Loop syncing or time updates can go here if needed in future
-  };
+  }, []);
 
-  // Big Heart double tap like scales
-  const likeOpacity = likeAnimValue.interpolate({
-    inputRange: [0, 0.5, 1, 1.2],
-    outputRange: [0, 0.4, 0.5, 0.5],
-  });
-
-  const likeScale = likeAnimValue.interpolate({
-    inputRange: [0, 0.5, 1, 1.2],
-    outputRange: [0.3, 0.8, 1, 1.2],
-  });
+  const videoUrl = useMemo(() => {
+    return getVideoUrl(item);
+  }, [getVideoUrl, item]);
 
   return (
     <View style={styles.container}>
-      {/* Gesture recognizer view container */}
-      <View
-        style={styles.videoContainer}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={(e) => onTouchEnd(e, item.user._id)}
-      >
-        <TouchableWithoutFeedback
-          onPress={handlePress}
-          onLongPress={handleLongPress}
-          accessible={true}
-          accessibilityLabel="Tap to play or pause video, double tap to like"
-          accessibilityRole="button"
-        >
-          <View style={StyleSheet.absoluteFill}>
-            <MemoizedShortsVideo
-              videoId={item._id}
-              videoUrl={getVideoUrl(item)}
-              imageUrl={item.imageUrl}
-              isActive={isActive && videoPlaying}
-              shouldRender={shouldRenderVideo}
-              isMuted={!isActive || !!item.song?.songId?._id}
-              volume={item.song?.songId?._id ? 0.0 : 1.0}
-              sourceVersion={localSourceVersion}
-              videoRefCallback={videoRefCallback}
-              onReady={() => onVideoReady(item._id)}
-              onError={handleVideoError}
-              onProgress={handleVideoProgress}
-            />
-          </View>
-        </TouchableWithoutFeedback>
+      <View style={styles.videoContainer}>
+        <MemoizedShortsVideo
+          videoId={item._id}
+          videoUrl={videoUrl}
+          imageUrl={item.imageUrl}
+          isActive={isActive && videoPlaying}
+          shouldRender={shouldRenderVideo}
+          isMuted={!isActive || !!item.song?.songId?._id}
+          volume={item.song?.songId?._id ? 0.0 : 1.0}
+          sourceVersion={sourceVersion}
+          videoRefCallback={videoRefCallback}
+          onReady={handleVideoReady}
+          onError={handleVideoError}
+          onProgress={handleVideoProgress}
+        />
       </View>
 
-      {/* Elegant overlays and descriptions */}
       <ShortsOverlay
         post={item}
         isActive={isActive}
-        isVideoPlaying={videoPlaying}
+        videoPlaying={videoPlaying}
+        onVideoPlaybackChange={onVideoPlaybackChange}
         isFollowing={isFollowing}
         isScreenFocused={isScreenFocused}
         isMuted={isMuted}
         onProfilePress={onProfilePress}
         onLocationPress={onLocationPress}
         onSongPlayingChange={onSongPlayingChange}
-      />
-
-      {/* Action buttons (Likes, Comments, Saves, Shares, profile nav) */}
-      <ShortsActions
-        shortId={item._id}
-        userId={item.user._id}
-        username={item.user.username || ''}
-        profilePic={item.user.profilePic}
-        isLiked={item.isLiked || false}
-        likesCount={item.likesCount || 0}
-        commentsCount={item.commentsCount || 0}
+        currentUser={currentUser}
         isSaved={isSaved}
-        isFollowing={isFollowing}
-        isOwn={item.user._id === currentUser?._id}
         actionLoading={actionLoading}
-        onProfilePress={onProfilePress}
         onLikePress={onLikePress}
         onCommentPress={onCommentPress}
-        onSharePress={() => onSharePress(item)}
+        onSharePress={onSharePress}
         onSavePress={onSavePress}
+        onDeletePress={onDeletePress}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
       />
-
-      {/* Big heart popping double tap indicator */}
-      {showLikeAnimation && (
-        <Animated.View
-          style={[
-            styles.likeAnimationContainer,
-            {
-              opacity: likeOpacity,
-              transform: [{ scale: likeScale }],
-            },
-          ]}
-          pointerEvents="none"
-        >
-          <Ionicons name="heart" size={80} color="#FF3040" />
-        </Animated.View>
-      )}
-
-      {/* Translucent Play/Pause overlay */}
-      {showPauseButton && (
-        <View style={styles.playButton} pointerEvents="none">
-          <View style={styles.playButtonBlur}>
-            <Ionicons name={videoPlaying ? 'pause' : 'play'} size={50} color="white" />
-          </View>
-        </View>
-      )}
     </View>
   );
 };
@@ -311,28 +159,6 @@ const styles = StyleSheet.create({
   videoContainer: {
     ...StyleSheet.absoluteFillObject,
     zIndex: 1,
-  },
-  likeAnimationContainer: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 4,
-  },
-  playButton: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 3,
-  },
-  playButtonBlur: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
 });
 

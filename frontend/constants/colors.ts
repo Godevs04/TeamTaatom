@@ -1,15 +1,16 @@
 export const colors = {
   // Core brand
-  primary: '#5BBCF8',
-  lightBlue: '#2B5F8A',
-  secondary: '#3D9AE0',
+  primary: '#FFFFFF',
+  lightBlue: '#1A1D24',
+  secondary: '#8A9AA5',
   accent: '#43B89C',
   coral: '#FF8F70',
   sun: '#FFD166',
   softGray: '#1A2A3A',
   white: '#FFFFFF',
-  pinActive: '#FF0000',
-  pinInactive: '#FFFFFF',
+  pinActive: '#00F0FF',
+  pinInactive: '#8A9AA5',
+  mapPolyline: '#00F0FF',
 
   // System
   success: '#34C759',
@@ -17,9 +18,19 @@ export const colors = {
   error: '#FF453A',
 
   // Surfaces (dark)
-  background: '#0B1A2B',
-  surface: '#122236',
-  surfaceSecondary: '#0F1E30',
+  background: '#000000',
+  surface: '#121212',
+  surfaceSecondary: 'rgba(18, 18, 18, 0.72)',
+  surfaceTertiary: 'rgba(18, 18, 18, 0.85)',
+  glassBorderHighlight: 'rgba(255, 255, 255, 0.08)',
+  glassBorderShadow: 'rgba(255, 255, 255, 0.02)',
+
+  // Day Theme counterparts (contradict and suit)
+  lightBackground: '#F8F9FA',
+  lightSurfaceSecondary: 'rgba(255, 255, 255, 0.40)',
+  lightSurfaceTertiary: 'rgba(255, 255, 255, 0.65)',
+  lightGlassBorderHighlight: 'rgba(255, 255, 255, 0.60)',
+  lightGlassBorderShadow: 'rgba(0, 0, 0, 0.05)',
 
   // Content
   text: '#E8F4FF',
@@ -27,45 +38,45 @@ export const colors = {
   textMuted: '#4A6274',
 
   // Lines / hairlines
-  border: 'rgba(91, 188, 248, 0.18)',
-  hairline: 'rgba(91, 188, 248, 0.10)',
+  border: 'rgba(255, 255, 255, 0.08)',
+  hairline: 'rgba(255, 255, 255, 0.08)',
 
   // Card tint
-  card: '#162D44',
-  shadow: 'rgba(0, 0, 0, 0.40)',
+  card: 'rgba(18, 18, 18, 0.72)',
+  shadow: 'rgba(0, 0, 0, 0.45)',
   overlay: 'rgba(0, 0, 0, 0.52)',
 
   // Glass tokens
   glass: {
-    background: 'rgba(18, 34, 54, 0.72)',
-    border: 'rgba(91, 188, 248, 0.18)',
-    highlight: 'rgba(91, 188, 248, 0.12)',
+    background: 'rgba(18, 18, 18, 0.72)',
+    border: 'rgba(255, 255, 255, 0.08)',
+    highlight: 'rgba(255, 255, 255, 0.08)',
   },
-  glassBackground: 'rgba(18, 34, 54, 0.58)',
-  frostTint: 'rgba(11, 26, 43, 0.55)',
-  frostTintMedium: 'rgba(18, 34, 54, 0.68)',
-  frostTintStrong: 'rgba(22, 45, 68, 0.86)',
-  appBackgroundGradient: ['#0B1A2B', '#0F1E30', '#122236'],
+  glassBackground: 'rgba(18, 18, 18, 0.72)',
+  frostTint: 'rgba(18, 18, 18, 0.72)',
+  frostTintMedium: 'rgba(18, 18, 18, 0.72)',
+  frostTintStrong: 'rgba(18, 18, 18, 0.85)',
+  appBackgroundGradient: ['#000000', '#000000'],
 
   // Premium glass theme tokens
-  screenGradient: ['#0B1A2B', '#0F1E30', '#122236'],
-  glassSurface: 'rgba(18, 34, 54, 0.76)',
-  glassStrong: 'rgba(22, 45, 68, 0.92)',
-  glassBorder: 'rgba(91, 188, 248, 0.16)',
-  glowBlue: 'rgba(91, 188, 248, 0.28)',
-  innerHighlight: 'rgba(91, 188, 248, 0.10)',
-  softShadow: 'rgba(0, 0, 0, 0.32)',
+  screenGradient: ['#000000', '#000000'],
+  glassSurface: 'rgba(18, 18, 18, 0.72)',
+  glassStrong: 'rgba(18, 18, 18, 0.85)',
+  glassBorder: 'rgba(255, 255, 255, 0.08)',
+  glowBlue: 'rgba(255, 255, 255, 0.02)',
+  innerHighlight: 'rgba(255, 255, 255, 0.08)',
+  softShadow: 'rgba(0, 0, 0, 0.45)',
   /** Solid tab bar (not translucent) */
-  floatingDock: '#152A42',
-  cloudSurface: '#162D44',
-  skyPale: '#0F1E30',
-  blueDeep: '#5BBCF8',
-  blueMid: '#3D9AE0',
+  floatingDock: '#000000',
+  cloudSurface: '#000000',
+  skyPale: '#000000',
+  blueDeep: '#FFFFFF',
+  blueMid: '#8A9AA5',
 
   gradient: {
-    primary: ['#0F1E30', '#122236'],
-    secondary: ['#3D9AE0', '#2B7FD4'],
-    dark: ['#0B1A2B', '#0F1E30'],
-    button: ['#5BBCF8', '#2B7FD4']
+    primary: ['#000000', '#000000'],
+    secondary: ['#FFFFFF', '#8A9AA5'],
+    dark: ['#000000', '#000000'],
+    button: ['#FFFFFF', '#8A9AA5']
   }
 };
