@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Tabs, usePathname, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { Platform, Dimensions, StyleSheet, View, BackHandler } from 'react-native';
+import { Platform, Dimensions, StyleSheet, View, BackHandler, Pressable } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -253,6 +253,17 @@ export default function TabsLayout() {
           title: 'Post',
           tabBarLabel: () => null,
           tabBarAccessibilityLabel: 'Create post tab',
+          tabBarButton: (props) => {
+            const { ref, style, children, ...rest } = props as any;
+            return (
+              <Pressable
+                {...rest}
+                style={[style, { backgroundColor: 'transparent' }]}
+              >
+                {children}
+              </Pressable>
+            );
+          },
           tabBarIcon: ({ focused }) => (
             <View
               style={[
@@ -265,6 +276,8 @@ export default function TabsLayout() {
                     ? (isDark ? '#FFFFFF' : '#121212')
                     : (isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'),
                   shadowColor: '#000000',
+                  elevation: focused ? 6 : 0,
+                  shadowOpacity: focused ? 0.15 : 0,
                 },
               ]}
             >
