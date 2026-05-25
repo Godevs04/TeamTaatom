@@ -12,6 +12,7 @@ interface PremiumGlassCardProps {
   glow?: boolean;
   /** Softer surface — less inner glow when nesting list rows inside */
   subtle?: boolean;
+  blur?: boolean;
 }
 
 export default function PremiumGlassCard({
@@ -21,6 +22,7 @@ export default function PremiumGlassCard({
   strong = false,
   glow = false,
   subtle = false,
+  blur = true,
 }: PremiumGlassCardProps) {
   const { theme, isDark } = useTheme();
   const radius = theme.premium?.cardRadius || theme.borderRadius.xl;
@@ -55,11 +57,13 @@ export default function PremiumGlassCard({
         style,
       ]}
     >
-      <BlurView
-        intensity={subtle ? theme.glass.blur.light : strong ? theme.glass.blur.medium : theme.glass.blur.light}
-        tint={isDark ? 'dark' : 'light'}
-        style={StyleSheet.absoluteFillObject}
-      />
+      {blur ? (
+        <BlurView
+          intensity={subtle ? theme.glass.blur.light : strong ? theme.glass.blur.medium : theme.glass.blur.light}
+          tint={isDark ? 'dark' : 'light'}
+          style={[StyleSheet.absoluteFillObject, { borderRadius: radius }]}
+        />
+      ) : null}
       <LinearGradient
         colors={[
           theme.colors.innerHighlight || 'rgba(255,255,255,0.08)',
