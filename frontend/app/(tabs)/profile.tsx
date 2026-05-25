@@ -36,7 +36,7 @@ import { realtimePostsService } from '../../services/realtimePosts';
 import { UserType } from '../../types/user';
 import { PostType } from '../../types/post';
 import EditProfile from '../../components/EditProfile';
-import ProfilePremiumView from '../../components/profile/ProfilePremiumView';
+import OriginalProfilePremiumView from '../../components/profile/ProfilePremiumView';
 import KebabMenu from '../../components/common/KebabMenu';
 import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
@@ -52,6 +52,33 @@ import { cloudDesign } from '../../constants/cloudDesign';
 import CloudGlassSurface from '../../components/cloud/CloudGlassSurface';
 
 const logger = createLogger('ProfileScreen');
+
+function ProfilePremiumView(props: React.ComponentProps<typeof OriginalProfilePremiumView>) {
+  const element = OriginalProfilePremiumView(props);
+  if (!element || !element.props || !element.props.children) {
+    return element;
+  }
+  
+  const children = React.Children.toArray(element.props.children);
+  const updatedChildren = children.map((child: any) => {
+    if (React.isValidElement(child) && (child.type === CloudGlassSurface || (child.props as any).borderRadius === 28)) {
+      const originalStyle = (child.props as any).style || {};
+      const flattenedStyle = StyleSheet.flatten(originalStyle);
+      const overriddenStyle = {
+        ...flattenedStyle,
+        backgroundColor: props.isDark ? 'rgba(25, 25, 25, 0.72)' : '#FFFFFF', // Solid white background on Day Theme to resolve Android elevation bleed
+        overflow: 'hidden' as const,
+        borderRadius: 28,
+      };
+      return React.cloneElement(child, {
+        style: overriddenStyle,
+      } as any);
+    }
+    return child;
+  });
+  
+  return React.cloneElement(element, {}, ...updatedChildren);
+}
 
 const TRIP_GAP_DAYS = 7;
 

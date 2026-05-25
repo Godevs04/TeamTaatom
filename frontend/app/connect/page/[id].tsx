@@ -75,6 +75,42 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' = '400') => {
   return 'Roboto';
 };
 
+const getContrastColor = (bgColor: string, defaultDark = '#121212', defaultLight = '#FFFFFF') => {
+  if (!bgColor) return defaultLight;
+  let color = bgColor.trim().toLowerCase();
+
+  // Parse rgb / rgba
+  if (color.startsWith('rgb')) {
+    const matches = color.match(/\d+/g);
+    if (matches && matches.length >= 3) {
+      const r = parseInt(matches[0], 10);
+      const g = parseInt(matches[1], 10);
+      const b = parseInt(matches[2], 10);
+      const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+      return brightness > 125 ? defaultDark : defaultLight;
+    }
+  }
+
+  // Parse Hex
+  if (color.startsWith('#')) {
+    color = color.slice(1);
+  }
+
+  if (color.length === 3) {
+    color = color[0] + color[0] + color[1] + color[1] + color[2] + color[2];
+  }
+
+  if (color.length === 6) {
+    const r = parseInt(color.substring(0, 2), 16);
+    const g = parseInt(color.substring(2, 4), 16);
+    const b = parseInt(color.substring(4, 6), 16);
+    const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+    return brightness > 125 ? defaultDark : defaultLight;
+  }
+
+  return defaultLight;
+};
+
 // Section padding: md on each side + section padding
 const sectionContentWidth = screenWidth - (isTablet ? themeConstants.spacing.lg * 2 + themeConstants.spacing.lg * 2 : themeConstants.spacing.md * 2 + themeConstants.spacing.md * 2);
 
@@ -575,16 +611,21 @@ export default function ConnectPageDetailScreen() {
         const buttonUrl = rawUrl && /^[a-z][a-z0-9+.-]*:/i.test(rawUrl)
           ? rawUrl
           : (rawUrl ? `https://${rawUrl}` : '');
+        const buttonBg = effectiveBg || theme.colors.primary;
+        const contrastTextColor = getContrastColor(buttonBg, '#121212', '#FFFFFF');
+        const buttonTextColor = block.color
+          ? (block.color.toLowerCase() === '#ffffff' && contrastTextColor === '#121212' ? '#121212' : block.color)
+          : contrastTextColor;
         node = (
           <TouchableOpacity
             key={block._id || index}
-            style={[styles.contentButton, { backgroundColor: effectiveBg || theme.colors.primary }]}
+            style={[styles.contentButton, { backgroundColor: buttonBg }]}
             onPress={() => {
               if (buttonUrl) Linking.openURL(buttonUrl).catch(() => {});
             }}
             activeOpacity={0.7}
           >
-            <Text style={[styles.contentButtonText, block.color ? { color: block.color } : undefined]}>
+            <Text style={[styles.contentButtonText, { color: buttonTextColor }]}>
               {block.content || 'Button'}
             </Text>
           </TouchableOpacity>
