@@ -3,6 +3,7 @@ import { Tabs, usePathname, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Platform, Dimensions, StyleSheet, View, BackHandler } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../context/ThemeContext';
 import { audioManager } from '../../utils/audioManager';
@@ -31,19 +32,24 @@ function CloudTabIcon({
   color: string;
   focused: boolean;
 }) {
+  const { isDark } = useTheme();
+
   if (!focused) {
     return <Ionicons name={name} size={22} color={color} />;
   }
 
+  const gradientColors = (isDark ? ['#FFFFFF', '#8A9AA5'] : ['#121212', '#4A6274']) as [string, string];
+  const iconColor = isDark ? '#121212' : '#FFFFFF';
+
   return (
     <View style={styles.activeIconShell}>
       <LinearGradient
-        colors={['#5BBCF8', '#2B7FD4']}
+        colors={gradientColors}
         style={StyleSheet.absoluteFillObject}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       />
-      <Ionicons name={name} size={20} color="#FFFFFF" />
+      <Ionicons name={name} size={20} color={iconColor} />
     </View>
   );
 }
@@ -166,23 +172,25 @@ export default function TabsLayout() {
     }
   }, [pathname]);
 
-  // Tab bar — solid dock (no blur) so content never shows through
+  // Fixed Tab Bar covering bottom entirely
   const tabBarStyle = {
-    backgroundColor: theme.colors.floatingDock,
+    backgroundColor: 'transparent',
     borderTopWidth: 1,
-    borderTopColor: theme.colors.glassBorder,
+    borderBottomWidth: 0,
+    borderLeftWidth: 0,
+    borderRightWidth: 0,
+    borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
     elevation: 8,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    shadowOpacity: isDark ? 0.3 : 0.04,
+    shadowRadius: 8,
     position: 'absolute' as const,
     bottom: 0,
     left: 0,
     right: 0,
-    height: isWeb ? 70 : 56 + insets.bottom,
-    borderRadius: 0,
-    paddingBottom: isWeb ? 10 : insets.bottom,
+    height: 60 + insets.bottom,
+    paddingBottom: insets.bottom,
     paddingTop: 8,
     overflow: 'hidden' as const,
     zIndex: 1000,
@@ -195,9 +203,15 @@ export default function TabsLayout() {
       screenOptions={{
         headerShown: false,
         lazy: true,
+        tabBarShowLabel: false,
         tabBarStyle: tabBarStyle as any,
         tabBarBackground: () => (
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: theme.colors.floatingDock }]} />
+          <LinearGradient
+            colors={isDark ? ['#1A1C23', '#0F1015'] : ['#FFFFFF', '#F5F7FA']}
+            style={StyleSheet.absoluteFillObject}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
+          />
         ),
         tabBarActiveTintColor: theme.colors.primary,
         tabBarInactiveTintColor: theme.colors.textSecondary,
@@ -205,15 +219,8 @@ export default function TabsLayout() {
           justifyContent: 'center',
           alignItems: 'center',
         },
-        tabBarLabelStyle: {
-          fontSize: isTablet ? (isWeb ? 11 : 10) : (isWeb ? 10 : 10),
-          fontFamily: isWeb ? 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' : (isIOS ? 'System' : 'Roboto'),
-          fontWeight: '600',
-          letterSpacing: 0.1,
-          marginTop: -2,
-        },
         tabBarIconStyle: {
-          marginBottom: isWeb ? 0 : 2,
+          marginBottom: 0,
         },
       }}
     >
@@ -236,7 +243,7 @@ export default function TabsLayout() {
           // a clean remount (fresh from top) when the user returns.
           unmountOnBlur: true,
           tabBarIcon: ({ color, focused }) => (
-            <CloudTabIcon name={focused ? 'sparkles' : 'play-circle-outline'} color={color} focused={focused} />
+            <CloudTabIcon name={focused ? 'play-circle' : 'play-circle-outline'} color={color} focused={focused} />
           ),
         } as any}
       />
@@ -246,17 +253,28 @@ export default function TabsLayout() {
           title: 'Post',
           tabBarLabel: () => null,
           tabBarAccessibilityLabel: 'Create post tab',
-          tabBarIcon: () => (
+          tabBarIcon: ({ focused }) => (
             <View
               style={[
                 styles.centerTab,
                 {
-                  backgroundColor: theme.colors.primary,
+                  backgroundColor: focused
+                    ? (isDark ? '#FFFFFF' : '#121212')
+                    : (isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)'),
+                  borderColor: focused
+                    ? (isDark ? '#FFFFFF' : '#121212')
+                    : (isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'),
                   shadowColor: '#000000',
                 },
               ]}
             >
-              <Ionicons name="add" size={28} color="#FFFFFF" />
+              <Ionicons
+                name="add"
+                size={28}
+                color={focused
+                  ? (isDark ? '#121212' : '#FFFFFF')
+                  : (isDark ? '#FFFFFF' : '#121212')}
+              />
             </View>
           ),
         }}
@@ -267,7 +285,7 @@ export default function TabsLayout() {
           title: 'Locale',
           tabBarAccessibilityLabel: 'Locale tab',
           tabBarIcon: ({ color, focused }) => (
-            <CloudTabIcon name={focused ? 'map' : 'location-outline'} color={color} focused={focused} />
+            <CloudTabIcon name={focused ? 'location' : 'location-outline'} color={color} focused={focused} />
           ),
         }}
       />
@@ -277,7 +295,7 @@ export default function TabsLayout() {
           title: 'Profile',
           tabBarAccessibilityLabel: 'Profile tab',
           tabBarIcon: ({ color, focused }) => (
-            <CloudTabIcon name={focused ? 'trophy' : 'person-outline'} color={color} focused={focused} />
+            <CloudTabIcon name={focused ? 'person' : 'person-outline'} color={color} focused={focused} />
           ),
         }}
       />

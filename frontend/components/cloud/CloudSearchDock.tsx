@@ -57,7 +57,7 @@ export default function CloudSearchDock({
           styles.searchRow,
           {
             backgroundColor: isDark ? 'rgba(18, 34, 54, 0.72)' : 'rgba(255,255,255,0.9)',
-            borderColor: isDark ? theme.colors.glassBorder : 'rgba(91,188,248,0.08)',
+            borderColor: isDark ? theme.colors.glassBorder : 'rgba(0, 0, 0, 0.04)',
           },
         ]}
       >

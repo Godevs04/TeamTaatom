@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, StyleSheet, StyleProp, ViewStyle } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { useTheme } from '../../context/ThemeContext';
 
 interface CloudActionGroupProps {
@@ -20,13 +21,18 @@ export default function CloudActionGroup({ children, style }: CloudActionGroupPr
       style={[
         styles.group,
         {
-          backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(91, 188, 248, 0.06)',
-          borderColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(91, 188, 248, 0.1)',
+          backgroundColor: isDark ? 'rgba(25, 25, 25, 0.72)' : 'rgba(255, 255, 255, 0.55)',
+          borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.90)',
         },
         style,
       ]}
     >
-      {children}
+      <BlurView
+        intensity={isDark ? 42 : 28}
+        tint={isDark ? 'dark' : 'light'}
+        style={StyleSheet.absoluteFillObject}
+      />
+      <View style={styles.content}>{children}</View>
     </View>
   );
 }
@@ -40,5 +46,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: 12,
     overflow: 'hidden',
+  },
+  content: {
+    zIndex: 1,
   },
 });

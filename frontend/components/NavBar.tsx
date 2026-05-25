@@ -21,7 +21,7 @@ interface NavBarProps {
 }
 
 export default function NavBar(props: NavBarProps) {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const { 
     title, 
     showBack = false, 
@@ -38,12 +38,12 @@ export default function NavBar(props: NavBarProps) {
   return (
     <SafeAreaView 
       style={{
-        backgroundColor: theme.colors.background,
+        backgroundColor: isDark ? '#000000' : theme.colors.background,
         shadowColor: theme.colors.shadow,
         shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.1,
+        shadowOpacity: isDark ? 0 : 0.1,
         shadowRadius: 6,
-        elevation: 8,
+        elevation: isDark ? 0 : 8,
         zIndex: 10,
       }} 
       edges={["top"]}
@@ -58,7 +58,7 @@ export default function NavBar(props: NavBarProps) {
         paddingHorizontal: isTablet ? 18 : 10,
         paddingVertical: 8,
         minHeight: isTablet ? 64 : 56,
-        backgroundColor: theme.colors.background,
+        backgroundColor: isDark ? '#000000' : theme.colors.background,
       }}>
         {shouldShowBack && (
           <PremiumIconButton

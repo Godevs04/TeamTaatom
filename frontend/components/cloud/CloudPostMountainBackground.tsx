@@ -13,7 +13,7 @@ export default function CloudPostMountainBackground() {
     theme.colors.background === '#06121F';
 
   const skyColors: [string, string, ...string[]] = isDark
-    ? ['#040C14', '#06121F', '#0B1A2B', '#102236']
+    ? ['#000000', '#000000', '#000000', '#000000']
     : ['#C8D8E8', '#DDE8F0', '#EEF4F8', '#F8FAFC'];
 
   return (
@@ -27,7 +27,7 @@ export default function CloudPostMountainBackground() {
       <LinearGradient
         colors={
           isDark
-            ? ['rgba(4,12,20,0.15)', 'rgba(6,18,31,0.5)', 'rgba(6,18,31,0.88)']
+            ? ['rgba(0,0,0,0.15)', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.88)']
             : ['rgba(255,255,255,0.05)', 'rgba(238,244,248,0.55)', 'rgba(248,250,252,0.92)']
         }
         locations={[0, 0.45, 1]}
@@ -56,7 +56,7 @@ export default function CloudPostMountainBackground() {
             />
             <Path
               d="M-40 520 C60 480 140 500 220 540 C300 510 380 530 430 580 L430 844 L-40 844 Z"
-              fill="rgba(6,18,31,0.75)"
+              fill="rgba(0,0,0,0.75)"
             />
           </>
         ) : (

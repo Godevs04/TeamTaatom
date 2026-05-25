@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -48,7 +49,7 @@ import { optimizeCloudinaryUrl } from '../../utils/imageCache';
 import { CloudSkyBackground } from '../../components/cloud';
 import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 import { cloudDesign } from '../../constants/cloudDesign';
-import PremiumGlassCard from '../../components/ui/PremiumGlassCard';
+import CloudGlassSurface from '../../components/cloud/CloudGlassSurface';
 
 const logger = createLogger('ProfileScreen');
 
@@ -194,40 +195,41 @@ export default function ProfileScreen() {
     (mode === 'auto' && colorScheme === 'dark') ||
     theme.colors.background === '#0B1A2B' ||
     theme.colors.background === '#000000' ||
-    theme.colors.background === '#111114';
+    theme.colors.background === '#111114' ||
+    theme.colors.background === '#121212';
 
   const profileTheme = useMemo(() => {
     if (isDark) {
       return {
-        headerGradient: ['#0B1A2B', '#102236', '#122236'] as const,
+        headerGradient: ['#000000', '#000000', '#000000'] as const,
         cardBg: theme.colors.card,
         glassCardBg: theme.colors.glassSurface,
         cardBorder: theme.colors.glassBorder,
         textPrimary: theme.colors.text,
         textSecondary: theme.colors.textSecondary,
         accent: theme.colors.primary,
-        statCardBg: 'rgba(91, 188, 248, 0.12)',
-        statCardBorder: 'rgba(91, 188, 248, 0.22)',
-        pillTabsBg: 'rgba(18, 34, 54, 0.88)',
-        explorerBadgeBg: 'rgba(91, 188, 248, 0.18)',
+        statCardBg: 'rgba(255, 255, 255, 0.03)',
+        statCardBorder: 'rgba(255, 255, 255, 0.08)',
+        pillTabsBg: 'rgba(0, 0, 0, 0.4)',
+        explorerBadgeBg: 'rgba(255, 255, 255, 0.08)',
         explorerBadgeText: theme.colors.primary,
-        gapBorderColor: '#06121F',
+        gapBorderColor: '#000000',
       };
     }
     return {
-      headerGradient: ['#A8DAFC', '#E8F4FF', '#FFFFFF'] as const,
+      headerGradient: ['#F5F7FA', '#F5F7FA'] as const,
       cardBg: '#FFFFFF',
-      glassCardBg: 'rgba(255, 255, 255, 0.78)',
-      cardBorder: 'rgba(255, 255, 255, 0.76)',
-      textPrimary: '#1A2B3C',
-      textSecondary: '#4A6274',
-      accent: '#2B7FD4',
-      statCardBg: 'rgba(91, 188, 248, 0.14)',
-      statCardBorder: 'rgba(91, 188, 248, 0.26)',
-      pillTabsBg: '#F3F4F6',
-      explorerBadgeBg: cloudDesign.skyPale,
-      explorerBadgeText: cloudDesign.blueDeep,
-      gapBorderColor: '#EDF7FF',
+      glassCardBg: 'rgba(255, 255, 255, 0.55)',
+      cardBorder: 'rgba(255, 255, 255, 0.90)',
+      textPrimary: '#121212',
+      textSecondary: '#667085',
+      accent: '#121212',
+      statCardBg: 'rgba(255, 255, 255, 0.55)',
+      statCardBorder: 'rgba(255, 255, 255, 0.90)',
+      pillTabsBg: 'rgba(255, 255, 255, 0.60)',
+      explorerBadgeBg: '#F5F7FA',
+      explorerBadgeText: '#121212',
+      gapBorderColor: '#F5F7FA',
     };
   }, [isDark, theme.colors]);
 
@@ -846,15 +848,21 @@ export default function ProfileScreen() {
                   items.push(item);
                 }
               } else {
-                // Post not found in response
+                // Post not found in response payload
                 const id = batches[batchIndex][itemIndex];
-                failedIds.push(id);
+                logger.warn(`Resolved saved item ${id} but could not find post in response`, val);
               }
             } else {
-              // Post fetch failed (deleted or doesn't exist)
+              // Post fetch failed (deleted, auth issue, or network error)
               const id = batches[batchIndex][itemIndex];
-              failedIds.push(id);
-              // Silently handle - don't log every failed post to avoid spam
+              const reason = (r as any).reason;
+              
+              // Only treat as permanently deleted if the server explicitly returns a 404 Not Found
+              if (reason && reason.response && reason.response.status === 404) {
+                failedIds.push(id);
+              } else {
+                logger.warn(`Saved item ${id} fetch failed transiently (will retry next time):`, reason?.message || reason);
+              }
             }
           });
         });
@@ -1259,14 +1267,25 @@ export default function ProfileScreen() {
       />
 
       {/* Top Bar Container matching Home feed's top bar */}
-      <View style={[styles.topBarContainer, { paddingTop: insets.top, height: 56 + insets.top }]}>
+      <View style={[
+        styles.topBarContainer,
+        {
+          paddingTop: insets.top,
+          height: 56 + insets.top,
+          backgroundColor: 'transparent',
+          borderTopWidth: 0,
+          borderBottomWidth: 1,
+          borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.90)',
+          shadowOpacity: isDark ? 0.3 : 0.04,
+          shadowRadius: 8,
+          elevation: 6,
+        }
+      ]}>
         <LinearGradient
-          colors={
-            isDark
-              ? ['#06121F', '#102236']
-              : ['#A8DAFC', '#C8E8FF']
-          }
+          colors={isDark ? ['#1A1C23', '#0F1015'] : ['#FFFFFF', '#F5F7FA']}
           style={StyleSheet.absoluteFillObject}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
         />
         <View style={styles.header}>
           <TouchableOpacity
@@ -1370,7 +1389,6 @@ export default function ProfileScreen() {
               tripsCount={tripsCount}
               countriesCount={countriesCount}
               verifiedLocations={verifiedLocations}
-              highlightPosts={posts}
               userId={user?._id ?? profileData._id}
               isDark={isDark}
               accent={profileTheme.accent}
@@ -1398,14 +1416,14 @@ export default function ProfileScreen() {
               }}
             />
 
-          <PremiumGlassCard
+          <CloudGlassSurface
             style={[
               styles.unifiedCard,
               isDark && { shadowColor: theme.colors.glowBlue || theme.colors.primary },
             ]}
             contentStyle={styles.unifiedCardInner}
-            strong={isDark}
-            subtle
+            blur={false}
+            borderRadius={28}
           >
             {/* Posts/Shorts/Saved Tabs - Pill Style (padded row) */}
             <View
@@ -1438,13 +1456,13 @@ export default function ProfileScreen() {
                     <Ionicons 
                       name={tab==='posts' ? 'images-outline' : tab==='shorts' ? 'videocam-outline' : 'bookmark-outline'} 
                       size={18} 
-                      color={activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary} 
+                      color={activeTab===tab ? (isDark ? '#121212' : '#FFFFFF') : profileTheme.textSecondary} 
                     />
                     <Text style={[
                       styles.pillTabText, 
-                      { color: activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary }
+                      { color: activeTab===tab ? (isDark ? '#121212' : '#FFFFFF') : profileTheme.textSecondary }
                     ]}>
-                      {tab === 'posts' ? 'Posts 📸' : tab === 'shorts' ? 'Shorts 🎬' : 'Saved 🔖'}
+                      {tab === 'posts' ? 'Posts' : tab === 'shorts' ? 'Shorts' : 'Saved'}
                     </Text>
                   </Pressable>
                 ))}
@@ -1776,7 +1794,7 @@ export default function ProfileScreen() {
               )}
             </View>
           </View>
-          </PremiumGlassCard>
+          </CloudGlassSurface>
           </>
         )}
         

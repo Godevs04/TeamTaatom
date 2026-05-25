@@ -27,6 +27,7 @@ import { getUserFromStorage } from '../../services/auth';
 import { useSettings } from '../../context/SettingsContext';
 import { createLogger } from '../../utils/logger';
 import { theme } from '../../constants/theme';
+import FastImage from '../../components/ui/FastImage';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -243,8 +244,7 @@ export default function SettingsScreen() {
 
   if (isLoading) {
     return (
-      <View style={[styles.container, { backgroundColor: isDark ? '#06121F' : '#EDF7FF' }]}>
-        <CloudSkyBackground heightRatio={0.35} />
+      <View style={[styles.container, { backgroundColor: isDark ? '#000000' : '#F5F7FA' }]}>
         <SafeAreaView style={styles.safeFill} edges={['top']}>
         <NavBar title="Settings" showBack onBack={() => router.back()} />
         <View style={styles.loadingContainer}>
@@ -256,12 +256,11 @@ export default function SettingsScreen() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: isDark ? '#06121F' : '#EDF7FF' }]}>
-      <CloudSkyBackground heightRatio={0.38} />
+    <View style={[styles.container, { backgroundColor: isDark ? '#000000' : '#F5F7FA' }]}>
       <LinearGradient
         colors={
           isDark
-            ? ['#06121F', '#102236', '#07111C']
+            ? ['#000000', '#000000', '#000000']
             : (theme.colors.screenGradient as [string, string, ...string[]])
         }
         style={StyleSheet.absoluteFillObject}
@@ -310,12 +309,20 @@ export default function SettingsScreen() {
         }
       >
         <CloudGlassSurface style={styles.headerContainer} contentStyle={styles.userInfo} borderRadius={18}>
-          <Text style={[styles.userName, { color: theme.colors.text }]}>
-            {user?.fullName || 'User'}
-          </Text>
-          <Text style={[styles.userEmail, { color: theme.colors.textSecondary }]}>
-            {user?.email}
-          </Text>
+          <FastImage
+            source={user?.profilePic ? { uri: user.profilePic } : require('../../assets/avatars/male_avatar.png')}
+            style={styles.avatar}
+          />
+          <View style={styles.userDetails}>
+            <Text style={[styles.userName, { color: theme.colors.text }]} numberOfLines={1}>
+              {user?.fullName || 'User'}
+            </Text>
+            {user?.email ? (
+              <Text style={[styles.userEmail, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                {user.email}
+              </Text>
+            ) : null}
+          </View>
         </CloudGlassSurface>
 
         <CloudActionGroup style={styles.sectionsGroup}>
@@ -324,7 +331,6 @@ export default function SettingsScreen() {
               key={section.id}
               icon={section.icon as keyof typeof Ionicons.glyphMap}
               title={section.title}
-              subtitle={section.description}
               onPress={() => navigateToSection(section)}
               showDivider={index > 0}
               iconTint={theme.colors.primary}
@@ -385,25 +391,36 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.sm,
   },
   userInfo: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: isTablet ? theme.spacing.lg : theme.spacing.md,
-    paddingHorizontal: theme.spacing.md,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
+  userDetails: {
+    flex: 1,
+    marginLeft: 12,
   },
   sectionsGroup: {
     marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
     marginBottom: theme.spacing.md,
   },
   userName: {
-    fontSize: isTablet ? theme.typography.h3.fontSize : 20,
+    fontSize: isTablet ? 18 : 16,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
-    marginBottom: 4,
+    marginBottom: 2,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
   },
   userEmail: {
-    fontSize: isTablet ? theme.typography.body.fontSize : 14,
+    fontSize: isTablet ? 14 : 13,
     fontFamily: getFontFamily('400'),
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',

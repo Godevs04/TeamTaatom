@@ -541,7 +541,7 @@ export default function ConnectHubScreen() {
         {user.profilePic ? (
           <Image source={{ uri: user.profilePic }} style={styles.userAvatar} />
         ) : (
-          <View style={[styles.userAvatarPlaceholder, { backgroundColor: 'rgba(91,188,248,0.12)' }]}>
+          <View style={[styles.userAvatarPlaceholder, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
             <Ionicons name="person" size={22} color={theme.colors.textSecondary} />
           </View>
         )}

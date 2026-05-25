@@ -43,6 +43,7 @@ import { audioManager } from '../../utils/audioManager';
 import { savedEvents } from '../../utils/savedEvents';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { CloudSkyBackground, CloudSegmentedControl } from '../../components/cloud';
 import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 import { NativeAdCard } from '../../components/ads/NativeAdCard';
@@ -416,6 +417,11 @@ export default function HomeScreen() {
       fetchingTabsRef.current.add(requestFeedMode);
     }
 
+    const showSkeleton = pageNum === 1 && postsRef.current.length === 0;
+    if (showSkeleton) {
+      setLoading(true);
+    }
+
     isFetchingRef.current = true;
     try {
       logger.debug(`Fetching posts page=${pageNum} feed=${requestFeedMode}`);
@@ -629,6 +635,9 @@ export default function HomeScreen() {
         isPaginatingRef.current = false;
       } else {
         fetchingTabsRef.current.delete(requestFeedMode);
+      }
+      if (showSkeleton && feedModeRef.current === requestFeedMode) {
+        setLoading(false);
       }
     }
   }, [isOnline, feedMode, mergeLikedIntoPosts, params.postId]);
@@ -1186,7 +1195,7 @@ export default function HomeScreen() {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: mode === 'dark' ? '#06121F' : '#EDF7FF',
+      backgroundColor: mode === 'dark' ? '#121212' : '#F5F7FA',
       ...(isWeb && {
         maxWidth: isTablet ? 800 : 600,
         alignSelf: 'center',
@@ -1206,13 +1215,16 @@ export default function HomeScreen() {
       right: 0,
       paddingTop: insets.top,
       zIndex: 1000,
-      backgroundColor: mode === 'dark' ? '#06121F' : '#EDF7FF',
+      backgroundColor: 'transparent',
+      borderTopWidth: 0,
+      borderBottomWidth: 1,
+      borderBottomColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.90)',
       // Shadow Mechanics
       shadowColor: '#000000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.15,
-      shadowRadius: 3,
-      elevation: 4,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: mode === 'dark' ? 0.3 : 0.04,
+      shadowRadius: 8,
+      elevation: 6,
       overflow: 'visible',
       ...(isWeb && {
         maxWidth: isTablet ? 800 : 600,
@@ -1322,6 +1334,7 @@ export default function HomeScreen() {
     <AnimatedHeader
       unseenMessageCount={unseenMessageCount}
       onRefresh={handleRefresh}
+      disableSafeArea={true}
     />
   );
 
@@ -1433,7 +1446,7 @@ export default function HomeScreen() {
       <LinearGradient
         colors={
           mode === 'dark'
-            ? ['#06121F', '#102236', '#07111C']
+            ? ['#121212', '#121212', '#121212']
             : (theme.colors.screenGradient as [string, string, ...string[]])
         }
         style={StyleSheet.absoluteFillObject}
@@ -1454,12 +1467,10 @@ export default function HomeScreen() {
           />
           <View style={[styles.topBarContainer, { position: 'relative', shadowOpacity: 0, elevation: 0 }]}>
             <LinearGradient
-              colors={
-                mode === 'dark'
-                  ? ['#06121F', '#102236']
-                  : ['#A8DAFC', '#C8E8FF']
-              }
+              colors={mode === 'dark' ? ['#000000', '#000000'] : ['#FFFFFF', '#F5F7FA']}
               style={StyleSheet.absoluteFillObject}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
             />
             {renderTopHeader()}
             {renderFeedTabs()}
@@ -1580,12 +1591,10 @@ export default function HomeScreen() {
         {/* Absolute Top Bar (zIndex: 1000) */}
         <View style={styles.topBarContainer}>
           <LinearGradient
-            colors={
-              mode === 'dark'
-                ? ['#06121F', '#102236']
-                : ['#A8DAFC', '#C8E8FF']
-            }
+            colors={mode === 'dark' ? ['#000000', '#000000'] : ['#FFFFFF', '#F5F7FA']}
             style={StyleSheet.absoluteFillObject}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0, y: 1 }}
           />
           {renderTopHeader()}
           {renderFeedTabs()}

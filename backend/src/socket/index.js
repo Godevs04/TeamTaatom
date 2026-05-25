@@ -353,6 +353,16 @@ function setupSocket(server) {
     });
   };
 
+  nsp.emitPostView = (postId, viewsCount, userId) => {
+    logger.debug('Emitting post view update:', { postId, viewsCount, userId });
+    nsp.emit('post:view:update', {
+      postId,
+      viewsCount,
+      userId,
+      timestamp: new Date()
+    });
+  };
+
   return nsp;
 }
 

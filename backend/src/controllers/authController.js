@@ -345,6 +345,7 @@ const getMe = async (req, res) => {
       profilePic: profilePicUrl,
       followers: user.followers?.length ?? 0,
       following: user.following?.length ?? 0,
+      followingIds: user.following ? user.following.map(f => (f && (f._id || f)).toString()).filter(Boolean) : [],
       totalLikes: user.totalLikes ?? 0,
       isVerified: user.isVerified,
       createdAt: user.createdAt,

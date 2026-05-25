@@ -136,18 +136,27 @@ function CloudLocaleCard({
                 opacity: pulseAnim,
                 width: 70,
                 height: 22,
-                backgroundColor: 'rgba(91,188,248,0.15)',
+                backgroundColor: glass.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0, 0, 0, 0.04)',
+                borderColor: glass.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0, 0, 0, 0.02)',
                 justifyContent: 'center',
                 alignItems: 'center',
               }
             ]}
           >
-            <View style={{ width: 45, height: 8, backgroundColor: 'rgba(91,188,248,0.3)', borderRadius: 4 }} />
+            <View style={{ width: 45, height: 8, backgroundColor: glass.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0, 0, 0, 0.08)', borderRadius: 4 }} />
           </Animated.View>
         ) : (
-          <View style={[styles.distBadge, { flexShrink: 1, maxWidth: '60%' }]}>
-            <Ionicons name="location-sharp" size={10} color={cloudDesign.blueDeep} />
-            <Text style={[styles.distText, { flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
+          <View style={[
+            styles.distBadge,
+            {
+              backgroundColor: glass.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0, 0, 0, 0.06)',
+              borderColor: glass.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0, 0, 0, 0.04)',
+              flexShrink: 1,
+              maxWidth: '60%',
+            }
+          ]}>
+            <Ionicons name="location-sharp" size={10} color={glass.textSecondary} />
+            <Text style={[styles.distText, { flexShrink: 1, color: glass.textPrimary }]} numberOfLines={1} ellipsizeMode="tail">
               {distanceText}
             </Text>
           </View>
@@ -220,9 +229,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(91,188,248,0.18)',
     borderWidth: 1,
-    borderColor: 'rgba(91,188,248,0.25)',
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: cloudDesign.radius.pill,
@@ -231,7 +238,6 @@ const styles = StyleSheet.create({
   distText: {
     fontSize: 10,
     fontWeight: '800',
-    color: cloudDesign.blueDeep,
   },
   dataPanel: {
     position: 'absolute',

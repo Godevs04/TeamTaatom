@@ -289,7 +289,7 @@ const getPosts = async (req, res) => {
           $addFields: {
             comments: {
               $map: {
-                input: '$comments',
+                input: { $ifNull: ['$comments', []] },
                 as: 'comment',
                 in: {
                   $mergeObjects: [
@@ -621,7 +621,7 @@ const getPostById = async (req, res) => {
           $addFields: {
             comments: {
               $map: {
-                input: '$comments',
+                input: { $ifNull: ['$comments', []] },
                 as: 'comment',
                 in: {
                   $mergeObjects: [
@@ -1432,7 +1432,7 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
         $addFields: {
           comments: {
             $map: {
-              input: '$comments',
+              input: { $ifNull: ['$comments', []] },
               as: 'comment',
               in: {
                 $mergeObjects: [
@@ -1974,7 +1974,7 @@ const getUserPosts = async (req, res) => {
           $addFields: {
             comments: {
               $map: {
-                input: '$comments',
+                input: { $ifNull: ['$comments', []] },
                 as: 'comment',
                 in: {
                   $mergeObjects: [
@@ -3076,7 +3076,7 @@ const getShorts = async (req, res) => {
         $addFields: {
           comments: {
             $map: {
-              input: '$comments',
+              input: { $ifNull: ['$comments', []] },
               as: 'comment',
               in: {
                 $mergeObjects: [

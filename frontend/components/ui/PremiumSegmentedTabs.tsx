@@ -37,7 +37,7 @@ export default function PremiumSegmentedTabs<T extends string>({
         styles.container,
         {
           backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.45)',
-          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(91,188,248,0.12)',
+          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0, 0, 0, 0.08)',
         },
         cloudDesign.shadowCard,
         style,
@@ -114,7 +114,7 @@ const styles = StyleSheet.create({
   tabActiveLight: {},
   tabActiveDark: {},
   tabActiveDarkFill: {
-    backgroundColor: 'rgba(91, 188, 248, 0.42)',
+    backgroundColor: '#000000',
   },
   label: {
     fontSize: 13,

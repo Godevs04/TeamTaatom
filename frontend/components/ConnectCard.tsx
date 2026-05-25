@@ -59,7 +59,11 @@ export default function ConnectCard({
       <CloudGlassSurface style={styles.card} contentStyle={styles.cardContent} borderRadius={18}>
         <View style={styles.imageContainer}>
           {cachedImageUri ? (
-            <Image source={{ uri: cachedImageUri }} style={styles.profileImage} onLoad={() => imageCacheManager.cacheAfterDisplay(rawImageUrl)} />
+            <Image
+              source={{ uri: cachedImageUri }}
+              style={[styles.profileImage, { borderColor: glass.isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)' }]}
+              onLoad={() => imageCacheManager.cacheAfterDisplay(rawImageUrl)}
+            />
           ) : (
             <View style={[styles.profileImagePlaceholder, { backgroundColor: glass.isDark ? 'rgba(255,255,255,0.08)' : theme.colors.border }]}>
               <Ionicons name="people" size={24} color={glass.textMuted} />
@@ -116,12 +120,12 @@ export default function ConnectCard({
             style={styles.followHit}
           >
             {isFollowing ? (
-              <View style={[styles.followGhost, { backgroundColor: glass.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(91,188,248,0.12)' }]}>
+              <View style={[styles.followGhost, { backgroundColor: glass.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0, 0, 0, 0.06)' }]}>
                 <Text style={[styles.followButtonText, { color: glass.textPrimary }]}>Following</Text>
               </View>
             ) : (
               <LinearGradient
-                colors={['#5BBCF8', '#2B7FD4']}
+                colors={['#1F2026', '#121318']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.followFilled}
@@ -158,7 +162,6 @@ const styles = StyleSheet.create({
     height: isTablet ? 56 : 48,
     borderRadius: isTablet ? 28 : 24,
     borderWidth: 2,
-    borderColor: 'rgba(142, 184, 255, 0.45)',
   },
   profileImagePlaceholder: {
     width: isTablet ? 56 : 48,

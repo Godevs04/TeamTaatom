@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
+import { useIsFocused } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
 import { Song } from '../services/songs';
 
@@ -35,6 +36,16 @@ export const SongBar: React.FC<SongBarProps> = ({
   const soundRef = useRef<Audio.Sound | null>(null);
   const statusIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
+  const isFocused = useIsFocused();
+
+  // Pause preview when screen loses focus
+  useEffect(() => {
+    if (!isFocused && isPlaying && soundRef.current) {
+      soundRef.current.pauseAsync().catch(() => {});
+      setIsPlaying(false);
+      if (statusIntervalRef.current) clearInterval(statusIntervalRef.current);
+    }
+  }, [isFocused, isPlaying]);
 
   // Cleanup on unmount
   useEffect(() => {

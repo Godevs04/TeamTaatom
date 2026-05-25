@@ -34,7 +34,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import PostComments from '../../components/post/PostComments';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
-import { trackScreenView, trackEngagement, trackPostView } from '../../services/analytics';
+import { trackScreenView, trackEngagement } from '../../services/analytics';
 import SongPlayer from '../../components/SongPlayer';
 import { theme } from '../../constants/theme';
 import { audioManager } from '../../utils/audioManager';
@@ -44,7 +44,8 @@ import { socketService } from '../../services/socket';
 import ShareModal from '../../components/ShareModal';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { ShortsNativeAd } from '../../components/ads/ShortsNativeAd';
-import { useAdCap, recordGoogleAdImpression } from '../../services/adCap';
+import { useAdCap, recordGoogleAdImpression, logContentView } from '../../services/adCap';
+import { realtimePostsService } from '../../services/realtimePosts';
 import Constants from 'expo-constants';
 
 /** Shorts list item: either a reel (PostType) or a full-screen native ad slot. */
@@ -57,6 +58,7 @@ function isAdItem(item: ShortsItem): item is { type: 'ad'; adIndex: number } {
 const SHORTS_ADS_AFTER_EVERY = 5;
 const MAX_SHORTS_ADS = 3;
 const SHORTS_ADS_SESSION_DELAY_MS = 20000;
+const SHORT_VIEW_DWELL_MS = 1000;
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const isTablet = SCREEN_WIDTH >= 768;
@@ -157,6 +159,221 @@ const ShortCellMemo = React.memo(
   (prev, next) => prev.cacheKey === next.cacheKey
 );
 
+const MemoizedVideo = React.memo(
+  React.forwardRef<Video, React.ComponentProps<typeof Video>>((props, ref) => {
+    return <Video ref={ref} {...props} />;
+  }),
+  (prev, next) => {
+    const prevUri = prev.source && typeof prev.source === 'object' && 'uri' in prev.source ? (prev.source as any).uri : null;
+    const nextUri = next.source && typeof next.source === 'object' && 'uri' in next.source ? (next.source as any).uri : null;
+
+    // Native expo-av players are fragile when parent UI state changes. Only
+    // playback, mute, or source changes are allowed to reach the native Video.
+    return (
+      prev.shouldPlay === next.shouldPlay &&
+      prev.isMuted === next.isMuted &&
+      prevUri === nextUri
+    );
+  }
+);
+
+MemoizedVideo.displayName = 'MemoizedShortsVideo';
+
+const likeRailListeners = new Map<string, Set<(isLiked: boolean) => void>>();
+
+const emitLikeRailState = (shortId: string, isLiked: boolean) => {
+  likeRailListeners.get(shortId)?.forEach((listener) => listener(isLiked));
+};
+
+interface LocalShortsActionRailProps {
+  short: PostType;
+  shortId: string;
+  userId: string;
+  username?: string;
+  profilePic?: string;
+  initialIsLiked: boolean;
+  initialLikesCount: number;
+  commentsCount: number;
+  isSaved: boolean;
+  isFollowing: boolean;
+  isOwn: boolean;
+  currentUserLoaded: boolean;
+  onProfilePress: (userId: string) => void;
+  onLikePress: (shortId: string) => void;
+  onCommentPress: (shortId: string) => void;
+  onSharePress: (short: PostType) => void;
+  onSavePress: (shortId: string) => void;
+}
+
+const LocalShortsActionRail = React.memo(({
+  shortId,
+  short,
+  userId,
+  username,
+  profilePic,
+  initialIsLiked,
+  initialLikesCount,
+  commentsCount,
+  isSaved,
+  isFollowing,
+  isOwn,
+  currentUserLoaded,
+  onProfilePress,
+  onLikePress,
+  onCommentPress,
+  onSharePress,
+  onSavePress,
+}: LocalShortsActionRailProps) => {
+  const [localIsLiked, setLocalIsLiked] = useState(initialIsLiked);
+  const [localLikesCount, setLocalLikesCount] = useState(initialLikesCount);
+
+  useEffect(() => {
+    setLocalIsLiked(initialIsLiked);
+    setLocalLikesCount(initialLikesCount);
+  }, [shortId, initialIsLiked, initialLikesCount]);
+
+  useEffect(() => {
+    const listener = (nextLiked: boolean) => {
+      setLocalIsLiked((wasLiked) => {
+        if (wasLiked === nextLiked) return wasLiked;
+        setLocalLikesCount((count) => nextLiked ? count + 1 : Math.max(count - 1, 0));
+        return nextLiked;
+      });
+    };
+    const listeners = likeRailListeners.get(shortId) ?? new Set<(isLiked: boolean) => void>();
+    listeners.add(listener);
+    likeRailListeners.set(shortId, listeners);
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0) {
+        likeRailListeners.delete(shortId);
+      }
+    };
+  }, [shortId]);
+
+
+  const handleProfilePressLocal = useCallback(() => {
+    onProfilePress(userId);
+  }, [onProfilePress, userId]);
+
+  const handleLikePressLocal = useCallback(() => {
+    setLocalIsLiked((wasLiked) => {
+      const nextLiked = !wasLiked;
+      setLocalLikesCount((count) => nextLiked ? count + 1 : Math.max(count - 1, 0));
+      return nextLiked;
+    });
+    onLikePress(shortId);
+  }, [onLikePress, shortId]);
+
+  const handleCommentPressLocal = useCallback(() => {
+    onCommentPress(shortId);
+  }, [onCommentPress, shortId]);
+
+  const handleSavePressLocal = useCallback(() => {
+    onSavePress(shortId);
+  }, [onSavePress, shortId]);
+
+  const handleSharePressLocal = useCallback(() => {
+    onSharePress(short);
+  }, [onSharePress, short]);
+
+  const profileSource = useMemo(
+    () => profilePic ? { uri: profilePic } : require('../../assets/avatars/male_avatar.png'),
+    [profilePic]
+  );
+
+  return (
+    <View style={styles.rightActions} pointerEvents="box-none">
+      <TouchableOpacity
+        style={styles.profileButton}
+        onPress={handleProfilePressLocal}
+        accessibilityLabel={`View ${username || 'user'}'s profile`}
+        accessibilityRole="button"
+      >
+        <ExpoImage
+          source={profileSource}
+          style={styles.profileImage as ImageStyle}
+          cachePolicy="memory-disk"
+          placeholder={require('../../assets/avatars/male_avatar.png')}
+          contentFit="cover"
+          transition={200}
+          onError={(e: any) => logger.warn('[shorts profile avatar] load failed', {
+            userId,
+            url: profilePic?.substring(0, 120),
+            error: e?.error || e?.nativeEvent?.error || String(e),
+          })}
+        />
+        {currentUserLoaded && !isOwn && (
+          <View style={[styles.followButton, isFollowing && styles.followingButton]}>
+            <Ionicons
+              name={isFollowing ? "checkmark" : "add"}
+              size={12}
+              color="white"
+            />
+          </View>
+        )}
+      </TouchableOpacity>
+
+      <Pressable
+        style={styles.actionButton}
+        onPress={handleLikePressLocal}
+        accessibilityLabel={localIsLiked ? `Unlike, ${localLikesCount} likes` : `Like, ${localLikesCount} likes`}
+        accessibilityRole="button"
+      >
+        <View style={[styles.actionIconContainer, localIsLiked && styles.likedContainer]}>
+          <Ionicons
+            name={localIsLiked ? "heart" : "heart-outline"}
+            size={28}
+            color={localIsLiked ? "#FF3040" : "white"}
+          />
+        </View>
+        <Text style={styles.actionText}>{localLikesCount}</Text>
+      </Pressable>
+
+      <Pressable
+        style={styles.actionButton}
+        onPress={handleCommentPressLocal}
+        accessibilityLabel={`Comment, ${commentsCount || 0} comments`}
+        accessibilityRole="button"
+      >
+        <View style={styles.actionIconContainer}>
+          <Ionicons name="chatbubble-outline" size={28} color="white" />
+        </View>
+        <Text style={styles.actionText}>{commentsCount || 0}</Text>
+      </Pressable>
+
+      <Pressable
+        style={styles.actionButton}
+        onPress={handleSharePressLocal}
+        accessibilityLabel="Share"
+        accessibilityRole="button"
+      >
+        <View style={styles.actionIconContainer}>
+          <Ionicons name="paper-plane-outline" size={28} color="white" />
+        </View>
+      </Pressable>
+
+      <Pressable
+        style={styles.actionButton}
+        onPress={handleSavePressLocal}
+        accessibilityLabel={isSaved ? 'Remove from saved' : 'Save'}
+        accessibilityRole="button"
+      >
+        <View style={styles.actionIconContainer}>
+          <Ionicons
+            name={isSaved ? "bookmark" : "bookmark-outline"}
+            size={28}
+            color={isSaved ? "#FFD700" : "white"}
+          />
+        </View>
+      </Pressable>
+    </View>
+  );
+});
+
+LocalShortsActionRail.displayName = 'LocalShortsActionRail';
+
+
 export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [shorts, setShorts] = useState<PostType[]>([]);
   const [loading, setLoading] = useState(true);
@@ -168,10 +385,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const isScreenFocusedRef = useRef(true);
   const [videoStates, setVideoStates] = useState<{ [key: string]: boolean }>({});
   const [containerHeight, setContainerHeight] = useState(SCREEN_HEIGHT - TAB_BAR_HEIGHT);
-  // Per-video "first frame decoded" flag. Drives opacity so the ExpoImage
-  // backdrop stays visible until the native player actually paints a frame.
-  // Set via onReadyForDisplay — never cleared manually (unmount handles reset).
-  const [videoReady, setVideoReady] = useState<{ [key: string]: boolean }>({});
   const [showPauseButton, setShowPauseButton] = useState<{ [key: string]: boolean }>({});
   const [showLikeAnimation, setShowLikeAnimation] = useState<{ [key: string]: boolean }>({});
   const [likeAnimationParticles, setLikeAnimationParticles] = useState<{ [key: string]: Array<{ id: string; x: number; y: number }> }>({});
@@ -190,6 +403,17 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [showSwipeHint, setShowSwipeHint] = useState(true);
   const [videoQuality, setVideoQuality] = useState<'low' | 'medium' | 'high'>('high');
   const [expandedCaptions, setExpandedCaptions] = useState<{ [key: string]: boolean }>({});
+
+  useEffect(() => {
+    const unsubscribe = realtimePostsService.subscribeToViews(({ postId, viewsCount }) => {
+      setShorts(prev => prev.map(short => (
+        short._id === postId
+          ? { ...short, viewsCount, views: viewsCount } as any
+          : short
+      )));
+    });
+    return unsubscribe;
+  }, []);
 
   // Per-short source-URL "version". Bumped when onError refetches a fresh
   // signed URL — appended to the Video's key so React fully unmounts the
@@ -213,7 +437,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // Hard cap: track ads shown this session; never insert more than 3 ad slots total
   const adsShownThisSessionRef = useRef(0);
   const [adsShownThisSession, setAdsShownThisSession] = useState(0);
-  // Persistent 3-per-8h Google AdMob cap, shared with the home feed. The
+  // Persistent 5-per-8h Google AdMob cap, shared with the home feed. The
   // existing per-session counter above stays in place as defense-in-depth;
   // the persistent cap is the authoritative limit across app restarts.
   const adCap = useAdCap();
@@ -226,6 +450,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // single failure stops further ad insertion until next app launch (per
   // CLAUDE.md "stability first" — better to lose ads than show black slots).
   const [shortsAdsBroken, setShortsAdsBroken] = useState(false);
+  const consecutiveAdFailuresRef = useRef(0);
 
   const flatListRef = useRef<FlatList>(null);
   const videoRefs = useRef<{ [key: string]: Video | null }>({});
@@ -276,7 +501,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // When we blur with userId in params (e.g. tab switch), clear params on next focus so Shorts shows all users
   const shouldClearParamsOnNextFocusRef = useRef<boolean>(false);
   const lastViewTimeRef = useRef<number>(0);
-  const VIEW_DEBOUNCE_MS = 2000; // Prevent duplicate view events within 2 seconds
+  const VIEW_DEBOUNCE_MS = SHORT_VIEW_DWELL_MS; // Prevent duplicate view events within 1 second
   // Ref to store loadShorts function for socket handlers (prevents stale closure)
   const loadShortsRef = useRef<(() => Promise<void>) | null>(null);
   const currentPageRef = useRef(1);
@@ -688,7 +913,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         logger.debug('App backgrounded, paused current video and audio');
       } else if (nextAppState === 'active') {
         // App coming to foreground - resume current video if screen is focused
-        if (activeVideoIdRef.current && shorts[currentVisibleIndex]) {
+        if (activeVideoIdRef.current && shorts[currentVisibleIndex] && isScreenFocusedRef.current) {
           const currentVideoId = shorts[currentVisibleIndex]._id;
           if (currentVideoId === activeVideoIdRef.current) {
             const video = videoRefs.current[currentVideoId];
@@ -1535,7 +1760,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     delete likeDebounceRefs.current[shortId];
 
     try {
-      setActionLoading(shortId);
       const response = await toggleLike(shortId);
       
       const finalSet = new Set(likedShortIdsRef.current);
@@ -1543,15 +1767,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       else finalSet.delete(shortId);
       likedShortIdsRef.current = finalSet;
       AsyncStorage.setItem(LIKED_SHORTS_STORAGE_KEY, JSON.stringify([...finalSet])).catch(() => {});
-
-      // Only update the state with the response if there are no new pending user toggles
-      if (!likeDebounceRefs.current[shortId]) {
-        setShorts(prev => prev.map(short => 
-          short._id === shortId 
-            ? { ...short, isLiked: response.isLiked, likesCount: response.likesCount }
-            : short
-        ));
-      }
 
       trackEngagement('like', 'short', shortId, {
         isLiked: response.isLiked
@@ -1565,17 +1780,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       likedShortIdsRef.current = revertSet;
       AsyncStorage.setItem(LIKED_SHORTS_STORAGE_KEY, JSON.stringify([...revertSet])).catch(() => {});
 
-      if (!likeDebounceRefs.current[shortId]) {
-        setShorts(prev => prev.map(short => 
-          short._id === shortId 
-            ? { ...short, isLiked: pending.originalState, likesCount: pending.originalLikesCount }
-            : short
-        ));
-      }
-
       showError('Failed to update like status');
-    } finally {
-      setActionLoading(null);
     }
   }, [showError]);
 
@@ -1584,7 +1789,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const currentShort = shortsRef.current.find(s => s._id === shortId);
     if (!currentShort) return;
 
-    const originalIsLiked = currentShort.isLiked || false;
+    const originalIsLiked = likedShortIdsRef.current.has(shortId) || currentShort.isLiked || false;
     const originalLikesCount = currentShort.likesCount || 0;
 
     // If forceLike is true and it's already liked, strictly show the heart animation and return
@@ -1598,15 +1803,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       ? originalLikesCount + 1 
       : Math.max(originalLikesCount - 1, 0);
 
-    // Perform optimistic state update in the UI immediately
-    setShorts(prev => prev.map(short => 
-      short._id === shortId 
-        ? { ...short, isLiked: newIsLiked, likesCount: newLikesCount }
-        : short
-    ));
-
-    // Show heart pop animation if liked
-    if (newIsLiked) {
+    // Keep the video cell isolated from like state. The action rail performs
+    // its own optimistic UI update; the parent only mirrors persisted liked IDs.
+    if (newIsLiked && forceLike) {
+      emitLikeRailState(shortId, true);
       showLikeAnimationTemporarily(shortId);
     }
 
@@ -1955,7 +2155,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // Three independent caps must all permit a slot:
   //   1. UX gates: hasWatchedFiveReels + adsAllowedAfter20s.
   //   2. Per-session counter (defense-in-depth, resets on app restart).
-  //   3. Persistent 3-per-8h cap (adCap, shared with home feed).
+  //   3. Persistent 5-per-8h cap (adCap, shared with home feed).
   // Whichever is most restrictive wins.
   const showShortsAds = !isWeb && !isExpoGo && hasWatchedFiveReels && adsAllowedAfter20s && !adCap.isCapped && !shortsAdsBroken;
   const shortsData = useMemo((): ShortsItem[] => {
@@ -2092,11 +2292,29 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     if (visibleItem && !isAdItem(visibleItem)) {
       const currentShort = visibleItem as PostType;
       
-      // Start a 2-second timer. User must stay on this short for 2s to count as a view.
-      viewTimerRef.current = setTimeout(() => {
-        trackPostView(currentShort._id, { type: 'short', source: 'shorts_feed' });
+      // Start a 1-second timer. User must stay on this short for 1s to count as a view.
+      viewTimerRef.current = setTimeout(async () => {
+        if (currentUser?._id && currentShort.user?._id === currentUser._id) {
+          viewTimerRef.current = null;
+          return;
+        }
+        const result = await logContentView(currentShort._id, 'short', { type: 'short', source: 'shorts_feed' });
+        if (result.incremented) {
+          const existing = shortsRef.current.find(short => short._id === currentShort._id);
+          const emittedViewsCount = existing
+            ? (((existing as any).viewsCount ?? (existing as any).views ?? 0) + 1)
+            : null;
+          setShorts(prev => prev.map(short => {
+            if (short._id !== currentShort._id) return short;
+            const nextViews = emittedViewsCount ?? (((short as any).viewsCount ?? (short as any).views ?? 0) + 1);
+            return { ...short, viewsCount: nextViews, views: nextViews } as any;
+          }));
+          if (emittedViewsCount !== null) {
+            realtimePostsService.emitLocalView(currentShort._id, emittedViewsCount, currentUser?._id);
+          }
+        }
         viewTimerRef.current = null;
-      }, 2000);
+      }, SHORT_VIEW_DWELL_MS);
     }
     for (let i = currentVisibleIndex + 1; i < shortsData.length; i++) {
       const nextItem = shortsData[i] as ShortsItem;
@@ -2114,7 +2332,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         viewTimerRef.current = null;
       }
     };
-  }, [currentVisibleIndex, shortsData, getVideoUrl]);
+  }, [currentVisibleIndex, shortsData, getVideoUrl, currentUser?._id]);
 
   // CRITICAL: Update handlers ref whenever handlers change (prevents stale closures in renderShortItem)
   // This MUST be after all handlers are defined
@@ -2149,19 +2367,28 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             height={containerHeight}
             fillParent
             onImpression={() => {
+              consecutiveAdFailuresRef.current = 0; // Reset on successful impression
               adsShownThisSessionRef.current += 1;
               setAdsShownThisSession((prev) => Math.min(3, prev + 1));
-              // Persistent 3-per-8h cap, shared with the home feed. Fire-and-forget;
+              // Persistent 5-per-8h cap, shared with the home feed. Fire-and-forget;
               // adCap handles AsyncStorage write + listener notification internally.
               recordGoogleAdImpression();
             }}
             onLoadFailed={() => {
-              // Stop inserting ad slots for the rest of this session — see the
-              // shortsAdsBroken declaration above. The cell currently rendering
-              // this null ad will still occupy its slot until the next render,
-              // but no NEW broken slots will appear after the data array
-              // recomputes.
-              setShortsAdsBroken(true);
+              consecutiveAdFailuresRef.current += 1;
+              if (__DEV__) {
+                console.warn(
+                  `[AdMob] [DEV] Shorts ad slot failed to load (consecutive failures: ${consecutiveAdFailuresRef.current}). ` +
+                  `Bypassing circuit breaker in development to allow retries.`
+                );
+                return;
+              }
+              if (consecutiveAdFailuresRef.current >= 3) {
+                logger.warn(`[AdMob] 3 consecutive ad load failures. Wiping ad slots for session.`);
+                setShortsAdsBroken(true);
+              } else {
+                logger.info(`[AdMob] Ad load failed (consecutive failures: ${consecutiveAdFailuresRef.current}/3). Tolerating transient failure.`);
+              }
             }}
           />
         </View>
@@ -2220,10 +2447,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       `${item._id}|${index}|${isVisibleNow ? 1 : 0}|` +
       `${isCellVideoPlaying ? 1 : 0}|${mutedShorts.has(item._id) ? 1 : 0}|` +
       `${isSaved ? 1 : 0}|${isFollowing ? 1 : 0}|` +
-      `${actionLoading === item._id ? 1 : 0}|` +
       `${shouldShowPauseButton ? 1 : 0}|${shouldShowLikeAnimation ? 1 : 0}|` +
-      `${sourceVersions[item._id] ?? 0}|${videoReady[item._id] ? 1 : 0}|` +
-      `${item.likesCount ?? 0}|${item.commentsCount ?? 0}|${isLiked ? 1 : 0}|${item.viewsCount ?? 0}|` +
+      `${sourceVersions[item._id] ?? 0}|` +
+      `${item.commentsCount ?? 0}|${item.viewsCount ?? 0}|` +
       `${isOwn ? 1 : 0}|${isScreenFocused ? 1 : 0}|${containerHeight}|${expandedCaptions[item._id] ? 1 : 0}`;
 
     return (
@@ -2277,7 +2503,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               )}
               {/* Only mount Video component if within 1 index of visible */}
               {shouldRenderVideo && (
-                <Video
+                <MemoizedVideo
                 key={`video-${item._id}-${sourceVersions[item._id] ?? 0}`}
                 ref={(ref) => {
                   videoRefs.current[item._id] = ref;
@@ -2294,9 +2520,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 style={[
                   styles.shortVideo,
                   StyleSheet.absoluteFillObject,
-                  // Start transparent — the ExpoImage backdrop shows through.
-                  // Flip to opaque once onReadyForDisplay fires (first frame decoded).
-                  { opacity: videoReady[item._id] ? 1 : 0 },
                 ]}
                 resizeMode={ResizeMode.COVER}
                 shouldPlay={index === currentVisibleIndex && isVideoPlaying}
@@ -2332,11 +2555,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   }
                 }}
                 onReadyForDisplay={() => {
-                  // Native player has decoded the first frame — make the Video
-                  // opaque so it covers the ExpoImage backdrop underneath.
-                  if (!videoReady[item._id]) {
-                    updateKeyedBool(setVideoReady, item._id, true);
-                  }
+                  logger.debug(`Video ${item._id} ready for display`);
                 }}
                 onError={(error) => {
                   // Handle video loading errors (likely expired signed URL or timeout).
@@ -2420,7 +2639,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     // than the ref — the ref can lag during scroll transitions
                     // and falsely pause the video that just became visible,
                     // causing intermittent "won't play" behaviour.
-                    if (isNowPlaying && index !== currentVisibleIndex) {
+                    if (isNowPlaying && (index !== currentVisibleIndex || !isScreenFocusedRef.current)) {
                       videoRefs.current[item._id]?.pauseAsync().catch(() => {
                         // Silently handle pause errors
                       });
@@ -2489,7 +2708,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     
                     // CRITICAL FIX: Ensure video plays when it becomes visible and is loaded
                     // This fixes the black screen issue for subsequent videos
-                    if (index === currentVisibleIndex) {
+                    if (index === currentVisibleIndex && isScreenFocusedRef.current) {
                       const video = videoRefs.current[item._id];
                       if (video) {
                         // onLoad fires when video is ready — call play immediately (no setTimeout delay)
@@ -2606,109 +2825,25 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             </Animated.View>
           )}
         
-          {/* Right Side Action Buttons - Outside TouchableWithoutFeedback to prevent pause button flexing */}
-          <View style={styles.rightActions} pointerEvents="box-none">
-            {/* Profile Picture */}
-            <TouchableOpacity
-              style={styles.profileButton}
-              onPress={() => handleProfilePress(item.user._id)}
-              accessibilityLabel={`View ${item.user.username || 'user'}'s profile`}
-              accessibilityRole="button"
-            >
-              <ExpoImage
-                source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                style={styles.profileImage as ImageStyle}
-                cachePolicy="memory-disk"
-                placeholder={require('../../assets/avatars/male_avatar.png')}
-                contentFit="cover"
-                transition={200}
-                onError={(e: any) => logger.warn('[shorts profile avatar] load failed', {
-                  userId: item.user._id,
-                  url: item.user.profilePic?.substring(0, 120),
-                  error: e?.error || e?.nativeEvent?.error || String(e),
-                })}
-              />
-              {/* Follow Button - Only show if currentUser is loaded AND not own post.
-                  If currentUser hasn't resolved yet, hide the button instead of
-                  defaulting to visible (which previously flashed Follow on the
-                  user's own shorts during the load race). */}
-              {!!currentUser?._id && String(item.user._id) !== String(currentUser._id) && (
-                <View style={[styles.followButton, isFollowing && styles.followingButton]}>
-                  <Ionicons
-                    name={isFollowing ? "checkmark" : "add"}
-                    size={12}
-                    color="white"
-                  />
-                </View>
-              )}
-            </TouchableOpacity>
-
-            {/* Like Button */}
-            <Pressable
-              style={styles.actionButton}
-              onPress={() => {
-                handlersRef.current.handleLike(item._id);
-              }}
-              accessibilityLabel={isLiked ? `Unlike, ${item.likesCount || 0} likes` : `Like, ${item.likesCount || 0} likes`}
-              accessibilityRole="button"
-            >
-              <View style={[styles.actionIconContainer, isLiked && styles.likedContainer]}>
-                <Ionicons 
-                  name={isLiked ? "heart" : "heart-outline"} 
-                  size={28} 
-                  color={isLiked ? "#FF3040" : "white"} 
-                />
-              </View>
-              <Text style={styles.actionText}>{typeof item.likesCount === 'number' ? item.likesCount : 0}</Text>
-            </Pressable>
-
-            {/* Comment Button */}
-            <Pressable
-              style={styles.actionButton}
-              onPress={() => {
-                handlersRef.current.handleComment(item._id);
-              }}
-              accessibilityLabel={`Comment, ${item.commentsCount || 0} comments`}
-              accessibilityRole="button"
-            >
-              <View style={styles.actionIconContainer}>
-                <Ionicons name="chatbubble-outline" size={28} color="white" />
-              </View>
-              <Text style={styles.actionText}>{item.commentsCount || 0}</Text>
-            </Pressable>
-
-            {/* Share Button */}
-            <Pressable
-              style={styles.actionButton}
-              onPress={() => {
-                handlersRef.current.handleShare(item);
-              }}
-              accessibilityLabel="Share"
-              accessibilityRole="button"
-            >
-              <View style={styles.actionIconContainer}>
-                <Ionicons name="paper-plane-outline" size={28} color="white" />
-              </View>
-            </Pressable>
-
-            {/* Save Button */}
-            <Pressable
-              style={styles.actionButton}
-              onPress={() => {
-                handlersRef.current.handleSave(item._id);
-              }}
-              accessibilityLabel={isSaved ? 'Remove from saved' : 'Save'}
-              accessibilityRole="button"
-            >
-              <View style={styles.actionIconContainer}>
-                <Ionicons 
-                  name={isSaved ? "bookmark" : "bookmark-outline"} 
-                  size={28} 
-                  color={isSaved ? "#FFD700" : "white"} 
-                />
-              </View>
-            </Pressable>
-          </View>
+          <LocalShortsActionRail
+            short={item}
+            shortId={item._id}
+            userId={item.user._id}
+            username={item.user.username}
+            profilePic={item.user.profilePic}
+            initialIsLiked={isLiked}
+            initialLikesCount={typeof item.likesCount === 'number' ? item.likesCount : 0}
+            commentsCount={item.commentsCount || 0}
+            isSaved={isSaved}
+            isFollowing={isFollowing}
+            isOwn={isOwn}
+            currentUserLoaded={!!currentUser?._id}
+            onProfilePress={handlersRef.current.handleProfilePress}
+            onLikePress={handlersRef.current.handleLike}
+            onCommentPress={handlersRef.current.handleComment}
+            onSharePress={handlersRef.current.handleShare}
+            onSavePress={handlersRef.current.handleSave}
+          />
 
           {/* Bottom Content with Elegant Design */}
           <View style={styles.bottomContent}>
@@ -2874,7 +3009,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // swipeAnimation / fadeAnimation are Animated.Value refs from useRef ---
     // their identity never changes, so they don't belong in the deps array.
     // Including them was harmless but signaled false volatility.
-  }, [currentVisibleIndex, videoStates, videoReady, followStates, savedShorts, mutedShorts, actionLoading, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions, containerHeight, expandedCaptions, isVideoPlaying]);
+  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions, containerHeight, expandedCaptions, isVideoPlaying]);
 
   const keyExtractor = useCallback((item: ShortsItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;
@@ -2914,7 +3049,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // If visible item is a reel, track max reel index for frequency (hasWatchedFiveReels)
     if (item && !isAdItem(item)) {
       const reelIndex = shortsData.slice(0, newVisibleIndex).filter((x: ShortsItem) => !isAdItem(x)).length;
-      if (reelIndex >= 5) setHasWatchedFiveReels(true);
+      const threshold = __DEV__ ? 1 : 5;
+      if (reelIndex >= threshold) setHasWatchedFiveReels(true);
     }
 
     // Pause previous video if previous item was a reel
@@ -3031,8 +3167,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         return (
           <View style={styles.topBar}>
             <LinearGradient
-              colors={['rgba(0, 0, 0, 0.75)', 'transparent']}
+              colors={['#0F0F12', '#000000']}
               style={StyleSheet.absoluteFillObject}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
             />
             <View style={styles.topBarContent}>
               {/* Left Back Button */}

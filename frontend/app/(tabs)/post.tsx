@@ -1641,7 +1641,7 @@ export default function PostScreen() {
         imagesData.map(async (img, idx) => {
           try {
             const tx = imagesData.length === 1 && idx === 0 ? cropTransform ?? undefined : undefined;
-            const processedUri = await processImageToAspect(img.uri, selectedAspectRatio, tx);
+            const processedUri = await processImageToAspect(img.uri, selectedAspectRatio as any, tx);
             return { ...img, uri: processedUri };
           } catch (e) {
             logger.warn('Aspect-ratio processing failed, uploading original:', e);
@@ -1706,7 +1706,7 @@ export default function PostScreen() {
         songVolume: 0.5,
         spotType: spotType || undefined,
         travelInfo: travelInfo || undefined,
-        aspectRatio: selectedAspectRatio,
+        aspectRatio: selectedAspectRatio as any,
         // The chosen photo filter is applied at render time via Cloudinary
         // URL transformations — see optimizeCloudinaryUrl in
         // utils/imageCache. Storing the token (not the rendered bytes)
@@ -2481,7 +2481,7 @@ export default function PostScreen() {
       style={{ flex: 1 }}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
-      <View style={{ flex: 1, backgroundColor: mode === 'dark' ? '#06121F' : '#EEF4F8' }}>
+      <View style={{ flex: 1, backgroundColor: mode === 'dark' ? '#000000' : '#EEF4F8' }}>
         {!selectedImages.length && !selectedVideo && permission?.granted ? (
           <View style={StyleSheet.absoluteFillObject}>
             <CameraView style={StyleSheet.absoluteFillObject} facing="back" />

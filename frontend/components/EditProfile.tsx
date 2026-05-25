@@ -30,7 +30,7 @@ interface EditProfileProps {
 }
 
 export default function EditProfile({ visible, user, onClose, onSuccess }: EditProfileProps) {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const [fullName, setFullName] = useState(user.fullName);
   const [bio, setBio] = useState(user.bio || '');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -192,7 +192,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       borderRadius: theme.borderRadius.md,
     },
     changePhotoText: {
-      color: theme.colors.text,
+      color: isDark ? '#121212' : '#FFFFFF',
       fontSize: theme.typography.caption.fontSize,
       fontWeight: '600',
     },
@@ -245,7 +245,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
     buttonText: {
       fontSize: theme.typography.body.fontSize,
       fontWeight: '600',
-      color: theme.colors.text,
+      color: isDark ? '#121212' : '#FFFFFF',
     },
     cancelButtonText: {
       color: theme.colors.textSecondary,

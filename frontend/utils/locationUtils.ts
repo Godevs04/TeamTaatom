@@ -811,13 +811,8 @@ export const calculateDrivingDistanceKm = async (
       
       // Handle 429 rate limit errors
       if (response.status === 429) {
-        logger.warn('OSRM rate limit hit (429), using straight-line distance');
-        const fallback = calculateDistance(userLat, userLon, localeLat, localeLon);
-        if (fallback !== null) {
-          // Cache the fallback to avoid repeated API calls
-          distanceCache.set(cacheKey, fallback);
-        }
-        return fallback;
+        logger.warn('OSRM rate limit hit (429), returning null to retry later');
+        return null;
       }
       
       if (!response.ok) {
@@ -840,41 +835,28 @@ export const calculateDrivingDistanceKm = async (
         return distanceKm;
       } else {
         if (__DEV__) {
-          logger.debug(`⚠️ OSRM API returned code: ${data.code}, using straight-line distance`);
+          logger.debug(`⚠️ OSRM API returned code: ${data.code}, returning null`);
         }
-        // Fallback to straight-line distance
-        const fallback = calculateDistance(userLat, userLon, localeLat, localeLon);
-        if (fallback !== null) {
-          distanceCache.set(cacheKey, fallback);
-        }
-        return fallback;
+        return null;
       }
     } catch (fetchError: any) {
       clearTimeout(timeoutId);
       
       // Handle abort (timeout) or network errors
       if (fetchError.name === 'AbortError') {
-        logger.warn('OSRM request timeout, using straight-line distance');
-      } else if (fetchError.message?.includes('429')) {
-        logger.warn('OSRM rate limit error, using straight-line distance');
+        logger.warn('OSRM request timeout, returning null');
+      } else if (fetchError.message?.includes('429') || String(fetchError).includes('429')) {
+        logger.warn('OSRM rate limit error, returning null');
       } else {
-        logger.warn(`OSRM API error: ${fetchError?.message || fetchError}, using straight-line distance`);
+        logger.warn(`OSRM API error: ${fetchError?.message || fetchError}, returning null`);
       }
-      
-      // Fallback to straight-line distance
-      const fallback = calculateDistance(userLat, userLon, localeLat, localeLon);
-      if (fallback !== null) {
-        distanceCache.set(cacheKey, fallback);
-      }
-      return fallback;
+      return null;
     }
   } catch (error: any) {
     if (__DEV__) {
       logger.error(`❌ OSRM API error:`, error?.message || error);
-      logger.debug(`⚠️ Falling back to straight-line distance`);
     }
-    // Fallback to straight-line distance
-    return calculateDistance(userLat, userLon, localeLat, localeLon);
+    return null;
   }
 };
 

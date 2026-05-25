@@ -13,17 +13,12 @@ interface CloudGlassSurfaceProps {
 }
 
 export function useCloudGlassTokens() {
-  const { theme, mode } = useTheme();
-  const isDark =
-    mode === 'dark' ||
-    theme.colors.background === '#0B1A2B' ||
-    theme.colors.background === '#000000' ||
-    theme.colors.background === '#111114';
+  const { theme, mode, isDark } = useTheme();
 
   return {
     isDark,
-    fill: isDark ? 'rgba(18, 34, 54, 0.62)' : 'rgba(255, 255, 255, 0.55)',
-    border: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.72)',
+    fill: isDark ? 'rgba(25, 25, 25, 0.72)' : 'rgba(255, 255, 255, 0.55)',
+    border: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.72)',
     textPrimary: isDark ? theme.colors.text : '#1A2B3C',
     textSecondary: isDark ? theme.colors.textSecondary : '#4A6274',
     textMuted: isDark ? theme.colors.textSecondary : '#8FAABB',
@@ -56,7 +51,7 @@ export default function CloudGlassSurface({
         <BlurView
           intensity={glass.blurIntensity}
           tint={glass.isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
+          style={[StyleSheet.absoluteFillObject, { borderRadius }]}
         />
       ) : null}
       <View style={[styles.content, contentStyle]}>{children}</View>
