@@ -267,7 +267,10 @@ export default function ChatMediaViewer({
             ) : null}
             <Video
               ref={videoRef}
-              source={{ uri }}
+              source={{
+                uri,
+                overrideFileExtensionAndroid: (uri.toLowerCase().includes('m3u8') || uri.toLowerCase().includes('hls')) ? 'm3u8' : 'mp4'
+              }}
               style={styles.fullVideo}
               resizeMode={ResizeMode.CONTAIN}
               useNativeControls

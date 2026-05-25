@@ -42,16 +42,16 @@ export const cloudDesign = {
       insetTop: 'rgba(255,255,255,0.22)',
     },
     light: {
-      fill: 'rgba(255,255,255,0.65)',
-      border: 'rgba(255,255,255,0.9)',
+      fill: 'rgba(255, 255, 255, 0.40)',
+      border: 'rgba(255, 255, 255, 0.60)',
       shadowColor: '#788CB4',
       shadowOpacity: 0.15,
-      insetTop: 'rgba(255,255,255,0.8)',
+      insetTop: 'rgba(255, 255, 255, 0.8)',
     },
     blurIntensity: 20,
     shadowOffset: { width: 0, height: 10 },
     shadowRadius: 30,
-    elevation: 10,
+    elevation: 0,
   },
 };
 

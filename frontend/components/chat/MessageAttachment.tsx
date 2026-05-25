@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,16 +7,19 @@ import {
   StyleSheet,
   Linking,
   ActivityIndicator,
+  Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import { useRouter } from 'expo-router';
-import { ChatAttachment } from '../../services/chat';
+import { Attachment } from '../../types/chat';
 import { CHAT_MEDIA_MAX_WIDTH } from '../cloud/cloudChatBubbleStyles';
 import ChatMediaViewer from './ChatMediaViewer';
+import { getPostById } from '../../services/posts';
 
 interface MessageAttachmentProps {
-  attachment: ChatAttachment;
+  attachment: Attachment;
   isOwnMessage: boolean;
 }
 
@@ -30,6 +33,46 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
   const [viewerVisible, setViewerVisible] = useState(false);
   const [viewerType, setViewerType] = useState<'image' | 'video'>('image');
   const [viewerUri, setViewerUri] = useState('');
+  const [postDetails, setPostDetails] = useState<any>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+
+  const contentId = attachment.metadata?.contentId || attachment.postId || '';
+
+  useEffect(() => {
+    if ((attachment.type === 'post' || attachment.type === 'short') && contentId) {
+      let isMounted = true;
+      const fetchDetails = async () => {
+        try {
+          setLoadingDetails(true);
+          const response = await getPostById(contentId);
+          if (isMounted && response?.success && response?.post) {
+            setPostDetails(response.post);
+          }
+        } catch (err) {
+          console.log('Error fetching post/short details in chat bubble:', err);
+        } finally {
+          if (isMounted) setLoadingDetails(false);
+        }
+      };
+      fetchDetails();
+      return () => {
+        isMounted = false;
+      };
+    }
+  }, [attachment.type, contentId]);
+
+  const resolveUrl = (url?: string | null): string | undefined => {
+    if (!url) return undefined;
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+      return url;
+    }
+    try {
+      const { getApiUrl } = require('../../utils/config');
+      return getApiUrl(url);
+    } catch {
+      return url;
+    }
+  };
 
   const openViewer = (type: 'image' | 'video', uri: string) => {
     setViewerType(type);
@@ -184,50 +227,160 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
     );
   }
 
-  if (attachment.type === 'post' && attachment.postPreview) {
-    const { postPreview } = attachment;
+  if (attachment.type === 'post' || attachment.type === 'short') {
+    const isShort =
+      attachment.type === 'short' ||
+      postDetails?.type === 'short' ||
+      (postDetails?.videoUrl && !postDetails?.imageUrl) ||
+      (postDetails?.mediaUrl && postDetails?.type === 'short');
 
-    return (
-      <TouchableOpacity
-        style={[styles.postContainer, { backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.1)' : theme.colors.surface, borderColor: theme.colors.border }]}
-        onPress={() => {
-          if (attachment.postId) router.push(`/post/${attachment.postId}`);
-        }}
-      >
-        {postPreview.imageUrl ? (
-          <Image source={{ uri: postPreview.imageUrl }} style={styles.postImage} />
-        ) : null}
-        <View style={styles.postInfo}>
-          <View style={styles.postAuthor}>
-            {postPreview.authorProfilePic ? (
-              <Image source={{ uri: postPreview.authorProfilePic }} style={styles.postAuthorPic} />
+    const resolvedAuthorDp = resolveUrl(
+      postDetails?.user?.profilePic ||
+      attachment.metadata?.originalAuthorDp ||
+      attachment.postPreview?.authorProfilePic
+    );
+    const resolvedAuthorUsername =
+      postDetails?.user?.username ||
+      postDetails?.user?.fullName ||
+      attachment.metadata?.originalAuthorUsername ||
+      attachment.postPreview?.authorName ||
+      'user';
+    const resolvedCaption =
+      postDetails?.caption ||
+      attachment.postPreview?.caption ||
+      '';
+    const resolvedImageUrl = resolveUrl(
+      postDetails?.imageUrl ||
+      postDetails?.images?.[0] ||
+      attachment.metadata?.thumbnailUrl ||
+      attachment.postPreview?.imageUrl ||
+      attachment.url
+    );
+    const resolvedThumbnailUrl = resolveUrl(
+      postDetails?.imageUrl ||
+      postDetails?.images?.[0] ||
+      postDetails?.thumbnailUrl ||
+      attachment.metadata?.thumbnailUrl ||
+      attachment.thumbnailUrl ||
+      attachment.url
+    );
+
+    const authorId = postDetails?.user?._id || contentId;
+
+    if (isShort) {
+      // Render Shared Short: aspect ratio 9:16 vertical card with Play overlay
+      return (
+        <Pressable
+          style={({ pressed }) => [
+            styles.shortCardContainer,
+            {
+              backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.08)' : theme.colors.surface,
+              borderColor: isOwnMessage ? 'rgba(255,255,255,0.15)' : theme.colors.border,
+              opacity: pressed ? 0.9 : 1,
+            }
+          ]}
+          onPress={() => {
+            if (authorId && contentId) {
+              router.push(`/user-shorts/${authorId}?shortId=${contentId}`);
+            }
+          }}
+        >
+          {resolvedThumbnailUrl ? (
+            <Image source={{ uri: resolvedThumbnailUrl }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+          ) : (
+            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }]}>
+              {loadingDetails ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="film-outline" size={40} color="rgba(255,255,255,0.4)" />
+              )}
+            </View>
+          )}
+
+          <LinearGradient
+            colors={['rgba(0,0,0,0.4)', 'rgba(0,0,0,0.1)', 'rgba(0,0,0,0.5)']}
+            style={StyleSheet.absoluteFillObject}
+          />
+
+          <View style={styles.shortCardHeader}>
+            {resolvedAuthorDp ? (
+              <Image source={{ uri: resolvedAuthorDp }} style={styles.richCardAvatar} />
             ) : (
-              <View style={[styles.postAuthorPic, { backgroundColor: theme.colors.surface }]}>
-                <Ionicons name="person" size={12} color={theme.colors.textSecondary} />
+              <View style={[styles.richCardAvatar, { backgroundColor: 'rgba(255,255,255,0.3)', alignItems: 'center', justifyContent: 'center' }]}>
+                <Ionicons name="person" size={10} color="#fff" />
               </View>
             )}
-            <Text
-              style={[styles.postAuthorName, { color: isOwnMessage ? '#fff' : theme.colors.text }]}
-              numberOfLines={1}
-            >
-              {postPreview.authorName}
+            <Text style={styles.shortCardUsername} numberOfLines={1}>
+              {resolvedAuthorUsername}
             </Text>
           </View>
-          {postPreview.caption ? (
-            <Text
-              style={[styles.postCaption, { color: isOwnMessage ? 'rgba(255,255,255,0.8)' : theme.colors.textSecondary }]}
-              numberOfLines={2}
-            >
-              {postPreview.caption}
+
+          <View style={styles.shortCardPlayWrapper}>
+            <View style={styles.shortCardPlayButton}>
+              <Ionicons name="play" size={28} color="#fff" style={{ marginLeft: 3 }} />
+            </View>
+          </View>
+        </Pressable>
+      );
+    } else {
+      // Render Shared Post: aspect ratio 1:1 square card
+      return (
+        <Pressable
+          style={({ pressed }) => [
+            styles.richCardContainer,
+            {
+              backgroundColor: isOwnMessage ? 'rgba(255,255,255,0.08)' : theme.colors.surface,
+              borderColor: isOwnMessage ? 'rgba(255,255,255,0.15)' : theme.colors.border,
+              opacity: pressed ? 0.9 : 1,
+            }
+          ]}
+          onPress={() => {
+            if (authorId && contentId) {
+              router.push(`/user-posts/${authorId}?postId=${contentId}`);
+            }
+          }}
+        >
+          {/* Top of Card: Tiny Avatar + Username */}
+          <View style={styles.richCardHeader}>
+            {resolvedAuthorDp ? (
+              <Image source={{ uri: resolvedAuthorDp }} style={styles.richCardAvatar} />
+            ) : (
+              <View style={[styles.richCardAvatar, { backgroundColor: theme.colors.border, alignItems: 'center', justifyContent: 'center' }]}>
+                <Ionicons name="person" size={10} color={theme.colors.textSecondary} />
+              </View>
+            )}
+            <Text style={[styles.richCardUsername, { color: isOwnMessage ? '#fff' : theme.colors.text }]} numberOfLines={1}>
+              {resolvedAuthorUsername}
             </Text>
+          </View>
+
+          {/* Middle of Card: Image (1:1 aspect ratio) */}
+          {resolvedImageUrl ? (
+            <View style={styles.richCardImageWrapper}>
+              <Image source={{ uri: resolvedImageUrl }} style={styles.richCardImage} resizeMode="cover" />
+            </View>
+          ) : (
+            <View style={[styles.richCardImageWrapper, { backgroundColor: theme.colors.border + '15', alignItems: 'center', justifyContent: 'center' }]}>
+              {loadingDetails ? (
+                <ActivityIndicator size="small" color={theme.colors.primary} />
+              ) : (
+                <Ionicons name="image-outline" size={40} color={theme.colors.textSecondary} />
+              )}
+            </View>
+          )}
+
+          {/* Bottom of Card: Truncated Caption */}
+          {resolvedCaption ? (
+            <View style={styles.richCardFooter}>
+              <Text style={[styles.richCardCaption, { color: isOwnMessage ? 'rgba(255,255,255,0.9)' : theme.colors.text }]} numberOfLines={2}>
+                <Text style={styles.richCardCaptionUsername}>{resolvedAuthorUsername} </Text>
+                {resolvedCaption}
+              </Text>
+            </View>
           ) : null}
-        </View>
-        <View style={styles.postBadge}>
-          <Ionicons name="open-outline" size={14} color={theme.colors.primary} />
-          <Text style={[styles.postBadgeText, { color: theme.colors.primary }]}>View Post</Text>
-        </View>
-      </TouchableOpacity>
-    );
+        </Pressable>
+      );
+    }
   }
 
   return null;
@@ -323,50 +476,94 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
   },
-  postContainer: {
-    borderRadius: 12,
-    overflow: 'hidden',
+  richCardContainer: {
+    borderRadius: 18,
     borderWidth: 1,
-    marginVertical: 2,
-    width: MAX_IMAGE_WIDTH,
+    overflow: 'hidden',
+    width: CHAT_MEDIA_MAX_WIDTH,
+    marginVertical: 4,
   },
-  postImage: {
-    width: '100%',
-    height: 120,
-  },
-  postInfo: {
-    padding: 10,
-  },
-  postAuthor: {
+  richCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
+    padding: 8,
+    gap: 8,
   },
-  postAuthorPic: {
+  richCardAvatar: {
     width: 20,
     height: 20,
     borderRadius: 10,
   },
-  postAuthorName: {
+  richCardUsername: {
     fontSize: 12,
     fontWeight: '600',
     flex: 1,
   },
-  postCaption: {
+  richCardImageWrapper: {
+    width: '100%',
+    aspectRatio: 1,
+    overflow: 'hidden',
+  },
+  richCardImage: {
+    width: '100%',
+    height: '100%',
+  },
+  richCardFooter: {
+    padding: 8,
+  },
+  richCardCaptionUsername: {
+    fontWeight: '700',
+  },
+  richCardCaption: {
     fontSize: 12,
     lineHeight: 16,
   },
-  postBadge: {
+  shortCardContainer: {
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: 'hidden',
+    width: CHAT_MEDIA_MAX_WIDTH,
+    aspectRatio: 9 / 16,
+    marginVertical: 4,
+    position: 'relative',
+    justifyContent: 'space-between',
+  },
+  shortCardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingBottom: 8,
+    padding: 10,
+    gap: 8,
+    zIndex: 2,
   },
-  postBadgeText: {
-    fontSize: 11,
+  shortCardUsername: {
+    fontSize: 12,
     fontWeight: '600',
+    color: '#fff',
+    flex: 1,
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
+  },
+  shortCardPlayWrapper: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  shortCardPlayButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderWidth: 1.5,
+    borderColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
 });
 

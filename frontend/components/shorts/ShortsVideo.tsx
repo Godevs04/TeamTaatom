@@ -148,7 +148,7 @@ const ShortsVideo = ({
         <Image
           source={{ uri: imageUrl }}
           style={StyleSheet.absoluteFill}
-          resizeMode="cover"
+          resizeMode="contain"
         />
       ) : showPoster ? (
         <View style={[StyleSheet.absoluteFill, styles.loaderContainer]}>
@@ -173,7 +173,7 @@ const ShortsVideo = ({
           ref={setRef}
           source={videoSource}
           style={StyleSheet.absoluteFill}
-          resizeMode="cover"
+          resizeMode="contain"
           repeat={true}
           paused={isPaused}
           muted={false}

@@ -405,7 +405,10 @@ export default function ContentPreviewScreen() {
         return (
           <View key={block._id || index} style={styles.videoContainer}>
             <Video
-              source={{ uri: block.content }}
+              source={{
+                uri: block.content,
+                overrideFileExtensionAndroid: (block.content.toLowerCase().includes('m3u8') || block.content.toLowerCase().includes('hls')) ? 'm3u8' : 'mp4'
+              }}
               style={styles.videoBlock}
               resizeMode={ResizeMode.CONTAIN}
               useNativeControls

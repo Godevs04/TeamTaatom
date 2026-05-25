@@ -14,14 +14,25 @@ interface PostCreateChromeProps {
   onClose?: () => void;
 }
 
-export function PostCreateHeader({ onClose }: { onClose?: () => void }) {
+export function PostCreateHeader({
+  onClose,
+  onNext,
+  nextText = 'Next',
+  showNext = true,
+  isDetail = false,
+}: {
+  onClose?: () => void;
+  onNext?: () => void;
+  nextText?: string;
+  showNext?: boolean;
+  isDetail?: boolean;
+}) {
   const glass = useCloudGlassCardTokens();
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === 'web';
   const topBarHeight = isWeb ? 56 : (56 + (insets.top || 0));
-  const topBarBg = glass.isDark ? '#0D1B2A' : '#FFFFFF';
+  const topBarBg = glass.isDark ? '#000000' : '#FFFFFF';
   const textColor = glass.isDark ? '#FFFFFF' : '#122236';
-  const subtitleColor = glass.isDark ? 'rgba(255,255,255,0.6)' : 'rgba(18,34,54,0.55)';
 
   return (
     <>
@@ -30,22 +41,24 @@ export function PostCreateHeader({ onClose }: { onClose?: () => void }) {
           <Pressable
             onPress={onClose}
             style={styles.topBarButton}
-            accessibilityLabel="Close"
+            accessibilityLabel={isDetail ? "Back" : "Close"}
           >
-            <Ionicons name="close" size={24} color={textColor} />
+            <Ionicons name={isDetail ? "arrow-back" : "close"} size={26} color={textColor} />
           </Pressable>
           <View style={styles.topBarCenter}>
-            <Text style={[styles.topBarTitle, { color: textColor }]}>New Post</Text>
-            <Text style={[styles.topBarSubtitle, { color: subtitleColor }]}>Share your journey ✨</Text>
+            <Text style={[styles.topBarTitle, { color: textColor }]}>New post</Text>
           </View>
-          <View style={{ width: 40 }} />
+          <View style={[styles.topBarButton, { alignItems: 'flex-end', minWidth: 60 }]}>
+            {showNext && onNext ? (
+              <Pressable onPress={onNext} hitSlop={12}>
+                <Text style={{ color: '#0095F6', fontWeight: 'bold', fontSize: 16 }}>{nextText}</Text>
+              </Pressable>
+            ) : (
+              <View style={{ width: 40 }} />
+            )}
+          </View>
         </View>
       </View>
-      {/* Shadow Gate */}
-      <LinearGradient
-        colors={[glass.isDark ? 'rgba(13,27,42,0.7)' : 'rgba(0,0,0,0.08)', 'transparent']}
-        style={styles.topBarShadow}
-      />
     </>
   );
 }
