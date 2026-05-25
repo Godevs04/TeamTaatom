@@ -335,7 +335,7 @@ export default function PostImage({
                           cacheKey: getStableCacheKey(item) ? `${getStableCacheKey(item)}:${post.filter || 'original'}` : undefined,
                         }}
                         cachePolicy="memory-disk"
-                        contentFit="cover"
+                        contentFit="contain"
                         transition={250}
                         style={styles.image}
                       />
@@ -392,9 +392,9 @@ export default function PostImage({
                     cacheKey: getStableCacheKey(imageUri) ? `${getStableCacheKey(imageUri)}:${post.filter || 'original'}` : undefined,
                   }}
                   placeholder={blurUpUri ? { uri: blurUpUri } : undefined}
-                  placeholderContentFit="cover"
+                  placeholderContentFit="contain"
                   cachePolicy="memory-disk"
-                  contentFit="cover"
+                  contentFit="contain"
                   transition={250}
                   priority="high"
                   style={styles.image}
@@ -488,6 +488,7 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     borderRadius: 0,
     overflow: 'hidden',
+    backgroundColor: '#000',
   },
   imageLoader: {
     position: 'absolute',
@@ -504,10 +505,12 @@ const styles = StyleSheet.create({
     position: 'relative',
     width: '100%',
     height: '100%',
+    backgroundColor: '#000',
   },
   image: {
     width: '100%',
     height: '100%',
+    backgroundColor: '#000',
   },
   blurImage: {
     position: 'absolute',

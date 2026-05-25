@@ -211,6 +211,15 @@ export default function AspectImageCropper({
               animatedImageStyle as any,
             ]}
           />
+          {/* 3x3 Grid Overlay */}
+          <View style={StyleSheet.absoluteFill} pointerEvents="none">
+            {/* Horizontal lines */}
+            <View style={[styles.gridLineHorizontal, { top: '33.33%' }]} />
+            <View style={[styles.gridLineHorizontal, { top: '66.66%' }]} />
+            {/* Vertical lines */}
+            <View style={[styles.gridLineVertical, { left: '33.33%' }]} />
+            <View style={[styles.gridLineVertical, { left: '66.66%' }]} />
+          </View>
           {showReset && (
             <TouchableOpacity
               onPress={resetTransform}
@@ -249,5 +258,19 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 6,
     color: 'rgba(255,255,255,0.7)',
+  },
+  gridLineHorizontal: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  gridLineVertical: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
   },
 });

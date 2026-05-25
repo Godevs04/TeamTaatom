@@ -127,11 +127,13 @@ export type ShortsScreenProps = {
   initialShortId?: string;
 };
 
-const videoSourceCache = new Map<string, { uri: string }>();
+const videoSourceCache = new Map<string, { uri: string; overrideFileExtensionAndroid?: string }>();
 const getVideoSource = (uri: string | null | undefined) => {
   if (!uri) return undefined;
   if (!videoSourceCache.has(uri)) {
-    videoSourceCache.set(uri, { uri });
+    const lowercaseUrl = uri.toLowerCase();
+    const ext = (lowercaseUrl.includes('m3u8') || lowercaseUrl.includes('hls')) ? 'm3u8' : 'mp4';
+    videoSourceCache.set(uri, { uri, overrideFileExtensionAndroid: ext });
   }
   return videoSourceCache.get(uri);
 };
@@ -203,6 +205,7 @@ interface LocalShortsActionRailProps {
   onCommentPress: (shortId: string) => void;
   onSharePress: (short: PostType) => void;
   onSavePress: (shortId: string) => void;
+  isScopedView?: boolean;
 }
 
 const LocalShortsActionRail = React.memo(({
@@ -223,6 +226,7 @@ const LocalShortsActionRail = React.memo(({
   onCommentPress,
   onSharePress,
   onSavePress,
+  isScopedView,
 }: LocalShortsActionRailProps) => {
   const [localIsLiked, setLocalIsLiked] = useState(initialIsLiked);
   const [localLikesCount, setLocalLikesCount] = useState(initialLikesCount);
@@ -283,7 +287,7 @@ const LocalShortsActionRail = React.memo(({
   );
 
   return (
-    <View style={styles.rightActions} pointerEvents="box-none">
+    <View style={[styles.rightActions, isScopedView && { bottom: Platform.OS === 'ios' ? 20 : 16 }]} pointerEvents="box-none">
       <TouchableOpacity
         style={styles.profileButton}
         onPress={handleProfilePressLocal}
@@ -2487,7 +2491,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 <ExpoImage
                   source={{ uri: item.imageUrl }}
                   style={[styles.shortVideo as ImageStyle, StyleSheet.absoluteFillObject]}
-                  contentFit="cover"
+                  contentFit="contain"
                   cachePolicy="memory-disk"
                   transition={0}
                   onError={(e: any) => logger.warn('[shorts thumbnail] load failed', {
@@ -2521,7 +2525,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   styles.shortVideo,
                   StyleSheet.absoluteFillObject,
                 ]}
-                resizeMode={ResizeMode.COVER}
+                resizeMode={ResizeMode.CONTAIN}
                 shouldPlay={index === currentVisibleIndex && isVideoPlaying}
                 isLooping
                 progressUpdateIntervalMillis={100}
@@ -2843,10 +2847,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             onCommentPress={handlersRef.current.handleComment}
             onSharePress={handlersRef.current.handleShare}
             onSavePress={handlersRef.current.handleSave}
+            isScopedView={!!effectiveUserId}
           />
 
           {/* Bottom Content with Elegant Design */}
-          <View style={styles.bottomContent}>
+          <View style={[styles.bottomContent, !!effectiveUserId && { paddingBottom: Platform.OS === 'ios' ? 20 : 16 }]}>
             <LinearGradient
               colors={['transparent', 'transparent', 'transparent']}
               style={styles.bottomGradientOverlay}
@@ -3165,14 +3170,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         const isMuted = currentShort ? mutedShorts.has(currentShort._id) : false;
         
         return (
-          <View style={styles.topBar}>
-            <LinearGradient
-              colors={['#0F0F12', '#000000']}
-              style={StyleSheet.absoluteFillObject}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
-            />
-            <View style={styles.topBarContent}>
+          <View style={[styles.topBar, effectiveUserId && { height: 60, backgroundColor: 'transparent' }]}>
+            {!effectiveUserId && (
+              <LinearGradient
+                colors={['#0F0F12', '#000000']}
+                style={StyleSheet.absoluteFillObject}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 0, y: 1 }}
+              />
+            )}
+            <View style={[styles.topBarContent, effectiveUserId && { paddingTop: 10, height: 60 }]}>
               {/* Left Back Button */}
               {!effectiveUserId ? (
                 <TouchableOpacity
@@ -3188,7 +3195,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               )}
 
               {/* Centered Shorts Title */}
-              <Text style={styles.topBarTitle}>Shorts</Text>
+              {!effectiveUserId && <Text style={styles.topBarTitle}>Shorts</Text>}
 
               {/* Right Mute Button */}
               {hasSong ? (

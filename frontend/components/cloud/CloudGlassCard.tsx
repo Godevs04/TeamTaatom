@@ -69,7 +69,7 @@ export default function CloudGlassCard({
         shadowOffset: { width: 0, height: 8 },
         shadowOpacity: 0.45,
         shadowRadius: 32,
-        elevation: 10,
+        elevation: Platform.OS === 'android' ? 0 : 10,
       }
     : {
         borderRadius,
@@ -79,7 +79,7 @@ export default function CloudGlassCard({
         shadowOpacity: glass.shadowOpacity as number,
         shadowOffset: cloudDesign.postGlass.shadowOffset,
         shadowRadius: cloudDesign.postGlass.shadowRadius,
-        elevation: cloudDesign.postGlass.elevation,
+        elevation: Platform.OS === 'android' ? 0 : cloudDesign.postGlass.elevation,
         borderWidth: 1,
       };
 

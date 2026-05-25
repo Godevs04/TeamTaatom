@@ -172,6 +172,8 @@ export default function TabsLayout() {
     }
   }, [pathname]);
 
+  const isPostScreen = pathname === '/post' || pathname === '/(tabs)/post' || pathname?.endsWith('/post');
+
   // Fixed Tab Bar covering bottom entirely
   const tabBarStyle = {
     backgroundColor: 'transparent',
@@ -180,20 +182,21 @@ export default function TabsLayout() {
     borderLeftWidth: 0,
     borderRightWidth: 0,
     borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
-    elevation: 8,
+    elevation: isPostScreen ? 0 : 8,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: isDark ? 0.3 : 0.04,
+    shadowOpacity: isPostScreen ? 0 : (isDark ? 0.3 : 0.04),
     shadowRadius: 8,
     position: 'absolute' as const,
     bottom: 0,
     left: 0,
     right: 0,
-    height: 60 + insets.bottom,
+    height: isPostScreen ? 0 : 60 + insets.bottom,
     paddingBottom: insets.bottom,
     paddingTop: 8,
     overflow: 'hidden' as const,
-    zIndex: 1000,
+    zIndex: isPostScreen ? -1 : 1000,
+    display: isPostScreen ? 'none' as const : 'flex' as const,
     // Always visible - no transform/animation
     transform: [{ translateY: 0 }],
   };

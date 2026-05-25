@@ -137,7 +137,7 @@ export default function PostDetail() {
           <FastImage
             source={{ uri: post.imageUrl }}
             style={[styles.image, { height: imageHeight }]}
-            contentFit="cover"
+            contentFit="contain"
           />
         )}
 
@@ -206,6 +206,7 @@ const styles = StyleSheet.create({
   },
   image: {
     width: '100%',
+    backgroundColor: '#000',
   },
   content: {
     paddingHorizontal: 16,

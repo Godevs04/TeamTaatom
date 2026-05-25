@@ -16,7 +16,7 @@ import { useTheme } from '../context/ThemeContext';
 export type { CropTransform } from './post/AspectImageCropper';
 
 export type ImageFilterType = 'original' | 'vivid' | 'warm' | 'cool' | 'bw';
-export type AspectRatioChoice = '9:16' | '16:9';
+export type AspectRatioChoice = '9:16' | '1:1';
 
 export interface SelectedImageItem {
   uri: string;
@@ -26,7 +26,7 @@ export interface SelectedImageItem {
 
 const ASPECT_OPTIONS: { id: AspectRatioChoice; label: string; icon: string }[] = [
   { id: '9:16', label: '9:16', icon: 'phone-portrait-outline' },
-  { id: '16:9', label: '16:9', icon: 'phone-landscape-outline' },
+  { id: '1:1', label: '1:1', icon: 'square-outline' },
 ];
 
 const FILTER_OPTIONS: { id: ImageFilterType; label: string; icon: string }[] = [
@@ -142,17 +142,37 @@ export default function ImageEditModal({
                 <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary, marginTop: theme.spacing.lg }]}>
                   Preview
                 </Text>
-                <View style={styles.previewContainer}>
-                  <Image source={{ uri: images[0].uri }} style={styles.previewImage} />
-                  {FILTER_PREVIEW_OVERLAY[selectedFilter] && (
-                    <View
-                      pointerEvents="none"
-                      style={[
-                        StyleSheet.absoluteFillObject,
-                        { backgroundColor: FILTER_PREVIEW_OVERLAY[selectedFilter]! },
-                      ]}
-                    />
-                  )}
+                <View style={{
+                  width: '100%',
+                  height: 240,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  backgroundColor: theme.colors.surface,
+                  borderRadius: 16,
+                  marginBottom: 6,
+                  padding: 12,
+                  borderWidth: 1,
+                  borderColor: theme.colors.border,
+                }}>
+                  <View style={[
+                    styles.previewContainer,
+                    {
+                      height: '100%',
+                      aspectRatio: selectedAspectRatio === '9:16' ? 9 / 16 : 1 / 1,
+                      width: undefined,
+                    }
+                  ]}>
+                    <Image source={{ uri: images[0].uri }} style={styles.previewImage} />
+                    {FILTER_PREVIEW_OVERLAY[selectedFilter] && (
+                      <View
+                        pointerEvents="none"
+                        style={[
+                          StyleSheet.absoluteFillObject,
+                          { backgroundColor: FILTER_PREVIEW_OVERLAY[selectedFilter]! },
+                        ]}
+                      />
+                    )}
+                  </View>
                 </View>
               </>
             )}
@@ -270,8 +290,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   previewContainer: {
-    width: '100%',
-    height: 180,
     borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: '#000',
