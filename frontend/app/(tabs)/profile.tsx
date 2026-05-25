@@ -31,6 +31,7 @@ import { savedEvents } from '../../utils/savedEvents';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getUnreadCount } from '../../services/notifications';
 import { socketService } from '../../services/socket';
+import { realtimePostsService } from '../../services/realtimePosts';
 import { UserType } from '../../types/user';
 import { PostType } from '../../types/post';
 import EditProfile from '../../components/EditProfile';
@@ -469,6 +470,27 @@ export default function ProfileScreen() {
       }
     };
   }, [loadUserData]);
+
+  useEffect(() => {
+    const unsubscribe = realtimePostsService.subscribeToViews(({ postId, viewsCount }) => {
+      setPosts(prev => prev.map(post => (
+        post._id === postId
+          ? { ...post, viewsCount, views: viewsCount } as any
+          : post
+      )));
+      setUserShorts(prev => prev.map(short => (
+        short._id === postId
+          ? { ...short, viewsCount, views: viewsCount } as any
+          : short
+      )));
+      setSavedItems(prev => prev.map(item => (
+        item._id === postId
+          ? { ...item, viewsCount, views: viewsCount } as any
+          : item
+      )));
+    });
+    return unsubscribe;
+  }, []);
 
   // Sync subscriptions on mount to keep SubscriptionContext in sync
   const [subSyncLoading, setSubSyncLoading] = useState(false);
@@ -1342,6 +1364,7 @@ export default function ProfileScreen() {
               bio={profileData.bio}
               createdAt={profileData.createdAt}
               tripScore={profileData.tripScore?.totalScore ?? 0}
+              postCount={posts.length + userShorts.length}
               followersCount={profileData.followersCount || 0}
               verifiedCount={verifiedLocationsCount}
               tripsCount={tripsCount}

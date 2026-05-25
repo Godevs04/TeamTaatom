@@ -183,7 +183,7 @@ export default function CollectionsScreen() {
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           activeOpacity={0.7}
         >
-          <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
+          <Ionicons name="chevron-back-outline" size={24} color={theme.colors.text} />
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Collections</Text>
         <TouchableOpacity 
@@ -284,15 +284,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: isTablet ? theme.spacing.xxl : 20,
   },
   list: {
-    padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
+    paddingVertical: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   collectionCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: isTablet ? theme.spacing.md : 12,
+    justifyContent: 'space-between',
+    padding: isTablet ? theme.spacing.md : theme.spacing.sm,
     borderRadius: theme.borderRadius.md,
     borderWidth: 1,
-    marginBottom: isTablet ? theme.spacing.md : 12,
+    marginBottom: isTablet ? theme.spacing.md : theme.spacing.sm,
   },
   coverImageContainer: {
     width: isTablet ? 80 : 60,
@@ -328,6 +330,7 @@ const styles = StyleSheet.create({
   },
   collectionInfo: {
     flex: 1,
+    minWidth: 0,
   },
   collectionName: {
     fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,

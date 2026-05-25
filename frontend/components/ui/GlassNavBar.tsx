@@ -38,7 +38,7 @@ export const GlassNavBar = ({ title, showBack = true, rightComponent, style, ...
       <View style={styles.content}>
         {showBack ? (
           <TouchableOpacity onPress={() => router.back()} style={styles.leftBtn}>
-            <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
+            <Ionicons name="chevron-back-outline" size={24} color={theme.colors.text} />
           </TouchableOpacity>
         ) : <View style={styles.leftBtn} />}
         
@@ -74,10 +74,16 @@ const styles = StyleSheet.create({
   },
   leftBtn: {
     width: 40,
-    alignItems: 'flex-start',
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
   rightBtn: {
     width: 40,
+    height: 40,
     alignItems: 'flex-end',
+    justifyContent: 'center',
   }
 });

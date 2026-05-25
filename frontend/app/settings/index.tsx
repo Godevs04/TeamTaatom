@@ -371,7 +371,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 32,
+    paddingBottom: theme.spacing.xl,
   },
   loadingContainer: {
     flex: 1,
@@ -381,17 +381,17 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
-    marginTop: 10,
-    marginBottom: 14,
+    marginTop: theme.spacing.xs,
+    marginBottom: theme.spacing.sm,
   },
   userInfo: {
     alignItems: 'center',
-    paddingVertical: isTablet ? 20 : 18,
-    paddingHorizontal: 16,
+    paddingVertical: isTablet ? theme.spacing.lg : theme.spacing.md,
+    paddingHorizontal: theme.spacing.md,
   },
   sectionsGroup: {
     marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
-    marginBottom: 16,
+    marginBottom: theme.spacing.md,
   },
   userName: {
     fontSize: isTablet ? theme.typography.h3.fontSize : 20,
@@ -431,7 +431,7 @@ const styles = StyleSheet.create({
   },
   resetContainer: {
     marginHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
-    marginBottom: isTablet ? theme.spacing.xl : 20,
+    marginBottom: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   resetButton: {
     flexDirection: 'row',
@@ -455,7 +455,7 @@ const styles = StyleSheet.create({
   },
   versionContainer: {
     alignItems: 'center',
-    paddingVertical: isTablet ? theme.spacing.xl : 20,
+    paddingVertical: isTablet ? theme.spacing.xl : theme.spacing.lg,
   },
   versionText: {
     fontSize: 12,

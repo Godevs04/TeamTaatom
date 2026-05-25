@@ -1,6 +1,5 @@
 import React, { useEffect, memo } from 'react';
 import { StyleSheet, View } from 'react-native';
-import Svg, { Path, Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   Easing,
@@ -9,70 +8,42 @@ import Animated, {
   withRepeat,
   withTiming,
 } from 'react-native-reanimated';
+import { colors } from '../constants/colors';
 
 interface PremiumMapMarkerProps {
   icon?: keyof typeof Ionicons.glyphMap;
   color?: string;
   active?: boolean;
-}
-
-function PinSvg({ 
-  color = '#FF3B30', 
-  icon = 'location',
-  size = 38 
-}: { 
-  color?: string; 
-  icon?: keyof typeof Ionicons.glyphMap;
-  size?: number 
-}) {
-  const isDefaultIcon = icon === 'location';
-
-  return (
-    <View style={{ width: size, height: size * 1.2, alignItems: 'center', justifyContent: 'center' }}>
-      <Svg width={size} height={size * 1.2} viewBox="0 0 24 28.8" style={StyleSheet.absoluteFill}>
-        <Path
-          d="M12 0C5.37 0 0 5.37 0 12c0 9 12 16.8 12 16.8s12-7.8 12-16.8c0-6.63-5.37-12-12-12z"
-          fill={color}
-          stroke="#FFFFFF"
-          strokeWidth={1.5}
-        />
-        {isDefaultIcon && (
-          <Circle cx={12} cy={12} r={4.5} fill="#FFFFFF" />
-        )}
-      </Svg>
-      {!isDefaultIcon && (
-        <View style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: size,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
-          <Ionicons name={icon} size={size * 0.38} color="#FFFFFF" />
-        </View>
-      )}
-    </View>
-  );
+  isActive?: boolean;
+  pointType?: 'start' | 'end' | 'default';
 }
 
 const PremiumMapMarker = memo(function PremiumMapMarker({
   icon = 'location',
-  color = '#FF3B30', // Vibrant branded red as default pin color
+  color,
   active = false,
+  isActive,
+  pointType = 'default',
 }: PremiumMapMarkerProps) {
+  const activeState = isActive ?? active;
+  const markerColor = pointType === 'start'
+    ? colors.success
+    : pointType === 'end'
+      ? colors.pinActive
+      : activeState
+        ? colors.pinActive
+        : (color || colors.pinInactive);
   const pulse = useSharedValue(0);
-  const activeProgress = useSharedValue(active ? 1 : 0);
+  const activeProgress = useSharedValue(activeState ? 1 : 0);
 
   useEffect(() => {
     // Animate active state progress (bloom/shrink transition)
-    activeProgress.value = withTiming(active ? 1 : 0, {
+    activeProgress.value = withTiming(activeState ? 1 : 0, {
       duration: 300,
       easing: Easing.bezier(0.25, 0.1, 0.25, 1),
     });
 
-    if (active) {
+    if (activeState) {
       pulse.value = withRepeat(
         withTiming(1, { duration: 1600, easing: Easing.out(Easing.quad) }),
         -1,
@@ -81,7 +52,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
     } else {
       pulse.value = 0;
     }
-  }, [active, activeProgress, pulse]);
+  }, [activeState, activeProgress, pulse]);
 
   const pulseStyle = useAnimatedStyle(() => ({
     opacity: activeProgress.value * 0.28 * (1 - pulse.value),
@@ -102,24 +73,30 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
   return (
     <View style={styles.container}>
       {/* Pulse ring for active state */}
-      <Animated.View style={[styles.pulse, { backgroundColor: color }, pulseStyle]} />
+      <Animated.View style={[styles.pulse, { backgroundColor: markerColor }, pulseStyle]} />
 
       {/* Active Pin State */}
       <Animated.View style={[styles.pin, pinStyle]}>
-        <PinSvg color={color} icon={icon} />
+        <View style={[styles.dot, styles.activeDot, { backgroundColor: markerColor }]}>
+          {icon !== 'location' && (
+            <Ionicons name={icon} size={10} color="#FFFFFF" />
+          )}
+        </View>
       </Animated.View>
 
       {/* Inactive Dot State */}
       <Animated.View style={[styles.dotContainer, dotStyle]}>
-        <View style={styles.dot} />
+        <View style={[styles.dot, { backgroundColor: markerColor }]} />
       </Animated.View>
     </View>
   );
 }, (prevProps, nextProps) => {
   return (
     prevProps.active === nextProps.active &&
+    prevProps.isActive === nextProps.isActive &&
     prevProps.icon === nextProps.icon &&
-    prevProps.color === nextProps.color
+    prevProps.color === nextProps.color &&
+    prevProps.pointType === nextProps.pointType
   );
 });
 
@@ -139,8 +116,8 @@ const styles = StyleSheet.create({
     borderRadius: 22,
   },
   pin: {
-    width: 38,
-    height: 45,
+    width: 16,
+    height: 16,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000',
@@ -157,11 +134,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   dot: {
-    width: 9,
-    height: 9,
-    borderRadius: 4.5,
-    backgroundColor: '#8A96A8', // desaturated blue-grey
-    borderWidth: 1.5,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
     borderColor: '#FFFFFF',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1.5 },
@@ -169,6 +145,9 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 3,
   },
+  activeDot: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });
-
 
