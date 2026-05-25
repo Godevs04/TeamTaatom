@@ -27,6 +27,34 @@ const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
 const isWeb = Platform.OS === 'web';
 
+const readSavedIds = async (key: 'savedShorts' | 'savedPosts'): Promise<string[]> => {
+  try {
+    const stored = await AsyncStorage.getItem(key);
+    if (!stored) return [];
+
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string' && id.length > 0) : [];
+  } catch (error) {
+    logger.warn(`Failed to parse ${key}`, error);
+    try {
+      await AsyncStorage.setItem(key, JSON.stringify([]));
+    } catch {}
+    return [];
+  }
+};
+
+const isSavedItemUnavailable = (reason: any): boolean => {
+  const status = reason?.response?.status;
+  const message = reason?.response?.data?.error?.message || reason?.response?.data?.message || reason?.message || '';
+
+  return (
+    status === 403 ||
+    status === 404 ||
+    status === 410 ||
+    (status === 401 && typeof message === 'string' && message.toLowerCase().includes('not available'))
+  );
+};
+
 export default function SavedPostsScreen() {
   const { postId } = useLocalSearchParams();
   const { theme } = useTheme();
@@ -40,30 +68,10 @@ export default function SavedPostsScreen() {
     try {
       setLoading(true);
       
-      // Load saved IDs from AsyncStorage
-      const savedShorts = await AsyncStorage.getItem('savedShorts');
-      const savedPosts = await AsyncStorage.getItem('savedPosts');
-      
-      let shortsArr: string[] = [];
-      let postsArr: string[] = [];
-      
-      try {
-        if (savedShorts) {
-          const parsed = JSON.parse(savedShorts);
-          shortsArr = Array.isArray(parsed) ? parsed : [];
-        }
-      } catch (error) {
-        logger.warn('Failed to parse savedShorts', error);
-      }
-      
-      try {
-        if (savedPosts) {
-          const parsed = JSON.parse(savedPosts);
-          postsArr = Array.isArray(parsed) ? parsed : [];
-        }
-      } catch (error) {
-        logger.warn('Failed to parse savedPosts', error);
-      }
+      const [postsArr, shortsArr] = await Promise.all([
+        readSavedIds('savedPosts'),
+        readSavedIds('savedShorts'),
+      ]);
       
       // Combine and deduplicate
       const allIds = [...postsArr, ...shortsArr];
@@ -90,6 +98,7 @@ export default function SavedPostsScreen() {
       
       const items: PostType[] = [];
       const itemMap = new Map<string, PostType>();
+      const failedIds: string[] = [];
       
       allResults.forEach((batchResults, batchIndex) => {
         batchResults.forEach((r, itemIndex) => {
@@ -102,9 +111,24 @@ export default function SavedPostsScreen() {
                 items.push(item);
               }
             }
+          } else {
+            const id = batches[batchIndex][itemIndex];
+            if (isSavedItemUnavailable((r as any).reason)) {
+              failedIds.push(id);
+            }
           }
         });
       });
+
+      if (failedIds.length > 0) {
+        const cleanedPosts = postsArr.filter(id => !failedIds.includes(id));
+        const cleanedShorts = shortsArr.filter(id => !failedIds.includes(id));
+        await Promise.all([
+          AsyncStorage.setItem('savedPosts', JSON.stringify(cleanedPosts)),
+          AsyncStorage.setItem('savedShorts', JSON.stringify(cleanedShorts)),
+        ]);
+        logger.debug(`Cleaned up ${failedIds.length} unavailable saved posts`);
+      }
       
       // Sort by creation date (newest first)
       items.sort((a, b) => {
