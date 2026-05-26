@@ -323,6 +323,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
                 setPolyline(normalizedPolyline);
                 setDistance(cached.distance || 0);
                 setDuration(cached.duration || 0);
+                setIsPaused(cached.journey.status === 'paused');
                 if (normalizedPolyline.length > 0) {
                   lastCoordinateRef.current = normalizedPolyline[normalizedPolyline.length - 1];
                 }

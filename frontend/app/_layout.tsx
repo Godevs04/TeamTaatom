@@ -123,6 +123,7 @@ function RootLayoutInner() {
     distance,
     duration,
     pauseJourneyRecording,
+    resumeJourneyRecording,
     stopJourneyRecording,
   } = useJourney();
 
@@ -1033,15 +1034,22 @@ function RootLayoutInner() {
           </TouchableOpacity>
         </View>
       )}
-      {/* Journey Status Bar - shown when journey is active or paused */}
-      <JourneyStatusBar
-        isTracking={isTracking}
-        isPaused={isPaused}
-        distance={distance}
-        duration={duration}
-        onStop={() => stopJourneyRecording().catch(err => console.error('Failed to stop journey:', err))}
-        onContinue={() => router.push('/navigate')}
-      />
+      {/* Journey Status Bar - shown when journey is active or paused, but NOT on the tracking screen itself */}
+      {(isTracking || isPaused) && pathname !== '/navigate/tracking' && (
+        <JourneyStatusBar
+          isTracking={isTracking}
+          isPaused={isPaused}
+          distance={distance}
+          duration={duration}
+          onPause={() => pauseJourneyRecording().catch(err => console.error('Failed to pause journey:', err))}
+          onStop={() => stopJourneyRecording().catch(err => console.error('Failed to stop journey:', err))}
+          onContinue={() => {
+            resumeJourneyRecording()
+              .then(() => router.push('/navigate/tracking'))
+              .catch(err => console.error('Failed to resume journey:', err));
+          }}
+        />
+      )}
       <Suspense
         fallback={<LottieSplashScreen visible={true} />}
       >
