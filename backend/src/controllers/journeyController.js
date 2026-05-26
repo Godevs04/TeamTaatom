@@ -463,6 +463,17 @@ const completeJourney = async (req, res) => {
     journey.completedAt = new Date();
     journey.autoEnded = false;
 
+    // Set endCoords to last polyline point before snapping to roads.
+    // This ensures that the final destination pin marks the exact physical end location
+    // of the user, even if the travel route line is snapped/smoothed to vehicle roads.
+    if (journey.polyline.length > 0) {
+      const lastPoint = journey.polyline[journey.polyline.length - 1];
+      journey.endCoords = {
+        lat: lastPoint.lat,
+        lng: lastPoint.lng
+      };
+    }
+
     // Snap raw GPS polyline to actual roads for a cleaner path display.
     // Non-blocking — falls back to raw polyline on any error.
     if (journey.polyline.length >= 2 && shouldSnap !== false) {
@@ -471,15 +482,6 @@ const completeJourney = async (req, res) => {
       } catch (snapErr) {
         logger.warn('Road snap error (non-blocking):', snapErr.message);
       }
-    }
-
-    // Set endCoords to last polyline point
-    if (journey.polyline.length > 0) {
-      const lastPoint = journey.polyline[journey.polyline.length - 1];
-      journey.endCoords = {
-        lat: lastPoint.lat,
-        lng: lastPoint.lng
-      };
     }
 
     await journey.save();

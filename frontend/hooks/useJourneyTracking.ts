@@ -986,6 +986,46 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         throw new Error('No active journey');
       }
 
+      // Capture one final high-accuracy coordinate to guarantee the exact ending location pin is precise
+      try {
+        const finalLoc = await Promise.race([
+          Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.High,
+          }),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)) // 4s timeout fallback
+        ]);
+
+        if (finalLoc) {
+          const finalCoord: Coordinate = {
+            latitude: finalLoc.coords.latitude,
+            longitude: finalLoc.coords.longitude,
+            timestamp: finalLoc.timestamp,
+            accuracy: finalLoc.coords.accuracy || 0,
+          };
+
+          if (!finalCoord.accuracy || finalCoord.accuracy <= 30) {
+            // Avoid duplicate points if final location is virtually identical to the last tracked point
+            const lastTracked = lastCoordinateRef.current;
+            const dist = lastTracked
+              ? calculateCoordinateDistance(
+                  lastTracked.latitude,
+                  lastTracked.longitude,
+                  finalCoord.latitude,
+                  finalCoord.longitude
+                )
+              : Infinity;
+
+            if (dist >= 1) { // only push if at least 1 meter away or if no prior point
+              batchCoordinatesRef.current.push(finalCoord);
+              setPolyline((prev) => [...prev, finalCoord]);
+              lastCoordinateRef.current = finalCoord;
+            }
+          }
+        }
+      } catch (locErr) {
+        logger.warn('[Journey] Could not fetch final high-accuracy location for stop:', locErr);
+      }
+
       // Stop location tracking
       if (locationWatcherRef.current) {
         locationWatcherRef.current.remove();
