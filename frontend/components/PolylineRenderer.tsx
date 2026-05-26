@@ -93,13 +93,13 @@ export function calculateCoordinateDistance(
  * @param minDistanceMeters Minimum distance between kept points (default 5m)
  * @returns Simplified coordinates
  */
-export function simplifyPolyline(
-  coords: Array<{ latitude: number; longitude: number }>,
+export function simplifyPolyline<T extends { latitude: number; longitude: number }>(
+  coords: T[],
   minDistanceMeters: number = 5
-): Array<{ latitude: number; longitude: number }> {
+): T[] {
   if (coords.length <= 1) return coords;
 
-  const simplified: Array<{ latitude: number; longitude: number }> = [coords[0]];
+  const simplified: T[] = [coords[0]];
 
   for (let i = 1; i < coords.length; i++) {
     const lastKept = simplified[simplified.length - 1];
@@ -215,6 +215,32 @@ export default function PolylineRenderer({
     return null;
   }
 
+  // 5. Split coordinates into segments based on a time gap of > 60 seconds (indicating a pause/break)
+  const segments: Array<Array<{ latitude: number; longitude: number; timestamp?: number }>> = [];
+  let currentSegment: Array<{ latitude: number; longitude: number; timestamp?: number }> = [];
+
+  for (let i = 0; i < processedCoords.length; i++) {
+    const coord = processedCoords[i];
+    if (currentSegment.length === 0) {
+      currentSegment.push(coord);
+    } else {
+      const prevCoord = currentSegment[currentSegment.length - 1];
+      const timeDiff = coord.timestamp && prevCoord.timestamp
+        ? (coord.timestamp - prevCoord.timestamp) / 1000
+        : 0;
+
+      if (timeDiff > 60) { // 60 seconds gap
+        segments.push(currentSegment);
+        currentSegment = [coord];
+      } else {
+        currentSegment.push(coord);
+      }
+    }
+  }
+  if (currentSegment.length > 0) {
+    segments.push(currentSegment);
+  }
+
   // Try to import and render Polyline for native MapView
   try {
     // Dynamically import Polyline only if available
@@ -222,28 +248,35 @@ export default function PolylineRenderer({
 
     return (
       <>
-        {glowColor ? (
-          <Polyline
-            coordinates={processedCoords}
-            strokeColor={glowColor}
-            strokeWidth={Math.max(strokeWidth + 8, 10)}
-            lineCap="round"
-            lineJoin="round"
-            geodesic={true}
-            tappable={!!onPress}
-            onPress={onPress}
-          />
-        ) : null}
-        <Polyline
-          coordinates={processedCoords}
-          strokeColor={color}
-          strokeWidth={strokeWidth}
-          lineCap="round"
-          lineJoin="round"
-          geodesic={true} // Follow Earth's curvature for long distances
-          tappable={!!onPress}
-          onPress={onPress}
-        />
+        {segments.map((segment, index) => {
+          if (segment.length < 2) return null;
+          return (
+            <React.Fragment key={`segment-${index}`}>
+              {glowColor ? (
+                <Polyline
+                  coordinates={segment}
+                  strokeColor={glowColor}
+                  strokeWidth={Math.max(strokeWidth + 8, 10)}
+                  lineCap="round"
+                  lineJoin="round"
+                  geodesic={true}
+                  tappable={!!onPress}
+                  onPress={onPress}
+                />
+              ) : null}
+              <Polyline
+                coordinates={segment}
+                strokeColor={color}
+                strokeWidth={strokeWidth}
+                lineCap="round"
+                lineJoin="round"
+                geodesic={true} // Follow Earth's curvature for long distances
+                tappable={!!onPress}
+                onPress={onPress}
+              />
+            </React.Fragment>
+          );
+        })}
       </>
     );
   } catch (error) {
@@ -285,20 +318,50 @@ export function generatePolylineJS(
   const simplified = simplifyPolyline(processed, simplifyDistance);
   if (simplified.length < 2) return '';
 
-  // Build path array for Google Maps
-  const pathArray = simplified
-    .map(coord => `{ lat: ${coord.latitude}, lng: ${coord.longitude} }`)
-    .join(', ');
+  // Split into segments based on 60 seconds timestamp gap
+  const segments: Array<Array<{ latitude: number; longitude: number; timestamp?: number }>> = [];
+  let currentSegment: Array<{ latitude: number; longitude: number; timestamp?: number }> = [];
 
-  return `
-    const polylinePath = [${pathArray}];
-    new google.maps.Polyline({
-      path: polylinePath,
-      geodesic: true,
-      strokeColor: '${color}',
-      strokeOpacity: 1.0,
-      strokeWeight: ${strokeWidth},
-      map: map
-    });
-  `;
+  for (let i = 0; i < simplified.length; i++) {
+    const coord = simplified[i];
+    if (currentSegment.length === 0) {
+      currentSegment.push(coord);
+    } else {
+      const prevCoord = currentSegment[currentSegment.length - 1];
+      const timeDiff = coord.timestamp && prevCoord.timestamp
+        ? (coord.timestamp - prevCoord.timestamp) / 1000
+        : 0;
+
+      if (timeDiff > 60) {
+        segments.push(currentSegment);
+        currentSegment = [coord];
+      } else {
+        currentSegment.push(coord);
+      }
+    }
+  }
+  if (currentSegment.length > 0) {
+    segments.push(currentSegment);
+  }
+
+  return segments
+    .map((seg, idx) => {
+      if (seg.length < 2) return '';
+      const pathArray = seg
+        .map(coord => `{ lat: ${coord.latitude}, lng: ${coord.longitude} }`)
+        .join(', ');
+
+      return `
+        const polylinePath_${idx} = [${pathArray}];
+        new google.maps.Polyline({
+          path: polylinePath_${idx},
+          geodesic: true,
+          strokeColor: '${color}',
+          strokeOpacity: 1.0,
+          strokeWeight: ${strokeWidth},
+          map: map
+        });
+      `;
+    })
+    .join('\n');
 }
