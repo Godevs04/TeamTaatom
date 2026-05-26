@@ -341,29 +341,46 @@ const updateLocation = async (req, res) => {
       // Calculate distance from previous point using Haversine formula
       if (journey.polyline.length > 0) {
         const prevPoint = journey.polyline[journey.polyline.length - 1];
-        const distance = calculateHaversineDistance(
-          prevPoint.lat,
-          prevPoint.lng,
-          point.lat,
-          point.lng
-        );
 
-        // Speed sanity check: reject points implying motion faster than a
-        // commercial flight (~1000 km/h). Catches GPS jumps from indoor
-        // multipath, spoofed coords, and parseFloat overflow that's still
-        // technically in-bounds but absurd vs. the previous point.
-        const dtSec = Math.max(
-          0.001,
-          (point.timestamp - prevPoint.timestamp) / 1000,
-        );
-        const speedKmh = (distance / 1000) / (dtSec / 3600);
-        if (speedKmh > MAX_REALISTIC_SPEED_KMH) {
-          skippedImpossible++;
-          continue;
+        // Check if there was a pause/resume boundary between prevPoint and the new point.
+        // We scan for any session in journey.sessions that started after prevPoint.timestamp
+        // and before or at point.timestamp.
+        const prevTime = new Date(prevPoint.timestamp).getTime();
+        const currTime = new Date(point.timestamp).getTime();
+        const hasSessionBoundary = journey.sessions && journey.sessions.some(s => {
+          const sessionStart = new Date(s.startedAt).getTime();
+          return sessionStart > prevTime && sessionStart <= currTime;
+        });
+
+        if (hasSessionBoundary) {
+          // A new session started between these points, so we do NOT count the distance
+          // traveled while paused/suspended.
+          journey.polyline.push(point);
+        } else {
+          const distance = calculateHaversineDistance(
+            prevPoint.lat,
+            prevPoint.lng,
+            point.lat,
+            point.lng
+          );
+
+          // Speed sanity check: reject points implying motion faster than a
+          // commercial flight (~1000 km/h). Catches GPS jumps from indoor
+          // multipath, spoofed coords, and parseFloat overflow that's still
+          // technically in-bounds but absurd vs. the previous point.
+          const dtSec = Math.max(
+            0.001,
+            (point.timestamp - prevPoint.timestamp) / 1000,
+          );
+          const speedKmh = (distance / 1000) / (dtSec / 3600);
+          if (speedKmh > MAX_REALISTIC_SPEED_KMH) {
+            skippedImpossible++;
+            continue;
+          }
+
+          journey.polyline.push(point);
+          journey.distanceTraveled += distance; // distance in meters
         }
-
-        journey.polyline.push(point);
-        journey.distanceTraveled += distance; // distance in meters
       } else {
         journey.polyline.push(point);
       }
@@ -409,6 +426,7 @@ const updateLocation = async (req, res) => {
 const completeJourney = async (req, res) => {
   try {
     const { journeyId } = req.params;
+    const { snapToRoads: shouldSnap } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(journeyId)) {
       return sendError(res, 'VAL_2001', 'Invalid journey ID');
@@ -447,7 +465,7 @@ const completeJourney = async (req, res) => {
 
     // Snap raw GPS polyline to actual roads for a cleaner path display.
     // Non-blocking — falls back to raw polyline on any error.
-    if (journey.polyline.length >= 2) {
+    if (journey.polyline.length >= 2 && shouldSnap !== false) {
       try {
         journey.polyline = await snapToRoads(journey.polyline);
       } catch (snapErr) {

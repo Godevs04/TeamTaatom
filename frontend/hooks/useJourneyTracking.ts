@@ -80,11 +80,13 @@ try {
         if (typeof lat !== 'number' || typeof lng !== 'number') continue;
         if (Number.isNaN(lat) || Number.isNaN(lng)) continue;
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
+        const accuracy = loc.coords?.accuracy || 0;
+        if (accuracy > 30) continue; // Filter out poor accuracy fixes in background
         valid.push({
           latitude: lat,
           longitude: lng,
           timestamp: loc.timestamp,
-          accuracy: loc.coords?.accuracy || 0,
+          accuracy,
         });
       }
       if (valid.length === 0) return;
@@ -146,7 +148,7 @@ interface UseJourneyTrackingReturn {
   startJourneyRecording: (title?: string) => Promise<void>;
   pauseJourneyRecording: () => Promise<void>;
   resumeJourneyRecording: () => Promise<void>;
-  stopJourneyRecording: () => Promise<void>;
+  stopJourneyRecording: (options?: { snapToRoads?: boolean }) => Promise<void>;
 }
 
 /**
@@ -251,6 +253,12 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         };
         setAccuracy(coord.accuracy);
         setCurrentCoordinate(coord);
+
+        // Ignore updates with poor GPS accuracy (> 30 meters) to avoid erratic spikes/drift
+        if (coord.accuracy && coord.accuracy > 30) {
+          logger.debug(`[Journey] Discarding low-accuracy coordinate (±${coord.accuracy}m) for polyline tracking.`);
+          return;
+        }
 
         // Only grow the polyline / running distance when movement is
         // significant. First emission seeds lastCoordinateRef.
@@ -600,9 +608,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       const already = await Location.hasStartedLocationUpdatesAsync(BG_LOCATION_TASK).catch(() => false);
       if (already) return true;
       await Location.startLocationUpdatesAsync(BG_LOCATION_TASK, {
-        accuracy: Location.Accuracy.Balanced, // Adjusted for battery/precision balance
-        timeInterval: 10000, // Reduced frequency to 10 seconds to save battery
-        distanceInterval: 10, // Maintain 10 meters distance interval
+        accuracy: Location.Accuracy.High, // Upgraded for high-accuracy path tracking
+        timeInterval: 5000, // Query every 5 seconds for a denser track
+        distanceInterval: 5, // Track every 5 meters
         showsBackgroundLocationIndicator: true, // Enable indicator to prevent OS suspension
         foregroundService: {
           notificationTitle: 'Recording your journey',
@@ -886,6 +894,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         locationWatcherRef.current.remove();
         locationWatcherRef.current = null;
       }
+      lastCoordinateRef.current = null; // Clear so the next resume starts a fresh distance segment
 
       // Stop the background TaskManager updates if they're running and
       // drain anything it managed to capture before pause was hit.
@@ -953,6 +962,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
       // Reset duration timer
       startTimeRef.current = Date.now() - resumedJourney.duration * 1000;
+      lastCoordinateRef.current = null; // Clear to guarantee first location fix starts a new segment
 
       // Restart location watcher via the centralized helper.
       await startLocationWatcher();
@@ -968,7 +978,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     }
   }, []);
 
-  const stopJourneyRecording = useCallback(async () => {
+  const stopJourneyRecording = useCallback(async (options?: { snapToRoads?: boolean }) => {
     try {
       setError(null);
 
@@ -981,6 +991,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         locationWatcherRef.current.remove();
         locationWatcherRef.current = null;
       }
+      lastCoordinateRef.current = null; // Clear on stop
 
       // Stop background updates and absorb anything the bg task captured
       // since the last drain so the final batch includes them.
@@ -1024,8 +1035,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       // shouldn't happen, but the guard is cheap).
       await AsyncStorage.removeItem(BG_QUEUE_KEY_PREFIX + completingJourneyId).catch(() => {});
 
-      // Call API
-      const { journey: completedJourney } = await completeJourney(completingJourneyId);
+      // Call API with snapToRoads option
+      const snapToRoads = options?.snapToRoads !== false;
+      const { journey: completedJourney } = await completeJourney(completingJourneyId, { snapToRoads });
       setJourney(completedJourney);
       setIsTracking(false);
       setIsPaused(false);

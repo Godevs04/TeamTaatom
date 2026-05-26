@@ -276,6 +276,26 @@ const approveTripVisit = async (req, res) => {
       return sendError(res, 'VAL_2001', 'TripVisit is not pending review');
     }
 
+    // Geocode if coordinates are invalid (0,0) but address is meaningful
+    if (tripVisit.lat === 0 && tripVisit.lng === 0 && tripVisit.address && tripVisit.address !== 'Unknown Location') {
+      try {
+        const { geocodeAddress } = require('../utils/geocoder');
+        const geocoded = await geocodeAddress(tripVisit.address);
+        if (geocoded) {
+          tripVisit.lat = geocoded.lat;
+          tripVisit.lng = geocoded.lng;
+          if (geocoded.city) tripVisit.city = geocoded.city;
+          if (geocoded.country) tripVisit.country = geocoded.country;
+          if (geocoded.continent) {
+            tripVisit.continent = geocoded.continent === 'Unknown' ? 'Unknown' : geocoded.continent.toUpperCase();
+          }
+          logger.info(`🎯 Successfully geocoded address "${tripVisit.address}" to (${geocoded.lat}, ${geocoded.lng}) during admin approval`);
+        }
+      } catch (geocodeErr) {
+        logger.warn('Failed to geocode manual location on approval:', geocodeErr);
+      }
+    }
+
     // Update verification status
     tripVisit.verificationStatus = 'approved';
     tripVisit.reviewedBy = adminId;

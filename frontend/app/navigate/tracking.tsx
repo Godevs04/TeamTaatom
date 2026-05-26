@@ -10,7 +10,9 @@ import {
   Platform,
   Dimensions,
   Animated,
+  AppState,
 } from 'react-native';
+import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
@@ -63,10 +65,32 @@ export default function TrackingScreen() {
 
   const [mapReady, setMapReady] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [bgPermissionGranted, setBgPermissionGranted] = useState(true);
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
   // Set when the user intentionally ends/pauses — prevents the redirect
   // effect from competing with the deliberate navigation.
   const isNavigatingAwayRef = React.useRef(false);
+
+  // Monitor background location permission status
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    const checkBgPermissions = async () => {
+      try {
+        const { status } = await Location.getBackgroundPermissionsAsync();
+        setBgPermissionGranted(status === 'granted');
+      } catch (e) {
+        // Safe fallback
+      }
+    };
+    checkBgPermissions();
+    // Recheck status whenever app state changes back to active (foreground)
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') {
+        checkBgPermissions();
+      }
+    });
+    return () => subscription.remove();
+  }, []);
 
   // Prefer the live GPS reading from the hook (updated every 2s regardless
   // of polyline growth) over the polyline tail — the latter only advances
@@ -128,29 +152,48 @@ export default function TrackingScreen() {
   };
 
   const handleStopJourney = () => {
-    Alert.alert('End Journey?', 'This will complete your current journey. You can view it later in your profile.', [
-      {
-        text: 'Cancel',
-        onPress: () => {},
-        style: 'cancel',
-      },
-      {
-        text: 'End Journey',
-        onPress: async () => {
-          try {
-            setIsLoading(true);
-            await stopJourneyRecording();
-            isNavigatingAwayRef.current = true;
-            router.push('/navigate/complete');
-          } catch (err: any) {
-            showAlert('Failed to end journey', err.message);
-          } finally {
-            setIsLoading(false);
-          }
+    Alert.alert(
+      'End Journey?',
+      'This will complete your current journey. Choose how you want to save the path:',
+      [
+        {
+          text: 'Cancel',
+          onPress: () => {},
+          style: 'cancel',
         },
-        style: 'destructive',
-      },
-    ]);
+        {
+          text: 'Save Raw GPS Path',
+          onPress: async () => {
+            try {
+              setIsLoading(true);
+              await stopJourneyRecording({ snapToRoads: false });
+              isNavigatingAwayRef.current = true;
+              router.push('/navigate/complete');
+            } catch (err: any) {
+              showAlert('Failed to end journey', err.message);
+            } finally {
+              setIsLoading(false);
+            }
+          },
+        },
+        {
+          text: 'Snap to Roads & Save',
+          onPress: async () => {
+            try {
+              setIsLoading(true);
+              await stopJourneyRecording({ snapToRoads: true });
+              isNavigatingAwayRef.current = true;
+              router.push('/navigate/complete');
+            } catch (err: any) {
+              showAlert('Failed to end journey', err.message);
+            } finally {
+              setIsLoading(false);
+            }
+          },
+          style: 'default',
+        },
+      ]
+    );
   };
 
   const openJourneyCapture = (type: 'photo' | 'short') => {
@@ -192,6 +235,16 @@ export default function TrackingScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      {/* Background Permission Warning Banner */}
+      {!bgPermissionGranted && (
+        <View style={styles.warningBanner}>
+          <Ionicons name="warning" size={16} color="#D97706" />
+          <Text style={styles.warningText}>
+            Background location disabled. Select "Always Allow" in Settings to track your route when screen is locked.
+          </Text>
+        </View>
+      )}
+
       {/* Header */}
       <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
         <View style={styles.recordingTitleRow}>
@@ -256,10 +309,35 @@ export default function TrackingScreen() {
           {useWebViewFallback ? (() => {
             const WV_KEY = getGoogleMapsApiKeyForWebView();
             if (!WV_KEY) return <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}><Ionicons name="map-outline" size={48} color="#9CA3AF" /></View>;
-            const polyCoords = JSON.stringify(polyline.filter(p => p.latitude && p.longitude).map(p => ({ lat: p.latitude, lng: p.longitude })));
+            const polyCoords = JSON.stringify(polyline.filter(p => p.latitude && p.longitude).map(p => ({ lat: p.latitude, lng: p.longitude, timestamp: p.timestamp })));
             const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>html,body,#map{height:100%;margin:0;padding:0}</style>
 <script>function initMap(){var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${initialRegion.latitude},lng:${initialRegion.longitude}},zoom:15,mapTypeId:'roadmap',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true});
-var path=${polyCoords};if(path.length>1){new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});}
+var path=${polyCoords};if(path.length>1){
+  var segments = [];
+  var currentSegment = [];
+  for(var i=0; i<path.length; i++){
+    var p = path[i];
+    if(currentSegment.length === 0){
+      currentSegment.push(p);
+    } else {
+      var prev = currentSegment[currentSegment.length-1];
+      var timeDiff = (p.timestamp && prev.timestamp) ? (p.timestamp - prev.timestamp)/1000 : 0;
+      if(timeDiff > 60){
+        segments.push(currentSegment);
+        currentSegment = [p];
+      } else {
+        currentSegment.push(p);
+      }
+    }
+  }
+  if(currentSegment.length > 0) segments.push(currentSegment);
+  segments.forEach(function(seg){
+    if(seg.length > 1){
+      new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});
+      new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});
+    }
+  });
+}
 ${currentLocation ? `new google.maps.Marker({position:{lat:${currentLocation.latitude},lng:${currentLocation.longitude}},map:map,title:'You'});` : ''}
 }</script></head><body><div id="map"></div>
 <script async defer src="https://maps.googleapis.com/maps/api/js?key=${WV_KEY}&language=en&callback=initMap"></script></body></html>`;
@@ -445,5 +523,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 999,
+  },
+  warningBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    gap: 8,
+    backgroundColor: '#FEF3C7',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(217, 119, 6, 0.2)',
+  },
+  warningText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#D97706',
+    lineHeight: 16,
   },
 });
