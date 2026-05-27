@@ -92,12 +92,11 @@ function CommunityFormModal({ isOpen, onClose, onSave, editPage }) {
   const [website, setWebsite] = useState(false)
   const [groupChat, setGroupChat] = useState(false)
   const [subscription, setSubscription] = useState(false)
-  const [subscriptionPrice, setSubscriptionPrice] = useState('')
-  const [subscriptionCurrency, setSubscriptionCurrency] = useState('INR')
   const [profileImage, setProfileImage] = useState(null)
   const [bannerImage, setBannerImage] = useState(null)
   const [profilePreview, setProfilePreview] = useState('')
   const [bannerPreview, setBannerPreview] = useState('')
+  const [buyItems, setBuyItems] = useState([])
   const [saving, setSaving] = useState(false)
 
   // Reset form when opening
@@ -110,10 +109,17 @@ function CommunityFormModal({ isOpen, onClose, onSave, editPage }) {
         setWebsite(editPage.features?.website || false)
         setGroupChat(editPage.features?.groupChat || false)
         setSubscription(editPage.features?.subscription || false)
-        setSubscriptionPrice(editPage.subscriptionPrice || '')
-        setSubscriptionCurrency(editPage.subscriptionCurrency || 'INR')
         setProfilePreview(editPage.profileImage || '')
         setBannerPreview(editPage.bannerImage || '')
+        setBuyItems(
+          Array.isArray(editPage.buyItems)
+            ? editPage.buyItems.map((item) => ({
+                ...item,
+                imagePreview: '',
+                imageFile: null,
+              }))
+            : []
+        )
       } else {
         setName('')
         setBio('')
@@ -121,10 +127,9 @@ function CommunityFormModal({ isOpen, onClose, onSave, editPage }) {
         setWebsite(false)
         setGroupChat(false)
         setSubscription(false)
-        setSubscriptionPrice('')
-        setSubscriptionCurrency('INR')
         setProfilePreview('')
         setBannerPreview('')
+        setBuyItems([])
       }
       setProfileImage(null)
       setBannerImage(null)
@@ -145,6 +150,19 @@ function CommunityFormModal({ isOpen, onClose, onSave, editPage }) {
       return
     }
 
+    if (subscription) {
+      for (const item of buyItems) {
+        if (!item.name.trim()) {
+          toast.error('Each item must have a name')
+          return
+        }
+        if (item.price === '' || isNaN(parseFloat(item.price)) || parseFloat(item.price) < 0) {
+          toast.error('Each item must have a valid non-negative price')
+          return
+        }
+      }
+    }
+
     setSaving(true)
     try {
       const formData = new FormData()
@@ -153,9 +171,25 @@ function CommunityFormModal({ isOpen, onClose, onSave, editPage }) {
       formData.append('type', type)
       formData.append('features', JSON.stringify({ website, groupChat, subscription }))
 
-      if (subscription && subscriptionPrice) {
-        formData.append('subscriptionPrice', subscriptionPrice)
-        formData.append('subscriptionCurrency', subscriptionCurrency)
+      if (subscription) {
+        formData.append(
+          'buyItems',
+          JSON.stringify(
+            buyItems.map((item) => ({
+              _id: item._id,
+              name: item.name.trim(),
+              description: item.description?.trim() || '',
+              price: parseFloat(item.price) || 0,
+              imageUrl: item.imageUrl || '',
+              active: item.active !== false,
+            }))
+          )
+        )
+        buyItems.forEach((item, idx) => {
+          if (item.imageFile) {
+            formData.append(`buyItemImage_${idx}`, item.imageFile)
+          }
+        })
       }
 
       if (profileImage) formData.append('profileImage', profileImage)
@@ -329,33 +363,144 @@ function CommunityFormModal({ isOpen, onClose, onSave, editPage }) {
             </div>
           </div>
 
-          {/* Subscription Price (only when subscription enabled) */}
+          {/* Buy Items Section (only when Buy feature enabled) */}
           {subscription && (
-            <div className="bg-purple-50 rounded-lg p-4 border border-purple-100">
-              <label className="block text-sm font-medium text-purple-700 mb-2">Buy Pricing</label>
-              <div className="flex gap-3">
-                <select
-                  value={subscriptionCurrency}
-                  onChange={(e) => setSubscriptionCurrency(e.target.value)}
-                  className="px-3 py-2 border border-purple-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+            <div className="bg-purple-50 rounded-lg p-4 border border-purple-100 space-y-4">
+              <div className="flex items-center justify-between">
+                <label className="block text-sm font-semibold text-purple-950">Buy Items</label>
+                <button
+                  type="button"
+                  disabled={buyItems.length >= 5}
+                  onClick={() => setBuyItems([...buyItems, { name: '', description: '', price: '', active: true, imageUrl: '', imagePreview: '', imageFile: null }])}
+                  className="px-2.5 py-1 text-xs font-medium bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50 flex items-center gap-1"
                 >
-                  {CURRENCIES.map((c) => (
-                    <option key={c.code} value={c.code}>{c.label}</option>
-                  ))}
-                </select>
-                <input
-                  type="number"
-                  value={subscriptionPrice}
-                  onChange={(e) => setSubscriptionPrice(e.target.value)}
-                  placeholder="Price per month"
-                  min="0"
-                  step="0.01"
-                  className="flex-1 px-3 py-2 border border-purple-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
+                  <Plus className="w-3.5 h-3.5" /> Add Item ({buyItems.length}/5)
+                </button>
               </div>
-              <p className="text-xs text-purple-500 mt-2">
-                Admin-created pages are auto-approved — no approval needed.
-              </p>
+
+              {buyItems.map((item, idx) => (
+                <div key={idx} className="bg-white rounded-lg p-3 border border-purple-100 space-y-3 relative">
+                  <button
+                    type="button"
+                    onClick={() => setBuyItems(buyItems.filter((_, i) => i !== idx))}
+                    className="absolute top-2 right-2 p-1 rounded-full text-red-500 hover:bg-red-50"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {/* Item Image Upload */}
+                    <div className="sm:col-span-1">
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Item Photo</label>
+                      <label className="cursor-pointer block">
+                        {item.imagePreview || item.imageUrl ? (
+                          <div className="relative w-full aspect-video rounded border border-gray-200 overflow-hidden">
+                            <img src={item.imagePreview || item.imageUrl} alt="" className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 bg-black/35 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                              <Upload className="w-5 h-5 text-white" />
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="w-full aspect-video rounded border-2 border-dashed border-gray-300 flex flex-col items-center justify-center text-gray-400 hover:border-purple-400 hover:text-purple-600 transition-colors">
+                            <ImageIcon className="w-6 h-6 mb-0.5" />
+                            <span className="text-[10px]">Upload</span>
+                          </div>
+                        )}
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0]
+                            if (file) {
+                              const updated = [...buyItems]
+                              updated[idx].imageFile = file
+                              updated[idx].imagePreview = URL.createObjectURL(file)
+                              setBuyItems(updated)
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+
+                    {/* Heading/Name & Price */}
+                    <div className="sm:col-span-2 space-y-2">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-500 mb-0.5">Item Heading / Name *</label>
+                        <input
+                          type="text"
+                          required
+                          value={item.name}
+                          onChange={(e) => {
+                            const updated = [...buyItems]
+                            updated[idx].name = e.target.value
+                            setBuyItems(updated)
+                          }}
+                          placeholder="e.g. Premium T-shirt"
+                          className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-purple-500"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-0.5">Price (INR) *</label>
+                          <input
+                            type="number"
+                            required
+                            min="0"
+                            step="0.01"
+                            value={item.price}
+                            onChange={(e) => {
+                              const updated = [...buyItems]
+                              updated[idx].price = e.target.value
+                              setBuyItems(updated)
+                            }}
+                            placeholder="Price"
+                            className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-purple-500"
+                          />
+                        </div>
+                        <div className="flex items-end pl-1">
+                          <label className="flex items-center gap-1.5 cursor-pointer pb-1.5">
+                            <input
+                              type="checkbox"
+                              checked={item.active !== false}
+                              onChange={(e) => {
+                                const updated = [...buyItems]
+                                updated[idx].active = e.target.checked
+                                setBuyItems(updated)
+                              }}
+                              className="rounded text-purple-600 focus:ring-purple-500 h-3.5 w-3.5"
+                            />
+                            <span className="text-xs font-medium text-gray-600">Active</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Caption/Description */}
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-0.5">Item Caption / Description</label>
+                    <textarea
+                      value={item.description}
+                      onChange={(e) => {
+                        const updated = [...buyItems]
+                        updated[idx].description = e.target.value
+                        setBuyItems(updated)
+                      }}
+                      placeholder="Enter a compelling caption or details to admire users..."
+                      rows={2}
+                      maxLength={500}
+                      className="w-full px-2 py-1 border border-gray-300 rounded text-xs focus:outline-none focus:ring-1 focus:ring-purple-500 resize-none"
+                    />
+                  </div>
+                </div>
+              ))}
+
+              {buyItems.length === 0 && (
+                <p className="text-center text-xs text-purple-600/70 italic py-2">
+                  No items listed yet. Click &quot;Add Item&quot; to list items for users to buy!
+                </p>
+              )}
             </div>
           )}
         </div>

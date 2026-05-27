@@ -37,6 +37,7 @@ import {
   createSubscription,
   getSubscriptionStatus,
   cancelSubscription as cancelSubApi,
+  buyCommunityItem,
   getPayoutPreview,
   getCurrencySymbol,
   formatConnectMoney,
@@ -192,6 +193,16 @@ export default function ConnectPageDetailScreen() {
   const [payoutPreview, setPayoutPreview] = useState<PayoutPreview | null>(null);
   const [showBioEdit, setShowBioEdit] = useState(false);
   const [bioInput, setBioInput] = useState('');
+
+  // Checkout Modal State
+  const [checkoutModalVisible, setCheckoutModalVisible] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [buyerName, setBuyerName] = useState('');
+  const [buyerPhone, setBuyerPhone] = useState('');
+  const [payPhone, setPayPhone] = useState('');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [checkingOut, setCheckingOut] = useState(false);
+
   const [savingBio, setSavingBio] = useState(false);
 
   // Multi-currency live conversion support
@@ -420,6 +431,50 @@ export default function ConnectPageDetailScreen() {
       ]
     );
   };
+
+  const handleBuyItem = async () => {
+    if (!selectedItem) return;
+    if (!buyerName.trim()) {
+      Alert.alert('Validation Error', 'Please enter your name.');
+      return;
+    }
+    if (!buyerPhone.trim()) {
+      Alert.alert('Validation Error', 'Please enter your phone number.');
+      return;
+    }
+    if (!payPhone.trim()) {
+      Alert.alert('Validation Error', 'Please enter your payment phone number.');
+      return;
+    }
+    if (!deliveryAddress.trim()) {
+      Alert.alert('Validation Error', 'Please enter your delivery address.');
+      return;
+    }
+
+    try {
+      setCheckingOut(true);
+      await buyCommunityItem(id, {
+        itemId: selectedItem._id,
+        buyerName: buyerName.trim(),
+        buyerPhone: buyerPhone.trim(),
+        payPhone: payPhone.trim(),
+        deliveryAddress: deliveryAddress.trim()
+      });
+      Alert.alert('Success', 'Order placed successfully! The admin will deliver your items soon.');
+      setCheckoutModalVisible(false);
+      setBuyerName('');
+      setBuyerPhone('');
+      setPayPhone('');
+      setDeliveryAddress('');
+    } catch (error: any) {
+      logger.error('Failed to buy item:', error);
+      const msg = error.message || 'Failed to place order. Please try again.';
+      Alert.alert('Error', msg);
+    } finally {
+      setCheckingOut(false);
+    }
+  };
+
 
   const handleFollowToggle = async () => {
     if (!page || followLoading) return;
@@ -1082,352 +1137,379 @@ export default function ConnectPageDetailScreen() {
           </TouchableOpacity>
         )}
 
-        {/* Subscription Section */}
+        {/* Subscription / Buy Items Section */}
         {page.features?.subscription && (
-          <View style={[styles.section, { backgroundColor: theme.colors.surface }, !page.features?.website && !page.features?.groupChat && { marginTop: isTablet ? 14 : 12 }]}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionTitleRow}>
-                <View style={[styles.sectionIconWrap, { backgroundColor: theme.colors.primary + '12' }]}>
-                  <Ionicons name="star-outline" size={18} color={theme.colors.primary} />
-                </View>
-                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{subLabel}</Text>
-              </View>
-            </View>
-
-            {/* Approval status banner (owner only) */}
-            {isOwner && page.subscriptionApproval?.status === 'pending' && (
-              <View style={[styles.approvalBanner, { backgroundColor: '#FFF3CD' }]}>
-                <Ionicons name="time-outline" size={16} color="#856404" />
-                <Text style={[styles.approvalBannerText, { color: '#856404' }]}>
-                  Price {currSym}{page.subscriptionApproval.requestedPrice}/mo — Pending admin approval
-                </Text>
-              </View>
-            )}
-            {isOwner && page.subscriptionApproval?.status === 'rejected' && (
-              <View style={[styles.approvalBanner, { backgroundColor: theme.colors.error + '15' }]}>
-                <Ionicons name="close-circle-outline" size={16} color={theme.colors.error} />
-                <Text style={[styles.approvalBannerText, { color: theme.colors.error }]}>
-                  Price rejected{page.subscriptionApproval.rejectionReason ? `: ${page.subscriptionApproval.rejectionReason}` : ''}
-                </Text>
-              </View>
-            )}
-
-            <View style={styles.sectionContent}>
-              {page.subscriptionContent && page.subscriptionContent.length > 0 ? (
-                (() => {
-                  const isAuthorized = isOwner || subscriptionStatus?.isSubscribed;
-                  const shouldObfuscate = !isRevealed;
-
-                  const contentList = (
-                    <>
-                      {packBlocksIntoRows(
-                        page.subscriptionContent.slice().sort((a, b) => a.order - b.order)
-                      ).map((row, ri) => (
-                        (() => {
-                          const isSingle = row.length === 1 && row[0].blocks.length === 1;
-                          return isSingle ? (
-                            <React.Fragment key={`srow-${ri}`}>
-                              {renderContentBlock(row[0].blocks[0], ri, page.subscriptionTextColor, false, false, shouldObfuscate)}
-                            </React.Fragment>
-                          ) : (
-                            <View key={`srow-${ri}`} style={{ flexDirection: 'row', gap: 3, marginVertical: 1, alignItems: 'flex-start' }}>
-                              {row.map((cell, ci) => {
-                                const isStackedCell = cell.blocks.length > 1;
-                                const va = cell.blocks[0]?.verticalAlign;
-                                const alignSelf = va === 'center' ? 'center' as const : va === 'bottom' ? 'flex-end' as const : undefined;
-                                return (
-                                  <View key={`sc-${ri}-${ci}`} style={isStackedCell ? { flex: cell.col, flexDirection: 'column', gap: 6 } : { flex: cell.col, alignSelf }}>
-                                    {cell.blocks.map((block, bi) =>
-                                      isStackedCell ? (
-                                        <View key={block._id || `ss-${ri}-${ci}-${bi}`} style={{ flex: 1 }}>
-                                          {renderContentBlock(block, bi, page.subscriptionTextColor, true, true, shouldObfuscate)}
-                                        </View>
-                                      ) : (
-                                        <React.Fragment key={block._id || `ss-${ri}-${ci}-${bi}`}>
-                                          {renderContentBlock(block, bi, page.subscriptionTextColor, row.length > 1, false, shouldObfuscate)}
-                                        </React.Fragment>
-                                      )
-                                    )}
-                                  </View>
-                                );
-                              })}
-                            </View>
-                          );
-                        })()
-                      ))}
-
-                      {isAuthorized && isRevealed && !isOwner && (
-                        <TouchableOpacity
-                          onPress={() => router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`)}
-                          activeOpacity={0.7}
-                          style={[styles.viewButton, { borderColor: theme.colors.primary }]}
-                        >
-                          <Ionicons name="eye-outline" size={16} color={theme.colors.primary} />
-                          <Text style={[styles.viewButtonText, { color: theme.colors.primary }]}>
-                            View {subLabel}
-                          </Text>
-                        </TouchableOpacity>
-                      )}
-                    </>
-                  );
-
-                  if (shouldObfuscate) {
-                    return (
-                      <Pressable
-                        onPress={() => {
-                          if (isAuthorized) {
-                            setIsRevealed(true);
-                          } else {
-                            handleSubscribe();
-                          }
-                        }}
-                        style={{ position: 'relative' }}
-                      >
-                        {contentList}
-                        <View
-                          style={{
-                            ...StyleSheet.absoluteFillObject,
-                            backgroundColor: 'transparent',
-                            zIndex: 20,
-                          }}
-                        />
-                      </Pressable>
-                    );
-                  }
-
-                  return contentList;
-                })()
-              ) : (
-                <Text style={[styles.placeholderText, { color: theme.colors.textSecondary }]}>
-                  {isOwner ? 'Tap the edit icon to list your services.' : 'No services listed yet.'}
-                </Text>
-              )}
-            </View>
-
-            {/* Subscription pricing section */}
-            {(() => {
-              const approvalStatus = page.subscriptionApproval?.status || 'none';
-              const approvedPrice = page.subscriptionPrice;
-              const requestedPrice = page.subscriptionApproval?.requestedPrice;
-              const displayPrice = approvalStatus === 'approved' ? approvedPrice : requestedPrice;
-
-              // Owner view
-              if (isOwner) {
-                return (
-                  <View style={[styles.subscriptionPriceSection, { borderTopColor: theme.colors.border }]}>
-                    <View style={styles.priceRow}>
-                      <Text style={[styles.priceAmount, { color: theme.colors.text }]}>
-                        {currSym}{displayPrice || 0}
-                      </Text>
-                      <Text style={[styles.pricePeriod, { color: theme.colors.textSecondary }]}>/month</Text>
-                      <TouchableOpacity
-                        onPress={() => {
-                          setPriceInput(String(displayPrice || ''));
-                          setShowPriceModal(true);
-                        }}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        style={{ marginLeft: 10 }}
-                      >
-                        <Ionicons name="pencil-outline" size={16} color={theme.colors.primary} />
-                      </TouchableOpacity>
-                    </View>
-
-                    {approvalStatus === 'pending' && (
-                      <View style={[styles.approvalStatusBadge, { backgroundColor: '#FEF3C7' }]}>
-                        <Ionicons name="time-outline" size={14} color="#D97706" />
-                        <Text style={{ color: '#D97706', fontSize: 12, fontWeight: '500', marginLeft: 4 }}>
-                          Pending admin approval
-                        </Text>
-                      </View>
-                    )}
-
-                    {approvalStatus === 'approved' && (
-                      <Text style={[styles.ownerPriceNote, { color: theme.colors.textSecondary }]}>
-                        {subscribersLabel} pay {currSym}{approvedPrice}/month
-                      </Text>
-                    )}
-
-                    {approvalStatus === 'rejected' && (
-                      <View>
-                        <View style={[styles.approvalStatusBadge, { backgroundColor: '#FEE2E2' }]}>
-                          <Ionicons name="close-circle-outline" size={14} color="#DC2626" />
-                          <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '500', marginLeft: 4 }}>
-                            Price rejected
-                          </Text>
-                        </View>
-                        {page.subscriptionApproval?.rejectionReason ? (
-                          <Text style={[styles.ownerPriceNote, { color: theme.colors.textSecondary }]}>
-                            Reason: {page.subscriptionApproval.rejectionReason}
-                          </Text>
-                        ) : null}
-                      </View>
-                    )}
-
-                    {approvalStatus === 'none' && !displayPrice && (
-                      <Text style={[styles.ownerPriceNote, { color: theme.colors.textSecondary }]}>
-                        Tap the edit icon to set your price
-                      </Text>
-                    )}
+          isCommunity ? (
+            <View style={[styles.section, { backgroundColor: theme.colors.surface }, !page.features?.website && !page.features?.groupChat && { marginTop: isTablet ? 14 : 12 }]}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionTitleRow}>
+                  <View style={[styles.sectionIconWrap, { backgroundColor: theme.colors.primary + '12' }]}>
+                    <Ionicons name="cart-outline" size={18} color={theme.colors.primary} />
                   </View>
-                );
-              }
+                  <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Buy Items</Text>
+                </View>
+              </View>
 
-              // Visitor view — show subscribed status or prompt to view subscription page
-              if (page.subscriptionPrice && page.subscriptionPrice > 0) {
-                if (subscriptionStatus?.isSubscribed) {
+              <View style={[styles.sectionContent, { paddingHorizontal: 16, paddingBottom: 16 }]}>
+                {page.buyItems && page.buyItems.filter(item => item.active !== false).length > 0 ? (
+                  page.buyItems.filter(item => item.active !== false).map((item, index) => (
+                    <View key={item._id || index} style={{ marginBottom: 20, borderBottomWidth: index === page.buyItems.filter(i => i.active !== false).length - 1 ? 0 : 1, borderBottomColor: theme.colors.border, paddingBottom: 16 }}>
+                      {item.imageUrl ? (
+                        <Image
+                          source={{ uri: item.imageUrl }}
+                          style={{ width: '100%', height: 160, borderRadius: 8, marginBottom: 10, backgroundColor: theme.colors.border }}
+                          resizeMode="cover"
+                        />
+                      ) : null}
+                      <Text style={{ fontSize: 16, fontFamily: getFontFamily('600'), fontWeight: '600', color: theme.colors.text, marginBottom: 4 }}>
+                        {item.name}
+                      </Text>
+                      {item.description ? (
+                        <Text style={{ fontSize: 13, fontFamily: getFontFamily('400'), color: theme.colors.textSecondary, marginBottom: 10 }}>
+                          {item.description}
+                        </Text>
+                      ) : null}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Text style={{ fontSize: 18, fontFamily: getFontFamily('700'), fontWeight: '700', color: theme.colors.primary }}>
+                          ₹{item.price}
+                        </Text>
+                        {!isOwner && (
+                          <TouchableOpacity
+                            onPress={() => {
+                              setSelectedItem(item);
+                              setCheckoutModalVisible(true);
+                            }}
+                            activeOpacity={0.8}
+                            style={{
+                              backgroundColor: theme.colors.primary,
+                              paddingVertical: 8,
+                              paddingHorizontal: 16,
+                              borderRadius: 20,
+                            }}
+                          >
+                            <Text style={{ color: '#FFF', fontSize: 14, fontFamily: getFontFamily('600'), fontWeight: '600' }}>
+                              Buy Now
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </View>
+                  ))
+                ) : (
+                  <Text style={[styles.placeholderText, { color: theme.colors.textSecondary }]}>
+                    No items listed for sale yet.
+                  </Text>
+                )}
+              </View>
+            </View>
+          ) : (
+            <View style={[styles.section, { backgroundColor: theme.colors.surface }, !page.features?.website && !page.features?.groupChat && { marginTop: isTablet ? 14 : 12 }]}>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionTitleRow}>
+                  <View style={[styles.sectionIconWrap, { backgroundColor: theme.colors.primary + '12' }]}>
+                    <Ionicons name="star-outline" size={18} color={theme.colors.primary} />
+                  </View>
+                  <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{subLabel}</Text>
+                </View>
+              </View>
+
+              {/* Approval status banner (owner only) */}
+              {isOwner && page.subscriptionApproval?.status === 'pending' && (
+                <View style={[styles.approvalBanner, { backgroundColor: '#FFF3CD' }]}>
+                  <Ionicons name="time-outline" size={16} color="#856404" />
+                  <Text style={[styles.approvalBannerText, { color: '#856404' }]}>
+                    Price {currSym}{page.subscriptionApproval.requestedPrice}/mo — Pending admin approval
+                  </Text>
+                </View>
+              )}
+              {isOwner && page.subscriptionApproval?.status === 'rejected' && (
+                <View style={[styles.approvalBanner, { backgroundColor: theme.colors.error + '15' }]}>
+                  <Ionicons name="close-circle-outline" size={16} color={theme.colors.error} />
+                  <Text style={[styles.approvalBannerText, { color: theme.colors.error }]}>
+                    Price rejected{page.subscriptionApproval.rejectionReason ? `: ${page.subscriptionApproval.rejectionReason}` : ''}
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.sectionContent}>
+                {page.subscriptionContent && page.subscriptionContent.length > 0 ? (
+                  (() => {
+                    const isAuthorized = isOwner || subscriptionStatus?.isSubscribed;
+                    const shouldObfuscate = !isRevealed;
+
+                    const contentList = (
+                      <>
+                        {packBlocksIntoRows(
+                          page.subscriptionContent.slice().sort((a, b) => a.order - b.order)
+                        ).map((row, ri) => (
+                          (() => {
+                            const isSingle = row.length === 1 && row[0].blocks.length === 1;
+                            return isSingle ? (
+                              <React.Fragment key={`srow-${ri}`}>
+                                {renderContentBlock(row[0].blocks[0], ri, page.subscriptionTextColor, false, false, shouldObfuscate)}
+                              </React.Fragment>
+                            ) : (
+                              <View key={`srow-${ri}`} style={{ flexDirection: 'row', gap: 3, marginVertical: 1, alignItems: 'flex-start' }}>
+                                {row.map((cell, ci) => {
+                                  const isStackedCell = cell.blocks.length > 1;
+                                  const va = cell.blocks[0]?.verticalAlign;
+                                  const alignSelf = va === 'center' ? 'center' as const : va === 'bottom' ? 'flex-end' as const : undefined;
+                                  return (
+                                    <View key={`sc-${ri}-${ci}`} style={isStackedCell ? { flex: cell.col, flexDirection: 'column', gap: 6 } : { flex: cell.col, alignSelf }}>
+                                      {cell.blocks.map((block, bi) =>
+                                        isStackedCell ? (
+                                          <View key={block._id || `ss-${ri}-${ci}-${bi}`} style={{ flex: 1 }}>
+                                            {renderContentBlock(block, bi, page.subscriptionTextColor, true, true, shouldObfuscate)}
+                                          </View>
+                                        ) : (
+                                          <React.Fragment key={block._id || `ss-${ri}-${ci}-${bi}`}>
+                                            {renderContentBlock(block, bi, page.subscriptionTextColor, row.length > 1, false, shouldObfuscate)}
+                                          </React.Fragment>
+                                        )
+                                      )}
+                                    </View>
+                                  );
+                                })}
+                              </View>
+                            );
+                          })()
+                        ))}
+
+                        {isAuthorized && isRevealed && !isOwner && (
+                          <TouchableOpacity
+                            onPress={() => router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`)}
+                            activeOpacity={0.7}
+                            style={[styles.viewButton, { borderColor: theme.colors.primary }]}
+                          >
+                            <Ionicons name="eye-outline" size={16} color={theme.colors.primary} />
+                            <Text style={[styles.viewButtonText, { color: theme.colors.primary }]}>
+                              View {subLabel}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
+                      </>
+                    );
+
+                    if (shouldObfuscate) {
+                      return (
+                        <Pressable
+                          onPress={() => {
+                            if (isAuthorized) {
+                              setIsRevealed(true);
+                            } else {
+                              handleSubscribe();
+                            }
+                          }}
+                          style={{ position: 'relative' }}
+                        >
+                          {contentList}
+                          <View
+                            style={{
+                              ...StyleSheet.absoluteFillObject,
+                              backgroundColor: 'transparent',
+                              zIndex: 20,
+                            }}
+                          />
+                        </Pressable>
+                      );
+                    }
+
+                    return contentList;
+                  })()
+                ) : (
+                  <Text style={[styles.placeholderText, { color: theme.colors.textSecondary }]}>
+                    {isOwner ? 'Tap the edit icon to list your services.' : 'No services listed yet.'}
+                  </Text>
+                )}
+              </View>
+
+              {/* Subscription pricing section */}
+              {(() => {
+                const approvalStatus = page.subscriptionApproval?.status || 'none';
+                const approvedPrice = page.subscriptionPrice;
+                const requestedPrice = page.subscriptionApproval?.requestedPrice;
+                const displayPrice = approvalStatus === 'approved' ? approvedPrice : requestedPrice;
+
+                // Owner view
+                if (isOwner) {
                   return (
                     <View style={[styles.subscriptionPriceSection, { borderTopColor: theme.colors.border }]}>
-                      <View style={[styles.subscribedBadge, { backgroundColor: theme.colors.success + '15' }]}>
-                        <Ionicons name="checkmark-circle" size={18} color={theme.colors.success} />
-                        <Text style={[styles.subscribedText, { color: theme.colors.success }]}>{isCommunity ? 'Purchased' : 'Subscribed'}</Text>
+                      <View style={styles.priceRow}>
+                        <Text style={[styles.priceAmount, { color: theme.colors.text }]}>
+                          {currSym}{displayPrice || 0}
+                        </Text>
+                        <Text style={[styles.pricePeriod, { color: theme.colors.textSecondary }]}>/month</Text>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setPriceInput(String(displayPrice || ''));
+                            setShowPriceModal(true);
+                          }}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          style={{ marginLeft: 10 }}
+                        >
+                          <Ionicons name="pencil-outline" size={16} color={theme.colors.primary} />
+                        </TouchableOpacity>
                       </View>
-                      {subscriptionStatus.subscription?.currentPeriodEnd && (
-                        <Text style={[styles.renewsText, { color: theme.colors.textSecondary }]}>
-                          Renews {new Date(subscriptionStatus.subscription.currentPeriodEnd).toLocaleDateString()}
+
+                      {approvalStatus === 'pending' && (
+                        <View style={[styles.approvalStatusBadge, { backgroundColor: '#FEF3C7' }]}>
+                          <Ionicons name="time-outline" size={14} color="#D97706" />
+                          <Text style={{ color: '#D97706', fontSize: 12, fontWeight: '500', marginLeft: 4 }}>
+                            Pending admin approval
+                          </Text>
+                        </View>
+                      )}
+
+                      {approvalStatus === 'approved' && (
+                        <Text style={[styles.ownerPriceNote, { color: theme.colors.textSecondary }]}>
+                          {subscribersLabel} pay {currSym}{approvedPrice}/month
                         </Text>
                       )}
-                      <TouchableOpacity
-                        onPress={handleCancelSubscription}
-                        activeOpacity={0.7}
-                        style={styles.cancelLink}
-                      >
-                        <Text style={[styles.cancelLinkText, { color: theme.colors.error }]}>
-                          Cancel {isCommunity ? 'purchase' : 'subscription'}
+
+                      {approvalStatus === 'rejected' && (
+                        <View>
+                          <View style={[styles.approvalStatusBadge, { backgroundColor: '#FEE2E2' }]}>
+                            <Ionicons name="close-circle-outline" size={14} color="#DC2626" />
+                            <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '500', marginLeft: 4 }}>
+                              Price rejected
+                            </Text>
+                          </View>
+                          {page.subscriptionApproval?.rejectionReason ? (
+                            <Text style={[styles.ownerPriceNote, { color: theme.colors.textSecondary }]}>
+                              Reason: {page.subscriptionApproval.rejectionReason}
+                            </Text>
+                          ) : null}
+                        </View>
+                      )}
+
+                      {approvalStatus === 'none' && !displayPrice && (
+                        <Text style={[styles.ownerPriceNote, { color: theme.colors.textSecondary }]}>
+                          Tap the edit icon to set your price
                         </Text>
+                      )}
+                    </View>
+                  );
+                }
+
+                // Visitor view — show subscribed status or prompt to view subscription page
+                if (page.subscriptionPrice && page.subscriptionPrice > 0) {
+                  if (subscriptionStatus?.isSubscribed) {
+                    return (
+                      <View style={[styles.subscriptionPriceSection, { borderTopColor: theme.colors.border }]}>
+                        <View style={[styles.subscribedBadge, { backgroundColor: theme.colors.success + '15' }]}>
+                          <Ionicons name="checkmark-circle" size={18} color={theme.colors.success} />
+                          <Text style={[styles.subscribedText, { color: theme.colors.success }]}>{isCommunity ? 'Purchased' : 'Subscribed'}</Text>
+                        </View>
+                        {subscriptionStatus.subscription?.currentPeriodEnd && (
+                          <Text style={[styles.renewsText, { color: theme.colors.textSecondary }]}>
+                            Renews {new Date(subscriptionStatus.subscription.currentPeriodEnd).toLocaleDateString()}
+                          </Text>
+                        )}
+                        <TouchableOpacity
+                          onPress={handleCancelSubscription}
+                          activeOpacity={0.7}
+                          style={styles.cancelLink}
+                        >
+                          <Text style={[styles.cancelLinkText, { color: theme.colors.error }]}>
+                            Cancel {isCommunity ? 'purchase' : 'subscription'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  }
+                  // Show subscribe button for non-subscribed visitors
+                  return (
+                    <View style={[styles.subscriptionPriceSection, { borderTopColor: theme.colors.border }]}>
+                      <TouchableOpacity
+                        onPress={handleSubscribe}
+                        activeOpacity={0.8}
+                        disabled={subscribing}
+                        style={{ width: '100%', marginTop: 4 }}
+                      >
+                        <LinearGradient
+                          colors={['#1C73B4', '#50C878']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={{
+                            paddingVertical: 14,
+                            borderRadius: 9999,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          {subscribing ? (
+                            <ActivityIndicator size="small" color="#FFFFFF" />
+                          ) : (
+                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                              <Ionicons name={isCommunity ? 'cart-outline' : 'star'} size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                              <Text style={styles.subscribeButtonText}>
+                                {(() => {
+                                  const locale = Intl.NumberFormat().resolvedOptions().locale || '';
+                                  const userCountry = locale.split('-')[1]?.toUpperCase() || 'IN';
+                                  const userCurrency = countryToCurrency[userCountry] || 'INR';
+                                  const userPriceInfo = displayPrices?.prices?.[userCurrency];
+                                  const altPrice = (userCurrency !== 'INR' && userPriceInfo) ? ` (${userPriceInfo.formatted})` : '';
+                                  return `${subButtonText} · ${currSym}${page.subscriptionPrice}${altPrice}/month`;
+                                })()}
+                              </Text>
+                            </View>
+                          )}
+                        </LinearGradient>
                       </TouchableOpacity>
                     </View>
                   );
                 }
-                // Show subscribe button for non-subscribed visitors
-                return (
-                  <View style={[styles.subscriptionPriceSection, { borderTopColor: theme.colors.border }]}>
-                    <TouchableOpacity
-                      onPress={handleSubscribe}
-                      activeOpacity={0.8}
-                      disabled={subscribing}
-                      style={{ width: '100%', marginTop: 4 }}
-                    >
-                      <LinearGradient
-                        colors={['#1C73B4', '#50C878']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={{
-                          paddingVertical: 14,
-                          borderRadius: 9999,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        {subscribing ? (
-                          <ActivityIndicator size="small" color="#FFFFFF" />
-                        ) : (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-                            <Ionicons name={isCommunity ? 'cart-outline' : 'star'} size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-                            <Text style={styles.subscribeButtonText}>
-                              {(() => {
-                                const locale = Intl.NumberFormat().resolvedOptions().locale || '';
-                                const userCountry = locale.split('-')[1]?.toUpperCase() || 'IN';
-                                const userCurrency = countryToCurrency[userCountry] || 'INR';
-                                const userPriceInfo = displayPrices?.prices?.[userCurrency];
-                                const altPrice = (userCurrency !== 'INR' && userPriceInfo) ? ` (${userPriceInfo.formatted})` : '';
-                                return `${subButtonText} · ${currSym}${page.subscriptionPrice}${altPrice}/month`;
-                              })()}
-                            </Text>
-                          </View>
-                        )}
-                      </LinearGradient>
-                    </TouchableOpacity>
-                  </View>
-                );
-              }
 
-              return null;
-            })()}
+                return null;
+              })()}
 
-            {/* Bottom action buttons (owner only) */}
-            {isOwner && (
-              <View style={styles.sectionBottomActions}>
-                <TouchableOpacity
-                  onPress={async () => {
-                    try {
-                      const result = await getPayoutPreview(page._id);
-                      setPayoutPreview(result.preview);
-                    } catch { /* ignore */ }
-                    setShowPayoutInfo(true);
-                  }}
-                  activeOpacity={0.7}
-                  style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
-                >
-                  <Ionicons name="information-circle-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.sectionBottomButtonText}>Details</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => {
-                    if (page.subscriptionContent && page.subscriptionContent.length > 0) {
-                      router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`);
-                    }
-                  }}
-                  activeOpacity={page.subscriptionContent && page.subscriptionContent.length > 0 ? 0.7 : 1}
-                  style={[
-                    styles.sectionBottomButton,
-                    { backgroundColor: theme.colors.primary },
-                    !(page.subscriptionContent && page.subscriptionContent.length > 0) && { opacity: 0.4 },
-                  ]}
-                >
-                  <Ionicons name="eye-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.sectionBottomButtonText}>Preview</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => router.push(`/connect/editContent?pageId=${id}&section=subscription&category=${page.category || 'connect'}`)}
-                  activeOpacity={0.7}
-                  style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
-                >
-                  <Ionicons name="create-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.sectionBottomButtonText}>Edit</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* Buy Items Section (Admin pages only) */}
-        {page.isAdminPage && page.buyItems && page.buyItems.length > 0 && (
-          <View style={[styles.section, { backgroundColor: theme.colors.surface }]}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionTitleRow}>
-                <Ionicons name="cart-outline" size={20} color={theme.colors.primary} />
-                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Buy</Text>
-              </View>
-            </View>
-            {page.buyItems
-              .filter(item => item.active)
-              .map((item, idx) => (
-                <View
-                  key={item._id || idx}
-                  style={[styles.buyItem, { borderBottomColor: theme.colors.border }]}
-                >
-                  {item.imageUrl ? (
-                    <Image source={{ uri: item.imageUrl }} style={styles.buyItemImage} />
-                  ) : null}
-                  <View style={styles.buyItemInfo}>
-                    <Text style={[styles.buyItemName, { color: theme.colors.text }]}>{item.name}</Text>
-                    <Text style={[styles.buyItemDesc, { color: theme.colors.textSecondary }]} numberOfLines={2}>
-                      {item.description}
-                    </Text>
-                  </View>
+              {/* Bottom action buttons (owner only) */}
+              {isOwner && (
+                <View style={styles.sectionBottomActions}>
                   <TouchableOpacity
-                    style={[styles.buyButton, { backgroundColor: theme.colors.border }]}
-                    onPress={() => Alert.alert('Coming Soon', 'Payments will be available in a future update.')}
+                    onPress={async () => {
+                      try {
+                        const result = await getPayoutPreview(page._id);
+                        setPayoutPreview(result.preview);
+                      } catch { /* ignore */ }
+                      setShowPayoutInfo(true);
+                    }}
                     activeOpacity={0.7}
+                    style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
                   >
-                    <Text style={[styles.buyButtonText, { color: theme.colors.textSecondary }]}>
-                      Buy
-                    </Text>
+                    <Ionicons name="information-circle-outline" size={16} color="#FFFFFF" />
+                    <Text style={styles.sectionBottomButtonText}>Details</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (page.subscriptionContent && page.subscriptionContent.length > 0) {
+                        router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`);
+                      }
+                    }}
+                    activeOpacity={page.subscriptionContent && page.subscriptionContent.length > 0 ? 0.7 : 1}
+                    style={[
+                      styles.sectionBottomButton,
+                      { backgroundColor: theme.colors.primary },
+                      !(page.subscriptionContent && page.subscriptionContent.length > 0) && { opacity: 0.4 },
+                    ]}
+                  >
+                    <Ionicons name="eye-outline" size={16} color="#FFFFFF" />
+                    <Text style={styles.sectionBottomButtonText}>Preview</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => router.push(`/connect/editContent?pageId=${id}&section=subscription&category=${page.category || 'connect'}`)}
+                    activeOpacity={0.7}
+                    style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
+                  >
+                    <Ionicons name="create-outline" size={16} color="#FFFFFF" />
+                    <Text style={styles.sectionBottomButtonText}>Edit</Text>
                   </TouchableOpacity>
                 </View>
-              ))}
-          </View>
+              )}
+            </View>
+          )
         )}
+
 
         {/* Delete Page — Owner only */}
         {isOwner && (
@@ -1772,9 +1854,151 @@ export default function ConnectPageDetailScreen() {
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Checkout Modal */}
+      <Modal
+        visible={checkoutModalVisible}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setCheckoutModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={isIOS ? 'padding' : 'height'}
+          style={styles.priceModalOverlay}
+        >
+          <TouchableOpacity
+            style={styles.priceModalOverlay}
+            activeOpacity={1}
+            onPress={() => setCheckoutModalVisible(false)}
+          >
+            <TouchableOpacity
+              activeOpacity={1}
+              style={[styles.priceModalBox, { backgroundColor: theme.colors.surface }]}
+            >
+              <Text style={[styles.priceModalTitle, { color: theme.colors.text }]}>
+                Checkout
+              </Text>
+              <Text style={[styles.priceModalSubtitle, { color: theme.colors.textSecondary, marginBottom: 12 }]}>
+                Provide delivery details for {selectedItem?.name} (₹{selectedItem?.price})
+              </Text>
+              
+              <TextInput
+                style={[
+                  styles.bioModalInput,
+                  {
+                    color: theme.colors.text,
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.background,
+                    height: 40,
+                    borderRadius: themeConstants.borderRadius.sm,
+                    borderWidth: 1,
+                    paddingHorizontal: 10,
+                    marginBottom: 10,
+                    fontSize: 14
+                  }
+                ]}
+                value={buyerName}
+                onChangeText={setBuyerName}
+                placeholder="Full Name"
+                placeholderTextColor={theme.colors.textSecondary + '80'}
+              />
+
+              <TextInput
+                style={[
+                  styles.bioModalInput,
+                  {
+                    color: theme.colors.text,
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.background,
+                    height: 40,
+                    borderRadius: themeConstants.borderRadius.sm,
+                    borderWidth: 1,
+                    paddingHorizontal: 10,
+                    marginBottom: 10,
+                    fontSize: 14
+                  }
+                ]}
+                value={buyerPhone}
+                onChangeText={setBuyerPhone}
+                placeholder="Phone Number"
+                placeholderTextColor={theme.colors.textSecondary + '80'}
+                keyboardType="phone-pad"
+              />
+
+              <TextInput
+                style={[
+                  styles.bioModalInput,
+                  {
+                    color: theme.colors.text,
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.background,
+                    height: 40,
+                    borderRadius: themeConstants.borderRadius.sm,
+                    borderWidth: 1,
+                    paddingHorizontal: 10,
+                    marginBottom: 10,
+                    fontSize: 14
+                  }
+                ]}
+                value={payPhone}
+                onChangeText={setPayPhone}
+                placeholder="Payment Phone Number (GPay/PhonePe)"
+                placeholderTextColor={theme.colors.textSecondary + '80'}
+                keyboardType="phone-pad"
+              />
+
+              <TextInput
+                style={[
+                  styles.bioModalInput,
+                  {
+                    color: theme.colors.text,
+                    borderColor: theme.colors.border,
+                    backgroundColor: theme.colors.background,
+                    height: 80,
+                    borderRadius: themeConstants.borderRadius.sm,
+                    borderWidth: 1,
+                    paddingHorizontal: 10,
+                    paddingTop: 8,
+                    marginBottom: 20,
+                    fontSize: 14,
+                    textAlignVertical: 'top'
+                  }
+                ]}
+                value={deliveryAddress}
+                onChangeText={setDeliveryAddress}
+                placeholder="Delivery Address"
+                placeholderTextColor={theme.colors.textSecondary + '80'}
+                multiline
+                numberOfLines={3}
+              />
+
+              <View style={styles.priceModalButtons}>
+                <TouchableOpacity
+                  style={[styles.priceModalBtn, { borderColor: theme.colors.border, borderWidth: 1 }]}
+                  onPress={() => setCheckoutModalVisible(false)}
+                >
+                  <Text style={[styles.priceModalBtnText, { color: theme.colors.textSecondary }]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.priceModalBtn, { backgroundColor: theme.colors.primary }]}
+                  disabled={checkingOut}
+                  onPress={handleBuyItem}
+                >
+                  {checkingOut ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={[styles.priceModalBtnText, { color: '#FFFFFF' }]}>Place Order</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {

@@ -38,6 +38,15 @@ export type ConnectPageOwner = {
   profilePic?: string;
 };
 
+export type BuyItem = {
+  _id: string;
+  name: string;
+  description?: string;
+  price: number;
+  imageUrl?: string;
+  active: boolean;
+};
+
 export type ConnectPage = {
   _id: string;
   userId: ConnectPageOwner | string;
@@ -71,6 +80,7 @@ export type ConnectPage = {
   isFollowing?: boolean;
   status?: string;
   createdAt?: string;
+  buyItems?: BuyItem[];
 };
 
 export type ConnectPagination = {

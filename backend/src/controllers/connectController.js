@@ -5,6 +5,7 @@ const ConnectPageView = require('../models/ConnectPageView');
 const Chat = require('../models/Chat');
 const User = require('../models/User');
 const Subscription = require('../models/Subscription');
+const Order = require('../models/Order');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { uploadObject, buildMediaKey } = require('../services/storage');
@@ -130,6 +131,18 @@ const resolvePageImages = async (page) => {
       else page.bannerImage = '';
     } catch {
       page.bannerImage = '';
+    }
+  }
+  if (page.buyItems && Array.isArray(page.buyItems)) {
+    for (const item of page.buyItems) {
+      if (item.imageUrl && !item.imageUrl.startsWith('http')) {
+        try {
+          const url = await generateSignedUrl(item.imageUrl, 'DEFAULT');
+          if (url) item.imageUrl = url;
+        } catch (e) {
+          logger.warn(`Failed to resolve signed URL for buy item image: ${item.imageUrl}`, e.message);
+        }
+      }
     }
   }
   return page;
@@ -1800,6 +1813,51 @@ const uploadContentImage = async (req, res) => {
   }
 };
 
+const buyItem = async (req, res) => {
+  try {
+    const { pageId } = req.params;
+    const userId = req.user._id;
+    const { itemId, buyerName, buyerPhone, payPhone, deliveryAddress } = req.body;
+
+    if (!itemId || !buyerName || !buyerPhone || !payPhone || !deliveryAddress) {
+      return sendError(res, 'VALIDATION_FAILED', 'All fields (itemId, buyerName, buyerPhone, payPhone, deliveryAddress) are required');
+    }
+
+    const page = await ConnectPage.findById(pageId);
+    if (!page || page.status === 'archived') {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Community page not found');
+    }
+
+    // Find the item in buyItems
+    const item = page.buyItems.id(itemId);
+    if (!item || !item.active) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Item not found or is inactive');
+    }
+
+    const order = new Order({
+      userId,
+      connectPageId: pageId,
+      itemId: item._id,
+      itemName: item.name,
+      price: item.price,
+      currency: page.subscriptionCurrency || 'INR',
+      buyerName: buyerName.trim(),
+      buyerPhone: buyerPhone.trim(),
+      payPhone: payPhone.trim(),
+      deliveryAddress: deliveryAddress.trim(),
+      paymentStatus: 'completed', // Simulated/mock payment
+      deliveryStatus: 'pending'
+    });
+
+    await order.save();
+
+    return sendSuccess(res, 201, 'Order placed successfully', { order });
+  } catch (error) {
+    logger.error('Error placing order:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to place order');
+  }
+};
+
 module.exports = {
   // CRUD
   createPage,
@@ -1836,4 +1894,5 @@ module.exports = {
   // Shared helpers used by SuperAdmin routes
   sanitizeContentBlocks,
   normalizeColor,
+  buyItem,
 };
