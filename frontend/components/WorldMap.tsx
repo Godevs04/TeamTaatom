@@ -6,8 +6,8 @@ import {
   Modal,
   TouchableOpacity,
   Dimensions,
-  ActivityIndicator,
 } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { Ionicons } from '@expo/vector-icons';
@@ -378,7 +378,7 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
         <View style={styles.mapContainer}>
           {loading ? (
             <View style={styles.errorContainer}>
-              <ActivityIndicator size="large" color={theme.colors.primary} />
+              <LoadingGlobe size="large" color={theme.colors.primary} />
               <Text style={styles.errorTitle}>Loading Travel Map...</Text>
             </View>
           ) : mapError ? (

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, Image as RNImage, TouchableOpacity, StyleSheet, ActivityIndicator, Animated, FlatList, Dimensions } from 'react-native';
+import { View, Text, Image as RNImage, TouchableOpacity, StyleSheet, Animated, FlatList, Dimensions } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
@@ -301,7 +302,7 @@ export default function PostImage({
     <View style={[styles.imageContainer, { aspectRatio: aspectRatioValue }]}>
       {imageLoading && (
         <View style={styles.imageLoader} pointerEvents="none">
-          <ActivityIndicator color={theme.colors.primary} size="large" />
+          <LoadingGlobe color={theme.colors.primary} size="large" />
         </View>
       )}
       

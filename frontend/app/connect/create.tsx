@@ -6,7 +6,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  ActivityIndicator,
   Alert,
   Switch,
   Platform,
@@ -16,6 +15,7 @@ import {
   Modal,
   FlatList,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -244,7 +244,7 @@ export default function CreateConnectPageScreen() {
           activeOpacity={0.7}
         >
           {creating ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <LoadingGlobe size="small" color="#FFFFFF" />
           ) : (
             <Text style={styles.createButtonText}>Create</Text>
           )}

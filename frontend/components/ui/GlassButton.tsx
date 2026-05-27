@@ -1,5 +1,6 @@
 import React from 'react';
-import { StyleSheet, ViewStyle, StyleProp, ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { StyleSheet, ViewStyle, StyleProp, Pressable, Text, View } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
@@ -77,7 +78,7 @@ export const GlassButton = ({
 
         {loading && (
           <View style={[StyleSheet.absoluteFillObject, styles.loadingOverlay]}>
-            <ActivityIndicator color={textColor} />
+            <LoadingGlobe color={textColor} />
           </View>
         )}
       </>

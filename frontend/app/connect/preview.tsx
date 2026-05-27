@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   Image,
-  ActivityIndicator,
   TouchableOpacity,
   Platform,
   Dimensions,
@@ -13,6 +12,7 @@ import {
   Linking,
   Alert,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -514,7 +514,7 @@ export default function ContentPreviewScreen() {
 
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       ) : sorted.length === 0 ? (
         <View style={styles.emptyContainer}>
@@ -630,7 +630,7 @@ export default function ContentPreviewScreen() {
                     disabled={subscribing}
                   >
                     {subscribing ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
+                      <LoadingGlobe size="small" color="#FFFFFF" />
                     ) : (
                       <>
                         <Ionicons name={isCommunity ? 'cart-outline' : 'star'} size={16} color="#FFFFFF" style={{ marginRight: 6 }} />

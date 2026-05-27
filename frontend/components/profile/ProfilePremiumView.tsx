@@ -16,7 +16,6 @@ import CloudGlassSurface from '../cloud/CloudGlassSurface';
 import PremiumGlassCard from '../ui/PremiumGlassCard';
 import RotatingGlobe from '../RotatingGlobe';
 import BioDisplay from '../BioDisplay';
-import GradientText from '../ui/GradientText';
 import { optimizeCloudinaryUrl } from '../../utils/imageCache';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -89,108 +88,111 @@ export default function ProfilePremiumView({
 
   return (
     <View style={styles.wrap}>
-      {/* Floating profile image overlapping the top card */}
-      <View pointerEvents="box-none" style={{ alignItems: 'center', zIndex: 10, marginTop: 16 }}>
-        <View style={[styles.avatarOuter, {
-          borderColor: isDark ? 'rgba(255,255,255,0.8)' : '#FFFFFF',
-          borderWidth: 4,
-          backgroundColor: isDark ? '#000000' : '#FFFFFF',
-          shadowColor: '#000000',
-          shadowOffset: { width: 0, height: 8 },
-          shadowOpacity: 0.3,
-          shadowRadius: 16,
-          elevation: 10,
-        }]}>
-          <Image
-            source={
-              profilePic
-                ? { uri: optimizeCloudinaryUrl(profilePic, { width: 200, height: 200 }) }
-                : require('../../assets/avatars/male_avatar.png')
-            }
-            style={styles.avatar as ImageStyle}
-          />
-        </View>
-      </View>
-
       <PremiumGlassCard
-        style={[styles.headerBlock, {
-          marginTop: -AVATAR / 2, // Pull up under the floating avatar
-        }]}
+        style={styles.headerBlock}
         contentStyle={styles.headerInner}
-        subtle
+        strong={false}
+        subtle={false}
         blur={true}
       >
-          <Pressable 
-            style={styles.editProfileAbsolute} 
-            onPress={onEditProfile}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            <Ionicons name="create-outline" size={18} color={textPrimary} />
-          </Pressable>
+        {/* Phase 4: Absolute positioned Edit Button */}
+        <Pressable 
+          style={styles.editProfileAbsolute} 
+          onPress={onEditProfile}
+          hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+        >
+          <Ionicons name="create-outline" size={18} color={isDark ? '#7AB3D6' : '#1C73B4'} />
+        </Pressable>
 
-          {/* Phase 3: The Identity Block (Centered Hierarchy below avatar) */}
-          <View style={styles.identityBlock}>
-            <Text style={[styles.displayNameText, { color: textPrimary }]}>
-              {fullName}
-            </Text>
-            {username ? (
-              <Text style={[styles.handleText, { color: textPassive }]}>
-                @{username}
-              </Text>
-            ) : null}
-            
-            {bio ? (
-              <View style={styles.bioContainer}>
-                <BioDisplay bio={bio} />
-              </View>
-            ) : null}
+        {/* Phase 2: Top Row (Avatar & Telemetry Stats) */}
+        <View style={styles.topRow}>
+          {/* Left Column (Avatar) */}
+          <View style={[
+            styles.avatarContainer,
+            {
+              backgroundColor: isDark ? '#080F19' : '#F0F5FA',
+            }
+          ]}>
+            <Image
+              source={
+                profilePic
+                  ? { uri: optimizeCloudinaryUrl(profilePic, { width: 150, height: 150 }) }
+                  : require('../../assets/avatars/male_avatar.png')
+              }
+              style={styles.avatarImage as ImageStyle}
+            />
           </View>
 
-          {/* Phase 2: Pill-styled Metrics */}
-          <View style={styles.metricsContainer}>
-            <View style={[styles.metricPill, {
-              borderWidth: 1,
-              borderColor: borderTint,
-            }]}>
-              <Ionicons name="images" size={16} color="#1C73B4" style={{ marginBottom: 4, zIndex: 1 }} />
-              <Text style={[styles.metricValue, { color: '#1C73B4', zIndex: 1 }]}>{postCount}</Text>
-              <Text style={[styles.metricLabel, { color: '#1C73B4', zIndex: 1 }]}>Post Count</Text>
+          {/* Right Column (Telemetry Stats) */}
+          <View style={styles.statsContainer}>
+            {/* Stat Block 1 */}
+            <View style={styles.statBlock}>
+              <Text style={[styles.statValue, { color: textPrimary }]}>{postCount}</Text>
+              <Text style={[styles.statLabel, { color: textSecondary }]}>Posts</Text>
             </View>
-            
-            <Pressable 
-              style={[styles.metricPill, {
-                borderWidth: 1,
-                borderColor: borderTint,
-              }]} 
-              onPress={onOpenFollowers}
-            >
-              <Ionicons name="people" size={16} color="#1C73B4" style={{ marginBottom: 4, zIndex: 1 }} />
-              <Text style={[styles.metricValue, { color: '#1C73B4', zIndex: 1 }]}>{followersCount}</Text>
-              <Text style={[styles.metricLabel, { color: '#1C73B4', zIndex: 1 }]}>Followers</Text>
+
+            {/* Separator */}
+            <View style={styles.separator} />
+
+            {/* Stat Block 2 */}
+            <Pressable style={styles.statBlock} onPress={onOpenFollowers}>
+              <Text style={[styles.statValue, { color: textPrimary }]}>{followersCount}</Text>
+              <Text style={[styles.statLabel, { color: textSecondary }]}>Followers</Text>
             </Pressable>
-            
-            <Pressable 
-              style={[styles.metricPill, {
-                borderWidth: 1,
-                borderColor: borderTint,
-              }]} 
-              onPress={onOpenFollowing}
-            >
-              <Ionicons name="person-add" size={16} color="#1C73B4" style={{ marginBottom: 4, zIndex: 1 }} />
-              <Text style={[styles.metricValue, { color: '#1C73B4', zIndex: 1 }]}>{followingCount}</Text>
-              <Text style={[styles.metricLabel, { color: '#1C73B4', zIndex: 1 }]}>Following</Text>
+
+            {/* Separator */}
+            <View style={styles.separator} />
+
+            {/* Stat Block 3 */}
+            <Pressable style={styles.statBlock} onPress={onOpenFollowing}>
+              <Text style={[styles.statValue, { color: textPrimary }]}>{followingCount}</Text>
+              <Text style={[styles.statLabel, { color: textSecondary }]}>Following</Text>
             </Pressable>
           </View>
-          <Pressable 
-            style={[styles.tripScoreInline, {
-              borderWidth: 1,
-              borderColor: borderTint,
-            }]} 
-            onPress={onOpenTripScore}
-          >
-            <Ionicons name="compass" size={16} color="#1C73B4" style={{ zIndex: 1 }} />
-            <Text style={[styles.tripScoreInlineValue, { color: '#1C73B4', zIndex: 1 }]}>TRIP SCORE {tripScore}</Text>
-          </Pressable>
+        </View>
+
+        {/* Phase 3: Middle Block (Identity & Typography Hierarchy) */}
+        <View style={styles.identityBlock}>
+          {isDark ? (
+            <>
+              {username ? (
+                <Text style={[styles.handleText, { color: '#FFFFFF', fontSize: 15, fontWeight: '600', marginTop: 0 }]}>
+                  @{username}
+                </Text>
+              ) : null}
+              <Text style={[styles.displayNameText, { color: '#38BDF8', fontSize: 15, fontWeight: '700', marginTop: 2 }]}>
+                {fullName}
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text style={[styles.displayNameText, { color: '#1C73B4', fontSize: 15, fontWeight: '700', marginTop: 0 }]}>
+                {fullName}
+              </Text>
+              {username ? (
+                <Text style={[styles.handleText, { color: textSecondary, fontSize: 15, fontWeight: '600', marginTop: 2 }]}>
+                  @{username}
+                </Text>
+              ) : null}
+            </>
+          )}
+          {bio ? (
+            <Text style={[styles.bioText, { color: textSecondary, fontSize: 15, fontWeight: '400', marginTop: 8 }]}>
+              {bio}
+            </Text>
+          ) : null}
+        </View>
+
+        {/* Phase 5: Trip Score Telemetry Strip (Bottom Anchor) */}
+        <Pressable 
+          style={styles.tripScoreStrip}
+          onPress={onOpenTripScore}
+        >
+          <Text style={[styles.tripScoreLabel, { color: textSecondary }]}>
+            TRIP SCORE
+          </Text>
+          <Text style={[styles.tripScoreValue, { color: textPrimary }]}>{tripScore}</Text>
+        </Pressable>
       </PremiumGlassCard>
 
       <View style={styles.globeWrapper}>
@@ -236,7 +238,7 @@ export default function ProfilePremiumView({
                       <Image source={{ uri }} style={styles.highlightImg as ImageStyle} />
                     ) : (
                       <View style={[styles.highlightImg, { backgroundColor: '#000000', alignItems: 'center', justifyContent: 'center' }]}>
-                        <Ionicons name="image-outline" size={32} color={textPassive} />
+                        <Ionicons name="image-outline" size={32} color={textSecondary} />
                       </View>
                     )}
                     <LinearGradient colors={['transparent', 'rgba(0,0,0,0.75)']} style={styles.highlightGrad} />
@@ -257,117 +259,110 @@ const styles = StyleSheet.create({
   },
   headerBlock: {
     marginHorizontal: 16,
-    marginTop: 0,
+    marginTop: 16,
     marginBottom: 24,
-    borderRadius: 28,
-    overflow: 'hidden',
-    borderWidth: 1,
+    borderRadius: 16,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   headerInner: {
-    padding: 24,
-    paddingTop: 16, // Reduced top padding to account for floating avatar
+    paddingHorizontal: 18,
+    paddingVertical: 16,
     position: 'relative',
-    alignItems: 'center',
   },
   editProfileAbsolute: {
     position: 'absolute',
     top: 16,
-    right: 16,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(28, 115, 180, 0.15)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    right: 18,
+    opacity: 0.85,
     zIndex: 10,
   },
-  identityBlock: {
-    alignItems: 'center',
-    marginTop: 56, // Push down below floating avatar overlap
-    marginBottom: 24,
-    paddingHorizontal: 8,
-  },
-  displayNameText: {
-    fontSize: 22,
-    fontWeight: '800',
-    marginBottom: 4,
-    letterSpacing: 0.3,
-  },
-  handleText: {
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  bioContainer: {
-    width: '100%',
-    alignItems: 'center',
-  },
-  metricsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    gap: 12,
-    width: '100%',
-  },
-  metricPill: {
-    flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    borderRadius: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(28, 115, 180, 0.15)',
-    overflow: 'hidden',
-  },
-  metricValue: {
-    fontSize: 16,
-    fontWeight: '800',
-    marginTop: 4,
-  },
-  metricLabel: {
-    fontSize: 10,
-    fontWeight: '700',
-    marginTop: 2,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  tripScoreInline: {
-    width: '100%',
-    marginTop: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: 'rgba(28, 115, 180, 0.15)',
+  topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+    width: '100%',
+  },
+  avatarContainer: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    borderWidth: 2,
+    borderColor: '#1C73B4',
     overflow: 'hidden',
+    shadowOpacity: 0,
+    elevation: 0,
   },
-  tripScoreInlineLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  tripScoreInlineValue: {
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  avatarOuter: {
-    width: AVATAR,
-    height: AVATAR,
-    borderRadius: AVATAR / 2,
-    borderWidth: 3,
-    borderColor: '#fff',
-    overflow: 'hidden',
-  },
-  avatar: {
+  avatarImage: {
     width: '100%',
     height: '100%',
-    borderRadius: AVATAR / 2,
+    borderRadius: 36,
+  },
+  statsContainer: {
+    flex: 1,
+    marginLeft: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  statBlock: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  statLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  separator: {
+    width: 1,
+    height: 24,
+    backgroundColor: 'rgba(28, 115, 180, 0.12)',
+  },
+  identityBlock: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    marginTop: 12,
+    width: '100%',
+  },
+  displayNameText: {
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+  },
+  handleText: {
+    fontSize: 15,
+    fontWeight: '600',
+    opacity: 0.9,
+  },
+  bioText: {
+    fontSize: 15,
+    lineHeight: 21,
+    maxWidth: '92%',
+  },
+  tripScoreStrip: {
+    marginTop: 16,
+    paddingTop: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    borderTopWidth: 1,
+    borderColor: 'rgba(28, 115, 180, 0.15)',
+  },
+  tripScoreLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+  tripScoreValue: {
+    fontSize: 16,
+    fontWeight: '800',
   },
   globeWrapper: {
     position: 'relative',
@@ -390,11 +385,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
     paddingVertical: 14,
     borderRadius: 30,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 6,
     overflow: 'hidden',
   },
   connectButtonText: {

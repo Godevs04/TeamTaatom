@@ -10,10 +10,10 @@ import {
   Platform,
   Alert,
   Image,
-  ActivityIndicator,
   FlatList,
   TextInput,
 } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { getPostShareUrl, getJourneyShareUrl } from '../utils/config';
@@ -514,7 +514,7 @@ export default function ShareModal({
                     </Text>
                     {isLoadingUrl && (
                       <View style={styles.loadingIndicator}>
-                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                        <LoadingGlobe size="small" color={theme.colors.primary} />
                       </View>
                     )}
                   </View>
@@ -552,7 +552,7 @@ export default function ShareModal({
                     </Text>
                     {isLoadingUrl && (
                       <View style={styles.loadingIndicator}>
-                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                        <LoadingGlobe size="small" color={theme.colors.primary} />
                       </View>
                     )}
                   </View>
@@ -674,7 +674,7 @@ export default function ShareModal({
             {/* Users List */}
             {isLoadingUsers ? (
               <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={theme.colors.primary} />
+                <LoadingGlobe size="large" color={theme.colors.primary} />
               </View>
             ) : (
               <FlatList
@@ -707,7 +707,7 @@ export default function ShareModal({
                       )}
                     </View>
                     {isSendingMessage && sendingToUserId === item._id && (
-                      <ActivityIndicator size="small" color={theme.colors.primary} />
+                      <LoadingGlobe size="small" color={theme.colors.primary} />
                     )}
                   </TouchableOpacity>
                 )}

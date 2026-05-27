@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   SafeAreaView,
   Image,
   Alert,
@@ -15,6 +14,7 @@ import {
   NativeScrollEvent,
   StatusBar,
 } from 'react-native';
+import LoadingGlobe from '../../../../../components/LoadingGlobe';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../../../../context/ThemeContext';
@@ -1083,7 +1083,7 @@ export default function LocationDetailScreen() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       </SafeAreaView>
     );
@@ -1135,7 +1135,7 @@ export default function LocationDetailScreen() {
               activeOpacity={0.7}
             >
               {bookmarkLoading ? (
-                <ActivityIndicator size="small" color={isBookmarked ? '#FFD700' : theme.colors.textSecondary} />
+                <LoadingGlobe size="small" color={isBookmarked ? '#FFD700' : theme.colors.textSecondary} />
               ) : (
                 <Ionicons
                   name={isBookmarked ? 'bookmark' : 'bookmark-outline'}
@@ -1527,7 +1527,7 @@ export default function LocationDetailScreen() {
                     </View>
                     <View style={styles.clickableIndicator}>
                       {navigatingToMap ? (
-                        <ActivityIndicator size="small" color="#4CAF50" />
+                        <LoadingGlobe size="small" color="#4CAF50" />
                       ) : (
                         <Ionicons name="chevron-forward" size={16} color="#4CAF50" />
                       )}

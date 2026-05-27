@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  ActivityIndicator,
   TextInput,
   TouchableOpacity,
   KeyboardAvoidingView,
@@ -11,6 +10,7 @@ import {
   ScrollView,
   Dimensions,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Formik } from 'formik';
@@ -239,7 +239,7 @@ export default function VerifyOTPScreen() {
                     disabled={!values.otp || values.otp.length !== 6 || isSubmitting}
                   >
                     {isSubmitting ? (
-                      <ActivityIndicator color="#FFFFFF" />
+                      <LoadingGlobe color="#FFFFFF" />
                     ) : (
                       <Text style={styles.verifyButtonText}>Verify Account</Text>
                     )}
@@ -253,7 +253,7 @@ export default function VerifyOTPScreen() {
                       style={styles.resendButton}
                     >
                       {resendLoading ? (
-                        <ActivityIndicator size="small" color={theme.colors.primary} />
+                        <LoadingGlobe size="small" color={theme.colors.primary} />
                       ) : (
                         <Text style={[
                           styles.resendButtonText,
@@ -485,7 +485,7 @@ const styles = StyleSheet.create({
     } as any),
   },
   verifyButtonText: {
-    color: '#FFFFFF',
+    color: '#000000',
     fontSize: isTablet ? theme.typography.body.fontSize + 2 : theme.typography.body.fontSize,
     fontFamily: getFontFamily('500'),
     fontWeight: '500',

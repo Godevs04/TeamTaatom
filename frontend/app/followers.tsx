@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, Image, ActivityIndicator, StyleSheet, Alert, Platform, Dimensions } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, Image, StyleSheet, Alert, Platform, Dimensions } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
@@ -266,7 +267,7 @@ export default function FollowersFollowingList() {
                 activeOpacity={0.8}
               >
                 {isLoading ? (
-                  <ActivityIndicator
+                  <LoadingGlobe
                     size="small"
                     color={(isFollowing || isRequested) ? theme.colors.primary : '#FFFFFF'}
                   />
@@ -290,7 +291,7 @@ export default function FollowersFollowingList() {
     if (!loadingMore) return null;
     return (
       <View style={styles(theme).footerLoader}>
-        <ActivityIndicator size="small" color={theme.colors.primary} />
+        <LoadingGlobe size="small" color={theme.colors.primary} />
       </View>
     );
   };
@@ -343,7 +344,7 @@ export default function FollowersFollowingList() {
       {/* Content */}
       {loading ? (
         <View style={styles(theme).loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       ) : (
         <FlatList

@@ -7,15 +7,15 @@ import {
   TouchableOpacity,
   Image,
   ImageStyle,
-  ActivityIndicator,
   RefreshControl,
   Pressable,
   Animated,
   useColorScheme,
   Platform,
   Dimensions,
-  FlatList
+  FlatList,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -123,6 +123,20 @@ const isSavedItemUnavailable = (reason: any): boolean => {
   );
 };
 
+const isVideoUrl = (url: any, videoUrl?: string) => {
+  if (typeof url !== 'string') return false;
+  const cleanUrl = url.split('?')[0].toLowerCase();
+  return (
+    cleanUrl.endsWith('.mp4') ||
+    cleanUrl.endsWith('.mov') ||
+    cleanUrl.endsWith('.m4v') ||
+    cleanUrl.endsWith('.webm') ||
+    cleanUrl.includes('/videos/') ||
+    cleanUrl.includes('/shorts/') ||
+    (videoUrl !== undefined && url === videoUrl)
+  );
+};
+
 function countTripsFromLocations(locations: Array<{ date?: string }>): number {
   if (!locations?.length) return 0;
   const sorted = [...locations].filter((l) => l.date).sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime());
@@ -213,9 +227,11 @@ export default function ProfileScreen() {
   const [userShorts, setUserShorts] = useState<PostType[]>([]);
   const failedShortThumbsRef = useRef<Set<string>>(new Set());
   const [failedShortThumbs, setFailedShortThumbs] = useState<Set<string>>(new Set());
+  const [savedPosts, setSavedPosts] = useState<PostType[]>([]);
+  const [savedShorts, setSavedShorts] = useState<PostType[]>([]);
   const [savedIds, setSavedIds] = useState<string[]>([]);
-  const [savedItems, setSavedItems] = useState<PostType[]>([]);
   const [activeTab, setActiveTab] = useState<'posts' | 'shorts' | 'saved'>('posts');
+  const [activeSavedSubTab, setActiveSavedSubTab] = useState<'posts' | 'shorts'>('posts');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
@@ -548,7 +564,12 @@ export default function ProfileScreen() {
           ? { ...short, viewsCount, views: viewsCount } as any
           : short
       )));
-      setSavedItems(prev => prev.map(item => (
+      setSavedPosts(prev => prev.map(item => (
+        item._id === postId
+          ? { ...item, viewsCount, views: viewsCount } as any
+          : item
+      )));
+      setSavedShorts(prev => prev.map(item => (
         item._id === postId
           ? { ...item, viewsCount, views: viewsCount } as any
           : item
@@ -770,7 +791,8 @@ export default function ProfileScreen() {
       if (activeTab !== 'saved' || !isMountedRef.current) return;
       if (!savedIds || savedIds.length === 0) {
         if (isMountedRef.current) {
-          setSavedItems([]);
+          setSavedPosts([]);
+          setSavedShorts([]);
         }
         return;
       }
@@ -781,7 +803,8 @@ export default function ProfileScreen() {
         
         if (uniqueIds.length === 0) {
           if (isMountedRef.current) {
-            setSavedItems([]);
+            setSavedPosts([]);
+            setSavedShorts([]);
           }
           return;
         }
@@ -891,12 +914,16 @@ export default function ProfileScreen() {
         }
         
         if (isMountedRef.current) {
-          setSavedItems(items);
+          const postsItems = items.filter(item => item.type !== 'short' && !item.videoUrl);
+          const shortsItems = items.filter(item => item.type === 'short' || !!item.videoUrl);
+          setSavedPosts(postsItems);
+          setSavedShorts(shortsItems);
         }
       } catch (e) {
         if (!isMountedRef.current) return;
         logger.error('Failed to load saved items', e);
-        setSavedItems([]);
+        setSavedPosts([]);
+        setSavedShorts([]);
       }
     };
     resolveSaved();
@@ -1024,7 +1051,8 @@ export default function ProfileScreen() {
         // Optimistic update - update UI immediately
         const previousPosts = [...posts];
         const previousShorts = [...userShorts];
-        const previousSavedItems = [...savedItems];
+        const previousSavedPosts = [...savedPosts];
+        const previousSavedShorts = [...savedShorts];
         const previousProfileData = profileData;
         
         try {
@@ -1035,7 +1063,8 @@ export default function ProfileScreen() {
             setPosts(prev => prev.filter(post => post._id !== postId));
           }
           
-          setSavedItems(prev => prev.filter(item => item._id !== postId));
+          setSavedPosts(prev => prev.filter(item => item._id !== postId));
+          setSavedShorts(prev => prev.filter(item => item._id !== postId));
           
           if (profileData) {
             setProfileData(prev => prev ? { 
@@ -1062,7 +1091,8 @@ export default function ProfileScreen() {
           // Revert optimistic update on error
           setPosts(previousPosts);
           setUserShorts(previousShorts);
-          setSavedItems(previousSavedItems);
+          setSavedPosts(previousSavedPosts);
+          setSavedShorts(previousSavedShorts);
           setProfileData(previousProfileData);
           
           logger.error('Failed to delete post', error);
@@ -1129,7 +1159,7 @@ export default function ProfileScreen() {
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
         <NavBar title="Profile" />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size={36} />
         </View>
       </View>
     );
@@ -1595,7 +1625,7 @@ export default function ProfileScreen() {
                     if (!rawUri || hasFailed) {
                       return (
                         <Pressable
-                          style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: isSelected ? theme.colors.primary : profileTheme.gapBorderColor }]}
+                          style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: isSelected ? theme.colors.primary : profileTheme.gapBorderColor, aspectRatio: 9/16 }]}
                           onLongPress={handleLongPress}
                           onPress={handlePress}
                         >
@@ -1626,7 +1656,7 @@ export default function ProfileScreen() {
                     }
                     return (
                       <Pressable
-                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: isSelected ? theme.colors.primary : profileTheme.gapBorderColor }]}
+                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: isSelected ? theme.colors.primary : profileTheme.gapBorderColor, aspectRatio: 9/16 }]}
                         onLongPress={handleLongPress}
                         onPress={handlePress}
                       >
@@ -1684,89 +1714,168 @@ export default function ProfileScreen() {
               )}
             </View>
             <View style={activeTab !== 'saved' ? { height: 0, overflow: 'hidden' } : {}}>
-              {savedItems.length > 0 ? (
-                <FlatList
-                  data={savedItems}
-                  numColumns={3}
-                  scrollEnabled={false}
-                  keyExtractor={(item) => item._id}
-                  renderItem={({ item }) => {
-                    // Try multiple possible image URL fields
-                    const isVideo = (url: any) => {
-                      if (typeof url !== 'string') return false;
-                      const cleanUrl = url.split('?')[0].toLowerCase();
-                      return cleanUrl.endsWith('.mp4') || cleanUrl.endsWith('.mov') || cleanUrl.endsWith('.m4v') || cleanUrl.endsWith('.webm') || cleanUrl.includes('/videos/') || cleanUrl.includes('/shorts/') || url === (item as any).videoUrl;
-                    };
-                    
-                    const imageUrl = (item as any).imageUrl && !isVideo((item as any).imageUrl) ? (item as any).imageUrl : 
-                                     (item as any).image_url && !isVideo((item as any).image_url) ? (item as any).image_url : 
-                                     (item as any).thumbnailUrl && !isVideo((item as any).thumbnailUrl) ? (item as any).thumbnailUrl : 
-                                     (item as any).images?.[0] && !isVideo((item as any).images?.[0]) ? (item as any).images?.[0] : '';
-                    
-                    const rawUrl = imageUrl && String(imageUrl).trim() && String(imageUrl).trim().length > 0
-                      ? String(imageUrl).trim()
-                      : null;
-                    const validImageUrl = rawUrl ? optimizeCloudinaryUrl(rawUrl, { width: 300, height: 300 }) : null;
-                    
-                    return (
-                      <Pressable 
-                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor }]}
-                        onPress={() => {
-                          // Use the same format as user-posts route
-                          router.push(`/saved-posts?postId=${item._id}`);
-                        }}
-                      >
-                        {validImageUrl ? (
-                          <Image 
-                            source={{ uri: validImageUrl }} 
-                            style={styles.thumbnailImage as ImageStyle}
-                            resizeMode="cover"
-                            onError={(error) => {
-                              // Don't log 403 Forbidden errors - they're expected for expired signed URLs
-                              const errorMessage = error?.nativeEvent?.error?.message || '';
-                              const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
-                              
-                              if (__DEV__ && !is403) {
-                                console.warn('⚠️ [Profile] Saved item image failed:', {
-                                  postId: item._id,
-                                  url: validImageUrl.substring(0, 80),
-                                  error: errorMessage || 'Unknown'
-                                });
-                              }
-                              // Only log non-403 errors in production to reduce noise
-                              if (!is403) {
-                                logger.warn('Saved item image failed to load', {
-                                  postId: item._id,
-                                  imageUrl: validImageUrl.substring(0, 100),
-                                  error: errorMessage || 'Unknown error'
-                                });
-                              }
-                            }}
-                          />
-                        ) : (
-                          <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
-                            <Ionicons name="image-outline" size={32} color={profileTheme.textSecondary} />
+              {/* Saved Sub-Tabs Selection */}
+              <View style={[styles.savedSubTabsContainer, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', borderColor: profileTheme.cardBorder, borderWidth: StyleSheet.hairlineWidth }]}>
+                {(['posts', 'shorts'] as const).map(subTab => (
+                  <Pressable
+                    key={subTab}
+                    style={[
+                      styles.savedSubTab,
+                      activeSavedSubTab === subTab && [styles.savedSubTabActive, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#FFFFFF' }]
+                    ]}
+                    onPress={() => setActiveSavedSubTab(subTab)}
+                  >
+                    <Text
+                      style={[
+                        styles.savedSubTabText,
+                        {
+                          color: activeSavedSubTab === subTab ? (isDark ? '#FFFFFF' : theme.colors.primary) : profileTheme.textSecondary,
+                          fontWeight: activeSavedSubTab === subTab ? '700' : '500'
+                        }
+                      ]}
+                    >
+                      {subTab === 'posts' ? 'Posts' : 'Shorts'}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              {/* Render Saved Posts or Saved Shorts depending on active sub-tab */}
+              {activeSavedSubTab === 'posts' ? (
+                savedPosts.length > 0 ? (
+                  <FlatList
+                    data={savedPosts}
+                    numColumns={3}
+                    scrollEnabled={false}
+                    keyExtractor={(item) => item._id}
+                    renderItem={({ item }) => {
+                      const imageUrl = (item as any).imageUrl && !isVideoUrl((item as any).imageUrl, (item as any).videoUrl) ? (item as any).imageUrl : 
+                                       (item as any).image_url && !isVideoUrl((item as any).image_url, (item as any).videoUrl) ? (item as any).image_url : 
+                                       (item as any).thumbnailUrl && !isVideoUrl((item as any).thumbnailUrl, (item as any).videoUrl) ? (item as any).thumbnailUrl : 
+                                       (item as any).images?.[0] && !isVideoUrl((item as any).images?.[0], (item as any).videoUrl) ? (item as any).images?.[0] : '';
+                      
+                      const rawUrl = imageUrl && String(imageUrl).trim() && String(imageUrl).trim().length > 0
+                        ? String(imageUrl).trim()
+                        : null;
+                      const validImageUrl = rawUrl ? optimizeCloudinaryUrl(rawUrl, { width: 300, height: 300 }) : null;
+                      
+                      return (
+                        <Pressable 
+                          style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor }]}
+                          onPress={() => {
+                            router.push(`/saved-posts?postId=${item._id}`);
+                          }}
+                        >
+                          {validImageUrl ? (
+                            <Image 
+                              source={{ uri: validImageUrl }} 
+                              style={styles.thumbnailImage as ImageStyle}
+                              resizeMode="cover"
+                              onError={(error) => {
+                                const errorMessage = error?.nativeEvent?.error?.message || '';
+                                const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
+                                if (!is403) {
+                                  logger.warn('Saved item image failed to load', {
+                                    postId: item._id,
+                                    imageUrl: validImageUrl.substring(0, 100),
+                                    error: errorMessage || 'Unknown error'
+                                  });
+                                }
+                              }}
+                            />
+                          ) : (
+                            <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
+                              <Ionicons name="image-outline" size={32} color={profileTheme.textSecondary} />
+                            </View>
+                          )}
+                          <View style={[styles.bookmarkOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+                            <Ionicons name="bookmark" size={16} color="#FFFFFF" />
                           </View>
-                        )}
-                        <View style={[styles.bookmarkOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-                          <Ionicons name="bookmark" size={16} color="#FFFFFF" />
-                        </View>
-                      </Pressable>
-                    );
-                  }}
-                  columnWrapperStyle={styles.postsGridWrapper}
-                  contentContainerStyle={styles.postsGridContainer}
-                />
-              ) : (
-                <View style={styles.emptyState}>
-                  <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
-                    <Ionicons name="bookmark-outline" size={56} color={profileTheme.accent} />
+                        </Pressable>
+                      );
+                    }}
+                    columnWrapperStyle={styles.postsGridWrapper}
+                    contentContainerStyle={styles.postsGridContainer}
+                  />
+                ) : (
+                  <View style={styles.emptyState}>
+                    <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
+                      <Ionicons name="bookmark-outline" size={56} color={profileTheme.accent} />
+                    </View>
+                    <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No saved posts</Text>
+                    <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
+                      Save posts you love to view later
+                    </Text>
                   </View>
-                  <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No saved items</Text>
-                  <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
-                    Save posts you love to view later
-                  </Text>
-                </View>
+                )
+              ) : (
+                savedShorts.length > 0 ? (
+                  <FlatList
+                    data={savedShorts}
+                    numColumns={3}
+                    scrollEnabled={false}
+                    keyExtractor={(item) => item._id}
+                    renderItem={({ item }) => {
+                      const rawUri = (item as any).imageUrl && !isVideoUrl((item as any).imageUrl, (item as any).videoUrl) ? (item as any).imageUrl : 
+                                     (item as any).thumbnailUrl && !isVideoUrl((item as any).thumbnailUrl, (item as any).videoUrl) ? (item as any).thumbnailUrl : '';
+                      const uri = rawUri ? optimizeCloudinaryUrl(rawUri, { width: 300, height: 300 }) : '';
+                      const hasFailed = failedShortThumbs.has(item._id);
+                      
+                      return (
+                        <Pressable 
+                          style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor, aspectRatio: 9/16 }]}
+                          onPress={() => {
+                            router.push(`/saved-posts?postId=${item._id}`);
+                          }}
+                        >
+                          {uri && !hasFailed ? (
+                            <Image 
+                              source={{ uri }} 
+                              style={styles.thumbnailImage as ImageStyle}
+                              resizeMode="cover"
+                              onError={() => {
+                                if (!failedShortThumbsRef.current.has(item._id)) {
+                                  failedShortThumbsRef.current.add(item._id);
+                                  setFailedShortThumbs(new Set(failedShortThumbsRef.current));
+                                }
+                              }}
+                            />
+                          ) : (
+                            <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
+                              <Ionicons name="videocam-outline" size={28} color={profileTheme.textSecondary} />
+                            </View>
+                          )}
+                          <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.35)' }]}>
+                            <Ionicons name="play" size={22} color="#FFFFFF" />
+                          </View>
+                          <View style={[styles.bookmarkOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+                            <Ionicons name="bookmark" size={16} color="#FFFFFF" />
+                          </View>
+                          <View style={styles.viewCountOverlay}>
+                            <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
+                            <Text style={styles.viewCountText}>
+                              {((item as any).viewsCount ?? 0) >= 1000
+                                ? `${(((item as any).viewsCount ?? 0) / 1000).toFixed(1)}k`
+                                : String((item as any).viewsCount ?? 0)}
+                            </Text>
+                          </View>
+                        </Pressable>
+                      );
+                    }}
+                    columnWrapperStyle={styles.postsGridWrapper}
+                    contentContainerStyle={styles.postsGridContainer}
+                  />
+                ) : (
+                  <View style={styles.emptyState}>
+                    <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
+                      <Ionicons name="videocam-outline" size={56} color={profileTheme.accent} />
+                    </View>
+                    <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No saved shorts</Text>
+                    <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
+                      Save shorts you love to view later
+                    </Text>
+                  </View>
+                )
               )}
             </View>
           </View>
@@ -1819,6 +1928,34 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
+  savedSubTabsContainer: {
+    flexDirection: 'row',
+    alignSelf: 'center',
+    borderRadius: 20,
+    padding: 3,
+    marginVertical: 12,
+    width: '60%',
+    maxWidth: 300,
+    gap: 4,
+  },
+  savedSubTab: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  savedSubTabActive: {
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  savedSubTabText: {
+    fontSize: 12,
+    letterSpacing: 0.1,
+  },
   container: {
     flex: 1,
     ...(isWeb && {
@@ -1833,13 +1970,9 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 1000,
-    // Shadow Mechanics
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 3,
-    elevation: 4,
-    overflow: 'visible',
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    overflow: 'hidden',
     ...(isWeb && {
       maxWidth: isTablet ? 1200 : 1000,
       alignSelf: 'center',
@@ -2612,7 +2745,7 @@ const styles = StyleSheet.create({
   postThumbnail: {
     width: profileColumnWidth,
     aspectRatio: 1,
-    borderRadius: 6,
+    borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1.5,
     borderColor: 'transparent',

@@ -5,12 +5,12 @@ import {
   StyleSheet,
   TouchableOpacity,
   FlatList,
-  ActivityIndicator,
   Alert,
   Platform,
   StatusBar,
   RefreshControl,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -272,7 +272,7 @@ export default function NavigateIndexScreen() {
               disabled={isLoading}
             >
               {isLoading ? (
-                <ActivityIndicator color="white" size="small" />
+                <LoadingGlobe color="white" size="small" />
               ) : (
                 <>
                   <Ionicons name="play-circle" size={20} color="white" />
@@ -296,7 +296,7 @@ export default function NavigateIndexScreen() {
       {/* Journey List */}
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={GROWTH_GREEN} />
+          <LoadingGlobe size="large" color={GROWTH_GREEN} />
         </View>
       ) : (
         <FlatList
@@ -322,7 +322,7 @@ export default function NavigateIndexScreen() {
           }
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.3}
-          ListFooterComponent={loadingMore ? <ActivityIndicator style={{ padding: 16 }} color={GROWTH_GREEN} /> : null}
+          ListFooterComponent={loadingMore ? <LoadingGlobe style={{ padding: 16 }} color={GROWTH_GREEN} /> : null}
           contentContainerStyle={journeys.length === 0 ? { flex: 1 } : { paddingTop: 6, paddingBottom: 30 }}
         />
       )}
@@ -330,7 +330,7 @@ export default function NavigateIndexScreen() {
       {/* Loading Overlay */}
       {isLoading && (
         <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color={GROWTH_GREEN} />
+          <LoadingGlobe size="large" color={GROWTH_GREEN} />
         </View>
       )}
     </SafeAreaView>

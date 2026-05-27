@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, StyleSheet, Platform, ActivityIndicator, Image } from 'react-native';
+import { View, StyleSheet, Platform, Image } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { useTheme } from '../context/ThemeContext';
 
 // TODO: Lottie animation removed - using default icon instead
@@ -35,7 +36,7 @@ export default function LottieSplashScreen({ visible = true }: LottieSplashScree
           resizeMode="contain"
         />
       ) : (
-        <ActivityIndicator size="large" color={theme.colors.primary || '#007AFF'} />
+        <LoadingGlobe size="large" color={theme.colors.primary || '#007AFF'} />
       )}
     </View>
   );

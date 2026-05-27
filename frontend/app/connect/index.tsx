@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   RefreshControl,
   Platform,
   Dimensions,
@@ -13,6 +12,7 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
@@ -626,7 +626,7 @@ export default function ConnectHubScreen() {
     if (myPagesLoading) {
       return (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       );
     }
@@ -666,7 +666,7 @@ export default function ConnectHubScreen() {
         ListFooterComponent={
           connectLoadingMore ? (
             <View style={{ paddingVertical: 16, alignItems: 'center' }}>
-              <ActivityIndicator color={theme.colors.primary} />
+              <LoadingGlobe color={theme.colors.primary} />
             </View>
           ) : null
         }
@@ -814,7 +814,7 @@ export default function ConnectHubScreen() {
             returnKeyType="search"
           />
           {loadingUserLocation ? (
-            <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+            <LoadingGlobe size="small" color={theme.colors.textSecondary} />
           ) : userLocationInput.length > 0 ? (
             <TouchableOpacity
               onPress={() => {
@@ -915,7 +915,7 @@ export default function ConnectHubScreen() {
           activeOpacity={0.7}
         >
           {findLoading ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <LoadingGlobe size="small" color="#FFFFFF" />
           ) : (
             <>
               <Ionicons name="search" size={18} color="#FFFFFF" />
@@ -943,7 +943,7 @@ export default function ConnectHubScreen() {
     if (loading) {
       return (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       );
     }
@@ -963,7 +963,7 @@ export default function ConnectHubScreen() {
         ListFooterComponent={
           loadingMore ? (
             <View style={styles.footerLoader}>
-              <ActivityIndicator size="small" color={theme.colors.primary} />
+              <LoadingGlobe size="small" color={theme.colors.primary} />
             </View>
           ) : null
         }

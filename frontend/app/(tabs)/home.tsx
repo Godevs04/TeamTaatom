@@ -3,15 +3,15 @@ import {
   View,
   Text,
   StyleSheet,
-  ActivityIndicator,
   Image,
   RefreshControl,
   TouchableOpacity,
   StatusBar,
   ScrollView,
   Platform,
-  Dimensions
+  Dimensions,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { FlashList, FlashListRef } from '@shopify/flash-list';
 const AnyFlashList = FlashList as any;
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -1217,15 +1217,10 @@ export default function HomeScreen() {
       zIndex: 1000,
       backgroundColor: 'transparent',
       borderTopWidth: 0,
-      borderBottomWidth: 1,
-      borderBottomColor: 'rgba(28, 115, 180, 0.15)',
-      // Shadow Mechanics
-      shadowColor: '#000000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: mode === 'dark' ? 0.3 : 0.04,
-      shadowRadius: 8,
-      elevation: 6,
-      overflow: 'visible',
+      borderBottomWidth: 0,
+      borderBottomLeftRadius: 24,
+      borderBottomRightRadius: 24,
+      overflow: 'hidden',
       ...(isWeb && {
         maxWidth: isTablet ? 800 : 600,
         alignSelf: 'center',
@@ -1567,7 +1562,7 @@ export default function HomeScreen() {
               ListFooterComponent={
                 hasMore ? (
                   <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
-                    <ActivityIndicator color={theme.colors.primary} />
+                    <LoadingGlobe color={theme.colors.primary} />
                   </View>
                 ) : posts.length > 0 ? (
                   <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>

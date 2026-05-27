@@ -4,9 +4,9 @@ import {
   Text,
   StyleSheet,
   FlatList,
-  ActivityIndicator,
   RefreshControl,
 } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
@@ -104,7 +104,7 @@ function JourneysListInner() {
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
         <NavBar title="My Journeys" showBack onBack={() => router.back()} />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={GROWTH_GREEN} />
+          <LoadingGlobe size="large" color={GROWTH_GREEN} />
         </View>
       </View>
     );
@@ -136,7 +136,7 @@ function JourneysListInner() {
         }
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.3}
-        ListFooterComponent={loadingMore ? <ActivityIndicator style={{ padding: 16 }} color={GROWTH_GREEN} /> : null}
+        ListFooterComponent={loadingMore ? <LoadingGlobe style={{ padding: 16 }} color={GROWTH_GREEN} /> : null}
         contentContainerStyle={journeys.length === 0 ? { flex: 1 } : { paddingTop: 6, paddingBottom: 30 }}
       />
     </View>

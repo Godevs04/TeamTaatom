@@ -6,11 +6,11 @@ import {
   SectionList,
   TouchableOpacity,
   Image,
-  ActivityIndicator,
   RefreshControl,
   Dimensions,
   Platform,
 } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
@@ -660,7 +660,7 @@ export default function NotificationsScreen() {
         styles.footerLoader,
         { backgroundColor: mode === 'dark' ? '#000000' : '#F8F9FA' }
       ]}>
-        <ActivityIndicator size="small" color="#007AFF" />
+        <LoadingGlobe size="small" color="#007AFF" />
       </View>
     );
   };
@@ -676,7 +676,7 @@ export default function NotificationsScreen() {
           styles.loadingContainer,
           { backgroundColor: mode === 'dark' ? '#000000' : '#F8F9FA' }
         ]}>
-          <ActivityIndicator size="large" color="#007AFF" />
+          <LoadingGlobe size="large" color="#007AFF" />
         </View>
       </View>
     );

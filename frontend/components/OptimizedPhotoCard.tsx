@@ -6,13 +6,13 @@ import {
   StyleSheet,
   Alert,
   Modal,
-  ActivityIndicator,
   Share,
   Animated,
   TextInput,
   Platform,
   KeyboardAvoidingView,
 } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
@@ -992,7 +992,7 @@ function PhotoCard({
           <View style={[styles.menuContainer, { backgroundColor: theme.colors.surface }]}>
             {isMenuLoading && (
               <View style={styles.menuLoadingContainer}>
-                <ActivityIndicator size="small" color={theme.colors.primary} />
+                <LoadingGlobe size="small" color={theme.colors.primary} />
               </View>
             )}
             {currentUser && normalizeId(currentUser._id) === normalizeId(postUser._id) ? (
@@ -1318,7 +1318,7 @@ function PhotoCard({
                     disabled={isMenuLoading || !editCaption.trim()}
                   >
                     {isMenuLoading ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
+                      <LoadingGlobe size="small" color="#FFFFFF" />
                     ) : (
                       <Text style={styles.editModalButtonTextSave}>Save</Text>
                     )}

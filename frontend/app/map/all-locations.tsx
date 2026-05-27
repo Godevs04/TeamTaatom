@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   StatusBar,
   Platform,
   TextInput,
@@ -15,6 +14,7 @@ import {
   Dimensions,
   ScrollView,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Image as ExpoImage } from 'expo-image';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
@@ -1223,7 +1223,7 @@ function initMap(){
           }}
           renderLoading={() => (
             <View style={styles.loadingOverlay}>
-              <ActivityIndicator size="large" color={theme.colors.primary} />
+              <LoadingGlobe size="large" color={theme.colors.primary} />
             </View>
           )}
           onError={(e) => logger.error('WebView error:', e.nativeEvent)}
@@ -1400,7 +1400,7 @@ function initMap(){
           <View style={styles.placeholder} />
         </View>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
           <Text style={[styles.loadingText, { color: theme.colors.textSecondary }]}>
             Loading locations &amp; journeys...
           </Text>
@@ -1852,7 +1852,7 @@ function initMap(){
                   ]}
                 >
                   {journeyActionLoading ? (
-                    <ActivityIndicator color="white" />
+                    <LoadingGlobe color="white" />
                   ) : (
                     <>
                       <Ionicons name="play" size={18} color="#FFFFFF" />
@@ -1958,7 +1958,7 @@ function initMap(){
                     style={journeyStyles.startBtn}
                   >
                     {journeyActionLoading ? (
-                      <ActivityIndicator color="white" />
+                      <LoadingGlobe color="white" />
                     ) : (
                       <>
                         <Ionicons name="play" size={20} color="white" />

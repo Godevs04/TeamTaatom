@@ -8,7 +8,6 @@ import {
   ScrollView,
   TextInput,
   Image,
-  ActivityIndicator,
   Platform,
   Modal,
   AppState,
@@ -18,7 +17,8 @@ import {
   FlatList,
   PermissionsAndroid,
   Linking,
-} from "react-native";
+} from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Formik } from "formik";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -3586,7 +3586,7 @@ export default function PostScreen() {
                     >
                       {isLoading ? (
                         <>
-                          <ActivityIndicator color="white" size="small" />
+                          <LoadingGlobe color="white" size="small" />
                           <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "600", marginLeft: theme.spacing.sm }}>Sharing...</Text>
                         </>
                       ) : (
@@ -4161,7 +4161,7 @@ export default function PostScreen() {
                     >
                       {isLoading ? (
                         <>
-                          <ActivityIndicator color="white" size="small" />
+                          <LoadingGlobe color="white" size="small" />
                           <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "600", marginLeft: theme.spacing.sm }}>Uploading...</Text>
                         </>
                       ) : (
@@ -4218,7 +4218,7 @@ export default function PostScreen() {
               onTransformChange={setCropTransform}
             />
           ) : (
-            <ActivityIndicator size="large" color="#0095F6" />
+            <LoadingGlobe size="large" color="#0095F6" />
           )}
         </View>
 
@@ -5243,7 +5243,7 @@ export default function PostScreen() {
                     }}
                   >
                     {isSearchingPlace ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
+                      <LoadingGlobe size="small" color="#FFFFFF" />
                     ) : (
                       <Ionicons name="search" size={20} color="#FFFFFF" />
                     )}

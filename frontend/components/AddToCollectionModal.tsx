@@ -6,9 +6,9 @@ import {
   FlatList,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   Image,
 } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useAlert } from '../context/AlertContext';
@@ -90,7 +90,7 @@ export default function AddToCollectionModal({
         </Text>
       </View>
       {adding === item._id ? (
-        <ActivityIndicator size="small" color={theme.colors.primary} />
+        <LoadingGlobe size="small" color={theme.colors.primary} />
       ) : (
         <Ionicons name="add-circle-outline" size={24} color={theme.colors.primary} />
       )}
@@ -115,7 +115,7 @@ export default function AddToCollectionModal({
 
           {loading ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={theme.colors.primary} />
+              <LoadingGlobe size="large" color={theme.colors.primary} />
             </View>
           ) : collections.length === 0 ? (
             <View style={styles.emptyContainer}>

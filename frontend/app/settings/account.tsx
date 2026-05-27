@@ -1,16 +1,16 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
-  TouchableOpacity, 
-  ActivityIndicator,
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
   Switch,
   Platform,
   Dimensions,
   KeyboardAvoidingView,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
@@ -177,7 +177,7 @@ export default function AccountSettingsScreen() {
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
         <NavBar title="Account Settings" />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       </View>
     );
@@ -278,7 +278,7 @@ export default function AccountSettingsScreen() {
                 </Text>
               </View>
               {resendingEmail ? (
-                <ActivityIndicator size="small" color={theme.colors.primary} />
+                <LoadingGlobe size="small" color={theme.colors.primary} />
               ) : (
                 <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
               )}
@@ -339,7 +339,7 @@ export default function AccountSettingsScreen() {
             </View>
             <View style={styles.settingRight}>
               {updatingKeysRef.current.has('dataUsage') ? (
-                <ActivityIndicator size="small" color={theme.colors.primary} />
+                <LoadingGlobe size="small" color={theme.colors.primary} />
               ) : (
                 <>
                   <Text style={[styles.settingValue, { color: theme.colors.textSecondary }]}>
@@ -476,7 +476,7 @@ export default function AccountSettingsScreen() {
               </Text>
             </View>
             {exportingData ? (
-              <ActivityIndicator size="small" color={theme.colors.primary} />
+              <LoadingGlobe size="small" color={theme.colors.primary} />
             ) : (
               <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
             )}
@@ -496,7 +496,7 @@ export default function AccountSettingsScreen() {
               </Text>
             </View>
             {deletingAccount ? (
-              <ActivityIndicator size="small" color={theme.colors.error} />
+              <LoadingGlobe size="small" color={theme.colors.error} />
             ) : (
               <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
             )}
@@ -586,7 +586,7 @@ export default function AccountSettingsScreen() {
                 disabled={deletingAccount || !deletePassword.trim()}
               >
                 {deletingAccount ? (
-                  <ActivityIndicator size="small" color="white" />
+                  <LoadingGlobe size="small" color="white" />
                 ) : (
                   <Text style={styles.modalButtonTextDelete}>
                     Delete Account

@@ -7,10 +7,10 @@ import {
   ScrollView,
   Share,
   SafeAreaView,
-  ActivityIndicator,
   Dimensions,
   Platform,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
@@ -115,7 +115,7 @@ export default function CompleteScreen() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={GROWTH_GREEN} />
+          <LoadingGlobe size="large" color={GROWTH_GREEN} />
         </View>
       </SafeAreaView>
     );
@@ -323,7 +323,7 @@ function initMap(){
             disabled={isSharing}
           >
             {isSharing ? (
-              <ActivityIndicator size="small" color={ACTION_BLUE} />
+              <LoadingGlobe size="small" color={ACTION_BLUE} />
             ) : (
               <>
                 <Ionicons name="share-social" size={20} color={ACTION_BLUE} />
