@@ -402,7 +402,10 @@ const ConnectPageDetail = () => {
                         <div className="text-sm">
                           <div className="font-medium text-gray-900">{o.buyerName}</div>
                           {o.userId && (
-                            <div className="text-xs text-gray-500">@{o.userId.username || '—'}</div>
+                            <div className="text-xs text-gray-500 mt-0.5 space-y-0.5">
+                              <div><strong>Acct:</strong> {o.userId.fullName || '—'} (@{o.userId.username || '—'})</div>
+                              {o.userId.email && <div><strong>Email:</strong> {o.userId.email}</div>}
+                            </div>
                           )}
                         </div>
                       </TableCell>
