@@ -30,16 +30,16 @@ export function createCloudChatBubbleStyles(
       flexShrink: 1,
     },
     bubbleIn: {
-      backgroundColor: isDark ? theme.colors.glassStrong : '#FFFFFF',
-      borderWidth: 1,
-      borderColor: isDark ? theme.colors.glassBorder : 'rgba(0, 0, 0, 0.08)',
+      backgroundColor: isDark ? '#000000' : '#FFFFFF',
+      borderWidth: 1.5,
+      borderColor: 'rgba(28, 115, 180, 0.30)', // 30% Ocean Blue border
       borderRadius: 18,
       paddingHorizontal: 12,
       paddingVertical: 8,
       overflow: 'hidden',
-      shadowColor: isDark ? theme.colors.glowBlue || theme.colors.primary : 'rgba(0, 0, 0, 0.04)',
+      shadowColor: 'rgba(0, 0, 0, 0.05)',
       shadowOffset: { width: 0, height: 3 },
-      shadowOpacity: isDark ? 0.2 : 1,
+      shadowOpacity: 1,
       shadowRadius: 12,
       elevation: 3,
     },
@@ -57,7 +57,7 @@ export function createCloudChatBubbleStyles(
     textIn: {
       fontSize: 14,
       fontWeight: '500',
-      color: isDark ? theme.colors.text : cloudDesign.textDark,
+      color: isDark ? '#FFFFFF' : '#000000', // Pure White / Pure Black
       lineHeight: 20,
     },
     textOut: {
@@ -69,13 +69,13 @@ export function createCloudChatBubbleStyles(
     senderName: {
       fontSize: 11,
       fontWeight: '700',
-      color: isDark ? theme.colors.textSecondary : cloudDesign.textMuted,
+      color: theme.colors.textSecondary,
       marginBottom: 4,
       marginLeft: 36,
     },
     timeIn: {
       fontSize: 10,
-      color: isDark ? theme.colors.textSecondary : cloudDesign.textMuted,
+      color: theme.colors.textSecondary,
       marginTop: 4,
       textAlign: 'right',
     },

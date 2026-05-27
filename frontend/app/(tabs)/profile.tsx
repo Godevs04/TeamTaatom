@@ -61,18 +61,22 @@ function ProfilePremiumView(props: React.ComponentProps<typeof OriginalProfilePr
   
   const children = React.Children.toArray(element.props.children);
   const updatedChildren = children.map((child: any) => {
-    if (React.isValidElement(child) && (child.type === CloudGlassSurface || (child.props as any).borderRadius === 28)) {
+    if (React.isValidElement(child)) {
       const originalStyle = (child.props as any).style || {};
       const flattenedStyle = StyleSheet.flatten(originalStyle);
-      const overriddenStyle = {
-        ...flattenedStyle,
-        backgroundColor: props.isDark ? 'rgba(25, 25, 25, 0.72)' : '#FFFFFF', // Solid white background on Day Theme to resolve Android elevation bleed
-        overflow: 'hidden' as const,
-        borderRadius: 28,
-      };
-      return React.cloneElement(child, {
-        style: overriddenStyle,
-      } as any);
+      const hasBorderRadius28 = (child.props as any).borderRadius === 28 || flattenedStyle?.borderRadius === 28;
+      
+      if (child.type === CloudGlassSurface || hasBorderRadius28) {
+        const overriddenStyle = {
+          ...flattenedStyle,
+          backgroundColor: props.isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)', // Semi-transparent glass background to prevent Android bleed and avoid solid white square
+          overflow: 'hidden' as const,
+          borderRadius: 28,
+        };
+        return React.cloneElement(child, {
+          style: overriddenStyle,
+        } as any);
+      }
     }
     return child;
   });
@@ -265,35 +269,35 @@ export default function ProfileScreen() {
   const profileTheme = useMemo(() => {
     if (isDark) {
       return {
-        headerGradient: ['#000000', '#000000', '#000000'] as const,
+        headerGradient: ['#000000', 'rgba(28, 115, 180, 0.10)'] as const,
         cardBg: theme.colors.card,
         glassCardBg: theme.colors.glassSurface,
         cardBorder: theme.colors.glassBorder,
         textPrimary: theme.colors.text,
         textSecondary: theme.colors.textSecondary,
         accent: theme.colors.primary,
-        statCardBg: 'rgba(255, 255, 255, 0.03)',
-        statCardBorder: 'rgba(255, 255, 255, 0.08)',
+        statCardBg: 'rgba(28, 115, 180, 0.05)',
+        statCardBorder: 'rgba(28, 115, 180, 0.15)',
         pillTabsBg: 'rgba(0, 0, 0, 0.4)',
-        explorerBadgeBg: 'rgba(255, 255, 255, 0.08)',
+        explorerBadgeBg: 'rgba(28, 115, 180, 0.15)',
         explorerBadgeText: theme.colors.primary,
         gapBorderColor: '#000000',
       };
     }
     return {
-      headerGradient: ['#F5F7FA', '#F5F7FA'] as const,
+      headerGradient: ['#FFFFFF', 'rgba(28, 115, 180, 0.10)'] as const,
       cardBg: '#FFFFFF',
-      glassCardBg: 'rgba(255, 255, 255, 0.55)',
-      cardBorder: 'rgba(255, 255, 255, 0.90)',
-      textPrimary: '#121212',
-      textSecondary: '#667085',
-      accent: '#121212',
-      statCardBg: 'rgba(255, 255, 255, 0.55)',
-      statCardBorder: 'rgba(255, 255, 255, 0.90)',
-      pillTabsBg: 'rgba(255, 255, 255, 0.60)',
-      explorerBadgeBg: '#F5F7FA',
-      explorerBadgeText: '#121212',
-      gapBorderColor: '#F5F7FA',
+      glassCardBg: 'rgba(255, 255, 255, 0.85)',
+      cardBorder: 'rgba(28, 115, 180, 0.15)',
+      textPrimary: '#000000',
+      textSecondary: 'rgba(0, 0, 0, 0.55)',
+      accent: '#1C73B4',
+      statCardBg: 'rgba(28, 115, 180, 0.05)',
+      statCardBorder: 'rgba(28, 115, 180, 0.15)',
+      pillTabsBg: 'rgba(255, 255, 255, 0.85)',
+      explorerBadgeBg: '#FFFFFF',
+      explorerBadgeText: '#000000',
+      gapBorderColor: '#FFFFFF',
     };
   }, [isDark, theme.colors]);
 
@@ -1238,20 +1242,19 @@ export default function ProfileScreen() {
         {
           paddingTop: insets.top,
           height: 56 + insets.top,
-          backgroundColor: 'transparent',
+          backgroundColor: isDark ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.8)',
           borderTopWidth: 0,
           borderBottomWidth: 1,
-          borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.90)',
+          borderBottomColor: theme.colors.border,
           shadowOpacity: isDark ? 0.3 : 0.04,
           shadowRadius: 8,
           elevation: 6,
         }
       ]}>
-        <LinearGradient
-          colors={isDark ? ['#1A1C23', '#0F1015'] : ['#FFFFFF', '#F5F7FA']}
+        <BlurView
+          intensity={80}
+          tint={isDark ? 'dark' : 'light'}
           style={StyleSheet.absoluteFillObject}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0, y: 1 }}
         />
         <View style={styles.header}>
           <TouchableOpacity
@@ -1282,7 +1285,7 @@ export default function ProfileScreen() {
               <Ionicons
                 name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
                 size={22}
-                color={theme.colors.text}
+                color={isDark ? '#38BDF8' : '#1C73B4'}
               />
               {unreadCount > 0 && (
                 <View style={[styles.headerNotificationBadge, { backgroundColor: theme.colors.error, borderColor: isDark ? '#0A1624' : '#C4E5FF' }]}>
@@ -1293,7 +1296,7 @@ export default function ProfileScreen() {
               )}
             </Pressable>
             <KebabMenu
-              iconColor={theme.colors.text}
+              iconColor={isDark ? '#38BDF8' : '#1C73B4'}
               iconSize={22}
               items={[
                 {
@@ -1404,9 +1407,7 @@ export default function ProfileScreen() {
                     key={tab} 
                     style={[
                       styles.pillTab, 
-                      activeTab===tab 
-                        ? [styles.activePillTab, { backgroundColor: profileTheme.accent }]
-                        : { backgroundColor: 'transparent' }
+                      activeTab===tab && styles.activePillTab
                     ]} 
                     onPress={() => {
                       // Profile Tabs Lifecycle Safety: Prevent rapid tab switching from causing duplicate API calls
@@ -1419,14 +1420,23 @@ export default function ProfileScreen() {
                       setActiveTab(tab);
                     }}
                   >
+                    {activeTab === tab && (
+                      <LinearGradient
+                        colors={isDark ? ['#1C73B4', '#50C878'] : ['#1C73B4', '#1C73B4']}
+                        style={StyleSheet.absoluteFillObject}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                      />
+                    )}
                     <Ionicons 
                       name={tab==='posts' ? 'images-outline' : tab==='shorts' ? 'videocam-outline' : 'bookmark-outline'} 
                       size={18} 
-                      color={activeTab===tab ? (isDark ? '#121212' : '#FFFFFF') : profileTheme.textSecondary} 
+                      color={activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary} 
+                      style={{ zIndex: 1 }}
                     />
                     <Text style={[
                       styles.pillTabText, 
-                      { color: activeTab===tab ? (isDark ? '#121212' : '#FFFFFF') : profileTheme.textSecondary }
+                      { color: activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary, zIndex: 1 }
                     ]}>
                       {tab === 'posts' ? 'Posts' : tab === 'shorts' ? 'Shorts' : 'Saved'}
                     </Text>
@@ -2570,6 +2580,7 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     paddingHorizontal: 12,
     borderRadius: 19,
+    overflow: 'hidden',
   },
   activePillTab: {
   },
@@ -2727,7 +2738,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+    borderBottomColor: 'rgba(28, 115, 180, 0.15)',
   },
   modalTitle: {
     fontSize: 20,

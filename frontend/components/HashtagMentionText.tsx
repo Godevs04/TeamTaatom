@@ -147,7 +147,7 @@ export const HashtagMentionText: React.FC<HashtagMentionTextProps> = ({
             <Text
               key={index}
               onPress={() => handleHashtagPress(part.text)}
-              style={[styles.hashtag, { color: theme.colors.primary }]}
+              style={[styles.hashtag, { color: theme.colors.link }]}
             >
               {part.text}
             </Text>
@@ -163,7 +163,7 @@ export const HashtagMentionText: React.FC<HashtagMentionTextProps> = ({
               onPress={() => !isLoading && handleMentionPress(part.value!)}
               style={[
                 styles.mention,
-                { color: theme.colors.primary },
+                { color: theme.colors.link },
                 isLoading && styles.mentionLoading
               ]}
             >

@@ -226,7 +226,7 @@ export default function PostComments({
             <Text style={[styles.commentUsername, { color: theme.colors.text }]}>
               {commentUser.fullName || 'Unknown User'}
             </Text>
-            <Text style={[styles.commentTime, { color: theme.colors.textSecondary }]}>
+            <Text style={[styles.commentTime, { color: theme.colors.textPassive }]}>
               {new Date(item.createdAt).toLocaleDateString('en-US', {
                 month: 'short',
                 day: 'numeric',

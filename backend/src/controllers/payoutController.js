@@ -41,7 +41,7 @@ const markPayoutPaid = async (req, res) => {
     payout.processedBy = req.superAdmin?._id || null;
     payout.processedAt = paidAt;
     payout.failureReason = '';
-    if (payout.payoutMethod === 'wise') {
+    if (payout.payoutMethod === 'wise' || payout.payoutMethod === 'wise_bank') {
       payout.wiseTransferId = reference.slice(0, 100);
     }
     await payout.save();

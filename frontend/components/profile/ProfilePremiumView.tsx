@@ -1,5 +1,4 @@
 import React from 'react';
-// Strike 17: Profile Bulk Selection & Action Mandate integration.
 import {
   View,
   Text,
@@ -9,15 +8,15 @@ import {
   Pressable,
   ScrollView,
   Dimensions,
-  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import PremiumGlassCard from '../ui/PremiumGlassCard';
 import CloudGlassSurface from '../cloud/CloudGlassSurface';
+import PremiumGlassCard from '../ui/PremiumGlassCard';
 import RotatingGlobe from '../RotatingGlobe';
 import BioDisplay from '../BioDisplay';
+import GradientText from '../ui/GradientText';
 import { optimizeCloudinaryUrl } from '../../utils/imageCache';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -54,17 +53,6 @@ export interface ProfilePremiumViewProps {
   onHighlightPress?: (postId: string) => void;
 }
 
-function formatLocationLine(address: string, date?: string): string {
-  const city = address?.split(',')[0]?.trim() || address || 'Unknown';
-  if (!date) return city;
-  try {
-    const d = new Date(date);
-    return `${city} · ${d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}`;
-  } catch {
-    return city;
-  }
-}
-
 export default function ProfilePremiumView({
   profilePic,
   fullName,
@@ -96,6 +84,9 @@ export default function ProfilePremiumView({
 }: ProfilePremiumViewProps) {
   const router = useRouter();
 
+  const textPassive = isDark ? '#38BDF8' : '#1C73B4';
+  const borderTint = 'rgba(28, 115, 180, 0.15)';
+
   return (
     <View style={styles.wrap}>
       {/* Floating profile image overlapping the top card */}
@@ -103,8 +94,8 @@ export default function ProfilePremiumView({
         <View style={[styles.avatarOuter, {
           borderColor: isDark ? 'rgba(255,255,255,0.8)' : '#FFFFFF',
           borderWidth: 4,
-          backgroundColor: isDark ? '#122236' : '#FFFFFF',
-          shadowColor: accent,
+          backgroundColor: isDark ? '#000000' : '#FFFFFF',
+          shadowColor: '#000000',
           shadowOffset: { width: 0, height: 8 },
           shadowOpacity: 0.3,
           shadowRadius: 16,
@@ -121,110 +112,86 @@ export default function ProfilePremiumView({
         </View>
       </View>
 
-      <CloudGlassSurface
-        blur={isDark}
-        borderRadius={28}
+      <PremiumGlassCard
         style={[styles.headerBlock, {
           marginTop: -AVATAR / 2, // Pull up under the floating avatar
-          borderWidth: 1.5,
-          borderTopColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.85)',
-          borderLeftColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.85)',
-          borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)',
-          borderRightColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.06)',
-          shadowColor: '#000000',
-          shadowOffset: { width: 0, height: 8 },
-          shadowOpacity: 0.45,
-          shadowRadius: 32,
-          elevation: 10,
-          backgroundColor: isDark ? 'rgba(25, 25, 25, 0.72)' : 'transparent',
         }]}
         contentStyle={styles.headerInner}
+        subtle
+        blur={true}
       >
-        <Pressable 
-          style={styles.editProfileAbsolute} 
-          onPress={onEditProfile}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        >
-          <Ionicons name="create-outline" size={18} color={textPrimary} />
-        </Pressable>
+          <Pressable 
+            style={styles.editProfileAbsolute} 
+            onPress={onEditProfile}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <Ionicons name="create-outline" size={18} color={textPrimary} />
+          </Pressable>
 
-        {/* Phase 3: The Identity Block (Centered Hierarchy below avatar) */}
-        <View style={styles.identityBlock}>
-          <Text style={[styles.displayNameText, { color: textPrimary }]}>
-            {fullName}
-          </Text>
-          {username ? (
-            <Text style={[styles.handleText, { color: textSecondary }]}>
-              @{username}
+          {/* Phase 3: The Identity Block (Centered Hierarchy below avatar) */}
+          <View style={styles.identityBlock}>
+            <Text style={[styles.displayNameText, { color: textPrimary }]}>
+              {fullName}
             </Text>
-          ) : null}
-          
-          {bio ? (
-            <View style={styles.bioContainer}>
-              <BioDisplay bio={bio} />
-            </View>
-          ) : null}
-        </View>
-
-        {/* Phase 2: Pill-styled Metrics */}
-        <View style={styles.metricsContainer}>
-          <View style={[styles.metricPill, {
-            borderWidth: 1,
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
-            borderTopColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.6)',
-            borderLeftColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.6)',
-          }]}>
-            <LinearGradient colors={isDark ? ['rgba(255, 255, 255, 0.04)', 'rgba(255, 255, 255, 0.01)'] : ['rgba(0, 0, 0, 0.02)', 'rgba(0, 0, 0, 0.005)']} style={styles.metricPillGrad} />
-            <Ionicons name="images" size={16} color={accent} style={{ marginBottom: 4, zIndex: 1 }} />
-            <Text style={[styles.metricValue, { color: textPrimary, zIndex: 1 }]}>{postCount}</Text>
-            <Text style={[styles.metricLabel, { color: textSecondary, zIndex: 1 }]}>Post Count</Text>
+            {username ? (
+              <Text style={[styles.handleText, { color: textPassive }]}>
+                @{username}
+              </Text>
+            ) : null}
+            
+            {bio ? (
+              <View style={styles.bioContainer}>
+                <BioDisplay bio={bio} />
+              </View>
+            ) : null}
           </View>
-          
-          <Pressable 
-            style={[styles.metricPill, {
+
+          {/* Phase 2: Pill-styled Metrics */}
+          <View style={styles.metricsContainer}>
+            <View style={[styles.metricPill, {
               borderWidth: 1,
-              borderColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
-              borderTopColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.6)',
-              borderLeftColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.6)',
-            }]} 
-            onPress={onOpenFollowers}
-          >
-            <LinearGradient colors={isDark ? ['rgba(255, 255, 255, 0.04)', 'rgba(255, 255, 255, 0.01)'] : ['rgba(0, 0, 0, 0.02)', 'rgba(0, 0, 0, 0.005)']} style={styles.metricPillGrad} />
-            <Ionicons name="people" size={16} color={accent} style={{ marginBottom: 4, zIndex: 1 }} />
-            <Text style={[styles.metricValue, { color: textPrimary, zIndex: 1 }]}>{followersCount}</Text>
-            <Text style={[styles.metricLabel, { color: textSecondary, zIndex: 1 }]}>Followers</Text>
-          </Pressable>
-          
+              borderColor: borderTint,
+            }]}>
+              <Ionicons name="images" size={16} color="#1C73B4" style={{ marginBottom: 4, zIndex: 1 }} />
+              <Text style={[styles.metricValue, { color: '#1C73B4', zIndex: 1 }]}>{postCount}</Text>
+              <Text style={[styles.metricLabel, { color: '#1C73B4', zIndex: 1 }]}>Post Count</Text>
+            </View>
+            
+            <Pressable 
+              style={[styles.metricPill, {
+                borderWidth: 1,
+                borderColor: borderTint,
+              }]} 
+              onPress={onOpenFollowers}
+            >
+              <Ionicons name="people" size={16} color="#1C73B4" style={{ marginBottom: 4, zIndex: 1 }} />
+              <Text style={[styles.metricValue, { color: '#1C73B4', zIndex: 1 }]}>{followersCount}</Text>
+              <Text style={[styles.metricLabel, { color: '#1C73B4', zIndex: 1 }]}>Followers</Text>
+            </Pressable>
+            
+            <Pressable 
+              style={[styles.metricPill, {
+                borderWidth: 1,
+                borderColor: borderTint,
+              }]} 
+              onPress={onOpenFollowing}
+            >
+              <Ionicons name="person-add" size={16} color="#1C73B4" style={{ marginBottom: 4, zIndex: 1 }} />
+              <Text style={[styles.metricValue, { color: '#1C73B4', zIndex: 1 }]}>{followingCount}</Text>
+              <Text style={[styles.metricLabel, { color: '#1C73B4', zIndex: 1 }]}>Following</Text>
+            </Pressable>
+          </View>
           <Pressable 
-            style={[styles.metricPill, {
+            style={[styles.tripScoreInline, {
               borderWidth: 1,
-              borderColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
-              borderTopColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.6)',
-              borderLeftColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.6)',
+              borderColor: borderTint,
             }]} 
-            onPress={onOpenFollowing}
+            onPress={onOpenTripScore}
           >
-            <LinearGradient colors={isDark ? ['rgba(255, 255, 255, 0.04)', 'rgba(255, 255, 255, 0.01)'] : ['rgba(0, 0, 0, 0.02)', 'rgba(0, 0, 0, 0.005)']} style={styles.metricPillGrad} />
-            <Ionicons name="person-add" size={16} color={accent} style={{ marginBottom: 4, zIndex: 1 }} />
-            <Text style={[styles.metricValue, { color: textPrimary, zIndex: 1 }]}>{followingCount}</Text>
-            <Text style={[styles.metricLabel, { color: textSecondary, zIndex: 1 }]}>Following</Text>
+            <Ionicons name="compass" size={16} color="#1C73B4" style={{ zIndex: 1 }} />
+            <Text style={[styles.tripScoreInlineValue, { color: '#1C73B4', zIndex: 1 }]}>TRIP SCORE {tripScore}</Text>
           </Pressable>
-        </View>
-        <Pressable 
-          style={[styles.tripScoreInline, {
-            borderWidth: 1,
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
-            borderTopColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.6)',
-            borderLeftColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.6)',
-          }]} 
-          onPress={onOpenTripScore}
-        >
-          <LinearGradient colors={isDark ? ['rgba(255, 255, 255, 0.04)', 'rgba(255, 255, 255, 0.01)'] : ['rgba(0, 0, 0, 0.02)', 'rgba(0, 0, 0, 0.005)']} style={StyleSheet.absoluteFillObject} />
-          <Ionicons name="compass" size={16} color={accent} style={{ zIndex: 1 }} />
-          <Text style={[styles.tripScoreInlineLabel, { color: textSecondary, zIndex: 1 }]}>Trip Score</Text>
-          <Text style={[styles.tripScoreInlineValue, { color: textPrimary, zIndex: 1 }]}>{tripScore}</Text>
-        </Pressable>
-      </CloudGlassSurface>
+      </PremiumGlassCard>
 
       <View style={styles.globeWrapper}>
         <View style={styles.globeContainer}>
@@ -237,18 +204,18 @@ export default function ProfilePremiumView({
         <Pressable
           style={({ pressed }) => [
             styles.connectButtonPill,
-            { backgroundColor: accent, opacity: pressed ? 0.9 : 1 }
+            { backgroundColor: 'transparent', opacity: pressed ? 0.9 : 1 }
           ]}
           onPress={onOpenConnect}
         >
           <LinearGradient
-            colors={['rgba(255,255,255,0.2)', 'transparent']}
+            colors={['#1C73B4', '#50C878']}
             style={StyleSheet.absoluteFillObject}
             start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 1 }}
+            end={{ x: 1, y: 0 }}
           />
-          <Ionicons name="people" size={18} color={isDark ? '#121212' : '#FFFFFF'} style={{ marginRight: 6 }} />
-          <Text style={[styles.connectButtonText, { color: isDark ? '#121212' : '#FFFFFF' }]}>Connect</Text>
+          <Ionicons name="people" size={18} color="#FFFFFF" style={{ marginRight: 6, zIndex: 1 }} />
+          <Text style={[styles.connectButtonText, { color: '#FFFFFF', zIndex: 1 }]}>Connect</Text>
         </Pressable>
       </View>
 
@@ -268,8 +235,8 @@ export default function ProfilePremiumView({
                     {uri ? (
                       <Image source={{ uri }} style={styles.highlightImg as ImageStyle} />
                     ) : (
-                      <View style={[styles.highlightImg, { backgroundColor: '#1a2b3c', alignItems: 'center', justifyContent: 'center' }]}>
-                        <Ionicons name="image-outline" size={32} color={textSecondary} />
+                      <View style={[styles.highlightImg, { backgroundColor: '#000000', alignItems: 'center', justifyContent: 'center' }]}>
+                        <Ionicons name="image-outline" size={32} color={textPassive} />
                       </View>
                     )}
                     <LinearGradient colors={['transparent', 'rgba(0,0,0,0.75)']} style={styles.highlightGrad} />
@@ -280,8 +247,6 @@ export default function ProfilePremiumView({
           </ScrollView>
         </View>
       ) : null}
-
-
     </View>
   );
 }
@@ -311,7 +276,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    backgroundColor: 'rgba(28, 115, 180, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
     zIndex: 10,
@@ -351,13 +316,9 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(28, 115, 180, 0.15)',
     overflow: 'hidden',
-  },
-  metricPillGrad: {
-    ...StyleSheet.absoluteFillObject,
-    opacity: 0.8,
   },
   metricValue: {
     fontSize: 16,
@@ -377,8 +338,8 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 18,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(28, 115, 180, 0.15)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -408,25 +369,6 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: AVATAR / 2,
   },
-  sectionCard: {
-    marginHorizontal: 0,
-    marginBottom: 12,
-    borderRadius: 0,
-    borderWidth: 0,
-  },
-  sectionHead: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  journeyInner: {
-    padding: 14,
-  },
   globeWrapper: {
     position: 'relative',
     width: '100%',
@@ -434,16 +376,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginVertical: 4,
-  },
-  globeGlow: {
-    position: 'absolute',
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    top: '50%',
-    left: '50%',
-    transform: [{ translateX: -100 }, { translateY: -100 }],
-    filter: 'blur(30px)', // using generic CSS blur (note: React Native may ignore this or require a different approach depending on platform, but we'll try it and provide a fallback color with opacity).
   },
   globeContainer: {
     width: 160,
@@ -466,7 +398,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   connectButtonText: {
-    color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.3,
@@ -491,8 +422,8 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: 'hidden',
     borderRadius: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(28, 115, 180, 0.15)',
   },
   highlightImg: {
     width: '100%',
@@ -500,39 +431,5 @@ const styles = StyleSheet.create({
   },
   highlightGrad: {
     ...StyleSheet.absoluteFillObject,
-  },
-  timelineInner: {
-    padding: 14,
-  },
-  timelineRow: {
-    flexDirection: 'row',
-    marginBottom: 14,
-  },
-  timelineRail: {
-    width: 24,
-    alignItems: 'center',
-  },
-  timelineDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  timelineLine: {
-    width: 2,
-    flex: 1,
-    marginTop: 4,
-    minHeight: 24,
-  },
-  timelineBody: {
-    flex: 1,
-    paddingLeft: 8,
-  },
-  timelinePlace: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  timelineDate: {
-    fontSize: 11,
-    marginTop: 2,
   },
 });

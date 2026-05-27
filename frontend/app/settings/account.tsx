@@ -640,7 +640,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: isTablet ? theme.spacing.md : 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.1)',
+    borderBottomColor: 'rgba(28, 115, 180, 0.15)',
   },
   settingContent: {
     flexDirection: 'row',

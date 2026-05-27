@@ -51,12 +51,12 @@ export default function PostHeader({ post, onMenuPress, onReportPress, showRepor
         {showPlaceholder ? (
           <Image
             source={DEFAULT_AVATAR}
-            style={styles.profilePic}
+            style={[styles.profilePic, { borderColor: theme.colors.border }]}
           />
         ) : (
           <Image
             source={{ uri: cachedProfilePic }}
-            style={styles.profilePic}
+            style={[styles.profilePic, { borderColor: theme.colors.border }]}
             onLoad={() => imageCacheManager.cacheAfterDisplay(profileUrl)}
             onError={() => setImageFailed(true)}
           />
@@ -73,8 +73,8 @@ export default function PostHeader({ post, onMenuPress, onReportPress, showRepor
             const songArtist = song.artist || 'Unknown Artist';
             return (
               <View style={styles.inlineSong}>
-                <Ionicons name="musical-notes" size={12} color={theme.colors.textSecondary} />
-                <Text style={[styles.inlineSongText, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                <Ionicons name="musical-notes" size={12} color={theme.colors.textPassive} />
+                <Text style={[styles.inlineSongText, { color: theme.colors.textPassive }]} numberOfLines={1}>
                   {songTitle} · {songArtist}
                 </Text>
               </View>
@@ -116,7 +116,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     marginRight: 12,
     borderWidth: 1,
-    borderColor: '#e1e5e9',
   },
   profilePicPlaceholder: {
     justifyContent: 'center',

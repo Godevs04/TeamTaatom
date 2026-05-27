@@ -22,7 +22,7 @@ export default function BioDisplay({ bio, maxLines = 2 }: BioDisplayProps) {
     // Show full bio if it's within the limit
     return (
       <View style={styles.container}>
-        <Text style={[styles.bioText, { color: theme.colors.text }]}>
+        <Text style={[styles.bioText, { color: theme.colors.textSecondary }]}>
           {bio}
         </Text>
       </View>
@@ -35,7 +35,7 @@ export default function BioDisplay({ bio, maxLines = 2 }: BioDisplayProps) {
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.bioText, { color: theme.colors.text }]}>
+      <Text style={[styles.bioText, { color: theme.colors.textSecondary }]}>
         {showFullBio ? bio : truncatedBio}
       </Text>
       
@@ -44,7 +44,7 @@ export default function BioDisplay({ bio, maxLines = 2 }: BioDisplayProps) {
           onPress={() => setShowFullBio(!showFullBio)}
           style={styles.moreButton}
         >
-          <Text style={[styles.moreText, { color: theme.colors.primary }]}>
+          <Text style={[styles.moreText, { color: theme.colors.textSecondary }]}>
             {showFullBio ? 'Show less' : `Show more (${remainingLines.length} more line${remainingLines.length > 1 ? 's' : ''})`}
           </Text>
         </TouchableOpacity>

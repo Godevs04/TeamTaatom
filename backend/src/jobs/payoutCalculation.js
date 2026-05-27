@@ -152,7 +152,9 @@ const calculateMonthlyPayouts = async () => {
         ...breakdown,
         isInternational,
         subscriberCount: sub.subscriberCount,
-        payoutMethod: isInternational ? 'wise' : (page?.creatorPayoutInfo?.upiId ? 'cashfree_upi' : 'cashfree_bank'),
+        payoutMethod: isInternational
+          ? (page?.creatorPayoutInfo?.payoutMethod === 'international_bank' ? 'wise_bank' : 'wise')
+          : (page?.creatorPayoutInfo?.upiId ? 'cashfree_upi' : 'cashfree_bank'),
         currency: page?.subscriptionCurrency || (isInternational ? (page?.creatorPayoutInfo?.wiseCurrency || 'USD') : 'INR'),
         status: 'calculated',
       });

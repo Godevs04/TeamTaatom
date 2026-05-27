@@ -173,7 +173,9 @@ function PayoutCard({ payout, themeColors }: { payout: MyPayout; themeColors: an
   const periodLabel = `${MONTH_NAMES[payout.periodMonth] || payout.periodMonth} ${payout.periodYear}`;
   const isIntl = payout.isInternational;
   const methodLabel = isIntl
-    ? 'Wise (international)'
+    ? payout.payoutMethod === 'wise_bank'
+      ? 'International bank'
+      : 'Wise email'
     : payout.payoutMethod === 'cashfree_upi'
     ? 'UPI'
     : 'Bank transfer';

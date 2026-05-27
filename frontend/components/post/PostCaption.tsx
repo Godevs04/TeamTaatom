@@ -88,7 +88,7 @@ export default function PostCaption({ post }: PostCaptionProps) {
           <View style={[styles.hintIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
             <Ionicons name="swap-horizontal" size={12} color={theme.colors.primary} />
           </View>
-          <Text style={[styles.hintText, { color: theme.colors.textSecondary }]}>
+          <Text style={[styles.hintText, { color: theme.colors.textPassive }]}>
             Swipe to see {post.images.length} photos
           </Text>
         </View>

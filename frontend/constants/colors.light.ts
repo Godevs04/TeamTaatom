@@ -4,68 +4,73 @@ export const lightColors = {
   ...darkColors,
 
   // Core brand (restore light-mode values)
-  primary: '#121212',
-  lightBlue: '#F5F7FA',
-  secondary: '#667085',
-  accent: '#121212',
-  coral: '#FF8F70',
-  sun: '#FFD166',
-  softGray: '#F5F7FA',
+  primary: '#000000',
+  lightBlue: '#FFFFFF',
+  secondary: '#1C73B4',
+  accent: '#1C73B4', // Ocean Blue
+  coral: '#1C73B4',
+  sun: '#50C878', // Emerald Green
+  softGray: '#FFFFFF',
   white: '#FFFFFF',
+  pinActive: '#1C73B4',
+  pinInactive: '#1C73B4',
+  mapPolyline: '#1C73B4',
+  link: '#1C73B4', // Ocean Blue (Light)
 
   // Surfaces
-  background: '#F5F7FA',
+  background: '#FFFFFF',
   surface: '#FFFFFF',
-  surfaceSecondary: 'rgba(255, 255, 255, 0.55)',
-  surfaceTertiary: 'rgba(255, 255, 255, 0.72)',
-  glassBorderHighlight: 'rgba(255, 255, 255, 0.90)',
-  glassBorderShadow: 'rgba(0, 0, 0, 0.04)',
+  surfaceSecondary: 'rgba(255, 255, 255, 0.85)',
+  surfaceTertiary: 'rgba(255, 255, 255, 0.90)',
+  glassBorderHighlight: 'rgba(28, 115, 180, 0.15)',
+  glassBorderShadow: 'rgba(28, 115, 180, 0.05)',
 
   // Content
-  text: '#121212',
-  textSecondary: '#667085',
-  textMuted: '#667085',
+  text: '#000000',
+  textSecondary: '#1C73B4',
+  textMuted: '#1C73B4',
+  textPassive: '#1C73B4',
+  iconPassive: '#1C73B4',
 
   // Lines / hairlines
-  border: 'rgba(0, 0, 0, 0.04)',
-  hairline: 'rgba(0, 0, 0, 0.02)',
+  border: 'rgba(28, 115, 180, 0.15)',
+  hairline: 'rgba(28, 115, 180, 0.15)',
+  borderTint: 'rgba(28, 115, 180, 0.15)',
 
   // Card tint
-  card: 'rgba(255, 255, 255, 0.55)',
-  shadow: 'rgba(0, 0, 0, 0.04)',
-  overlay: 'rgba(0, 0, 0, 0.40)',
+  card: 'rgba(255, 255, 255, 0.85)',
+  shadow: 'rgba(0, 0, 0, 0.15)',
+  overlay: 'rgba(0, 0, 0, 0.35)',
   
   // Glass tokens
   glass: {
-    background: 'rgba(255, 255, 255, 0.55)',
-    border: 'rgba(255, 255, 255, 0.90)',
-    highlight: 'rgba(255, 255, 255, 0.90)',
+    background: 'rgba(255, 255, 255, 0.85)',
+    border: 'rgba(28, 115, 180, 0.15)',
+    highlight: 'rgba(28, 115, 180, 0.15)',
   },
-  glassBackground: 'rgba(255, 255, 255, 0.55)',
-  frostTint: 'rgba(255, 255, 255, 0.55)',
-  frostTintMedium: 'rgba(255, 255, 255, 0.55)',
-  frostTintStrong: 'rgba(255, 255, 255, 0.72)',
-  /** Day theme: subtle vertical depth (aligned with dark theme’s graded sky) */
-  appBackgroundGradient: ['#F5F7FA', '#F5F7FA'],
-  screenGradient: ['#F5F7FA', '#F5F7FA'],
-  glassSurface: 'rgba(255, 255, 255, 0.55)',
-  glassStrong: 'rgba(255, 255, 255, 0.72)',
-  glassBorder: 'rgba(255, 255, 255, 0.90)',
-  glowBlue: 'rgba(255, 255, 255, 0.55)',
-  innerHighlight: 'rgba(255, 255, 255, 0.94)',
-  softShadow: 'rgba(0, 0, 0, 0.04)',
+  glassBackground: 'rgba(255, 255, 255, 0.85)',
+  frostTint: 'rgba(255, 255, 255, 0.85)',
+  frostTintMedium: 'rgba(255, 255, 255, 0.85)',
+  frostTintStrong: 'rgba(255, 255, 255, 0.90)',
+  appBackgroundGradient: ['#FFFFFF', '#FFFFFF'],
+  screenGradient: ['#FFFFFF', '#FFFFFF'],
+  glassSurface: 'rgba(255, 255, 255, 0.85)',
+  glassStrong: 'rgba(255, 255, 255, 0.90)',
+  glassBorder: 'rgba(28, 115, 180, 0.15)',
+  glowBlue: 'rgba(28, 115, 180, 0.15)',
+  innerHighlight: 'rgba(28, 115, 180, 0.15)',
+  softShadow: 'rgba(0, 0, 0, 0.15)',
   /** Solid tab bar (not translucent) */
-  floatingDock: 'rgba(255, 255, 255, 0.60)',
-  cloudSurface: '#F5F7FA',
-  skyPale: '#F5F7FA',
-  blueDeep: '#121212',
-  blueMid: '#667085',
+  floatingDock: 'rgba(255, 255, 255, 0.85)',
+  cloudSurface: '#FFFFFF',
+  skyPale: '#FFFFFF',
+  blueDeep: '#000000',
+  blueMid: '#1C73B4',
 
   gradient: {
-    primary: ['#F5F7FA', '#F5F7FA'],
-    secondary: ['#121212', '#667085'],
-    dark: ['#F5F7FA', '#F5F7FA'],
-    button: ['#121212', '#667085']
+    primary: ['#FFFFFF', '#FFFFFF'],
+    secondary: ['#1C73B4', '#50C878'],
+    dark: ['#FFFFFF', '#FFFFFF'],
+    button: ['#1C73B4', '#50C878']
   }
 };
-

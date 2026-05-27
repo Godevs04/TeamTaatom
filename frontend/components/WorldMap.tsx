@@ -286,7 +286,7 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
               iconCreateFunction: function(cluster) {
                 const childCount = cluster.getChildCount();
                 return L.divIcon({
-                  html: '<div style="background: rgba(59, 130, 246, 0.6); backdrop-filter: blur(8px); border: 2px solid white; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px; box-shadow: 0 4px 6px rgba(0,0,0,0.15);">' + childCount + '</div>',
+                  html: '<div style="background: rgba(80, 200, 120, 0.6); backdrop-filter: blur(8px); border: 2px solid white; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px; box-shadow: 0 4px 6px rgba(0,0,0,0.15);">' + childCount + '</div>',
                   className: 'custom-marker-cluster',
                   iconSize: [40, 40],
                   iconAnchor: [20, 20]

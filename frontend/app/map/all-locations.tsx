@@ -2405,7 +2405,7 @@ const markerStyles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#3B82F6',
+    backgroundColor: '#50C878',
     borderWidth: 2,
     borderColor: '#ffffff',
     justifyContent: 'center',

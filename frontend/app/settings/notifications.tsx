@@ -353,8 +353,8 @@ export default function NotificationsSettingsScreen() {
               value={allNotificationsEnabled || false}
               onValueChange={toggleAllNotifications}
               disabled={updatingKeys.has('allNotifications')}
-              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
-              thumbColor={allNotificationsEnabled ? theme.colors.primary : theme.colors.textSecondary}
+              trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
+              thumbColor="#FFFFFF"
             />
           </View>
         </View>
@@ -381,8 +381,8 @@ export default function NotificationsSettingsScreen() {
               value={settings?.notifications?.pushNotifications || false}
               onValueChange={(value) => handleUpdateSetting('pushNotifications', value)}
               disabled={updatingKeys.has('pushNotifications')}
-              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
-              thumbColor={settings?.notifications?.pushNotifications ? theme.colors.primary : theme.colors.textSecondary}
+              trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
+              thumbColor="#FFFFFF"
             />
           </View>
 
@@ -402,8 +402,8 @@ export default function NotificationsSettingsScreen() {
               value={settings?.notifications?.emailNotifications || false}
               onValueChange={(value) => handleUpdateSetting('emailNotifications', value)}
               disabled={updatingKeys.has('emailNotifications')}
-              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
-              thumbColor={settings?.notifications?.emailNotifications ? theme.colors.primary : theme.colors.textSecondary}
+              trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
+              thumbColor="#FFFFFF"
             />
           </View>
         </View>
@@ -430,8 +430,8 @@ export default function NotificationsSettingsScreen() {
               value={settings?.notifications?.likesNotifications || false}
               onValueChange={(value) => handleUpdateSetting('likesNotifications', value)}
               disabled={updatingKeys.has('likesNotifications')}
-              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
-              thumbColor={settings?.notifications?.likesNotifications ? theme.colors.primary : theme.colors.textSecondary}
+              trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
+              thumbColor="#FFFFFF"
             />
           </View>
 
@@ -451,8 +451,8 @@ export default function NotificationsSettingsScreen() {
               value={settings?.notifications?.commentsNotifications || false}
               onValueChange={(value) => handleUpdateSetting('commentsNotifications', value)}
               disabled={updatingKeys.has('commentsNotifications')}
-              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
-              thumbColor={settings?.notifications?.commentsNotifications ? theme.colors.primary : theme.colors.textSecondary}
+              trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
+              thumbColor="#FFFFFF"
             />
           </View>
 
@@ -472,8 +472,8 @@ export default function NotificationsSettingsScreen() {
               value={settings?.notifications?.followsNotifications || false}
               onValueChange={(value) => handleUpdateSetting('followsNotifications', value)}
               disabled={updatingKeys.has('followsNotifications')}
-              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
-              thumbColor={settings?.notifications?.followsNotifications ? theme.colors.primary : theme.colors.textSecondary}
+              trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
+              thumbColor="#FFFFFF"
             />
           </View>
 
@@ -493,8 +493,8 @@ export default function NotificationsSettingsScreen() {
               value={settings?.notifications?.messagesNotifications || false}
               onValueChange={(value) => handleUpdateSetting('messagesNotifications', value)}
               disabled={updatingKeys.has('messagesNotifications')}
-              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
-              thumbColor={settings?.notifications?.messagesNotifications ? theme.colors.primary : theme.colors.textSecondary}
+              trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
+              thumbColor="#FFFFFF"
             />
           </View>
         </View>
@@ -529,8 +529,8 @@ export default function NotificationsSettingsScreen() {
                   handleUpdateSetting('quietHours', { ...quietHoursConfig, enabled: false });
                 }
               }}
-              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
-              thumbColor={quietHoursConfig.enabled ? theme.colors.primary : theme.colors.textSecondary}
+              trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
+              thumbColor="#FFFFFF"
             />
           </View>
 
@@ -795,7 +795,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: isTablet ? theme.spacing.md : 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.1)',
+    borderBottomColor: 'rgba(28, 115, 180, 0.15)',
   },
   settingContent: {
     flexDirection: 'row',
@@ -891,7 +891,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.1)',
+    borderBottomColor: 'rgba(28, 115, 180, 0.15)',
   },
   modalTitle: {
     fontSize: isTablet ? theme.typography.h3.fontSize : 20,
@@ -961,7 +961,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     padding: isTablet ? theme.spacing.xl : theme.spacing.lg,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.1)',
+    borderTopColor: 'rgba(28, 115, 180, 0.15)',
     gap: 12,
   },
   modalButton: {

@@ -2,9 +2,6 @@ import React from 'react';
 import { StyleProp, StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
-import { cloudDesign } from '../../constants/cloudDesign';
 
 export interface PremiumSegmentTab<T extends string> {
   key: T;
@@ -36,51 +33,49 @@ export default function PremiumSegmentedTabs<T extends string>({
       style={[
         styles.container,
         {
-          backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.45)',
-          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0, 0, 0, 0.08)',
+          backgroundColor: 'transparent',
+          borderBottomWidth: 1.5,
+          borderBottomColor: theme.colors.border,
         },
-        cloudDesign.shadowCard,
         style,
       ]}
     >
-      <BlurView intensity={isDark ? 40 : 24} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
       <View style={styles.content}>
         {tabs.map((tab) => {
           const active = value === tab.key;
+          const iconColor = active 
+            ? (isDark ? '#FFFFFF' : '#000000') 
+            : theme.colors.textPassive;
+          const textColor = active 
+            ? (isDark ? '#FFFFFF' : '#000000') 
+            : theme.colors.textPassive;
+
           return (
             <TouchableOpacity
               key={tab.key}
-              style={[styles.tab, active && (isDark ? styles.tabActiveDark : styles.tabActiveLight)]}
+              style={styles.tab}
               activeOpacity={0.75}
               onPress={() => onChange(tab.key)}
             >
-              {active && !isDark ? (
-                <LinearGradient
-                  colors={theme.colors.gradient.button as [string, string]}
-                  style={StyleSheet.absoluteFillObject}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                />
-              ) : null}
-              {active && isDark ? (
-                <View style={[StyleSheet.absoluteFillObject, styles.tabActiveDarkFill]} />
-              ) : null}
               {tab.icon ? (
                 <Ionicons
                   name={tab.icon}
                   size={15}
-                  color={active ? '#FFFFFF' : theme.colors.textSecondary}
+                  color={iconColor}
                 />
               ) : null}
               <Text
                 style={[
                   styles.label,
-                  { color: active ? '#FFFFFF' : theme.colors.textSecondary },
+                  { color: textColor },
                 ]}
                 numberOfLines={1}
               >
                 {tab.label}
               </Text>
+              {active ? (
+                <View style={styles.underline} />
+              ) : null}
             </TouchableOpacity>
           );
         })}
@@ -91,33 +86,34 @@ export default function PremiumSegmentedTabs<T extends string>({
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 24,
     overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
   },
   content: {
     flexDirection: 'row',
-    padding: 4,
+    paddingBottom: 0,
     gap: 4,
     zIndex: 1,
   },
   tab: {
     flex: 1,
-    minHeight: 42,
-    borderRadius: 20,
+    paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 6,
-    overflow: 'hidden',
-  },
-  tabActiveLight: {},
-  tabActiveDark: {},
-  tabActiveDarkFill: {
-    backgroundColor: '#000000',
+    position: 'relative',
   },
   label: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  underline: {
+    position: 'absolute',
+    bottom: 0,
+    left: 8,
+    right: 8,
+    height: 3,
+    backgroundColor: '#50C878', // Emerald Green 3px solid underline
+    borderRadius: 1.5,
   },
 });

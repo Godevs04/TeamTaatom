@@ -94,6 +94,22 @@ export interface ConnectPageType {
   // /connect-pages so the client can hide the Follow button without an
   // extra getMyPages round-trip.
   isOwn?: boolean;
+  creatorPayoutInfo?: {
+    country: string;
+    isInternational: boolean;
+    bankAccountNumber?: string;
+    bankIfsc?: string;
+    bankAccountName?: string;
+    upiId?: string;
+    wiseEmail?: string;
+    wiseCurrency?: string;
+    payoutMethod?: 'wise_email' | 'international_bank';
+    bankName?: string;
+    bankCountry?: string;
+    swiftCode?: string;
+    iban?: string;
+    routingNumber?: string;
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -653,7 +669,7 @@ export interface MyPayout {
   subscriberCount: number;
   // State
   status: PayoutStatus;
-  payoutMethod: 'cashfree_bank' | 'cashfree_upi' | 'wise';
+  payoutMethod: 'cashfree_bank' | 'cashfree_upi' | 'wise' | 'wise_bank';
   payoutReference: string;
   processedAt: string | null;
   failureReason: string;

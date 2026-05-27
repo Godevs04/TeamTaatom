@@ -13,7 +13,7 @@ interface CloudTripScoreHeroProps {
 export default function CloudTripScoreHero({ score, subtitle, onPress }: CloudTripScoreHeroProps) {
   const content = (
     <LinearGradient
-      colors={cloudDesign.buttonGradient}
+      colors={['#1C73B4', '#50C878']}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
       style={[styles.card, cloudDesign.shadowFloat]}

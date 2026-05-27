@@ -125,13 +125,19 @@ export default function FollowersFollowingList() {
     // Store previous state for rollback on error
     const previousState = users.find(u => u._id === targetId);
     const previousFollowing = previousState?.isFollowing ?? false;
+    const previousFollowRequestSent = previousState?.followRequestSent ?? false;
     
     // Optimistic update
-    setUsers(prev => prev.map(u =>
-      u._id === targetId
-        ? { ...u, isFollowing: !u.isFollowing, followRequestSent: false }
-        : u
-    ));
+    setUsers(prev => prev.map(u => {
+      if (u._id === targetId) {
+        if (previousFollowing || previousFollowRequestSent) {
+          return { ...u, isFollowing: false, followRequestSent: false };
+        } else {
+          return { ...u, isFollowing: true, followRequestSent: false };
+        }
+      }
+      return u;
+    }));
 
     try {
       // Call API and use the response
@@ -168,7 +174,7 @@ export default function FollowersFollowingList() {
       // Revert optimistic update on error
       setUsers(prev => prev.map(u => 
         u._id === targetId 
-          ? { ...u, isFollowing: previousFollowing } 
+          ? { ...u, isFollowing: previousFollowing, followRequestSent: previousFollowRequestSent } 
           : u
       ));
       
@@ -256,7 +262,7 @@ export default function FollowersFollowingList() {
                   isLoading && styles(theme).followButtonLoading
                 ]}
                 onPress={() => handleToggleFollow(item._id)}
-                disabled={isLoading || isRequested}
+                disabled={isLoading}
                 activeOpacity={0.8}
               >
                 {isLoading ? (
