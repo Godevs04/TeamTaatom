@@ -47,7 +47,7 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 export default function JourneyDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const mapStyle = useMapStyle();
   const journeyId = typeof params.journeyId === 'string' ? params.journeyId : '';
 
@@ -307,9 +307,12 @@ export default function JourneyDetailScreen() {
             const center = journey.polyline[Math.floor(journey.polyline.length / 2)];
             const polyCoords = JSON.stringify(journey.polyline.map((p: any) => ({ lat: p.lat, lng: p.lng })));
             const wps = (journey.waypoints || []).filter((w: any) => w.lat && w.lng);
-            const wpMarkers = wps.map((w: any, i: number) =>
-              `new google.maps.Marker({position:{lat:${w.lat},lng:${w.lng}},map:map,title:'Post #${i+1}',icon:{url:'data:image/svg+xml;utf-8,<svg width="28" height="28" xmlns="http://www.w3.org/2000/svg"><circle cx="14" cy="14" r="11" fill="white" stroke="%23EF4444" stroke-width="2.5"/><text x="14" y="18" text-anchor="middle" font-size="12" font-weight="bold" fill="%23EF4444">${i+1}</text></svg>',scaledSize:new google.maps.Size(28,28),anchor:new google.maps.Point(14,14)}});`
-            ).join('\n');
+            const wpMarkers = wps.map((w: any, i: number) => {
+              const wpIcon = w.contentType === 'video' 
+                ? '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="' + (isDark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.85)') + '" stroke="' + (isDark ? 'rgba(45,212,191,0.6)' : 'rgba(59,130,246,0.6)') + '" stroke-width="1.5"/><path d="M16 9.5l-3 2v-3.5a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.5v5a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5v-1.5l3 2a.3.3 0 0 0 .5-.2v-5.6a.3.3 0 0 0-.5-.2z" fill="' + (isDark ? '#2DD4BF' : '#3B82F6') + '"/></svg>'
+                : '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="' + (isDark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.85)') + '" stroke="' + (isDark ? 'rgba(45,212,191,0.6)' : 'rgba(59,130,246,0.6)') + '" stroke-width="1.5"/><circle cx="12" cy="12" r="3" fill="' + (isDark ? '#2DD4BF' : '#3B82F6') + '"/></svg>';
+              return `new google.maps.Marker({position:{lat:${w.lat},lng:${w.lng}},map:map,title:'Post #${i+1}',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('${wpIcon}'),scaledSize:new google.maps.Size(24,24),anchor:new google.maps.Point(12,12)}});`;
+            }).join('\n');
             const html = `<!DOCTYPE html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <style>html,body,#map{height:100%;margin:0;padding:0}</style>
@@ -319,8 +322,8 @@ function initMap(){
   var path=${polyCoords};
   new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});
   new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});
-  if(path.length>0)new google.maps.Marker({position:path[0],map:map,title:'Start',icon:{url:'data:image/svg+xml;utf-8,<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="${encodeURIComponent(GROWTH_GREEN)}" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="white">S</text></svg>',scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
-  if(path.length>1)new google.maps.Marker({position:path[path.length-1],map:map,title:'End',icon:{url:'data:image/svg+xml;utf-8,<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="${encodeURIComponent(ALERT_RED)}" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="white">E</text></svg>',scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
+  if(path.length>0)new google.maps.Marker({position:path[0],map:map,title:'Start',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#10B981" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="13" font-weight="800" font-family="Arial" fill="white">S</text></svg>'),scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
+  if(path.length>1)new google.maps.Marker({position:path[path.length-1],map:map,title:'End',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#EF4444" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="13" font-weight="800" font-family="Arial" fill="white">E</text></svg>'),scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
   ${wpMarkers}
   var bounds=new google.maps.LatLngBounds();path.forEach(function(p){bounds.extend(p);});map.fitBounds(bounds,40);
 }

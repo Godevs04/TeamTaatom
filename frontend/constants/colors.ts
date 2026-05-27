@@ -78,9 +78,9 @@ export const colors = {
   blueMid: '#38BDF8',
 
   gradient: {
-    primary: ['#000000', '#000000'],
-    secondary: ['#1C73B4', '#50C878'],
-    dark: ['#000000', '#000000'],
-    button: ['#1C73B4', '#50C878']
+    primary: ['#000000', '#000000'] as [string, string],
+    secondary: ['#1C73B4', '#50C878'] as [string, string],
+    dark: ['#000000', '#000000'] as [string, string],
+    button: ['#1C73B4', '#50C878'] as [string, string]
   }
 };

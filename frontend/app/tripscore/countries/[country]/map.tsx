@@ -21,6 +21,7 @@ import { MapView, Marker, getMapProvider } from '../../../../utils/mapsWrapper';
 import logger from '../../../../utils/logger';
 import PremiumMapMarker from '../../../../components/PremiumMapMarker';
 import GlassMapPanel from '../../../../components/GlassMapPanel';
+import { useMapStyle } from '../../../../hooks/useMapStyle';
 
 const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
 
@@ -81,7 +82,8 @@ export default function CountryMapScreen() {
       });
     }
   }, [selectedLocation]);
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
+  const mapStyle = useMapStyle();
   const router = useRouter();
   const { country, userId } = useLocalSearchParams();
   const mapRef = useRef<any>(null);
@@ -397,9 +399,6 @@ export default function CountryMapScreen() {
     const center = getCountryCenter(countryDisplayName || '');
     const delta = getCountryDelta(countryDisplayName || '');
     
-    const activePinSvg = 'data:image/svg+xml;utf-8,<svg xmlns="http://www.w3.org/2000/svg" width="42" height="50" viewBox="0 0 24 28"><filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="1.5" flood-opacity="0.3"/></filter><path d="M12 0C5.4 0 0 5.4 0 12c0 9 12 16 12 16s12-7 12-16C24 5.4 18.6 0 12 0z" fill="%23FF3B30" stroke="white" stroke-width="1.8" filter="url(%23shadow)"/><circle cx="12" cy="12" r="4" fill="white"/></svg>';
-    const inactiveDotSvg = 'data:image/svg+xml;utf-8,<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5" fill="%234A5568" stroke="white" stroke-width="1.5"/></svg>';
-
     const markers = locations.map((loc, i) => {
       const lat = loc.coordinates?.latitude || center.latitude;
       const lng = loc.coordinates?.longitude || center.longitude;
@@ -409,27 +408,39 @@ export default function CountryMapScreen() {
         selectedLocation.coordinates?.longitude === loc.coordinates?.longitude
       );
 
-      const pinUrl = isSelected ? activePinSvg : inactiveDotSvg;
-      const sizeX = isSelected ? 42 : 16;
-      const sizeY = isSelected ? 50 : 16;
-      const anchorX = isSelected ? 21 : 8;
-      const anchorY = isSelected ? 50 : 8;
-      const zIndex = isSelected ? 99999 : i;
+      const photoUrl = loc.imageUrl || '';
+      const escName = loc.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+      const subtitleText = (loc.category?.typeOfSpot || 'Visited spot').replace(/'/g, "\\'").replace(/"/g, '&quot;');
 
       return `
-        new google.maps.Marker({
-          position: { lat: ${lat}, lng: ${lng} },
-          map: map,
-          icon: {
-            url: '${pinUrl}',
-            scaledSize: new google.maps.Size(${sizeX}, ${sizeY}),
-            anchor: new google.maps.Point(${anchorX}, ${anchorY}),
-          },
-          zIndex: ${zIndex},
-          title: '${loc.name.replace(/'/g, "\\'")}',
-        }).addListener('click', function() {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'marker', index: ${i} }));
+        var pos = new google.maps.LatLng(${lat}, ${lng});
+        var div = document.createElement('div');
+        div.style.cssText = 'position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+        
+        var isSel = ${!!isSelected};
+        if (isSel) {
+          var imgHtml = "${photoUrl}" ? '<img class="marker-thumb" src="${photoUrl}" onerror="this.style.display=\'none\'" />' : '<div class="marker-thumb-placeholder">📍</div>';
+          div.innerHTML = '<div class="glass-marker-card">' +
+            imgHtml +
+            '<div class="marker-info">' +
+              '<div class="marker-title">${escName}</div>' +
+              '<div class="marker-subtitle">${subtitleText}</div>' +
+            '</div>' +
+          '</div>';
+          div.style.zIndex = 99999;
+        } else {
+          div.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
+          div.style.zIndex = ${i};
+        }
+        
+        div.addEventListener('click', function(e) {
+          e.stopPropagation();
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'marker', index: ${i} }));
+          }
         });
+        
+        new PhotoOverlay(pos, div);
       `;
     }).join('');
 
@@ -444,6 +455,90 @@ export default function CountryMapScreen() {
             margin: 0; 
             padding: 0; 
           }
+          .glowing-dot-container {
+            position: relative;
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .pulse-ring {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: radial-gradient(circle, ${isDark ? 'rgba(45, 212, 191, 0.4)' : 'rgba(59, 130, 246, 0.4)'} 0%, rgba(59, 130, 246, 0) 70%);
+            animation: pulse 1.8s infinite ease-out;
+          }
+          .core-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #2DD4BF 0%, #3B82F6 100%);
+            border: 1.5px solid #FFFFFF;
+            box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+          }
+          @keyframes pulse {
+            0% { transform: scale(0.6); opacity: 1; }
+            100% { transform: scale(2.2); opacity: 0; }
+          }
+          
+          .glass-marker-card {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            border-radius: 20px;
+            background: ${isDark ? 'rgba(15, 23, 42, 0.75)' : 'rgba(255, 255, 255, 0.75)'};
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.08)'};
+            box-shadow: 0 8px 32px 0 ${isDark ? 'rgba(0, 0, 0, 0.37)' : 'rgba(31, 38, 135, 0.15)'};
+            max-width: 180px;
+            animation: floatCard 0.3s ease-out;
+          }
+          .marker-thumb {
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 1.5px solid ${isDark ? '#2DD4BF' : '#3B82F6'};
+          }
+          .marker-thumb-placeholder {
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            background: ${isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)'};
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+          }
+          .marker-info {
+            display: flex;
+            flex-direction: column;
+            min-width: 60px;
+            overflow: hidden;
+          }
+          .marker-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: ${isDark ? '#F8FAFC' : '#0F172A'};
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+          }
+          .marker-subtitle {
+            font-size: 9px;
+            font-weight: 500;
+            color: ${isDark ? '#94A3B8' : '#64748B'};
+            margin-top: 1px;
+          }
+          @keyframes floatCard {
+            0% { transform: translateY(6px); opacity: 0; }
+            100% { transform: translateY(0); opacity: 1; }
+          }
         </style>
         <script>
           function initMap() {
@@ -451,9 +546,39 @@ export default function CountryMapScreen() {
               center: { lat: ${center.latitude}, lng: ${center.longitude} },
               zoom: ${Math.max(4, Math.min(10, Math.log2(360 / delta.latitudeDelta)))},
               minZoom: 3,
-              mapTypeId: 'terrain',
+              mapTypeId: 'roadmap',
+              styles: ${JSON.stringify(mapStyle.customMapStyle)},
+              disableDefaultUI: true,
+              zoomControl: true
             });
+            
+            // Custom OverlayView class
+            function PhotoOverlay(pos, el) {
+              this.position = pos;
+              this.div = el;
+              this.setMap(map);
+            }
+            PhotoOverlay.prototype = new google.maps.OverlayView();
+            PhotoOverlay.prototype.onAdd = function() {
+              this.getPanes().overlayMouseTarget.appendChild(this.div);
+            };
+            PhotoOverlay.prototype.draw = function() {
+              var pt = this.getProjection().fromLatLngToDivPixel(this.position);
+              if (pt) {
+                this.div.style.left = pt.x + 'px';
+                this.div.style.top = pt.y + 'px';
+                this.div.style.position = 'absolute';
+                this.div.style.transform = 'translate(-50%, -50%)';
+              }
+            };
+            PhotoOverlay.prototype.onRemove = function() {
+              if (this.div && this.div.parentNode) {
+                this.div.parentNode.removeChild(this.div);
+              }
+            };
+
             ${markers}
+            
             // Fit bounds if we have multiple locations
             if (${locations.length} > 1) {
               const bounds = new google.maps.LatLngBounds();
@@ -546,7 +671,7 @@ export default function CountryMapScreen() {
             ref={(ref: any) => { mapRef.current = ref; }}
             provider={getMapProvider()}
             style={styles.map}
-            customMapStyle={forestStyle}
+            {...mapStyle.nativeMapProps}
             minZoomLevel={3}
             initialRegion={{
               latitude: getCountryCenter(displayCountryName || '').latitude,
@@ -554,7 +679,7 @@ export default function CountryMapScreen() {
               latitudeDelta: getCountryDelta(displayCountryName || '').latitudeDelta,
               longitudeDelta: getCountryDelta(displayCountryName || '').longitudeDelta,
             }}
-            mapType="terrain"
+            mapType={mapStyle.mapType}
           >
           {/* Always show a center marker to guarantee at least one visible flag */}
           <Marker
@@ -589,7 +714,12 @@ export default function CountryMapScreen() {
               }
             }}
           >
-            <PremiumMapMarker active={true} />
+            <PremiumMapMarker 
+              active={true} 
+              activeTitle={displayCountryName} 
+              activeSubtitle="Country Center" 
+              icon="flag" 
+            />
           </Marker>
           {/* Markers for visited locations */}
           {visitedMarkers.map((location: any, index: number) => {
@@ -611,7 +741,12 @@ export default function CountryMapScreen() {
                 }}
                 onPress={() => handleLocationPress(location)}
               >
-                <PremiumMapMarker active={!!isSelected} />
+                <PremiumMapMarker 
+                  active={!!isSelected} 
+                  activeTitle={location.name} 
+                  activeSubtitle={location.category?.typeOfSpot || 'Visited spot'} 
+                  photo={location.imageUrl} 
+                />
               </Marker>
             );
           })}

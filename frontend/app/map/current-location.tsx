@@ -190,7 +190,7 @@ export default function CurrentLocationMap() {
   const [userCoords, setUserCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const mapStyle = useMapStyle();
   const [route, setRoute] = useState<DirectionsRoute | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
@@ -473,38 +473,139 @@ export default function CurrentLocationMap() {
       const lng = location.coords.longitude;
       const userCoordsJson = userCoords ? JSON.stringify(userCoords) : 'null';
       const rawTitle = isPostLocation ? (postAddress || 'Post Location') : (locationName || 'Your Current Location');
-      const safeTitle = JSON.stringify(rawTitle);
       const htmlEsc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-      const infoHtml = JSON.stringify(`<div style="padding:8px;"><strong>${htmlEsc(rawTitle)}</strong></div>`);
       const html = `<!DOCTYPE html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<style>html,body,#map{height:100%;margin:0;padding:0}</style>
+<style>
+html,body,#map{height:100%;margin:0;padding:0}
+.glowing-dot-container {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pulse-ring {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: radial-gradient(circle, ${isDark ? 'rgba(45, 212, 191, 0.4)' : 'rgba(59, 130, 246, 0.4)'} 0%, rgba(59, 130, 246, 0) 70%);
+  animation: pulse 1.8s infinite ease-out;
+}
+.core-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2DD4BF 0%, #3B82F6 100%);
+  border: 1.5px solid #FFFFFF;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+}
+@keyframes pulse {
+  0% { transform: scale(0.6); opacity: 1; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+.glass-marker-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  background: ${isDark ? 'rgba(15, 23, 42, 0.75)' : 'rgba(255, 255, 255, 0.75)'};
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.08)'};
+  box-shadow: 0 8px 32px 0 ${isDark ? 'rgba(0, 0, 0, 0.37)' : 'rgba(31, 38, 135, 0.15)'};
+  max-width: 180px;
+  animation: floatCard 0.3s ease-out;
+}
+.marker-thumb-placeholder {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: ${isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)'};
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+.marker-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 60px;
+  overflow: hidden;
+}
+.marker-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: ${isDark ? '#F8FAFC' : '#0F172A'};
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.marker-subtitle {
+  font-size: 9px;
+  font-weight: 500;
+  color: ${isDark ? '#94A3B8' : '#64748B'};
+  margin-top: 1px;
+}
+@keyframes floatCard {
+  0% { transform: translateY(6px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+</style>
 <script>
 function initMap(){
   var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${lat},lng:${lng}},zoom:15,mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true});
+  
+  // Custom OverlayView class
+  function PhotoOverlay(pos,el){this.position=pos;this.div=el;this.setMap(map);}
+  PhotoOverlay.prototype=new google.maps.OverlayView();
+  PhotoOverlay.prototype.onAdd=function(){this.getPanes().overlayMouseTarget.appendChild(this.div);};
+  PhotoOverlay.prototype.draw=function(){
+    var pt=this.getProjection().fromLatLngToDivPixel(this.position);
+    if(pt){
+      this.div.style.left=pt.x+'px';
+      this.div.style.top=pt.y+'px';
+      this.div.style.position='absolute';
+      this.div.style.transform='translate(-50%,-50%)';
+    }
+  };
+  PhotoOverlay.prototype.onRemove=function(){if(this.div&&this.div.parentNode)this.div.parentNode.removeChild(this.div);};
+
   var routePath=${JSON.stringify(route?.coordinates.map((coord) => ({ lat: coord.latitude, lng: coord.longitude })) || [])};
   if(routePath.length>1){
     new google.maps.Polyline({path:routePath,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:14,map:map});
     new google.maps.Polyline({path:routePath,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:5,map:map});
     var bounds=new google.maps.LatLngBounds();routePath.forEach(function(p){bounds.extend(p);});map.fitBounds(bounds,64);
   }
+  
   var userCoords=${userCoordsJson};
   if(routePath.length>1 && userCoords){
-    new google.maps.Marker({
-      position: { lat: userCoords.latitude, lng: userCoords.longitude },
-      map: map,
-      title: "Your Location",
-      icon: {
-        url: 'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="30" height="30" viewBox="0 0 30 30"><circle cx="15" cy="15" r="10" fill="#4285F4" stroke="white" stroke-width="3"/></svg>'),
-        scaledSize: new google.maps.Size(30, 30),
-        anchor: new google.maps.Point(15, 15)
-      }
-    });
+    var userDiv=document.createElement('div');
+    userDiv.style.cssText='position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+    userDiv.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
+    new PhotoOverlay(new google.maps.LatLng(userCoords.latitude, userCoords.longitude), userDiv);
   }
-  var marker=new google.maps.Marker({position:{lat:${lat},lng:${lng}},map:map,title:${safeTitle},icon:{url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="42" height="50" viewBox="0 0 42 50"><filter id="g"><feGaussianBlur stdDeviation="4"/></filter><circle cx="21" cy="42" r="7" fill="${mapStyle.routeColor}" opacity=".35" filter="url(%23g)"/><path d="M21 2C11.6 2 4 9.6 4 19c0 12.8 17 29 17 29s17-16.2 17-29C38 9.6 30.4 2 21 2z" fill="${mapStyle.routeColor}" stroke="white" stroke-width="3"/><circle cx="21" cy="19" r="6" fill="white"/></svg>'),scaledSize:new google.maps.Size(42,50),anchor:new google.maps.Point(21,48)}});
-  var iw=new google.maps.InfoWindow({content:${infoHtml}});
-  marker.addListener('click',function(){iw.open(map,marker);});
-  iw.open(map,marker);
+  
+  var div=document.createElement('div');
+  div.style.cssText='position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+  
+  var isPostLoc = ${isPostLocation};
+  if (isPostLoc) {
+    div.innerHTML = '<div class="glass-marker-card">' +
+      '<div class="marker-thumb-placeholder">📍</div>' +
+      '<div class="marker-info">' +
+        '<div class="marker-title">' + htmlEsc(rawTitle) + '</div>' +
+        '<div class="marker-subtitle">Destination</div>' +
+      '</div>' +
+    '</div>';
+  } else {
+    div.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
+  }
+  new PhotoOverlay(new google.maps.LatLng(${lat}, ${lng}), div);
 }
 </script></head><body>
 <div id="map"></div>

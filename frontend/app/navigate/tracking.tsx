@@ -44,7 +44,7 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
  */
 export default function TrackingScreen() {
   const router = useRouter();
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const mapStyle = useMapStyle();
   const { showAlert } = useAlert();
   const insets = useSafeAreaInsets();
@@ -273,36 +273,101 @@ export default function TrackingScreen() {
             const WV_KEY = getGoogleMapsApiKeyForWebView();
             if (!WV_KEY) return <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}><Ionicons name="map-outline" size={48} color="#9CA3AF" /></View>;
             const polyCoords = JSON.stringify(polyline.filter(p => p.latitude && p.longitude).map(p => ({ lat: p.latitude, lng: p.longitude, timestamp: p.timestamp })));
-            const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>html,body,#map{height:100%;margin:0;padding:0}</style>
-<script>function initMap(){var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${initialRegion.latitude},lng:${initialRegion.longitude}},zoom:15,mapTypeId:'roadmap',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true});
-var path=${polyCoords};if(path.length>1){
-  var segments = [];
-  var currentSegment = [];
-  for(var i=0; i<path.length; i++){
-    var p = path[i];
-    if(currentSegment.length === 0){
-      currentSegment.push(p);
-    } else {
-      var prev = currentSegment[currentSegment.length-1];
-      var timeDiff = (p.timestamp && prev.timestamp) ? (p.timestamp - prev.timestamp)/1000 : 0;
-      if(timeDiff > 60){
-        segments.push(currentSegment);
-        currentSegment = [p];
-      } else {
+            const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>
+html,body,#map{height:100%;margin:0;padding:0}
+.glowing-dot-container {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pulse-ring {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: radial-gradient(circle, ${isDark ? 'rgba(45, 212, 191, 0.4)' : 'rgba(59, 130, 246, 0.4)'} 0%, rgba(59, 130, 246, 0) 70%);
+  animation: pulse 1.8s infinite ease-out;
+}
+.core-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2DD4BF 0%, #3B82F6 100%);
+  border: 1.5px solid #FFFFFF;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+}
+@keyframes pulse {
+  0% { transform: scale(0.6); opacity: 1; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+</style>
+<script>
+function initMap(){
+  var map=new google.maps.Map(document.getElementById('map'),{
+    center:{lat:${initialRegion.latitude},lng:${initialRegion.longitude}},
+    zoom:15,
+    mapTypeId:'roadmap',
+    styles:${JSON.stringify(mapStyle.customMapStyle)},
+    disableDefaultUI:true,
+    zoomControl:true
+  });
+
+  // Custom OverlayView class
+  function PhotoOverlay(pos,el){this.position=pos;this.div=el;this.setMap(map);}
+  PhotoOverlay.prototype=new google.maps.OverlayView();
+  PhotoOverlay.prototype.onAdd=function(){this.getPanes().overlayMouseTarget.appendChild(this.div);};
+  PhotoOverlay.prototype.draw=function(){
+    var pt=this.getProjection().fromLatLngToDivPixel(this.position);
+    if(pt){
+      this.div.style.left=pt.x+'px';
+      this.div.style.top=pt.y+'px';
+      this.div.style.position='absolute';
+      this.div.style.transform='translate(-50%,-50%)';
+    }
+  };
+  PhotoOverlay.prototype.onRemove=function(){if(this.div&&this.div.parentNode)this.div.parentNode.removeChild(this.div);};
+
+  var path=${polyCoords};
+  if(path.length>1){
+    var segments = [];
+    var currentSegment = [];
+    for(var i=0; i<path.length; i++){
+      var p = path[i];
+      if(currentSegment.length === 0){
         currentSegment.push(p);
+      } else {
+        var prev = currentSegment[currentSegment.length-1];
+        var timeDiff = (p.timestamp && prev.timestamp) ? (p.timestamp - prev.timestamp)/1000 : 0;
+        if(timeDiff > 60){
+          segments.push(currentSegment);
+          currentSegment = [p];
+        } else {
+          currentSegment.push(p);
+        }
       }
     }
+    if(currentSegment.length > 0) segments.push(currentSegment);
+    segments.forEach(function(seg){
+      if(seg.length > 1){
+        new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:14,map:map});
+        new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:5,map:map});
+      }
+    });
   }
-  if(currentSegment.length > 0) segments.push(currentSegment);
-  segments.forEach(function(seg){
-    if(seg.length > 1){
-      new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});
-      new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});
-    }
-  });
+
+  var currentLat = ${currentLocation ? currentLocation.latitude : 'null'};
+  var currentLng = ${currentLocation ? currentLocation.longitude : 'null'};
+  if (currentLat && currentLng) {
+    var userDiv = document.createElement('div');
+    userDiv.style.cssText = 'position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+    userDiv.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
+    new PhotoOverlay(new google.maps.LatLng(currentLat, currentLng), userDiv);
+  }
 }
-${currentLocation ? `new google.maps.Marker({position:{lat:${currentLocation.latitude},lng:${currentLocation.longitude}},map:map,title:'You'});` : ''}
-}</script></head><body><div id="map"></div>
+</script></head><body><div id="map"></div>
 <script async defer src="https://maps.googleapis.com/maps/api/js?key=${WV_KEY}&language=en&callback=initMap"></script></body></html>`;
             return (
               <WebView

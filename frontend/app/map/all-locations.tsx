@@ -90,6 +90,7 @@ interface OptimizedMarkerProps {
   label?: string;
   activeTitle?: string;
   activeSubtitle?: string;
+  photo?: string;
 }
 
 const OptimizedMarker = React.memo(({
@@ -101,7 +102,8 @@ const OptimizedMarker = React.memo(({
   icon,
   label,
   activeTitle,
-  activeSubtitle
+  activeSubtitle,
+  photo
 }: OptimizedMarkerProps) => {
   const [tracksViewChanges, setTracksViewChanges] = useState(true);
 
@@ -130,6 +132,7 @@ const OptimizedMarker = React.memo(({
         label={label}
         activeTitle={activeTitle}
         activeSubtitle={activeSubtitle}
+        photo={photo}
       />
     </Marker>
   );
@@ -143,7 +146,8 @@ const OptimizedMarker = React.memo(({
     prev.icon === next.icon &&
     prev.label === next.label &&
     prev.activeTitle === next.activeTitle &&
-    prev.activeSubtitle === next.activeSubtitle
+    prev.activeSubtitle === next.activeSubtitle &&
+    prev.photo === next.photo
   );
 });
 
@@ -857,7 +861,132 @@ function AllLocationsMapInner() {
     return `<!DOCTYPE html>
 <html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<style>html,body,#map{height:100%;margin:0;padding:0}</style>
+<style>
+html,body,#map{height:100%;margin:0;padding:0}
+.glowing-dot-container {
+  position: relative;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pulse-ring {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: radial-gradient(circle, ${isDark ? 'rgba(45, 212, 191, 0.4)' : 'rgba(59, 130, 246, 0.4)'} 0%, rgba(59, 130, 246, 0) 70%);
+  animation: pulse 1.8s infinite ease-out;
+}
+.core-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2DD4BF 0%, #3B82F6 100%);
+  border: 1.5px solid #FFFFFF;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+}
+@keyframes pulse {
+  0% { transform: scale(0.6); opacity: 1; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+.glass-marker-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 20px;
+  background: ${isDark ? 'rgba(15, 23, 42, 0.75)' : 'rgba(255, 255, 255, 0.75)'};
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.08)'};
+  box-shadow: 0 8px 32px 0 ${isDark ? 'rgba(0, 0, 0, 0.37)' : 'rgba(31, 38, 135, 0.15)'};
+  max-width: 180px;
+  animation: floatCard 0.3s ease-out;
+}
+.marker-thumb {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1.5px solid ${isDark ? '#2DD4BF' : '#3B82F6'};
+}
+.marker-thumb-placeholder {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: ${isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)'};
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+.marker-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 60px;
+  overflow: hidden;
+}
+.marker-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: ${isDark ? '#F8FAFC' : '#0F172A'};
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.marker-subtitle {
+  font-size: 9px;
+  font-weight: 500;
+  color: ${isDark ? '#94A3B8' : '#64748B'};
+  margin-top: 1px;
+}
+@keyframes floatCard {
+  0% { transform: translateY(6px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+.glass-cluster {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cluster-pulse {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: ${isDark ? 'rgba(59, 130, 246, 0.25)' : 'rgba(33, 150, 243, 0.2)'};
+  animation: pulse 2s infinite ease-out;
+}
+.cluster-glass-circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: ${isDark 
+    ? 'linear-gradient(135deg, rgba(15, 23, 42, 0.75) 0%, rgba(30, 41, 59, 0.75) 100%)' 
+    : 'linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(241, 245, 249, 0.85) 100%)'};
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1.5px solid ${isDark ? 'rgba(45, 212, 191, 0.4)' : 'rgba(59, 130, 246, 0.3)'};
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 20px ${isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(31, 38, 135, 0.15)'};
+  transition: transform 0.2s ease;
+}
+.cluster-glass-circle span {
+  font-family: Arial, sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: ${isDark ? '#2DD4BF' : '#3B82F6'};
+}
+</style>
 <script>
 function initMap(){
   var map=new google.maps.Map(document.getElementById('map'),{
@@ -953,11 +1082,10 @@ function initMap(){
   PhotoOverlay.prototype.draw=function(){
     var pt=this.getProjection().fromLatLngToDivPixel(this.position);
     if(pt){
-      var w=this.div.offsetWidth || parseInt(this.div.style.width) || 64;
-      var h=this.div.offsetHeight || parseInt(this.div.style.height) || 48;
-      this.div.style.left=(pt.x-w/2)+'px';
-      this.div.style.top=(pt.y-h/2)+'px';
+      this.div.style.left=pt.x+'px';
+      this.div.style.top=pt.y+'px';
       this.div.style.position='absolute';
+      this.div.style.transform='translate(-50%,-50%)';
     }
   };
   PhotoOverlay.prototype.onRemove=function(){if(this.div&&this.div.parentNode)this.div.parentNode.removeChild(this.div);};
@@ -973,35 +1101,30 @@ function initMap(){
 
     clusters.forEach(function(cluster){
       var pos=new google.maps.LatLng(cluster.lat,cluster.lng);
-      var main=cluster.items[0],extra=cluster.items.length-1;
       var div=document.createElement('div');
+      div.style.cssText='position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
 
-      var nameText = main.cityName || 'Post #' + main.number;
-      var charCount = nameText.length;
-      var pillWidth = Math.max(50, charCount * 7.5 + 32);
-      var svgWidth = pillWidth + 16;
-      var centerX = svgWidth / 2;
-      var textX = (pillWidth + 24) / 2;
-
-      div.style.cssText='position:relative;width:'+svgWidth+'px;height:48px;cursor:pointer;display:flex;align-items:center;justify-content:center;';
-
-      var pin=document.createElement('div');
-      var isViewingAny = ${selectedLocation !== null};
-      var isSelected = isViewingAny && (main.number === ${selectedLocation?.number || -1} || main.postId === '${selectedLocation?.postId || ""}');
-      if (isSelected) {
-        // Selected cockpit pin (Highlighted)
-        pin.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="'+svgWidth+'" height="48" viewBox="0 0 '+svgWidth+' 48"><circle cx="'+centerX+'" cy="8" r="4" fill="${isDark ? '#FFFFFF' : '#121212'}" stroke="${isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.1)'}" stroke-width="1.5"/><rect x="8" y="16" width="'+pillWidth+'" height="24" rx="12" fill="#3B82F6" stroke="rgba(59,130,246,0.2)" stroke-width="1"/><circle cx="21" cy="28" r="8" fill="rgba(255,255,255,0.25)"/><path d="M21,23 C19.3,23 18,24.3 18,26 C18,28.5 21,32 21,32 C21,32 24,28.5 24,26 C24,24.3 22.7,23 21,23 Z M21,27.2 C20.3,27.2 19.8,26.7 19.8,26 C19.8,25.3 20.3,24.8 21,24.8 C21.7,24.8 22.2,25.3 22.2,26 C22.2,26.7 21.7,27.2 21,27.2 Z" fill="#FFFFFF"/><text x="'+textX+'" y="29" fill="#FFFFFF" font-size="11" font-weight="bold" font-family="Arial, sans-serif" text-anchor="middle" dominant-baseline="central">' + nameText + '</text></svg>';
+      if (cluster.items.length === 1) {
+        var main = cluster.items[0];
+        var isViewingAny = ${selectedLocation !== null};
+        var isSelected = isViewingAny && (main.number === ${selectedLocation?.number || -1} || main.postId === '${selectedLocation?.postId || ""}');
+        
+        if (isSelected) {
+          var nameText = main.cityName || 'Post #' + main.number;
+          var photoUrl = main.photo || '';
+          var imgHtml = photoUrl ? '<img src="' + photoUrl + '" class="marker-thumb" />' : '<div class="marker-thumb-placeholder">📍</div>';
+          div.innerHTML = '<div class="glass-marker-card">' +
+            imgHtml +
+            '<div class="marker-info">' +
+              '<div class="marker-title">' + nameText + '</div>' +
+              '<div class="marker-subtitle">1 post</div>' +
+            '</div>' +
+          '</div>';
+        } else {
+          div.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
+        }
       } else {
-        // Normal/Inactive cockpit pin (keeps bubble shape and travel icon visible)
-        pin.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="'+svgWidth+'" height="48" viewBox="0 0 '+svgWidth+' 48"><circle cx="'+centerX+'" cy="8" r="4" fill="${isDark ? '#FFFFFF' : '#121212'}" stroke="${isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.1)'}" stroke-width="1.5"/><rect x="8" y="16" width="'+pillWidth+'" height="24" rx="12" fill="${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.85)'}" stroke="${isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0, 0, 0, 0.08)'}" stroke-width="1"/><circle cx="21" cy="28" r="8" fill="${isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(59, 130, 246, 0.12)'}"/><path d="M21,23 C19.3,23 18,24.3 18,26 C18,28.5 21,32 21,32 C21,32 24,28.5 24,26 C24,24.3 22.7,23 21,23 Z M21,27.2 C20.3,27.2 19.8,26.7 19.8,26 C19.8,25.3 20.3,24.8 21,24.8 C21.7,24.8 22.2,25.3 22.2,26 C22.2,26.7 21.7,27.2 21,27.2 Z" fill="${isDark ? '#E8F4FF' : '#3B82F6'}"/><text x="'+textX+'" y="29" fill="${isDark ? '#E8F4FF' : '#4A6274'}" font-size="11" font-weight="bold" font-family="Arial, sans-serif" text-anchor="middle" dominant-baseline="central">' + nameText + '</text></svg>';
-      }
-      div.appendChild(pin);
-
-      if(extra>0){
-        var badge=document.createElement('div');
-        badge.style.cssText='position:absolute;top:-8px;right:-8px;background:${ACTION_BLUE};color:white;font-size:11px;font-weight:700;min-width:22px;height:22px;line-height:22px;text-align:center;padding:0 5px;border-radius:11px;box-shadow:0 1px 4px rgba(0,0,0,0.3);';
-        badge.textContent=extra+1;
-        div.appendChild(badge);
+        div.innerHTML = '<div class="glass-cluster"><div class="cluster-pulse"></div><div class="cluster-glass-circle"><span>' + cluster.items.length + '</span></div></div>';
       }
 
       // Tap handler: single marker opens the native preview card, cluster zooms in.
@@ -1211,8 +1334,27 @@ function initMap(){
                 onPress={() => handleClusterPress(cluster)}
                 tracksViewChanges={false}
               >
-                <View style={markerStyles.clusterBadge}>
-                  <Text style={markerStyles.clusterText}>{cluster.locations.length}</Text>
+                <View style={markerStyles.clusterContainer}>
+                  <View style={markerStyles.clusterGlow}>
+                    <LinearGradient
+                      colors={isDark ? ['rgba(45, 212, 191, 0.4)', 'rgba(59, 130, 246, 0.4)'] : ['rgba(59, 130, 246, 0.3)', 'rgba(45, 212, 191, 0.3)']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={StyleSheet.absoluteFillObject}
+                    />
+                    <BlurView intensity={Platform.OS === 'ios' ? 40 : 100} tint={isDark ? 'dark' : 'light'} style={markerStyles.clusterBlur}>
+                      <LinearGradient
+                        colors={isDark ? ['rgba(15, 23, 42, 0.75)', 'rgba(30, 41, 59, 0.75)'] : ['rgba(255, 255, 255, 0.85)', 'rgba(241, 245, 249, 0.85)']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={markerStyles.clusterContent}
+                      >
+                        <Text style={[markerStyles.clusterText, { color: isDark ? '#2DD4BF' : '#3B82F6' }]}>
+                          {cluster.locations.length}
+                        </Text>
+                      </LinearGradient>
+                    </BlurView>
+                  </View>
                 </View>
               </Marker>
             );
@@ -1236,6 +1378,7 @@ function initMap(){
                 label={city}
                 activeTitle={city}
                 activeSubtitle="1 post"
+                photo={location.photo}
               />
             );
           }
@@ -2401,25 +2544,32 @@ const markerStyles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
-  clusterBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#50C878',
-    borderWidth: 2,
-    borderColor: '#ffffff',
+  clusterContainer: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  clusterGlow: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    overflow: 'hidden',
+    padding: 1.5,
+  },
+  clusterBlur: {
+    flex: 1,
+    borderRadius: 18.5,
+    overflow: 'hidden',
+  },
+  clusterContent: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    elevation: 5,
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
   },
   clusterText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: 'bold',
+    fontSize: 13,
+    fontWeight: '800',
   },
 });
 
