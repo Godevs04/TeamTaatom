@@ -169,7 +169,7 @@ function PhotoCard({
 }: PhotoCardProps) {
   const isWeb = Platform.OS === 'web';
   const logger = createLogger('OptimizedPhotoCard');
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const { settings } = useSettings();
   const router = useRouter();
   const [isLiked, setIsLiked] = useState(post.isLiked || false);
@@ -899,8 +899,39 @@ function PhotoCard({
   }, []);
 
   return (
-    <View style={styles.container}>
-      <CloudGlassSurface blur={false} style={styles.glassCard} contentStyle={styles.glassCardInner} borderRadius={20}>
+    <View style={[styles.container, { shadowOpacity: isDark ? 0.04 : 0.08 }]}>
+      <CloudGlassSurface
+        blur={false}
+        style={[
+          styles.glassCard,
+          isDark
+            ? {
+                backgroundColor: 'rgba(25, 25, 25, 0.72)',
+                borderWidth: 0,
+                borderTopWidth: 1,
+                borderLeftWidth: 1,
+                borderTopColor: 'rgba(255, 255, 255, 0.12)',
+                borderLeftColor: 'rgba(255, 255, 255, 0.12)',
+                borderBottomWidth: 0,
+                borderRightWidth: 0,
+              }
+            : {
+                backgroundColor: '#FFFFFF',
+                borderWidth: 1.5,
+                borderTopWidth: 1.5,
+                borderLeftWidth: 1.5,
+                borderBottomWidth: 1.5,
+                borderRightWidth: 1.5,
+                borderColor: theme.colors.border,
+                borderTopColor: theme.colors.border,
+                borderLeftColor: theme.colors.border,
+                borderBottomColor: theme.colors.border,
+                borderRightColor: theme.colors.border,
+              }
+        ]}
+        contentStyle={styles.glassCardInner}
+        borderRadius={20}
+      >
       {/* Header - Must be above image to receive touches */}
       <View pointerEvents="box-none">
         <PostHeader
