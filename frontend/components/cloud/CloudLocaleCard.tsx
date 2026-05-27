@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ImageStyle, Dimensions, Anima
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { cloudDesign, localeSubtitle } from '../../constants/cloudDesign';
 import { useCloudGlassTokens } from './CloudGlassSurface';
 import { optimizeCloudinaryUrl } from '../../utils/imageCache';
@@ -10,6 +11,8 @@ import { optimizeCloudinaryUrl } from '../../utils/imageCache';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 /** Explicit width — percentage width collapses inside FlatList headers */
 export const LOCALE_HERO_CARD_WIDTH = SCREEN_WIDTH - 32;
+
+const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
 
 export interface CloudLocaleCardData {
   _id?: string;
@@ -97,7 +100,12 @@ function CloudLocaleCard({
         styles.card,
         isHero ? styles.hero : styles.mini,
         cardStyle,
-        cloudDesign.shadowCard,
+        {
+          borderWidth: 1.5,
+          borderColor: glass.isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.25)',
+          backgroundColor: glass.isDark ? '#0C1828' : '#FFFFFF',
+          borderRadius: 20,
+        }
       ]}
     >
       <View style={[styles.imageWrapper, { height }]} key={String(locale._id || '')}>
@@ -122,54 +130,84 @@ function CloudLocaleCard({
       </View>
 
       {onSavePress && (
-        <TouchableOpacity style={styles.cutout} onPress={(e) => { e?.stopPropagation?.(); onSavePress(); }} hitSlop={10}>
-          <Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={isHero ? 20 : 14} color={saved ? '#FFD166' : cloudDesign.blueDeep} />
-        </TouchableOpacity>
+        <BlurView
+          intensity={95}
+          tint={glass.isDark ? 'dark' : 'light'}
+          style={[
+            styles.cutout,
+            {
+              backgroundColor: glass.isDark ? 'rgba(15, 20, 30, 0.45)' : 'rgba(255, 255, 255, 0.5)',
+              borderBottomColor: glass.isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.45)',
+              borderLeftColor: glass.isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.45)',
+              borderBottomWidth: 1.5,
+              borderLeftWidth: 1.5,
+            }
+          ]}
+        >
+          <TouchableOpacity
+            style={styles.cutoutInner}
+            onPress={(e) => { e?.stopPropagation?.(); onSavePress(); }}
+            hitSlop={10}
+          >
+            <Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={isHero ? 20 : 14} color={saved ? '#FFD166' : (glass.isDark ? '#7AB3D6' : '#1C73B4')} />
+          </TouchableOpacity>
+        </BlurView>
       )}
 
       {distanceText ? (
         distanceText === 'Calculating...' || distanceText === 'loading' ? (
-          <Animated.View
+          <AnimatedBlurView
+            intensity={95}
+            tint={glass.isDark ? 'dark' : 'light'}
             style={[
               styles.distBadge,
               {
                 opacity: pulseAnim,
-                width: 70,
-                height: 22,
-                backgroundColor: glass.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0, 0, 0, 0.04)',
-                borderColor: glass.isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0, 0, 0, 0.02)',
+                backgroundColor: glass.isDark ? 'rgba(15, 20, 30, 0.45)' : 'rgba(255, 255, 255, 0.5)',
+                borderColor: glass.isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.4)',
+                borderWidth: 1.5,
                 justifyContent: 'center',
                 alignItems: 'center',
               }
             ]}
           >
-            <View style={{ width: 45, height: 8, backgroundColor: glass.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0, 0, 0, 0.08)', borderRadius: 4 }} />
-          </Animated.View>
+            <View style={{ width: 45, height: 8, backgroundColor: glass.isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0, 0, 0, 0.15)', borderRadius: 4 }} />
+          </AnimatedBlurView>
         ) : (
-          <View style={[
-            styles.distBadge,
-            {
-              backgroundColor: glass.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0, 0, 0, 0.06)',
-              borderColor: glass.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0, 0, 0, 0.04)',
-              flexShrink: 1,
-              maxWidth: '60%',
-            }
-          ]}>
-            <Ionicons name="location-sharp" size={10} color={glass.textSecondary} />
+          <BlurView
+            intensity={95}
+            tint={glass.isDark ? 'dark' : 'light'}
+            style={[
+              styles.distBadge,
+              {
+                backgroundColor: glass.isDark ? 'rgba(15, 20, 30, 0.45)' : 'rgba(255, 255, 255, 0.5)',
+                borderColor: glass.isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.4)',
+                borderWidth: 1.5,
+                flexShrink: 1,
+                maxWidth: '60%',
+              }
+            ]}
+          >
+            <Ionicons name="location-sharp" size={10} color={glass.isDark ? '#7AB3D6' : '#1C73B4'} />
             <Text style={[styles.distText, { flexShrink: 1, color: glass.textPrimary }]} numberOfLines={1} ellipsizeMode="tail">
               {distanceText}
             </Text>
-          </View>
+          </BlurView>
         )
       ) : null}
 
-      <View
+      <BlurView
+        intensity={95}
+        tint={glass.isDark ? 'dark' : 'light'}
         style={[
           styles.dataPanel,
           isHero && styles.dataPanelHero,
           {
-            backgroundColor: glass.isDark ? 'rgba(12, 24, 40, 0.88)' : 'rgba(255,255,255,0.94)',
-            borderTopColor: glass.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.6)',
+            backgroundColor: glass.isDark ? 'rgba(15, 20, 30, 0.4)' : 'rgba(255, 255, 255, 0.45)',
+            borderTopColor: glass.isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.45)',
+            borderTopWidth: 1.5,
+            borderBottomLeftRadius: 18.5,
+            borderBottomRightRadius: 18.5,
           },
         ]}
       >
@@ -179,7 +217,7 @@ function CloudLocaleCard({
         <Text style={[styles.sub, { color: glass.textMuted }]} numberOfLines={1}>
           {localeSubtitle(locale)}
         </Text>
-      </View>
+      </BlurView>
     </TouchableOpacity>
   );
 }
@@ -188,7 +226,7 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: cloudDesign.radius.card,
     overflow: 'hidden',
-    backgroundColor: '#fff',
+    backgroundColor: 'transparent',
     position: 'relative',
   },
   hero: {
@@ -215,12 +253,17 @@ const styles = StyleSheet.create({
     right: 0,
     width: 44,
     height: 44,
-    backgroundColor: '#fff',
     borderBottomLeftRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
     zIndex: 2,
-    ...cloudDesign.shadowCard,
+  },
+  cutoutInner: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   distBadge: {
     position: 'absolute',
@@ -229,10 +272,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    borderWidth: 1,
+    borderWidth: 1.5,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: cloudDesign.radius.pill,
+    overflow: 'hidden',
     zIndex: 2,
   },
   distText: {
@@ -244,13 +288,11 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(255,255,255,0.94)',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.6)',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderBottomLeftRadius: cloudDesign.radius.card,
     borderBottomRightRadius: cloudDesign.radius.card,
+    overflow: 'hidden',
   },
   dataPanelHero: {
     paddingHorizontal: 14,

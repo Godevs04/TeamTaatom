@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { useRouter } from 'expo-router';
@@ -105,7 +106,7 @@ export default function PostLocation({ post }: PostLocationProps) {
         </Text>
       </View>
       {isGeocoding && (
-        <ActivityIndicator size="small" color={theme.colors.primary} style={styles.loader} />
+        <LoadingGlobe size="small" color={theme.colors.primary} style={styles.loader} />
       )}
     </TouchableOpacity>
   );

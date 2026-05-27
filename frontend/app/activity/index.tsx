@@ -5,13 +5,13 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  ActivityIndicator,
   RefreshControl,
   ScrollView,
   Image,
   Platform,
   Dimensions,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -268,7 +268,7 @@ export default function ActivityFeedScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.5}
-          ListFooterComponent={loading && activities.length > 0 ? <ActivityIndicator /> : null}
+          ListFooterComponent={loading && activities.length > 0 ? <LoadingGlobe /> : null}
           showsVerticalScrollIndicator={false}
         />
       )}

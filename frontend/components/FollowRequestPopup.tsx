@@ -1,12 +1,12 @@
 import React from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
   Modal,
-  ActivityIndicator
 } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 
@@ -65,7 +65,7 @@ export default function FollowRequestPopup({
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator size="small" color="white" />
+                <LoadingGlobe size="small" color="white" />
               ) : (
                 <Ionicons name="close" size={20} color="white" />
               )}
@@ -78,7 +78,7 @@ export default function FollowRequestPopup({
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator size="small" color="white" />
+                <LoadingGlobe size="small" color="white" />
               ) : (
                 <Ionicons name="checkmark" size={20} color="white" />
               )}

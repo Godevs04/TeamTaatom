@@ -6,11 +6,11 @@ import {
   FlatList,
   TouchableOpacity,
   Image,
-  ActivityIndicator,
   Alert,
   Platform,
   Dimensions,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -110,7 +110,7 @@ export default function CollectionsScreen() {
       <View style={styles.coverImageContainer}>
         {imageLoading && (
           <View style={[styles.imageLoader, { backgroundColor: themeContext.colors.surfaceSecondary }]}>
-            <ActivityIndicator size="small" color={themeContext.colors.primary} />
+            <LoadingGlobe size="small" color={themeContext.colors.primary} />
           </View>
         )}
         <Image

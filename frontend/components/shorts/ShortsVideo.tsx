@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect, memo, useCallback, useMemo } from 'react';
-import { View, StyleSheet, ActivityIndicator, Image, TouchableOpacity, Text } from 'react-native';
+import { View, StyleSheet, Image, TouchableOpacity, Text } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import Video, { VideoRef } from 'react-native-video';
@@ -152,7 +153,7 @@ const ShortsVideo = ({
         />
       ) : showPoster ? (
         <View style={[StyleSheet.absoluteFill, styles.loaderContainer]}>
-          <ActivityIndicator size="small" color="rgba(255,255,255,0.6)" />
+          <LoadingGlobe size="small" color="rgba(255,255,255,0.6)" />
         </View>
       ) : null}
 
@@ -192,7 +193,7 @@ const ShortsVideo = ({
       {/* Spinner visible during the loading phase */}
       {shouldRender && !isReady && !hasError && (
         <View style={[StyleSheet.absoluteFill, styles.loaderContainer, { backgroundColor: 'transparent' }]}>
-          <ActivityIndicator size="small" color="rgba(255,255,255,0.6)" />
+          <LoadingGlobe size="small" color="rgba(255,255,255,0.6)" />
         </View>
       )}
     </View>

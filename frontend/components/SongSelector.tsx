@@ -7,7 +7,6 @@ import {
   TextInput,
   StyleSheet,
   Modal,
-  ActivityIndicator,
   Alert,
   PanResponder,
   Dimensions,
@@ -16,6 +15,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { Image as ExpoImage } from 'expo-image';
 import { getSongs, Song } from '../services/songs';
 import { useTheme } from '../context/ThemeContext';
@@ -179,7 +179,7 @@ const SongRow: React.FC<SongRowProps> = memo(({
       </View>
 
       {isLoading ? (
-        <ActivityIndicator size="small" color={selectedColor} />
+        <LoadingGlobe size="small" color={selectedColor} />
       ) : isSelected ? (
         <View style={{
           width: 24, height: 24, borderRadius: 12,
@@ -1159,7 +1159,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
             {/* Song List */}
             {loading && songs.length === 0 ? (
               <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', gap: 16 }}>
-                <ActivityIndicator size="large" color={theme.colors.primary} />
+                <LoadingGlobe size="large" color={theme.colors.primary} />
                 <Text style={{ fontSize: 14, color: theme.colors.textSecondary }}>Finding songs...</Text>
               </View>
             ) : (
@@ -1188,7 +1188,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                 ListFooterComponent={
                   loading && songs.length > 0 ? (
                     <View style={{ padding: 20, alignItems: 'center' }}>
-                      <ActivityIndicator size="small" color={theme.colors.primary} />
+                      <LoadingGlobe size="small" color={theme.colors.primary} />
                     </View>
                   ) : null
                 }

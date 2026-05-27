@@ -8,8 +8,8 @@ import {
   Dimensions,
   StatusBar,
   Platform,
-  ActivityIndicator,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
@@ -249,7 +249,7 @@ export default function ChatMediaViewer({
         {type === 'image' ? (
           <View style={styles.mediaWrap}>
             {imageLoading ? (
-              <ActivityIndicator size="large" color="#5BBCF8" style={styles.loader} />
+              <LoadingGlobe size="large" color="#5BBCF8" style={styles.loader} />
             ) : null}
             <GestureDetector gesture={gesture}>
               <ReAnimated.Image
@@ -263,7 +263,7 @@ export default function ChatMediaViewer({
         ) : (
           <View style={styles.mediaWrap}>
             {!videoReady ? (
-              <ActivityIndicator size="large" color="#5BBCF8" style={styles.loader} />
+              <LoadingGlobe size="large" color="#5BBCF8" style={styles.loader} />
             ) : null}
             <Video
               ref={videoRef}

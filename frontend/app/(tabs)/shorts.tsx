@@ -8,7 +8,6 @@ import {
   FlatList,
   Image,
   ImageStyle,
-  ActivityIndicator,
   Alert,
   Dimensions,
   TouchableWithoutFeedback,
@@ -18,6 +17,7 @@ import {
   BackHandler,
   Pressable,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Video, ResizeMode, AVPlaybackStatus, Audio } from 'expo-av';
 import { Image as ExpoImage } from 'expo-image';
@@ -2502,7 +2502,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 />
               ) : (
                 <View style={[styles.shortVideo, StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }]}>
-                  <ActivityIndicator size="small" color="rgba(255,255,255,0.6)" />
+                  <LoadingGlobe size="small" color="rgba(255,255,255,0.6)" />
                 </View>
               )}
               {/* Only mount Video component if within 1 index of visible */}
@@ -3102,7 +3102,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
         <View style={styles.loadingContainer}>
           <View style={styles.loadingContent}>
-            <ActivityIndicator size="large" color="#FF3040" style={styles.loadingSpinner} />
+            <LoadingGlobe size="large" color="#FF3040" style={styles.loadingSpinner} />
             <Text style={styles.loadingTitle}>Loading Shorts</Text>
             <Text style={styles.loadingSubtitle}>
               {effectiveUserId ? 'Loading this user’s shorts…' : 'Discover amazing content'}

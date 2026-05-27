@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   ScrollView,
   Image,
-  ActivityIndicator,
   Alert,
   Platform,
   Dimensions,
@@ -17,6 +16,7 @@ import {
   KeyboardAvoidingView,
   Pressable,
 } from 'react-native';
+import LoadingGlobe from '../../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -764,7 +764,7 @@ export default function ConnectPageDetailScreen() {
         edges={['top']}
       >
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       </SafeAreaView>
     );
@@ -978,7 +978,7 @@ export default function ConnectPageDetailScreen() {
               activeOpacity={0.7}
             >
               {followLoading ? (
-                <ActivityIndicator size="small" color={isFollowing ? theme.colors.text : '#FFFFFF'} />
+                <LoadingGlobe size="small" color={isFollowing ? theme.colors.text : '#FFFFFF'} />
               ) : (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Ionicons
@@ -1438,7 +1438,7 @@ export default function ConnectPageDetailScreen() {
                           }}
                         >
                           {subscribing ? (
-                            <ActivityIndicator size="small" color="#FFFFFF" />
+                            <LoadingGlobe size="small" color="#FFFFFF" />
                           ) : (
                             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
                               <Ionicons name={isCommunity ? 'cart-outline' : 'star'} size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
@@ -1576,7 +1576,7 @@ export default function ConnectPageDetailScreen() {
                 disabled={savingBio}
               >
                 {savingBio ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <LoadingGlobe size="small" color="#FFFFFF" />
                 ) : (
                   <Text style={styles.bioModalSaveText}>Save</Text>
                 )}
@@ -1610,7 +1610,7 @@ export default function ConnectPageDetailScreen() {
 
             {followersLoading ? (
               <View style={styles.modalLoading}>
-                <ActivityIndicator size="large" color={theme.colors.primary} />
+                <LoadingGlobe size="large" color={theme.colors.primary} />
               </View>
             ) : followers.length === 0 ? (
               <View style={styles.modalLoading}>
@@ -1985,7 +1985,7 @@ export default function ConnectPageDetailScreen() {
                   onPress={handleBuyItem}
                 >
                   {checkingOut ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
+                    <LoadingGlobe size="small" color="#FFFFFF" />
                   ) : (
                     <Text style={[styles.priceModalBtnText, { color: '#FFFFFF' }]}>Place Order</Text>
                   )}

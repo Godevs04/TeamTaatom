@@ -1,5 +1,6 @@
 import React, { useEffect, useState, Suspense, useRef } from 'react';
-import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, AppState, Platform } from 'react-native';
+import { View, StyleSheet, Text, TouchableOpacity, AppState, Platform } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';

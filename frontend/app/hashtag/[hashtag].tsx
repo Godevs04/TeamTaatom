@@ -4,10 +4,10 @@ import {
   Text,
   StyleSheet,
   FlatList,
-  ActivityIndicator,
   TouchableOpacity,
   RefreshControl,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -100,7 +100,7 @@ export default function HashtagDetailScreen() {
           onBack={() => router.back()}
         />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       </View>
     );
@@ -169,7 +169,7 @@ export default function HashtagDetailScreen() {
           ListFooterComponent={
             loadingMore ? (
               <View style={styles.footerLoader}>
-                <ActivityIndicator size="small" color={theme.colors.primary} />
+                <LoadingGlobe size="small" color={theme.colors.primary} />
               </View>
             ) : null
           }

@@ -4,13 +4,13 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   Alert,
   Platform,
   Dimensions,
   Animated,
   AppState,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -603,7 +603,7 @@ function initMap(){
       {/* Loading Overlay */}
       {isLoading && (
         <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color={GROWTH_GREEN} />
+          <LoadingGlobe size="large" color={GROWTH_GREEN} />
         </View>
       )}
     </View>

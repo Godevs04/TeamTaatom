@@ -7,8 +7,9 @@ export function useMapStyle() {
   const { isDark } = useTheme();
 
   return useMemo(() => {
-    const customMapStyle = isDark ? midnightGlassMapStyle : calmMorningMapStyle;
-    const userInterfaceStyle = isDark ? 'dark' : 'light';
+    // ALWAYS use calmMorningMapStyle (light/day theme) for map base layer as requested
+    const customMapStyle = calmMorningMapStyle;
+    const userInterfaceStyle = 'light';
 
     return {
       customMapStyle,

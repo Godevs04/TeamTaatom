@@ -5,12 +5,12 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  ActivityIndicator,
   Alert,
   Platform,
   Dimensions,
   KeyboardAvoidingView,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -153,7 +153,7 @@ export default function EditContentScreen() {
           <View style={styles.headerRight} />
         </View>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       </SafeAreaView>
     );
@@ -186,7 +186,7 @@ export default function EditContentScreen() {
           activeOpacity={0.7}
         >
           {saving ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
+            <LoadingGlobe size="small" color="#FFFFFF" />
           ) : (
             <Text style={styles.saveButtonText}>Save</Text>
           )}

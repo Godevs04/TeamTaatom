@@ -12,12 +12,12 @@ import {
   View,
   Text,
   StyleSheet,
-  ActivityIndicator,
   Platform,
   Image,
   useWindowDimensions,
   Animated,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import Constants from 'expo-constants';
@@ -168,7 +168,7 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
       : [styles.container, { height, backgroundColor: '#0a0a0f' }];
     return (
       <View style={loadingStyle}>
-        <ActivityIndicator size="large" color="rgba(255,255,255,0.6)" style={styles.loader} />
+        <LoadingGlobe size="large" color="rgba(255,255,255,0.6)" style={styles.loader} />
       </View>
     );
   }

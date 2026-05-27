@@ -5,12 +5,12 @@ import {
   TextInput,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   Platform,
   Dimensions,
   Keyboard,
   KeyboardAvoidingView,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -193,7 +193,7 @@ export default function ConnectSearchScreen() {
         {/* Results */}
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
+            <LoadingGlobe size="large" color={theme.colors.primary} />
           </View>
         ) : searched && results.length === 0 ? (
           <EmptyState
@@ -212,7 +212,7 @@ export default function ConnectSearchScreen() {
             ListFooterComponent={
               loadingMore ? (
                 <View style={styles.footerLoader}>
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                  <LoadingGlobe size="small" color={theme.colors.primary} />
                 </View>
               ) : null
             }

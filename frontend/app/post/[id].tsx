@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { View, ScrollView, ActivityIndicator, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import { View, ScrollView, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
@@ -101,7 +102,7 @@ export default function PostDetail() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={isDark ? '#fff' : '#000'} />
+          <LoadingGlobe size="large" color={isDark ? '#fff' : '#000'} />
         </View>
       </SafeAreaView>
     );

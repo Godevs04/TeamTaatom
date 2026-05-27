@@ -6,9 +6,9 @@ import {
   TouchableOpacity,
   StyleSheet,
   Linking,
-  ActivityIndicator,
   Pressable,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
@@ -94,7 +94,7 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
           <View style={styles.imageContainer}>
             {imageLoading && (
               <View style={[styles.imagePlaceholder, { backgroundColor: theme.colors.surface }]}>
-                <ActivityIndicator size="small" color={theme.colors.primary} />
+                <LoadingGlobe size="small" color={theme.colors.primary} />
               </View>
             )}
             <Image
@@ -290,7 +290,7 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
           ) : (
             <View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' }]}>
               {loadingDetails ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <LoadingGlobe size="small" color="#fff" />
               ) : (
                 <Ionicons name="film-outline" size={40} color="rgba(255,255,255,0.4)" />
               )}
@@ -362,7 +362,7 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
           ) : (
             <View style={[styles.richCardImageWrapper, { backgroundColor: theme.colors.border + '15', alignItems: 'center', justifyContent: 'center' }]}>
               {loadingDetails ? (
-                <ActivityIndicator size="small" color={theme.colors.primary} />
+                <LoadingGlobe size="small" color={theme.colors.primary} />
               ) : (
                 <Ionicons name="image-outline" size={40} color={theme.colors.textSecondary} />
               )}

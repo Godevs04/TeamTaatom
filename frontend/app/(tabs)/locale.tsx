@@ -8,7 +8,6 @@ import {
   Image,
   ImageStyle,
   TouchableOpacity,
-  ActivityIndicator,
   Alert,
   RefreshControl,
   TextInput,
@@ -20,6 +19,7 @@ import {
   Animated,
   Easing,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Image as ExpoImage } from 'expo-image';
 import { BlurView } from 'expo-blur';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -3382,7 +3382,7 @@ export default function LocaleScreen() {
                 </Text>
                 <View style={styles.dropdownIconContainer}>
                   {loadingCountries ? (
-                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                    <LoadingGlobe size="small" color={theme.colors.primary} />
                   ) : (
                     <Ionicons 
                       name={showCountryDropdown ? "chevron-up" : "chevron-down"} 
@@ -3487,7 +3487,7 @@ export default function LocaleScreen() {
                 </Text>
                 <View style={styles.dropdownIconContainer}>
                   {loadingStates ? (
-                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                    <LoadingGlobe size="small" color={theme.colors.primary} />
                   ) : (
                     <Ionicons 
                       name={showStateDropdown ? "chevron-up" : "chevron-down"} 
@@ -3825,7 +3825,7 @@ export default function LocaleScreen() {
       return (
         <View style={styles.adminLocalesSection}>
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Featured Locales</Text>
-          <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginVertical: 20 }} />
+          <LoadingGlobe size="small" color={theme.colors.primary} style={{ marginVertical: 20 }} />
         </View>
       );
     }
@@ -3878,7 +3878,7 @@ export default function LocaleScreen() {
         )}
         {loadingMore && (
           <View style={styles.loadMoreContainer}>
-            <ActivityIndicator size="small" color={theme.colors.primary} />
+            <LoadingGlobe size="small" color={theme.colors.primary} />
             <Text style={[styles.loadMoreText, { color: theme.colors.textSecondary, marginLeft: 8 }]}>
               Loading more locales...
             </Text>
@@ -4037,7 +4037,7 @@ export default function LocaleScreen() {
       <SafeAreaView style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#4A90E2" />
+          <LoadingGlobe size="large" color="#4A90E2" />
         </View>
       </SafeAreaView>
     );
@@ -4148,7 +4148,7 @@ export default function LocaleScreen() {
             </View>
           ) : loadingLocales && localesToShow.length === 0 ? (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-              <ActivityIndicator size="small" color={theme.colors.primary} />
+              <LoadingGlobe size="small" color={theme.colors.primary} />
             </View>
           ) : (
             <View style={{ flex: 1, position: 'relative' }}>
@@ -4200,7 +4200,7 @@ export default function LocaleScreen() {
                       )}
                       {loadingMore && (
                         <View style={styles.loadMoreContainer}>
-                          <ActivityIndicator size="small" color={theme.colors.primary} />
+                          <LoadingGlobe size="small" color={theme.colors.primary} />
                           <Text style={[styles.loadMoreText, { color: theme.colors.textSecondary, marginLeft: 8 }]}>
                             Loading more locales...
                           </Text>

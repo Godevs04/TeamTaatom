@@ -5,10 +5,10 @@ import {
   TouchableOpacity,
   StyleSheet,
   Modal,
-  ActivityIndicator,
   Alert,
   Platform,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '../../context/ThemeContext';
@@ -193,7 +193,7 @@ const ChatAttachmentPicker: React.FC<ChatAttachmentPickerProps> = ({
   if (uploading) {
     return (
       <View style={[styles.uploadingOverlay, { backgroundColor: theme.colors.background }]}>
-        <ActivityIndicator size="small" color={theme.colors.primary} />
+        <LoadingGlobe size="small" color={theme.colors.primary} />
         <Text style={[styles.uploadingText, { color: theme.colors.textSecondary }]}>
           Uploading...
         </Text>

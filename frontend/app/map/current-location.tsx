@@ -4,12 +4,12 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   Dimensions,
   StatusBar,
   Platform,
   KeyboardAvoidingView,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -431,7 +431,7 @@ export default function CurrentLocationMap() {
     if (loading) {
       return (
         <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
           <Text style={[styles.loadingText, { color: theme.colors.text }]}>
             Getting your location...
           </Text>
@@ -785,7 +785,7 @@ function initMap(){
             onPress={loadRoute}
             disabled={routeLoading}
           >
-            {routeLoading ? <ActivityIndicator color="white" /> : <Ionicons name="navigate" size={20} color="white" />}
+            {routeLoading ? <LoadingGlobe color="white" /> : <Ionicons name="navigate" size={20} color="white" />}
           </TouchableOpacity>
         )}
       </View>

@@ -5,12 +5,12 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   RefreshControl,
   Image,
   Platform,
-  Dimensions
+  Dimensions,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
@@ -124,7 +124,7 @@ export default function BlockedUsersScreen() {
 
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       ) : (
         <ScrollView
@@ -187,7 +187,7 @@ export default function BlockedUsersScreen() {
                     disabled={unblockingIds.has(user._id)}
                   >
                     {unblockingIds.has(user._id) ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
+                      <LoadingGlobe size="small" color="#FFFFFF" />
                     ) : (
                       <Text style={styles.unblockButtonText}>Unblock</Text>
                     )}

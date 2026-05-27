@@ -1,16 +1,16 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
-  TouchableOpacity, 
-  Alert, 
-  ActivityIndicator,
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
   RefreshControl,
   Platform,
   Dimensions,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
@@ -248,7 +248,7 @@ export default function SettingsScreen() {
         <SafeAreaView style={styles.safeFill} edges={['top']}>
         <NavBar title="Settings" showBack onBack={() => router.back()} />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
         </SafeAreaView>
       </View>

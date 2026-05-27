@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   ScrollView,
   Platform,
   Dimensions,
@@ -13,6 +12,7 @@ import {
   TextInput,
   Modal,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -182,7 +182,7 @@ export default function JourneyDetailScreen() {
           <View style={{ width: 40 }} />
         </View>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={GROWTH_GREEN} />
+          <LoadingGlobe size="large" color={GROWTH_GREEN} />
         </View>
       </SafeAreaView>
     );
@@ -282,7 +282,7 @@ export default function JourneyDetailScreen() {
                 disabled={isSaving}
               >
                 {isSaving ? (
-                  <ActivityIndicator size="small" color="white" />
+                  <LoadingGlobe size="small" color="white" />
                 ) : (
                   <Text style={[styles.modalBtnText, { color: 'white' }]}>Save</Text>
                 )}

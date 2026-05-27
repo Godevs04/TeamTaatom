@@ -6,13 +6,13 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
-  ActivityIndicator,
   Image,
   Modal,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
 } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '../context/ThemeContext';
@@ -335,7 +335,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color={theme.colors.text} />
+                <LoadingGlobe color={theme.colors.text} />
               ) : (
                 <Text style={styles.buttonText}>Save</Text>
               )}

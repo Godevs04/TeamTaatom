@@ -16,10 +16,10 @@ import {
   View,
   Text,
   StyleSheet,
-  ActivityIndicator,
   Platform,
   Image,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import Constants from 'expo-constants';
 import { useTheme } from '../../context/ThemeContext';
 import { ADMOB } from '../../constants/admob';
@@ -149,7 +149,7 @@ function NativeAdCardComponent({ adIndex, onImpression }: NativeAdCardProps) {
     return (
       <View style={[styles.wrapper, { backgroundColor: theme.colors.surface }]}>
         <View style={styles.placeholder}>
-          <ActivityIndicator size="small" color={theme.colors.primary} />
+          <LoadingGlobe size="small" color={theme.colors.primary} />
         </View>
       </View>
     );

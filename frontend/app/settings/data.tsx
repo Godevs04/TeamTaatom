@@ -1,15 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
-  TouchableOpacity, 
-  ActivityIndicator,
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
   Switch,
   Platform,
-  Dimensions
+  Dimensions,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
@@ -348,7 +348,7 @@ export default function DataStorageSettingsScreen() {
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
         <NavBar title="Data & Storage" />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       </View>
     );
@@ -599,7 +599,7 @@ export default function DataStorageSettingsScreen() {
               </View>
             </View>
             {syncing ? (
-              <ActivityIndicator size="small" color={theme.colors.primary} />
+              <LoadingGlobe size="small" color={theme.colors.primary} />
             ) : (
               <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
             )}

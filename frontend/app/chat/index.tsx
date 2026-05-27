@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Image, Alert, Dimensions, Keyboard, Linking } from 'react-native';
+import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, Image, Alert, Dimensions, Keyboard, Linking } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Image as ExpoImage } from 'expo-image';
 import * as Notifications from 'expo-notifications';
 import { useTheme } from '../../context/ThemeContext';
@@ -426,7 +427,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
     // Show loading or fallback icon
     if (isLoading) {
       return (
-        <ActivityIndicator 
+        <LoadingGlobe 
           size="small" 
           color={isOwn ? 'rgba(255,255,255,0.7)' : theme.colors.primary} 
         />
@@ -3212,7 +3213,7 @@ export default function ChatModal() {
     />;
   }
   if (chatLoading || loading) {
-    return <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator color={theme.colors.primary} size="large" /></SafeAreaView>;
+    return <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}><LoadingGlobe color={theme.colors.primary} size="large" /></SafeAreaView>;
   }
   
   // Show error alert as part of chat interface
@@ -4222,7 +4223,7 @@ export default function ChatModal() {
           
           <View style={{ flex: 1, paddingHorizontal: 16 }}>
             {loading ? (
-              <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 32 }} />
+              <LoadingGlobe color={theme.colors.primary} style={{ marginTop: 32 }} />
             ) : (
               <FlatList
                 data={search.trim() ? users.filter(u => u.fullName.toLowerCase().includes(search.trim().toLowerCase())) : users}
