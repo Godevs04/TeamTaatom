@@ -8,8 +8,7 @@ interface CloudSkyBackgroundProps {
 }
 
 export default function CloudSkyBackground({ heightRatio = 0.32 }: CloudSkyBackgroundProps) {
-  const { mode } = useTheme();
-  const isDark = mode === 'dark';
+  const { isDark } = useTheme();
   const colors: [string, string, ...string[]] = isDark
     ? ['#000000', '#000000', '#000000']
     : ['#EAEFF4', '#F5F7FA', '#F5F7FA'];

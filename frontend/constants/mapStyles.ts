@@ -1,76 +1,75 @@
-export const MAP_ACCENT = '#00F0FF';
-export const MAP_ACCENT_SOFT = 'rgba(0, 240, 255, 0.24)';
+export const MAP_ACCENT = '#38BDF8'; // Sky Blue
+export const MAP_ACCENT_SOFT = 'rgba(56, 189, 248, 0.24)';
 
 export const midnightGlassMapStyle = [
-  // Base environment / Landmass: #181818
-  { elementType: 'geometry', stylers: [{ color: '#181818' }] },
+  // Base environment / Landmass: #000000
+  { elementType: 'geometry', stylers: [{ color: '#000000' }] },
   
   // Clean layout - hide default icons but show labels
   { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#8A8A8A' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#181818' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#38BDF8' }] }, // Sky Blue labels
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#000000' }] },
   
   // Administrative and cities
   { featureType: 'administrative', elementType: 'geometry', stylers: [{ visibility: 'simplified' }] },
-  { featureType: 'administrative.country', elementType: 'geometry.stroke', stylers: [{ color: '#3A3A3A' }] },
-  { featureType: 'administrative.province', elementType: 'geometry.stroke', stylers: [{ color: '#2A2A2A' }] },
-  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#8A8A8A' }] },
+  { featureType: 'administrative.country', elementType: 'geometry.stroke', stylers: [{ color: '#1C73B4' }, { weight: 1 }] }, // Ocean Blue coastline borders
+  { featureType: 'administrative.province', elementType: 'geometry.stroke', stylers: [{ color: '#1C73B4' }] },
+  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#38BDF8' }] },
   
   // Landscape
-  { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#181818' }] },
+  { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#000000' }] },
   
-  // Suppress POIs (business, transit, etc.)
+  // Suppress POIs
   { featureType: 'poi', stylers: [{ visibility: 'off' }] },
   
-  // Roads / Highways: #2A2A2A with dark borders
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#2A2A2A' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#181818' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#2A2A2A' }] },
-  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#181818' }] },
-  { featureType: 'road.arterial', elementType: 'geometry', stylers: [{ color: '#2A2A2A' }] },
-  { featureType: 'road.local', elementType: 'geometry', stylers: [{ color: '#202020' }] },
+  // Roads / Highways: 10% Sky Blue on Black is #051319
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#051319' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#000000' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#051319' }] },
+  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#000000' }] },
+  { featureType: 'road.arterial', elementType: 'geometry', stylers: [{ color: '#051319' }] },
+  { featureType: 'road.local', elementType: 'geometry', stylers: [{ color: '#02090C' }] },
   
   // Transit suppression
   { featureType: 'transit', stylers: [{ visibility: 'off' }] },
   
-  // Water Bodies: #101010
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#101010' }] },
-  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#8A8A8A' }] },
+  // Water Bodies: #000000
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#000000' }] },
+  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#38BDF8' }] },
 ];
 
 export const calmMorningMapStyle = [
-  // Land: #EEF2F6
-  { elementType: 'geometry', stylers: [{ color: '#EEF2F6' }] },
+  // Base environment / Landmass: #FFFFFF
+  { elementType: 'geometry', stylers: [{ color: '#FFFFFF' }] },
   
-  // Clean labels styled with #667085
+  // Clean labels
   { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#667085' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#1C73B4' }] }, // Ocean Blue labels
   { elementType: 'labels.text.stroke', stylers: [{ color: '#FFFFFF' }] },
   
   // Administrative and cities
-  { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#CBD5E1' }] },
-  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#667085' }] },
+  { featureType: 'administrative', elementType: 'geometry.stroke', stylers: [{ color: '#1C73B4' }] },
+  { featureType: 'administrative.country', elementType: 'geometry.stroke', stylers: [{ color: '#1C73B4' }, { weight: 1 }] }, // Ocean Blue coastline borders
+  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#1C73B4' }] },
   
   // Landscape
-  { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#EDF2F6' }] },
+  { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#FFFFFF' }] },
   
-  // Suppress POIs but keep landmarks/parks
+  // Suppress POIs
   { featureType: 'poi', stylers: [{ visibility: 'off' }] },
-  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#DDF6E8' }] },
   
-  // Roads: Major roads are #FFFFFF, minor are #E8EDF2
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#FFFFFF' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#E2E8F0' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#FFFFFF' }] },
-  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#CBD5E1' }] },
-  { featureType: 'road.arterial', elementType: 'geometry', stylers: [{ color: '#FFFFFF' }] },
-  { featureType: 'road.local', elementType: 'geometry', stylers: [{ color: '#E8EDF2' }] },
+  // Roads: 10% Sky Blue on White is #EBF6FD
+  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#EBF6FD' }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#FFFFFF' }] },
+  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#EBF6FD' }] },
+  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#FFFFFF' }] },
+  { featureType: 'road.arterial', elementType: 'geometry', stylers: [{ color: '#EBF6FD' }] },
+  { featureType: 'road.local', elementType: 'geometry', stylers: [{ color: '#F5FAFE' }] },
   
   // Transit suppression
   { featureType: 'transit', stylers: [{ visibility: 'off' }] },
   
-  // Water: #A8D8FF
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#A8D8FF' }] },
-  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#4F6B86' }] },
+  // Water Bodies: #FFFFFF
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#FFFFFF' }] },
+  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#1C73B4' }] },
 ];
-

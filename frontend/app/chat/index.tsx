@@ -1873,7 +1873,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
               const BubbleWrapper = ({ children }: { children: React.ReactNode }) =>
                 isOwn ? (
                   <LinearGradient
-                    colors={cloudDesign.buttonGradient}
+                    colors={['#1C73B4', '#50C878']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={[bubbleStyles.bubbleOut, { maxWidth: CHAT_BUBBLE_MAX_WIDTH }]}

@@ -24,6 +24,14 @@ const config: Config = {
         display: ["var(--font-display)", "Georgia", "serif"],
       },
       colors: {
+        taatom: {
+          black: '#000000',
+          white: '#FFFFFF',
+          sky: '#38BDF8',
+          ocean: '#1C73B4',
+          emerald: '#50C878',
+          borderTint: 'rgba(28, 115, 180, 0.15)',
+        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",

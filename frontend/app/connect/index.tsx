@@ -538,13 +538,24 @@ export default function ConnectHubScreen() {
       activeOpacity={0.7}
     >
       <CloudGlassSurface style={styles.userCard} contentStyle={styles.userCardContent} borderRadius={18}>
-        {user.profilePic ? (
-          <Image source={{ uri: user.profilePic }} style={styles.userAvatar} />
-        ) : (
-          <View style={[styles.userAvatarPlaceholder, { backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }]}>
-            <Ionicons name="person" size={22} color={theme.colors.textSecondary} />
-          </View>
-        )}
+        <LinearGradient
+          colors={['#1C73B4', '#50C878']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={{
+            padding: 2,
+            borderRadius: isTablet ? 28 : 24,
+            marginRight: 12,
+          }}
+        >
+          {user.profilePic ? (
+            <Image source={{ uri: user.profilePic }} style={[styles.userAvatar, { marginRight: 0 }]} />
+          ) : (
+            <View style={[styles.userAvatarPlaceholder, { marginRight: 0, backgroundColor: isDark ? '#000000' : '#FFFFFF' }]}>
+              <Ionicons name="person" size={22} color={theme.colors.textSecondary} />
+            </View>
+          )}
+        </LinearGradient>
         <View style={styles.userInfo}>
           <Text style={[styles.userName, { color: theme.colors.text }]} numberOfLines={1}>
             {user.fullName}
@@ -687,13 +698,24 @@ export default function ConnectHubScreen() {
         >
           {/* User Info Header */}
           <View style={styles.sheetUserHeader}>
-            {selectedUser.profilePic ? (
-              <Image source={{ uri: selectedUser.profilePic }} style={styles.sheetAvatar} />
-            ) : (
-              <View style={[styles.sheetAvatarPlaceholder, { backgroundColor: theme.colors.border }]}>
-                <Ionicons name="person" size={28} color={theme.colors.textSecondary} />
-              </View>
-            )}
+            <LinearGradient
+              colors={['#1C73B4', '#50C878']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{
+                padding: 2,
+                borderRadius: isTablet ? 30 : 26,
+                marginRight: 14,
+              }}
+            >
+              {selectedUser.profilePic ? (
+                <Image source={{ uri: selectedUser.profilePic }} style={[styles.sheetAvatar, { marginRight: 0 }]} />
+              ) : (
+                <View style={[styles.sheetAvatarPlaceholder, { marginRight: 0, backgroundColor: isDark ? '#000000' : '#FFFFFF' }]}>
+                  <Ionicons name="person" size={28} color={theme.colors.textSecondary} />
+                </View>
+              )}
+            </LinearGradient>
             <View style={styles.sheetUserInfo}>
               <Text style={[styles.sheetUserName, { color: theme.colors.text }]} numberOfLines={1}>
                 {selectedUser.fullName}
@@ -969,15 +991,17 @@ export default function ConnectHubScreen() {
       <View style={[styles.solidTopBar, { height: topBarHeight, paddingTop: topBarHeight - 56, backgroundColor: isDark ? '#0D1B2A' : '#FFFFFF' }]}>
         <View style={styles.topBarContent}>
           <PremiumIconButton
-            icon="menu"
+            icon="arrow-back"
             onPress={() => router.back()}
             accessibilityLabel="Back"
+            color={isDark ? '#38BDF8' : '#1C73B4'}
           />
           <Text style={[styles.topBarTitle, { color: isDark ? '#FFFFFF' : '#122236' }]}>Connect</Text>
           <PremiumIconButton
             icon="search"
             onPress={() => router.push('/connect/search')}
             accessibilityLabel="Search"
+            color={isDark ? '#38BDF8' : '#1C73B4'}
           />
         </View>
       </View>
@@ -996,11 +1020,11 @@ export default function ConnectHubScreen() {
       {/* FAB — Create Connect Page (Connect tab only) */}
       {activeTab === 'connect' && (
         <TouchableOpacity
-          style={[styles.fab, { backgroundColor: theme.colors.primary, shadowColor: theme.colors.glowBlue }]}
+          style={[styles.fab, { backgroundColor: isDark ? '#38BDF8' : '#1C73B4', shadowColor: theme.colors.glowBlue }]}
           onPress={() => router.push('/connect/create')}
           activeOpacity={0.8}
         >
-          <Ionicons name="add" size={28} color="#FFFFFF" />
+          <Ionicons name="add" size={28} color={isDark ? '#000000' : '#FFFFFF'} />
         </TouchableOpacity>
       )}
 

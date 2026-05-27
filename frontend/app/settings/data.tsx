@@ -417,8 +417,8 @@ export default function DataStorageSettingsScreen() {
                   showSuccess('Wi-Fi only downloads enabled. Downloads will be blocked on cellular networks.');
                 }
               }}
-              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
-              thumbColor={(settings?.account?.wifiOnlyDownloads || false) ? theme.colors.primary : theme.colors.textSecondary}
+              trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
+              thumbColor="#FFFFFF"
             />
           </View>
         </View>
@@ -577,8 +577,8 @@ export default function DataStorageSettingsScreen() {
             <Switch
               value={settings?.account?.autoSync !== false}
               onValueChange={(value) => updateSetting('autoSync', value)}
-              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
-              thumbColor={(settings?.account?.autoSync !== false) ? theme.colors.primary : theme.colors.textSecondary}
+              trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
+              thumbColor="#FFFFFF"
             />
           </View>
 
@@ -675,7 +675,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: isTablet ? theme.spacing.md : 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.1)',
+    borderBottomColor: 'rgba(28, 115, 180, 0.15)',
   },
   settingContent: {
     flexDirection: 'row',
@@ -727,7 +727,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: isTablet ? theme.spacing.md : 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.1)',
+    borderBottomColor: 'rgba(28, 115, 180, 0.15)',
   },
   storageContent: {
     flexDirection: 'row',

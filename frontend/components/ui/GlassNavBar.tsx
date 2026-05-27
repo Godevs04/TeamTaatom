@@ -26,19 +26,27 @@ export const GlassNavBar = ({ title, showBack = true, rightComponent, style, ...
         styles.container, 
         { 
           paddingTop: insets.top,
-          borderBottomWidth: theme.glass.border.width,
-          borderBottomColor: theme.glass.border.color,
-          backgroundColor: isDark ? theme.colors.frostTintMedium : theme.colors.glassBackground,
+          borderBottomWidth: 0,
+          backgroundColor: 'transparent',
         },
         style
       ]}
       {...props}
     >
-      <BlurView intensity={theme.glass.blur.medium} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
+      <BlurView 
+        intensity={80} 
+        tint={isDark ? 'dark' : 'light'} 
+        style={[
+          StyleSheet.absoluteFillObject,
+          {
+            backgroundColor: isDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.8)',
+          }
+        ]} 
+      />
       <View style={styles.content}>
         {showBack ? (
           <TouchableOpacity onPress={() => router.back()} style={styles.leftBtn}>
-            <Ionicons name="chevron-back-outline" size={24} color={theme.colors.text} />
+            <Ionicons name="chevron-back-outline" size={24} color={isDark ? '#38BDF8' : '#1C73B4'} />
           </TouchableOpacity>
         ) : <View style={styles.leftBtn} />}
         

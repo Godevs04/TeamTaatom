@@ -652,6 +652,13 @@ const toggleFollow = async (req, res) => {
 
       await Promise.all([currentUser.save(), targetUser.save()]);
 
+      // Invalidate cache
+      await Promise.all([
+        deleteCache(CacheKeys.user(targetIdStr)),
+        deleteCache(CacheKeys.user(currentUserId.toString())),
+        deleteCacheByPattern('search:*')
+      ]).catch(err => logger.warn('Failed to delete follow cache:', err));
+
       notifyFollowUpdated();
 
       return sendSuccess(res, 200, 'User unfollowed', {
@@ -675,7 +682,31 @@ const toggleFollow = async (req, res) => {
         );
         
         if (existingSentRequest || existingReceivedRequest) {
-          return sendError(res, 'BIZ_7002', 'Follow request already pending');
+          // Cancel/Recall follow request
+          currentUser.sentFollowRequests = currentUser.sentFollowRequests.filter(
+            req => req.user.toString() !== id
+          );
+          targetUser.followRequests = targetUser.followRequests.filter(
+            req => req.user.toString() !== currentUserId.toString()
+          );
+
+          await Promise.all([currentUser.save(), targetUser.save()]);
+
+          // Invalidate cache
+          await Promise.all([
+            deleteCache(CacheKeys.user(targetIdStr)),
+            deleteCache(CacheKeys.user(currentUserId.toString())),
+            deleteCacheByPattern('search:*')
+          ]).catch(err => logger.warn('Failed to delete follow cache:', err));
+
+          notifyFollowUpdated();
+
+          return sendSuccess(res, 200, 'Follow request cancelled', {
+            isFollowing: false,
+            followersCount: targetUser.followers.filter(followerId => followerId.toString() !== id.toString()).length,
+            followingCount: currentUser.following.filter(followingId => followingId.toString() !== currentUserId.toString()).length,
+            followRequestSent: false
+          });
         }
 
         // Send follow request
@@ -703,6 +734,13 @@ const toggleFollow = async (req, res) => {
         targetUser.followRequests.push(followRequest);
 
         await Promise.all([currentUser.save(), targetUser.save()]);
+
+        // Invalidate cache
+        await Promise.all([
+          deleteCache(CacheKeys.user(targetIdStr)),
+          deleteCache(CacheKeys.user(currentUserId.toString())),
+          deleteCacheByPattern('search:*')
+        ]).catch(err => logger.warn('Failed to delete follow cache:', err));
 
         // Send notification to target user
         const io = getIO();
@@ -760,6 +798,13 @@ const toggleFollow = async (req, res) => {
         targetUser.followers.push(currentUserId);
 
         await Promise.all([currentUser.save(), targetUser.save()]);
+
+        // Invalidate cache
+        await Promise.all([
+          deleteCache(CacheKeys.user(targetIdStr)),
+          deleteCache(CacheKeys.user(currentUserId.toString())),
+          deleteCacheByPattern('search:*')
+        ]).catch(err => logger.warn('Failed to delete follow cache:', err));
 
         // Create activity (respect user's privacy settings)
         const user = await User.findById(currentUserId).select('settings.privacy.shareActivity').lean();
@@ -1446,22 +1491,29 @@ const approveFollowRequest = async (req, res) => {
       }
     }
 
-        // Send notification to requester
-        const io = getIO();
-        if (io && requester.expoPushToken && requester.settings?.notifications?.followApprovalNotifications) {
-          const nsp = io.of('/app');
-          nsp.emit('notification', {
-            userId: requesterId.toString(),
-            type: 'follow_approved',
-            title: 'Follow Request Approved',
-            message: `${user.fullName} approved your follow request`,
-            data: {
-              approvedBy: currentUserId.toString(),
-              approvedByName: user.fullName,
-              approvedByProfilePic: user.profilePic
-            }
-          });
+    // Invalidate cache
+    await Promise.all([
+      deleteCache(CacheKeys.user(currentUserId.toString())),
+      deleteCache(CacheKeys.user(requesterId.toString())),
+      deleteCacheByPattern('search:*')
+    ]).catch(err => logger.warn('Failed to delete approve follow request cache:', err));
+
+    // Send notification to requester
+    const io = getIO();
+    if (io && requester.expoPushToken && requester.settings?.notifications?.followApprovalNotifications) {
+      const nsp = io.of('/app');
+      nsp.emit('notification', {
+        userId: requesterId.toString(),
+        type: 'follow_approved',
+        title: 'Follow Request Approved',
+        message: `${user.fullName} approved your follow request`,
+        data: {
+          approvedBy: currentUserId.toString(),
+          approvedByName: user.fullName,
+          approvedByProfilePic: user.profilePic
         }
+      });
+    }
 
         // Create notification in database
         try {
@@ -1550,6 +1602,13 @@ const rejectFollowRequest = async (req, res) => {
     }
 
     await Promise.all([user.save(), requester.save()]);
+
+    // Invalidate cache
+    await Promise.all([
+      deleteCache(CacheKeys.user(currentUserId.toString())),
+      deleteCache(CacheKeys.user(requesterId.toString())),
+      deleteCacheByPattern('search:*')
+    ]).catch(err => logger.warn('Failed to delete reject follow request cache:', err));
 
     // Mark the follow_request notification as read and change type so it persists correctly after reload
     try {
@@ -2781,6 +2840,13 @@ const toggleBlockUser = async (req, res) => {
       currentUser.blockedUsers.pull(id);
       await currentUser.save();
 
+      // Invalidate cache
+      await Promise.all([
+        deleteCache(CacheKeys.user(id.toString())),
+        deleteCache(CacheKeys.user(currentUserId.toString())),
+        deleteCacheByPattern('search:*')
+      ]).catch(err => logger.warn('Failed to delete unblock cache:', err));
+
       return sendSuccess(res, 200, 'User unblocked successfully', { isBlocked: false });
     } else {
       // Block user
@@ -2810,6 +2876,13 @@ const toggleBlockUser = async (req, res) => {
       );
 
       await Promise.all([currentUser.save(), targetUser.save()]);
+
+      // Invalidate cache
+      await Promise.all([
+        deleteCache(CacheKeys.user(id.toString())),
+        deleteCache(CacheKeys.user(currentUserId.toString())),
+        deleteCacheByPattern('search:*')
+      ]).catch(err => logger.warn('Failed to delete block cache:', err));
 
       return sendSuccess(res, 200, 'User blocked successfully', { isBlocked: true });
     }

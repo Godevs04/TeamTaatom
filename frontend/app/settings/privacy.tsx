@@ -330,8 +330,8 @@ export default function PrivacySettingsScreen() {
               value={settings?.privacy?.showEmail || false}
               onValueChange={(value) => handleUpdateSetting('showEmail', value)}
               disabled={updatingKeysRef.current.has('showEmail')}
-              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
-              thumbColor={settings?.privacy?.showEmail ? theme.colors.primary : theme.colors.textSecondary}
+              trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
+              thumbColor="#FFFFFF"
             />
           </View>
 
@@ -351,8 +351,8 @@ export default function PrivacySettingsScreen() {
               value={settings?.privacy?.showLocation !== false}
               onValueChange={(value) => handleUpdateSetting('showLocation', value)}
               disabled={updatingKeysRef.current.has('showLocation')}
-              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
-              thumbColor={settings?.privacy?.showLocation !== false ? theme.colors.primary : theme.colors.textSecondary}
+              trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
+              thumbColor="#FFFFFF"
             />
           </View>
 
@@ -405,8 +405,8 @@ export default function PrivacySettingsScreen() {
               value={settings?.privacy?.shareActivity !== false}
               onValueChange={(value) => handleUpdateSetting('shareActivity', value)}
               disabled={updatingKeysRef.current.has('shareActivity')}
-              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
-              thumbColor={settings?.privacy?.shareActivity !== false ? theme.colors.primary : theme.colors.textSecondary}
+              trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
+              thumbColor="#FFFFFF"
             />
           </View>
         </View>
@@ -590,7 +590,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: isTablet ? theme.spacing.md : 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.1)',
+    borderBottomColor: 'rgba(28, 115, 180, 0.15)',
   },
   settingContent: {
     flexDirection: 'row',

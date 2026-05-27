@@ -6,8 +6,10 @@ import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
+  withRepeat,
 } from 'react-native-reanimated';
 import { useTheme } from '../context/ThemeContext';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface PremiumMapMarkerProps {
   icon?: keyof typeof Ionicons.glyphMap;
@@ -33,6 +35,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
   const { isDark, theme } = useTheme();
   const activeState = isActive ?? active;
   const activeProgress = useSharedValue(activeState ? 1 : 0);
+  const pulse = useSharedValue(1);
 
   useEffect(() => {
     activeProgress.value = withTiming(activeState ? 1 : 0, {
@@ -41,12 +44,51 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
     });
   }, [activeState, activeProgress]);
 
+  useEffect(() => {
+    pulse.value = withRepeat(
+      withTiming(2.2, { duration: 1500, easing: Easing.out(Easing.ease) }),
+      -1,
+      false
+    );
+  }, []);
+
   const containerStyle = useAnimatedStyle(() => {
     const scale = activeState ? (isDark ? 1.15 : 1.1) : 1.0;
     return {
       transform: [{ scale: withTiming(scale, { duration: 200 }) }],
     };
   });
+
+  const pulseStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: pulse.value }],
+      opacity: 1 - (pulse.value - 1) / 1.2,
+    };
+  });
+
+  // Handle user current location marker (pulsating dot)
+  if (icon === 'navigate') {
+    const outerBg = isDark ? '#000000' : '#FFFFFF';
+    const dotColor = isDark ? '#FFFFFF' : '#000000';
+    return (
+      <View style={styles.userMarkerContainer}>
+        {/* Pulsating Ring */}
+        <Animated.View style={[styles.pulsatingRing, pulseStyle]}>
+          <LinearGradient
+            colors={['#1C73B4', '#50C878']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+        </Animated.View>
+        
+        {/* Static Inner Border */}
+        <View style={[styles.userMarkerOuter, { backgroundColor: outerBg, borderColor: isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.1)' }]}>
+          <View style={[styles.userMarkerInner, { backgroundColor: dotColor }]} />
+        </View>
+      </View>
+    );
+  }
 
   // Handle Journey Start / End points
   if (pointType === 'start' || pointType === 'end') {
@@ -66,24 +108,20 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
 
   // Theme-based colors
   const cardBg = activeState
-    ? '#3B82F6'
+    ? (isDark ? '#38BDF8' : '#1C73B4')
     : isDark
-      ? 'rgba(255, 255, 255, 0.12)'
+      ? 'rgba(0, 0, 0, 0.75)'
       : 'rgba(255, 255, 255, 0.85)';
 
   const cardBorder = activeState
-    ? 'rgba(59, 130, 246, 0.2)'
-    : isDark
-      ? 'rgba(255, 255, 255, 0.15)'
-      : 'rgba(0, 0, 0, 0.08)';
+    ? 'rgba(56, 189, 248, 0.2)'
+    : theme.colors.border;
 
   const textColor = activeState
     ? '#FFFFFF'
-    : isDark
-      ? '#E8F4FF'
-      : '#4A6274';
+    : (isDark ? '#FFFFFF' : '#000000');
 
-  const dotColor = isDark ? '#FFFFFF' : '#121212';
+  const dotColor = isDark ? '#FFFFFF' : '#000000';
 
   return (
     <Animated.View style={[styles.cockpitContainer, containerStyle]}>
@@ -115,20 +153,20 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
           </View>
         ) : (
           <View style={styles.markerContentRow}>
-            <View style={[
+             <View style={[
               styles.iconCircle,
               {
                 backgroundColor: activeState
                   ? 'rgba(255, 255, 255, 0.25)'
                   : isDark
                     ? 'rgba(255, 255, 255, 0.15)'
-                    : 'rgba(59, 130, 246, 0.12)',
+                    : 'rgba(28, 115, 180, 0.12)',
               }
             ]}>
               <Ionicons
                 name={icon}
                 size={10}
-                color={activeState ? '#FFFFFF' : isDark ? '#E8F4FF' : '#3B82F6'}
+                color={activeState ? '#FFFFFF' : isDark ? '#FFFFFF' : '#1C73B4'}
               />
             </View>
             {showLabel ? (
@@ -252,9 +290,39 @@ const styles = StyleSheet.create({
   shadowLight: {
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.08,
     shadowRadius: 16,
     elevation: 4,
+  },
+  userMarkerContainer: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pulsatingRing: {
+    position: 'absolute',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+  },
+  userMarkerOuter: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+  },
+  userMarkerInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
 });
 

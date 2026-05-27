@@ -56,6 +56,19 @@ export default function UserProfileScreen() {
   const { theme, mode } = useTheme();
   const router = useRouter();
   const [profile, setProfile] = useState<any>(null);
+  const hasProfileRef = useRef(false);
+  const updateProfileState = useCallback((val: any) => {
+    if (typeof val === 'function') {
+      setProfile((prev: any) => {
+        const next = val(prev);
+        hasProfileRef.current = !!next;
+        return next;
+      });
+    } else {
+      hasProfileRef.current = !!val;
+      setProfile(val);
+    }
+  }, []);
   const [loading, setLoading] = useState(true);
   const [showWorldMap, setShowWorldMap] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -115,7 +128,7 @@ export default function UserProfileScreen() {
     // Do NOT update followingCount - the API returns the current user's following count,
     // but the profile displays the target user's following count (who the target user follows)
     if (response.followersCount !== undefined) {
-      setProfile((prevProfile: any) => {
+      updateProfileState((prevProfile: any) => {
         if (!prevProfile) return prevProfile;
         const updated: any = { ...prevProfile };
         if (typeof response.followersCount === 'number') {
@@ -163,9 +176,9 @@ export default function UserProfileScreen() {
         headerGradient: ['#F5F7FA', '#F5F7FA'] as const,
         cardBg: '#FFFFFF',
         cardBorder: 'rgba(255, 255, 255, 0.90)',
-        textPrimary: '#121212',
+        textPrimary: '#000000',
         textSecondary: '#667085',
-        accent: '#121212',
+        accent: '#000000',
         statCardBg: 'rgba(255, 255, 255, 0.55)',
         statCardBorder: 'rgba(255, 255, 255, 0.90)',
         gapBorderColor: '#F5F7FA',
@@ -280,7 +293,9 @@ export default function UserProfileScreen() {
 
   const fetchProfile = useCallback(async () => {
     const startTime = Date.now();
-    setLoading(true);
+    if (!hasProfileRef.current) {
+      setLoading(true);
+    }
     try {
       // Add cache-busting parameter if we have a stored follow response
       // This ensures we get fresh data instead of cached stale data (304 responses)
@@ -293,7 +308,7 @@ export default function UserProfileScreen() {
           const parsed = JSON.parse(cachedProfile);
           const cacheAge = Date.now() - (parsed.timestamp || 0);
           if (cacheAge < 5 * 60 * 1000 && parsed.data) { // 5 min cache
-            setProfile(parsed.data);
+            updateProfileState(parsed.data);
             // Pre-set follow state from cache to avoid flicker
             const cachedIsFollowing = Boolean(parsed.data.isFollowing);
             const cachedFollowRequestSent = Boolean(parsed.data.followRequestSent);
@@ -318,7 +333,7 @@ export default function UserProfileScreen() {
         timestamp: Date.now()
       })).catch(() => {});
       
-      setProfile(userProfile);
+      updateProfileState(userProfile);
       
       // Fetch verified locations count only if viewer is allowed to see locations
       if (userProfile.canViewLocations) getTravelMapData(id as string)
@@ -397,12 +412,12 @@ export default function UserProfileScreen() {
         }
         
         setLoadingShorts(false);
-        setProfile(userProfile); // Update profile with posts (includes fetched posts)
+        updateProfileState(userProfile); // Update profile with posts (includes fetched posts)
       } else {
         // User cannot view posts, set empty arrays
         userProfile.posts = [];
         setUserShorts([]);
-        setProfile(userProfile);
+        updateProfileState(userProfile);
       }
       
       // CRITICAL: If we have a stored API response from a follow action, ALWAYS use it
@@ -449,7 +464,7 @@ export default function UserProfileScreen() {
   }, [id, deriveFollowState]);
 
   useEffect(() => {
-    setProfile(null);
+    updateProfileState(null);
     setLoading(true);
     setIsFollowing(false);
     setFollowRequestSent(false);
@@ -527,19 +542,21 @@ export default function UserProfileScreen() {
     const prevFollowersCount = profile?.followersCount ?? 0;
 
     // ✅ OPTIMISTIC UPDATE: Change UI immediately before API call
-    // Toggle: if currently following → unfollow, if not following → follow
-    if (prevIsFollowing) {
-      // Optimistic unfollow
+    // Toggle: if currently following OR follow request sent → unfollow/cancel request
+    if (prevIsFollowing || prevFollowRequestSent) {
+      // Optimistic unfollow / cancel request
       setIsFollowing(false);
       setFollowRequestSent(false);
       setFollowState('FOLLOW');
-      setProfile((prev: any) => prev ? { ...prev, followersCount: Math.max(0, (prev.followersCount || 0) - 1) } : prev);
+      if (prevIsFollowing) {
+        updateProfileState((prev: any) => prev ? { ...prev, followersCount: Math.max(0, (prev.followersCount || 0) - 1) } : prev);
+      }
     } else {
       // Optimistic follow (assume public profile — will correct to REQUESTED if private)
       setIsFollowing(true);
       setFollowRequestSent(false);
       setFollowState('FOLLOWING');
-      setProfile((prev: any) => prev ? { ...prev, followersCount: (prev.followersCount || 0) + 1 } : prev);
+      updateProfileState((prev: any) => prev ? { ...prev, followersCount: (prev.followersCount || 0) + 1 } : prev);
     }
     setFollowLoading(false); // Hide spinner immediately — optimistic update is shown
 
@@ -569,7 +586,7 @@ export default function UserProfileScreen() {
       setIsFollowing(prevIsFollowing);
       setFollowRequestSent(prevFollowRequestSent);
       setFollowState(prevFollowState);
-      setProfile((prev: any) => prev ? { ...prev, followersCount: prevFollowersCount } : prev);
+      updateProfileState((prev: any) => prev ? { ...prev, followersCount: prevFollowersCount } : prev);
 
       // Don't log conflict errors (follow request already pending) as they are expected
       if (!e.isConflict && e.response?.status !== 409) {
@@ -661,10 +678,10 @@ export default function UserProfileScreen() {
 
             {/* Profile Card */}
             <PremiumGlassCard
-              style={[styles.profileCard, { backgroundColor: isDark ? undefined : 'transparent' }]}
+              style={styles.profileCard}
               contentStyle={styles.profileCardInner}
               subtle
-              blur={isDark}
+              blur={true}
             >
               {/* Avatar with Ring */}
               <View style={styles.avatarContainer}>
@@ -700,17 +717,25 @@ export default function UserProfileScreen() {
                       styles.actionButton,
                       followState === 'FOLLOWING'
                         ? [styles.followingButton, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.accent }]
-                        : [styles.followButton, { backgroundColor: profileTheme.accent }]
+                        : [styles.followButton, { overflow: 'hidden' }]
                     ]}
                     onPress={handleFollow}
-                    disabled={followLoading || followState === 'REQUESTED'}
+                    disabled={followLoading}
                   >
+                    {followState !== 'FOLLOWING' && (
+                      <ExpoLinearGradient
+                        colors={['#1C73B4', '#50C878']}
+                        style={StyleSheet.absoluteFillObject}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                      />
+                    )}
                     {followLoading ? (
                       <ActivityIndicator size="small" color={followState === 'FOLLOWING' ? profileTheme.accent : '#FFFFFF'} />
                     ) : (
                       <Text style={[
                         styles.actionButtonText,
-                        { color: followState === 'FOLLOWING' ? profileTheme.accent : '#FFFFFF' }
+                        { color: followState === 'FOLLOWING' ? profileTheme.accent : '#FFFFFF', zIndex: 1 }
                       ]}>
                         {followState === 'FOLLOWING' ? 'Unfollow' : followState === 'REQUESTED' ? 'Request Sent' : 'Follow'}
                       </Text>
@@ -719,11 +744,17 @@ export default function UserProfileScreen() {
                   
                   {followState === 'FOLLOWING' && (
                     <Pressable
-                      style={[styles.actionButton, styles.messageButton, { backgroundColor: profileTheme.accent }]}
+                      style={[styles.actionButton, styles.messageButton, { overflow: 'hidden' }]}
                       onPress={() => router.push(`/chat?userId=${profile._id}`)}
                     >
-                      <Ionicons name="chatbubble-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-                      <Text style={[styles.actionButtonText, { color: '#FFFFFF' }]}>Message</Text>
+                      <ExpoLinearGradient
+                        colors={isDark ? ['#60A5FA', '#60A5FA'] : ['#1C73B4', '#50C878']}
+                        style={StyleSheet.absoluteFillObject}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                      />
+                      <Ionicons name="chatbubble-outline" size={18} color="#FFFFFF" style={{ marginRight: 6, zIndex: 1 }} />
+                      <Text style={[styles.actionButtonText, { color: '#FFFFFF', zIndex: 1 }]}>Message</Text>
                     </Pressable>
                   )}
                 </View>
@@ -829,13 +860,21 @@ export default function UserProfileScreen() {
               <Pressable
                 style={[
                   styles.pillTab,
-                  activeTab === 'posts' && [styles.pillTabActive, { backgroundColor: profileTheme.accent }]
+                  activeTab === 'posts' && styles.pillTabActive
                 ]}
                 onPress={() => setActiveTab('posts')}
               >
+                {activeTab === 'posts' && (
+                  <ExpoLinearGradient
+                    colors={isDark ? ['#1C73B4', '#50C878'] : ['#1C73B4', '#1C73B4']}
+                    style={StyleSheet.absoluteFillObject}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                  />
+                )}
                 <Text style={[
                   styles.pillTabText,
-                  { color: activeTab === 'posts' ? (isDark ? '#121212' : '#FFFFFF') : profileTheme.textSecondary }
+                  { color: activeTab === 'posts' ? '#FFFFFF' : profileTheme.textSecondary, zIndex: 1 }
                 ]}>
                   Posts
                 </Text>
@@ -843,13 +882,21 @@ export default function UserProfileScreen() {
               <Pressable
                 style={[
                   styles.pillTab,
-                  activeTab === 'shorts' && [styles.pillTabActive, { backgroundColor: profileTheme.accent }]
+                  activeTab === 'shorts' && styles.pillTabActive
                 ]}
                 onPress={() => setActiveTab('shorts')}
               >
+                {activeTab === 'shorts' && (
+                  <ExpoLinearGradient
+                    colors={isDark ? ['#1C73B4', '#50C878'] : ['#1C73B4', '#1C73B4']}
+                    style={StyleSheet.absoluteFillObject}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                  />
+                )}
                 <Text style={[
                   styles.pillTabText,
-                  { color: activeTab === 'shorts' ? (isDark ? '#121212' : '#FFFFFF') : profileTheme.textSecondary }
+                  { color: activeTab === 'shorts' ? '#FFFFFF' : profileTheme.textSecondary, zIndex: 1 }
                 ]}>
                   Shorts
                 </Text>
@@ -1440,6 +1487,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
     backgroundColor: 'transparent',
+    overflow: 'hidden',
   },
   pillTabActive: {
   },

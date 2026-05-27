@@ -28,6 +28,7 @@ import {
   createSubscription,
   cancelSubscription as cancelSubApi,
   getCurrencySymbol,
+  fetchCurrencyConfig,
   ContentBlock,
   ConnectPageType,
   SubscriptionStatus,
@@ -118,6 +119,16 @@ export default function ContentPreviewScreen() {
   const [subscribing, setSubscribing] = useState(false);
   const pendingSubscriptionRef = useRef<{ subscriptionId: string; amount: number } | null>(null);
 
+  // Multi-currency live conversion support
+  const [countryToCurrency, setCountryToCurrency] = useState<Record<string, string>>({ IN: 'INR' });
+  const [displayPrices, setDisplayPrices] = useState<any>(null);
+
+  useEffect(() => {
+    fetchCurrencyConfig().then((config) => {
+      setCountryToCurrency(config.countryToCurrency);
+    }).catch(() => {});
+  }, []);
+
   const isWebsite = section === 'website';
   const isSubscription = section === 'subscription';
   const isCommunity = pageData?.category === 'community';
@@ -157,6 +168,7 @@ export default function ContentPreviewScreen() {
         if (pageResponse) {
           setPageData(pageResponse.page);
           setIsOwner(pageResponse.isOwner);
+          setDisplayPrices((pageResponse as any).subscriptionDisplayPrices);
           // Load subscription status for non-owners
           if (!pageResponse.isOwner && pageResponse.page.features?.subscription && pageResponse.page.subscriptionPrice) {
             try {
@@ -623,7 +635,14 @@ export default function ContentPreviewScreen() {
                       <>
                         <Ionicons name={isCommunity ? 'cart-outline' : 'star'} size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
                         <Text style={styles.subscribeButtonText}>
-                          {subButtonText} · {currSym}{approvedPrice}/month
+                          {(() => {
+                            const locale = Intl.NumberFormat().resolvedOptions().locale || '';
+                            const userCountry = locale.split('-')[1]?.toUpperCase() || 'IN';
+                            const userCurrency = countryToCurrency[userCountry] || 'INR';
+                            const userPriceInfo = displayPrices?.prices?.[userCurrency];
+                            const altPrice = (userCurrency !== 'INR' && userPriceInfo) ? ` (${userPriceInfo.formatted})` : '';
+                            return `${subButtonText} · ${currSym}${approvedPrice}${altPrice}/month`;
+                          })()}
                         </Text>
                       </>
                     )}

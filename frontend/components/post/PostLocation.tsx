@@ -99,8 +99,8 @@ export default function PostLocation({ post }: PostLocationProps) {
       disabled={isGeocoding}
     >
       <View style={styles.locationContent}>
-        <Ionicons name="location-outline" size={12} color={theme.colors.textSecondary} />
-        <Text style={[styles.locationText, { color: theme.colors.textSecondary }]}>
+        <Ionicons name="location-outline" size={12} color={theme.colors.textPassive} />
+        <Text style={[styles.locationText, { color: theme.colors.textPassive }]}>
           {post.location.address}
         </Text>
       </View>

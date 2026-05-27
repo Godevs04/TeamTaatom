@@ -35,7 +35,8 @@ function CloudTabIcon({
   const { isDark } = useTheme();
 
   if (!focused) {
-    return <Ionicons name={name} size={22} color={color} />;
+    const inactiveColor = isDark ? 'rgba(56, 189, 248, 0.5)' : 'rgba(28, 115, 180, 0.5)';
+    return <Ionicons name={name} size={22} color={inactiveColor} />;
   }
 
   const gradientColors = (isDark ? ['#FFFFFF', '#8A9AA5'] : ['#121212', '#4A6274']) as [string, string];
@@ -216,8 +217,20 @@ export default function TabsLayout() {
             end={{ x: 0, y: 1 }}
           />
         ),
+        headerBackground: () => (
+          <BlurView
+            intensity={80}
+            tint={isDark ? 'dark' : 'light'}
+            style={[
+              StyleSheet.absoluteFillObject,
+              {
+                backgroundColor: isDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.8)',
+              }
+            ]}
+          />
+        ),
         tabBarActiveTintColor: theme.colors.primary,
-        tabBarInactiveTintColor: theme.colors.textSecondary,
+        tabBarInactiveTintColor: isDark ? 'rgba(56, 189, 248, 0.5)' : 'rgba(28, 115, 180, 0.5)',
         tabBarItemStyle: {
           justifyContent: 'center',
           alignItems: 'center',

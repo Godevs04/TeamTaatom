@@ -18,7 +18,7 @@ interface RotatingGlobeProps {
 }
 
 export default function RotatingGlobe({ locations = [], size = 24, onPress, onLocationPress }: RotatingGlobeProps) {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const router = useRouter();
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const hasLocations = locations && locations.length > 0;
@@ -71,7 +71,7 @@ export default function RotatingGlobe({ locations = [], size = 24, onPress, onLo
       activeOpacity={0.7}
     >
       <Animated.View style={{ transform: [{ rotate: rotation }] }}>
-        <Ionicons name="earth" size={size} color={theme.colors.primary} />
+        <Ionicons name="earth" size={size} color={isDark ? '#38BDF8' : '#1C73B4'} />
       </Animated.View>
     </TouchableOpacity>
   );

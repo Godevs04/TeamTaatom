@@ -1,8 +1,9 @@
 import React from 'react';
 import { View, Text, Platform, Dimensions, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 import PremiumIconButton from './ui/PremiumIconButton';
+import { BlurView } from 'expo-blur';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -34,19 +35,16 @@ export default function NavBar(props: NavBarProps) {
   const shouldShowBack = showBack || showBackButton;
   const backHandler = onBack || onBackPress;
   const titleColor = theme.colors.text;
+  const insets = useSafeAreaInsets();
 
   return (
-    <SafeAreaView 
+    <View 
       style={{
-        backgroundColor: isDark ? '#000000' : theme.colors.background,
-        shadowColor: theme.colors.shadow,
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: isDark ? 0 : 0.1,
-        shadowRadius: 6,
-        elevation: isDark ? 0 : 8,
+        paddingTop: insets.top,
+        backgroundColor: 'transparent',
         zIndex: 10,
-      }} 
-      edges={["top"]}
+        position: 'relative',
+      }}
     >
       <View style={{
         marginHorizontal: isTablet ? 24 : 14,
@@ -58,8 +56,22 @@ export default function NavBar(props: NavBarProps) {
         paddingHorizontal: isTablet ? 18 : 10,
         paddingVertical: 8,
         minHeight: isTablet ? 64 : 56,
-        backgroundColor: isDark ? '#000000' : theme.colors.background,
+        borderRadius: 20,
+        borderWidth: 1,
+        borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+        backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)',
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: isDark ? 0.3 : 0.1,
+        shadowRadius: 10,
+        elevation: 4,
+        overflow: 'hidden',
       }}>
+        <BlurView
+          intensity={80}
+          tint={isDark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFillObject}
+        />
         {shouldShowBack && (
           <PremiumIconButton
             icon="chevron-back"
@@ -67,21 +79,23 @@ export default function NavBar(props: NavBarProps) {
             accessibilityLabel="Go back"
             size={isAndroid ? 46 : 44}
             iconSize={isTablet ? 26 : 22}
-            style={{ marginRight: isTablet ? 12 : 8 }}
+            color={isDark ? '#38BDF8' : '#1C73B4'}
+            style={{ marginRight: isTablet ? 12 : 8, zIndex: 1 }}
           />
         )}
         <Text
           accessibilityRole="header"
           accessibilityLabel={title}
           style={{
-          flex: 1,
-          fontSize: isTablet ? theme.typography.h2.fontSize : 22,
-          fontFamily: isWeb ? 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' : (isIOS ? 'System' : 'Roboto'),
-          fontWeight: 'bold',
-          color: titleColor,
-          textAlign: 'center',
-          letterSpacing: isIOS ? 0.5 : 0.3,
-        }}>{title}</Text>
+            flex: 1,
+            fontSize: isTablet ? theme.typography.h2.fontSize : 22,
+            fontFamily: isWeb ? 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' : (isIOS ? 'System' : 'Roboto'),
+            fontWeight: 'bold',
+            color: titleColor,
+            textAlign: 'center',
+            letterSpacing: isIOS ? 0.5 : 0.3,
+            zIndex: 1,
+          }}>{title}</Text>
         {rightComponent ? (
           <View style={{
             marginLeft: isTablet ? theme.spacing.md : theme.spacing.sm,
@@ -89,14 +103,16 @@ export default function NavBar(props: NavBarProps) {
             minHeight: isAndroid ? 48 : 44,
             justifyContent: 'center',
             alignItems: 'center',
+            zIndex: 1,
           }}>{rightComponent}</View>
         ) : shouldShowBack ? (
           <View style={{
             width: isAndroid ? 48 : 44,
             marginLeft: isTablet ? theme.spacing.md : theme.spacing.sm,
+            zIndex: 1,
           }} />
         ) : null}
       </View>
-    </SafeAreaView>
+    </View>
   );
 }

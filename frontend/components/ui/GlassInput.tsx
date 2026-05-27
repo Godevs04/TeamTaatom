@@ -77,13 +77,13 @@ export const GlassInput = ({ label, error, containerStyle, onFocus, onBlur, left
         : interpolateColor(
             focusedAnim.value,
             [0, 1],
-            [theme.glass.border.color, theme.colors.primary]
+            ['rgba(28, 115, 180, 0.20)', isDark ? '#FFFFFF' : '#000000']
           ),
-      borderWidth: theme.glass.border.width,
+      borderWidth: 1.5,
       borderRadius: theme.borderRadius.sm,
       backgroundColor: error 
         ? (isDark ? 'rgba(255, 59, 48, 0.1)' : 'rgba(255, 59, 48, 0.05)') 
-        : (isDark ? theme.colors.frostTintMedium : theme.colors.glassBackground),
+        : (isDark ? '#000000' : '#FFFFFF'),
     };
   }, [error, isDark, theme, focusedAnim, shakeAnim]);
 

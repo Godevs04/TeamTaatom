@@ -21,7 +21,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../../context/ThemeContext';
+import GradientText from '../../../components/ui/GradientText';
 import { useAlert } from '../../../context/AlertContext';
 import { theme as themeConstants } from '../../../constants/theme';
 import {
@@ -38,6 +40,7 @@ import {
   getPayoutPreview,
   getCurrencySymbol,
   formatConnectMoney,
+  fetchCurrencyConfig,
   ConnectPageType,
   ContentBlock,
   PayoutPreview,
@@ -75,7 +78,7 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' = '400') => {
   return 'Roboto';
 };
 
-const getContrastColor = (bgColor: string, defaultDark = '#121212', defaultLight = '#FFFFFF') => {
+const getContrastColor = (bgColor: string, defaultDark = '#000000', defaultLight = '#FFFFFF') => {
   if (!bgColor) return defaultLight;
   let color = bgColor.trim().toLowerCase();
 
@@ -184,12 +187,22 @@ export default function ConnectPageDetailScreen() {
   // flip the UI before the webhook arrives and DB status updates to 'active'.
   const pendingSubscriptionRef = useRef<{ subscriptionId: string; amount: number } | null>(null);
   const [showPriceModal, setShowPriceModal] = useState(false);
-  const [priceInput, setPriceInput] = useState('');
+   const [priceInput, setPriceInput] = useState('');
   const [showPayoutInfo, setShowPayoutInfo] = useState(false);
   const [payoutPreview, setPayoutPreview] = useState<PayoutPreview | null>(null);
   const [showBioEdit, setShowBioEdit] = useState(false);
   const [bioInput, setBioInput] = useState('');
   const [savingBio, setSavingBio] = useState(false);
+
+  // Multi-currency live conversion support
+  const [countryToCurrency, setCountryToCurrency] = useState<Record<string, string>>({ IN: 'INR' });
+  const [displayPrices, setDisplayPrices] = useState<any>(null);
+
+  useEffect(() => {
+    fetchCurrencyConfig().then((config) => {
+      setCountryToCurrency(config.countryToCurrency);
+    }).catch(() => {});
+  }, []);
 
   // Category-based labels
   const isCommunity = page?.category === 'community' || page?.isAdminPage === true;
@@ -207,6 +220,7 @@ export default function ConnectPageDetailScreen() {
       setPage(response.page);
       setIsOwner(response.isOwner);
       setIsFollowing(response.isFollowing);
+      setDisplayPrices((response as any).subscriptionDisplayPrices);
       // Record view (non-critical, fire and forget)
       recordPageView(id);
     } catch (error) {
@@ -612,9 +626,9 @@ export default function ConnectPageDetailScreen() {
           ? rawUrl
           : (rawUrl ? `https://${rawUrl}` : '');
         const buttonBg = effectiveBg || theme.colors.primary;
-        const contrastTextColor = getContrastColor(buttonBg, '#121212', '#FFFFFF');
+        const contrastTextColor = getContrastColor(buttonBg, '#000000', '#FFFFFF');
         const buttonTextColor = block.color
-          ? (block.color.toLowerCase() === '#ffffff' && contrastTextColor === '#121212' ? '#121212' : block.color)
+          ? (block.color.toLowerCase() === '#ffffff' && contrastTextColor === '#000000' ? '#000000' : block.color)
           : contrastTextColor;
         node = (
           <TouchableOpacity
@@ -780,8 +794,36 @@ export default function ConnectPageDetailScreen() {
             resizeMode="cover"
           />
         ) : (
-          <View style={[styles.bannerPlaceholder, { backgroundColor: theme.colors.primary + '12' }]}>
-            <Ionicons name="image-outline" size={32} color={theme.colors.primary + '30'} />
+          <View style={[styles.bannerPlaceholder, { backgroundColor: isDark ? '#000000' : '#FFFFFF', overflow: 'hidden', position: 'relative' }]}>
+            {/* Aurora Mesh Glows */}
+            <View
+              style={{
+                position: 'absolute',
+                top: -20,
+                left: -20,
+                width: 150,
+                height: 150,
+                borderRadius: 75,
+                backgroundColor: 'rgba(28, 115, 180, 0.15)',
+              }}
+            />
+            <View
+              style={{
+                position: 'absolute',
+                bottom: -20,
+                right: -20,
+                width: 150,
+                height: 150,
+                borderRadius: 75,
+                backgroundColor: 'rgba(80, 200, 120, 0.15)',
+              }}
+            />
+            <BlurView
+              intensity={50}
+              tint={isDark ? 'dark' : 'light'}
+              style={StyleSheet.absoluteFillObject}
+            />
+            <Ionicons name="people-outline" size={32} color={isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)'} />
           </View>
         )}
 
@@ -1027,9 +1069,10 @@ export default function ConnectPageDetailScreen() {
                 </View>
                 <View>
                   <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Group Chat</Text>
-                  <Text style={[styles.chatDescription, { color: theme.colors.textSecondary }]}>
-                    {(page.followerCount || 0) + 1} members active
-                  </Text>
+                  <GradientText
+                    text={`${(page.followerCount || 0) + 1} members active`}
+                    style={styles.chatDescription}
+                  />
                 </View>
               </View>
               <View style={[styles.chatArrowWrap, { backgroundColor: theme.colors.primary + '12' }]}>
@@ -1259,21 +1302,40 @@ export default function ConnectPageDetailScreen() {
                 return (
                   <View style={[styles.subscriptionPriceSection, { borderTopColor: theme.colors.border }]}>
                     <TouchableOpacity
-                      style={[styles.subscribeButton, { backgroundColor: theme.colors.primary }]}
                       onPress={handleSubscribe}
-                      activeOpacity={0.7}
+                      activeOpacity={0.8}
                       disabled={subscribing}
+                      style={{ width: '100%', marginTop: 4 }}
                     >
-                      {subscribing ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
-                      ) : (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-                          <Ionicons name={isCommunity ? 'cart-outline' : 'star'} size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-                          <Text style={styles.subscribeButtonText}>
-                            {subButtonText} · {currSym}{page.subscriptionPrice}/month
-                          </Text>
-                        </View>
-                      )}
+                      <LinearGradient
+                        colors={['#1C73B4', '#50C878']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={{
+                          paddingVertical: 14,
+                          borderRadius: 9999,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        {subscribing ? (
+                          <ActivityIndicator size="small" color="#FFFFFF" />
+                        ) : (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+                            <Ionicons name={isCommunity ? 'cart-outline' : 'star'} size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                            <Text style={styles.subscribeButtonText}>
+                              {(() => {
+                                const locale = Intl.NumberFormat().resolvedOptions().locale || '';
+                                const userCountry = locale.split('-')[1]?.toUpperCase() || 'IN';
+                                const userCurrency = countryToCurrency[userCountry] || 'INR';
+                                const userPriceInfo = displayPrices?.prices?.[userCurrency];
+                                const altPrice = (userCurrency !== 'INR' && userPriceInfo) ? ` (${userPriceInfo.formatted})` : '';
+                                return `${subButtonText} · ${currSym}${page.subscriptionPrice}${altPrice}/month`;
+                              })()}
+                            </Text>
+                          </View>
+                        )}
+                      </LinearGradient>
                     </TouchableOpacity>
                   </View>
                 );

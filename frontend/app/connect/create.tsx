@@ -81,6 +81,12 @@ export default function CreateConnectPageScreen() {
   const [bankIfsc, setBankIfsc] = useState('');
   const [upiId, setUpiId] = useState('');
   const [wiseEmail, setWiseEmail] = useState('');
+  const [intlPayoutMethod, setIntlPayoutMethod] = useState<'wise_email' | 'international_bank'>('wise_email');
+  const [intlBankName, setIntlBankName] = useState('');
+  const [intlBankCountry, setIntlBankCountry] = useState('');
+  const [intlSwiftCode, setIntlSwiftCode] = useState('');
+  const [intlIban, setIntlIban] = useState('');
+  const [intlRoutingNumber, setIntlRoutingNumber] = useState('');
 
   const isDomestic = selectedCountry === 'IN';
   const isCommunity = category === 'community';
@@ -149,6 +155,26 @@ export default function CreateConnectPageScreen() {
       }
     }
 
+    if (subscriptionEnabled) {
+      if (isDomestic) {
+        if (!upiId.trim() && (!bankAccountName.trim() || !bankAccountNumber.trim() || !bankIfsc.trim())) {
+          Alert.alert('Required', 'Please enter either your bank details or UPI ID.');
+          return;
+        }
+      } else {
+        if (intlPayoutMethod === 'wise_email' && !wiseEmail.trim()) {
+          Alert.alert('Required', 'Please enter your Wise email.');
+          return;
+        }
+        if (intlPayoutMethod === 'international_bank') {
+          if (!bankAccountName.trim() || !intlBankName.trim() || !intlBankCountry.trim() || (!intlIban.trim() && !intlSwiftCode.trim())) {
+            Alert.alert('Required', 'Please enter your Account Holder Name, Bank Name, Bank Country, and at least one of IBAN/Account Number or SWIFT Code.');
+            return;
+          }
+        }
+      }
+    }
+
     try {
       setCreating(true);
       const response = await createConnectPage({
@@ -164,13 +190,23 @@ export default function CreateConnectPageScreen() {
         subscriptionPrice: subscriptionEnabled && subscriptionPrice ? parseFloat(subscriptionPrice) : undefined,
         subscriptionCurrency: currency,
         country: selectedCountry,
-        payoutInfo: subscriptionEnabled ? {
-          bankAccountName: isDomestic ? bankAccountName.trim() : undefined,
-          bankAccountNumber: isDomestic ? bankAccountNumber.trim() : undefined,
-          bankIfsc: isDomestic ? bankIfsc.trim() : undefined,
-          upiId: isDomestic ? upiId.trim() : undefined,
-          wiseEmail: !isDomestic ? wiseEmail.trim() : undefined,
-        } : undefined,
+        payoutInfo: subscriptionEnabled ? (
+          isDomestic ? {
+            bankAccountName: bankAccountName.trim(),
+            bankAccountNumber: bankAccountNumber.trim(),
+            bankIfsc: bankIfsc.trim(),
+            upiId: upiId.trim(),
+          } : {
+            payoutMethod: intlPayoutMethod,
+            wiseEmail: intlPayoutMethod === 'wise_email' ? wiseEmail.trim() : undefined,
+            bankAccountName: intlPayoutMethod === 'international_bank' ? bankAccountName.trim() : undefined,
+            bankName: intlPayoutMethod === 'international_bank' ? intlBankName.trim() : undefined,
+            bankCountry: intlPayoutMethod === 'international_bank' ? intlBankCountry.trim() : undefined,
+            swiftCode: intlPayoutMethod === 'international_bank' ? intlSwiftCode.trim() : undefined,
+            iban: intlPayoutMethod === 'international_bank' ? intlIban.trim() : undefined,
+            routingNumber: intlPayoutMethod === 'international_bank' ? intlRoutingNumber.trim() : undefined,
+          }
+        ) : undefined,
         profileImage,
         bannerImage,
       } as any);
@@ -621,21 +657,168 @@ export default function CreateConnectPageScreen() {
                     </>
                   ) : (
                     <>
-                      <Text style={[styles.payoutFieldLabel, { color: theme.colors.textSecondary }]}>
-                        Wise Email
-                      </Text>
-                      <TextInput
-                        style={[styles.payoutInput, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
-                        value={wiseEmail}
-                        onChangeText={setWiseEmail}
-                        placeholder="your@email.com"
-                        placeholderTextColor={theme.colors.textSecondary + '80'}
-                        autoCapitalize="none"
-                        keyboardType="email-address"
-                      />
-                      <Text style={[styles.payoutFieldHint, { color: theme.colors.textSecondary }]}>
-                        Payouts are sent monthly via Wise in {currency}
-                      </Text>
+                      {/* Payout method tab selector */}
+                      <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
+                        <TouchableOpacity
+                          style={{
+                            flex: 1,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderWidth: 1,
+                            borderRadius: 12,
+                            paddingVertical: 12,
+                            gap: 8,
+                            borderColor: intlPayoutMethod === 'wise_email' ? theme.colors.primary : theme.colors.border,
+                            backgroundColor: intlPayoutMethod === 'wise_email' ? theme.colors.primary + '15' : 'transparent',
+                          }}
+                          onPress={() => setIntlPayoutMethod('wise_email')}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons
+                            name="mail-outline"
+                            size={18}
+                            color={intlPayoutMethod === 'wise_email' ? theme.colors.primary : theme.colors.textSecondary}
+                          />
+                          <Text
+                            style={{
+                              fontSize: 14,
+                              fontWeight: '600',
+                              color: intlPayoutMethod === 'wise_email' ? theme.colors.primary : theme.colors.textSecondary,
+                            }}
+                          >
+                            Wise Email
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={{
+                            flex: 1,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderWidth: 1,
+                            borderRadius: 12,
+                            paddingVertical: 12,
+                            gap: 8,
+                            borderColor: intlPayoutMethod === 'international_bank' ? theme.colors.primary : theme.colors.border,
+                            backgroundColor: intlPayoutMethod === 'international_bank' ? theme.colors.primary + '15' : 'transparent',
+                          }}
+                          onPress={() => setIntlPayoutMethod('international_bank')}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons
+                            name="business-outline"
+                            size={18}
+                            color={intlPayoutMethod === 'international_bank' ? theme.colors.primary : theme.colors.textSecondary}
+                          />
+                          <Text
+                            style={{
+                              fontSize: 14,
+                              fontWeight: '600',
+                              color: intlPayoutMethod === 'international_bank' ? theme.colors.primary : theme.colors.textSecondary,
+                            }}
+                          >
+                            Intl Bank
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {intlPayoutMethod === 'wise_email' ? (
+                        <>
+                          <Text style={[styles.payoutFieldLabel, { color: theme.colors.textSecondary }]}>
+                            Wise Email
+                          </Text>
+                          <TextInput
+                            style={[styles.payoutInput, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
+                            value={wiseEmail}
+                            onChangeText={setWiseEmail}
+                            placeholder="your@email.com"
+                            placeholderTextColor={theme.colors.textSecondary + '80'}
+                            autoCapitalize="none"
+                            keyboardType="email-address"
+                          />
+                          <Text style={[styles.payoutFieldHint, { color: theme.colors.textSecondary }]}>
+                            Payouts are sent monthly via Wise in {currency}
+                          </Text>
+                        </>
+                      ) : (
+                        <>
+                          <Text style={[styles.payoutFieldLabel, { color: theme.colors.textSecondary }]}>
+                            Account Holder Name
+                          </Text>
+                          <TextInput
+                            style={[styles.payoutInput, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
+                            value={bankAccountName}
+                            onChangeText={setBankAccountName}
+                            placeholder="Full name as on bank account"
+                            placeholderTextColor={theme.colors.textSecondary + '80'}
+                            autoCapitalize="words"
+                          />
+
+                          <Text style={[styles.payoutFieldLabel, { color: theme.colors.textSecondary }]}>
+                            Bank Name
+                          </Text>
+                          <TextInput
+                            style={[styles.payoutInput, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
+                            value={intlBankName}
+                            onChangeText={setIntlBankName}
+                            placeholder="e.g. Citibank, HSBC"
+                            placeholderTextColor={theme.colors.textSecondary + '80'}
+                            autoCapitalize="words"
+                          />
+
+                          <Text style={[styles.payoutFieldLabel, { color: theme.colors.textSecondary }]}>
+                            Bank Country
+                          </Text>
+                          <TextInput
+                            style={[styles.payoutInput, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
+                            value={intlBankCountry}
+                            onChangeText={setIntlBankCountry}
+                            placeholder="e.g. United States, United Kingdom"
+                            placeholderTextColor={theme.colors.textSecondary + '80'}
+                            autoCapitalize="words"
+                          />
+
+                          <Text style={[styles.payoutFieldLabel, { color: theme.colors.textSecondary }]}>
+                            IBAN / Account Number
+                          </Text>
+                          <TextInput
+                            style={[styles.payoutInput, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
+                            value={intlIban}
+                            onChangeText={setIntlIban}
+                            placeholder="e.g. GB33BUGB12345678901234"
+                            placeholderTextColor={theme.colors.textSecondary + '80'}
+                            autoCapitalize="characters"
+                          />
+
+                          <Text style={[styles.payoutFieldLabel, { color: theme.colors.textSecondary }]}>
+                            SWIFT / BIC Code
+                          </Text>
+                          <TextInput
+                            style={[styles.payoutInput, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
+                            value={intlSwiftCode}
+                            onChangeText={setIntlSwiftCode}
+                            placeholder="e.g. BOFAUS3NXXX"
+                            placeholderTextColor={theme.colors.textSecondary + '80'}
+                            autoCapitalize="characters"
+                          />
+
+                          <Text style={[styles.payoutFieldLabel, { color: theme.colors.textSecondary }]}>
+                            Routing Number / Transit / Sort Code (Optional)
+                          </Text>
+                          <TextInput
+                            style={[styles.payoutInput, { color: theme.colors.text, borderColor: theme.colors.border, backgroundColor: theme.colors.background }]}
+                            value={intlRoutingNumber}
+                            onChangeText={setIntlRoutingNumber}
+                            placeholder="e.g. 021000021"
+                            placeholderTextColor={theme.colors.textSecondary + '80'}
+                            autoCapitalize="characters"
+                          />
+                          <Text style={[styles.payoutFieldHint, { color: theme.colors.textSecondary }]}>
+                            Direct international wire payouts will be manually processed monthly in {currency}.
+                          </Text>
+                        </>
+                      )}
                     </>
                   )}
                 </View>

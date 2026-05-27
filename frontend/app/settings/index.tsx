@@ -244,7 +244,7 @@ export default function SettingsScreen() {
 
   if (isLoading) {
     return (
-      <View style={[styles.container, { backgroundColor: isDark ? '#000000' : '#F5F7FA' }]}>
+      <View style={[styles.container, { backgroundColor: isDark ? '#000000' : '#FFFFFF' }]}>
         <SafeAreaView style={styles.safeFill} edges={['top']}>
         <NavBar title="Settings" showBack onBack={() => router.back()} />
         <View style={styles.loadingContainer}>
@@ -256,7 +256,7 @@ export default function SettingsScreen() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: isDark ? '#000000' : '#F5F7FA' }]}>
+    <View style={[styles.container, { backgroundColor: isDark ? '#000000' : '#FFFFFF' }]}>
       <LinearGradient
         colors={
           isDark

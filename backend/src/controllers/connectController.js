@@ -236,6 +236,12 @@ const createPage = async (req, res) => {
       if (parsedPayout.bankIfsc) pageData.creatorPayoutInfo.bankIfsc = parsedPayout.bankIfsc;
       if (parsedPayout.upiId) pageData.creatorPayoutInfo.upiId = parsedPayout.upiId;
       if (parsedPayout.wiseEmail) pageData.creatorPayoutInfo.wiseEmail = parsedPayout.wiseEmail;
+      if (parsedPayout.payoutMethod) pageData.creatorPayoutInfo.payoutMethod = parsedPayout.payoutMethod;
+      if (parsedPayout.bankName) pageData.creatorPayoutInfo.bankName = parsedPayout.bankName;
+      if (parsedPayout.bankCountry) pageData.creatorPayoutInfo.bankCountry = parsedPayout.bankCountry;
+      if (parsedPayout.swiftCode) pageData.creatorPayoutInfo.swiftCode = parsedPayout.swiftCode;
+      if (parsedPayout.iban) pageData.creatorPayoutInfo.iban = parsedPayout.iban;
+      if (parsedPayout.routingNumber) pageData.creatorPayoutInfo.routingNumber = parsedPayout.routingNumber;
     }
 
     // Set subscription price if provided — democratized: approved instantly
@@ -523,6 +529,12 @@ const updatePage = async (req, res) => {
       if (parsedPayout.bankIfsc !== undefined) updates['creatorPayoutInfo'].bankIfsc = parsedPayout.bankIfsc;
       if (parsedPayout.upiId !== undefined) updates['creatorPayoutInfo'].upiId = parsedPayout.upiId;
       if (parsedPayout.wiseEmail !== undefined) updates['creatorPayoutInfo'].wiseEmail = parsedPayout.wiseEmail;
+      if (parsedPayout.payoutMethod !== undefined) updates['creatorPayoutInfo'].payoutMethod = parsedPayout.payoutMethod;
+      if (parsedPayout.bankName !== undefined) updates['creatorPayoutInfo'].bankName = parsedPayout.bankName;
+      if (parsedPayout.bankCountry !== undefined) updates['creatorPayoutInfo'].bankCountry = parsedPayout.bankCountry;
+      if (parsedPayout.swiftCode !== undefined) updates['creatorPayoutInfo'].swiftCode = parsedPayout.swiftCode;
+      if (parsedPayout.iban !== undefined) updates['creatorPayoutInfo'].iban = parsedPayout.iban;
+      if (parsedPayout.routingNumber !== undefined) updates['creatorPayoutInfo'].routingNumber = parsedPayout.routingNumber;
     }
 
     // Handle subscription price change — democratized: approved instantly

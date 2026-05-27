@@ -1195,7 +1195,7 @@ export default function HomeScreen() {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: mode === 'dark' ? '#121212' : '#F5F7FA',
+      backgroundColor: mode === 'dark' ? '#000000' : '#FFFFFF',
       ...(isWeb && {
         maxWidth: isTablet ? 800 : 600,
         alignSelf: 'center',
@@ -1218,7 +1218,7 @@ export default function HomeScreen() {
       backgroundColor: 'transparent',
       borderTopWidth: 0,
       borderBottomWidth: 1,
-      borderBottomColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.90)',
+      borderBottomColor: 'rgba(28, 115, 180, 0.15)',
       // Shadow Mechanics
       shadowColor: '#000000',
       shadowOffset: { width: 0, height: 4 },
@@ -1274,7 +1274,7 @@ export default function HomeScreen() {
     emptyDescription: {
       fontSize: isTablet ? theme.typography.body.fontSize + 2 : theme.typography.body.fontSize,
       fontFamily: getFontFamily('400'),
-      color: theme.colors.textSecondary,
+      color: theme.colors.textPassive,
       textAlign: 'center',
       lineHeight: isTablet ? 26 : 22,
       maxWidth: isTablet ? 400 : 280,
@@ -1446,7 +1446,7 @@ export default function HomeScreen() {
       <LinearGradient
         colors={
           mode === 'dark'
-            ? ['#121212', '#121212', '#121212']
+            ? ['#000000', '#000000', '#000000']
             : (theme.colors.screenGradient as [string, string, ...string[]])
         }
         style={StyleSheet.absoluteFillObject}
@@ -1467,7 +1467,7 @@ export default function HomeScreen() {
           />
           <View style={[styles.topBarContainer, { position: 'relative', shadowOpacity: 0, elevation: 0 }]}>
             <LinearGradient
-              colors={mode === 'dark' ? ['#000000', '#000000'] : ['#FFFFFF', '#F5F7FA']}
+              colors={mode === 'dark' ? ['#000000', '#000000'] : ['#FFFFFF', '#FFFFFF']}
               style={StyleSheet.absoluteFillObject}
               start={{ x: 0, y: 0 }}
               end={{ x: 0, y: 1 }}
@@ -1572,7 +1572,7 @@ export default function HomeScreen() {
                 ) : posts.length > 0 ? (
                   <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
                     <Text style={{
-                      color: theme.colors.textSecondary,
+                      color: theme.colors.textPassive,
                       fontSize: theme.typography.small.fontSize,
                     }}>
                       You're all caught up!
@@ -1591,7 +1591,7 @@ export default function HomeScreen() {
         {/* Absolute Top Bar (zIndex: 1000) */}
         <View style={styles.topBarContainer}>
           <LinearGradient
-            colors={mode === 'dark' ? ['#000000', '#000000'] : ['#FFFFFF', '#F5F7FA']}
+            colors={mode === 'dark' ? ['#000000', '#000000'] : ['#FFFFFF', '#FFFFFF']}
             style={StyleSheet.absoluteFillObject}
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}

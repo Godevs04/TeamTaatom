@@ -16,6 +16,7 @@ import { theme as themeConstants } from '../constants/theme';
 import { optimizeCloudinaryUrl } from '../utils/imageCache';
 import { imageCacheManager } from '../utils/imageCacheManager';
 import CloudGlassSurface, { useCloudGlassTokens } from './cloud/CloudGlassSurface';
+import GradientText from './ui/GradientText';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -61,12 +62,12 @@ export default function ConnectCard({
           {cachedImageUri ? (
             <Image
               source={{ uri: cachedImageUri }}
-              style={[styles.profileImage, { borderColor: glass.isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)' }]}
+              style={[styles.profileImage, { borderColor: '#1C73B4' }]}
               onLoad={() => imageCacheManager.cacheAfterDisplay(rawImageUrl)}
             />
           ) : (
-            <View style={[styles.profileImagePlaceholder, { backgroundColor: glass.isDark ? 'rgba(255,255,255,0.08)' : theme.colors.border }]}>
-              <Ionicons name="people" size={24} color={glass.textMuted} />
+            <View style={[styles.profileImagePlaceholder, { backgroundColor: glass.isDark ? 'rgba(0, 0, 0, 0.75)' : '#FFFFFF', borderColor: '#1C73B4', borderWidth: 2 }]}>
+              <Ionicons name="people" size={24} color={theme.colors.textPassive} />
             </View>
           )}
         </View>
@@ -74,39 +75,39 @@ export default function ConnectCard({
         <View style={styles.infoContainer}>
           <View style={styles.nameRow}>
             {page.type === 'private' && (
-              <Ionicons name="lock-closed" size={isTablet ? 15 : 13} color={glass.textMuted} style={{ marginRight: 4 }} />
+              <Ionicons name="lock-closed" size={isTablet ? 15 : 13} color={theme.colors.textPassive} style={{ marginRight: 4 }} />
             )}
             <Text style={[styles.pageName, { color: glass.textPrimary, flex: 1 }]} numberOfLines={1}>
               {page.name}
             </Text>
           </View>
           {ownerName ? (
-            <Text style={[styles.ownerName, { color: glass.textSecondary }]} numberOfLines={1}>
+            <Text style={[styles.ownerName, { color: theme.colors.textPassive }]} numberOfLines={1}>
               by {ownerName}
             </Text>
           ) : null}
           {page.bio ? (
-            <Text style={[styles.bio, { color: glass.textSecondary }]} numberOfLines={2}>
+            <Text style={[styles.bio, { color: theme.colors.textPassive }]} numberOfLines={2}>
               {page.bio}
             </Text>
           ) : null}
           <View style={styles.statsRow}>
             <View style={styles.stat}>
-              <Ionicons name="people-outline" size={14} color={glass.textMuted} />
-              <Text style={[styles.statText, { color: glass.textMuted }]}>
-                {(page.followerCount || 0) + 1}
+              <Ionicons name="people-outline" size={14} color={theme.colors.textPassive} />
+              <Text style={[styles.statText, { color: theme.colors.textPassive }]}>
+                {String((page.followerCount || 0) + 1)}
               </Text>
             </View>
             {page.features?.website && (
               <View style={styles.stat}>
-                <Ionicons name="globe-outline" size={14} color={glass.textMuted} />
-                <Text style={[styles.statText, { color: glass.textMuted }]}>Website</Text>
+                <Ionicons name="globe-outline" size={14} color={theme.colors.link} />
+                <Text style={[styles.statText, { color: theme.colors.link }]}>Website</Text>
               </View>
             )}
             {page.features?.groupChat && (
               <View style={styles.stat}>
-                <Ionicons name="chatbubbles-outline" size={14} color={glass.textMuted} />
-                <Text style={[styles.statText, { color: glass.textMuted }]}>Chat</Text>
+                <Ionicons name="chatbubbles-outline" size={14} color={theme.colors.link} />
+                <Text style={[styles.statText, { color: theme.colors.link }]}>Chat</Text>
               </View>
             )}
           </View>
@@ -125,7 +126,7 @@ export default function ConnectCard({
               </View>
             ) : (
               <LinearGradient
-                colors={['#1F2026', '#121318']}
+                colors={theme.colors.gradient.button as [string, string]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={styles.followFilled}
