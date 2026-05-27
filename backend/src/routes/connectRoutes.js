@@ -71,6 +71,7 @@ router.get('/page/:pageId/website', validatePageId, optionalAuth, connectControl
 router.put('/page/:pageId/subscription', validatePageId, authMiddleware, connectController.updateSubscriptionContent);
 router.get('/page/:pageId/subscription', validatePageId, optionalAuth, connectController.getSubscriptionContent);
 router.post('/page/:pageId/content-image', validatePageId, authMiddleware, upload.single('image'), connectController.uploadContentImage);
+router.post('/page/:pageId/buy', validatePageId, authMiddleware, connectController.buyItem);
 
 // ─────────────────────────────────────────────
 // Subscriptions (Payment)

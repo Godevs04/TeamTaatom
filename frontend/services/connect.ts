@@ -777,3 +777,23 @@ export const getLanguages = async (): Promise<{ languages: GeoItem[] }> => {
     throw new Error(parsedError.userMessage);
   }
 };
+
+export const buyCommunityItem = async (
+  pageId: string,
+  body: {
+    itemId: string;
+    buyerName: string;
+    buyerPhone: string;
+    payPhone: string;
+    deliveryAddress: string;
+  }
+): Promise<any> => {
+  try {
+    const response = await api.post(`/api/v1/connect/page/${pageId}/buy`, body);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
