@@ -4933,12 +4933,12 @@ export default function PostScreen() {
                 width: 64,
                 height: 64,
                 borderRadius: 32,
-                backgroundColor: theme.colors.primary + '15',
+                backgroundColor: theme.colors.secondary + '15',
                 justifyContent: 'center',
                 alignItems: 'center',
                 marginBottom: theme.spacing.md
               }}>
-                <Ionicons name="musical-notes" size={32} color={theme.colors.primary} />
+                <Ionicons name="musical-notes" size={32} color={theme.colors.secondary} />
               </View>
               <Text style={[styles.modalTitle, { color: theme.colors.text }]}>
                 Choose Audio for Your Short
@@ -4952,8 +4952,7 @@ export default function PostScreen() {
               style={[
                 styles.audioChoiceButton, 
                 { 
-                  backgroundColor: theme.colors.primary,
-                  ...theme.shadows.medium
+                  backgroundColor: theme.colors.secondary,
                 }
               ]}
               onPress={() => {
@@ -4985,7 +4984,7 @@ export default function PostScreen() {
               style={[
                 styles.audioChoiceButton, 
                 { 
-                  backgroundColor: theme.colors.surfaceSecondary,
+                  backgroundColor: mode === 'dark' ? '#1E1E1E' : '#FFFFFF',
                   borderWidth: 2,
                   borderColor: theme.colors.border
                 }
@@ -5209,17 +5208,20 @@ export default function PostScreen() {
                 </Text>
                 <View style={{ flexDirection: 'row', gap: theme.spacing.sm }}>
                   <TextInput
-                    style={{
-                      flex: 1,
-                      backgroundColor: theme.colors.surfaceSecondary,
-                      borderRadius: theme.borderRadius.md,
-                      paddingHorizontal: theme.spacing.md,
-                      paddingVertical: theme.spacing.md,
-                      fontSize: theme.typography.body.fontSize,
-                      color: theme.colors.text,
-                      borderWidth: 1.5,
-                      borderColor: theme.colors.border,
-                    }}
+                    style={[
+                      {
+                        flex: 1,
+                        backgroundColor: mode === 'dark' ? '#1E1E1E' : '#FFFFFF',
+                        borderRadius: theme.borderRadius.md,
+                        paddingHorizontal: theme.spacing.md,
+                        paddingVertical: theme.spacing.md,
+                        fontSize: theme.typography.body.fontSize,
+                        color: theme.colors.text,
+                        borderWidth: 1.5,
+                        borderColor: theme.colors.border,
+                      },
+                      Platform.OS === 'web' && ({ outlineStyle: 'none' } as any)
+                    ]}
                     placeholder="e.g., Museum of Anthropology"
                     placeholderTextColor={theme.colors.textSecondary}
                     value={detectPlaceName}
@@ -5231,7 +5233,7 @@ export default function PostScreen() {
                     onPress={handleSearchPlace}
                     disabled={isSearchingPlace || !detectPlaceName.trim()}
                     style={{
-                      backgroundColor: theme.colors.primary,
+                      backgroundColor: theme.colors.secondary,
                       paddingHorizontal: theme.spacing.lg,
                       paddingVertical: theme.spacing.md,
                       borderRadius: theme.borderRadius.md,
@@ -5253,17 +5255,17 @@ export default function PostScreen() {
                 <View style={{
                   marginBottom: theme.spacing.lg,
                   padding: theme.spacing.md,
-                  backgroundColor: theme.colors.primary + '10',
+                  backgroundColor: theme.colors.secondary + '10',
                   borderRadius: theme.borderRadius.md,
                   borderWidth: 1,
-                  borderColor: theme.colors.primary + '30',
+                  borderColor: theme.colors.secondary + '30',
                 }}>
                   <View style={{
                     flexDirection: 'row',
                     alignItems: 'center',
                     marginBottom: theme.spacing.sm,
                   }}>
-                    <Ionicons name="checkmark-circle" size={20} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
+                    <Ionicons name="checkmark-circle" size={20} color={theme.colors.secondary} style={{ marginRight: theme.spacing.xs }} />
                     <Text style={{
                       fontSize: theme.typography.body.fontSize,
                       fontWeight: '600',
@@ -5337,7 +5339,7 @@ export default function PostScreen() {
                     }
                   }}
                   style={{
-                    backgroundColor: theme.colors.primary,
+                    backgroundColor: theme.colors.secondary,
                     paddingVertical: theme.spacing.md,
                     borderRadius: theme.borderRadius.md,
                     alignItems: 'center',

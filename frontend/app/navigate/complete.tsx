@@ -143,10 +143,45 @@ export default function CompleteScreen() {
             const WV_KEY = getGoogleMapsApiKeyForWebView();
             if (!WV_KEY) return <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}><Ionicons name="map-outline" size={48} color="#9CA3AF" /></View>;
             const polyCoords = JSON.stringify(polyline.filter(p => p.latitude && p.longitude).map(p => ({ lat: p.latitude, lng: p.longitude })));
-            const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>html,body,#map{height:100%;margin:0;padding:0}</style>
-<script>function initMap(){var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${initialRegion.latitude},lng:${initialRegion.longitude}},zoom:13,mapTypeId:'roadmap',styles:${JSON.stringify(mapStyle.customMapStyle)},gestureHandling:'none',zoomControl:false,disableDefaultUI:true});
-var path=${polyCoords};if(path.length>1){new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});var bounds=new google.maps.LatLngBounds();path.forEach(function(p){bounds.extend(p);});map.fitBounds(bounds,40);}
-}</script></head><body><div id="map"></div>
+            const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>
+html,body,#map{height:100%;margin:0;padding:0}
+</style>
+<script>
+function initMap(){
+  var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${initialRegion.latitude},lng:${initialRegion.longitude}},zoom:13,mapTypeId:'roadmap',styles:${JSON.stringify(mapStyle.customMapStyle)},gestureHandling:'none',zoomControl:false,disableDefaultUI:true});
+  var path=${polyCoords};
+  if(path.length>1){
+    new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});
+    new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});
+    
+    // Start marker
+    new google.maps.Marker({
+      position:path[0],
+      map:map,
+      title:'Start',
+      icon:{
+        url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#10B981" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="13" font-weight="800" font-family="Arial" fill="white">S</text></svg>'),
+        scaledSize:new google.maps.Size(30,30),
+        anchor:new google.maps.Point(15,15)
+      }
+    });
+    
+    // End marker
+    new google.maps.Marker({
+      position:path[path.length-1],
+      map:map,
+      title:'End',
+      icon:{
+        url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#EF4444" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="13" font-weight="800" font-family="Arial" fill="white">E</text></svg>'),
+        scaledSize:new google.maps.Size(30,30),
+        anchor:new google.maps.Point(15,15)
+      }
+    });
+    
+    var bounds=new google.maps.LatLngBounds();path.forEach(function(p){bounds.extend(p);});map.fitBounds(bounds,40);
+  }
+}
+</script></head><body><div id="map"></div>
 <script async defer src="https://maps.googleapis.com/maps/api/js?key=${WV_KEY}&language=en&callback=initMap"></script></body></html>`;
             return (
               <WebView

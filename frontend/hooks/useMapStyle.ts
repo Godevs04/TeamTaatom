@@ -14,8 +14,8 @@ export function useMapStyle() {
       customMapStyle,
       glassTint: isDark ? 'dark' as const : 'light' as const,
       mapType: 'standard' as const,
-      routeColor: '#5EA2FF',
-      routeGlowColor: isDark ? 'rgba(94, 162, 255, 0.28)' : 'rgba(37, 99, 235, 0.22)',
+      routeColor: isDark ? '#2DD4BF' : '#3B82F6',
+      routeGlowColor: isDark ? 'rgba(45, 212, 191, 0.3)' : 'rgba(59, 130, 246, 0.22)',
       userInterfaceStyle,
       nativeMapProps: Platform.select({
         android: { customMapStyle },

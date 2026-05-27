@@ -1,5 +1,5 @@
 import React, { useEffect, memo } from 'react';
-import { StyleSheet, View, Text } from 'react-native';
+import { StyleSheet, View, Text, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   Easing,
@@ -8,6 +8,8 @@ import Animated, {
   withTiming,
   withRepeat,
 } from 'react-native-reanimated';
+import { Image as ExpoImage } from 'expo-image';
+import { BlurView } from 'expo-blur';
 import { useTheme } from '../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -20,6 +22,7 @@ interface PremiumMapMarkerProps {
   label?: string;
   activeTitle?: string;
   activeSubtitle?: string;
+  photo?: string;
 }
 
 const PremiumMapMarker = memo(function PremiumMapMarker({
@@ -31,6 +34,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
   label = '',
   activeTitle,
   activeSubtitle,
+  photo,
 }: PremiumMapMarkerProps) {
   const { isDark, theme } = useTheme();
   const activeState = isActive ?? active;
@@ -46,7 +50,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
 
   useEffect(() => {
     pulse.value = withRepeat(
-      withTiming(2.2, { duration: 1500, easing: Easing.out(Easing.ease) }),
+      withTiming(2.2, { duration: 1800, easing: Easing.out(Easing.ease) }),
       -1,
       false
     );
@@ -68,14 +72,13 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
 
   // Handle user current location marker (pulsating dot)
   if (icon === 'navigate') {
-    const outerBg = isDark ? '#000000' : '#FFFFFF';
-    const dotColor = isDark ? '#FFFFFF' : '#000000';
+    const outerBg = isDark ? '#0F172A' : '#FFFFFF';
     return (
       <View style={styles.userMarkerContainer}>
         {/* Pulsating Ring */}
         <Animated.View style={[styles.pulsatingRing, pulseStyle]}>
           <LinearGradient
-            colors={['#1C73B4', '#50C878']}
+            colors={['#3B82F6', '#2DD4BF']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFillObject}
@@ -84,7 +87,12 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
         
         {/* Static Inner Border */}
         <View style={[styles.userMarkerOuter, { backgroundColor: outerBg, borderColor: isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.1)' }]}>
-          <View style={[styles.userMarkerInner, { backgroundColor: dotColor }]} />
+          <LinearGradient
+            colors={['#3B82F6', '#2DD4BF']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.userMarkerInner}
+          />
         </View>
       </View>
     );
@@ -92,90 +100,105 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
 
   // Handle Journey Start / End points
   if (pointType === 'start' || pointType === 'end') {
-    const badgeColor = pointType === 'start' ? '#22C55E' : '#EF4444';
+    const badgeColors = pointType === 'start' 
+      ? ['#10B981', '#059669'] as const
+      : ['#EF4444', '#DC2626'] as const;
     const textLabel = pointType === 'start' ? 'S' : 'E';
     return (
-      <View style={[styles.journeyBadge, { backgroundColor: badgeColor }]}>
-        <Text style={styles.journeyBadgeText}>{textLabel}</Text>
+      <View style={isDark ? styles.shadowDark : styles.shadowLight}>
+        <LinearGradient
+          colors={badgeColors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.journeyBadge}
+        >
+          <Text style={styles.journeyBadgeText}>{textLabel}</Text>
+        </LinearGradient>
       </View>
     );
   }
 
-  // Handle standard location markers
-  const showLabel = label || '';
-  const displayTitle = activeState && activeTitle ? activeTitle : '';
-  const displaySubtitle = activeState && activeSubtitle ? activeSubtitle : '';
+  // Handle standard location markers (if inactive, render as small glowing dot)
+  if (!activeState) {
+    return (
+      <View style={styles.dotContainer}>
+        {/* Pulsating Ring */}
+        <Animated.View style={[styles.dotPulse, pulseStyle]}>
+          <LinearGradient
+            colors={isDark ? ['rgba(45, 212, 191, 0.4)', 'rgba(59, 130, 246, 0.05)'] as const : ['rgba(59, 130, 246, 0.4)', 'rgba(45, 212, 191, 0.05)'] as const}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+        </Animated.View>
+        
+        {/* Core Dot */}
+        <LinearGradient
+          colors={['#2DD4BF', '#3B82F6'] as const}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.dotCore}
+        />
+      </View>
+    );
+  }
 
-  // Theme-based colors
-  const cardBg = activeState
-    ? (isDark ? '#38BDF8' : '#1C73B4')
-    : isDark
-      ? 'rgba(0, 0, 0, 0.75)'
-      : 'rgba(255, 255, 255, 0.85)';
-
-  const cardBorder = activeState
-    ? 'rgba(56, 189, 248, 0.2)'
-    : theme.colors.border;
-
-  const textColor = activeState
-    ? '#FFFFFF'
-    : (isDark ? '#FFFFFF' : '#000000');
-
-  const dotColor = isDark ? '#FFFFFF' : '#000000';
+  // Handle Active State: Glassmorphism card + photo preview
+  const showLabel = label || activeTitle || '';
+  const displaySubtitle = activeSubtitle || 'Visited place';
+  
+  const outerBg = isDark ? 'rgba(15, 23, 42, 0.75)' : 'rgba(255, 255, 255, 0.75)';
+  const borderCol = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.08)';
+  const textColor = isDark ? '#FFFFFF' : '#0F172A';
 
   return (
     <Animated.View style={[styles.cockpitContainer, containerStyle]}>
-      {/* Top Dot (●) */}
-      <View style={[styles.markerDot, { backgroundColor: dotColor, borderColor: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.1)' }]} />
-
-      {/* Card Body */}
-      <View
-        style={[
-          styles.markerCard,
-          {
-            backgroundColor: cardBg,
-            borderColor: cardBorder,
-          },
-          isDark ? styles.shadowDark : styles.shadowLight,
-          activeState && activeTitle ? styles.activeExpandedCard : null,
-        ]}
-      >
-        {activeState && activeTitle ? (
-          <View style={styles.expandedContent}>
-            <Text style={[styles.expandedTitle, { color: textColor }]} numberOfLines={1}>
-              {displayTitle}
-            </Text>
-            {displaySubtitle ? (
-              <Text style={[styles.expandedSubtitle, { color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.5)' }]} numberOfLines={1}>
+      {/* Base Point Indicator */}
+      <View style={[styles.activeBaseDot, { backgroundColor: isDark ? '#2DD4BF' : '#3B82F6' }]} />
+      
+      {/* Glassmorphic card body */}
+      <View style={[styles.cardWrapper, isDark ? styles.shadowDark : styles.shadowLight]}>
+        <BlurView
+          intensity={Platform.OS === 'ios' ? 40 : 100}
+          tint={isDark ? 'dark' : 'light'}
+          style={[
+            styles.markerCard,
+            {
+              backgroundColor: outerBg,
+              borderColor: borderCol,
+            }
+          ]}
+        >
+          <View style={styles.markerContentRow}>
+            {photo ? (
+              <ExpoImage
+                source={{ uri: photo }}
+                style={[styles.markerPhoto, { borderColor: isDark ? '#2DD4BF' : '#3B82F6' }]}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+              />
+            ) : (
+              <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)' }]}>
+                <Ionicons
+                  name={icon}
+                  size={12}
+                  color={isDark ? '#2DD4BF' : '#3B82F6'}
+                />
+              </View>
+            )}
+            
+            <View style={styles.textColumn}>
+              {showLabel ? (
+                <Text style={[styles.markerLabelText, { color: textColor }]} numberOfLines={1}>
+                  {showLabel}
+                </Text>
+              ) : null}
+              <Text style={[styles.activeSubtitleText, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
                 {displaySubtitle}
               </Text>
-            ) : null}
-          </View>
-        ) : (
-          <View style={styles.markerContentRow}>
-             <View style={[
-              styles.iconCircle,
-              {
-                backgroundColor: activeState
-                  ? 'rgba(255, 255, 255, 0.25)'
-                  : isDark
-                    ? 'rgba(255, 255, 255, 0.15)'
-                    : 'rgba(28, 115, 180, 0.12)',
-              }
-            ]}>
-              <Ionicons
-                name={icon}
-                size={10}
-                color={activeState ? '#FFFFFF' : isDark ? '#FFFFFF' : '#1C73B4'}
-              />
             </View>
-            {showLabel ? (
-              <Text style={[styles.markerLabelText, { color: textColor }]}>
-                {showLabel}
-              </Text>
-            ) : null}
           </View>
-        )}
+        </BlurView>
       </View>
     </Animated.View>
   );
@@ -188,7 +211,8 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
     prevProps.pointType === nextProps.pointType &&
     prevProps.label === nextProps.label &&
     prevProps.activeTitle === nextProps.activeTitle &&
-    prevProps.activeSubtitle === nextProps.activeSubtitle
+    prevProps.activeSubtitle === nextProps.activeSubtitle &&
+    prevProps.photo === nextProps.photo
   );
 });
 
@@ -201,13 +225,8 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: '#FFFFFF',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3,
   },
   journeyBadgeText: {
     color: '#FFFFFF',
@@ -218,80 +237,98 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  markerDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+  dotContainer: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dotPulse: {
+    position: 'absolute',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+  },
+  dotCore: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
     borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+  },
+  activeBaseDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
     marginBottom: 4,
+    elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 1,
-    elevation: 1,
+  },
+  cardWrapper: {
+    borderRadius: 14,
+    overflow: 'hidden',
   },
   markerCard: {
-    minWidth: 46,
-    height: 28,
+    minWidth: 90,
+    maxWidth: 160,
+    height: 40,
     borderRadius: 14,
     borderWidth: 1,
-    paddingHorizontal: 6,
+    paddingHorizontal: 8,
     justifyContent: 'center',
-    alignItems: 'center',
   },
   markerContentRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
+    gap: 8,
+  },
+  markerPhoto: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1.5,
   },
   iconCircle: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  activeExpandedCard: {
-    minWidth: 100,
-    maxWidth: 160,
-    height: 42,
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+  textColumn: {
+    flexDirection: 'column',
+    justifyContent: 'center',
+    flex: 1,
   },
   markerLabelText: {
-    fontSize: 12,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  expandedContent: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  expandedTitle: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '800',
-    textAlign: 'center',
   },
-  expandedSubtitle: {
+  activeSubtitleText: {
     fontSize: 9,
     fontWeight: '600',
     marginTop: 1,
-    textAlign: 'center',
   },
   shadowDark: {
     shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.6,
-    shadowRadius: 24,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 6,
   },
   shadowLight: {
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
     elevation: 4,
   },
   userMarkerContainer: {
@@ -325,4 +362,3 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
 });
-

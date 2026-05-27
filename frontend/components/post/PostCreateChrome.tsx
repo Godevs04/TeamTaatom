@@ -7,6 +7,7 @@ import Svg, { Rect } from 'react-native-svg';
 import { useCloudGlassCardTokens } from '../cloud/CloudGlassCard';
 import { cloudDesign } from '../../constants/cloudDesign';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTheme } from '../../context/ThemeContext';
 
 interface PostCreateChromeProps {
   postType: 'photo' | 'short';
@@ -27,12 +28,12 @@ export function PostCreateHeader({
   showNext?: boolean;
   isDetail?: boolean;
 }) {
-  const glass = useCloudGlassCardTokens();
+  const { theme, mode } = useTheme();
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === 'web';
   const topBarHeight = isWeb ? 56 : (56 + (insets.top || 0));
-  const topBarBg = glass.isDark ? '#000000' : '#FFFFFF';
-  const textColor = glass.isDark ? '#FFFFFF' : '#122236';
+  const topBarBg = mode === 'dark' ? '#000000' : '#FFFFFF';
+  const textColor = mode === 'dark' ? '#FFFFFF' : '#122236';
 
   return (
     <>
@@ -51,7 +52,7 @@ export function PostCreateHeader({
           <View style={[styles.topBarButton, { alignItems: 'flex-end', minWidth: 60 }]}>
             {showNext && onNext ? (
               <Pressable onPress={onNext} hitSlop={12}>
-                <Text style={{ color: '#0095F6', fontWeight: 'bold', fontSize: 16 }}>{nextText}</Text>
+                <Text style={{ color: theme.colors.secondary, fontWeight: 'bold', fontSize: 16 }}>{nextText}</Text>
               </Pressable>
             ) : (
               <View style={{ width: 40 }} />
@@ -64,7 +65,7 @@ export function PostCreateHeader({
 }
 
 export function PostMediaTypeToggle({ postType, onPostTypeChange }: PostCreateChromeProps) {
-  const glass = useCloudGlassCardTokens();
+  const { theme, mode } = useTheme();
 
   const tabs = [
     { key: 'photo' as const, label: 'Photo', icon: 'image-outline' as const },
@@ -76,46 +77,29 @@ export function PostMediaTypeToggle({ postType, onPostTypeChange }: PostCreateCh
       style={[
         styles.toggleWrap,
         {
-          backgroundColor: glass.fill,
-          borderColor: glass.border,
-          shadowColor: glass.shadowColor,
-          shadowOpacity: glass.shadowOpacity,
+          backgroundColor: mode === 'dark' ? '#121212' : '#FFFFFF',
+          borderColor: theme.colors.border,
+          borderWidth: 1.5,
         },
-        cloudDesign.shadowCard,
       ]}
     >
-      <BlurView
-        intensity={glass.blurIntensity}
-        tint={glass.isDark ? 'dark' : 'light'}
-        style={StyleSheet.absoluteFillObject}
-        {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
-      />
       {tabs.map((tab) => {
         const active = postType === tab.key;
         return (
           <Pressable
             key={tab.key}
-            style={[styles.toggleSeg, active && styles.toggleSegActive]}
+            style={[styles.toggleSeg, active && { backgroundColor: theme.colors.secondary }]}
             onPress={() => onPostTypeChange(tab.key)}
           >
-            {active ? (
-              <View
-                style={[
-                  StyleSheet.absoluteFillObject,
-                  styles.toggleActiveBg,
-                  { backgroundColor: glass.isDark ? 'rgba(91,188,248,0.35)' : 'rgba(255,255,255,0.92)' },
-                ]}
-              />
-            ) : null}
             <Ionicons
               name={tab.icon}
               size={16}
-              color={active ? (glass.isDark ? '#fff' : cloudDesign.blueDeep) : glass.textMuted}
+              color={active ? '#FFFFFF' : theme.colors.textSecondary}
             />
             <Text
               style={[
                 styles.toggleLabel,
-                { color: active ? (glass.isDark ? '#fff' : cloudDesign.blueDeep) : glass.textMuted },
+                { color: active ? '#FFFFFF' : theme.colors.textSecondary },
               ]}
             >
               {tab.label}
@@ -142,14 +126,14 @@ export function PostCreateEmptyCard({
   onPickLibrary,
   onTakeMedia,
 }: PostCreateEmptyCardProps) {
-  const glass = useCloudGlassCardTokens();
+  const { theme, mode } = useTheme();
   const isPhoto = postType === 'photo';
   const [zoneSize, setZoneSize] = useState({ w: 0, h: 0 });
   const onZoneLayout = (e: LayoutChangeEvent) => {
     const { width, height } = e.nativeEvent.layout;
     if (width > 0 && height > 0) setZoneSize({ w: width, h: height });
   };
-  const dashStroke = glass.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(91,188,248,0.28)';
+  const dashStroke = theme.colors.secondary + '40';
 
   return (
     <View style={styles.emptyOuter}>
@@ -157,25 +141,12 @@ export function PostCreateEmptyCard({
         style={[
           styles.mainCard,
           {
-            borderColor: glass.border,
-            backgroundColor: glass.fill,
-            shadowColor: glass.shadowColor,
-            shadowOpacity: glass.shadowOpacity,
+            borderColor: theme.colors.border,
+            borderWidth: 1.5,
+            backgroundColor: mode === 'dark' ? '#121212' : '#FFFFFF',
           },
         ]}
       >
-        <BlurView
-          intensity={glass.blurIntensity}
-          tint={glass.isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
-          {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
-        />
-        <LinearGradient
-          colors={[glass.insetTop, 'transparent']}
-          style={styles.insetLine}
-          pointerEvents="none"
-        />
-
         <View
           style={[
             styles.uploadZone,
@@ -199,37 +170,52 @@ export function PostCreateEmptyCard({
             </Svg>
           ) : null}
           <View style={styles.uploadIconWrap}>
-            <LinearGradient colors={cloudDesign.buttonGradient} style={StyleSheet.absoluteFillObject} />
+            <LinearGradient
+              colors={theme.colors.gradient.button}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={StyleSheet.absoluteFillObject}
+            />
             <Ionicons name={isPhoto ? 'image' : 'videocam'} size={28} color="#fff" />
-            <View style={styles.plusBadge}>
+            <View style={[styles.plusBadge, { backgroundColor: theme.colors.secondary }]}>
               <Ionicons name="add" size={14} color="#fff" />
             </View>
           </View>
-          <Text style={[styles.uploadTitle, { color: glass.textPrimary }]}>{title}</Text>
-          <Text style={[styles.uploadSub, { color: glass.textSecondary }]}>{subtitle}</Text>
+          <Text style={[styles.uploadTitle, { color: theme.colors.text }]}>{title}</Text>
+          <Text style={[styles.uploadSub, { color: theme.colors.textSecondary }]}>{subtitle}</Text>
         </View>
 
         <View style={styles.actionRow}>
           <Pressable style={styles.actionCard} onPress={onPickLibrary}>
-            <View style={[styles.actionInner, { borderColor: glass.border, backgroundColor: glass.isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.35)' }]}>
+            <View style={[styles.actionInner, { borderColor: theme.colors.border, backgroundColor: mode === 'dark' ? '#1E1E1E' : '#F9FBFD' }]}>
               <View style={styles.actionIcon}>
-                <LinearGradient colors={cloudDesign.buttonGradient} style={StyleSheet.absoluteFillObject} />
+                <LinearGradient
+                  colors={theme.colors.gradient.button}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
                 <Ionicons name={isPhoto ? 'images' : 'film'} size={22} color="#fff" />
               </View>
-              <Text style={[styles.actionTitle, { color: glass.textPrimary }]}>Choose from Library</Text>
-              <Text style={[styles.actionSub, { color: glass.textSecondary }]}>Browse your photos</Text>
+              <Text style={[styles.actionTitle, { color: theme.colors.text }]}>Choose from Library</Text>
+              <Text style={[styles.actionSub, { color: theme.colors.textSecondary }]}>Browse your photos</Text>
             </View>
           </Pressable>
           <Pressable style={styles.actionCard} onPress={onTakeMedia}>
-            <View style={[styles.actionInner, { borderColor: glass.border, backgroundColor: glass.isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.35)' }]}>
+            <View style={[styles.actionInner, { borderColor: theme.colors.border, backgroundColor: mode === 'dark' ? '#1E1E1E' : '#F9FBFD' }]}>
               <View style={styles.actionIcon}>
-                <LinearGradient colors={cloudDesign.buttonGradient} style={StyleSheet.absoluteFillObject} />
+                <LinearGradient
+                  colors={theme.colors.gradient.button}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
                 <Ionicons name={isPhoto ? 'camera' : 'videocam'} size={22} color="#fff" />
               </View>
-              <Text style={[styles.actionTitle, { color: glass.textPrimary }]}>
+              <Text style={[styles.actionTitle, { color: theme.colors.text }]}>
                 Take {isPhoto ? 'Photo' : 'Video'}
               </Text>
-              <Text style={[styles.actionSub, { color: glass.textSecondary }]}>Capture the moment</Text>
+              <Text style={[styles.actionSub, { color: theme.colors.textSecondary }]}>Capture the moment</Text>
             </View>
           </Pressable>
         </View>
