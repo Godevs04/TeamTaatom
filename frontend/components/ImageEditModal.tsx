@@ -5,10 +5,10 @@ import {
   TouchableOpacity,
   Modal,
   ScrollView,
-  Image,
   StyleSheet,
   Platform,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -209,7 +209,7 @@ export default function ImageEditModal({
                         width: undefined,
                       }
                     ]}>
-                      <Image source={{ uri: images[0].uri }} style={styles.previewImage} />
+                      <ExpoImage source={{ uri: images[0].uri }} style={styles.previewImage} />
                       {FILTER_PREVIEW_OVERLAY[selectedFilter] && (
                         <View
                           pointerEvents="none"
