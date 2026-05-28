@@ -616,9 +616,9 @@ export default function UserProfileScreen() {
       } : prev);
       
       if (res.status === 'approved') {
-        AlertService.showSuccess('Access Granted', 'You have been granted access to view travel routes.');
+        AlertService.showSuccess('Access Granted', 'You have been granted access to view journey routes.');
       } else {
-        AlertService.showSuccess('Request Sent', 'Your request to view traveling routes has been sent.');
+        AlertService.showSuccess('Request Sent', 'Your request to view journey routes has been sent.');
       }
     } catch (err: any) {
       showError(err.message || 'Failed to request route access');
@@ -878,7 +878,7 @@ export default function UserProfileScreen() {
                   <CloudListRow
                     icon="map-outline"
                     title="Journeys"
-                    subtitle="View completed journeys and travel history"
+                    subtitle="View completed journeys and history"
                     onPress={() => router.push(`/journeys?userId=${id}`)}
                     showDivider={false}
                     iconTint={profileTheme.accent}
@@ -897,7 +897,7 @@ export default function UserProfileScreen() {
                     <CloudListRow
                       icon="map-outline"
                       title="Journeys"
-                      subtitle="View completed journeys and travel history"
+                      subtitle="View completed journeys and history"
                       onPress={() => router.push(`/journeys?userId=${id}`)}
                       showDivider={false}
                       iconTint={profileTheme.accent}
@@ -907,9 +907,9 @@ export default function UserProfileScreen() {
                   return (
                     <CloudListRow
                       icon="git-pull-request-outline"
-                      title="Route Access Pending"
-                      subtitle="Your request to view routes is pending approval"
-                      onPress={() => AlertService.showInfo('Request Pending', 'Your request to view traveling routes is pending approval.')}
+                      title="Journey Access Pending"
+                      subtitle="Your request to view journeys is pending approval"
+                      onPress={() => AlertService.showInfo('Request Pending', 'Your request to view journey routes is pending approval.')}
                       showDivider={false}
                       iconTint="#EAB308"
                     />
@@ -918,8 +918,8 @@ export default function UserProfileScreen() {
                   return (
                     <CloudListRow
                       icon={routeAccessLoading ? 'sync-outline' : 'lock-closed-outline'}
-                      title="Request Route Access"
-                      subtitle="Request permission to view traveling routes"
+                      title="Request Journey Access"
+                      subtitle="Request permission to view journey routes"
                       onPress={handleRequestRouteAccess}
                       showDivider={false}
                       iconTint={profileTheme.accent}
@@ -934,7 +934,7 @@ export default function UserProfileScreen() {
                   <CloudListRow
                     icon="map-outline"
                     title="Journeys"
-                    subtitle="View completed journeys and travel history"
+                    subtitle="View completed journeys and history"
                     onPress={() => router.push(`/journeys?userId=${id}`)}
                     showDivider={false}
                     iconTint={profileTheme.accent}
@@ -944,27 +944,29 @@ export default function UserProfileScreen() {
 
               return null;
             })()}
-            <CloudListRow
-              icon="globe-outline"
-              title={isOwnProfile ? 'My Location' : 'Their Location'}
-              subtitle={
-                verifiedLocationsCount !== null && verifiedLocationsCount > 0
-                  ? `${verifiedLocationsCount} verified location${verifiedLocationsCount !== 1 ? 's' : ''} · ${tripsCount} trip${tripsCount !== 1 ? 's' : ''}`
-                  : verifiedLocationsCount === null && profile.canViewLocations
-                    ? 'Loading travel summary…'
-                    : 'No verified travel summary yet'
-              }
-              onPress={() => {
-                if (verifiedLocationsCount !== null && verifiedLocationsCount > 0) {
-                  const name = profile?.fullName || profile?.username || 'User';
-                  router.push(`/map/all-locations?userId=${id}&userName=${encodeURIComponent(name)}`);
-                } else if (profile.canViewLocations && profile.locations && profile.locations.length > 0) {
-                  setShowWorldMap(true);
+            {isOwnProfile && (
+              <CloudListRow
+                icon="globe-outline"
+                title="My Location"
+                subtitle={
+                  verifiedLocationsCount !== null && verifiedLocationsCount > 0
+                    ? `${verifiedLocationsCount} verified location${verifiedLocationsCount !== 1 ? 's' : ''} · ${tripsCount} trip${tripsCount !== 1 ? 's' : ''}`
+                    : verifiedLocationsCount === null && profile.canViewLocations
+                      ? 'Loading journeys summary…'
+                      : 'No verified journeys summary yet'
                 }
-              }}
-              showDivider={profile.canViewPosts}
-              iconTint={profileTheme.accent}
-            />
+                onPress={() => {
+                  if (verifiedLocationsCount !== null && verifiedLocationsCount > 0) {
+                    const name = profile?.fullName || profile?.username || 'User';
+                    router.push(`/map/all-locations?userId=${id}&userName=${encodeURIComponent(name)}`);
+                  } else if (profile.canViewLocations && profile.locations && profile.locations.length > 0) {
+                    setShowWorldMap(true);
+                  }
+                }}
+                showDivider={profile.canViewPosts}
+                iconTint={profileTheme.accent}
+              />
+            )}
           </CloudActionGroup>
         ) : null}
 
@@ -1660,15 +1662,17 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 16,
     paddingHorizontal: 16,
+    justifyContent: 'center',
+    alignSelf: 'center',
   },
   pillTab: {
-    flex: 1,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingVertical: 8,
     borderRadius: 20,
     backgroundColor: 'transparent',
     overflow: 'hidden',
     alignItems: 'center',
+    minWidth: 100,
   },
   pillTabActive: {
   },
