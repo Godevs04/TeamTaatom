@@ -6,14 +6,12 @@ import {
   TouchableOpacity,
   Animated,
   Platform,
-  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const GROWTH_GREEN = '#22C55E';
 const ALERT_RED = '#EF4444';
 const ACTION_BLUE = '#3B82F6';
 
@@ -24,17 +22,14 @@ interface JourneyStatusBarProps {
   duration: number; // in seconds
   onStop?: () => void;
   onContinue?: () => void;
+  onPause?: () => void;
 }
 
 /**
  * JourneyStatusBar
  *
- * Persistent floating bar shown across ALL screens when journey is active.
+ * Persistent floating bar shown across screens (except tracking) when journey is active.
  * Shows recording status, distance, duration, and quick actions.
- *
- * Active: pulsing green dot + "Recording... | 12.4 km | 2h 15m" + Stop button
- * Paused: orange dot + "Journey paused | Tap to continue" + Continue/End buttons
- * Tap bar → navigate to tracking screen
  */
 export default function JourneyStatusBar({
   isTracking,
@@ -43,6 +38,7 @@ export default function JourneyStatusBar({
   duration,
   onStop,
   onContinue,
+  onPause,
 }: JourneyStatusBarProps) {
   const router = useRouter();
   const { theme } = useTheme();
@@ -78,7 +74,7 @@ export default function JourneyStatusBar({
   // Pulse animation for active recording
   useEffect(() => {
     if (isTracking && !isPaused) {
-      Animated.loop(
+      const animation = Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnimation, {
             toValue: 1.3,
@@ -91,7 +87,9 @@ export default function JourneyStatusBar({
             useNativeDriver: false,
           }),
         ])
-      ).start();
+      );
+      animation.start();
+      return () => animation.stop();
     } else {
       pulseAnimation.setValue(1);
     }
@@ -111,7 +109,7 @@ export default function JourneyStatusBar({
     outputRange: [1, 0.5],
   });
 
-  const statusColor = isPaused ? ACTION_BLUE : GROWTH_GREEN;
+  const statusColor = isPaused ? ACTION_BLUE : ALERT_RED;
   const statusText = isPaused ? 'Paused' : 'Recording';
 
   return (
@@ -180,12 +178,14 @@ export default function JourneyStatusBar({
             <TouchableOpacity
               style={[styles.actionButton, { borderColor: statusColor }]}
               onPress={onContinue}
+              accessibilityLabel="Continue tracking"
             >
               <Ionicons name="play-circle" size={20} color={statusColor} />
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.actionButton, { borderColor: ALERT_RED }]}
               onPress={onStop}
+              accessibilityLabel="End journey"
             >
               <Ionicons name="stop-circle" size={20} color={ALERT_RED} />
             </TouchableOpacity>
@@ -193,7 +193,8 @@ export default function JourneyStatusBar({
         ) : (
           <TouchableOpacity
             style={[styles.actionButton, { borderColor: ALERT_RED }]}
-            onPress={onStop}
+            onPress={onPause}
+            accessibilityLabel="Pause tracking"
           >
             <Ionicons name="pause-circle" size={20} color={ALERT_RED} />
           </TouchableOpacity>
@@ -214,7 +215,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    backgroundColor: '#FFFFFF',
   },
   statusContainer: {
     position: 'relative',

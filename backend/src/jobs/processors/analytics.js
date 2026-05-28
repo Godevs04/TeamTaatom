@@ -3,9 +3,64 @@ const logger = require('../../utils/logger');
 
 // Process analytics aggregation job
 const processAnalyticsJob = async (job) => {
-  const { startDate, endDate, aggregationType } = job.data;
+  const { startDate, endDate, aggregationType, events } = job.data;
 
   try {
+    // If job is for flushing queued events to database
+    if (events && Array.isArray(events)) {
+      const Post = require('../../models/Post');
+      const eventsToSave = events.map(event => ({
+        event: event.event,
+        userId: event.userId || null,
+        properties: event.properties || {},
+        platform: event.platform,
+        sessionId: event.sessionId,
+        timestamp: new Date(event.timestamp || Date.now()),
+      }));
+
+      await AnalyticsEvent.insertMany(eventsToSave);
+
+      // Increment views
+      for (const event of eventsToSave) {
+        if (event.event === 'post_view') {
+          const postId = event.properties?.post_id || event.properties?.postId;
+          if (postId) {
+            try {
+              const post = await Post.findById(postId);
+              if (post) {
+                const isCreator = post.user && event.userId && post.user.toString() === event.userId.toString();
+                let shouldIncrement = true;
+                if (isCreator) {
+                  const startOfDay = new Date();
+                  startOfDay.setHours(0, 0, 0, 0);
+                  const existingCreatorView = await AnalyticsEvent.findOne({
+                    event: 'post_view',
+                    userId: event.userId,
+                    $or: [
+                      { 'properties.post_id': postId },
+                      { 'properties.postId': postId }
+                    ],
+                    timestamp: { $gte: startOfDay, $lt: event.timestamp }
+                  });
+                  if (existingCreatorView) {
+                    shouldIncrement = false;
+                  }
+                }
+                if (shouldIncrement) {
+                  post.views = (post.views || 0) + 1;
+                  await post.save();
+                }
+              }
+            } catch (err) {
+              logger.error(`Error incrementing post view in queue for ${postId}:`, err);
+            }
+          }
+        }
+      }
+      logger.info(`Analytics event flush completed: ${events.length} events`);
+      return { success: true, count: events.length };
+    }
+
     const query = {};
     if (startDate || endDate) {
       query.timestamp = {};

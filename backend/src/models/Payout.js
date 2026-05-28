@@ -107,7 +107,7 @@ const PayoutSchema = new Schema({
   // Payout method
   payoutMethod: {
     type: String,
-    enum: ['cashfree_bank', 'cashfree_upi', 'wise'],
+    enum: ['cashfree_bank', 'cashfree_upi', 'wise', 'wise_bank'],
     default: 'cashfree_bank'
   },
   isInternational: {

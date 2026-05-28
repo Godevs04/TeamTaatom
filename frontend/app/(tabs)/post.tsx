@@ -8,14 +8,17 @@ import {
   ScrollView,
   TextInput,
   Image,
-  ActivityIndicator,
   Platform,
   Modal,
   AppState,
   BackHandler,
   Dimensions,
   KeyboardAvoidingView,
-} from "react-native";
+  FlatList,
+  PermissionsAndroid,
+  Linking,
+} from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Formik } from "formik";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -24,6 +27,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
+import { useAlert } from "../../context/AlertContext";
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -44,6 +48,7 @@ import { getProfile } from "../../services/profile";
 import { UserType } from "../../types/user";
 import ProgressAlert from "../../components/ProgressAlert";
 import { optimizeImageForUpload, shouldOptimizeImage, getOptimalQuality, processImageToAspect } from "../../utils/imageOptimization";
+import { prepareImageForUpload } from "../../services/mediaService";
 import * as VideoThumbnails from "expo-video-thumbnails";
 import { Video, Audio, ResizeMode, AVPlaybackStatus } from "expo-av";
 import HashtagSuggest from "../../components/HashtagSuggest";
@@ -65,8 +70,114 @@ import { trackFeatureUsage } from '../../services/analytics';
 import ImageEditModal, { ImageFilterType, FILTER_PREVIEW_OVERLAY } from '../../components/ImageEditModal';
 import AspectImageCropper, { CropTransform } from '../../components/post/AspectImageCropper';
 import { applyFilterToImages } from '../../utils/applyImageFilter';
+import { Image as ExpoImage } from 'expo-image';
 
 const logger = createLogger('PostScreen');
+
+const MOCK_GALLERY_ASSETS: any[] = [
+  {
+    id: 'mock_1',
+    filename: 'tokyo_streets.jpg',
+    uri: 'https://images.unsplash.com/photo-1540959733332-eab4deceeaf7?w=800&auto=format&fit=crop&q=80',
+    mediaType: 'photo',
+    width: 800,
+    height: 1200,
+    creationTime: Date.now(),
+    duration: 0,
+  },
+  {
+    id: 'mock_v1',
+    filename: 'ocean_escape.mp4',
+    uri: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4',
+    thumbnailUri: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=400&auto=format&fit=crop&q=80',
+    mediaType: 'video',
+    width: 1280,
+    height: 720,
+    creationTime: Date.now() - 5000,
+    duration: 15,
+  },
+  {
+    id: 'mock_2',
+    filename: 'swiss_alps.jpg',
+    uri: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=800&auto=format&fit=crop&q=80',
+    mediaType: 'photo',
+    width: 800,
+    height: 600,
+    creationTime: Date.now() - 10000,
+    duration: 0,
+  },
+  {
+    id: 'mock_v2',
+    filename: 'fun_ride.mp4',
+    uri: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4',
+    thumbnailUri: 'https://images.unsplash.com/photo-1517649763962-0c623066013b?w=400&auto=format&fit=crop&q=80',
+    mediaType: 'video',
+    width: 1280,
+    height: 720,
+    creationTime: Date.now() - 15000,
+    duration: 12,
+  },
+  {
+    id: 'mock_3',
+    filename: 'bali_beach.jpg',
+    uri: 'https://images.unsplash.com/photo-1537996194471-e657df975ab4?w=800&auto=format&fit=crop&q=80',
+    mediaType: 'photo',
+    width: 800,
+    height: 800,
+    creationTime: Date.now() - 20000,
+    duration: 0,
+  },
+  {
+    id: 'mock_4',
+    filename: 'new_york.jpg',
+    uri: 'https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?w=800&auto=format&fit=crop&q=80',
+    mediaType: 'photo',
+    width: 800,
+    height: 1000,
+    creationTime: Date.now() - 30000,
+    duration: 0,
+  },
+  {
+    id: 'mock_5',
+    filename: 'desert_oasis.jpg',
+    uri: 'https://images.unsplash.com/photo-1509316975850-ff9c5edd0cd9?w=800&auto=format&fit=crop&q=80',
+    mediaType: 'photo',
+    width: 800,
+    height: 600,
+    creationTime: Date.now() - 40000,
+    duration: 0,
+  },
+  {
+    id: 'mock_6',
+    filename: 'iceland.jpg',
+    uri: 'https://images.unsplash.com/photo-1504893524553-ac55fce698be?w=800&auto=format&fit=crop&q=80',
+    mediaType: 'photo',
+    width: 800,
+    height: 500,
+    creationTime: Date.now() - 50000,
+    duration: 0,
+  },
+  {
+    id: 'mock_7',
+    filename: 'kyoto_temple.jpg',
+    uri: 'https://images.unsplash.com/photo-1493976040374-85c8e12f0c0e?w=800&auto=format&fit=crop&q=80',
+    mediaType: 'photo',
+    width: 800,
+    height: 1200,
+    creationTime: Date.now() - 60000,
+    duration: 0,
+  },
+  {
+    id: 'mock_8',
+    filename: 'santorini.jpg',
+    uri: 'https://images.unsplash.com/photo-1533105079780-92b9be482077?w=800&auto=format&fit=crop&q=80',
+    mediaType: 'photo',
+    width: 800,
+    height: 800,
+    creationTime: Date.now() - 70000,
+    duration: 0,
+  }
+];
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -99,6 +210,7 @@ interface ShortFormValues {
 }
 
 export default function PostScreen() {
+  const { showSuccess, showError, showConfirm } = useAlert();
   const params = useLocalSearchParams();
   const initialPostType = params.postType === 'short' ? 'short' : 'photo';
   const isJourneyCapture = params.journeyCapture === 'true';
@@ -106,26 +218,200 @@ export default function PostScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [latestAssetUri, setLatestAssetUri] = useState<string | null>(null);
 
-  // Fetch the latest asset from MediaLibrary for the gallery preview orb
-  useEffect(() => {
-    async function loadLatestAsset() {
+  // Helper to resolve iOS ph:// URI to standard file:// URI using MediaLibrary
+  const resolvePhUri = async (uri: string): Promise<string> => {
+    if (Platform.OS === 'ios' && uri.startsWith('ph://')) {
       try {
-        const { status } = await MediaLibrary.requestPermissionsAsync();
-        if (status === 'granted') {
-          const result = await MediaLibrary.getAssetsAsync({
-            first: 1,
-            sortBy: [MediaLibrary.SortBy.creationTime],
-            mediaType: ['photo', 'video'],
-          });
-          if (result.assets && result.assets.length > 0) {
-            setLatestAssetUri(result.assets[0].uri);
-          }
+        const assetId = uri.substring(5); // strip "ph://"
+        const info = await MediaLibrary.getAssetInfoAsync(assetId);
+        if (info && info.localUri) {
+          return info.localUri;
         }
-      } catch (err) {
-        logger.error('Error fetching latest asset:', err);
+      } catch (e) {
+        logger.warn('Failed to resolve ph:// URI using MediaLibrary:', e);
       }
     }
-    loadLatestAsset();
+    return uri;
+  };
+
+  // Helper to match ph:// URIs with resolved file:// URIs using asset UUID
+  const isUriMatch = (selectedUri: string | null | undefined, itemUri: string) => {
+    if (!selectedUri) return false;
+    if (selectedUri === itemUri) return true;
+    if (Platform.OS === 'ios') {
+      const getUuid = (u: string) => {
+        const matches = u.match(/[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}/gi);
+        return matches ? matches[matches.length - 1].toUpperCase() : null;
+      };
+      const selUuid = getUuid(selectedUri);
+      const itemUuid = getUuid(itemUri);
+      if (selUuid && itemUuid && selUuid === itemUuid) return true;
+    }
+    return false;
+  };
+  
+  // New Instagram style state variables
+  const [showDetails, setShowDetails] = useState(false);
+  const [isMultiSelect, setIsMultiSelect] = useState(false);
+  const [cameraRollAssets, setCameraRollAssets] = useState<any[]>([]);
+
+  // Fetch camera roll assets from MediaLibrary
+  useEffect(() => {
+    async function loadCameraRoll() {
+      try {
+        let status = 'denied';
+
+        // 2-second permission timeout to prevent native bridge hangs
+        const permissionTimeout = new Promise<string>((resolve) => {
+          setTimeout(() => resolve('timeout'), 2000);
+        });
+
+        const permissionResolver = async (): Promise<string> => {
+          try {
+            // Check existing first (non-blocking)
+            const existing = await MediaLibrary.getPermissionsAsync();
+            if (existing.status === 'granted') {
+              return 'granted';
+            }
+
+            if (Platform.OS === 'android') {
+              console.log("[loadCameraRoll] Android: Requesting media permissions...");
+              const sdkVersion = Platform.Version;
+              if (Number(sdkVersion) >= 33) {
+                console.log("[loadCameraRoll] Android 13+: Requesting granular MediaLibrary permissions...");
+                // Note: avoiding requesting 'audio' granular permission to prevent AndroidManifest audio declaration rejection
+                const permResult = await MediaLibrary.requestPermissionsAsync(false, ['photo', 'video']);
+                return permResult.status;
+              } else {
+                console.log("[loadCameraRoll] Android legacy: Requesting standard MediaLibrary permissions...");
+                const permResult = await MediaLibrary.requestPermissionsAsync(false);
+                return permResult.status;
+              }
+            } else {
+              // iOS Flow
+              console.log("[loadCameraRoll] iOS: Requesting standard MediaLibrary permissions...");
+              const permResult = await MediaLibrary.requestPermissionsAsync(false);
+              return permResult.status;
+            }
+          } catch (err: any) {
+            console.warn("[loadCameraRoll] MediaLibrary request failed, trying fallback:", err);
+            // Catch error and try raw PermissionsAndroid / ImagePicker fallback
+            try {
+              if (Platform.OS === 'android') {
+                const sdkVersion = Platform.Version;
+                if (Number(sdkVersion) >= 33) {
+                  const granted = await PermissionsAndroid.requestMultiple([
+                    PermissionsAndroid.PERMISSIONS.READ_MEDIA_IMAGES,
+                    PermissionsAndroid.PERMISSIONS.READ_MEDIA_VIDEO,
+                  ]);
+                  return (
+                    granted['android.permission.READ_MEDIA_IMAGES'] === PermissionsAndroid.RESULTS.GRANTED &&
+                    granted['android.permission.READ_MEDIA_VIDEO'] === PermissionsAndroid.RESULTS.GRANTED
+                  ) ? 'granted' : 'denied';
+                } else {
+                  const granted = await PermissionsAndroid.request(
+                    PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE
+                  );
+                  return granted === PermissionsAndroid.RESULTS.GRANTED ? 'granted' : 'denied';
+                }
+              } else {
+                const permResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                return permResult.status;
+              }
+            } catch (rawErr) {
+              console.error("[loadCameraRoll] Fallback permission check failed:", rawErr);
+            }
+            return 'denied';
+          }
+        };
+
+        status = await Promise.race([permissionResolver(), permissionTimeout]);
+        console.log("[loadCameraRoll] Resolved permission status:", status);
+
+        if (status === 'granted') {
+          console.log("[loadCameraRoll] Requesting assets from MediaLibrary...");
+          let result;
+          try {
+            // 2-second assets fetch timeout to prevent native bridge hangs
+            const assetsTimeout = new Promise<any>((_, reject) =>
+              setTimeout(() => reject(new Error("Assets fetch timeout")), 2000)
+            );
+
+            const assetsFetch = async () => {
+              try {
+                return await MediaLibrary.getAssetsAsync({
+                  first: 100,
+                  sortBy: [MediaLibrary.SortBy.creationTime],
+                  mediaType: ['photo', 'video'],
+                });
+              } catch (firstErr) {
+                console.warn("[loadCameraRoll] Failed to fetch with sortBy, retrying without sortBy:", firstErr);
+                return await MediaLibrary.getAssetsAsync({
+                  first: 100,
+                  mediaType: ['photo', 'video'],
+                });
+              }
+            };
+
+            result = await Promise.race([assetsFetch(), assetsTimeout]);
+          } catch (fetchErr) {
+            console.error("[loadCameraRoll] Assets fetch failed or timed out:", fetchErr);
+          }
+
+          console.log("[loadCameraRoll] Assets fetched count:", result?.assets?.length);
+          if (result && result.assets && result.assets.length > 0) {
+            setCameraRollAssets(result.assets);
+            setLatestAssetUri(result.assets[0].uri);
+
+            // Set the first asset as default preview
+            if (selectedImages.length === 0 && !selectedVideo) {
+              const firstAsset = result.assets[0];
+              const resolvedUri = await resolvePhUri(firstAsset.uri);
+              if (firstAsset.mediaType === 'video') {
+                setSelectedVideo(resolvedUri);
+                setPostType('short');
+              } else {
+                setSelectedImages([{
+                  uri: resolvedUri,
+                  type: 'image/jpeg',
+                  name: firstAsset.filename || `photo_${Date.now()}.jpg`,
+                }]);
+                setPostType('photo');
+              }
+            }
+            return; // Success! Exit function.
+          }
+        }
+
+        // If status was not granted, or if result was empty/timed out, fallback to mock assets
+        console.log("[loadCameraRoll] Media library empty or not granted (Expo Go / Simulator). Loading mock travel placeholder assets...");
+        setCameraRollAssets(MOCK_GALLERY_ASSETS);
+        setLatestAssetUri(MOCK_GALLERY_ASSETS[0].uri);
+        if (selectedImages.length === 0 && !selectedVideo) {
+          setSelectedImages([{
+            uri: MOCK_GALLERY_ASSETS[0].uri,
+            type: 'image/jpeg',
+            name: MOCK_GALLERY_ASSETS[0].filename || 'mock.jpg',
+          }]);
+          setPostType('photo');
+        }
+      } catch (err: any) {
+        console.error("[loadCameraRoll] CRITICAL EXCEPTION, falling back to mock assets:", err);
+        logger.error('Error loading camera roll:', err?.message || err);
+        // Guarantee fallback even on crash
+        setCameraRollAssets(MOCK_GALLERY_ASSETS);
+        setLatestAssetUri(MOCK_GALLERY_ASSETS[0].uri);
+        if (selectedImages.length === 0 && !selectedVideo) {
+          setSelectedImages([{
+            uri: MOCK_GALLERY_ASSETS[0].uri,
+            type: 'image/jpeg',
+            name: MOCK_GALLERY_ASSETS[0].filename || 'mock.jpg',
+          }]);
+          setPostType('photo');
+        }
+      }
+    }
+    loadCameraRoll();
   }, []);
 
   const [selectedImages, setSelectedImages] = useState<Array<{ uri: string; type: string; name: string }>>([]);
@@ -151,7 +437,7 @@ export default function PostScreen() {
   const [user, setUser] = useState<UserType | null>(null);
   const [hasExistingPosts, setHasExistingPosts] = useState<boolean | null>(null);
   const [hasExistingShorts, setHasExistingShorts] = useState<boolean | null>(null);
-  const [selectedAspectRatio, setSelectedAspectRatio] = useState<'1:1' | '16:9' | 'full'>('full');
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState<'1.91:1' | '1:1'>('1:1');
   const [naturalImageAspect, setNaturalImageAspect] = useState<number | null>(null);
   const [cropTransform, setCropTransform] = useState<CropTransform | null>(null);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
@@ -166,6 +452,7 @@ export default function PostScreen() {
   // Track screen focus so draft Alert only fires when this tab is visible
   const isFocusedRef = useRef(false);
   const draftCheckedRef = useRef(false);
+  const hasPostedRef = useRef(false);
   const [spotType, setSpotType] = useState<string>('');
   const [travelInfo, setTravelInfo] = useState<string>('');
   const [showImageEditModal, setShowImageEditModal] = useState(false);
@@ -235,6 +522,10 @@ export default function PostScreen() {
 
   // Comprehensive reset function to clear all form state after successful post
   const resetFormState = useCallback(() => {
+    hasPostedRef.current = false;
+    // Reset details screen toggle
+    setShowDetails(false);
+    
     // Reset media
     setSelectedImages([]);
     setSelectedVideo(null);
@@ -454,6 +745,7 @@ export default function PostScreen() {
   useEffect(() => {
     const saveDraft = async () => {
       // Only save if there's media selected
+      if (hasPostedRef.current) return;
       if (selectedImages.length === 0 && !selectedVideo) return;
       
       const draft = {
@@ -577,6 +869,7 @@ export default function PostScreen() {
 
   // Clear draft after successful post
   const clearDraft = async () => {
+    hasPostedRef.current = true;
     try {
       await AsyncStorage.removeItem(DRAFT_KEY);
     } catch (error) {
@@ -808,18 +1101,28 @@ export default function PostScreen() {
           };
         });
         
-        setSelectedImages(prev => {
-          const combined = [...prev, ...newImages];
-          if (combined.length > 10) {
-            Alert.alert('Too many images', 'Maximum 10 images are allowed');
-            return prev;
-          }
-          return combined;
-        });
-        
+        setSelectedImages(newImages);
         setSelectedVideo(null);
         setVideoDuration(null); // Clear video duration when switching to photo
         setPostType('photo');
+
+        // Prepend newly picked image(s) to cameraRollAssets so they appear immediately in the inline grid
+        setCameraRollAssets(prev => {
+          const newAssets = newImages.map((img, idx) => ({
+            id: `picked_${Date.now()}_${idx}`,
+            filename: img.name,
+            uri: img.uri,
+            mediaType: 'photo' as const,
+            width: 800,
+            height: 800,
+            creationTime: Date.now(),
+            duration: 0,
+          }));
+          
+          // Filter out any duplicates
+          const filteredPrev = prev.filter(p => !newImages.some(n => n.uri === p.uri));
+          return [...newAssets, ...filteredPrev];
+        });
         
         // Add a small delay to ensure MediaLibrary is updated with the selected photo
         logger.debug('Waiting for MediaLibrary to update...');
@@ -987,6 +1290,22 @@ export default function PostScreen() {
           setSelectedVideo(asset.uri);
           setSelectedImages([]);
           setPostType('short');
+
+          // Prepend newly picked video to cameraRollAssets so it renders beautifully in the grid
+          setCameraRollAssets(prev => {
+            const newAsset = {
+              id: `picked_video_${Date.now()}`,
+              filename: asset.fileName || 'picked_video.mp4',
+              uri: asset.uri,
+              mediaType: 'video' as const,
+              width: asset.width || 1280,
+              height: asset.height || 720,
+              creationTime: Date.now(),
+              duration: asset.duration || 0,
+            };
+            const filteredPrev = prev.filter(p => p.uri !== asset.uri);
+            return [newAsset, ...filteredPrev];
+          });
           
           // Get accurate video duration using Audio component
           let actualDuration: number | null = durationInSeconds;
@@ -1610,48 +1929,20 @@ export default function PostScreen() {
       const imagesData = await Promise.all(
         selectedImages.map(async (img, index) => {
           try {
-            // Check if image needs optimization
-            const needsOptimization = await shouldOptimizeImage(img.uri);
-            if (needsOptimization) {
-              // Optimize image
-              const fileInfo = await FileSystem.getInfoAsync(img.uri);
-              const fileSize = (fileInfo.exists && (fileInfo as any).size) || 0;
-              const optimized = await optimizeImageForUpload(img.uri, {
-                maxWidth: 1200,
-                maxHeight: 1200,
-                quality: getOptimalQuality(fileSize),
-                format: 'jpeg'
-              });
-              
-              // Update progress
-              setUploadProgress({
-                current: index + 1,
-                total: selectedImages.length,
-                percentage: ((index + 1) / selectedImages.length) * 50 // First 50% is optimization
-              });
-              
-              return {
-                uri: optimized.uri,
-                type: 'image/jpeg',
-                name: img.name || 'image.jpg'
-              };
-            }
+            // [BUG-056 & BUG-058] Run all images through mediaService to strip EXIF and apply compression scaling
+            const prepared = await prepareImageForUpload(img.uri, img.name);
             
-            // Update progress even if no optimization needed
+            // Update progress
             setUploadProgress({
               current: index + 1,
               total: selectedImages.length,
-              percentage: ((index + 1) / selectedImages.length) * 50
+              percentage: ((index + 1) / selectedImages.length) * 50 // First 50% is optimization
             });
             
-            return {
-              uri: img.uri,
-              type: img.type,
-              name: img.name
-            };
+            return prepared;
           } catch (error) {
-            logger.error('Error optimizing image', error);
-            // Fallback to original image if optimization fails
+            logger.error('Error optimizing/preparing image', error);
+            // Fallback to original image if processing fails
             return {
               uri: img.uri,
               type: img.type,
@@ -1661,14 +1952,14 @@ export default function PostScreen() {
         })
       );
 
-      // Apply chosen aspect ratio (1:1 1080×1080, 16:9 1080×1920 portrait) via cover-fit + crop.
+      // Apply chosen aspect ratio (9:16 or 16:9) via cover-fit + crop.
       // For single-image posts we honor the user's pinch+pan from the cropper; multi-image posts
-      // and 'full' fall through to default center-crop / no-op.
+      // while multi-image posts use the selected fixed frame without freestyle variants.
       const aspectProcessed = await Promise.all(
         imagesData.map(async (img, idx) => {
           try {
             const tx = imagesData.length === 1 && idx === 0 ? cropTransform ?? undefined : undefined;
-            const processedUri = await processImageToAspect(img.uri, selectedAspectRatio, tx);
+            const processedUri = await processImageToAspect(img.uri, selectedAspectRatio as any, tx);
             return { ...img, uri: processedUri };
           } catch (e) {
             logger.warn('Aspect-ratio processing failed, uploading original:', e);
@@ -1733,7 +2024,7 @@ export default function PostScreen() {
         songVolume: 0.5,
         spotType: spotType || undefined,
         travelInfo: travelInfo || undefined,
-        aspectRatio: selectedAspectRatio,
+        aspectRatio: selectedAspectRatio as any,
         // The chosen photo filter is applied at render time via Cloudinary
         // URL transformations — see optimizeCloudinaryUrl in
         // utils/imageCache. Storing the token (not the rendered bytes)
@@ -1809,35 +2100,29 @@ export default function PostScreen() {
         const requiresVerification = source === 'gallery_no_exif' || source === 'manual_only';
         
         if (requiresVerification) {
-          Alert.alert(
-            'Success!', 
+          showSuccess(
             'Your post has been shared.\n\nThis post is under verification. We\'ll notify you shortly.',
-            [
-              {
-                text: 'OK',
-                onPress: () => {
-                  // Reset all form state
-                  resetFormState();
-                  // Update existing posts state
-                  setHasExistingPosts(true);
-                  router.replace('/(tabs)/home');
-                },
-              },
-            ]
+            'Success!',
+            () => {
+              // Reset all form state
+              resetFormState();
+              // Update existing posts state
+              setHasExistingPosts(true);
+              router.replace('/(tabs)/home');
+            }
           );
         } else {
-          Alert.alert('Success!', 'Your post has been shared.', [
-            {
-              text: 'OK',
-              onPress: () => {
-                // Reset all form state
-                resetFormState();
-                // Update existing posts state
-                setHasExistingPosts(true);
-                router.replace('/(tabs)/home');
-              },
-            },
-          ]);
+          showSuccess(
+            'Your post has been shared.',
+            'Success!',
+            () => {
+              // Reset all form state
+              resetFormState();
+              // Update existing posts state
+              setHasExistingPosts(true);
+              router.replace('/(tabs)/home');
+            }
+          );
         }
       }, 500);
       
@@ -2198,37 +2483,31 @@ export default function PostScreen() {
       const requiresVerification = source === 'gallery_no_exif' || source === 'manual_only';
       
       if (requiresVerification) {
-        Alert.alert(
-          'Success!', 
+        showSuccess(
           'Your short has been uploaded.\n\nThis post is under verification. We\'ll notify you shortly.',
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                // Reset all form state
-                resetFormState();
-                setVideoDuration(null); // Clear video duration when video is removed
-                // Update existing shorts state
-                setHasExistingShorts(true);
-                router.replace('/(tabs)/home');
-              },
-            },
-          ]
+          'Success!',
+          () => {
+            // Reset all form state
+            resetFormState();
+            setVideoDuration(null); // Clear video duration when video is removed
+            // Update existing shorts state
+            setHasExistingShorts(true);
+            router.replace('/(tabs)/home');
+          }
         );
       } else {
-        Alert.alert('Success!', 'Your short has been uploaded.', [
-          {
-            text: 'OK',
-            onPress: () => {
-              // Reset all form state
-              resetFormState();
-              setVideoDuration(null); // Clear video duration when video is removed
-              // Update existing shorts state
-              setHasExistingShorts(true);
-              router.replace('/(tabs)/home');
-            },
-          },
-        ]);
+        showSuccess(
+          'Your short has been uploaded.',
+          'Success!',
+          () => {
+            // Reset all form state
+            resetFormState();
+            setVideoDuration(null); // Clear video duration when video is removed
+            // Update existing shorts state
+            setHasExistingShorts(true);
+            router.replace('/(tabs)/home');
+          }
+        );
       }
     } catch (error: any) {
       logger.error('Short creation failed', error);
@@ -2375,54 +2654,49 @@ export default function PostScreen() {
       const requiresVerification = pendingShortData.source === 'gallery_no_exif' || pendingShortData.source === 'manual_only';
       
       if (requiresVerification) {
-        Alert.alert(
-          'Success!', 
+        showSuccess(
           'Your short has been uploaded.\n\nThis post is under verification. We\'ll notify you shortly.',
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                clearUploadState();
-                setSelectedVideo(null);
-                setVideoDuration(null); // Clear video duration when video is removed
-                setVideoThumbnail(null);
-                setLocation(null);
-                setLocationMetadata(null);
-                setSelectedSong(null);
-                setAudioChoice(null);
-                setSongStartTime(0);
-                setSongEndTime(60);
-                setPendingShortData(null);
-                setCopyrightAccepted(false);
-                setHasExistingShorts(true);
-                setAddress('');
-                router.replace('/(tabs)/home');
-              },
-            },
-          ]
+          'Success!',
+          () => {
+            clearUploadState();
+            setSelectedVideo(null);
+            setVideoDuration(null);
+            setVideoThumbnail(null);
+            setLocation(null);
+            setLocationMetadata(null);
+            setSelectedSong(null);
+            setAudioChoice(null);
+            setSongStartTime(0);
+            setSongEndTime(60);
+            setPendingShortData(null);
+            setCopyrightAccepted(false);
+            setHasExistingShorts(true);
+            setAddress('');
+            router.replace('/(tabs)/home');
+          }
         );
       } else {
-        Alert.alert('Success!', 'Your short has been uploaded.', [
-          {
-            text: 'OK',
-            onPress: () => {
-              clearUploadState();
-              setSelectedVideo(null);
-              setVideoThumbnail(null);
-              setLocation(null);
-              setLocationMetadata(null);
-              setSelectedSong(null);
-              setAudioChoice(null);
-              setSongStartTime(0);
-              setSongEndTime(60);
-              setPendingShortData(null);
-              setCopyrightAccepted(false);
-              setHasExistingShorts(true);
-              setAddress('');
-              router.replace('/(tabs)/home');
-            },
-          },
-        ]);
+        showSuccess(
+          'Your short has been uploaded.',
+          'Success!',
+          () => {
+            clearUploadState();
+            setSelectedVideo(null);
+            setVideoDuration(null);
+            setVideoThumbnail(null);
+            setLocation(null);
+            setLocationMetadata(null);
+            setSelectedSong(null);
+            setAudioChoice(null);
+            setSongStartTime(0);
+            setSongEndTime(60);
+            setPendingShortData(null);
+            setCopyrightAccepted(false);
+            setHasExistingShorts(true);
+            setAddress('');
+            router.replace('/(tabs)/home');
+          }
+        );
       }
     } catch (error: any) {
       // Ensure error is an Error instance for proper Sentry tracking
@@ -2508,129 +2782,26 @@ export default function PostScreen() {
       style={{ flex: 1 }}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
-      <View style={{ flex: 1, backgroundColor: mode === 'dark' ? '#06121F' : '#EEF4F8' }}>
-        {!selectedImages.length && !selectedVideo && permission?.granted ? (
-          <View style={StyleSheet.absoluteFillObject}>
-            <CameraView style={StyleSheet.absoluteFillObject} facing="back" />
-            <BlurView intensity={25} tint={mode === 'dark' ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
-          </View>
-        ) : (
-          <View style={StyleSheet.absoluteFillObject}>
-            <CloudPostMountainBackground />
-            {(selectedImages.length > 0 || selectedVideo) && (
-              <BlurView intensity={70} tint={mode === 'dark' ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
-            )}
-          </View>
-        )}
-        <View style={{ flex: 1 }}>
-        <PostCreateHeader onClose={() => router.push('/(tabs)/home')} />
-
-        {!selectedImages.length && !selectedVideo ? (
-          // Immersive Viewfinder and Orbs
-          <View style={{ flex: 1, justifyContent: 'space-between', paddingBottom: insets.bottom + 20 }}>
-            {/* Center Area */}
-            <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 }}>
-              {isJourneyCapture && (
-                <CloudGlassCard style={{ width: '100%', marginBottom: 20 }} contentStyle={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 14 }}>
-                  <Ionicons name="navigate" size={18} color={theme.colors.primary} />
-                  <Text style={{ flex: 1, color: theme.colors.text, fontSize: 13, fontWeight: '600' }}>
-                    Capture a live moment from your journey. Reels can use in-app audio before upload.
-                  </Text>
-                </CloudGlassCard>
-              )}
-
-              {permission && !permission.granted && (
-                <CloudGlassCard style={{ width: '100%', padding: 24 }} contentStyle={{ alignItems: 'center' }}>
-                  <View style={{ width: 56, height: 56, borderRadius: 28, backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', alignItems: 'center', justifyContent: 'center', marginBottom: 16 }}>
-                    <Ionicons name="camera" size={28} color={theme.colors.primary} />
-                  </View>
-                  <Text style={{ fontSize: 18, fontWeight: '800', color: theme.colors.text, textAlign: 'center', marginBottom: 8 }}>
-                    Camera Access Needed
-                  </Text>
-                  <Text style={{ fontSize: 14, color: theme.colors.textSecondary, textAlign: 'center', marginBottom: 20, lineHeight: 20 }}>
-                    Enable camera access to preview and capture photos or videos instantly.
-                  </Text>
-                  <TouchableOpacity
-                    onPress={requestPermission}
-                    style={{
-                      paddingVertical: 12,
-                      paddingHorizontal: 24,
-                      borderRadius: theme.borderRadius.xl,
-                      backgroundColor: theme.colors.primary,
-                      shadowColor: theme.colors.primary,
-                      shadowOffset: { width: 0, height: 4 },
-                      shadowOpacity: 0.3,
-                      shadowRadius: 6,
-                      elevation: 5,
-                    }}
-                  >
-                    <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>Allow Camera</Text>
-                  </TouchableOpacity>
-                </CloudGlassCard>
-              )}
-            </View>
-
-            {/* Mode Label */}
-            <View style={styles.modeLabelContainer}>
-              <Text style={styles.modeLabelText}>
-                {postType === 'photo' ? 'PHOTO' : 'SHORT'}
-              </Text>
-            </View>
-
-            {/* Tactile Floating Orbs */}
-            <View style={styles.orbsContainer}>
-              <TouchableOpacity
-                style={styles.orbOuter}
-                onPress={postType === 'photo' ? pickImages : pickVideo}
-                activeOpacity={0.7}
-              >
-                {latestAssetUri ? (
-                  <Image source={{ uri: latestAssetUri }} style={styles.galleryThumbnail} />
-                ) : (
-                  <View style={[styles.orbGlass, styles.galleryFallback]}>
-                    <Ionicons name="images-outline" size={20} color="#fff" />
-                  </View>
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.shutterOuter,
-                  postType === 'short' ? styles.shutterOuterShort : styles.shutterOuterPhoto
-                ]}
-                onPress={postType === 'photo' ? takePhoto : takeVideo}
-                activeOpacity={0.8}
-              >
-                <View style={[
-                  styles.shutterInner,
-                  postType === 'short' && styles.shutterInnerShort
-                ]} />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.orbOuter, styles.orbGlass]}
-                onPress={() => setPostType(prev => prev === 'photo' ? 'short' : 'photo')}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name={postType === 'photo' ? 'film-outline' : 'image-outline'}
-                  size={22}
-                  color="#fff"
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : (
-          <ScrollView 
-            style={{ flex: 1 }} 
-            contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 80, 100) }}
-            showsVerticalScrollIndicator={false}
-            onScroll={handleScroll}
-            scrollEventThrottle={16}
-            nestedScrollEnabled={true}
-            keyboardShouldPersistTaps="handled"
-            keyboardDismissMode="on-drag"
-          >
+      <View style={{ flex: 1, backgroundColor: 'transparent' }}>
+        <View style={StyleSheet.absoluteFillObject}>
+          <CloudPostMountainBackground />
+          {(selectedImages.length > 0 || selectedVideo) && (
+            <BlurView intensity={80} tint={mode === 'dark' ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
+          )}
+        </View>
+        {showDetails ? (
+          <View style={{ flex: 1 }}>
+            <PostCreateHeader isDetail={true} onClose={() => setShowDetails(false)} />
+            <ScrollView 
+              style={{ flex: 1 }} 
+              contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 80, 100) }}
+              showsVerticalScrollIndicator={false}
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
+              nestedScrollEnabled={true}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+            >
 
           <CloudGlassCard
             style={{ marginHorizontal: 16, marginBottom: 16 }}
@@ -2648,7 +2819,7 @@ export default function PostScreen() {
                 {selectedImages.length === 1 ? (
                   // Single image — aspect chosen in Edit Photos chips. For 1:1 / 16:9 we render
                   // the AspectImageCropper inline (pinch + pan); for 'full' we just show the image.
-                  selectedAspectRatio === 'full' ? (
+                  true ? (
                     <View style={{
                       width: '100%',
                       aspectRatio: naturalImageAspect ?? 1,
@@ -2667,7 +2838,7 @@ export default function PostScreen() {
                   ) : (
                     <AspectImageCropper
                       uri={selectedImages[0].uri}
-                      aspectRatio={selectedAspectRatio === '16:9' ? 9 / 16 : 1}
+                      aspectRatio={selectedAspectRatio === '1:1' ? 1 / 1 : 1.91 / 1}
                       borderRadius={theme.borderRadius.xl}
                       showHint={false}
                       showReset={true}
@@ -2774,22 +2945,6 @@ export default function PostScreen() {
                         ))}
                       </View>
                     </View>
-                    {/* Horizontal scrollable view for all images */}
-                    <ScrollView 
-                      horizontal 
-                      showsHorizontalScrollIndicator={false}
-                      style={{ marginTop: theme.spacing.sm }}
-                      contentContainerStyle={{ gap: theme.spacing.xs, paddingRight: theme.spacing.md }}
-                    >
-                      {selectedImages.map((image, index) => (
-                        <View key={index} style={{ width: 80, height: 80, borderRadius: theme.borderRadius.md, overflow: 'hidden', marginRight: theme.spacing.xs }}>
-                          <Image 
-                            source={{ uri: image.uri }} 
-                            style={{ width: "100%", height: "100%", resizeMode: "cover" }} 
-                          />
-                        </View>
-                      ))}
-                    </ScrollView>
                   </View>
                 )}
 
@@ -2864,18 +3019,40 @@ export default function PostScreen() {
                       onPress={pickImages}
                       activeOpacity={0.8}
                       style={{
-                        backgroundColor: theme.colors.primary,
-                        paddingHorizontal: theme.spacing.lg,
-                        paddingVertical: theme.spacing.md,
-                        borderRadius: theme.borderRadius.full,
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        gap: 6,
-                        ...theme.shadows.medium,
+                        borderRadius: 9999,
+                        shadowColor: '#14B8A6',
+                        shadowOffset: { width: 0, height: 6 },
+                        shadowOpacity: 0.3,
+                        shadowRadius: 12,
+                        elevation: 4,
+                        overflow: 'hidden',
                       }}
                     >
-                      <Ionicons name="add" size={20} color="white" />
-                      <Text style={{ color: 'white', fontWeight: '600', fontSize: theme.typography.body.fontSize }}>Add More</Text>
+                      <LinearGradient
+                        colors={['#38BDF8', '#14B8A6', '#34D399']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={{
+                          paddingHorizontal: theme.spacing.lg,
+                          paddingVertical: theme.spacing.md,
+                          borderRadius: 9999,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          gap: 6,
+                          borderWidth: 1,
+                          borderColor: 'rgba(255, 255, 255, 0.35)',
+                        }}
+                      >
+                        <LinearGradient
+                          colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 0, y: 0.4 }}
+                          style={StyleSheet.absoluteFillObject}
+                          pointerEvents="none"
+                        />
+                        <Ionicons name="add" size={20} color="white" style={{ zIndex: 1 }} />
+                        <Text style={{ color: 'white', fontWeight: '600', fontSize: theme.typography.body.fontSize, zIndex: 1 }}>Add More</Text>
+                      </LinearGradient>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -2883,9 +3060,12 @@ export default function PostScreen() {
             ) : selectedVideo && selectedVideo.trim() ? (
               <View>
                 {/* Video preview */}
-                <View style={{ width: "100%", height: 300, borderRadius: theme.borderRadius.lg, overflow: 'hidden', backgroundColor: theme.colors.surface }}>
+                <View style={{ width: "100%", aspectRatio: 9 / 16, borderRadius: theme.borderRadius.lg, overflow: 'hidden', backgroundColor: theme.colors.surface }}>
                   <Video
-                    source={{ uri: selectedVideo }}
+                    source={{
+                      uri: selectedVideo,
+                      overrideFileExtensionAndroid: (selectedVideo.toLowerCase().includes('m3u8') || selectedVideo.toLowerCase().includes('hls')) ? 'm3u8' : 'mp4'
+                    }}
                     style={{ width: '100%', height: '100%' }}
                     useNativeControls
                     resizeMode={ResizeMode.CONTAIN}
@@ -2894,36 +3074,6 @@ export default function PostScreen() {
                     isMuted={false}
                     volume={audioChoice === 'background' && selectedSong ? 0.6 : 1.0}
                   />
-                </View>
-                {/* Thumbnail preview below */}
-                <View style={{ marginTop: theme.spacing.sm }}>
-                  {videoThumbnail && videoThumbnail.trim() ? (
-                    <Image source={{ uri: videoThumbnail }} style={{ width: "100%", height: 160, borderRadius: theme.borderRadius.lg, resizeMode: "cover" }} />
-                  ) : (
-                    <View style={{ width: "100%", height: 160, borderRadius: theme.borderRadius.lg, backgroundColor: theme.colors.surface, justifyContent: 'center', alignItems: 'center' }}>
-                      <Ionicons name="image-outline" size={48} color={theme.colors.primary} />
-                      <Text style={{ color: theme.colors.text, marginTop: theme.spacing.xs }}>Generating thumbnail...</Text>
-                    </View>
-                  )}
-                  {/* Change/Regenerate thumbnail button */}
-                  <TouchableOpacity
-                    onPress={async () => {
-                      const libPerm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                      if (libPerm.status !== ImagePicker.PermissionStatus.GRANTED) {
-                        Alert.alert('Permission needed', 'Please grant photo library permissions.');
-                        return;
-                      }
-                      const pick = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [9, 16], quality: 0.9 });
-                      if (!pick.canceled && pick.assets?.[0] && pick.assets[0].uri && pick.assets[0].uri.trim()) {
-                        setVideoThumbnail(pick.assets[0].uri);
-                      } else {
-                        setVideoThumbnail(null);
-                      }
-                    }}
-                    style={{ position: 'absolute', right: theme.spacing.sm, bottom: theme.spacing.sm, backgroundColor: theme.colors.background, paddingHorizontal: theme.spacing.md, paddingVertical: 8, borderRadius: theme.borderRadius.md, opacity: 0.9 }}
-                  >
-                    <Text style={{ color: theme.colors.text, fontWeight: '600' }}>Change Thumbnail</Text>
-                  </TouchableOpacity>
                 </View>
               </View>
             ) : null}
@@ -3187,21 +3337,44 @@ export default function PostScreen() {
                         <TouchableOpacity
                           onPress={() => setShowDetectPlaceModal(true)}
                           style={{
-                            flexDirection: 'row',
-                            alignItems: 'center',
                             alignSelf: 'flex-start',
-                            backgroundColor: theme.colors.primary,
-                            paddingHorizontal: theme.spacing.md,
-                            paddingVertical: theme.spacing.xs,
-                            borderRadius: theme.borderRadius.md,
-                            gap: theme.spacing.xs,
+                            borderRadius: 9999,
+                            shadowColor: '#14B8A6',
+                            shadowOffset: { width: 0, height: 4 },
+                            shadowOpacity: 0.25,
+                            shadowRadius: 8,
+                            elevation: 3,
+                            overflow: 'hidden',
                             marginBottom: theme.spacing.sm,
                           }}
                         >
-                          <Ionicons name="search" size={16} color="#FFFFFF" />
-                          <Text style={{ color: '#FFFFFF', fontSize: theme.typography.small.fontSize, fontWeight: '600' }}>
-                            Detect Place
-                          </Text>
+                          <LinearGradient
+                            colors={['#38BDF8', '#14B8A6', '#34D399']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
+                            style={{
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              paddingHorizontal: theme.spacing.md,
+                              paddingVertical: theme.spacing.xs + 2,
+                              borderRadius: 9999,
+                              gap: theme.spacing.xs,
+                              borderWidth: 1,
+                              borderColor: 'rgba(255, 255, 255, 0.35)',
+                            }}
+                          >
+                            <LinearGradient
+                              colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 0, y: 0.4 }}
+                              style={StyleSheet.absoluteFillObject}
+                              pointerEvents="none"
+                            />
+                            <Ionicons name="search" size={16} color="#FFFFFF" style={{ zIndex: 1 }} />
+                            <Text style={{ color: '#FFFFFF', fontSize: theme.typography.small.fontSize, fontWeight: '600', zIndex: 1 }}>
+                              Detect Place
+                            </Text>
+                          </LinearGradient>
                         </TouchableOpacity>
                       <TextInput
                         style={{ 
@@ -3450,23 +3623,8 @@ export default function PostScreen() {
                       </TouchableOpacity>
                     )}
                     <TouchableOpacity
-                      style={[
-                        { 
-                          backgroundColor: theme.colors.primary, 
-                          borderRadius: theme.borderRadius.lg, 
-                          paddingVertical: theme.spacing.lg, 
-                          alignItems: "center", 
-                          justifyContent: 'center',
-                          marginTop: theme.spacing.md,
-                          flexDirection: 'row',
-                          gap: theme.spacing.sm,
-                          ...theme.shadows.large
-                        },
-                        isLoading && { opacity: 0.7 },
-                      ]}
                       onPress={() => {
                         if (selectedVideo) {
-                          // Convert photo form values to short form values
                           handleShort({
                             caption: (values as any).comment || (values as any).caption || '',
                             tags: values.tags || '',
@@ -3478,18 +3636,54 @@ export default function PostScreen() {
                       }}
                       disabled={isLoading}
                       activeOpacity={0.8}
+                      style={[
+                        {
+                          marginTop: theme.spacing.md,
+                          overflow: 'hidden',
+                          borderRadius: 9999,
+                          shadowColor: '#14B8A6',
+                          shadowOffset: { width: 0, height: 8 },
+                          shadowOpacity: 0.35,
+                          shadowRadius: 16,
+                          elevation: 6,
+                        },
+                        isLoading && { opacity: 0.7 },
+                      ]}
                     >
-                      {isLoading ? (
-                        <>
-                          <ActivityIndicator color="white" size="small" />
-                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "600", marginLeft: theme.spacing.sm }}>Sharing...</Text>
-                        </>
-                      ) : (
-                        <>
-                          <Ionicons name="send" size={20} color="white" />
-                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "600" }}>Share Post</Text>
-                        </>
-                      )}
+                      <LinearGradient
+                        colors={['#38BDF8', '#14B8A6', '#34D399']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={{
+                          paddingVertical: theme.spacing.lg,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexDirection: 'row',
+                          gap: theme.spacing.sm,
+                          borderWidth: 1,
+                          borderColor: 'rgba(255, 255, 255, 0.35)',
+                          borderRadius: 9999,
+                        }}
+                      >
+                        <LinearGradient
+                          colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 0, y: 0.4 }}
+                          style={StyleSheet.absoluteFillObject}
+                          pointerEvents="none"
+                        />
+                        {isLoading ? (
+                          <>
+                            <LoadingGlobe color="white" size="small" />
+                            <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "700", marginLeft: theme.spacing.sm }}>Sharing...</Text>
+                          </>
+                        ) : (
+                          <>
+                            <Ionicons name="send" size={20} color="white" />
+                            <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "700" }}>Share Post</Text>
+                          </>
+                        )}
+                      </LinearGradient>
                     </TouchableOpacity>
                   </View>
                   );
@@ -3746,25 +3940,48 @@ export default function PostScreen() {
                         <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Place Name</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                       </View>
-                      <TouchableOpacity
-                        onPress={() => setShowDetectPlaceModal(true)}
-                        style={{
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          alignSelf: 'flex-start',
-                          backgroundColor: theme.colors.primary,
-                          paddingHorizontal: theme.spacing.md,
-                          paddingVertical: theme.spacing.xs,
-                          borderRadius: theme.borderRadius.md,
-                          gap: theme.spacing.xs,
-                          marginBottom: theme.spacing.sm,
-                        }}
-                      >
-                        <Ionicons name="search" size={16} color="#FFFFFF" />
-                        <Text style={{ color: '#FFFFFF', fontSize: theme.typography.small.fontSize, fontWeight: '600' }}>
-                          Detect Place
-                        </Text>
-                      </TouchableOpacity>
+                       <TouchableOpacity
+                         onPress={() => setShowDetectPlaceModal(true)}
+                         style={{
+                           alignSelf: 'flex-start',
+                           borderRadius: 9999,
+                           shadowColor: '#14B8A6',
+                           shadowOffset: { width: 0, height: 4 },
+                           shadowOpacity: 0.25,
+                           shadowRadius: 8,
+                           elevation: 3,
+                           overflow: 'hidden',
+                           marginBottom: theme.spacing.sm,
+                         }}
+                       >
+                         <LinearGradient
+                           colors={['#38BDF8', '#14B8A6', '#34D399']}
+                           start={{ x: 0, y: 0 }}
+                           end={{ x: 1, y: 0 }}
+                           style={{
+                             flexDirection: 'row',
+                             alignItems: 'center',
+                             paddingHorizontal: theme.spacing.md,
+                             paddingVertical: theme.spacing.xs + 2,
+                             borderRadius: 9999,
+                             gap: theme.spacing.xs,
+                             borderWidth: 1,
+                             borderColor: 'rgba(255, 255, 255, 0.35)',
+                           }}
+                         >
+                           <LinearGradient
+                             colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
+                             start={{ x: 0, y: 0 }}
+                             end={{ x: 0, y: 0.4 }}
+                             style={StyleSheet.absoluteFillObject}
+                             pointerEvents="none"
+                           />
+                           <Ionicons name="search" size={16} color="#FFFFFF" style={{ zIndex: 1 }} />
+                           <Text style={{ color: '#FFFFFF', fontSize: theme.typography.small.fontSize, fontWeight: '600', zIndex: 1 }}>
+                             Detect Place
+                           </Text>
+                         </LinearGradient>
+                       </TouchableOpacity>
                       <TextInput
                         style={{ 
                           backgroundColor: theme.colors.surfaceSecondary, 
@@ -4030,20 +4247,6 @@ export default function PostScreen() {
                       </TouchableOpacity>
                     )}
                     <TouchableOpacity
-                      style={[
-                        { 
-                          backgroundColor: theme.colors.primary, 
-                          borderRadius: theme.borderRadius.lg, 
-                          paddingVertical: theme.spacing.lg, 
-                          alignItems: "center", 
-                          justifyContent: 'center',
-                          marginTop: theme.spacing.md,
-                          flexDirection: 'row',
-                          gap: theme.spacing.sm,
-                          ...theme.shadows.large
-                        },
-                        isLoading && { opacity: 0.7 },
-                      ]}
                       onPress={() => {
                         logger.debug('Upload Short button pressed');
                         logger.debug('Form values:', values);
@@ -4053,18 +4256,54 @@ export default function PostScreen() {
                       }}
                       disabled={isLoading}
                       activeOpacity={0.8}
+                      style={[
+                        {
+                          marginTop: theme.spacing.md,
+                          overflow: 'hidden',
+                          borderRadius: 9999,
+                          shadowColor: '#14B8A6',
+                          shadowOffset: { width: 0, height: 8 },
+                          shadowOpacity: 0.35,
+                          shadowRadius: 16,
+                          elevation: 6,
+                        },
+                        isLoading && { opacity: 0.7 },
+                      ]}
                     >
-                      {isLoading ? (
-                        <>
-                          <ActivityIndicator color="white" size="small" />
-                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "600", marginLeft: theme.spacing.sm }}>Uploading...</Text>
-                        </>
-                      ) : (
-                        <>
-                          <Ionicons name="cloud-upload" size={20} color="white" />
-                          <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "600" }}>Upload Short</Text>
-                        </>
-                      )}
+                      <LinearGradient
+                        colors={['#38BDF8', '#14B8A6', '#34D399']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={{
+                          paddingVertical: theme.spacing.lg,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexDirection: 'row',
+                          gap: theme.spacing.sm,
+                          borderWidth: 1,
+                          borderColor: 'rgba(255, 255, 255, 0.35)',
+                          borderRadius: 9999,
+                        }}
+                      >
+                        <LinearGradient
+                          colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 0, y: 0.4 }}
+                          style={StyleSheet.absoluteFillObject}
+                          pointerEvents="none"
+                        />
+                        {isLoading ? (
+                          <>
+                            <LoadingGlobe color="white" size="small" />
+                            <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "700", marginLeft: theme.spacing.sm }}>Uploading...</Text>
+                          </>
+                        ) : (
+                          <>
+                            <Ionicons name="cloud-upload" size={20} color="white" />
+                            <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: "700" }}>Upload Short</Text>
+                          </>
+                        )}
+                      </LinearGradient>
                     </TouchableOpacity>
                   </View>
                   );
@@ -4074,6 +4313,367 @@ export default function PostScreen() {
           </CloudGlassCard>
         )}
       </ScrollView>
+    </View>
+    ) : (
+      // Unified Instagram 1:1 Editor view
+      <View style={{ flex: 1, backgroundColor: 'transparent' }}>
+        <PostCreateHeader onClose={() => router.push('/(tabs)/home')} onNext={() => setShowDetails(true)} showNext={selectedImages.length > 0 || !!selectedVideo} />
+        
+        {/* Top Half - Preview & Crop (exactly 50% of viewport) */}
+        <View style={{
+          width: screenWidth,
+          height: screenHeight * 0.45,
+          backgroundColor: '#000000',
+          justifyContent: 'center',
+          alignItems: 'center',
+          position: 'relative',
+          overflow: 'hidden',
+        }}>
+          {selectedVideo ? (
+            <Video
+              source={{
+                uri: selectedVideo,
+                overrideFileExtensionAndroid: (selectedVideo.toLowerCase().includes('m3u8') || selectedVideo.toLowerCase().includes('hls')) ? 'm3u8' : 'mp4'
+              }}
+              style={{ width: '100%', height: '100%' }}
+              useNativeControls={false}
+              resizeMode={ResizeMode.CONTAIN}
+              isLooping
+              shouldPlay
+            />
+          ) : selectedImages.length > 0 ? (
+            <AspectImageCropper
+              uri={selectedImages[0].uri}
+              aspectRatio={selectedAspectRatio === '1:1' ? 1 : selectedAspectRatio === '1.91:1' ? 1.91 : 1}
+              borderRadius={0}
+              showHint={false}
+              showReset={false}
+              viewportWidth={screenWidth}
+              onTransformChange={setCropTransform}
+            />
+          ) : (
+            <LoadingGlobe size="large" color="#0095F6" />
+          )}
+        </View>
+
+        {/* Middle Toolbar */}
+        <View style={{
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          paddingHorizontal: 16,
+          paddingVertical: 12,
+          backgroundColor: mode === 'dark' ? 'rgba(10, 15, 25, 0.70)' : 'rgba(255, 255, 255, 0.65)',
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+        }}>
+          <TouchableOpacity
+            onPress={postType === 'photo' ? pickImages : pickVideo}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+          >
+            <Text style={{ color: mode === 'dark' ? '#FFFFFF' : '#122236', fontSize: 16, fontWeight: '600' }}>Recents</Text>
+            <Ionicons name="chevron-down" size={16} color={mode === 'dark' ? '#FFFFFF' : '#122236'} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={() => {
+              setIsMultiSelect(prev => {
+                const next = !prev;
+                if (!next && selectedImages.length > 1) {
+                  setSelectedImages([selectedImages[0]]);
+                }
+                return next;
+              });
+            }}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              backgroundColor: mode === 'dark' ? '#262626' : 'rgba(0,0,0,0.05)',
+              paddingHorizontal: 12,
+              paddingVertical: 6,
+              borderRadius: 20,
+            }}
+          >
+            <Ionicons name="copy-outline" size={16} color={isMultiSelect ? '#0095F6' : (mode === 'dark' ? '#FFFFFF' : '#122236')} />
+            <Text style={{ color: isMultiSelect ? '#0095F6' : (mode === 'dark' ? '#FFFFFF' : '#122236'), fontSize: 13, fontWeight: '600' }}>Select</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Info Banner for Expo Go / Mock Gallery */}
+        {cameraRollAssets.length > 0 && cameraRollAssets[0].id.startsWith('mock_') && (
+          <TouchableOpacity
+            onPress={postType === 'photo' ? pickImages : pickVideo}
+            activeOpacity={0.7}
+            style={{
+              backgroundColor: mode === 'dark' ? 'rgba(28, 28, 30, 0.65)' : 'rgba(242, 242, 247, 0.65)',
+              paddingHorizontal: 16,
+              paddingVertical: 10,
+              borderBottomWidth: StyleSheet.hairlineWidth,
+              borderBottomColor: mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <Ionicons name="information-circle-outline" size={18} color="#0095F6" />
+            <Text style={{
+              color: mode === 'dark' ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)',
+              fontSize: 12,
+              flex: 1,
+              lineHeight: 16,
+            }}>
+              Showing sample travel photos in Expo Go. Tap <Text style={{ fontWeight: '600', color: '#0095F6' }}>here</Text> or <Text style={{ fontWeight: '600', color: mode === 'dark' ? '#FFFFFF' : '#000000' }}>Recents</Text> to choose your own.
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Bottom Half - Inline Gallery */}
+        <View style={{ flex: 1, backgroundColor: 'transparent' }}>
+          <FlatList
+            data={[
+              { id: 'camera-tile', type: 'camera' } as any,
+              { id: 'gallery-tile', type: 'gallery' } as any,
+              ...cameraRollAssets
+            ]}
+            keyExtractor={(item, index) => item.id || `asset_${index}`}
+            numColumns={4}
+            removeClippedSubviews={true}
+            initialNumToRender={20}
+            contentContainerStyle={{
+              paddingBottom: 80,
+            }}
+            renderItem={({ item, index }) => {
+              if (item.type === 'camera') {
+                return (
+                  <TouchableOpacity
+                    onPress={postType === 'photo' ? takePhoto : takeVideo}
+                    style={{
+                      width: screenWidth / 4,
+                      height: screenWidth / 4,
+                      backgroundColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)',
+                      borderWidth: 1,
+                      borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.5)',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Ionicons name="camera-outline" size={28} color={mode === 'dark' ? '#FFFFFF' : '#122236'} />
+                  </TouchableOpacity>
+                );
+              }
+
+              if (item.type === 'gallery') {
+                return (
+                  <TouchableOpacity
+                    onPress={postType === 'photo' ? pickImages : pickVideo}
+                    style={{
+                      width: screenWidth / 4,
+                      height: screenWidth / 4,
+                      backgroundColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)',
+                      borderWidth: 1,
+                      borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.5)',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      gap: 2,
+                    }}
+                  >
+                    <Ionicons name="images-outline" size={26} color="#0095F6" />
+                    <Text style={{
+                      color: mode === 'dark' ? '#A3A3A3' : '#737373',
+                      fontSize: 10,
+                      fontWeight: '600',
+                    }}>Gallery</Text>
+                  </TouchableOpacity>
+                );
+              }
+
+              const isSelected = selectedImages.some(img => isUriMatch(img.uri, item.uri)) || isUriMatch(selectedVideo, item.uri);
+              const selectIndex = selectedImages.findIndex(img => isUriMatch(img.uri, item.uri));
+
+              return (
+                <TouchableOpacity
+                  onPress={async () => {
+                    if (item.mediaType === 'video') {
+                      const resolvedUri = await resolvePhUri(item.uri);
+                      setSelectedVideo(resolvedUri);
+                      setSelectedImages([]);
+                      setPostType('short');
+                    } else {
+                      setSelectedVideo(null);
+                      setPostType('photo');
+                      const resolvedUri = await resolvePhUri(item.uri);
+                      if (isMultiSelect) {
+                        setSelectedImages(prev => {
+                          const exists = prev.some(img => isUriMatch(img.uri, resolvedUri));
+                          if (exists) {
+                            return prev.filter(img => !isUriMatch(img.uri, resolvedUri));
+                          } else {
+                            if (prev.length >= 10) {
+                              Alert.alert('Too many images', 'Maximum 10 images allowed');
+                              return prev;
+                            }
+                            return [...prev, {
+                              uri: resolvedUri,
+                              type: 'image/jpeg',
+                              name: item.filename || `photo_${Date.now()}.jpg`,
+                            }];
+                          }
+                        });
+                      } else {
+                        setSelectedImages([{
+                          uri: resolvedUri,
+                          type: 'image/jpeg',
+                          name: item.filename || `photo_${Date.now()}.jpg`,
+                        }]);
+                      }
+                    }
+                  }}
+                  style={{
+                    width: screenWidth / 4,
+                    height: screenWidth / 4,
+                    position: 'relative',
+                    borderWidth: 1,
+                    borderColor: mode === 'dark' ? '#000000' : '#FFFFFF',
+                  }}
+                >
+                  <ExpoImage
+                    source={{ uri: item.thumbnailUri || item.uri }}
+                    style={{ width: '100%', height: '100%', opacity: isSelected ? 0.7 : 1 }}
+                  />
+                  {item.mediaType === 'video' && (
+                    <View style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      backgroundColor: 'rgba(0, 0, 0, 0.2)',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}>
+                      <Ionicons name="play" size={24} color="#FFFFFF" style={{ opacity: 0.8 }} />
+                      {item.duration > 0 && (
+                        <Text style={{
+                          position: 'absolute',
+                          bottom: 6,
+                          right: 6,
+                          color: '#FFFFFF',
+                          fontSize: 10,
+                          fontWeight: 'bold',
+                          backgroundColor: 'rgba(0,0,0,0.6)',
+                          paddingHorizontal: 4,
+                          paddingVertical: 2,
+                          borderRadius: 4,
+                        }}>
+                          {Math.floor(item.duration / 60)}:{(item.duration % 60).toString().padStart(2, '0')}
+                        </Text>
+                      )}
+                    </View>
+                  )}
+                  {isSelected && (
+                    <View style={{
+                      position: 'absolute',
+                      top: 6,
+                      right: 6,
+                      width: 22,
+                      height: 22,
+                      borderRadius: 11,
+                      backgroundColor: '#0095F6',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      borderWidth: 1.5,
+                      borderColor: 'white',
+                    }}>
+                      {isMultiSelect && item.mediaType !== 'video' ? (
+                        <Text style={{ color: 'white', fontSize: 11, fontWeight: 'bold' }}>
+                          {selectIndex + 1}
+                        </Text>
+                      ) : (
+                        <Ionicons name="checkmark" size={12} color="white" />
+                      )}
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            }}
+          />
+        </View>
+
+        {/* Bottom Tab Overlay with Gradient Fade */}
+        <View style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 60 + insets.bottom,
+          paddingBottom: insets.bottom,
+          backgroundColor: 'rgba(0,0,0,0.85)',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: 'rgba(255,255,255,0.1)',
+        }}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{
+              alignItems: 'center',
+              paddingHorizontal: screenWidth / 2 - 40,
+            }}
+          >
+            {['POST', 'REEL'].map((tab) => {
+              const isTabActive = (tab === 'POST' && postType === 'photo') || (tab === 'REEL' && postType === 'short');
+              return (
+                <TouchableOpacity
+                  key={tab}
+                  onPress={() => {
+                    if (tab === 'POST') {
+                      setPostType('photo');
+                      // Find first photo in cameraRollAssets and select it
+                      const firstPhoto = cameraRollAssets.find(a => a.mediaType === 'photo');
+                      if (firstPhoto) {
+                        setSelectedVideo(null);
+                        resolvePhUri(firstPhoto.uri).then(resolvedUri => {
+                          setSelectedImages([{
+                            uri: resolvedUri,
+                            type: 'image/jpeg',
+                            name: firstPhoto.filename || `photo_${Date.now()}.jpg`,
+                          }]);
+                        }).catch(err => {
+                          console.warn('Failed to resolve tab photo URI:', err);
+                        });
+                      }
+                    } else if (tab === 'REEL') {
+                      setPostType('short');
+                      // Find first video in cameraRollAssets and select it
+                      const firstVideo = cameraRollAssets.find(a => a.mediaType === 'video');
+                      if (firstVideo) {
+                        setSelectedImages([]);
+                        resolvePhUri(firstVideo.uri).then(resolvedUri => {
+                          setSelectedVideo(resolvedUri);
+                        }).catch(err => {
+                          console.warn('Failed to resolve tab video URI:', err);
+                        });
+                      }
+                    }
+                  }}
+                  style={{ paddingHorizontal: 15, paddingVertical: 8 }}
+                >
+                  <Text style={{
+                    color: isTabActive ? '#FFFFFF' : '#888888',
+                    fontSize: 14,
+                    fontWeight: 'bold',
+                    letterSpacing: 1,
+                  }}>
+                    {tab}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      </View>
     )}
       
       {/* Progress Alert.
@@ -4123,17 +4723,31 @@ export default function PostScreen() {
             style={{ width: '100%', marginBottom: 0 }}
           >
             <View style={{ 
-              backgroundColor: theme.colors.surface, 
-              borderTopLeftRadius: 20, 
-              borderTopRightRadius: 20,
-              borderBottomLeftRadius: 0,
-              borderBottomRightRadius: 0,
-              paddingTop: theme.spacing.sm,
-              paddingBottom: 0,
-              marginBottom: 0,
+              borderTopLeftRadius: 24, 
+              borderTopRightRadius: 24,
+              overflow: 'hidden',
+              borderWidth: 1,
+              borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.45)',
               maxHeight: '70%',
               ...theme.shadows.large
             }}>
+              <BlurView
+                intensity={80}
+                tint={mode === 'dark' ? 'dark' : 'light'}
+                style={StyleSheet.absoluteFillObject}
+              />
+              <View style={[StyleSheet.absoluteFillObject, { backgroundColor: mode === 'dark' ? 'rgba(10, 18, 32, 0.75)' : 'rgba(255, 255, 255, 0.65)' }]} />
+              <LinearGradient
+                colors={
+                  mode === 'dark'
+                    ? ['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0.02)']
+                    : ['rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.1)']
+                }
+                start={{ x: 0, y: 0 }}
+                end={{ x: 0.4, y: 0.4 }}
+                style={StyleSheet.absoluteFillObject}
+                pointerEvents="none"
+              />
               {/* Drag Handle */}
               <View style={{ 
                 alignSelf: 'center',
@@ -4142,7 +4756,8 @@ export default function PostScreen() {
                 borderRadius: 2,
                 backgroundColor: theme.colors.border,
                 marginBottom: theme.spacing.md,
-                marginTop: theme.spacing.xs
+                marginTop: theme.spacing.xs,
+                zIndex: 2,
               }} />
               
               {/* Header */}
@@ -4300,17 +4915,31 @@ export default function PostScreen() {
             style={{ width: '100%', marginBottom: 0 }}
           >
             <View style={{ 
-              backgroundColor: theme.colors.surface, 
-              borderTopLeftRadius: 20, 
-              borderTopRightRadius: 20,
-              borderBottomLeftRadius: 0,
-              borderBottomRightRadius: 0,
-              paddingTop: theme.spacing.sm,
-              paddingBottom: 0,
-              marginBottom: 0,
+              borderTopLeftRadius: 24, 
+              borderTopRightRadius: 24,
+              overflow: 'hidden',
+              borderWidth: 1,
+              borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.45)',
               maxHeight: '70%',
               ...theme.shadows.large
             }}>
+              <BlurView
+                intensity={80}
+                tint={mode === 'dark' ? 'dark' : 'light'}
+                style={StyleSheet.absoluteFillObject}
+              />
+              <View style={[StyleSheet.absoluteFillObject, { backgroundColor: mode === 'dark' ? 'rgba(10, 18, 32, 0.75)' : 'rgba(255, 255, 255, 0.65)' }]} />
+              <LinearGradient
+                colors={
+                  mode === 'dark'
+                    ? ['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0.02)']
+                    : ['rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.1)']
+                }
+                start={{ x: 0, y: 0 }}
+                end={{ x: 0.4, y: 0.4 }}
+                style={StyleSheet.absoluteFillObject}
+                pointerEvents="none"
+              />
               {/* Drag Handle */}
               <View style={{ 
                 alignSelf: 'center',
@@ -4319,7 +4948,8 @@ export default function PostScreen() {
                 borderRadius: 2,
                 backgroundColor: theme.colors.border,
                 marginBottom: theme.spacing.md,
-                marginTop: theme.spacing.xs
+                marginTop: theme.spacing.xs,
+                zIndex: 2,
               }} />
               
               {/* Header */}
@@ -4464,72 +5094,118 @@ export default function PostScreen() {
         animationType="slide"
         onRequestClose={() => setShowAudioChoiceModal(false)}
       >
-        <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.75)' }]}>
+        <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}>
           <View style={[
             styles.modalContent, 
             { 
-              backgroundColor: theme.colors.surface,
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.45)',
+              overflow: 'hidden',
+              backgroundColor: mode === 'dark' ? 'rgba(10, 18, 32, 0.75)' : 'rgba(255, 255, 255, 0.65)',
               ...theme.shadows.large
             }
           ]}>
-            <View style={{ alignItems: 'center', marginBottom: theme.spacing.lg }}>
-              <View style={{
-                width: 64,
-                height: 64,
-                borderRadius: 32,
-                backgroundColor: theme.colors.primary + '15',
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginBottom: theme.spacing.md
-              }}>
-                <Ionicons name="musical-notes" size={32} color={theme.colors.primary} />
+            <BlurView
+              intensity={80}
+              tint={mode === 'dark' ? 'dark' : 'light'}
+              style={StyleSheet.absoluteFillObject}
+            />
+            <LinearGradient
+              colors={
+                mode === 'dark'
+                  ? ['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0.02)']
+                  : ['rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.1)']
+              }
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0.4, y: 0.4 }}
+              style={StyleSheet.absoluteFillObject}
+              pointerEvents="none"
+            />
+            <View style={{ zIndex: 1 }}>
+              <View style={{ alignItems: 'center', marginBottom: theme.spacing.lg }}>
+                <View style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: 32,
+                  backgroundColor: theme.colors.secondary + '15',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginBottom: theme.spacing.md
+                }}>
+                  <Ionicons name="musical-notes" size={32} color={theme.colors.secondary} />
+                </View>
+                <Text style={[styles.modalTitle, { color: theme.colors.text }]}>
+                  Choose Audio for Your Short
+                </Text>
+                <Text style={[styles.modalDescription, { color: theme.colors.textSecondary }]}>
+                  Select how you want to handle audio for this video
+                </Text>
               </View>
-              <Text style={[styles.modalTitle, { color: theme.colors.text }]}>
-                Choose Audio for Your Short
-              </Text>
-              <Text style={[styles.modalDescription, { color: theme.colors.textSecondary }]}>
-                Select how you want to handle audio for this video
-              </Text>
-            </View>
-            
-            <TouchableOpacity
-              style={[
-                styles.audioChoiceButton, 
-                { 
-                  backgroundColor: theme.colors.primary,
-                  ...theme.shadows.medium
-                }
-              ]}
-              onPress={() => {
-                setAudioChoice('background');
-                setShowAudioChoiceModal(false);
-                setShowSongSelector(true);
-              }}
-              activeOpacity={0.8}
-            >
-              <View style={{
-                width: 48,
-                height: 48,
-                borderRadius: 24,
-                backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginRight: theme.spacing.md
-              }}>
-                <Ionicons name="musical-notes" size={24} color="white" />
-              </View>
-              <View style={styles.audioChoiceTextContainer}>
-                <Text style={styles.audioChoiceTitle}>Background Music</Text>
-                <Text style={styles.audioChoiceSubtitle}>Add a song from our library</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="white" />
-            </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={{
+                  borderRadius: 16,
+                  overflow: 'hidden',
+                  marginBottom: 16,
+                  shadowColor: '#14B8A6',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.25,
+                  shadowRadius: 8,
+                  elevation: 3,
+                }}
+                onPress={() => {
+                  setAudioChoice('background');
+                  setShowAudioChoiceModal(false);
+                  setShowSongSelector(true);
+                }}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={['#38BDF8', '#14B8A6', '#34D399']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    padding: isTablet ? theme.spacing.xl : 20,
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: 'rgba(255, 255, 255, 0.35)',
+                  }}
+                >
+                  <LinearGradient
+                    colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 0, y: 0.4 }}
+                    style={StyleSheet.absoluteFillObject}
+                    pointerEvents="none"
+                  />
+                  <View style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginRight: theme.spacing.md,
+                    zIndex: 1,
+                  }}>
+                    <Ionicons name="musical-notes" size={24} color="white" />
+                  </View>
+                  <View style={[styles.audioChoiceTextContainer, { zIndex: 1 }]}>
+                    <Text style={styles.audioChoiceTitle}>Background Music</Text>
+                    <Text style={styles.audioChoiceSubtitle}>Add a song from our library</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color="white" style={{ zIndex: 1 }} />
+                </LinearGradient>
+              </TouchableOpacity>
 
             <TouchableOpacity
               style={[
                 styles.audioChoiceButton, 
                 { 
-                  backgroundColor: theme.colors.surfaceSecondary,
+                  backgroundColor: mode === 'dark' ? '#1E1E1E' : '#FFFFFF',
                   borderWidth: 2,
                   borderColor: theme.colors.border
                 }
@@ -4583,6 +5259,7 @@ export default function PostScreen() {
                 Cancel
               </Text>
             </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -4683,12 +5360,33 @@ export default function PostScreen() {
           keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
         >
           <View style={{
-            backgroundColor: theme.colors.surface,
-            borderTopLeftRadius: 20,
-            borderTopRightRadius: 20,
+            borderTopLeftRadius: 24,
+            borderTopRightRadius: 24,
+            overflow: 'hidden',
+            borderWidth: 1,
+            borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.45)',
             maxHeight: Dimensions.get('window').height * 0.85,
             minHeight: 300,
+            ...theme.shadows.large
           }}>
+            <BlurView
+              intensity={80}
+              tint={mode === 'dark' ? 'dark' : 'light'}
+              style={StyleSheet.absoluteFillObject}
+            />
+            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: mode === 'dark' ? 'rgba(10, 18, 32, 0.75)' : 'rgba(255, 255, 255, 0.65)' }]} />
+            <LinearGradient
+              colors={
+                mode === 'dark'
+                  ? ['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0.02)']
+                  : ['rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.1)']
+              }
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0.4, y: 0.4 }}
+              style={StyleSheet.absoluteFillObject}
+              pointerEvents="none"
+            />
+            <View style={{ flex: 1, zIndex: 1 }}>
             {/* Fixed Header */}
             <View style={{
               flexDirection: 'row',
@@ -4753,17 +5451,20 @@ export default function PostScreen() {
                 </Text>
                 <View style={{ flexDirection: 'row', gap: theme.spacing.sm }}>
                   <TextInput
-                    style={{
-                      flex: 1,
-                      backgroundColor: theme.colors.surfaceSecondary,
-                      borderRadius: theme.borderRadius.md,
-                      paddingHorizontal: theme.spacing.md,
-                      paddingVertical: theme.spacing.md,
-                      fontSize: theme.typography.body.fontSize,
-                      color: theme.colors.text,
-                      borderWidth: 1.5,
-                      borderColor: theme.colors.border,
-                    }}
+                    style={[
+                      {
+                        flex: 1,
+                        backgroundColor: mode === 'dark' ? '#1E1E1E' : '#FFFFFF',
+                        borderRadius: theme.borderRadius.md,
+                        paddingHorizontal: theme.spacing.md,
+                        paddingVertical: theme.spacing.md,
+                        fontSize: theme.typography.body.fontSize,
+                        color: theme.colors.text,
+                        borderWidth: 1.5,
+                        borderColor: theme.colors.border,
+                      },
+                      Platform.OS === 'web' && ({ outlineStyle: 'none' } as any)
+                    ]}
                     placeholder="e.g., Museum of Anthropology"
                     placeholderTextColor={theme.colors.textSecondary}
                     value={detectPlaceName}
@@ -4775,20 +5476,43 @@ export default function PostScreen() {
                     onPress={handleSearchPlace}
                     disabled={isSearchingPlace || !detectPlaceName.trim()}
                     style={{
-                      backgroundColor: theme.colors.primary,
-                      paddingHorizontal: theme.spacing.lg,
-                      paddingVertical: theme.spacing.md,
-                      borderRadius: theme.borderRadius.md,
-                      justifyContent: 'center',
-                      alignItems: 'center',
+                      borderRadius: 9999,
+                      shadowColor: '#14B8A6',
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.25,
+                      shadowRadius: 8,
+                      elevation: 3,
+                      overflow: 'hidden',
                       opacity: (isSearchingPlace || !detectPlaceName.trim()) ? 0.5 : 1,
                     }}
                   >
-                    {isSearchingPlace ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <Ionicons name="search" size={20} color="#FFFFFF" />
-                    )}
+                    <LinearGradient
+                      colors={['#38BDF8', '#14B8A6', '#34D399']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={{
+                        paddingHorizontal: theme.spacing.lg,
+                        paddingVertical: theme.spacing.md,
+                        borderRadius: 9999,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        borderWidth: 1,
+                        borderColor: 'rgba(255, 255, 255, 0.35)',
+                      }}
+                    >
+                      <LinearGradient
+                        colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 0, y: 0.4 }}
+                        style={StyleSheet.absoluteFillObject}
+                        pointerEvents="none"
+                      />
+                      {isSearchingPlace ? (
+                        <LoadingGlobe size="small" color="#FFFFFF" style={{ zIndex: 1 }} />
+                      ) : (
+                        <Ionicons name="search" size={20} color="#FFFFFF" style={{ zIndex: 1 }} />
+                      )}
+                    </LinearGradient>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -4797,17 +5521,17 @@ export default function PostScreen() {
                 <View style={{
                   marginBottom: theme.spacing.lg,
                   padding: theme.spacing.md,
-                  backgroundColor: theme.colors.primary + '10',
+                  backgroundColor: theme.colors.secondary + '10',
                   borderRadius: theme.borderRadius.md,
                   borderWidth: 1,
-                  borderColor: theme.colors.primary + '30',
+                  borderColor: theme.colors.secondary + '30',
                 }}>
                   <View style={{
                     flexDirection: 'row',
                     alignItems: 'center',
                     marginBottom: theme.spacing.sm,
                   }}>
-                    <Ionicons name="checkmark-circle" size={20} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
+                    <Ionicons name="checkmark-circle" size={20} color={theme.colors.secondary} style={{ marginRight: theme.spacing.xs }} />
                     <Text style={{
                       fontSize: theme.typography.body.fontSize,
                       fontWeight: '600',
@@ -4881,26 +5605,51 @@ export default function PostScreen() {
                     }
                   }}
                   style={{
-                    backgroundColor: theme.colors.primary,
-                    paddingVertical: theme.spacing.md,
-                    borderRadius: theme.borderRadius.md,
-                    alignItems: 'center',
+                    borderRadius: 9999,
+                    shadowColor: '#14B8A6',
+                    shadowOffset: { width: 0, height: 6 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 12,
+                    elevation: 4,
+                    overflow: 'hidden',
                     marginTop: theme.spacing.sm,
                   }}
                 >
-                  <Text style={{
-                    color: '#FFFFFF',
-                    fontSize: theme.typography.body.fontSize,
-                    fontWeight: '600',
-                  }}>
-                    Use This Place
-                  </Text>
+                  <LinearGradient
+                    colors={['#38BDF8', '#14B8A6', '#34D399']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={{
+                      paddingVertical: theme.spacing.md,
+                      borderRadius: 9999,
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: 'rgba(255, 255, 255, 0.35)',
+                    }}
+                  >
+                    <LinearGradient
+                      colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 0, y: 0.4 }}
+                      style={StyleSheet.absoluteFillObject}
+                      pointerEvents="none"
+                    />
+                    <Text style={{
+                      color: '#FFFFFF',
+                      fontSize: theme.typography.body.fontSize,
+                      fontWeight: '700',
+                      zIndex: 1,
+                    }}>
+                      Use This Place
+                    </Text>
+                  </LinearGradient>
                 </TouchableOpacity>
               )}
             </ScrollView>
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
 
         {/* Copyright Confirmation Modal */}
         <CopyrightConfirmationModal
@@ -4920,7 +5669,6 @@ export default function PostScreen() {
           selectedAspectRatio={selectedAspectRatio}
           onAspectRatioChange={(ar) => { setSelectedAspectRatio(ar); setCropTransform(null); }}
         />
-        </View>
         {/* Shadow Gate above bottom tab bar */}
         <LinearGradient
           colors={['transparent', mode === 'dark' ? 'rgba(13,27,42,0.7)' : 'rgba(0,0,0,0.08)']}
@@ -5103,9 +5851,6 @@ const styles = StyleSheet.create({
     fontFamily: getFontFamily('800'),
     fontWeight: '800',
     letterSpacing: 2,
-    textShadowColor: 'rgba(0, 0, 0, 0.6)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),

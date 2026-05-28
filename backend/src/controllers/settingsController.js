@@ -58,6 +58,9 @@ const updateSettings = async (req, res) => {
       if (typeof settings.privacy.allowFollowRequests === 'boolean') {
         validSettings['settings.privacy.allowFollowRequests'] = settings.privacy.allowFollowRequests;
       }
+      if (settings.privacy.routeVisibility && ['everyone', 'approved_only', 'private'].includes(settings.privacy.routeVisibility)) {
+        validSettings['settings.privacy.routeVisibility'] = settings.privacy.routeVisibility;
+      }
     }
 
     // Notification settings
@@ -137,7 +140,8 @@ const resetSettings = async (req, res) => {
         showLocation: true,
         allowMessages: 'everyone',
         requireFollowApproval: false,
-        allowFollowRequests: true
+        allowFollowRequests: true,
+        routeVisibility: 'everyone'
       },
       notifications: {
         pushNotifications: true,

@@ -16,8 +16,14 @@ function sleep(ms: number): Promise<void> {
 }
 
 export async function initializeAds(): Promise<void> {
-  if (Platform.OS === 'web') return;
-  if (Constants.appOwnership === 'expo') return;
+  if (Platform.OS === 'web') {
+    logger.info('[AdMob] initializeAds: skipped on web platform');
+    return;
+  }
+  if (Constants.appOwnership === 'expo') {
+    logger.warn('[AdMob] initializeAds: skipped in Expo Go (native ads require a development build / custom dev client)');
+    return;
+  }
   if (isInitialized) return;
   if (initializeAdsPromise) {
     await initializeAdsPromise;
@@ -26,6 +32,7 @@ export async function initializeAds(): Promise<void> {
 
   initializeAdsPromise = (async () => {
     try {
+      logger.info('[AdMob] Initializing SDK in environment:', { __DEV__ });
       const { default: MobileAds, AdsConsent, AdsConsentDebugGeography } = await import(
         'react-native-google-mobile-ads'
       );
@@ -38,6 +45,7 @@ export async function initializeAds(): Promise<void> {
           }
         : { tagForUnderAgeOfConsent: false };
 
+      logger.debug('[AdMob] Requesting consent info update with options:', options);
       consentFlowPromise = (async () => {
         await AdsConsent.requestInfoUpdate(options);
         await AdsConsent.loadAndShowConsentFormIfRequired();
@@ -46,17 +54,19 @@ export async function initializeAds(): Promise<void> {
 
       const mobileAds = MobileAds();
       if (__DEV__) {
+        logger.info('[AdMob] Configuring test device identifiers');
         await mobileAds.setRequestConfiguration({
           testDeviceIdentifiers: ['EMULATOR'],
         });
       }
+      logger.info('[AdMob] Initializing MobileAds SDK');
       await mobileAds.initialize();
 
       isInitialized = true;
-      logger.debug('[AdMob] SDK initialized', { mode: __DEV__ ? 'test' : 'prod' });
+      logger.info('[AdMob] SDK initialized successfully', { mode: __DEV__ ? 'test' : 'prod' });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      logger.warn('[AdMob] Init failed (non-blocking):', message);
+      logger.error('[AdMob] Init failed (non-blocking):', message);
     } finally {
       consentFlowPromise = null;
       initializeAdsPromise = null;

@@ -6,18 +6,19 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
-  ActivityIndicator,
   Image,
   Modal,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
 } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '../context/ThemeContext';
 import { UserType } from '../types/user';
 import { updateProfile } from '../services/profile';
+import { prepareImageForUpload } from '../services/mediaService';
 import { sanitizeErrorForDisplay } from '../utils/errorSanitizer';
 import logger from '../utils/logger';
 
@@ -29,7 +30,7 @@ interface EditProfileProps {
 }
 
 export default function EditProfile({ visible, user, onClose, onSuccess }: EditProfileProps) {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const [fullName, setFullName] = useState(user.fullName);
   const [bio, setBio] = useState(user.bio || '');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -57,7 +58,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       }
 
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -82,6 +83,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       }
 
       const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         aspect: [1, 1],
         quality: 0.8,
@@ -127,11 +129,8 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       };
 
       if (selectedImage) {
-        updateData.profilePic = {
-          uri: selectedImage,
-          type: 'image/jpeg',
-          name: `profile_${Date.now()}.jpg`,
-        };
+        const prepared = await prepareImageForUpload(selectedImage, `profile_${Date.now()}.jpg`);
+        updateData.profilePic = prepared;
       }
 
       const response = await updateProfile(user._id, updateData);
@@ -193,7 +192,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       borderRadius: theme.borderRadius.md,
     },
     changePhotoText: {
-      color: theme.colors.text,
+      color: isDark ? '#121212' : '#FFFFFF',
       fontSize: theme.typography.caption.fontSize,
       fontWeight: '600',
     },
@@ -246,7 +245,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
     buttonText: {
       fontSize: theme.typography.body.fontSize,
       fontWeight: '600',
-      color: theme.colors.text,
+      color: isDark ? '#121212' : '#FFFFFF',
     },
     cancelButtonText: {
       color: theme.colors.textSecondary,
@@ -336,7 +335,7 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
               disabled={loading}
             >
               {loading ? (
-                <ActivityIndicator color={theme.colors.text} />
+                <LoadingGlobe color={theme.colors.text} />
               ) : (
                 <Text style={styles.buttonText}>Save</Text>
               )}

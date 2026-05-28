@@ -3,6 +3,27 @@ import { View, StyleSheet, TouchableOpacity, Pressable, Text } from 'react-nativ
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useTheme } from '../../context/ThemeContext';
+import { useAlert } from '../../context/AlertContext';
+import { LinearGradient } from 'expo-linear-gradient';
+import MaskedView from '@react-native-masked-view/masked-view';
+
+function GradientIcon({ name, size }: { name: any; size: number }) {
+  return (
+    <MaskedView
+      style={{ width: size, height: size }}
+      maskElement={
+        <Ionicons name={name} size={size} color="#000000" />
+      }
+    >
+      <LinearGradient
+        colors={['#1C73B4', '#50C878']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={{ flex: 1 }}
+      />
+    </MaskedView>
+  );
+}
 
 interface ShortsActionsProps {
   shortId: string;
@@ -42,6 +63,33 @@ const ShortsActions = ({
   onSavePress,
 }: ShortsActionsProps) => {
   const { theme } = useTheme();
+  const { showOptions, showSuccess } = useAlert();
+
+  const handleOptionsPress = () => {
+    showOptions(
+      'Reel Options',
+      [
+        {
+          text: isSaved ? 'Remove from Saved' : 'Save Reel',
+          onPress: () => onSavePress(shortId),
+        },
+        {
+          text: 'Share Reel',
+          onPress: onSharePress,
+        },
+        {
+          text: 'Report Reel',
+          onPress: () => {
+            showSuccess('Thank you for reporting. We will review this content shortly.', 'Report Submitted');
+          },
+          style: 'destructive',
+        },
+      ],
+      undefined,
+      true,
+      'Cancel'
+    );
+  };
 
   return (
     <View style={styles.rightActions} pointerEvents="box-none">
@@ -54,14 +102,21 @@ const ShortsActions = ({
         accessibilityRole="button"
       >
         <View style={styles.avatarContainer}>
-          <ExpoImage
-            source={profilePic ? { uri: profilePic } : require('../../assets/avatars/male_avatar.png')}
-            style={styles.profileImage}
-            cachePolicy="memory-disk"
-            placeholder={require('../../assets/avatars/male_avatar.png')}
-            contentFit="cover"
-            transition={200}
-          />
+          <LinearGradient
+            colors={['#1C73B4', '#50C878']}
+            style={styles.gradientBorder}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <ExpoImage
+              source={profilePic ? { uri: profilePic } : require('../../assets/avatars/male_avatar.png')}
+              style={styles.profileImage}
+              cachePolicy="memory-disk"
+              placeholder={require('../../assets/avatars/male_avatar.png')}
+              contentFit="cover"
+              transition={200}
+            />
+          </LinearGradient>
           {/* Follow '+' indicator */}
           {!isOwn && (
             <View style={[styles.followIconWrapper, isFollowing && styles.followingActive]}>
@@ -91,11 +146,15 @@ const ShortsActions = ({
             isLiked && styles.likedContainer,
           ]}
         >
-          <Ionicons
-            name={isLiked ? "heart" : "heart-outline"}
-            size={28}
-            color={isLiked ? "#FF3040" : "white"}
-          />
+          {isLiked ? (
+            <GradientIcon name="heart" size={28} />
+          ) : (
+            <Ionicons
+              name="heart-outline"
+              size={28}
+              color="white"
+            />
+          )}
         </View>
         <Text style={styles.actionText}>{likesCount}</Text>
       </Pressable>
@@ -108,36 +167,20 @@ const ShortsActions = ({
         accessibilityRole="button"
       >
         <View style={[styles.iconContainer, { backgroundColor: theme.colors.glassSurface, borderColor: theme.colors.glassBorder }]}>
-          <Ionicons name="chatbubble-outline" size={28} color="white" />
+          <GradientIcon name="chatbubble-outline" size={28} />
         </View>
         <Text style={styles.actionText}>{commentsCount}</Text>
       </Pressable>
 
-      {/* 4. Share Button */}
+      {/* 4. Options Button */}
       <Pressable
         style={styles.actionButton}
-        onPress={onSharePress}
-        accessibilityLabel="Share"
+        onPress={handleOptionsPress}
+        accessibilityLabel="More options"
         accessibilityRole="button"
       >
         <View style={[styles.iconContainer, { backgroundColor: theme.colors.glassSurface, borderColor: theme.colors.glassBorder }]}>
-          <Ionicons name="paper-plane-outline" size={28} color="white" />
-        </View>
-      </Pressable>
-
-      {/* 5. Save/Favorite Button */}
-      <Pressable
-        style={styles.actionButton}
-        onPress={() => onSavePress(shortId)}
-        accessibilityLabel={isSaved ? 'Remove from saved' : 'Save'}
-        accessibilityRole="button"
-      >
-        <View style={[styles.iconContainer, { backgroundColor: theme.colors.glassSurface, borderColor: theme.colors.glassBorder }]}>
-          <Ionicons
-            name={isSaved ? "bookmark" : "bookmark-outline"}
-            size={28}
-            color={isSaved ? "#FFD700" : "white"}
-          />
+          <GradientIcon name="ellipsis-horizontal" size={28} />
         </View>
       </Pressable>
     </View>
@@ -148,7 +191,7 @@ const styles = StyleSheet.create({
   rightActions: {
     position: 'absolute',
     right: 14,
-    bottom: 160,
+    bottom: 250,
     width: 60,
     alignItems: 'center',
     justifyContent: 'center',
@@ -170,8 +213,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   likedContainer: {
-    borderColor: 'rgba(255, 48, 64, 0.25)',
-    backgroundColor: 'rgba(255, 48, 64, 0.08)',
+    borderColor: 'rgba(80, 200, 120, 0.25)',
+    backgroundColor: 'rgba(28, 115, 180, 0.08)',
   },
   actionText: {
     color: 'white',
@@ -193,12 +236,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  gradientBorder: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    padding: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   profileImage: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    borderWidth: 1.5,
-    borderColor: 'white',
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     backgroundColor: '#333',
   },
   followIconWrapper: {

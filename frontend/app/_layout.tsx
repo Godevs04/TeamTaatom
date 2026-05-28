@@ -1,9 +1,12 @@
 import React, { useEffect, useState, Suspense, useRef } from 'react';
-import { View, ActivityIndicator, StyleSheet, Text, TouchableOpacity, AppState, Platform } from 'react-native';
+import { View, StyleSheet, Text, TouchableOpacity, AppState, Platform } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useFonts } from 'expo-font';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { initializeAuth, getLastAuthError, getUserFromStorage, refreshAuthState, getCurrentUser } from '../services/auth';
 import { PROFILE_ONBOARDING_VERSION } from '../constants/profileOnboarding';
 import { updateFCMPushToken, saveExpoPushToken } from '../services/profile';
@@ -11,12 +14,14 @@ import { fcmService } from '../services/fcm';
 import { registerForPushNotificationsAsync } from '../services/pushNotifications';
 import { ThemeProvider, useTheme } from '../context/ThemeContext';
 import { SettingsProvider } from '../context/SettingsContext';
-import { AlertProvider } from '../context/AlertContext';
+import { AlertProvider, useAlert } from '../context/AlertContext';
 import { ScrollProvider } from '../context/ScrollContext';
+import NetInfo from '@react-native-community/netinfo';
 import { socketService } from '../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, usePathname, useSegments } from 'expo-router';
 import * as Notifications from 'expo-notifications';
+import * as Linking from 'expo-linking';
 import ResponsiveContainer from '../components/ResponsiveContainer';
 import { useWebOptimizations } from '../hooks/useWebOptimizations';
 import { analyticsService } from '../services/analytics';
@@ -26,6 +31,7 @@ import { ErrorBoundary } from '../utils/errorBoundary';
 import { registerServiceWorker } from '../utils/serviceWorker';
 import JourneyStatusBar from '../components/JourneyStatusBar';
 import { JourneyProvider, useJourney } from '../context/JourneyContext';
+import { SubscriptionProvider } from '../context/SubscriptionContext';
 import * as Sentry from '@sentry/react-native';
 // Note: expo-av is deprecated but still needed for Audio.setAudioModeAsync
 // Will migrate to expo-audio in future SDK update
@@ -91,15 +97,21 @@ if (Platform.OS !== 'web') {
 }
 
 function RootLayoutInner() {
+  const [fontsLoaded, fontError] = useFonts({
+    ...Ionicons.font,
+  });
+
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [isOffline, setIsOffline] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [showSessionBanner, setShowSessionBanner] = useState(true);
   const [isInitializing, setIsInitializing] = useState(true);
   const router = useRouter();
+  const { showWarning, showSuccess } = useAlert();
   const pathname = usePathname();
   const segments = useSegments();
   const previousPathnameRef = useRef<string | null>(null);
+  const pendingDeepLinkRef = useRef<string | null>(null);
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === 'web' ? 0 : insets.top;
 
@@ -112,6 +124,7 @@ function RootLayoutInner() {
     distance,
     duration,
     pauseJourneyRecording,
+    resumeJourneyRecording,
     stopJourneyRecording,
   } = useJourney();
 
@@ -145,36 +158,83 @@ function RootLayoutInner() {
     // populate/cleanup is needed at startup.
   }, []);
 
-  // Re-check connectivity when app comes to foreground and periodically when active.
-  // Uses a 2-consecutive-failure rule to avoid false-offline from a single slow/cold-start request.
-  const connectivityFailCountRef = useRef(0);
+  // Robust network connectivity tracking using @react-native-community/netinfo.
+  // Triggers global offline warnings and automatic dismiss on reconnect.
+  const wasConnectedRef = useRef<boolean | null>(null);
   useEffect(() => {
-    const checkAndSetOffline = async () => {
-      const ok = await testAPIConnectivity();
-      if (ok) {
-        connectivityFailCountRef.current = 0;
-        setIsOffline(false);
-      } else {
-        connectivityFailCountRef.current += 1;
-        if (connectivityFailCountRef.current >= 2) {
-          setIsOffline(true);
-        }
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      const isConnected = !!state.isConnected;
+      setIsOffline(!isConnected);
+
+      // Warning when transitioning from online to offline
+      if (!isConnected && (wasConnectedRef.current === null || wasConnectedRef.current === true)) {
+        showWarning('Offline Mode', 'You are offline. Some features may not work.');
+      } 
+      // Success when transitioning from offline to online
+      else if (isConnected && wasConnectedRef.current === false) {
+        showSuccess('Back Online', 'Your internet connection has been restored.');
       }
-    };
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') {
-        // Reset fail count on foreground so a single success immediately clears the banner
-        connectivityFailCountRef.current = 0;
-        checkAndSetOffline();
-      }
+      wasConnectedRef.current = isConnected;
     });
-    const interval = setInterval(checkAndSetOffline, 30000);
-    // No immediate check here — auth init already sets the initial offline state
-    return () => {
-      sub.remove();
-      clearInterval(interval);
-    };
-  }, []);
+
+    return () => unsubscribe();
+  }, [showWarning, showSuccess]);
+  
+  const handleDeepLink = (url: string) => {
+    try {
+      const parsed = Linking.parse(url);
+      let targetPath = parsed.path;
+      
+      // For custom scheme (taatom://), if hostname is present (e.g. 'post', 'navigate', 'connect'),
+      // prepend it to the targetPath as Linking.parse treats the first path segment as the hostname.
+      if (parsed.scheme === 'taatom' && parsed.hostname && parsed.hostname !== '') {
+        targetPath = parsed.hostname + (targetPath ? '/' + targetPath : '');
+      }
+      
+      if (!targetPath) return;
+
+      if (!targetPath.startsWith('/')) {
+        targetPath = '/' + targetPath;
+      }
+
+      // Reconstruct query parameters
+      if (parsed.queryParams && Object.keys(parsed.queryParams).length > 0) {
+        const queryString = Object.entries(parsed.queryParams)
+          .map(([key, val]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(val))}`)
+          .join('&');
+        targetPath = `${targetPath}?${queryString}`;
+      }
+
+      logger.debug('[DeepLinking] Parsed deep link target:', targetPath);
+
+      if (isAuthenticated) {
+        router.push(targetPath as any);
+      } else {
+        logger.debug('[DeepLinking] Queueing deep link until auth resolves:', targetPath);
+        pendingDeepLinkRef.current = targetPath;
+      }
+    } catch (err) {
+      logger.error('[DeepLinking] Error handling deep link:', err);
+    }
+  };
+
+  // Listen for initial deep link (cold boot)
+  const initialUrl = Linking.useURL();
+  useEffect(() => {
+    if (initialUrl) {
+      logger.debug('[DeepLinking] Cold-boot deep link received:', initialUrl);
+      handleDeepLink(initialUrl);
+    }
+  }, [initialUrl]);
+
+  // Listen for deep links when app is backgrounded/active
+  useEffect(() => {
+    const subscription = Linking.addEventListener('url', (event) => {
+      logger.debug('[DeepLinking] Foreground deep link received:', event.url);
+      handleDeepLink(event.url);
+    });
+    return () => subscription.remove();
+  }, [isAuthenticated]);
 
   // Stop all audio when navigating away from tabs (home/shorts) to other routes
   // Use a flag to prevent multiple rapid calls and conflicts with tabs layout
@@ -483,14 +543,19 @@ function RootLayoutInner() {
         }
       } finally {
         setIsInitializing(false);
-        // Native splash is already hidden, just ensure it's hidden
-        SplashScreen.hideAsync().catch(() => {
-          // Ignore errors - splash might already be hidden
-        });
       }
     };
     initialize();
   }, []);
+
+  // Hide splash screen once fonts and initial auth states have resolved
+  useEffect(() => {
+    if (!isInitializing && (fontsLoaded || fontError)) {
+      SplashScreen.hideAsync().catch((error) => {
+        logger.error('[RootLayout] Error hiding splash screen:', error);
+      });
+    }
+  }, [isInitializing, fontsLoaded, fontError]);
 
   // Periodic check for auth state changes (detects signout)
   useEffect(() => {
@@ -700,8 +765,15 @@ function RootLayoutInner() {
 
         // Only navigate to home if we're not already on a valid route
         if (!isOnValidRoute) {
-          logger.debug('[Navigation] User authenticated, navigating to home', { currentPath, segments, isOnValidRoute });
-          router.replace('/(tabs)/home');
+          if (pendingDeepLinkRef.current) {
+            const target = pendingDeepLinkRef.current;
+            pendingDeepLinkRef.current = null;
+            logger.debug('[Navigation] User authenticated, redirecting to pending deep link:', target);
+            router.replace(target as any);
+          } else {
+            logger.debug('[Navigation] User authenticated, navigating to home', { currentPath, segments, isOnValidRoute });
+            router.replace('/(tabs)/home');
+          }
         }
       } else if (isAuthenticated === false && !sessionExpired) {
         // If already on auth screen, don't navigate (prevents flash during refresh)
@@ -778,9 +850,16 @@ function RootLayoutInner() {
           if (process.env.NODE_ENV === 'development') {
             logger.debug('Notification opened with data:', data);
           }
-          const screen = data?.screen;
+          const screen = data?.screen || data?.path || data?.url;
+          const postId = data?.postId || data?.post_id;
+          const userId = data?.userId || data?.user_id || data?.profileId || data?.profile_id;
+          
           if (screen && typeof screen === 'string') {
-            router.push(screen);
+            router.push(screen as any);
+          } else if (postId && typeof postId === 'string') {
+            router.push(`/post/${postId}` as any);
+          } else if (userId && typeof userId === 'string') {
+            router.push(`/profile/${userId}` as any);
           }
         });
       } catch (err: unknown) {
@@ -799,25 +878,40 @@ function RootLayoutInner() {
     }
   }, [isAuthenticated]);
 
-  // When user taps a push notification (Expo, iOS): navigate to data.screen (aligned with backend getScreenForType)
+  // When user taps a push notification: navigate to screen, path, url, or post details (both iOS & Android)
   useEffect(() => {
-    if (Platform.OS === 'web' || Platform.OS !== 'ios') return;
+    if (Platform.OS === 'web') return;
 
-    const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
-      const data = response.notification.request.content?.data as Record<string, unknown> | undefined;
-      const screen = data?.screen;
-      if (screen && typeof screen === 'string') {
-        router.push(screen);
+    const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
+      try {
+        const data = response.notification.request.content?.data as Record<string, unknown> | undefined;
+        if (!data) return;
+        
+        logger.debug('Push notification response received:', data);
+        const screen = data.screen || data.path || data.url;
+        const postId = data.postId || data.post_id;
+        const userId = data.userId || data.user_id || data.profileId || data.profile_id;
+        
+        if (screen && typeof screen === 'string') {
+          router.push(screen as any);
+        } else if (postId && typeof postId === 'string') {
+          router.push(`/post/${postId}` as any);
+        } else if (userId && typeof userId === 'string') {
+          router.push(`/profile/${userId}` as any);
+        }
+      } catch (err) {
+        logger.error('Error handling notification response:', err);
       }
-    });
+    };
+
+    const subscription = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
 
     Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (!response) return;
-      const data = response.notification.request.content?.data as Record<string, unknown> | undefined;
-      const screen = data?.screen;
-      if (screen && typeof screen === 'string') {
-        router.push(screen);
+      if (response) {
+        handleNotificationResponse(response);
       }
+    }).catch(err => {
+      logger.error('Error getting last notification response:', err);
     });
 
     return () => subscription.remove();
@@ -898,7 +992,7 @@ function RootLayoutInner() {
     }
   }, [isAuthenticated, isOffline, sessionExpired]);
 
-  if (isAuthenticated === null || isInitializing) {
+  if (isAuthenticated === null || isInitializing || (!fontsLoaded && !fontError)) {
     return <LottieSplashScreen visible={true} />;
   }
 
@@ -918,8 +1012,14 @@ function RootLayoutInner() {
           </Text>
           <TouchableOpacity
             onPress={async () => {
-              const ok = await testAPIConnectivity();
-              if (ok) setIsOffline(false);
+              const state = await NetInfo.refresh();
+              const isConnected = !!state.isConnected;
+              setIsOffline(!isConnected);
+              if (isConnected) {
+                showSuccess('Back Online', 'Your internet connection has been restored.');
+              } else {
+                showWarning('Still Offline', 'Please check your internet connection.');
+              }
             }}
             style={styles.offlineRetryButton}
             accessibilityRole="button"
@@ -942,15 +1042,22 @@ function RootLayoutInner() {
           </TouchableOpacity>
         </View>
       )}
-      {/* Journey Status Bar - shown when journey is active or paused */}
-      <JourneyStatusBar
-        isTracking={isTracking}
-        isPaused={isPaused}
-        distance={distance}
-        duration={duration}
-        onStop={() => stopJourneyRecording().catch(err => console.error('Failed to stop journey:', err))}
-        onContinue={() => router.push('/navigate')}
-      />
+      {/* Journey Status Bar - shown when journey is active or paused, but NOT on the tracking screen itself */}
+      {(isTracking || isPaused) && pathname !== '/navigate/tracking' && (
+        <JourneyStatusBar
+          isTracking={isTracking}
+          isPaused={isPaused}
+          distance={distance}
+          duration={duration}
+          onPause={() => pauseJourneyRecording().catch(err => console.error('Failed to pause journey:', err))}
+          onStop={() => stopJourneyRecording().catch(err => console.error('Failed to stop journey:', err))}
+          onContinue={() => {
+            resumeJourneyRecording()
+              .then(() => router.push('/navigate/tracking'))
+              .catch(err => console.error('Failed to resume journey:', err));
+          }}
+        />
+      )}
       <Suspense
         fallback={<LottieSplashScreen visible={true} />}
       >
@@ -958,6 +1065,8 @@ function RootLayoutInner() {
           screenOptions={{
             headerShown: false,
             contentStyle: { backgroundColor: theme.colors.background },
+            gestureEnabled: true,
+            gestureDirection: 'horizontal',
           }}
         >
           {/* Public routes - accessible without authentication */}
@@ -973,8 +1082,8 @@ function RootLayoutInner() {
           <Stack.Screen name="navigate" options={{ presentation: 'card' }} />
           <Stack.Screen name="tripscore" options={{ presentation: 'card' }} />
           {/* Dynamic routes - use pattern matching */}
-          <Stack.Screen name="post/[id]" options={{ presentation: 'card' }} />
-          <Stack.Screen name="profile/[id]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="post/[id]" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
+          <Stack.Screen name="profile/[id]" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
           {/* Direct routes */}
           <Stack.Screen name="search" options={{ presentation: 'card' }} />
           <Stack.Screen name="followers" options={{ presentation: 'card' }} />
@@ -985,22 +1094,22 @@ function RootLayoutInner() {
           <Stack.Screen name="saved-posts/index" options={{ presentation: 'card' }} />
           {/* Collections routes */}
           <Stack.Screen name="collections/index" options={{ presentation: 'card' }} />
-          <Stack.Screen name="collections/[id]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="collections/[id]" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
           <Stack.Screen name="collections/create" options={{ presentation: 'card' }} />
           {/* Settings routes */}
           <Stack.Screen name="settings" options={{ presentation: 'card' }} />
           {/* Hashtag dynamic route */}
-          <Stack.Screen name="hashtag/[hashtag]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="hashtag/[hashtag]" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
           {/* User posts dynamic route */}
-          <Stack.Screen name="user-posts/[userId]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="user-posts/[userId]" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
           {/* User shorts dynamic route */}
-          <Stack.Screen name="user-shorts/[userId]" options={{ presentation: 'card' }} />
+          <Stack.Screen name="user-shorts/[userId]" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
           {/* Journeys list */}
           <Stack.Screen name="journeys" options={{ presentation: 'card' }} />
           {/* Connect pages */}
           <Stack.Screen name="connect" options={{ presentation: 'card' }} />
           {/* Map routes */}
-          <Stack.Screen name="map/current-location" options={{ presentation: 'card' }} />
+          <Stack.Screen name="map/current-location" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />
         </Stack>
       </Suspense>
     </ResponsiveContainer>
@@ -1020,9 +1129,11 @@ export default Sentry.wrap(function RootLayout() {
                     one GPS watcher, one batch-send timer for the whole
                     app tree. */}
                 <JourneyProvider>
-                  <View style={styles.rootContainer}>
-                    <RootLayoutInner />
-                  </View>
+                  <SubscriptionProvider>
+                    <View style={styles.rootContainer}>
+                      <RootLayoutInner />
+                    </View>
+                  </SubscriptionProvider>
                 </JourneyProvider>
               </ScrollProvider>
             </AlertProvider>

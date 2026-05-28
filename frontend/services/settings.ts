@@ -11,6 +11,7 @@ export interface UserSettings {
     requireFollowApproval: boolean;
     allowFollowRequests: boolean;
     shareActivity?: boolean;
+    routeVisibility?: 'everyone' | 'approved_only' | 'private';
   };
   notifications: {
     pushNotifications: boolean;

@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   ScrollView,
   Platform,
   Dimensions,
@@ -13,7 +12,9 @@ import {
   TextInput,
   Modal,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import LoadingGlobe from '../../components/LoadingGlobe';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import NavBar from '../../components/NavBar';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
@@ -36,6 +37,31 @@ const ALERT_RED = '#EF4444';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
+function getJourneyPolylineCoords(journey: any) {
+  const sessionStarts = (journey?.sessions || [])
+    .slice(1)
+    .map((session: any) => new Date(session.startedAt).getTime())
+    .filter((time: number) => Number.isFinite(time))
+    .sort((a: number, b: number) => a - b);
+
+  return (journey?.polyline || []).map((point: any, index: number, points: any[]) => {
+    const timestamp = point.timestamp ? new Date(point.timestamp).getTime() : undefined;
+    const prevTimestamp = index > 0 && points[index - 1]?.timestamp
+      ? new Date(points[index - 1].timestamp).getTime()
+      : undefined;
+    const segmentBreak = !!timestamp && !!prevTimestamp &&
+      sessionStarts.some((start: number) => start > prevTimestamp && start <= timestamp);
+
+    return {
+      latitude: point.lat,
+      longitude: point.lng,
+      timestamp,
+      accuracy: point.accuracy || 0,
+      segmentBreak,
+    };
+  });
+}
+
 /**
  * Journey Detail Screen
  *
@@ -47,9 +73,10 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 export default function JourneyDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const mapStyle = useMapStyle();
   const journeyId = typeof params.journeyId === 'string' ? params.journeyId : '';
+  const insets = useSafeAreaInsets();
 
   const { showAlert, showSuccess, showError: showErrorAlert } = useAlert();
   const [journey, setJourney] = useState<any>(null);
@@ -173,31 +200,19 @@ export default function JourneyDetailScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Journey</Text>
-          <View style={{ width: 40 }} />
-        </View>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <NavBar title="Journey" showBack={true} onBack={() => router.back()} />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={GROWTH_GREEN} />
+          <LoadingGlobe size="large" color={GROWTH_GREEN} />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   if (error || !journey) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Journey</Text>
-          <View style={{ width: 40 }} />
-        </View>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <NavBar title="Journey" showBack={true} onBack={() => router.back()} />
         <View style={styles.loadingContainer}>
           <Ionicons name="alert-circle-outline" size={48} color={ALERT_RED} />
           <Text style={[styles.errorText, { color: theme.colors.text }]}>{error || 'Journey not found'}</Text>
@@ -205,7 +220,7 @@ export default function JourneyDetailScreen() {
             <Text style={styles.retryBtnText}>Go Back</Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -213,23 +228,22 @@ export default function JourneyDetailScreen() {
   const statusColor = getStatusColor(journey.status);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
-      <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]} numberOfLines={1}>
-          {journey.title || 'Journey'}
-        </Text>
-        <TouchableOpacity onPress={() => setShowMenu(!showMenu)} style={styles.backBtn}>
-          <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.text} />
-        </TouchableOpacity>
-      </View>
+      <NavBar
+        title={journey.title || 'Journey'}
+        showBack={true}
+        onBack={() => router.back()}
+        rightComponent={
+          <TouchableOpacity onPress={() => setShowMenu(!showMenu)} style={styles.backBtn}>
+            <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.text} />
+          </TouchableOpacity>
+        }
+      />
 
       {/* Dropdown Menu */}
       {showMenu && (
-        <View style={[styles.menuDropdown, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+        <View style={[styles.menuDropdown, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, top: insets.top + 70 }]}>
           <TouchableOpacity style={styles.menuItem} onPress={handleShare}>
             <Ionicons name="share-social-outline" size={18} color={theme.colors.text} />
             <Text style={[styles.menuItemText, { color: theme.colors.text }]}>Share Journey</Text>
@@ -282,7 +296,7 @@ export default function JourneyDetailScreen() {
                 disabled={isSaving}
               >
                 {isSaving ? (
-                  <ActivityIndicator size="small" color="white" />
+                  <LoadingGlobe size="small" color="white" />
                 ) : (
                   <Text style={[styles.modalBtnText, { color: 'white' }]}>Save</Text>
                 )}
@@ -305,11 +319,18 @@ export default function JourneyDetailScreen() {
               );
             }
             const center = journey.polyline[Math.floor(journey.polyline.length / 2)];
-            const polyCoords = JSON.stringify(journey.polyline.map((p: any) => ({ lat: p.lat, lng: p.lng })));
+            const polyCoords = JSON.stringify(getJourneyPolylineCoords(journey).map((p) => ({
+              lat: p.latitude,
+              lng: p.longitude,
+              segmentBreak: p.segmentBreak,
+            })));
             const wps = (journey.waypoints || []).filter((w: any) => w.lat && w.lng);
-            const wpMarkers = wps.map((w: any, i: number) =>
-              `new google.maps.Marker({position:{lat:${w.lat},lng:${w.lng}},map:map,title:'Post #${i+1}',icon:{url:'data:image/svg+xml;utf-8,<svg width="28" height="28" xmlns="http://www.w3.org/2000/svg"><circle cx="14" cy="14" r="11" fill="white" stroke="%23EF4444" stroke-width="2.5"/><text x="14" y="18" text-anchor="middle" font-size="12" font-weight="bold" fill="%23EF4444">${i+1}</text></svg>',scaledSize:new google.maps.Size(28,28),anchor:new google.maps.Point(14,14)}});`
-            ).join('\n');
+            const wpMarkers = wps.map((w: any, i: number) => {
+              const wpIcon = w.contentType === 'video' 
+                ? '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="' + (isDark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.85)') + '" stroke="' + (isDark ? 'rgba(45,212,191,0.6)' : 'rgba(59,130,246,0.6)') + '" stroke-width="1.5"/><path d="M16 9.5l-3 2v-3.5a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.5v5a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5v-1.5l3 2a.3.3 0 0 0 .5-.2v-5.6a.3.3 0 0 0-.5-.2z" fill="' + (isDark ? '#2DD4BF' : '#3B82F6') + '"/></svg>'
+                : '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="' + (isDark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.85)') + '" stroke="' + (isDark ? 'rgba(45,212,191,0.6)' : 'rgba(59,130,246,0.6)') + '" stroke-width="1.5"/><circle cx="12" cy="12" r="3" fill="' + (isDark ? '#2DD4BF' : '#3B82F6') + '"/></svg>';
+              return `new google.maps.Marker({position:{lat:${w.lat},lng:${w.lng}},map:map,title:'Post #${i+1}',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('${wpIcon}'),scaledSize:new google.maps.Size(24,24),anchor:new google.maps.Point(12,12)}});`;
+            }).join('\n');
             const html = `<!DOCTYPE html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
 <style>html,body,#map{height:100%;margin:0;padding:0}</style>
@@ -317,10 +338,24 @@ export default function JourneyDetailScreen() {
 function initMap(){
   var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${center.lat},lng:${center.lng}},zoom:13,mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true});
   var path=${polyCoords};
-  new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});
-  new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});
-  if(path.length>0)new google.maps.Marker({position:path[0],map:map,title:'Start',icon:{url:'data:image/svg+xml;utf-8,<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="${encodeURIComponent(GROWTH_GREEN)}" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="white">S</text></svg>',scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
-  if(path.length>1)new google.maps.Marker({position:path[path.length-1],map:map,title:'End',icon:{url:'data:image/svg+xml;utf-8,<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="${encodeURIComponent(ALERT_RED)}" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="14" font-weight="bold" fill="white">E</text></svg>',scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
+  var segments = [];
+  var currentSegment = [];
+  path.forEach(function(p){
+    if (p.segmentBreak && currentSegment.length > 0) {
+      segments.push(currentSegment);
+      currentSegment = [p];
+    } else {
+      currentSegment.push(p);
+    }
+  });
+  if(currentSegment.length > 0) segments.push(currentSegment);
+  segments.forEach(function(segment){
+    if(segment.length < 2) return;
+    new google.maps.Polyline({path:segment,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});
+    new google.maps.Polyline({path:segment,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});
+  });
+  if(path.length>0)new google.maps.Marker({position:path[0],map:map,title:'Start',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#10B981" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="13" font-weight="800" font-family="Arial" fill="white">S</text></svg>'),scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
+  if(path.length>1)new google.maps.Marker({position:path[path.length-1],map:map,title:'End',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#EF4444" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="13" font-weight="800" font-family="Arial" fill="white">E</text></svg>'),scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
   ${wpMarkers}
   var bounds=new google.maps.LatLngBounds();path.forEach(function(p){bounds.extend(p);});map.fitBounds(bounds,40);
 }
@@ -356,12 +391,7 @@ function initMap(){
             >
               {journey.polyline?.length > 1 && (
                 <PolylineRenderer
-                  coordinates={journey.polyline.map((p: any) => ({
-                    latitude: p.lat,
-                    longitude: p.lng,
-                    timestamp: new Date(p.timestamp).getTime(),
-                    accuracy: p.accuracy || 0,
-                  }))}
+                  coordinates={getJourneyPolylineCoords(journey)}
                   color={mapStyle.routeColor}
                   glowColor={mapStyle.routeGlowColor}
                   strokeWidth={4}
@@ -543,7 +573,7 @@ function initMap(){
           status: journey.status,
         } : undefined}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 

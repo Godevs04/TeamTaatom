@@ -4,6 +4,7 @@ import * as TaskManager from 'expo-task-manager';
 import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, Platform } from 'react-native';
+import { registerResetCallback } from '../services/auth';
 
 // True when running inside Expo Go. The native bits behind expo-task-manager
 // + the iOS background-location capability aren't bundled there, so any
@@ -28,6 +29,65 @@ const logger = {
   debug: (...args: any[]) => __DEV__ && console.log(...args),
   error: (...args: any[]) => console.error(...args),
   warn: (...args: any[]) => console.warn(...args),
+};
+
+const toMs = (value?: string | number | Date | null): number | null => {
+  if (!value) return null;
+  const ms = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : null;
+};
+
+const getJourneyActiveDuration = (journey?: Journey | null, now = Date.now()): number => {
+  if (!journey) return 0;
+  const sessions = Array.isArray((journey as any).sessions) ? (journey as any).sessions : [];
+  if (sessions.length > 0) {
+    const totalMs = sessions.reduce((sum: number, session: any) => {
+      const startedAt = toMs(session?.startedAt);
+      if (!startedAt) return sum;
+      const stoppedAt = toMs(session?.stoppedAt);
+      const end = stoppedAt ?? (journey.status === 'active' ? now : startedAt);
+      return sum + Math.max(0, end - startedAt);
+    }, 0);
+    return Math.floor(totalMs / 1000);
+  }
+
+  if (typeof journey.duration === 'number' && Number.isFinite(journey.duration)) {
+    return Math.max(0, Math.floor(journey.duration));
+  }
+
+  const startedAt = toMs(journey.startedAt || journey.startTime);
+  if (!startedAt) return 0;
+  const end = journey.status === 'paused'
+    ? (toMs(journey.pausedAt || journey.pausedTime) ?? now)
+    : now;
+  return Math.floor(Math.max(0, end - startedAt) / 1000);
+};
+
+const normalizeJourneyPolyline = (journey?: Journey | null): Coordinate[] => {
+  const rawPolyline = Array.isArray(journey?.polyline) ? journey!.polyline : [];
+  const sessions = Array.isArray((journey as any)?.sessions) ? (journey as any).sessions : [];
+  const sessionStarts = sessions
+    .slice(1)
+    .map((session: any) => toMs(session?.startedAt))
+    .filter((ms: number | null): ms is number => typeof ms === 'number')
+    .sort((a: number, b: number) => a - b);
+
+  return rawPolyline.map((p: any, index: number) => {
+    const timestamp = typeof p.timestamp === 'string' ? new Date(p.timestamp).getTime() : (p.timestamp || 0);
+    const prevRaw = index > 0 ? rawPolyline[index - 1] as any : null;
+    const prevTimestamp = prevRaw
+      ? (typeof prevRaw.timestamp === 'string' ? new Date(prevRaw.timestamp).getTime() : (prevRaw.timestamp || 0))
+      : null;
+    const segmentBreak = !!prevTimestamp && sessionStarts.some((start) => start > prevTimestamp && start <= timestamp);
+
+    return {
+      latitude: p.latitude ?? p.lat,
+      longitude: p.longitude ?? p.lng,
+      timestamp,
+      accuracy: p.accuracy ?? 0,
+      segmentBreak,
+    };
+  });
 };
 
 const BATCH_SEND_INTERVAL = 30000; // Send coordinates every 30 seconds
@@ -79,11 +139,13 @@ try {
         if (typeof lat !== 'number' || typeof lng !== 'number') continue;
         if (Number.isNaN(lat) || Number.isNaN(lng)) continue;
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
+        const accuracy = loc.coords?.accuracy || 0;
+        if (accuracy > 80) continue; // Filter out poor accuracy fixes in background (relaxed to 80m for low-power updates)
         valid.push({
           latitude: lat,
           longitude: lng,
           timestamp: loc.timestamp,
-          accuracy: loc.coords?.accuracy || 0,
+          accuracy,
         });
       }
       if (valid.length === 0) return;
@@ -145,7 +207,7 @@ interface UseJourneyTrackingReturn {
   startJourneyRecording: (title?: string) => Promise<void>;
   pauseJourneyRecording: () => Promise<void>;
   resumeJourneyRecording: () => Promise<void>;
-  stopJourneyRecording: () => Promise<void>;
+  stopJourneyRecording: (options?: { snapToRoads?: boolean }) => Promise<void>;
 }
 
 /**
@@ -184,6 +246,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   const batchSendTimerRef = useRef<NodeJS.Timeout | null>(null);
   const appStateRef = useRef(AppState.currentState);
   const startTimeRef = useRef<number | null>(null);
+  const pendingSegmentBreakRef = useRef(false);
   // Tracks whether this hook instance is still mounted. Async paths (API
   // awaits, location callbacks fired after subscription removal on some
   // Android OEMs, late timer ticks) check this before calling setState so
@@ -251,6 +314,12 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         setAccuracy(coord.accuracy);
         setCurrentCoordinate(coord);
 
+        // Ignore updates with poor GPS accuracy (> 30 meters) to avoid erratic spikes/drift
+        if (coord.accuracy && coord.accuracy > 30) {
+          logger.debug(`[Journey] Discarding low-accuracy coordinate (±${coord.accuracy}m) for polyline tracking.`);
+          return;
+        }
+
         // Only grow the polyline / running distance when movement is
         // significant. First emission seeds lastCoordinateRef.
         if (lastCoordinateRef.current) {
@@ -269,6 +338,13 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           }
         } else {
           lastCoordinateRef.current = coord;
+          if (pendingSegmentBreakRef.current) {
+            const segmentStart = { ...coord, segmentBreak: true };
+            setPolyline((prev) => [...prev, segmentStart]);
+            batchCoordinatesRef.current.push(segmentStart);
+            persistPendingCoords();
+            pendingSegmentBreakRef.current = false;
+          }
         }
       }
     );
@@ -298,6 +374,39 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           journeyIdRef.current = storedJourneyId;
           setIsTracking(true);
 
+          // Rehydrate active journey state from AsyncStorage immediately to survive app kill
+          try {
+            const cachedStateRaw = await AsyncStorage.getItem('@active_journey_state');
+            if (cachedStateRaw) {
+              const cached = JSON.parse(cachedStateRaw);
+              if (cached && cached.journey && cached.journey._id === storedJourneyId) {
+                setJourney(cached.journey);
+                const normalizedPolyline: Coordinate[] = normalizeJourneyPolyline({
+                  ...cached.journey,
+                  polyline: cached.polyline || cached.journey.polyline || [],
+                });
+                setPolyline(normalizedPolyline);
+                setDistance(cached.distance || 0);
+                const cachedIsPaused = cached.journey.status === 'paused';
+                const activeDuration = getJourneyActiveDuration(cached.journey);
+                const cachedDuration = activeDuration || cached.duration || 0;
+                setDuration(cachedDuration);
+                setIsPaused(cachedIsPaused);
+                if (normalizedPolyline.length > 0) {
+                  lastCoordinateRef.current = normalizedPolyline[normalizedPolyline.length - 1];
+                }
+                if (!cachedIsPaused && cached.timestamp) {
+                  startTimeRef.current = Date.now() - cachedDuration * 1000;
+                } else if (cachedIsPaused) {
+                  startTimeRef.current = null;
+                }
+                logger.debug('[Journey] Rehydrated state from AsyncStorage:', cached.journey._id);
+              }
+            }
+          } catch (cacheErr) {
+            logger.warn('[Journey] Failed to rehydrate from AsyncStorage:', cacheErr);
+          }
+
           // Fetch journey details from backend
           try {
             const { journey: fetchedJourney } = await getActiveJourney();
@@ -307,25 +416,17 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
               // Coordinate type (and calculateCoordinateDistance) expects
               // {latitude, longitude}. Normalize on restore so the
               // watcher's distance calculation doesn't receive undefined.
-              const normalizedPolyline: Coordinate[] = (fetchedJourney.polyline || []).map((p: any) => ({
-                latitude: p.latitude ?? p.lat,
-                longitude: p.longitude ?? p.lng,
-                timestamp: typeof p.timestamp === 'string' ? new Date(p.timestamp).getTime() : (p.timestamp || 0),
-                accuracy: p.accuracy ?? 0,
-              }));
+              const normalizedPolyline: Coordinate[] = normalizeJourneyPolyline(fetchedJourney);
               setPolyline(normalizedPolyline);
               setDistance(fetchedJourney.distanceTraveled || 0);
               // Set startTimeRef so the duration useEffect can spin up its
               // 1s ticker. Before this fix, the ref stayed null on screens
               // that mounted mid-journey (e.g. tracking.tsx after a
               // router.replace) so the duration never advanced live.
-              if (fetchedJourney.startedAt) {
-                const startedAtMs = new Date(fetchedJourney.startedAt).getTime();
-                startTimeRef.current = startedAtMs;
-                const elapsed = Math.floor((Date.now() - startedAtMs) / 1000);
-                setDuration(Math.max(0, elapsed));
-              }
               const isPausedJourney = fetchedJourney.status === 'paused';
+              const activeDuration = getJourneyActiveDuration(fetchedJourney);
+              startTimeRef.current = isPausedJourney ? null : Date.now() - activeDuration * 1000;
+              setDuration(activeDuration);
               setIsPaused(isPausedJourney);
 
               // Seed lastCoordinateRef from the tail of the restored polyline
@@ -438,6 +539,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           journeyIdRef.current = null;
           startTimeRef.current = null;
           lastCoordinateRef.current = null;
+          pendingSegmentBreakRef.current = false;
           batchCoordinatesRef.current = [];
           setIsTracking(false);
           setIsPaused(false);
@@ -567,21 +669,15 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       const already = await Location.hasStartedLocationUpdatesAsync(BG_LOCATION_TASK).catch(() => false);
       if (already) return true;
       await Location.startLocationUpdatesAsync(BG_LOCATION_TASK, {
-        accuracy: Location.Accuracy.High,
-        timeInterval: 5000,
-        distanceInterval: 10,
-        // iOS: omit the blue indicator bar; the journey UI itself signals
-        // recording. Set true if the App Store reviewer asks for it.
-        showsBackgroundLocationIndicator: false,
-        // Android: required foreground service for background location
-        // post-Android 8. The notification is what keeps the OS from
-        // killing the task.
+        accuracy: Location.Accuracy.High, // Upgraded for high-accuracy path tracking
+        timeInterval: 5000, // Query every 5 seconds for a denser track
+        distanceInterval: 5, // Track every 5 meters
+        showsBackgroundLocationIndicator: true, // Enable indicator to prevent OS suspension
         foregroundService: {
           notificationTitle: 'Recording your journey',
           notificationBody: 'Path is being tracked while the app is in the background',
+          notificationColor: '#22C55E',
         },
-        // Android: don't pause when device is stationary — we want full
-        // coverage even at rest stops.
         pausesUpdatesAutomatically: false,
       });
       logger.debug('[Journey] Background location updates started');
@@ -816,6 +912,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           accuracy: location.coords.accuracy || 0,
         };
         lastCoordinateRef.current = initialCoord;
+        pendingSegmentBreakRef.current = false;
         setPolyline([initialCoord]);
         setAccuracy(location.coords.accuracy);
         setCurrentCoordinate(initialCoord);
@@ -859,6 +956,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         locationWatcherRef.current.remove();
         locationWatcherRef.current = null;
       }
+      lastCoordinateRef.current = null; // Clear so the next resume starts a fresh distance segment
 
       // Stop the background TaskManager updates if they're running and
       // drain anything it managed to capture before pause was hit.
@@ -889,8 +987,11 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
       // Call API to pause
       const { journey: pausedJourney } = await pauseJourney(journeyIdRef.current);
+      const pausedDuration = getJourneyActiveDuration(pausedJourney);
       setJourney(pausedJourney);
       setIsPaused(true);
+      startTimeRef.current = null;
+      setDuration(pausedDuration);
 
       logger.debug('[Journey] Paused journey:', journeyIdRef.current);
       suppressNextSyncRef.current = true;
@@ -921,11 +1022,15 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
       // Call API
       const { journey: resumedJourney } = await resumeJourney(journeyIdRef.current);
+      const resumedDuration = getJourneyActiveDuration(resumedJourney);
       setJourney(resumedJourney);
       setIsPaused(false);
 
       // Reset duration timer
-      startTimeRef.current = Date.now() - resumedJourney.duration * 1000;
+      startTimeRef.current = Date.now() - resumedDuration * 1000;
+      setDuration(resumedDuration);
+      lastCoordinateRef.current = null; // Clear to guarantee first location fix starts a new segment
+      pendingSegmentBreakRef.current = true;
 
       // Restart location watcher via the centralized helper.
       await startLocationWatcher();
@@ -941,7 +1046,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     }
   }, []);
 
-  const stopJourneyRecording = useCallback(async () => {
+  const stopJourneyRecording = useCallback(async (options?: { snapToRoads?: boolean }) => {
     try {
       setError(null);
 
@@ -949,11 +1054,53 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         throw new Error('No active journey');
       }
 
+      // Capture one final high-accuracy coordinate to guarantee the exact ending location pin is precise
+      try {
+        const finalLoc = await Promise.race([
+          Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.High,
+          }),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)) // 4s timeout fallback
+        ]);
+
+        if (finalLoc) {
+          const finalCoord: Coordinate = {
+            latitude: finalLoc.coords.latitude,
+            longitude: finalLoc.coords.longitude,
+            timestamp: finalLoc.timestamp,
+            accuracy: finalLoc.coords.accuracy || 0,
+          };
+
+          if (!finalCoord.accuracy || finalCoord.accuracy <= 30) {
+            // Avoid duplicate points if final location is virtually identical to the last tracked point
+            const lastTracked = lastCoordinateRef.current;
+            const dist = lastTracked
+              ? calculateCoordinateDistance(
+                  lastTracked.latitude,
+                  lastTracked.longitude,
+                  finalCoord.latitude,
+                  finalCoord.longitude
+                )
+              : Infinity;
+
+            if (dist >= 1) { // only push if at least 1 meter away or if no prior point
+              batchCoordinatesRef.current.push(finalCoord);
+              setPolyline((prev) => [...prev, finalCoord]);
+              lastCoordinateRef.current = finalCoord;
+            }
+          }
+        }
+      } catch (locErr) {
+        logger.warn('[Journey] Could not fetch final high-accuracy location for stop:', locErr);
+      }
+
       // Stop location tracking
       if (locationWatcherRef.current) {
         locationWatcherRef.current.remove();
         locationWatcherRef.current = null;
       }
+      lastCoordinateRef.current = null; // Clear on stop
+      pendingSegmentBreakRef.current = false;
 
       // Stop background updates and absorb anything the bg task captured
       // since the last drain so the final batch includes them.
@@ -997,8 +1144,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       // shouldn't happen, but the guard is cheap).
       await AsyncStorage.removeItem(BG_QUEUE_KEY_PREFIX + completingJourneyId).catch(() => {});
 
-      // Call API
-      const { journey: completedJourney } = await completeJourney(completingJourneyId);
+      // Call API with snapToRoads option
+      const snapToRoads = options?.snapToRoads !== false;
+      const { journey: completedJourney } = await completeJourney(completingJourneyId, { snapToRoads });
       setJourney(completedJourney);
       setIsTracking(false);
       setIsPaused(false);
@@ -1010,6 +1158,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       journeyIdRef.current = null;
       startTimeRef.current = null;
       lastCoordinateRef.current = null;
+      pendingSegmentBreakRef.current = false;
       batchCoordinatesRef.current = [];
       // Notify other live instances of useJourneyTracking (root layout's
       // JourneyStatusBar etc.) so they wipe their own copies of the journey
@@ -1024,6 +1173,65 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       throw err;
     }
   }, [stopBackgroundUpdates, drainBackgroundQueue, persistPendingCoords, clearPersistedCoords]);
+
+  // Save active journey state to AsyncStorage whenever it updates to survive app force-closes
+  useEffect(() => {
+    const id = journeyIdRef.current;
+    if (initialized && isTracking && id && journey) {
+      const stateToSave = {
+        journey,
+        polyline,
+        distance,
+        duration,
+        timestamp: Date.now(),
+      };
+      AsyncStorage.setItem('@active_journey_state', JSON.stringify(stateToSave)).catch(() => {});
+    } else if (initialized && !isTracking) {
+      AsyncStorage.removeItem('@active_journey_state').catch(() => {});
+    }
+  }, [isTracking, isPaused, journey, polyline, distance, duration, initialized]);
+
+  const resetTrackingState = useCallback(async () => {
+    try {
+      if (locationWatcherRef.current) {
+        locationWatcherRef.current.remove();
+        locationWatcherRef.current = null;
+      }
+      if (durationTimerRef.current) {
+        clearInterval(durationTimerRef.current);
+        durationTimerRef.current = null;
+      }
+      if (batchSendTimerRef.current) {
+        clearInterval(batchSendTimerRef.current);
+        batchSendTimerRef.current = null;
+      }
+      await stopBackgroundUpdates();
+      journeyIdRef.current = null;
+      startTimeRef.current = null;
+      lastCoordinateRef.current = null;
+      pendingSegmentBreakRef.current = false;
+      batchCoordinatesRef.current = [];
+      setIsTracking(false);
+      setIsPaused(false);
+      setJourney(null);
+      setPolyline([]);
+      setDistance(0);
+      setDuration(0);
+      setAccuracy(null);
+      setCurrentCoordinate(null);
+      setError(null);
+      logger.debug('[Journey] Reset tracking state complete');
+    } catch (e) {
+      logger.error('[Journey] Failed to reset tracking state:', e);
+    }
+  }, [stopBackgroundUpdates]);
+
+  useEffect(() => {
+    const unregister = registerResetCallback(() => {
+      resetTrackingState();
+    });
+    return () => unregister();
+  }, [resetTrackingState]);
 
   return {
     initialized,

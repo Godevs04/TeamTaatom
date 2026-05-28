@@ -48,7 +48,7 @@ export default function UserShortsScreen() {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: theme.colors.background,
+      backgroundColor: '#000000',
       ...(isWeb && {
         maxWidth: isTablet ? 600 : 500,
         alignSelf: 'center',
@@ -60,9 +60,9 @@ export default function UserShortsScreen() {
       alignItems: 'center',
       paddingHorizontal: theme.spacing.md,
       paddingVertical: theme.spacing.sm,
-      backgroundColor: theme.colors.surface,
+      backgroundColor: '#000000',
       borderBottomWidth: 1,
-      borderBottomColor: theme.colors.border,
+      borderBottomColor: 'rgba(255,255,255,0.1)',
       zIndex: 10,
     },
     backButton: {
@@ -72,7 +72,7 @@ export default function UserShortsScreen() {
     headerTitle: {
       fontSize: theme.typography.h3.fontSize,
       fontWeight: '600',
-      color: theme.colors.text,
+      color: '#ffffff',
       flex: 1,
     },
     shortsFlex: {
@@ -90,12 +90,12 @@ export default function UserShortsScreen() {
               onPress={() => router.back()}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
-              <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+              <Ionicons name="arrow-back" size={24} color="#ffffff" />
             </TouchableOpacity>
             <Text style={styles.headerTitle}>Shorts</Text>
           </View>
           <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 }}>
-            <Text style={{ color: theme.colors.textSecondary, textAlign: 'center' }}>
+            <Text style={{ color: 'rgba(255,255,255,0.6)', textAlign: 'center' }}>
               Missing user. Go back and try again.
             </Text>
           </View>
@@ -114,7 +114,7 @@ export default function UserShortsScreen() {
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.7}
           >
-            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+            <Ionicons name="arrow-back" size={24} color="#ffffff" />
           </TouchableOpacity>
           <Text style={styles.headerTitle} numberOfLines={1}>
             {user?.fullName ? `${user.fullName}'s Shorts` : 'Shorts'}

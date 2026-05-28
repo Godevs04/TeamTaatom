@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system/legacy';
+import { useIsFocused } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
 import logger from '../utils/logger';
@@ -62,10 +63,13 @@ const cacheSongLocally = async (remoteUrl: string): Promise<string> => {
 };
 
 function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPlayPause = false, externalMuted, onPlayingChange }: SongPlayerProps) {
+  const isFocused = useIsFocused();
+  const isEffectiveVisible = isVisible && isFocused;
+
   if (__DEV__) {
     logger.debug('[SongPlayerComponent Render]', {
       postId: post._id,
-      isVisible,
+      isVisible: isEffectiveVisible,
       autoPlay,
       externalMuted,
     });
@@ -73,7 +77,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
   const { theme } = useTheme();
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(() => externalMuted !== undefined ? externalMuted : audioManager.getSessionMuted());
   const [isLoading, setIsLoading] = useState(false);
   // URL fetched dynamically when getShorts URL generation failed (storage issues, etc.)
   const [fetchedUrl, setFetchedUrl] = useState<string | null>(null);
@@ -84,7 +88,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
   // Mirrors the isVisible prop synchronously so loadAndPlaySong can detect a
   // nav-during-load (tab switch or scroll to next reel) and abort instead of
   // starting playback in the background after the user has already navigated.
-  const isVisibleRef = useRef(isVisible);
+  const isVisibleRef = useRef(isEffectiveVisible);
   // Token bumped on every loadAndPlaySong invocation. After awaiting loadAsync
   // we compare the captured token against the current ref — if they differ a
   // newer load was started or the component unmounted, and this stale load
@@ -109,11 +113,11 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
     if (post.song && __DEV__) {
       logger.debug('[SONGPLAYER] Mount/update:', {
         postId: String(post._id),
-        isVisible,
+        isVisible: isEffectiveVisible,
         autoPlay,
       });
     }
-  }, [post.song, isVisible, autoPlay, post._id]);
+  }, [post.song, isEffectiveVisible, autoPlay, post._id]);
 
   // If backend URL generation failed (s3Url/cloudinaryUrl missing), fetch a fresh URL via API
   useEffect(() => {
@@ -151,12 +155,11 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
   // hands us the new prop — before commit, before child effects run. A
   // useEffect-based sync leaves a brief race window during which an
   // in-flight loadAsync can resolve and decide it's still "visible".
-  isVisibleRef.current = isVisible;
+  isVisibleRef.current = isEffectiveVisible;
 
-  // Cleanup on unmount
+  // Cleanup on post change or unmount
   useEffect(() => {
     return () => {
-      isMountedRef.current = false; // Mark as unmounted
       // Bump the load token so any awaited loadAndPlaySong knows it's stale
       // and unloads its sound instead of playing it on a dead component.
       loadTokenRef.current += 1;
@@ -175,11 +178,25 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
     };
   }, [post._id, onPlayingChange]);
 
+  // Reset player states when post changes (recycled cells)
+  useEffect(() => {
+    if (isMountedRef.current) {
+      setSound(null);
+      setIsPlaying(false);
+      setIsLoading(false);
+      setFetchedUrl(null);
+      const initialMuted = externalMuted !== undefined ? externalMuted : audioManager.getSessionMuted();
+      setIsMuted(initialMuted);
+    }
+  }, [post._id]);
+
+
   // Sync external mute prop → internal mute state + live sound volume
   useEffect(() => {
     if (externalMuted === undefined) return;
     setIsMuted(externalMuted);
     if (soundRef.current) {
+      soundRef.current.setIsMutedAsync(externalMuted).catch(() => {});
       soundRef.current.setVolumeAsync(externalMuted ? 0 : volume).catch(() => {});
     }
   }, [externalMuted, volume]);
@@ -267,6 +284,8 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
       // 🔴 CRITICAL: Use streaming pattern (or local file URI)
       const newSound = new Audio.Sound();
 
+      const effectiveMuted = externalMuted !== undefined ? externalMuted : isMuted;
+
       // Load sound - since it is local, it initializes instantly
       await newSound.loadAsync(
         { uri: audioUrl },
@@ -274,11 +293,18 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
           shouldPlay: shouldPlayNow, // Play immediately if needed
           progressUpdateIntervalMillis: 150,
           isLooping: !endTime,
-          volume: isMuted ? 0 : volume,
+          isMuted: effectiveMuted,
+          volume: effectiveMuted ? 0 : volume,
           positionMillis: startTime * 1000,
         },
         false // Keep false to allow fast initialization
       );
+
+      // Force explicit mute/volume configuration on the newly loaded sound instance if we are going to play
+      if (shouldPlayNow) {
+        await newSound.setIsMutedAsync(effectiveMuted).catch(() => {});
+        await newSound.setVolumeAsync(effectiveMuted ? 0 : volume).catch(() => {});
+      }
 
       // ABORT GUARD: If the user navigated away (tab switch / reel scroll)
       // while loadAsync was in flight, this run is stale. Unload the sound
@@ -415,137 +441,66 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
       
       throw error;
     }
-  }, [song?.s3Url, (song as any)?.cloudinaryUrl, fetchedUrl, autoPlay, isMuted, volume, startTime, endTime, onPlayingChange]);
+  }, [post._id, song?.s3Url, (song as any)?.cloudinaryUrl, fetchedUrl, autoPlay, isMuted, volume, startTime, endTime, onPlayingChange]);
 
-  // Auto-play when component becomes visible and autoPlay is true (for shorts and home page)
-  // For home page (showPlayPause=true), don't auto-play
   useEffect(() => {
     // For shorts and home page: sync with visibility and autoPlay prop
     const audioUrl = song?.s3Url || (song as any)?.cloudinaryUrl || fetchedUrl;
-    if (isVisible && !showPlayPause && audioUrl) {
+    if (isEffectiveVisible && !showPlayPause && audioUrl) {
       if (autoPlay) {
         // Should play - play song
         const currentPostId = audioManager.getCurrentPostId();
         const wasPreloaded = preloadedRef.current;
         preloadedRef.current = false;
 
-        // CRITICAL SYNC FIX: If audio is preloaded and ready, play it IMMEDIATELY
-        // This ensures audio/video sync from the very start
-        if (soundRef.current && wasPreloaded && post._id) {
-          logger.debug('[SONGPLAYER] Playing preloaded audio immediately for sync');
-          // Play preloaded sound immediately without any checks
-          soundRef.current.playAsync()
-            .then(() => {
-              setIsPlaying(true);
-              audioManager.playSound(soundRef.current!, post._id.toString()).catch(() => {});
-            })
-            .catch((err) => {
-              logger.debug('[SONGPLAYER] Preloaded play failed:', err);
-              // Fallback: reload if preloaded play fails
-              soundRef.current = null;
-              setSound(null);
-              loadAndPlaySong();
-            });
-          return;
-        }
+        const checkLoadedAndPlay = async () => {
+          const effectiveMuted = externalMuted !== undefined ? externalMuted : isMuted;
 
-        // OPTIMIZATION: If sound exists and is for the same post, resume immediately
-        // without any status checks to minimize delay when returning to same short
-        if (soundRef.current && post._id && currentPostId === post._id.toString()) {
-          logger.debug('[SONGPLAYER] Resuming same post audio immediately (no status check)');
-          // Resume immediately without awaiting - fire and forget for speed
-          soundRef.current.playAsync().catch((err) => {
-            logger.debug('[SONGPLAYER] Immediate resume failed, attempting recovery:', err);
-            // Only if immediate resume fails, do a status check
-            soundRef.current?.getStatusAsync()
-              .then((status) => {
-                if (status.isLoaded && !status.isPlaying) {
-                  soundRef.current?.playAsync().catch(() => {});
-                } else if (!status.isLoaded) {
-                  // Sound was unloaded, need to reload
-                  soundRef.current = null;
-                  setSound(null);
-                  loadAndPlaySong();
-                }
-              })
-              .catch(() => {
-                // Status check failed, reload
+          if (soundRef.current) {
+            try {
+              const status = await soundRef.current.getStatusAsync();
+              if (!status.isLoaded) {
+                logger.debug('[SONGPLAYER] soundRef exists but is not loaded. Reloading.');
                 soundRef.current = null;
                 setSound(null);
-                loadAndPlaySong();
-              });
-          });
-          setIsPlaying(true);
-          return;
-        }
-
-        // Critical check: If soundRef exists but audioManager has no current sound,
-        // it means stopAll() was called and the sound was unloaded externally.
-        // Only reload if the sound was truly unloaded (mute toggle case).
-        // Do NOT reload if stopAll() was called as cleanup (leaving screen) —
-        // detect this by checking if the sound object is still loaded.
-        if (soundRef.current && currentPostId === null && !wasPreloaded) {
-          // Check if sound is actually still loaded before reloading
-          soundRef.current.getStatusAsync()
-            .then((status) => {
-              if (isVisible && autoPlay) {
-                // If the post is visible and should play, reload and play it
-                // (handles both the case where it was unloaded natively during mute
-                // and the case where it's still loaded but detached from audioManager)
-                logger.debug('Sound needs playback but audioManager detached/unloaded. Reloading...');
-                soundRef.current = null;
-                setSound(null);
-                loadAndPlaySong()
-                  .then(() => {
-                    setIsPlaying(true);
-                  })
-                  .catch((err) => {
-                    logger.error('Error reloading sound after external stop:', err);
-                  });
-              } else {
-                // Not visible or not autoPlay — just clean up references
-                logger.debug('Sound stopped externally, clearing refs');
-                soundRef.current = null;
-                setSound(null);
-                setIsPlaying(false);
+                await loadAndPlaySong();
+                return;
               }
-            })
-            .catch(() => {
-              // Status check failed — sound is gone, clean up
+
+              // Sound is loaded. Explicitly set native muted and volume states before play/resume.
+              logger.debug('[SONGPLAYER] soundRef is loaded. Applying explicit muted state:', effectiveMuted);
+              await soundRef.current.setIsMutedAsync(effectiveMuted).catch(() => {});
+              await soundRef.current.setVolumeAsync(effectiveMuted ? 0 : volume).catch(() => {});
+
+              if (wasPreloaded && post._id) {
+                logger.debug('[SONGPLAYER] Playing preloaded audio immediately for sync');
+                await soundRef.current.playAsync();
+                await audioManager.playSound(soundRef.current, post._id.toString()).catch(() => {});
+              } else if (post._id && currentPostId === post._id.toString()) {
+                logger.debug('[SONGPLAYER] Resuming same post audio immediately');
+                await soundRef.current.playAsync();
+              } else if (post._id) {
+                logger.debug('[SONGPLAYER] Playing audio via audioManager');
+                await audioManager.playSound(soundRef.current, post._id.toString());
+              } else {
+                await soundRef.current.playAsync();
+              }
+              setIsPlaying(true);
+              onPlayingChange?.(soundRef.current);
+            } catch (err) {
+              logger.error('[SONGPLAYER] Error checking sound status or playing:', err);
+              // Fallback: reload
               soundRef.current = null;
               setSound(null);
-              setIsPlaying(false);
-            });
-          return;
-        }
-        
-        if (!soundRef.current) {
-          // Load and play if not already loaded
-          loadAndPlaySong();
-        } else if (post._id && currentPostId !== post._id.toString()) {
-          // Different post is playing, use audioManager to switch
-          audioManager.playSound(soundRef.current, post._id.toString())
-            .then(() => {
-              setIsPlaying(true);
-            })
-            .catch((err) => {
-              logger.error('Error playing sound:', err);
-              // If playSound fails (e.g., sound was unloaded), reload
-              soundRef.current = null;
-              setSound(null);
-              loadAndPlaySong();
-            });
-        } else {
-          // Post is not currently playing - need to load and play
-          logger.debug('[SONGPLAYER] Post not currently playing, loading and playing');
-          loadAndPlaySong()
-            .then(() => {
-              setIsPlaying(true);
-            })
-            .catch((err) => {
-              logger.error('Error loading and playing sound:', err);
-            });
-        }
+              await loadAndPlaySong();
+            }
+          } else {
+            logger.debug('[SONGPLAYER] No sound instance exists. Loading and playing.');
+            await loadAndPlaySong();
+          }
+        };
+
+        checkLoadedAndPlay();
       } else {
         // autoPlay is false - PRELOAD mode
         // For shorts: preload audio in parallel with video buffering
@@ -583,7 +538,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
     }
 
     // Pause (don't unload) when component becomes invisible — keeps audio for resume
-    if (!isVisible && !showPlayPause) {
+    if (!isEffectiveVisible && (!showPlayPause || !isFocused)) {
       loadTokenRef.current += 1;
       preloadedRef.current = false;
       if (soundRef.current) {
@@ -592,7 +547,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
         setIsPlaying(false);
       }
     }
-  }, [isVisible, autoPlay, showPlayPause, song?.s3Url, (song as any)?.cloudinaryUrl, fetchedUrl, loadAndPlaySong, post._id, onPlayingChange]);
+  }, [isEffectiveVisible, isFocused, autoPlay, showPlayPause, song?.s3Url, (song as any)?.cloudinaryUrl, fetchedUrl, loadAndPlaySong, post._id, onPlayingChange, externalMuted, isMuted, volume]);
 
   const togglePlayPause = useCallback(async () => {
     logger.debug('Toggle play/pause - soundRef exists:', !!soundRef.current);
@@ -613,25 +568,18 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
           logger.debug('Pausing playback...');
           await soundRef.current.pauseAsync();
           setIsPlaying(false);
+          onPlayingChange?.(null);
         } else {
           logger.debug('Starting playback...');
+          const effectiveMuted = externalMuted !== undefined ? externalMuted : isMuted;
+          await soundRef.current.setIsMutedAsync(effectiveMuted).catch(() => {});
+          await soundRef.current.setVolumeAsync(effectiveMuted ? 0 : volume).catch(() => {});
           // Use audioManager.playSound to ensure previous audio stops
           if (post._id) {
             await audioManager.playSound(soundRef.current, post._id.toString());
           }
-          // Ensure volume is set correctly - check status first to avoid errors
-          try {
-            const currentStatus = await soundRef.current.getStatusAsync();
-            if (currentStatus.isLoaded) {
-              await soundRef.current.setVolumeAsync(isMuted ? 0 : volume);
-            } else {
-              logger.warn('Sound not loaded when setting volume, skipping volume update');
-            }
-          } catch (volumeError) {
-            logger.warn('Error setting volume (non-critical):', volumeError);
-            // Non-critical error, continue with playback
-          }
           setIsPlaying(true);
+          onPlayingChange?.(soundRef.current);
           logger.debug('Playback started');
         }
       } else {
@@ -662,7 +610,8 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
       }
 
       const newMutedState = !isMuted;
-      await soundRef.current.setVolumeAsync(newMutedState ? 0 : volume);
+      await soundRef.current.setIsMutedAsync(newMutedState).catch(() => {});
+      await soundRef.current.setVolumeAsync(newMutedState ? 0 : volume).catch(() => {});
       setIsMuted(newMutedState);
 
       // Animate mute icon
@@ -868,10 +817,19 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
 }
 
 const SongPlayer = React.memo(SongPlayerComponent, (prev, next) => {
-  const isIdEqual = prev.post._id === next.post._id;
-  const isSongIdEqual = prev.post.song?.songId?._id === next.post.song?.songId?._id;
-  const isStartTimeEqual = prev.post.song?.startTime === next.post.song?.startTime;
-  const isEndTimeEqual = prev.post.song?.endTime === next.post.song?.endTime;
+  const isIdEqual = prev.post?._id === next.post?._id;
+  
+  const prevSongId = typeof prev.post?.song?.songId === 'object' 
+    ? prev.post?.song?.songId?._id 
+    : prev.post?.song?.songId;
+  const nextSongId = typeof next.post?.song?.songId === 'object' 
+    ? next.post?.song?.songId?._id 
+    : next.post?.song?.songId;
+  const isSongIdEqual = prevSongId === nextSongId;
+
+  const isStartTimeEqual = prev.post?.song?.startTime === next.post?.song?.startTime;
+  const isEndTimeEqual = prev.post?.song?.endTime === next.post?.song?.endTime;
+  const isVolumeEqual = prev.post?.song?.volume === next.post?.song?.volume;
   const isVisibleEqual = prev.isVisible === next.isVisible;
   const isAutoPlayEqual = prev.autoPlay === next.autoPlay;
   const isMutedEqual = prev.externalMuted === next.externalMuted;
@@ -881,17 +839,19 @@ const SongPlayer = React.memo(SongPlayerComponent, (prev, next) => {
     isSongIdEqual &&
     isStartTimeEqual &&
     isEndTimeEqual &&
+    isVolumeEqual &&
     isVisibleEqual &&
     isAutoPlayEqual &&
     isMutedEqual;
 
   logger.debug('[SONGPLAYER MEMO COMPARATOR]', {
-    postId: prev.post._id,
+    postId: prev.post?._id,
     shouldMemoize,
     isIdEqual,
     isSongIdEqual,
     isStartTimeEqual,
     isEndTimeEqual,
+    isVolumeEqual,
     isVisibleEqual,
     isAutoPlayEqual,
     isMutedEqual,

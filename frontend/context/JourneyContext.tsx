@@ -34,13 +34,15 @@ interface JourneyContextValue {
   startJourneyRecording: (title?: string) => Promise<void>;
   pauseJourneyRecording: () => Promise<void>;
   resumeJourneyRecording: () => Promise<void>;
-  stopJourneyRecording: () => Promise<void>;
+  stopJourneyRecording: (options?: { snapToRoads?: boolean }) => Promise<void>;
 }
 
 const JourneyContext = createContext<JourneyContextValue | null>(null);
 
 export const JourneyProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // Single call site. All other screens read from useJourney() below.
+  // Note: useJourneyTracking internally handles saving/rehydrating state
+  // from AsyncStorage to ensure active journeys survive app termination.
   const value = useJourneyTracking();
   return (
     <JourneyContext.Provider value={value}>

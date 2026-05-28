@@ -100,7 +100,7 @@ const searchPosts = async (req, res) => {
           $addFields: {
             comments: {
               $map: {
-                input: '$comments',
+                input: { $ifNull: ['$comments', []] },
                 as: 'comment',
                 in: {
                   $mergeObjects: [

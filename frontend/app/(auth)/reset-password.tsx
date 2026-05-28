@@ -617,7 +617,7 @@ const styles = StyleSheet.create({
     } as any),
   },
   resetButtonText: {
-    color: '#FFFFFF',
+    color: '#000000',
     fontSize: isTablet ? theme.typography.body.fontSize + 3 : theme.typography.body.fontSize + 1,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',

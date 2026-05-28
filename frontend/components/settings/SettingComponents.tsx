@@ -106,8 +106,8 @@ export const SwitchSettingItem: React.FC<SwitchSettingItemProps> = ({
         value={value}
         onValueChange={onValueChange}
         disabled={disabled}
-        trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
-        thumbColor={value ? theme.colors.primary : theme.colors.textSecondary}
+        trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
+        thumbColor="#FFFFFF"
       />
     </View>
   );

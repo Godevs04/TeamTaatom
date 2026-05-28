@@ -50,6 +50,8 @@ CLAUDE.md
 BSD-*.md
 IMAGE_MIGRATION_REPORT.md
 feature1.md
+short.md
+UI_CHANGES_MAPPING.md
 
 # ─── Production-risk files: NOT listed here ────────────────────────────────
 # package.json, package-lock.json, app.json, eas.json are TRACKED on purpose
@@ -72,3 +74,6 @@ UI_REFRESH_LOG.md
 frontend/AGENT_CONTEXT.md
 frontend/2026-05-17.md
 CHANGES_LOGGED.txt
+frontend/app.json
+migrate_theme.js
+ag_knowledge_graph.md

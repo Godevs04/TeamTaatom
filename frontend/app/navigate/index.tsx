@@ -5,12 +5,12 @@ import {
   StyleSheet,
   TouchableOpacity,
   FlatList,
-  ActivityIndicator,
   Alert,
   Platform,
   StatusBar,
   RefreshControl,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -20,6 +20,7 @@ import { useAlert } from '../../context/AlertContext';
 import { useJourney } from '../../context/JourneyContext';
 import JourneyCard from '../../components/JourneyCard';
 import { getUserJourneys, deleteJourney } from '../../services/journey';
+import NavBar from '../../components/NavBar';
 
 const GROWTH_GREEN = '#22C55E';
 const ACTION_BLUE = '#3B82F6';
@@ -37,7 +38,7 @@ const ALERT_RED = '#EF4444';
 export default function NavigateIndexScreen() {
   const router = useRouter();
   const { theme } = useTheme();
-  const { showAlert } = useAlert();
+  const { showAlert, showError, showDestructiveConfirm } = useAlert();
   const {
     initialized,
     isTracking,
@@ -126,50 +127,40 @@ export default function NavigateIndexScreen() {
   };
 
   const handleEndJourney = () => {
-    Alert.alert('End Journey?', 'This will complete your current journey. You can view it later in your profile.', [
-      {
-        text: 'Cancel',
-        onPress: () => {},
-        style: 'cancel',
+    showDestructiveConfirm(
+      'This will complete your current journey. You can view it later in your profile.',
+      async () => {
+        try {
+          setIsLoading(true);
+          await stopJourneyRecording();
+          router.push('/navigate/complete');
+        } catch (err: any) {
+          showError(err.message || 'Unknown error', 'Failed to end journey');
+        } finally {
+          setIsLoading(false);
+        }
       },
-      {
-        text: 'End Journey',
-        onPress: async () => {
-          try {
-            setIsLoading(true);
-            await stopJourneyRecording();
-            router.push('/navigate/complete');
-          } catch (err: any) {
-            showAlert('Failed to end journey', err.message);
-          } finally {
-            setIsLoading(false);
-          }
-        },
-        style: 'destructive',
-      },
-    ]);
+      'End Journey?',
+      'End Journey',
+      'Cancel'
+    );
   };
 
   const handleDeleteJourney = (journeyItem: any) => {
-    Alert.alert(
-      'Delete Journey',
+    showDestructiveConfirm(
       `Are you sure you want to delete "${journeyItem.title || 'Untitled Journey'}"? This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteJourney(journeyItem._id);
-              setJourneys((prev) => prev.filter((j) => j._id !== journeyItem._id));
-              showAlert('Journey deleted', '');
-            } catch (err: any) {
-              showAlert('Failed to delete', err.message || 'Something went wrong');
-            }
-          },
-        },
-      ]
+      async () => {
+        try {
+          await deleteJourney(journeyItem._id);
+          setJourneys((prev) => prev.filter((j) => j._id !== journeyItem._id));
+          showAlert('Journey deleted', '');
+        } catch (err: any) {
+          showError(err.message || 'Something went wrong', 'Failed to delete');
+        }
+      },
+      'Delete Journey',
+      'Delete',
+      'Cancel'
     );
   };
 
@@ -218,18 +209,9 @@ export default function NavigateIndexScreen() {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top', 'left', 'right']}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
-      <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>My Journeys</Text>
-        <View style={{ width: 44 }} />
-      </View>
+      <NavBar title="My Journeys" showBack={true} onBack={() => router.back()} />
 
       {/* Paused Journey Banner */}
       {isPaused && journey && (
@@ -272,7 +254,7 @@ export default function NavigateIndexScreen() {
               disabled={isLoading}
             >
               {isLoading ? (
-                <ActivityIndicator color="white" size="small" />
+                <LoadingGlobe color="white" size="small" />
               ) : (
                 <>
                   <Ionicons name="play-circle" size={20} color="white" />
@@ -296,7 +278,7 @@ export default function NavigateIndexScreen() {
       {/* Journey List */}
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={GROWTH_GREEN} />
+          <LoadingGlobe size="large" color={GROWTH_GREEN} />
         </View>
       ) : (
         <FlatList
@@ -322,7 +304,7 @@ export default function NavigateIndexScreen() {
           }
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.3}
-          ListFooterComponent={loadingMore ? <ActivityIndicator style={{ padding: 16 }} color={GROWTH_GREEN} /> : null}
+          ListFooterComponent={loadingMore ? <LoadingGlobe style={{ padding: 16 }} color={GROWTH_GREEN} /> : null}
           contentContainerStyle={journeys.length === 0 ? { flex: 1 } : { paddingTop: 6, paddingBottom: 30 }}
         />
       )}
@@ -330,10 +312,10 @@ export default function NavigateIndexScreen() {
       {/* Loading Overlay */}
       {isLoading && (
         <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color={GROWTH_GREEN} />
+          <LoadingGlobe size="large" color={GROWTH_GREEN} />
         </View>
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 

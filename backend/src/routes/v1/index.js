@@ -1,4 +1,6 @@
 const express = require('express');
+const { authMiddleware } = require('../../middleware/authMiddleware');
+const subscriptionController = require('../../controllers/subscriptionController');
 const authRoutes = require('../authRoutes');
 const postRoutes = require('../postRoutes');
 const profileRoutes = require('../profileRoutes');
@@ -47,6 +49,7 @@ router.use('/users', userManagementRoutes);
 router.use('/user', userRoutes);
 router.use('/connect', connectRoutes);
 router.use('/geo', geoRoutes);
+router.get('/subscription/status', authMiddleware, subscriptionController.getGlobalSubscriptionStatus);
 router.use('/', userManagementRoutes.syncRoute); // For /sync route
 
 module.exports = router;

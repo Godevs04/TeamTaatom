@@ -7,9 +7,9 @@
 // before any screen can export a default component.
 
 import { NativeModules } from 'react-native';
-import type { CFSubscriptionSession } from 'cashfree-pg-api-contract';
+import type { CFSubscriptionSession, CFSession } from 'cashfree-pg-api-contract';
 
-export { CFEnvironment, CFSubscriptionSession } from 'cashfree-pg-api-contract';
+export { CFEnvironment, CFSubscriptionSession, CFSession } from 'cashfree-pg-api-contract';
 
 export type CFErrorResponse = {
   getMessage?: () => string;
@@ -26,6 +26,8 @@ type NativePaymentService = {
   setCallback: (cb: CashfreeCallback) => void;
   removeCallback: () => void;
   doSubscriptionPayment: (session: CFSubscriptionSession) => void;
+  doPayment: (session: CFSession) => void;
+  doWebPayment: (session: CFSession) => void;
 };
 
 function getNativePaymentService(): NativePaymentService | null {
@@ -57,4 +59,20 @@ export const CFPaymentGatewayService = {
     }
     s.doSubscriptionPayment(session);
   },
+  /** Launch the Cashfree drop-in checkout for one-time payments. */
+  doPayment(session: CFSession) {
+    const s = getNativePaymentService();
+    if (!s) {
+      throw new Error('Cashfree native SDK is not linked');
+    }
+    s.doPayment(session);
+  },
+  doWebPayment(session: CFSession) {
+    const s = getNativePaymentService();
+    if (!s) {
+      throw new Error('Cashfree native SDK is not linked');
+    }
+    s.doWebPayment(session);
+  },
 };
+

@@ -1,6 +1,8 @@
 const Hashtag = require('../models/Hashtag');
 const Post = require('../models/Post');
 const logger = require('../utils/logger');
+const { getOptimizedImageUrl } = require('../config/cloudinary');
+const { generateSignedUrl, generateSignedUrls, resolveProfilePic } = require('../services/mediaService');
 
 // @desc    Search hashtags
 // @route   GET /hashtags/search
@@ -94,22 +96,123 @@ const getHashtagPosts = async (req, res) => {
       isHidden: { $ne: true },
       tags: hashtagName
     })
-      .populate('user', 'fullName profilePic')
-      .populate('comments.user', 'fullName profilePic')
+      .populate('user', 'fullName profilePic profilePicStorageKey settings.privacy.showLocation')
+      .populate('comments.user', 'fullName profilePic profilePicStorageKey')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
 
-    // Add isLiked field if user is authenticated
-    const postsWithLikeStatus = posts.map(post => {
-      const isLiked = req.user ? post.likes.some(like => like.toString() === req.user._id.toString()) : false;
+    // Generate signed URLs dynamically for posts
+    const postsWithFreshUrls = await Promise.all(posts.map(async (post) => {
+      // Generate image URLs from storage keys
+      if (post.storageKeys && post.storageKeys.length > 0) {
+        try {
+          const imageUrls = await generateSignedUrls(post.storageKeys, 'IMAGE');
+          post.imageUrl = imageUrls[0] || null; // Primary image
+          post.images = imageUrls; // All images
+        } catch (error) {
+          logger.warn('Failed to generate image URLs for post:', { 
+            postId: post._id, 
+            error: error.message 
+          });
+          post.imageUrl = null;
+          post.images = [];
+        }
+      } else if (post.storageKey) {
+        // Fallback for single storage key
+        try {
+          const imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE');
+          post.imageUrl = imageUrl;
+          post.images = imageUrl ? [imageUrl] : [];
+        } catch (error) {
+          logger.warn('Failed to generate image URL for post:', { 
+            postId: post._id, 
+            error: error.message 
+          });
+          post.imageUrl = null;
+          post.images = [];
+        }
+      } else {
+        if (post.imageUrl && post.imageUrl.trim() !== '') {
+          post.images = [post.imageUrl];
+        } else {
+          post.imageUrl = null;
+          post.images = [];
+        }
+      }
+
+      // Resolve fresh profile pic URL for post author and all commenters
+      if (post.user) {
+        post.user.profilePic = await resolveProfilePic(post.user);
+      }
+      if (post.comments && post.comments.length > 0) {
+        for (const comment of post.comments) {
+          if (comment.user) {
+            comment.user.profilePic = await resolveProfilePic(comment.user);
+          }
+        }
+      }
+
+      return post;
+    }));
+
+    // Filter out posts with missing media or author data
+    const validPosts = postsWithFreshUrls.filter(post => {
+      const hasStorageKey = post.storageKey || (post.storageKeys && post.storageKeys.length > 0);
+      const hasImageUrl = post.imageUrl && post.imageUrl.trim() !== '';
+      
+      if (!hasStorageKey && !hasImageUrl) {
+        logger.warn(`Post ${post._id} missing both storageKey and imageUrl, filtering out`);
+        return false;
+      }
+      
+      if (!post.user || !post.user._id || !post.user.fullName) {
+        logger.warn(`Post ${post._id} missing author data, filtering out`);
+        return false;
+      }
+      
+      return true;
+    });
+
+    // Add isLiked field if user is authenticated and optimize image URLs
+    const userId = req.user?._id?.toString();
+    const postsWithLikeStatus = validPosts.map(post => {
+      let optimizedImageUrl = post.imageUrl;
+      if (post.imageUrl && post.imageUrl.includes('cloudinary.com')) {
+        try {
+          const urlParts = post.imageUrl.split('/');
+          const publicIdWithExtension = urlParts[urlParts.length - 1];
+          const publicId = publicIdWithExtension.split('.')[0];
+          optimizedImageUrl = getOptimizedImageUrl(`taatom/posts/${publicId}`, {
+            width: 800,
+            height: 800,
+            quality: 'auto:good',
+            format: 'auto',
+            flags: 'progressive'
+          });
+        } catch (error) {
+          logger.warn('Failed to optimize Cloudinary URL:', error);
+        }
+      }
+
+      const isLiked = userId && post.likes 
+        ? post.likes.some(like => like.toString() === userId)
+        : false;
+
+      const postOwnerId = post.user?._id?.toString();
+      const hideLocation = postOwnerId !== userId && post.user?.settings?.privacy?.showLocation === false;
+      const { settings: _settings, ...userWithoutSettings } = post.user || {};
 
       return {
         ...post,
+        imageUrl: optimizedImageUrl,
         isLiked,
-        likesCount: post.likes.length,
-        commentsCount: post.comments.length
+        location: hideLocation ? null : post.location,
+        detectedPlace: hideLocation ? null : post.detectedPlace,
+        user: userWithoutSettings,
+        likesCount: post.likes ? post.likes.length : 0,
+        commentsCount: post.comments ? post.comments.length : 0
       };
     });
 

@@ -8,6 +8,7 @@ import { parseError } from '../utils/errorCodes';
 
 // Simple in-memory cache and rate-limit friendly helpers
 const postByIdCache = new Map<string, { data: any; expiresAt: number }>();
+const postByIdInFlight = new Map<string, Promise<any>>();
 const POST_CACHE_TTL_MS = 60_000; // 60s
 let lastPostByIdCall = 0;
 const MIN_SPACING_MS = 150; // space requests to avoid 429
@@ -34,7 +35,7 @@ export interface CreatePostData {
   songVolume?: number;
   spotType?: string;
   travelInfo?: string;
-  aspectRatio?: '1:1' | '16:9' | 'full';
+  aspectRatio?: '1:1' | '16:9' | 'full' | '1.91:1';
   filter?: 'original' | 'vivid' | 'warm' | 'cool' | 'bw';
   detectedPlace?: {          // Detected place data for admin review
     name?: string;
@@ -126,8 +127,24 @@ export const getPostById = async (postId: string) => {
     return cached.data;
   }
 
+  const inFlight = postByIdInFlight.get(postId);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const request = fetchPostById(postId);
+  postByIdInFlight.set(postId, request);
+
+  try {
+    return await request;
+  } finally {
+    postByIdInFlight.delete(postId);
+  }
+};
+
+const fetchPostById = async (postId: string) => {
   // spacing to avoid bursts
-  const since = now - lastPostByIdCall;
+  const since = Date.now() - lastPostByIdCall;
   if (since < MIN_SPACING_MS) {
     await sleep(MIN_SPACING_MS - since);
   }

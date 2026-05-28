@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, Image as RNImage, TouchableOpacity, StyleSheet, ActivityIndicator, Animated, FlatList, Dimensions } from 'react-native';
+import { View, Text, Image as RNImage, TouchableOpacity, StyleSheet, Animated, FlatList, Dimensions } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
@@ -11,7 +12,7 @@ import SongPlayer from '../SongPlayer';
 import { audioManager } from '../../utils/audioManager';
 import { Audio } from 'expo-av';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import ReAnimated, { useSharedValue, useAnimatedStyle } from 'react-native-reanimated';
+import ReAnimated, { useSharedValue, useAnimatedStyle, runOnJS, withSpring } from 'react-native-reanimated';
 
 const { width: screenWidth } = Dimensions.get('window');
 const CARD_WIDTH = screenWidth - 24;
@@ -31,6 +32,95 @@ const getStableCacheKey = (url?: string | null): string | undefined => {
 // aspect — visible as feed jitter, especially when scrolling pauses.
 const naturalAspectCache: Map<string, number> = new Map();
 
+interface CarouselItemProps {
+  item: string;
+  index: number;
+  currentImageIndex: number;
+  scale: any;
+  focalX: any;
+  focalY: any;
+  composedGesture: any;
+  animatedImageStyle: any;
+  containerWidth: number;
+  filter?: string;
+  heartScale: Animated.Value;
+  heartOpacity: Animated.Value;
+}
+
+const CarouselItem = React.memo(({
+  item,
+  index,
+  currentImageIndex,
+  scale,
+  focalX,
+  focalY,
+  composedGesture,
+  animatedImageStyle,
+  containerWidth,
+  filter,
+  heartScale,
+  heartOpacity,
+}: CarouselItemProps) => {
+  const slideContainerStyle = useAnimatedStyle(() => {
+    const isActive = index === currentImageIndex;
+    const isZooming = scale.value > 1.01;
+    return {
+      overflow: (isActive && isZooming) ? 'visible' : 'hidden',
+      zIndex: (isActive && isZooming) ? 999 : 1,
+    };
+  });
+
+  const isActive = index === currentImageIndex;
+
+  return (
+    <GestureDetector gesture={isActive ? composedGesture : Gesture.Tap()}>
+      <ReAnimated.View
+        style={[
+          { width: containerWidth, height: '100%', position: 'relative' },
+          slideContainerStyle,
+        ]}
+      >
+        <ReAnimated.View
+          style={[
+            StyleSheet.absoluteFill,
+            isActive ? animatedImageStyle : null,
+          ]}
+        >
+          <ExpoImage
+            source={{
+              uri: applyCloudinaryFilter(item, filter),
+              cacheKey: getStableCacheKey(item) ? `${getStableCacheKey(item)}:${filter || 'original'}` : undefined,
+            }}
+            placeholderContentFit="cover"
+            cachePolicy="memory-disk"
+            contentFit="cover"
+            transition={250}
+            priority={isActive ? "high" : "normal"}
+            style={styles.image}
+          />
+
+          {/* Heart animation overlay */}
+          {isActive && (
+            <View style={styles.heartContainer} pointerEvents="none">
+              <Animated.View
+                style={[
+                  styles.heartAnimation,
+                  {
+                    transform: [{ scale: heartScale }],
+                    opacity: heartOpacity,
+                  },
+                ]}
+              >
+                <Ionicons name="heart" size={80} color="#fff" />
+              </Animated.View>
+            </View>
+          )}
+        </ReAnimated.View>
+      </ReAnimated.View>
+    </GestureDetector>
+  );
+});
+
 interface PostImageProps {
   post: PostType;
   onPress: () => void;
@@ -42,6 +132,7 @@ interface PostImageProps {
   pulseAnim: Animated.Value;
   isCurrentlyVisible?: boolean; // Whether this post is currently visible in viewport (for music playback)
   onDoubleTap?: () => void; // Callback for double-tap to like
+  onZoomStateChange?: (isZooming: boolean) => void; // Callback for pinch zoom state changes
 }
 
 export default function PostImage({
@@ -55,28 +146,80 @@ export default function PostImage({
   pulseAnim,
   isCurrentlyVisible = false,
   onDoubleTap,
+  onZoomStateChange,
 }: PostImageProps) {
   const { theme } = useTheme();
   const [blurUpUri, setBlurUpUri] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(() => audioManager.getSessionMuted());
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [scrollEnabled, setScrollEnabled] = useState(true);
+  const [containerWidth, setContainerWidth] = useState(screenWidth - 32);
+
+  const handleLayout = useCallback((event: any) => {
+    const { width } = event.nativeEvent.layout;
+    if (width && width > 0) {
+      setContainerWidth(width);
+    }
+  }, []);
   const flatListRef = useRef<FlatList>(null);
   const songPlayerRef = useRef<any>(null);
   const isTogglingMuteRef = useRef(false);
   const isMutedRef = useRef(audioManager.getSessionMuted());
 
-  // Double-tap detection
-  const lastTapRef = useRef<number>(0);
-  const doubleTapTimerRef = useRef<NodeJS.Timeout | null>(null);
+  // Heart pop animation values
   const heartScale = useRef(new Animated.Value(0)).current;
   const heartOpacity = useRef(new Animated.Value(0)).current;
 
-  // Pinch-to-zoom (center only, no pan)
-  const scale = useSharedValue(1);
-  const pinchGesture = Gesture.Pinch()
-    .onUpdate((e) => { scale.value = Math.max(1, e.scale); })
-    .onEnd(() => { scale.value = 1; });
-  const animatedImageStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+  // Trigger double-tap to like with heart animation
+  const triggerDoubleTapLike = useCallback(() => {
+    if (onDoubleTap) {
+      onDoubleTap();
+      
+      // Show heart animation
+      heartScale.setValue(0);
+      heartOpacity.setValue(1);
+      
+      Animated.parallel([
+        Animated.spring(heartScale, {
+          toValue: 1.2,
+          useNativeDriver: true,
+          tension: 50,
+          friction: 3,
+        }),
+        Animated.sequence([
+          Animated.delay(100),
+          Animated.timing(heartOpacity, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+        ]),
+      ]).start(() => {
+        heartScale.setValue(0);
+        heartOpacity.setValue(0);
+      });
+    }
+  }, [onDoubleTap, heartScale, heartOpacity]);
+
+  // RNGH Gestures
+  const doubleTapGesture = Gesture.Tap()
+    .numberOfTaps(2)
+    .onEnd((_event, success) => {
+      if (success) {
+        runOnJS(triggerDoubleTapLike)();
+      }
+    });
+
+  const singleTapGesture = Gesture.Tap()
+    .numberOfTaps(1)
+    .requireExternalGestureToFail(doubleTapGesture)
+    .onEnd((_event, success) => {
+      if (success) {
+        runOnJS(onPress)();
+      }
+    });
+
+  // Gestures and animated style are defined below to ensure aspectRatioValue is in scope
 
   // expo-image handles caching natively; we just pass the array through.
   const resolvedImages = post.images && post.images.length > 1 ? post.images : (post.images || []);
@@ -115,75 +258,7 @@ export default function PostImage({
     isMutedRef.current = isMuted;
   }, [isMuted]);
 
-  // Handle double-tap to like
-  const handleDoubleTap = useCallback(() => {
-    const now = Date.now();
-    const DOUBLE_TAP_DELAY = 300; // 300ms window for double-tap
-    
-    if (lastTapRef.current && (now - lastTapRef.current) < DOUBLE_TAP_DELAY) {
-      // Double-tap detected - cancel single tap timer
-      if (doubleTapTimerRef.current) {
-        clearTimeout(doubleTapTimerRef.current);
-        doubleTapTimerRef.current = null;
-      }
-      
-      // Trigger like if callback is provided
-      if (onDoubleTap) {
-        onDoubleTap();
-        
-        // Show heart animation
-        heartScale.setValue(0);
-        heartOpacity.setValue(1);
-        
-        Animated.parallel([
-          Animated.spring(heartScale, {
-            toValue: 1.2,
-            useNativeDriver: true,
-            tension: 50,
-            friction: 3,
-          }),
-          Animated.sequence([
-            Animated.delay(100),
-            Animated.timing(heartOpacity, {
-              toValue: 0,
-              duration: 300,
-              useNativeDriver: true,
-            }),
-          ]),
-        ]).start(() => {
-          heartScale.setValue(0);
-          heartOpacity.setValue(0);
-        });
-      }
-      
-      lastTapRef.current = 0;
-    } else {
-      // First tap - wait for potential second tap
-      lastTapRef.current = now;
-      
-      // Clear any existing timer
-      if (doubleTapTimerRef.current) {
-        clearTimeout(doubleTapTimerRef.current);
-      }
-      
-      // Set timer for single tap (only if no second tap occurs)
-      doubleTapTimerRef.current = setTimeout(() => {
-        // Single tap - navigate to post detail
-        lastTapRef.current = 0;
-        doubleTapTimerRef.current = null;
-        onPress();
-      }, DOUBLE_TAP_DELAY);
-    }
-  }, [onDoubleTap, onPress, heartScale, heartOpacity]);
 
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (doubleTapTimerRef.current) {
-        clearTimeout(doubleTapTimerRef.current);
-      }
-    };
-  }, []);
 
   // Handle mute/unmute toggle with guard to prevent multiple simultaneous calls
   const handleToggleMute = useCallback(async () => {
@@ -227,16 +302,17 @@ export default function PostImage({
     }
   }, [post._id, post.song?.songId, post.song?.volume]); // Removed isCurrentlyVisible - not needed in deps
 
-  // Measure natural aspect for 'full' display mode (only when needed).
+  // Measure natural aspect for 'full' display mode or when aspectRatio is missing/falsy (only when needed).
   // Seed from the module-level cache so recycled FlashList cells skip the
   // square→actual snap that causes scroll jitter.
+  const shouldMeasure = !post.aspectRatio || post.aspectRatio === 'full';
   const [naturalAspect, setNaturalAspect] = useState<number | null>(() => {
-    if (post.aspectRatio !== 'full') return null;
+    if (!shouldMeasure) return null;
     const key = getStableCacheKey(imageUri);
     return key ? (naturalAspectCache.get(key) ?? null) : null;
   });
   useEffect(() => {
-    if (post.aspectRatio !== 'full' || !imageUri) return;
+    if (!shouldMeasure || !imageUri) return;
     const key = getStableCacheKey(imageUri);
     if (key && naturalAspectCache.has(key)) {
       const cached = naturalAspectCache.get(key)!;
@@ -258,18 +334,122 @@ export default function PostImage({
   }, [post.aspectRatio, imageUri]);
 
   // 16:9 is portrait (1080×1920) → container aspectRatio = 9/16 (taller than wide).
-  const aspectRatioValue =
-    post.aspectRatio === '16:9'
-      ? 9 / 16
-      : post.aspectRatio === 'full'
-        ? (naturalAspect ?? 1)
-        : 1;
+  const getAspectRatio = () => {
+    if (!post.aspectRatio) return naturalAspect ?? 1;
+    if (post.aspectRatio === 'full') return naturalAspect ?? 1;
+    if (post.aspectRatio === '1:1') return 1;
+    
+    // Cast to any to handle DB values that don't match the strict TS union
+    const rawAspect = post.aspectRatio as any;
+    if (rawAspect === '1.91:1' || rawAspect === '1.91') return 1.91;
+    
+    if (typeof rawAspect === 'string') {
+      if (rawAspect.includes(':')) {
+        const parts = rawAspect.split(':');
+        const w = parseFloat(parts[0]);
+        const h = parseFloat(parts[1]);
+        if (!isNaN(w) && !isNaN(h) && h !== 0) {
+          return w / h;
+        }
+      }
+      const parsedFloat = parseFloat(rawAspect);
+      if (!isNaN(parsedFloat) && parsedFloat > 0) {
+        return parsedFloat;
+      }
+    } else if (typeof rawAspect === 'number' && rawAspect > 0) {
+      return rawAspect;
+    }
+    return 1;
+  };
+
+  const aspectRatioValue = getAspectRatio();
+
+  // Pinch-to-zoom shared values
+  const scale = useSharedValue(1);
+  const focalX = useSharedValue(0);
+  const focalY = useSharedValue(0);
+
+  const pinchGesture = Gesture.Pinch()
+    .onStart(() => {
+      runOnJS(setScrollEnabled)(false);
+      if (onZoomStateChange) {
+        runOnJS(onZoomStateChange)(true);
+      }
+    })
+    .onUpdate((e) => {
+      // Clamp scale within the UI worklet to prevent crashes (Max 5, Min 1)
+      const currentScale = (e.scale && !isNaN(e.scale) && isFinite(e.scale)) ? e.scale : 1;
+      scale.value = Math.max(1, Math.min(currentScale, 5));
+      focalX.value = (e.focalX && !isNaN(e.focalX) && isFinite(e.focalX)) ? e.focalX : 0;
+      focalY.value = (e.focalY && !isNaN(e.focalY) && isFinite(e.focalY)) ? e.focalY : 0;
+    })
+    .onEnd(() => {
+      // Automatic snap-back feature (BUG-002) using withSpring for smooth reset
+      scale.value = withSpring(1);
+      focalX.value = withSpring(0);
+      focalY.value = withSpring(0);
+      runOnJS(setScrollEnabled)(true);
+      if (onZoomStateChange) {
+        runOnJS(onZoomStateChange)(false);
+      }
+    });
+
+  // Composed Gestures
+  const composedGesture = Gesture.Simultaneous(
+    pinchGesture,
+    Gesture.Exclusive(doubleTapGesture, singleTapGesture)
+  );
+
+  const listComposedGesture = Gesture.Exclusive(doubleTapGesture, singleTapGesture);
+
+  const animatedImageStyle = useAnimatedStyle(() => {
+    // Null reference and bounds guard
+    const s = (scale.value && !isNaN(scale.value) && isFinite(scale.value)) ? scale.value : 1;
+    const fx = (focalX.value && !isNaN(focalX.value) && isFinite(focalX.value)) ? focalX.value : 0;
+    const fy = (focalY.value && !isNaN(focalY.value) && isFinite(focalY.value)) ? focalY.value : 0;
+
+    const width = containerWidth;
+    const height = aspectRatioValue ? (containerWidth / aspectRatioValue) : containerWidth;
+    const safeHeight = (height && !isNaN(height) && isFinite(height)) ? height : containerWidth;
+
+    // Calculate translation relative to center
+    const x = fx - width / 2;
+    const y = fy - safeHeight / 2;
+
+    const tx = x * (1 - s);
+    const ty = y * (1 - s);
+
+    // Guard tx/ty against NaN
+    const safeTx = (!isNaN(tx) && isFinite(tx)) ? tx : 0;
+    const safeTy = (!isNaN(ty) && isFinite(ty)) ? ty : 0;
+
+    return {
+      transform: [
+        { translateX: safeTx },
+        { translateY: safeTy },
+        { scale: s },
+      ] as any,
+    };
+  });
+
+  const containerAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      overflow: scale.value > 1.01 ? 'visible' : 'hidden',
+      zIndex: scale.value > 1.01 ? 999 : 1,
+    };
+  });
+
+  const indicatorsAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: withSpring(scale.value > 1.01 ? 0 : 1, { damping: 15 }),
+    };
+  });
 
   return (
-    <View style={[styles.imageContainer, { aspectRatio: aspectRatioValue }]}>
+    <ReAnimated.View onLayout={handleLayout} style={[styles.imageContainer, { aspectRatio: aspectRatioValue }, containerAnimatedStyle]}>
       {imageLoading && (
         <View style={styles.imageLoader} pointerEvents="none">
-          <ActivityIndicator color={theme.colors.primary} size="large" />
+          <LoadingGlobe color={theme.colors.primary} size="large" />
         </View>
       )}
       
@@ -283,150 +463,144 @@ export default function PostImage({
                 data={resolvedImages}
                 horizontal
                 pagingEnabled={true}
-                snapToInterval={CARD_WIDTH}
+                snapToInterval={containerWidth}
                 snapToAlignment="center"
                 decelerationRate="fast"
                 showsHorizontalScrollIndicator={false}
-                scrollEnabled={true}
+                scrollEnabled={scrollEnabled}
                 style={{ margin: 0, padding: 0 }}
                 contentContainerStyle={{ marginHorizontal: 0, paddingHorizontal: 0 }}
                 onMomentumScrollEnd={(event) => {
-                  const index = Math.round(event.nativeEvent.contentOffset.x / CARD_WIDTH);
+                  const index = Math.round(event.nativeEvent.contentOffset.x / containerWidth);
                   setCurrentImageIndex(index);
+                  scale.value = 1;
+                  focalX.value = 0;
+                  focalY.value = 0;
+                  setScrollEnabled(true);
                 }}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    activeOpacity={1}
-                    onPress={handleDoubleTap}
-                    style={{ width: CARD_WIDTH, height: '100%', marginHorizontal: 0, paddingHorizontal: 0 }}
-                  >
-                    <ExpoImage
-                      source={{
-                        uri: applyCloudinaryFilter(item, post.filter),
-                        cacheKey: getStableCacheKey(item) ? `${getStableCacheKey(item)}:${post.filter || 'original'}` : undefined,
-                      }}
-                      cachePolicy="memory-disk"
-                      contentFit="cover"
-                      transition={250}
-                      style={styles.image}
-                    />
-                    {/* Heart animation overlay */}
-                    <View style={styles.heartContainer} pointerEvents="none">
-                      <Animated.View
-                        style={[
-                          styles.heartAnimation,
-                          {
-                            transform: [{ scale: heartScale }],
-                            opacity: heartOpacity,
-                          },
-                        ]}
-                      >
-                        <Ionicons name="heart" size={80} color="#fff" />
-                      </Animated.View>
-                    </View>
-                  </TouchableOpacity>
+                renderItem={({ item, index }) => (
+                  <CarouselItem
+                    item={item}
+                    index={index}
+                    currentImageIndex={currentImageIndex}
+                    scale={scale}
+                    focalX={focalX}
+                    focalY={focalY}
+                    composedGesture={composedGesture}
+                    animatedImageStyle={animatedImageStyle}
+                    containerWidth={containerWidth}
+                    filter={post.filter}
+                    heartScale={heartScale}
+                    heartOpacity={heartOpacity}
+                  />
                 )}
                 keyExtractor={(item, index) => index.toString()}
+                getItemLayout={(data, index) => ({
+                  length: containerWidth,
+                  offset: containerWidth * index,
+                  index,
+                })}
               />
               
-              {/* Image counter */}
-              <View style={styles.imageCounter} pointerEvents="none">
-                <Text style={styles.imageCounterText}>
-                  {currentImageIndex + 1} / {post.images.length}
-                </Text>
-              </View>
-              
-              {/* Image dots indicator */}
-              <View style={styles.dotsContainer} pointerEvents="none">
-                {post.images.map((_, index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.dotIndicator,
-                      {
-                        backgroundColor: index === currentImageIndex 
-                          ? theme.colors.primary 
-                          : 'rgba(255,255,255,0.5)'
-                      }
-                    ]}
-                  />
-                ))}
-              </View>
+              {/* Image counter and dot indicators wrapped in animated view */}
+              <ReAnimated.View style={[StyleSheet.absoluteFill, indicatorsAnimatedStyle]} pointerEvents="none">
+                {/* Image counter */}
+                <View style={styles.imageCounter}>
+                  <Text style={styles.imageCounterText}>
+                    {currentImageIndex + 1} / {post.images.length}
+                  </Text>
+                </View>
+                
+                {/* Image dots indicator */}
+                <View style={styles.dotsContainer}>
+                  {post.images.map((_, index) => (
+                    <View
+                      key={index}
+                      style={[
+                        styles.dotIndicator,
+                        {
+                          backgroundColor: index === currentImageIndex 
+                            ? theme.colors.primary 
+                            : 'rgba(255,255,255,0.5)'
+                        }
+                      ]}
+                    />
+                  ))}
+                </View>
+              </ReAnimated.View>
             </View>
           ) : (
-            <GestureDetector gesture={pinchGesture}>
+            <GestureDetector gesture={composedGesture}>
               <ReAnimated.View style={[StyleSheet.absoluteFill, animatedImageStyle]}>
-                <TouchableOpacity
-                  onPress={handleDoubleTap}
-                  activeOpacity={0.9}
-                  style={StyleSheet.absoluteFill}
-                >
-                  <ExpoImage
-                    source={{
-                      uri: applyCloudinaryFilter(imageUri, post.filter),
-                      cacheKey: getStableCacheKey(imageUri) ? `${getStableCacheKey(imageUri)}:${post.filter || 'original'}` : undefined,
-                    }}
-                    placeholder={blurUpUri ? { uri: blurUpUri } : undefined}
-                    placeholderContentFit="cover"
-                    cachePolicy="memory-disk"
-                    contentFit="cover"
-                    transition={250}
-                    priority="high"
-                    style={styles.image}
-                    onError={() => onImageError()}
-                  />
+                <ExpoImage
+                  source={{
+                    uri: applyCloudinaryFilter(imageUri, post.filter),
+                    cacheKey: getStableCacheKey(imageUri) ? `${getStableCacheKey(imageUri)}:${post.filter || 'original'}` : undefined,
+                  }}
+                  placeholder={blurUpUri ? { uri: blurUpUri } : undefined}
+                  placeholderContentFit="cover"
+                  cachePolicy="memory-disk"
+                  contentFit="cover"
+                  transition={250}
+                  priority="high"
+                  style={styles.image}
+                  onError={() => onImageError()}
+                />
 
-                  {/* Heart animation overlay */}
-                  <View style={styles.heartContainer} pointerEvents="none">
-                    <Animated.View
-                      style={[
-                        styles.heartAnimation,
-                        {
-                          transform: [{ scale: heartScale }],
-                          opacity: heartOpacity,
-                        },
-                      ]}
-                    >
-                      <Ionicons name="heart" size={80} color="#fff" />
-                    </Animated.View>
-                  </View>
-                </TouchableOpacity>
+                {/* Heart animation overlay */}
+                <View style={styles.heartContainer} pointerEvents="none">
+                  <Animated.View
+                    style={[
+                      styles.heartAnimation,
+                      {
+                        transform: [{ scale: heartScale }],
+                        opacity: heartOpacity,
+                      },
+                    ]}
+                  >
+                    <Ionicons name="heart" size={80} color="#fff" />
+                  </Animated.View>
+                </View>
               </ReAnimated.View>
             </GestureDetector>
           )}
         </View>
         ) : imageError ? (
-          <TouchableOpacity 
-            onPress={handleDoubleTap}
-            activeOpacity={0.9}
-            style={StyleSheet.absoluteFill}
-          >
-            <View style={[styles.image, styles.imageError]} pointerEvents="box-none">
-              <Ionicons name="image-outline" size={50} color={theme.colors.textSecondary} />
-              <Text style={[styles.errorText, { color: theme.colors.textSecondary }]}>
-                Failed to load image
-              </Text>
-              <TouchableOpacity 
-                style={styles.retryButton}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  onRetry();
-                }}
-              >
-                <Ionicons name="refresh" size={20} color={theme.colors.primary} />
-                <Text style={[styles.retryText, { color: theme.colors.primary }]}>
-                  Retry
+          <GestureDetector gesture={listComposedGesture}>
+            <View style={StyleSheet.absoluteFill}>
+              <View style={[styles.image, styles.imageError]} pointerEvents="box-none">
+                <Ionicons name="image-outline" size={50} color={theme.colors.textSecondary} />
+                <Text style={[styles.errorText, { color: theme.colors.textSecondary }]}>
+                  Failed to load image
                 </Text>
-              </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.retryButton}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onRetry();
+                  }}
+                >
+                  <Ionicons name="refresh" size={20} color={theme.colors.primary} />
+                  <Text style={[styles.retryText, { color: theme.colors.primary }]}>
+                    Retry
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </TouchableOpacity>
+          </GestureDetector>
         ) : null}
 
       {/* Song Player - Hidden but active for audio playback */}
       {/* Music plays when post is visible and unmuted, pauses when scrolled away (Instagram-style) */}
       {post.song?.songId && imageUri && !imageError && (
         <View style={styles.hiddenSongPlayer} pointerEvents="box-none">
-          <SongPlayer post={post} isVisible={isCurrentlyVisible} autoPlay={isCurrentlyVisible && !isMuted} showPlayPause={false} />
+          <SongPlayer 
+            post={post} 
+            isVisible={isCurrentlyVisible} 
+            autoPlay={isCurrentlyVisible && !isMuted} 
+            showPlayPause={false} 
+            externalMuted={isMuted}
+          />
         </View>
       )}
 
@@ -449,9 +623,11 @@ export default function PostImage({
           </View>
         </TouchableOpacity>
       )}
-    </View>
+    </ReAnimated.View>
   );
 }
+
+// CarouselItem hoisted to top of file
 
 const styles = StyleSheet.create({
   imageContainer: {
@@ -460,6 +636,7 @@ const styles = StyleSheet.create({
     aspectRatio: 1,
     borderRadius: 0,
     overflow: 'hidden',
+    backgroundColor: '#000',
   },
   imageLoader: {
     position: 'absolute',
@@ -476,10 +653,12 @@ const styles = StyleSheet.create({
     position: 'relative',
     width: '100%',
     height: '100%',
+    backgroundColor: '#000',
   },
   image: {
     width: '100%',
     height: '100%',
+    backgroundColor: '#000',
   },
   blurImage: {
     position: 'absolute',

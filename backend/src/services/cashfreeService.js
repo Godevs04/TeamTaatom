@@ -388,6 +388,79 @@ const verifyWebhookSignature = (rawBody, timestamp, signature) => {
   }
 };
 
+// ─────────────────────────────────────────────
+// One-Time Orders (for Buy Items)
+// ─────────────────────────────────────────────
+
+/**
+ * Create a one-time payment order on Cashfree PG.
+ * Used for community page "buy items" — each item has a fixed price.
+ *
+ * @param {Object} params
+ * @param {string} params.orderId       - Unique order ID (e.g., "item_order_{userId}_{ts}")
+ * @param {number} params.amount        - Amount in INR (or item currency)
+ * @param {string} [params.currency]    - Currency code, default 'INR'
+ * @param {Object} params.customer      - { id, email, phone, name }
+ * @param {string} params.returnUrl     - URL to redirect after payment
+ * @param {string} [params.orderNote]   - Short description shown in Cashfree
+ * @returns {{ orderId, paymentSessionId, cfOrderId }}
+ */
+const createOrder = async ({ orderId, amount, currency = 'INR', customer, returnUrl, orderNote = 'Buy Item' }) => {
+  assertCashfreeConfigured();
+  const config = getConfig();
+  const amountRounded = Math.round(Number(amount) * 100) / 100;
+  if (!Number.isFinite(amountRounded) || amountRounded < 1) {
+    throw new Error('Invalid order amount');
+  }
+
+  const body = {
+    order_id: orderId,
+    order_amount: amountRounded,
+    order_currency: currency.toUpperCase(),
+    order_note: sanitizeForCashfree(truncate(orderNote, 200)),
+    customer_details: {
+      customer_id: sanitizeForCashfree(String(customer.id)).slice(0, 50) || 'user',
+      customer_name: sanitizeForCashfree(customer.name || 'User').slice(0, 100),
+      customer_email: customer.email || `user_${customer.id}@taatom.app`,
+      customer_phone: customer.phone || '9999999999',
+    },
+    order_meta: {
+      return_url: returnUrl,
+      notify_url: null,
+    },
+  };
+
+  try {
+    const result = await makeRequest('POST', `${config.baseUrl}/orders`, body);
+    const data = result.data;
+    logger.info(`Cashfree order created: ${orderId}`);
+    return {
+      orderId: data.order_id || orderId,
+      paymentSessionId: data.payment_session_id,
+      cfOrderId: data.cf_order_id,
+    };
+  } catch (error) {
+    logger.error('Cashfree createOrder error:', error.responseData || error.message);
+    throw new Error(error.responseData?.message || 'Failed to create payment order');
+  }
+};
+
+/**
+ * Get order status from Cashfree
+ * @param {string} orderId - our orderId
+ */
+const getOrderStatus = async (orderId) => {
+  assertCashfreeConfigured();
+  const config = getConfig();
+  try {
+    const result = await makeRequest('GET', `${config.baseUrl}/orders/${orderId}`);
+    return result.data;
+  } catch (error) {
+    logger.error('Cashfree getOrderStatus error:', error.responseData || error.message);
+    throw new Error(error.responseData?.message || 'Failed to fetch order status');
+  }
+};
+
 module.exports = {
   CashfreeNotConfiguredError,
   UnsupportedCurrencyError,
@@ -399,4 +472,7 @@ module.exports = {
   getSubscription,
   cancelSubscription,
   verifyWebhookSignature,
+  createOrder,
+  getOrderStatus,
 };
+

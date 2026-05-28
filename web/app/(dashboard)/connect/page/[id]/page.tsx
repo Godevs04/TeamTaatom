@@ -15,6 +15,7 @@ import {
   MessageCircle,
   X,
   User,
+  ShoppingBag,
 } from "lucide-react";
 import {
   connectGetPageDetail,
@@ -27,8 +28,10 @@ import {
   connectDeletePage,
   connectGetPayoutPreview,
   connectGetPageFollowers,
+  connectBuyItem,
 } from "@/lib/connect-api";
 import type { ConnectFollower } from "@/lib/connect-api";
+import type { BuyItem } from "@/types/connect";
 import { openCashfreeSubscriptionCheckout } from "@/lib/cashfree-client";
 import { getFriendlyErrorMessage } from "@/lib/auth-errors";
 import { ConnectContentBlocks } from "@/components/connect/connect-content-blocks";
@@ -50,7 +53,44 @@ export default function ConnectPageDetailPage() {
   const [subBusy, setSubBusy] = React.useState(false);
   const [payoutBreakdownOpen, setPayoutBreakdownOpen] = React.useState(false);
   const [followersOpen, setFollowersOpen] = React.useState(false);
+  const [checkoutOpen, setCheckoutOpen] = React.useState(false);
+  const [selectedItem, setSelectedItem] = React.useState<BuyItem | null>(null);
+  const [buyerName, setBuyerName] = React.useState("");
+  const [buyerPhone, setBuyerPhone] = React.useState("");
+  const [payPhone, setPayPhone] = React.useState("");
+  const [deliveryAddress, setDeliveryAddress] = React.useState("");
+  const [buying, setBuying] = React.useState(false);
   const cashfreeReturnDoneRef = React.useRef(false);
+
+  const handleBuyItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedItem) return;
+    if (!buyerName.trim() || !buyerPhone.trim() || !payPhone.trim() || !deliveryAddress.trim()) {
+      toast.error("Please fill in all delivery details.");
+      return;
+    }
+    setBuying(true);
+    try {
+      await connectBuyItem(id, {
+        itemId: selectedItem._id,
+        buyerName: buyerName.trim(),
+        buyerPhone: buyerPhone.trim(),
+        payPhone: payPhone.trim(),
+        deliveryAddress: deliveryAddress.trim(),
+      });
+      toast.success("Order placed successfully! The admin will deliver your items soon.");
+      setCheckoutOpen(false);
+      setBuyerName("");
+      setBuyerPhone("");
+      setPayPhone("");
+      setDeliveryAddress("");
+    } catch (err) {
+      toast.error(getFriendlyErrorMessage(err));
+    } finally {
+      setBuying(false);
+    }
+  };
+
 
   const detailQ = useQuery({
     queryKey: ["connect-page", id],
@@ -510,8 +550,12 @@ export default function ConnectPageDetailPage() {
                     )}
                     onClick={() => setTab("subscription")}
                   >
-                    <Users className="mr-1 inline h-4 w-4" />
-                    {isCommunityPage ? "Premium content" : "Subscription"}
+                    {isCommunityPage ? (
+                      <ShoppingBag className="mr-1 inline h-4 w-4" />
+                    ) : (
+                      <Users className="mr-1 inline h-4 w-4" />
+                    )}
+                    {isCommunityPage ? "Buy" : "Subscription"}
                   </button>
                 )}
               </div>
@@ -524,43 +568,182 @@ export default function ConnectPageDetailPage() {
                   />
                 )}
                 {tab === "subscription" && showSubTab && (
-                  <>
-                    {!canViewSubscriptionContent ? (
-                      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 p-8 text-center dark:border-zinc-700 dark:bg-zinc-800/40">
-                        <p className="text-sm text-slate-600 dark:text-zinc-300">
-                          {isCommunityPage
-                            ? "Buy to unlock exclusive content from this community."
-                            : "Subscribe to unlock exclusive content from this creator."}
+                  isCommunityPage ? (
+                    <div className="space-y-6">
+                      {page.buyItems && page.buyItems.filter(item => item.active !== false).length > 0 ? (
+                        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                          {page.buyItems.filter(item => item.active !== false).map((item, index) => (
+                            <Card key={item._id || index} className="overflow-hidden border border-slate-200 shadow-premium dark:border-zinc-800 dark:bg-zinc-900/50">
+                              {item.imageUrl ? (
+                                <div className="relative aspect-video w-full overflow-hidden bg-slate-100 dark:bg-zinc-800">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={item.imageUrl} alt="" className="h-full w-full object-cover" />
+                                </div>
+                              ) : null}
+                              <CardHeader className="p-4 pb-2">
+                                <CardTitle className="text-base font-bold">{item.name}</CardTitle>
+                                {item.description ? (
+                                  <CardDescription className="text-xs line-clamp-2">{item.description}</CardDescription>
+                                ) : null}
+                              </CardHeader>
+                              <CardContent className="flex items-center justify-between p-4 pt-2">
+                                <span className="text-lg font-bold text-primary">₹{item.price}</span>
+                                {!isOwner && (
+                                  <Button
+                                    size="sm"
+                                    onClick={() => {
+                                      setSelectedItem(item);
+                                      setCheckoutOpen(true);
+                                    }}
+                                  >
+                                    Buy Now
+                                  </Button>
+                                )}
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-center text-sm text-slate-500 py-12 dark:text-zinc-400">
+                          No items listed for sale yet.
                         </p>
-                        {!isOwner && hasPrice && priceApproved && !(subQ.data?.isSubscribed && subQ.data.subscription?.status === "active") && (
-                          <Button className="mt-4" disabled={subBusy} onClick={handleSubscribe}>
-                            {isCommunityPage ? "Buy now" : "Subscribe now"}
-                          </Button>
-                        )}
-                        {subQ.data?.subscription?.status === "initialized" && (
-                          <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
-                            Payment pending — complete checkout if a tab opened.
+                      )}
+                    </div>
+                  ) : (
+                    <>
+                      {!canViewSubscriptionContent ? (
+                        <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 p-8 text-center dark:border-zinc-700 dark:bg-zinc-800/40">
+                          <p className="text-sm text-slate-600 dark:text-zinc-300">
+                            {isCommunityPage
+                              ? "Buy to unlock exclusive content from this community."
+                              : "Subscribe to unlock exclusive content from this creator."}
                           </p>
-                        )}
-                      </div>
-                    ) : page.subscriptionContent && page.subscriptionContent.length > 0 ? (
-                      <ConnectContentBlocks
-                        blocks={page.subscriptionContent}
-                        pageBackground={page.subscriptionBackground}
-                        pageTextColor={page.subscriptionTextColor}
-                      />
-                    ) : (
-                      <p className="text-sm text-slate-500 dark:text-zinc-400">
-                        {isOwner ? "No content added yet." : "No services listed yet."}
-                      </p>
-                    )}
-                  </>
+                          {!isOwner && hasPrice && priceApproved && !(subQ.data?.isSubscribed && subQ.data.subscription?.status === "active") && (
+                            <Button className="mt-4" disabled={subBusy} onClick={handleSubscribe}>
+                              {isCommunityPage ? "Buy now" : "Subscribe now"}
+                            </Button>
+                          )}
+                          {subQ.data?.subscription?.status === "initialized" && (
+                            <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
+                              Payment pending — complete checkout if a tab opened.
+                            </p>
+                          )}
+                        </div>
+                      ) : page.subscriptionContent && page.subscriptionContent.length > 0 ? (
+                        <ConnectContentBlocks
+                          blocks={page.subscriptionContent}
+                          pageBackground={page.subscriptionBackground}
+                          pageTextColor={page.subscriptionTextColor}
+                        />
+                      ) : (
+                        <p className="text-sm text-slate-500 dark:text-zinc-400">
+                          {isOwner ? "No content added yet." : "No services listed yet."}
+                        </p>
+                      )}
+                    </>
+                  )
                 )}
               </div>
             </div>
           )}
         </div>
       </div>
+
+      {checkoutOpen && selectedItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-zinc-800">
+              <h3 className="text-lg font-semibold text-slate-950 dark:text-white">Checkout</h3>
+              <button
+                type="button"
+                onClick={() => setCheckoutOpen(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-55 hover:text-slate-600 dark:text-zinc-550 dark:hover:bg-zinc-800 dark:hover:text-zinc-300"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <form onSubmit={handleBuyItem} className="mt-4 space-y-4">
+              <div className="space-y-1">
+                <span className="text-sm font-medium text-slate-600 dark:text-zinc-400">Item</span>
+                <p className="font-semibold text-slate-900 dark:text-white">
+                  {selectedItem.name} <span className="text-primary font-bold ml-2">₹{selectedItem.price}</span>
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="checkout-buyer-name" className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
+                  Full Name
+                </label>
+                <input
+                  id="checkout-buyer-name"
+                  type="text"
+                  required
+                  value={buyerName}
+                  onChange={(e) => setBuyerName(e.target.value)}
+                  placeholder="John Doe"
+                  className="w-full rounded-xl border border-slate-200 bg-transparent px-3.5 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-primary dark:border-zinc-700 dark:text-white dark:placeholder-zinc-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="checkout-buyer-phone" className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
+                  Phone Number
+                </label>
+                <input
+                  id="checkout-buyer-phone"
+                  type="tel"
+                  required
+                  value={buyerPhone}
+                  onChange={(e) => setBuyerPhone(e.target.value)}
+                  placeholder="9876543210"
+                  className="w-full rounded-xl border border-slate-200 bg-transparent px-3.5 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-primary dark:border-zinc-700 dark:text-white dark:placeholder-zinc-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="checkout-pay-phone" className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
+                  Pay Phone Number (for payment reference)
+                </label>
+                <input
+                  id="checkout-pay-phone"
+                  type="tel"
+                  required
+                  value={payPhone}
+                  onChange={(e) => setPayPhone(e.target.value)}
+                  placeholder="9876543210"
+                  className="w-full rounded-xl border border-slate-200 bg-transparent px-3.5 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-primary dark:border-zinc-700 dark:text-white dark:placeholder-zinc-500"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label htmlFor="checkout-delivery-address" className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
+                  Delivery Address
+                </label>
+                <textarea
+                  id="checkout-delivery-address"
+                  required
+                  rows={3}
+                  value={deliveryAddress}
+                  onChange={(e) => setDeliveryAddress(e.target.value)}
+                  placeholder="Enter your complete delivery address here..."
+                  className="w-full rounded-xl border border-slate-200 bg-transparent px-3.5 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-primary dark:border-zinc-700 dark:text-white dark:placeholder-zinc-500 resize-none"
+                />
+              </div>
+
+              <Button type="submit" className="w-full" disabled={buying}>
+                {buying ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Placing Order...
+                  </>
+                ) : (
+                  `Pay ₹${selectedItem.price}`
+                )}
+              </Button>
+            </form>
+          </div>
+        </div>
+      )}
 
       <p className="text-center text-xs text-slate-400">
         Payments open in a secure Cashfree window.{" "}

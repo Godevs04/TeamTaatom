@@ -98,6 +98,7 @@ class AnalyticsService {
       'post_created',
       'payment_completed',
       'error_occurred',
+      'post_view',
     ];
     return criticalEvents.includes(event);
   }

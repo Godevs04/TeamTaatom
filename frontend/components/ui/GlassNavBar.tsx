@@ -1,6 +1,8 @@
 import React from 'react';
 import { View, StyleSheet, TouchableOpacity, Text, ViewProps } from 'react-native';
 import { BlurView } from 'expo-blur';
+import MaskedView from '@react-native-masked-view/masked-view';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,19 +28,33 @@ export const GlassNavBar = ({ title, showBack = true, rightComponent, style, ...
         styles.container, 
         { 
           paddingTop: insets.top,
-          borderBottomWidth: theme.glass.border.width,
-          borderBottomColor: theme.glass.border.color,
-          backgroundColor: isDark ? theme.colors.frostTintMedium : theme.colors.glassBackground,
+          borderBottomWidth: 0,
+          backgroundColor: 'transparent',
         },
         style
       ]}
       {...props}
     >
-      <BlurView intensity={theme.glass.blur.medium} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
+      <BlurView 
+        intensity={80} 
+        tint={isDark ? 'dark' : 'light'} 
+        style={[
+          StyleSheet.absoluteFillObject,
+          {
+            backgroundColor: isDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.8)',
+          }
+        ]} 
+      />
       <View style={styles.content}>
         {showBack ? (
           <TouchableOpacity onPress={() => router.back()} style={styles.leftBtn}>
-            <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
+            <LinearGradient
+              colors={['#1C73B4', '#50C878']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFillObject}
+            />
+            <Ionicons name="chevron-back-outline" size={24} color="#FFFFFF" />
           </TouchableOpacity>
         ) : <View style={styles.leftBtn} />}
         
@@ -74,10 +90,16 @@ const styles = StyleSheet.create({
   },
   leftBtn: {
     width: 40,
-    alignItems: 'flex-start',
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
   rightBtn: {
     width: 40,
+    height: 40,
     alignItems: 'flex-end',
+    justifyContent: 'center',
   }
 });

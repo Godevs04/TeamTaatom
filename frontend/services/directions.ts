@@ -21,6 +21,7 @@ export interface DirectionsRoute {
   steps: DirectionStep[];
   distanceText: string;
   durationText: string;
+  distanceValue?: number; // distance in meters
 }
 
 const directionsCache = new Map<string, DirectionsRoute>();
@@ -103,9 +104,21 @@ export async function fetchDirectionsRoute(
 
     const route = data.routes[0];
     const leg = route.legs?.[0];
-    const coordinates = route.overview_polyline?.points
-      ? decodeGooglePolyline(route.overview_polyline.points)
-      : [];
+    
+    let coordinates: MapCoordinate[] = [];
+    if (leg?.steps && leg.steps.length > 0) {
+      // Decode and concatenate detailed polylines from each step for maximum accuracy
+      for (const step of leg.steps) {
+        if (step.polyline?.points) {
+          const stepCoords = decodeGooglePolyline(step.polyline.points);
+          coordinates = coordinates.concat(stepCoords);
+        }
+      }
+    }
+    // Fallback to overview_polyline if steps are missing or empty
+    if (coordinates.length === 0 && route.overview_polyline?.points) {
+      coordinates = decodeGooglePolyline(route.overview_polyline.points);
+    }
 
     const steps: DirectionStep[] = (leg?.steps || []).map((step: any) => ({
       instruction: stripHtmlInstruction(step.html_instructions || ''),
@@ -123,6 +136,7 @@ export async function fetchDirectionsRoute(
       steps,
       distanceText: leg?.distance?.text || '',
       durationText: leg?.duration?.text || '',
+      distanceValue: leg?.distance?.value || 0,
     };
 
     directionsCache.set(cacheKey, parsed);

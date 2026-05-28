@@ -5,9 +5,11 @@ import { useTheme } from '../context/ThemeContext';
 interface BioDisplayProps {
   bio: string;
   maxLines?: number;
+  fontSize?: number;
+  leftAlign?: boolean;
 }
 
-export default function BioDisplay({ bio, maxLines = 2 }: BioDisplayProps) {
+export default function BioDisplay({ bio, maxLines = 3, fontSize, leftAlign = false }: BioDisplayProps) {
   const { theme } = useTheme();
   const [showFullBio, setShowFullBio] = useState(false);
 
@@ -22,7 +24,11 @@ export default function BioDisplay({ bio, maxLines = 2 }: BioDisplayProps) {
     // Show full bio if it's within the limit
     return (
       <View style={styles.container}>
-        <Text style={[styles.bioText, { color: theme.colors.text }]}>
+        <Text style={[
+          styles.bioText, 
+          { color: theme.colors.textSecondary, textAlign: leftAlign ? 'left' : 'center' }, 
+          fontSize ? { fontSize, lineHeight: fontSize * 1.4 } : null
+        ]}>
           {bio}
         </Text>
       </View>
@@ -35,16 +41,20 @@ export default function BioDisplay({ bio, maxLines = 2 }: BioDisplayProps) {
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.bioText, { color: theme.colors.text }]}>
+      <Text style={[
+        styles.bioText, 
+        { color: theme.colors.textSecondary, textAlign: leftAlign ? 'left' : 'center' }, 
+        fontSize ? { fontSize, lineHeight: fontSize * 1.4 } : null
+      ]}>
         {showFullBio ? bio : truncatedBio}
       </Text>
       
       {bioLines.length > maxLines && (
         <TouchableOpacity 
           onPress={() => setShowFullBio(!showFullBio)}
-          style={styles.moreButton}
+          style={[styles.moreButton, leftAlign && { alignSelf: 'flex-start' }]}
         >
-          <Text style={[styles.moreText, { color: theme.colors.primary }]}>
+          <Text style={[styles.moreText, { color: theme.colors.textSecondary }]}>
             {showFullBio ? 'Show less' : `Show more (${remainingLines.length} more line${remainingLines.length > 1 ? 's' : ''})`}
           </Text>
         </TouchableOpacity>

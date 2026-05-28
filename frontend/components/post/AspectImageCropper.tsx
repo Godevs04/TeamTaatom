@@ -77,7 +77,13 @@ export default function AspectImageCropper({
     ty.value = 0;
     savedTx.value = 0;
     savedTy.value = 0;
-    onTransformChange?.(null);
+    onTransformChange?.({
+      userScale: 1,
+      viewportTx: 0,
+      viewportTy: 0,
+      viewportW: viewportWidth,
+      viewportH,
+    });
   }, [uri, aspectRatio, viewportWidth]);
 
   useEffect(() => {
@@ -157,7 +163,13 @@ export default function AspectImageCropper({
     ty.value = withTiming(0, { duration: 200 });
     savedTx.value = 0;
     savedTy.value = 0;
-    onTransformChange?.(null);
+    onTransformChange?.({
+      userScale: 1,
+      viewportTx: 0,
+      viewportTy: 0,
+      viewportW: viewportWidth,
+      viewportH,
+    });
   };
 
   // If we don't yet know the width (waiting on layout), render a placeholder of the
@@ -199,6 +211,15 @@ export default function AspectImageCropper({
               animatedImageStyle as any,
             ]}
           />
+          {/* 3x3 Grid Overlay */}
+          <View style={StyleSheet.absoluteFill} pointerEvents="none">
+            {/* Horizontal lines */}
+            <View style={[styles.gridLineHorizontal, { top: '33.33%' }]} />
+            <View style={[styles.gridLineHorizontal, { top: '66.66%' }]} />
+            {/* Vertical lines */}
+            <View style={[styles.gridLineVertical, { left: '33.33%' }]} />
+            <View style={[styles.gridLineVertical, { left: '66.66%' }]} />
+          </View>
           {showReset && (
             <TouchableOpacity
               onPress={resetTransform}
@@ -237,5 +258,19 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 6,
     color: 'rgba(255,255,255,0.7)',
+  },
+  gridLineHorizontal: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  gridLineVertical: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
   },
 });

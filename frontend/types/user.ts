@@ -7,6 +7,7 @@ export interface UserType {
   profilePic: string;
   followers: string[] | number;
   following: string[] | number;
+  followingIds?: string[];
   totalLikes: number;
   isVerified: boolean;
   createdAt: string;

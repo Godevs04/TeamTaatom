@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { View, Text, Image, StyleSheet, ActivityIndicator, TouchableOpacity, FlatList, Modal, ScrollView, Dimensions, Pressable, Animated, useColorScheme, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, Modal, ScrollView, Dimensions, Pressable, Animated, useColorScheme, Platform, Alert } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
-import { toggleFollow, getTravelMapData, toggleBlockUser, getBlockStatus } from '../../services/profile';
+import { toggleFollow, getTravelMapData, toggleBlockUser, getBlockStatus, requestRouteAccess } from '../../services/profile';
+import AlertService from '../../services/alertService';
 import { createReport } from '../../services/report';
 import ReportReasonModal, { ReportReasonType } from '../../components/ReportReasonModal';
 import WorldMap from '../../components/WorldMap';
@@ -21,11 +23,13 @@ import {
   CloudTripScoreHero,
   CloudActionGroup,
   CloudListRow,
+  CloudGlassSurface,
 } from '../../components/cloud';
 import PremiumGlassCard from '../../components/ui/PremiumGlassCard';
 import logger from '../../utils/logger';
 import { getUserShorts } from '../../services/posts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import FastImage from '../../components/ui/FastImage';
 
 const { width } = Dimensions.get('window');
 // Calculate column width taking into account card margins (0 each side), card content padding (0 each side), and grid gaps (2 between items)
@@ -54,12 +58,24 @@ export default function UserProfileScreen() {
   const { theme, mode } = useTheme();
   const router = useRouter();
   const [profile, setProfile] = useState<any>(null);
+  const hasProfileRef = useRef(false);
+  const updateProfileState = useCallback((val: any) => {
+    if (typeof val === 'function') {
+      setProfile((prev: any) => {
+        const next = val(prev);
+        hasProfileRef.current = !!next;
+        return next;
+      });
+    } else {
+      hasProfileRef.current = !!val;
+      setProfile(val);
+    }
+  }, []);
   const [loading, setLoading] = useState(true);
   const [showWorldMap, setShowWorldMap] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [followLoading, setFollowLoading] = useState(false);
   const [followRequestSent, setFollowRequestSent] = useState(false);
-  const [followState, setFollowState] = useState<FollowState>(null);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [userShorts, setUserShorts] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'posts' | 'shorts'>('posts');
@@ -73,16 +89,13 @@ export default function UserProfileScreen() {
   // Ref to store the last API response for follow state - this is the source of truth
   const lastFollowApiResponse = useRef<{ isFollowing: boolean; followRequestSent: boolean } | null>(null);
 
-  // Helper function to derive followState from boolean flags
-  const deriveFollowState = useCallback((isFollowing: boolean, followRequestSent: boolean): FollowState => {
-    if (isFollowing === true) {
-      return 'FOLLOWING';
-    }
-    if (followRequestSent === true) {
-      return 'REQUESTED';
-    }
+  // Derived followState to prevent out-of-sync bugs and blank renders on unfollow
+  const followState = useMemo(() => {
+    if (loading || !profile) return null;
+    if (isFollowing) return 'FOLLOWING';
+    if (followRequestSent) return 'REQUESTED';
     return 'FOLLOW';
-  }, []);
+  }, [isFollowing, followRequestSent, loading, profile]);
 
   // Centralized helper function to apply follow state from API response
   const applyFollowState = useCallback((response: {
@@ -104,16 +117,12 @@ export default function UserProfileScreen() {
     setIsFollowing(apiIsFollowing);
     setFollowRequestSent(apiFollowRequestSent);
 
-    // Compute and set derived followState
-    const derivedState = deriveFollowState(apiIsFollowing, apiFollowRequestSent);
-    setFollowState(derivedState);
-
     // Update followers count in profile if provided
     // Note: Only update followersCount (target user's follower count)
     // Do NOT update followingCount - the API returns the current user's following count,
     // but the profile displays the target user's following count (who the target user follows)
     if (response.followersCount !== undefined) {
-      setProfile((prevProfile: any) => {
+      updateProfileState((prevProfile: any) => {
         if (!prevProfile) return prevProfile;
         const updated: any = { ...prevProfile };
         if (typeof response.followersCount === 'number') {
@@ -122,7 +131,7 @@ export default function UserProfileScreen() {
         return updated;
       });
     }
-  }, [deriveFollowState]);
+  }, []);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
@@ -146,27 +155,27 @@ export default function UserProfileScreen() {
   const profileTheme = useMemo(() => {
     if (isDark) {
       return {
-        headerGradient: ['#020617', '#0B1120', '#111827'] as const,
-        cardBg: '#111827',
+        headerGradient: ['#000000', '#000000', '#000000'] as const,
+        cardBg: '#121212',
         cardBorder: 'rgba(255, 255, 255, 0.1)',
         textPrimary: '#F9FAFB',
         textSecondary: '#9CA3AF',
         accent: '#60A5FA',
         statCardBg: 'rgba(96, 165, 250, 0.1)',
         statCardBorder: 'rgba(96, 165, 250, 0.2)',
-        gapBorderColor: '#06121F',
+        gapBorderColor: '#000000',
       };
     } else {
       return {
-        headerGradient: ['#F3F6FF', '#E8F0FE', '#FFFFFF'] as const,
+        headerGradient: ['#F5F7FA', '#F5F7FA'] as const,
         cardBg: '#FFFFFF',
-        cardBorder: 'rgba(0, 0, 0, 0.08)',
-        textPrimary: '#111827',
-        textSecondary: '#6B7280',
-        accent: '#2563EB',
-        statCardBg: 'rgba(37, 99, 235, 0.08)',
-        statCardBorder: 'rgba(37, 99, 235, 0.15)',
-        gapBorderColor: '#EDF7FF',
+        cardBorder: 'rgba(255, 255, 255, 0.90)',
+        textPrimary: '#000000',
+        textSecondary: '#667085',
+        accent: '#000000',
+        statCardBg: 'rgba(255, 255, 255, 0.55)',
+        statCardBorder: 'rgba(255, 255, 255, 0.90)',
+        gapBorderColor: '#F5F7FA',
       };
     }
   }, [isDark]);
@@ -278,7 +287,9 @@ export default function UserProfileScreen() {
 
   const fetchProfile = useCallback(async () => {
     const startTime = Date.now();
-    setLoading(true);
+    if (!hasProfileRef.current) {
+      setLoading(true);
+    }
     try {
       // Add cache-busting parameter if we have a stored follow response
       // This ensures we get fresh data instead of cached stale data (304 responses)
@@ -291,13 +302,12 @@ export default function UserProfileScreen() {
           const parsed = JSON.parse(cachedProfile);
           const cacheAge = Date.now() - (parsed.timestamp || 0);
           if (cacheAge < 5 * 60 * 1000 && parsed.data) { // 5 min cache
-            setProfile(parsed.data);
+            updateProfileState(parsed.data);
             // Pre-set follow state from cache to avoid flicker
             const cachedIsFollowing = Boolean(parsed.data.isFollowing);
             const cachedFollowRequestSent = Boolean(parsed.data.followRequestSent);
             setIsFollowing(cachedIsFollowing);
             setFollowRequestSent(cachedFollowRequestSent);
-            setFollowState(deriveFollowState(cachedIsFollowing, cachedFollowRequestSent));
             setLoading(false); // Show cached data immediately
           }
         }
@@ -316,7 +326,7 @@ export default function UserProfileScreen() {
         timestamp: Date.now()
       })).catch(() => {});
       
-      setProfile(userProfile);
+      updateProfileState(userProfile);
       
       // Fetch verified locations count only if viewer is allowed to see locations
       if (userProfile.canViewLocations) getTravelMapData(id as string)
@@ -395,12 +405,12 @@ export default function UserProfileScreen() {
         }
         
         setLoadingShorts(false);
-        setProfile(userProfile); // Update profile with posts (includes fetched posts)
+        updateProfileState(userProfile); // Update profile with posts (includes fetched posts)
       } else {
         // User cannot view posts, set empty arrays
         userProfile.posts = [];
         setUserShorts([]);
-        setProfile(userProfile);
+        updateProfileState(userProfile);
       }
       
       // CRITICAL: If we have a stored API response from a follow action, ALWAYS use it
@@ -413,9 +423,6 @@ export default function UserProfileScreen() {
         const storedFollowRequestSent = lastFollowApiResponse.current.followRequestSent;
         setIsFollowing(storedIsFollowing);
         setFollowRequestSent(storedFollowRequestSent);
-        // Compute and set derived followState
-        const derivedState = deriveFollowState(storedIsFollowing, storedFollowRequestSent);
-        setFollowState(derivedState);
         // Don't clear the ref here - let it expire naturally after the timeout
       } else if (!isFollowActionInProgress.current) {
         // No stored response and not in the middle of an action - use fresh API response
@@ -424,9 +431,6 @@ export default function UserProfileScreen() {
         const apiFollowRequestSent = Boolean(userProfile.followRequestSent);
         setIsFollowing(apiIsFollowing);
         setFollowRequestSent(apiFollowRequestSent);
-        // Compute and set derived followState
-        const derivedState = deriveFollowState(apiIsFollowing, apiFollowRequestSent);
-        setFollowState(derivedState);
       }
       // If in the middle of an action but no stored response yet, preserve current state
       
@@ -444,14 +448,13 @@ export default function UserProfileScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id, deriveFollowState]);
+  }, [id]);
 
   useEffect(() => {
-    setProfile(null);
+    updateProfileState(null);
     setLoading(true);
     setIsFollowing(false);
     setFollowRequestSent(false);
-    setFollowState(null);
     setShowWorldMap(false);
     setVerifiedLocationsCount(null);
     setVerifiedLocations([]);
@@ -521,23 +524,29 @@ export default function UserProfileScreen() {
     // Save previous state for rollback on error
     const prevIsFollowing = isFollowing;
     const prevFollowRequestSent = followRequestSent;
-    const prevFollowState = followState;
     const prevFollowersCount = profile?.followersCount ?? 0;
 
     // ✅ OPTIMISTIC UPDATE: Change UI immediately before API call
-    // Toggle: if currently following → unfollow, if not following → follow
-    if (prevIsFollowing) {
-      // Optimistic unfollow
+    // Toggle: if currently following OR follow request sent → unfollow/cancel request
+    if (prevIsFollowing || prevFollowRequestSent) {
+      // Optimistic unfollow / cancel request
       setIsFollowing(false);
       setFollowRequestSent(false);
-      setFollowState('FOLLOW');
-      setProfile((prev: any) => prev ? { ...prev, followersCount: Math.max(0, (prev.followersCount || 0) - 1) } : prev);
+      if (prevIsFollowing) {
+        updateProfileState((prev: any) => prev ? { ...prev, followersCount: Math.max(0, (prev.followersCount || 0) - 1) } : prev);
+      }
     } else {
-      // Optimistic follow (assume public profile — will correct to REQUESTED if private)
-      setIsFollowing(true);
-      setFollowRequestSent(false);
-      setFollowState('FOLLOWING');
-      setProfile((prev: any) => prev ? { ...prev, followersCount: (prev.followersCount || 0) + 1 } : prev);
+      // Optimistic follow based on visibility
+      const isPrivate = profile.profileVisibility === 'private';
+      if (isPrivate) {
+        setIsFollowing(false);
+        setFollowRequestSent(true);
+        // Do NOT increment followersCount optimistically since it is only a pending request
+      } else {
+        setIsFollowing(true);
+        setFollowRequestSent(false);
+        updateProfileState((prev: any) => prev ? { ...prev, followersCount: (prev.followersCount || 0) + 1 } : prev);
+      }
     }
     setFollowLoading(false); // Hide spinner immediately — optimistic update is shown
 
@@ -566,8 +575,7 @@ export default function UserProfileScreen() {
       lastFollowApiResponse.current = null;
       setIsFollowing(prevIsFollowing);
       setFollowRequestSent(prevFollowRequestSent);
-      setFollowState(prevFollowState);
-      setProfile((prev: any) => prev ? { ...prev, followersCount: prevFollowersCount } : prev);
+      updateProfileState((prev: any) => prev ? { ...prev, followersCount: prevFollowersCount } : prev);
 
       // Don't log conflict errors (follow request already pending) as they are expected
       if (!e.isConflict && e.response?.status !== 409) {
@@ -594,10 +602,35 @@ export default function UserProfileScreen() {
     }
   };
 
+  const [routeAccessLoading, setRouteAccessLoading] = useState(false);
+
+  const handleRequestRouteAccess = async () => {
+    if (!profile?._id) return;
+    try {
+      setRouteAccessLoading(true);
+      const res = await requestRouteAccess(profile._id);
+      
+      updateProfileState((prev: any) => prev ? {
+        ...prev,
+        routeAccessStatus: res.status
+      } : prev);
+      
+      if (res.status === 'approved') {
+        AlertService.showSuccess('Access Granted', 'You have been granted access to view journey routes.');
+      } else {
+        AlertService.showSuccess('Request Sent', 'Your request to view journey routes has been sent.');
+      }
+    } catch (err: any) {
+      showError(err.message || 'Failed to request route access');
+    } finally {
+      setRouteAccessLoading(false);
+    }
+  };
+
   if (loading || !profile) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <LoadingGlobe size={36} />
       </SafeAreaView>
     );
   }
@@ -607,11 +640,23 @@ export default function UserProfileScreen() {
       ? profile.locations.length
       : '-';
 
+  const postsCount = profile?.postsCount !== undefined 
+    ? profile.postsCount 
+    : (Array.isArray(profile?.posts) ? profile.posts.length : 0);
+
+  const followersCount = profile?.followersCount !== undefined 
+    ? profile.followersCount 
+    : (Array.isArray(profile?.followers) ? profile.followers.length : 0);
+
+  const followingCount = profile?.followingCount !== undefined 
+    ? profile.followingCount 
+    : (Array.isArray(profile?.following) ? profile.following.length : 0);
+
   return (
-    <View style={[styles.container, { backgroundColor: isDark ? '#06121F' : '#EDF7FF' }]}>
+    <View style={[styles.container, { backgroundColor: isDark ? '#000000' : '#F5F7FA' }]}>
       <CloudSkyBackground heightRatio={0.42} />
       <ExpoLinearGradient
-        colors={isDark ? ['transparent', '#102236', '#07111C'] : ['transparent', '#F8FCFF', '#FFFFFF']}
+        colors={isDark ? ['transparent', '#000000', '#000000'] : ['transparent', '#F5F7FA', '#F5F7FA']}
         style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}
         locations={[0, 0.35, 1]}
         pointerEvents="none"
@@ -658,31 +703,101 @@ export default function UserProfileScreen() {
             </View>
 
             {/* Profile Card */}
-            <PremiumGlassCard style={styles.profileCard} contentStyle={styles.profileCardInner} subtle>
-              {/* Avatar with Ring */}
-              <View style={styles.avatarContainer}>
-                <View style={[styles.avatarRing, { borderColor: profileTheme.accent + '40' }]}>
-                  <Image
-                    source={profile.profilePic ? { uri: profile.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                    style={[styles.avatar, { borderColor: profileTheme.cardBg }]}
-                  />
+            <PremiumGlassCard
+              style={styles.profileCard}
+              contentStyle={styles.profileCardInner}
+              strong={false}
+              subtle={false}
+              blur={true}
+            >
+              {/* Top Row (Avatar & Telemetry Stats) */}
+              <View style={styles.topRow}>
+                {/* Left Column (Avatar) */}
+                <ExpoLinearGradient
+                  colors={['#1C73B4', '#50C878']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.avatarGradientWrapper}
+                >
+                  <View style={[
+                    styles.avatarContainer,
+                    {
+                      backgroundColor: isDark ? '#080F19' : '#F0F5FA',
+                    }
+                  ]}>
+                    <FastImage
+                      source={profile.profilePic ? { uri: profile.profilePic } : require('../../assets/avatars/male_avatar.png')}
+                      style={styles.avatarImage}
+                      contentFit="cover"
+                    />
+                  </View>
+                </ExpoLinearGradient>
+
+                {/* Right Column (Telemetry Stats) */}
+                <View style={styles.statsContainer}>
+                  {/* Stat Block 1 */}
+                  <View style={styles.statBlock}>
+                    <Text style={[styles.cardStatValue, { color: profileTheme.textPrimary }]}>{postsCount}</Text>
+                    <Text style={[styles.cardStatLabel, { color: profileTheme.textSecondary }]}>Posts</Text>
+                  </View>
+
+                  {/* Separator */}
+                  <View style={styles.separator} />
+
+                  {/* Stat Block 2 */}
+                  <Pressable 
+                    style={styles.statBlock} 
+                    onPress={() => router.push({ pathname: '/followers', params: { userId: profile._id, type: 'followers' } })}
+                  >
+                    <Text style={[styles.cardStatValue, { color: profileTheme.textPrimary }]}>{followersCount}</Text>
+                    <Text style={[styles.cardStatLabel, { color: profileTheme.textSecondary }]}>Followers</Text>
+                  </Pressable>
+
+                  {/* Separator */}
+                  <View style={styles.separator} />
+
+                  {/* Stat Block 3 */}
+                  <Pressable 
+                    style={styles.statBlock} 
+                    onPress={() => router.push({ pathname: '/followers', params: { userId: profile._id, type: 'following' } })}
+                  >
+                    <Text style={[styles.cardStatValue, { color: profileTheme.textPrimary }]}>{followingCount}</Text>
+                    <Text style={[styles.cardStatLabel, { color: profileTheme.textSecondary }]}>Following</Text>
+                  </Pressable>
                 </View>
               </View>
 
-              {/* Username */}
-              {profile.username && (
-                <Text style={[styles.username, { color: profileTheme.textPrimary }]}>{profile.username}</Text>
-              )}
-              
-              {/* Full Name */}
-              <Text style={[styles.profileName, { color: profileTheme.textPrimary }]}>{profile.fullName}</Text>
-              
-              {/* Bio */}
-              {profile.bio && (
-                <View style={styles.bioContainer}>
-                  <BioDisplay bio={profile.bio || ''} />
-                </View>
-              )}
+              {/* Identity & Typography Block */}
+              <View style={styles.identityBlock}>
+                {isDark ? (
+                  <>
+                    {profile.username ? (
+                      <Text style={[styles.username, { color: '#FFFFFF', fontSize: 15, fontWeight: '600', marginTop: 0 }]}>
+                        @{profile.username}
+                      </Text>
+                    ) : null}
+                    <Text style={[styles.profileName, { color: '#38BDF8', fontSize: 15, fontWeight: '700', marginTop: 2 }]}>
+                      {profile.fullName}
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Text style={[styles.profileName, { color: '#1C73B4', fontSize: 15, fontWeight: '700', marginTop: 0 }]}>
+                      {profile.fullName}
+                    </Text>
+                    {profile.username ? (
+                      <Text style={[styles.username, { color: profileTheme.textSecondary, fontSize: 15, fontWeight: '600', marginTop: 2 }]}>
+                        @{profile.username}
+                      </Text>
+                    ) : null}
+                  </>
+                )}
+                {profile.bio ? (
+                  <View style={styles.bioContainer}>
+                    <BioDisplay bio={profile.bio || ''} fontSize={15} leftAlign={true} />
+                  </View>
+                ) : null}
+              </View>
 
               {/* Action Buttons — hidden until follow state is resolved to avoid flicker */}
               {currentUser && currentUser._id !== profile._id && followState !== null && (
@@ -692,104 +807,166 @@ export default function UserProfileScreen() {
                       styles.actionButton,
                       followState === 'FOLLOWING'
                         ? [styles.followingButton, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.accent }]
-                        : [styles.followButton, { backgroundColor: profileTheme.accent }]
+                        : [styles.followButton, { overflow: 'hidden' }]
                     ]}
                     onPress={handleFollow}
-                    disabled={followLoading || followState === 'REQUESTED'}
+                    disabled={followLoading}
                   >
+                    {followState !== 'FOLLOWING' && (
+                      <ExpoLinearGradient
+                        colors={['#1C73B4', '#50C878']}
+                        style={StyleSheet.absoluteFillObject}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                      />
+                    )}
                     {followLoading ? (
-                      <ActivityIndicator size="small" color={followState === 'FOLLOWING' ? profileTheme.accent : '#FFFFFF'} />
+                      <LoadingGlobe size="small" color={followState === 'FOLLOWING' ? profileTheme.accent : '#FFFFFF'} />
                     ) : (
                       <Text style={[
                         styles.actionButtonText,
-                        { color: followState === 'FOLLOWING' ? profileTheme.accent : '#FFFFFF' }
+                        { color: followState === 'FOLLOWING' ? profileTheme.accent : '#FFFFFF', zIndex: 1 }
                       ]}>
-                        {followState === 'FOLLOWING' ? 'Unfollow' : followState === 'REQUESTED' ? 'Request Sent' : 'Follow'}
+                        {followState === 'FOLLOWING' ? 'Following' : followState === 'REQUESTED' ? 'Request Sent' : 'Follow'}
                       </Text>
                     )}
                   </Pressable>
                   
                   {followState === 'FOLLOWING' && (
                     <Pressable
-                      style={[styles.actionButton, styles.messageButton, { backgroundColor: profileTheme.accent }]}
+                      style={[styles.actionButton, styles.messageButton, { overflow: 'hidden' }]}
                       onPress={() => router.push(`/chat?userId=${profile._id}`)}
                     >
-                      <Ionicons name="chatbubble-outline" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-                      <Text style={[styles.actionButtonText, { color: '#FFFFFF' }]}>Message</Text>
+                      <ExpoLinearGradient
+                        colors={isDark ? ['#60A5FA', '#60A5FA'] : ['#1C73B4', '#50C878']}
+                        style={StyleSheet.absoluteFillObject}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                      />
+                      <Ionicons name="chatbubble-outline" size={18} color="#FFFFFF" style={{ marginRight: 6, zIndex: 1 }} />
+                      <Text style={[styles.actionButtonText, { color: '#FFFFFF', zIndex: 1 }]}>Message</Text>
                     </Pressable>
                   )}
                 </View>
               )}
+
+              {/* Trip Score Telemetry Strip (Bottom Anchor) */}
+              {profile.tripScore && profile.canViewLocations ? (
+                <Pressable 
+                  style={styles.tripScoreStrip}
+                  onPress={() => router.push(`/tripscore/continents?userId=${id}`)}
+                >
+                  <Text style={[styles.cardTripScoreLabel, { color: profileTheme.textSecondary }]}>
+                    TRIP SCORE
+                  </Text>
+                  <Text style={[styles.cardTripScoreValue, { color: profileTheme.textPrimary }]}>
+                    {profile.tripScore.totalScore || 0}
+                  </Text>
+                </Pressable>
+              ) : null}
             </PremiumGlassCard>
           </View>
         </ExpoLinearGradient>
 
-        {(profile.canViewPosts || isOwnProfile) && (
-          <CloudMetricRow
-            embedded
-            metrics={[
-              {
-                icon: 'trophy',
-                value: profile.followersCount !== undefined ? profile.followersCount : (Array.isArray(profile.followers) ? profile.followers.length : 0),
-                label: 'Followers',
-                onPress: () => router.push({ pathname: '/followers', params: { userId: profile._id, type: 'followers' } }),
-              },
-              {
-                icon: 'people',
-                value: profile.followingCount !== undefined ? profile.followingCount : (Array.isArray(profile.following) ? profile.following.length : 0),
-                label: 'Following',
-                onPress: () => router.push({ pathname: '/followers', params: { userId: profile._id, type: 'following' } }),
-              },
-              {
-                icon: 'location',
-                value: locationCount,
-                label: 'Locations',
-              },
-            ]}
-          />
-        )}
-
-        {profile.tripScore && profile.canViewLocations ? (
-          <CloudTripScoreHero
-            score={profile.tripScore.totalScore || 0}
-            subtitle={`${profile.tripScore.totalScore || 0} total TripScore`}
-            onPress={() => router.push(`/tripscore/continents?userId=${id}`)}
-          />
-        ) : null}
-
         {(profile.canViewPosts || isOwnProfile) ? (
           <CloudActionGroup style={{ marginBottom: 12 }}>
-            {profile.canViewPosts ? (
+            {(() => {
+              const routeVisibility = profile.routeVisibility || 'everyone';
+              
+              if (isOwnProfile) {
+                return (
+                  <CloudListRow
+                    icon="map-outline"
+                    title="Journeys"
+                    subtitle="View completed journeys and history"
+                    onPress={() => router.push(`/journeys?userId=${id}&userName=${encodeURIComponent(profile?.fullName || profile?.username || '')}`)}
+                    showDivider={false}
+                    iconTint={profileTheme.accent}
+                  />
+                );
+              }
+
+              if (routeVisibility === 'private') {
+                return null;
+              }
+
+              if (routeVisibility === 'approved_only') {
+                const status = profile.routeAccessStatus || 'none';
+                if (status === 'approved') {
+                  return (
+                    <CloudListRow
+                      icon="map-outline"
+                      title="Journeys"
+                      subtitle="View completed journeys and history"
+                      onPress={() => router.push(`/journeys?userId=${id}&userName=${encodeURIComponent(profile?.fullName || profile?.username || '')}`)}
+                      showDivider={false}
+                      iconTint={profileTheme.accent}
+                    />
+                  );
+                } else if (status === 'pending') {
+                  return (
+                    <CloudListRow
+                      icon="git-pull-request-outline"
+                      title="Journey Access Pending"
+                      subtitle="Your request to view journeys is pending approval"
+                      onPress={() => AlertService.showInfo('Request Pending', 'Your request to view journey routes is pending approval.')}
+                      showDivider={false}
+                      iconTint="#EAB308"
+                    />
+                  );
+                } else {
+                  return (
+                    <CloudListRow
+                      icon={routeAccessLoading ? 'sync-outline' : 'lock-closed-outline'}
+                      title="Request Journey Access"
+                      subtitle="Request permission to view journey routes"
+                      onPress={handleRequestRouteAccess}
+                      showDivider={false}
+                      iconTint={profileTheme.accent}
+                    />
+                  );
+                }
+              }
+
+              // Default routeVisibility === 'everyone'
+              if (profile.canViewPosts) {
+                return (
+                  <CloudListRow
+                    icon="map-outline"
+                    title="Journeys"
+                    subtitle="View completed journeys and history"
+                    onPress={() => router.push(`/journeys?userId=${id}&userName=${encodeURIComponent(profile?.fullName || profile?.username || '')}`)}
+                    showDivider={false}
+                    iconTint={profileTheme.accent}
+                  />
+                );
+              }
+
+              return null;
+            })()}
+            {isOwnProfile && (
               <CloudListRow
-                icon="map-outline"
-                title="Travels"
-                subtitle="View completed journeys and travel history"
-                onPress={() => router.push(`/journeys?userId=${id}`)}
-                showDivider={false}
+                icon="globe-outline"
+                title="My Location"
+                subtitle={
+                  verifiedLocationsCount !== null && verifiedLocationsCount > 0
+                    ? `${verifiedLocationsCount} verified location${verifiedLocationsCount !== 1 ? 's' : ''} · ${tripsCount} trip${tripsCount !== 1 ? 's' : ''}`
+                    : verifiedLocationsCount === null && profile.canViewLocations
+                      ? 'Loading journeys summary…'
+                      : 'No verified journeys summary yet'
+                }
+                onPress={() => {
+                  if (verifiedLocationsCount !== null && verifiedLocationsCount > 0) {
+                    const name = profile?.fullName || profile?.username || 'User';
+                    router.push(`/map/all-locations?userId=${id}&userName=${encodeURIComponent(name)}`);
+                  } else if (profile.canViewLocations && profile.locations && profile.locations.length > 0) {
+                    setShowWorldMap(true);
+                  }
+                }}
+                showDivider={profile.canViewPosts}
                 iconTint={profileTheme.accent}
               />
-            ) : null}
-            <CloudListRow
-              icon="globe-outline"
-              title={isOwnProfile ? 'My Location' : 'Their Location'}
-              subtitle={
-                verifiedLocationsCount !== null && verifiedLocationsCount > 0
-                  ? `${verifiedLocationsCount} verified location${verifiedLocationsCount !== 1 ? 's' : ''} · ${tripsCount} trip${tripsCount !== 1 ? 's' : ''}`
-                  : verifiedLocationsCount === null && profile.canViewLocations
-                    ? 'Loading travel summary…'
-                    : 'No verified travel summary yet'
-              }
-              onPress={() => {
-                if (verifiedLocationsCount !== null && verifiedLocationsCount > 0) {
-                  const name = profile?.fullName || profile?.username || 'User';
-                  router.push(`/map/all-locations?userId=${id}&userName=${encodeURIComponent(name)}`);
-                } else if (profile.canViewLocations && profile.locations && profile.locations.length > 0) {
-                  setShowWorldMap(true);
-                }
-              }}
-              showDivider={profile.canViewPosts}
-              iconTint={profileTheme.accent}
-            />
+            )}
           </CloudActionGroup>
         ) : null}
 
@@ -810,19 +987,32 @@ export default function UserProfileScreen() {
 
         {/* Posts/Shorts Section */}
         {profile.canViewPosts && (
-          <PremiumGlassCard style={styles.postsContainer} contentStyle={styles.postsContainerInner} subtle>
+          <CloudGlassSurface
+            style={styles.postsContainer}
+            contentStyle={styles.postsContainerInner}
+            blur={false}
+            borderRadius={20}
+          >
             {/* Tabs */}
             <View style={styles.postsTabsSection}>
               <Pressable
                 style={[
                   styles.pillTab,
-                  activeTab === 'posts' && [styles.pillTabActive, { backgroundColor: profileTheme.accent }]
+                  activeTab === 'posts' && styles.pillTabActive
                 ]}
                 onPress={() => setActiveTab('posts')}
               >
+                {activeTab === 'posts' && (
+                  <ExpoLinearGradient
+                    colors={['#1C73B4', '#50C878']}
+                    style={StyleSheet.absoluteFillObject}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                  />
+                )}
                 <Text style={[
                   styles.pillTabText,
-                  { color: activeTab === 'posts' ? '#FFFFFF' : profileTheme.textSecondary }
+                  { color: activeTab === 'posts' ? '#FFFFFF' : profileTheme.textSecondary, zIndex: 1 }
                 ]}>
                   Posts
                 </Text>
@@ -830,13 +1020,21 @@ export default function UserProfileScreen() {
               <Pressable
                 style={[
                   styles.pillTab,
-                  activeTab === 'shorts' && [styles.pillTabActive, { backgroundColor: profileTheme.accent }]
+                  activeTab === 'shorts' && styles.pillTabActive
                 ]}
                 onPress={() => setActiveTab('shorts')}
               >
+                {activeTab === 'shorts' && (
+                  <ExpoLinearGradient
+                    colors={['#1C73B4', '#50C878']}
+                    style={StyleSheet.absoluteFillObject}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                  />
+                )}
                 <Text style={[
                   styles.pillTabText,
-                  { color: activeTab === 'shorts' ? '#FFFFFF' : profileTheme.textSecondary }
+                  { color: activeTab === 'shorts' ? '#FFFFFF' : profileTheme.textSecondary, zIndex: 1 }
                 ]}>
                   Shorts
                 </Text>
@@ -864,7 +1062,7 @@ export default function UserProfileScreen() {
                       ]}
                       onPress={() => router.push(`/user-posts/${profile._id}?postId=${item._id}`)}
                     >
-                      <Image source={{ uri: item.imageUrl }} style={styles.postImage as any} resizeMode="cover" />
+                      <FastImage source={{ uri: item.imageUrl }} style={styles.postImage as any} contentFit="cover" />
                       {/* View count overlay */}
                       <View style={styles.viewCountOverlay}>
                         <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
@@ -896,7 +1094,7 @@ export default function UserProfileScreen() {
             {
               loadingShorts ? (
                 <View style={styles.emptyState}>
-                  <ActivityIndicator size="large" color={profileTheme.accent} />
+                  <LoadingGlobe size={32} />
                 </View>
               ) : userShorts.length > 0 ? (
                 <View style={styles.postsGrid}>
@@ -946,10 +1144,10 @@ export default function UserProfileScreen() {
                         ]}
                         onPress={() => router.push(`/user-shorts/${id}?shortId=${s._id}`)}
                       >
-                        <Image
+                        <FastImage
                           source={{ uri }}
                           style={styles.postImage as any}
-                          resizeMode="cover"
+                          contentFit="cover"
                           onError={() => {
                             // Only log once per short ID, then show placeholder
                             if (!failedThumbnailsRef.current.has(s._id)) {
@@ -988,7 +1186,7 @@ export default function UserProfileScreen() {
               )
               }
             </View>
-          </PremiumGlassCard>
+          </CloudGlassSurface>
         )}
 
         {!profile.canViewPosts && (
@@ -1185,61 +1383,104 @@ const styles = StyleSheet.create({
     borderRadius: 24,
   },
   profileCardInner: {
-    padding: 24,
-    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    position: 'relative',
   },
   postsContainerInner: {
     paddingTop: 16,
     paddingBottom: 16,
     paddingHorizontal: 0,
   },
-  avatarContainer: {
-    marginBottom: 16,
-  },
-  avatarRing: {
-    width: 132,
-    height: 132,
-    borderRadius: 66,
-    borderWidth: 3,
-    justifyContent: 'center',
+  avatarGradientWrapper: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    padding: 2,
     alignItems: 'center',
-    padding: 3,
+    justifyContent: 'center',
   },
-  avatar: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 4,
+  avatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 35,
   },
-  username: {
-    fontSize: 22,
-    fontWeight: '600',
-    marginBottom: 4,
-    textAlign: 'center',
-    letterSpacing: 0.3,
+  avatarContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    overflow: 'hidden',
   },
-  profileName: {
-    fontSize: 16,
-    fontWeight: '500',
-    marginBottom: 12,
-    textAlign: 'center',
-    letterSpacing: 0.1,
-    opacity: 0.7,
-  },
-  bioContainer: {
-    marginBottom: 16,
-    paddingHorizontal: 8,
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     width: '100%',
   },
-  
-  // Stats Container - Uniform pill-like cards
   statsContainer: {
+    flex: 1,
+    marginLeft: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginHorizontal: 16,
+    alignItems: 'center',
+  },
+  statBlock: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  cardStatValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    marginBottom: 2,
+  },
+  cardStatLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  separator: {
+    width: 1,
+    height: 24,
+    backgroundColor: 'rgba(28, 115, 180, 0.12)',
+  },
+  identityBlock: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
     marginTop: 12,
-    marginBottom: 8,
-    gap: 12,
+    width: '100%',
+  },
+  username: {
+    fontSize: 15,
+    fontWeight: '600',
+    opacity: 0.9,
+  },
+  profileName: {
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+  },
+  bioContainer: {
+    width: '100%',
+    marginTop: 8,
+  },
+  tripScoreStrip: {
+    marginTop: 16,
+    paddingTop: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    borderTopWidth: 1,
+    borderColor: 'rgba(28, 115, 180, 0.15)',
+  },
+  cardTripScoreLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+  cardTripScoreValue: {
+    fontSize: 16,
+    fontWeight: '800',
   },
   statCard: {
     flex: 1,
@@ -1411,7 +1652,7 @@ const styles = StyleSheet.create({
   // Posts Container
   postsContainer: {
     marginHorizontal: 0,
-    marginTop: 8,
+    marginTop: -16,
     borderRadius: 20,
     borderWidth: 1,
     marginBottom: 24,
@@ -1421,12 +1662,17 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 16,
     paddingHorizontal: 16,
+    justifyContent: 'center',
+    alignSelf: 'center',
   },
   pillTab: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     paddingVertical: 8,
     borderRadius: 20,
     backgroundColor: 'transparent',
+    overflow: 'hidden',
+    alignItems: 'center',
+    minWidth: 100,
   },
   pillTabActive: {
   },
@@ -1448,7 +1694,7 @@ const styles = StyleSheet.create({
   },
   postThumbnail: {
     width: '33.33%',
-    borderRadius: 12,
+    borderRadius: 16,
     overflow: 'hidden',
     borderWidth: 1.5,
     borderColor: 'transparent',
@@ -1498,10 +1744,11 @@ const styles = StyleSheet.create({
 
   // Empty State
   emptyState: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     paddingVertical: 40,
     paddingHorizontal: 20,
     minHeight: 200,
+    width: '100%',
   },
   emptyIconContainer: {
     width: 120,
@@ -1514,13 +1761,13 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 20,
     fontWeight: '600',
-    textAlign: 'center',
+    textAlign: 'left',
     marginBottom: 8,
     letterSpacing: 0.2,
   },
   emptySubtext: {
     fontSize: 15,
-    textAlign: 'center',
+    textAlign: 'left',
     lineHeight: 22,
     fontWeight: '400',
   },

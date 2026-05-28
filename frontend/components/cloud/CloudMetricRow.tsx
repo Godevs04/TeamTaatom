@@ -23,12 +23,12 @@ export default function CloudMetricRow({ metrics, embedded = false }: CloudMetri
 
   const textPrimary = isDark ? theme.colors.text : cloudDesign.textDark;
   const textMuted = isDark ? theme.colors.textSecondary : cloudDesign.textMuted;
-  const iconColor = isDark ? theme.colors.primary : cloudDesign.sky;
+  const iconColor = isDark ? theme.colors.primary : '#121212';
 
   if (embedded) {
-    const stripBg = isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(91, 188, 248, 0.06)';
-    const dividerColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(91, 188, 248, 0.12)';
-    const stripBorder = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(91, 188, 248, 0.1)';
+    const stripBg = isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(255, 255, 255, 0.55)';
+    const dividerColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0, 0, 0, 0.04)';
+    const stripBorder = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.90)';
 
     return (
       <View
@@ -67,9 +67,9 @@ export default function CloudMetricRow({ metrics, embedded = false }: CloudMetri
     );
   }
 
-  const cardBg = isDark ? theme.colors.glassStrong : '#FFFFFF';
-  const cardBorder = isDark ? theme.colors.glassBorder : 'rgba(91, 188, 248, 0.12)';
-  const shadowColor = isDark ? (theme.colors.glowBlue || theme.colors.primary) : cloudDesign.shadowCard.shadowColor;
+  const cardBg = isDark ? theme.colors.glassStrong : 'rgba(255, 255, 255, 0.55)';
+  const cardBorder = isDark ? theme.colors.glassBorder : 'rgba(255, 255, 255, 0.90)';
+  const shadowColor = isDark ? (theme.colors.glowBlue || theme.colors.primary) : 'rgba(0, 0, 0, 0.04)';
 
   return (
     <View style={styles.row}>

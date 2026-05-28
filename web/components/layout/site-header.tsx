@@ -31,10 +31,10 @@ export function SiteHeader() {
   return (
     <header
       className={cn(
-        "sticky top-0 z-40 w-full backdrop-blur-xl",
+        "sticky top-0 z-40 w-full backdrop-blur-lg transition-all duration-300",
         softHeader
-          ? "border-b border-slate-200/35 bg-white/70 shadow-none dark:border-zinc-800/60 dark:bg-zinc-950/80"
-          : "border-b border-slate-200/60 bg-white/90 shadow-sm dark:border-zinc-800/70 dark:bg-zinc-950/90 dark:shadow-black/20"
+          ? "border-b border-white/20 bg-white/45 shadow-none dark:border-zinc-850/30 dark:bg-zinc-950/45"
+          : "border-b border-white/25 bg-white/55 shadow-[0_8px_32px_0_rgba(31,38,135,0.04)] dark:border-zinc-800/40 dark:bg-zinc-950/55 dark:shadow-black/15"
       )}
     >
       <div className="mx-auto flex h-14 min-h-[3.5rem] max-w-6xl items-center justify-between gap-2 px-3 sm:px-4 md:px-6">

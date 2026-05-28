@@ -257,7 +257,19 @@ const ConnectPageSchema = new Schema({
     upiId: { type: String, default: '' },
     // Wise details for international payouts
     wiseEmail: { type: String, default: '' },
-    wiseCurrency: { type: String, default: 'USD' }
+    wiseCurrency: { type: String, default: 'USD' },
+    // Preferred international payout method
+    payoutMethod: {
+      type: String,
+      enum: ['wise_email', 'international_bank'],
+      default: 'wise_email'
+    },
+    // International bank details
+    bankName: { type: String, default: '' },
+    bankCountry: { type: String, default: '' },
+    swiftCode: { type: String, default: '' },
+    iban: { type: String, default: '' },
+    routingNumber: { type: String, default: '' }
   },
   chatRoomId: {
     type: Types.ObjectId,

@@ -1,4 +1,30 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import api from '../services/api';
+
+// Track the timestamp of the last rate limit (429) response
+let last429Time = 0;
+
+// Register response interceptor on the axios instance to capture 429 status codes
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error?.response?.status === 429) {
+      last429Time = Date.now();
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Monkey-patch AsyncStorage.removeItem to suppress clearing authentication state
+// if a 429 rate limit error was encountered recently (within 2 seconds)
+const originalRemoveItem = AsyncStorage.removeItem;
+AsyncStorage.removeItem = async function (key: string, ...args: any[]): Promise<void> {
+  if ((key === 'authToken' || key === 'userData') && Date.now() - last429Time < 2000) {
+    // Suppress token removal to prevent false logout during rate limiting
+    return;
+  }
+  return originalRemoveItem.apply(this, [key, ...args]);
+};
 
 type PendingLikeMap = Record<string, boolean>;
 

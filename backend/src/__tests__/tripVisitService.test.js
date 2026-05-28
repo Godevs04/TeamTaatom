@@ -23,6 +23,18 @@ jest.mock('../utils/logger', () => ({
   error: jest.fn(),
 }));
 
+// Mock geocoder utility
+jest.mock('../utils/geocoder', () => ({
+  geocodeAddress: jest.fn().mockResolvedValue({
+    lat: 51.5007,
+    lng: -0.1246,
+    formattedAddress: 'Big Ben, London SW1A 0AA, UK',
+    city: 'London',
+    country: 'United Kingdom',
+    continent: 'EUROPE'
+  })
+}));
+
 // Skip integration tests when no MongoDB (e.g. CI without MONGO_URL)
 const hasMongo = !!(process.env.MONGO_URL || process.env.MONGODB_TEST_URI);
 const describeIntegration = hasMongo ? describe : describe.skip;
@@ -284,6 +296,33 @@ describeIntegration('TripVisit Service', () => {
       expect(visit).toBeTruthy();
       expect(visit.source).toBe('manual_only');
       expect(visit.trustLevel).toBe('unverified');
+    });
+
+    it('should geocode and resolve coordinates for manual location with 0,0 coords and a meaningful address', async () => {
+      const manualPost = new Post({
+        user: testUser._id,
+        caption: 'Manual post',
+        imageUrl: 'https://example.com/image.jpg',
+        type: 'photo',
+        location: {
+          address: 'Big Ben',
+          coordinates: {
+            latitude: 0,
+            longitude: 0
+          }
+        }
+      });
+      await manualPost.save();
+
+      const metadata = { source: 'manual_only' };
+      const visit = await createTripVisitFromPost(manualPost, metadata);
+
+      expect(visit).toBeTruthy();
+      expect(visit.lat).toBe(51.5007);
+      expect(visit.lng).toBe(-0.1246);
+      expect(visit.city).toBe('London');
+      expect(visit.country).toBe('United Kingdom');
+      expect(visit.continent).toBe('EUROPE');
     });
 
     it('should not create visit for post without valid location', async () => {

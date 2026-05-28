@@ -7,6 +7,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { theme } from '../../constants/theme';
 import { getUserFromStorage } from '../../services/auth';
 import logger from '../../utils/logger';
+import * as Clipboard from 'expo-clipboard';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -83,9 +84,8 @@ export default function ContactSupport() {
           Alert.alert('Contact Email', `Please send an email to: ${supportEmail}`);
         }
       } else {
-        // Mobile: Try to use expo-clipboard if available, otherwise show alert
+        // Mobile: Use expo-clipboard
         try {
-          const Clipboard = require('expo-clipboard').default;
           await Clipboard.setStringAsync(supportEmail);
           Alert.alert('Email Copied', `Support email (${supportEmail}) has been copied to your clipboard.`);
         } catch (expoClipboardError) {

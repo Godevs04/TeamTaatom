@@ -5,11 +5,11 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  ActivityIndicator,
   Platform,
   Dimensions,
   RefreshControl,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -173,7 +173,9 @@ function PayoutCard({ payout, themeColors }: { payout: MyPayout; themeColors: an
   const periodLabel = `${MONTH_NAMES[payout.periodMonth] || payout.periodMonth} ${payout.periodYear}`;
   const isIntl = payout.isInternational;
   const methodLabel = isIntl
-    ? 'Wise (international)'
+    ? payout.payoutMethod === 'wise_bank'
+      ? 'International bank'
+      : 'Wise email'
     : payout.payoutMethod === 'cashfree_upi'
     ? 'UPI'
     : 'Bank transfer';
@@ -433,7 +435,7 @@ export default function PayoutsScreen() {
 
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       ) : (
         <ScrollView

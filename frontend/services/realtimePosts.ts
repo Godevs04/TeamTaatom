@@ -24,14 +24,23 @@ export interface PostSaveUpdate {
   timestamp: Date;
 }
 
+export interface PostViewUpdate {
+  postId: string;
+  viewsCount: number;
+  userId?: string;
+  timestamp: Date;
+}
+
 type PostLikeListener = (data: PostLikeUpdate) => void;
 type PostCommentListener = (data: PostCommentUpdate) => void;
 type PostSaveListener = (data: PostSaveUpdate) => void;
+type PostViewListener = (data: PostViewUpdate) => void;
 
 class RealtimePostsService {
   private likeListeners: Set<PostLikeListener> = new Set();
   private commentListeners: Set<PostCommentListener> = new Set();
   private saveListeners: Set<PostSaveListener> = new Set();
+  private viewListeners: Set<PostViewListener> = new Set();
   private isInitialized = false;
   private initializationPromise: Promise<void> | null = null;
   private lastLikeEvent: { postId: string; timestamp: Date } | null = null;
@@ -117,6 +126,17 @@ class RealtimePostsService {
       });
     });
 
+    await socketService.subscribe('post:view:update', (data: PostViewUpdate) => {
+      logger.debug('Real-time view update received:', data);
+      this.viewListeners.forEach(listener => {
+        try {
+          listener(data);
+        } catch (error) {
+          logger.error('Error in view listener:', error);
+        }
+      });
+    });
+
     this.isInitialized = true;
     if (process.env.NODE_ENV === 'development') {
       logger.info('Real-time posts service initialized successfully');
@@ -168,6 +188,17 @@ class RealtimePostsService {
     };
   }
 
+  subscribeToViews(listener: PostViewListener): () => void {
+    this.initialize().catch(() => {
+      // Silently fail if initialization fails
+    });
+
+    this.viewListeners.add(listener);
+    return () => {
+      this.viewListeners.delete(listener);
+    };
+  }
+
   // Emit like event to WebSocket (for real-time updates)
   async emitLike(postId: string, isLiked: boolean, likesCount: number) {
     try {
@@ -196,6 +227,22 @@ class RealtimePostsService {
     } catch (error) {
       logger.error('Error emitting save event:', error);
     }
+  }
+
+  emitLocalView(postId: string, viewsCount: number, userId?: string) {
+    const payload: PostViewUpdate = {
+      postId,
+      viewsCount,
+      userId,
+      timestamp: new Date(),
+    };
+    this.viewListeners.forEach(listener => {
+      try {
+        listener(payload);
+      } catch (error) {
+        logger.error('Error in local view listener:', error);
+      }
+    });
   }
 }
 

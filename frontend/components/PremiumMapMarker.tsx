@@ -1,166 +1,364 @@
-import React, { useEffect } from 'react';
-import { StyleSheet, View } from 'react-native';
-import Svg, { Path, Circle } from 'react-native-svg';
+import React, { useEffect, memo } from 'react';
+import { StyleSheet, View, Text, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
   Easing,
   useAnimatedStyle,
   useSharedValue,
-  withRepeat,
   withTiming,
+  withRepeat,
 } from 'react-native-reanimated';
+import { Image as ExpoImage } from 'expo-image';
+import { BlurView } from 'expo-blur';
+import { useTheme } from '../context/ThemeContext';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface PremiumMapMarkerProps {
   icon?: keyof typeof Ionicons.glyphMap;
   color?: string;
   active?: boolean;
+  isActive?: boolean;
+  pointType?: 'start' | 'end' | 'default';
+  label?: string;
+  activeTitle?: string;
+  activeSubtitle?: string;
+  photo?: string;
 }
 
-function PinSvg({ 
-  color = '#FF3B30', 
+const PremiumMapMarker = memo(function PremiumMapMarker({
   icon = 'location',
-  size = 38 
-}: { 
-  color?: string; 
-  icon?: keyof typeof Ionicons.glyphMap;
-  size?: number 
-}) {
-  const isDefaultIcon = icon === 'location';
-
-  return (
-    <View style={{ width: size, height: size * 1.2, alignItems: 'center', justifyContent: 'center' }}>
-      <Svg width={size} height={size * 1.2} viewBox="0 0 24 28.8" style={StyleSheet.absoluteFill}>
-        <Path
-          d="M12 0C5.37 0 0 5.37 0 12c0 9 12 16.8 12 16.8s12-7.8 12-16.8c0-6.63-5.37-12-12-12z"
-          fill={color}
-          stroke="#FFFFFF"
-          strokeWidth={1.5}
-        />
-        {isDefaultIcon && (
-          <Circle cx={12} cy={12} r={4.5} fill="#FFFFFF" />
-        )}
-      </Svg>
-      {!isDefaultIcon && (
-        <View style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          height: size,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}>
-          <Ionicons name={icon} size={size * 0.38} color="#FFFFFF" />
-        </View>
-      )}
-    </View>
-  );
-}
-
-export default function PremiumMapMarker({
-  icon = 'location',
-  color = '#FF3B30', // Vibrant branded red as default pin color
+  color,
   active = false,
+  isActive,
+  pointType = 'default',
+  label = '',
+  activeTitle,
+  activeSubtitle,
+  photo,
 }: PremiumMapMarkerProps) {
-  const pulse = useSharedValue(0);
-  const activeProgress = useSharedValue(active ? 1 : 0);
+  const { isDark, theme } = useTheme();
+  const activeState = isActive ?? active;
+  const activeProgress = useSharedValue(activeState ? 1 : 0);
+  const pulse = useSharedValue(1);
 
   useEffect(() => {
-    // Animate active state progress (bloom/shrink transition)
-    activeProgress.value = withTiming(active ? 1 : 0, {
-      duration: 300,
+    activeProgress.value = withTiming(activeState ? 1 : 0, {
+      duration: 250,
       easing: Easing.bezier(0.25, 0.1, 0.25, 1),
     });
+  }, [activeState, activeProgress]);
 
-    if (active) {
-      pulse.value = withRepeat(
-        withTiming(1, { duration: 1600, easing: Easing.out(Easing.quad) }),
-        -1,
-        false
-      );
-    } else {
-      pulse.value = 0;
-    }
-  }, [active, activeProgress, pulse]);
+  useEffect(() => {
+    pulse.value = withRepeat(
+      withTiming(2.2, { duration: 1800, easing: Easing.out(Easing.ease) }),
+      -1,
+      false
+    );
+  }, []);
 
-  const pulseStyle = useAnimatedStyle(() => ({
-    opacity: activeProgress.value * 0.28 * (1 - pulse.value),
-    transform: [{ scale: (1 + pulse.value * 1.4) * activeProgress.value }],
-  }));
+  const containerStyle = useAnimatedStyle(() => {
+    const scale = activeState ? (isDark ? 1.15 : 1.1) : 1.0;
+    return {
+      transform: [{ scale: withTiming(scale, { duration: 200 }) }],
+    };
+  });
 
-  const pinStyle = useAnimatedStyle(() => ({
-    opacity: activeProgress.value,
-    transform: [{ scale: activeProgress.value }],
-  }));
+  const pulseStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: pulse.value }],
+      opacity: 1 - (pulse.value - 1) / 1.2,
+    };
+  });
 
-  const dotStyle = useAnimatedStyle(() => ({
-    opacity: 1 - activeProgress.value,
-    transform: [{ scale: 1 - activeProgress.value }],
-    position: 'absolute',
-  }));
+  // Handle user current location marker (pulsating dot)
+  if (icon === 'navigate') {
+    const outerBg = isDark ? '#0F172A' : '#FFFFFF';
+    return (
+      <View style={styles.userMarkerContainer}>
+        {/* Pulsating Ring */}
+        <Animated.View style={[styles.pulsatingRing, pulseStyle]}>
+          <LinearGradient
+            colors={['#3B82F6', '#2DD4BF']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+        </Animated.View>
+        
+        {/* Static Inner Border */}
+        <View style={[styles.userMarkerOuter, { backgroundColor: outerBg, borderColor: isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.1)' }]}>
+          <LinearGradient
+            colors={['#3B82F6', '#2DD4BF']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.userMarkerInner}
+          />
+        </View>
+      </View>
+    );
+  }
+
+  // Handle Journey Start / End points
+  if (pointType === 'start' || pointType === 'end') {
+    const badgeColors = pointType === 'start' 
+      ? ['#10B981', '#059669'] as const
+      : ['#EF4444', '#DC2626'] as const;
+    const textLabel = pointType === 'start' ? 'S' : 'E';
+    return (
+      <View style={isDark ? styles.shadowDark : styles.shadowLight}>
+        <LinearGradient
+          colors={badgeColors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.journeyBadge}
+        >
+          <Text style={styles.journeyBadgeText}>{textLabel}</Text>
+        </LinearGradient>
+      </View>
+    );
+  }
+
+  // Handle standard location markers (if inactive, render as small glowing dot)
+  if (!activeState) {
+    return (
+      <View style={styles.dotContainer}>
+        {/* Pulsating Ring */}
+        <Animated.View style={[styles.dotPulse, pulseStyle]}>
+          <LinearGradient
+            colors={isDark ? ['rgba(45, 212, 191, 0.4)', 'rgba(59, 130, 246, 0.05)'] as const : ['rgba(59, 130, 246, 0.4)', 'rgba(45, 212, 191, 0.05)'] as const}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+        </Animated.View>
+        
+        {/* Core Dot */}
+        <LinearGradient
+          colors={['#2DD4BF', '#3B82F6'] as const}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.dotCore}
+        />
+      </View>
+    );
+  }
+
+  // Handle Active State: Glassmorphism card + photo preview
+  const showLabel = label || activeTitle || '';
+  const displaySubtitle = activeSubtitle || 'Visited place';
+  
+  const outerBg = isDark ? 'rgba(15, 23, 42, 0.75)' : 'rgba(255, 255, 255, 0.75)';
+  const borderCol = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.08)';
+  const textColor = isDark ? '#FFFFFF' : '#0F172A';
 
   return (
-    <View style={styles.container}>
-      {/* Pulse ring for active state */}
-      <Animated.View style={[styles.pulse, { backgroundColor: color }, pulseStyle]} />
-
-      {/* Active Pin State */}
-      <Animated.View style={[styles.pin, pinStyle]}>
-        <PinSvg color={color} icon={icon} />
-      </Animated.View>
-
-      {/* Inactive Dot State */}
-      <Animated.View style={[styles.dotContainer, dotStyle]}>
-        <View style={styles.dot} />
-      </Animated.View>
-    </View>
+    <Animated.View style={[styles.cockpitContainer, containerStyle]}>
+      {/* Base Point Indicator */}
+      <View style={[styles.activeBaseDot, { backgroundColor: isDark ? '#2DD4BF' : '#3B82F6' }]} />
+      
+      {/* Glassmorphic card body */}
+      <View style={[styles.cardWrapper, isDark ? styles.shadowDark : styles.shadowLight]}>
+        <BlurView
+          intensity={Platform.OS === 'ios' ? 40 : 100}
+          tint={isDark ? 'dark' : 'light'}
+          style={[
+            styles.markerCard,
+            {
+              backgroundColor: outerBg,
+              borderColor: borderCol,
+            }
+          ]}
+        >
+          <View style={styles.markerContentRow}>
+            {photo ? (
+              <ExpoImage
+                source={{ uri: photo }}
+                style={[styles.markerPhoto, { borderColor: isDark ? '#2DD4BF' : '#3B82F6' }]}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+              />
+            ) : (
+              <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)' }]}>
+                <Ionicons
+                  name={icon}
+                  size={12}
+                  color={isDark ? '#2DD4BF' : '#3B82F6'}
+                />
+              </View>
+            )}
+            
+            <View style={styles.textColumn}>
+              {showLabel ? (
+                <Text style={[styles.markerLabelText, { color: textColor }]} numberOfLines={1}>
+                  {showLabel}
+                </Text>
+              ) : null}
+              <Text style={[styles.activeSubtitleText, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
+                {displaySubtitle}
+              </Text>
+            </View>
+          </View>
+        </BlurView>
+      </View>
+    </Animated.View>
   );
-}
-
-const styles = StyleSheet.create({
-  container: {
-    width: 48,
-    height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pulse: {
-    position: 'absolute',
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-  },
-  pin: {
-    width: 38,
-    height: 45,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.35,
-    shadowRadius: 5.5,
-    elevation: 8,
-  },
-  dotContainer: {
-    position: 'absolute',
-    width: 16,
-    height: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dot: {
-    width: 9,
-    height: 9,
-    borderRadius: 4.5,
-    backgroundColor: '#8A96A8', // desaturated blue-grey
-    borderWidth: 1.5,
-    borderColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1.5 },
-    shadowOpacity: 0.25,
-    shadowRadius: 2,
-    elevation: 3,
-  },
+}, (prevProps, nextProps) => {
+  return (
+    prevProps.active === nextProps.active &&
+    prevProps.isActive === nextProps.isActive &&
+    prevProps.icon === nextProps.icon &&
+    prevProps.color === nextProps.color &&
+    prevProps.pointType === nextProps.pointType &&
+    prevProps.label === nextProps.label &&
+    prevProps.activeTitle === nextProps.activeTitle &&
+    prevProps.activeSubtitle === nextProps.activeSubtitle &&
+    prevProps.photo === nextProps.photo
+  );
 });
 
+export default PremiumMapMarker;
 
+const styles = StyleSheet.create({
+  journeyBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+  },
+  journeyBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  cockpitContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dotContainer: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dotPulse: {
+    position: 'absolute',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+  },
+  dotCore: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+  },
+  activeBaseDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginBottom: 4,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1,
+  },
+  cardWrapper: {
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  markerCard: {
+    minWidth: 90,
+    maxWidth: 160,
+    height: 40,
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+  },
+  markerContentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  markerPhoto: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1.5,
+  },
+  iconCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  textColumn: {
+    flexDirection: 'column',
+    justifyContent: 'center',
+    flex: 1,
+  },
+  markerLabelText: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  activeSubtitleText: {
+    fontSize: 9,
+    fontWeight: '600',
+    marginTop: 1,
+  },
+  shadowDark: {
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  shadowLight: {
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  userMarkerContainer: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pulsatingRing: {
+    position: 'absolute',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+  },
+  userMarkerOuter: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+  },
+  userMarkerInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+});

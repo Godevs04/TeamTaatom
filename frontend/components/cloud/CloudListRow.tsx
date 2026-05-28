@@ -30,9 +30,9 @@ export default function CloudListRow({
 
   const textPrimary = isDark ? theme.colors.text : cloudDesign.textDark;
   const textMuted = isDark ? theme.colors.textSecondary : cloudDesign.textMuted;
-  const dividerColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(91, 188, 248, 0.12)';
-  const iconBg = isDark ? 'rgba(91, 188, 248, 0.14)' : 'rgba(91, 188, 248, 0.12)';
-  const accent = iconTint || (isDark ? theme.colors.primary : cloudDesign.blueDeep);
+  const dividerColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0, 0, 0, 0.04)';
+  const iconBg = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)';
+  const accent = iconTint || (isDark ? theme.colors.primary : '#121212');
 
   const content = (
     <>
@@ -69,7 +69,7 @@ export default function CloudListRow({
 const styles = StyleSheet.create({
   divider: {
     height: StyleSheet.hairlineWidth,
-    marginLeft: 56,
+    marginLeft: 52,
   },
   row: {
     flexDirection: 'row',
@@ -79,9 +79,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   iconWrap: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },

@@ -4,10 +4,10 @@ import {
   StyleSheet,
   TouchableOpacity,
   Platform,
-  ActivityIndicator,
   Text,
   Dimensions,
 } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import PolylineRenderer from './PolylineRenderer';
@@ -38,6 +38,7 @@ export interface JourneyMapViewProps {
   userLocation?: { latitude: number; longitude: number } | null;
   onWaypointPress?: (waypoint: Waypoint) => void;
   onNavigatePress?: (coords: { lat: number; lng: number }) => void;
+  isRecordingMode?: boolean;
 }
 
 const GROWTH_GREEN = '#22C55E';
@@ -60,11 +61,16 @@ export default function JourneyMapView({
   userLocation,
   onWaypointPress,
   onNavigatePress,
+  isRecordingMode = false,
 }: JourneyMapViewProps) {
   const { theme } = useTheme();
   const mapRef = useRef<any>(null);
   const [mapReady, setMapReady] = useState(false);
   const [selectedWaypoint, setSelectedWaypoint] = useState<Waypoint | null>(null);
+  const [activeJourneyDetails, setActiveJourneyDetails] = useState<{
+    title: string;
+    points: number;
+  } | null>(null);
 
   // Calculate map region to fit all coordinates
   const calculateInitialRegion = () => {
@@ -187,6 +193,7 @@ export default function JourneyMapView({
             styles.mapPlaceholder,
             { backgroundColor: theme.colors.background },
           ]}
+          onTouchEnd={() => setActiveJourneyDetails(null)}
         >
           {/* Map content would be rendered here by react-native-maps or WebView */}
           {/* This is a structural placeholder */}
@@ -208,6 +215,10 @@ export default function JourneyMapView({
             coordinates={polylineCoordinates}
             color={GROWTH_GREEN}
             strokeWidth={4}
+            onPress={() => setActiveJourneyDetails({
+              title: isRecordingMode ? 'Recording' : 'Journey',
+              points: polylineCoordinates.length,
+            })}
           />
 
           {/* Start Marker */}
@@ -221,7 +232,7 @@ export default function JourneyMapView({
               },
             ]}
           >
-            <Ionicons name="location" size={24} color={GROWTH_GREEN} />
+            <View style={[styles.routeEndpoint, { backgroundColor: GROWTH_GREEN }]} />
           </View>
 
           {/* End Marker */}
@@ -235,11 +246,11 @@ export default function JourneyMapView({
               },
             ]}
           >
-            <Ionicons name="location" size={24} color={ALERT_RED} />
+            <View style={[styles.routeEndpoint, { backgroundColor: ALERT_RED }]} />
           </View>
 
           {/* Waypoint Markers with Photos */}
-          {journey.waypoints.map((waypoint, idx) => {
+          {!isRecordingMode && journey.waypoints.map((waypoint, idx) => {
             const photoUrl = getPhotoUrl(waypoint);
             return (
               <TouchableOpacity
@@ -270,15 +281,26 @@ export default function JourneyMapView({
               </TouchableOpacity>
             );
           })}
+
+          {activeJourneyDetails && (
+            <View style={[styles.polylinePopup, { backgroundColor: theme.colors.surface }]}>
+              <Text style={[styles.polylineTitle, { color: theme.colors.text }]}>
+                {activeJourneyDetails.title}
+              </Text>
+              <Text style={[styles.polylineMeta, { color: theme.colors.textSecondary }]}>
+                {activeJourneyDetails.points} route points
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Accuracy Chip */}
-        {showDistanceFromUser && (
+        {showDistanceFromUser && !isRecordingMode && (
           <GPSAccuracyChip accuracy={null} />
         )}
 
         {/* Floating Action Buttons */}
-        <View style={styles.floatingButtons}>
+        {!isRecordingMode && <View style={styles.floatingButtons}>
           {/* Fit to Journey Button */}
           <TouchableOpacity
             style={[styles.floatingButton, { backgroundColor: ACTION_BLUE }]}
@@ -294,11 +316,11 @@ export default function JourneyMapView({
           >
             <Ionicons name="navigate" size={20} color="white" />
           </TouchableOpacity>
-        </View>
+        </View>}
       </View>
 
       {/* Bottom Sheet: Waypoint Details */}
-      {selectedWaypoint && (
+      {selectedWaypoint && !isRecordingMode && (
         <View
           style={[
             styles.bottomSheet,
@@ -398,12 +420,19 @@ const styles = StyleSheet.create({
   },
   marker: {
     position: 'absolute',
-    width: 40,
-    height: 40,
+    width: 12,
+    height: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: -20,
-    marginTop: -20,
+    marginLeft: -6,
+    marginTop: -6,
+  },
+  routeEndpoint: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
   },
   startMarker: {
     zIndex: 10,
@@ -473,6 +502,26 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.2)',
     alignSelf: 'center',
     marginBottom: 12,
+  },
+  polylinePopup: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 24,
+    borderRadius: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.14)',
+  },
+  polylineTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  polylineMeta: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 2,
   },
   waypointPhotoContainer: {
     justifyContent: 'center',

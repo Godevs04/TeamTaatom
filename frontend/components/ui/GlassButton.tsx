@@ -1,10 +1,10 @@
 import React from 'react';
-import { StyleSheet, ViewStyle, StyleProp, ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { StyleSheet, ViewStyle, StyleProp, Pressable, Text, View } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
 import { getFontFamily } from '../../constants/typography';
-import { BlurView } from 'expo-blur';
 
 export interface GlassButtonProps {
   variant?: 'primary' | 'secondary' | 'ghost';
@@ -19,20 +19,32 @@ export interface GlassButtonProps {
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
-export const GlassButton = ({ variant = 'primary', title, onPress, loading = false, disabled = false, style, iconLeft, iconRight }: GlassButtonProps) => {
+export const GlassButton = ({
+  variant = 'primary',
+  title,
+  onPress,
+  loading = false,
+  disabled = false,
+  style,
+  iconLeft,
+  iconRight,
+}: GlassButtonProps) => {
   const { theme, isDark } = useTheme();
   const scale = useSharedValue(1);
 
+  const activeColor = isDark ? '#38BDF8' : '#1C73B4'; // Sky Blue in dark mode, Ocean Blue in light mode
+  const primaryTextColor = '#FFFFFF'; // Pure White text for primary
+  const secondaryTextColor = activeColor;
+
   const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }]
+    transform: [{ scale: scale.value }],
   }));
 
   const contentAnimatedStyle = useAnimatedStyle(() => {
-    // We import withTiming from reanimated for smooth transitions
     const { withTiming } = require('react-native-reanimated');
     return {
       opacity: withTiming(loading ? 0 : 1, { duration: 200 }),
-      transform: [{ scale: withTiming(loading ? 0.95 : 1, { duration: 200 }) }]
+      transform: [{ scale: withTiming(loading ? 0.95 : 1, { duration: 200 }) }],
     };
   });
 
@@ -45,25 +57,28 @@ export const GlassButton = ({ variant = 'primary', title, onPress, loading = fal
   };
 
   const renderContent = () => {
+    const textColor = variant === 'primary' ? primaryTextColor : secondaryTextColor;
     return (
       <>
         <Animated.View style={[styles.contentContainer, contentAnimatedStyle]}>
           {iconLeft && <View style={styles.iconLeft}>{iconLeft}</View>}
-          <Text style={[
-            styles.text, 
-            { 
-              fontFamily: getFontFamily('bold'),
-              color: variant === 'primary' ? '#FFF' : theme.colors.text 
-            }
-          ]}>
+          <Text
+            style={[
+              styles.text,
+              {
+                fontFamily: getFontFamily('bold'),
+                color: textColor,
+              },
+            ]}
+          >
             {title}
           </Text>
           {iconRight && <View style={styles.iconRight}>{iconRight}</View>}
         </Animated.View>
-        
+
         {loading && (
           <View style={[StyleSheet.absoluteFillObject, styles.loadingOverlay]}>
-            <ActivityIndicator color={variant === 'primary' ? '#FFF' : theme.colors.text} />
+            <LoadingGlobe color={textColor} />
           </View>
         )}
       </>
@@ -73,7 +88,7 @@ export const GlassButton = ({ variant = 'primary', title, onPress, loading = fal
   const buttonStyle: StyleProp<ViewStyle> = [
     styles.button,
     { borderRadius: theme.borderRadius.full },
-    style
+    style,
   ];
 
   if (variant === 'primary') {
@@ -86,7 +101,7 @@ export const GlassButton = ({ variant = 'primary', title, onPress, loading = fal
         style={[buttonStyle, animatedStyle, disabled && styles.disabled, { overflow: 'hidden' }]}
       >
         <LinearGradient
-          colors={theme.colors.gradient.button as [string, string]}
+          colors={['#1C73B4', '#50C878']}
           style={StyleSheet.absoluteFillObject}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
@@ -103,19 +118,24 @@ export const GlassButton = ({ variant = 'primary', title, onPress, loading = fal
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         disabled={disabled || loading}
-        style={[buttonStyle, animatedStyle, disabled && styles.disabled, {
-          borderWidth: theme.glass.border.width,
-          borderColor: theme.glass.border.color,
-          backgroundColor: isDark ? theme.colors.frostTintMedium : theme.colors.glassBackground,
-          overflow: 'hidden'
-        }]}
+        style={[
+          buttonStyle,
+          animatedStyle,
+          disabled && styles.disabled,
+          {
+            borderWidth: 1.5,
+            borderColor: activeColor,
+            backgroundColor: isDark ? '#000000' : '#FFFFFF',
+            overflow: 'hidden',
+          },
+        ]}
       >
-        <BlurView intensity={theme.glass.blur.medium} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
-        <View style={styles.contentZIndex}>{renderContent()}</View>
+        {renderContent()}
       </AnimatedPressable>
     );
   }
 
+  // variant === 'ghost'
   return (
     <AnimatedPressable
       onPress={onPress}
@@ -153,17 +173,10 @@ const styles = StyleSheet.create({
   disabled: {
     opacity: 0.5,
   },
-  contentZIndex: {
-    zIndex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-    height: '100%',
-  },
   loadingOverlay: {
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 2,
-  }
+  },
 });
+export default GlassButton;

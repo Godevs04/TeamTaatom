@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   ScrollView,
   Image,
-  ActivityIndicator,
   Alert,
   Platform,
   Dimensions,
@@ -15,11 +14,16 @@ import {
   Linking,
   TextInput,
   KeyboardAvoidingView,
+  Pressable,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import LoadingGlobe from '../../../components/LoadingGlobe';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../../context/ThemeContext';
+import GradientText from '../../../components/ui/GradientText';
 import { useAlert } from '../../../context/AlertContext';
 import { theme as themeConstants } from '../../../constants/theme';
 import {
@@ -33,9 +37,12 @@ import {
   createSubscription,
   getSubscriptionStatus,
   cancelSubscription as cancelSubApi,
+  createBuyOrder,
+  verifyBuyOrder,
   getPayoutPreview,
   getCurrencySymbol,
   formatConnectMoney,
+  fetchCurrencyConfig,
   ConnectPageType,
   ContentBlock,
   PayoutPreview,
@@ -46,12 +53,15 @@ import { crashReportingService } from '../../../services/crashReporting';
 import { setPendingChatRoomId } from '../../../utils/connectChatBridge';
 import { optimizeCloudinaryUrl } from '../../../utils/imageCache';
 import logger from '../../../utils/logger';
+import { useSubscription } from '../../../context/SubscriptionContext';
 import { NativeModules } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import {
   CFErrorResponse,
   CFPaymentGatewayService,
   CFEnvironment,
   CFSubscriptionSession,
+  CFSession,
 } from '../../../utils/cashfreeShim';
 import { resolveCashfreeEnvironment } from '../../../utils/cashfreeCheckout';
 
@@ -65,11 +75,48 @@ const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
 const isWeb = Platform.OS === 'web';
 const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
 
 const getFontFamily = (weight: '400' | '500' | '600' | '700' = '400') => {
   if (isWeb) return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   if (isIOS) return 'System';
   return 'Roboto';
+};
+
+const getContrastColor = (bgColor: string, defaultDark = '#000000', defaultLight = '#FFFFFF') => {
+  if (!bgColor) return defaultLight;
+  let color = bgColor.trim().toLowerCase();
+
+  // Parse rgb / rgba
+  if (color.startsWith('rgb')) {
+    const matches = color.match(/\d+/g);
+    if (matches && matches.length >= 3) {
+      const r = parseInt(matches[0], 10);
+      const g = parseInt(matches[1], 10);
+      const b = parseInt(matches[2], 10);
+      const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+      return brightness > 125 ? defaultDark : defaultLight;
+    }
+  }
+
+  // Parse Hex
+  if (color.startsWith('#')) {
+    color = color.slice(1);
+  }
+
+  if (color.length === 3) {
+    color = color[0] + color[0] + color[1] + color[1] + color[2] + color[2];
+  }
+
+  if (color.length === 6) {
+    const r = parseInt(color.substring(0, 2), 16);
+    const g = parseInt(color.substring(2, 4), 16);
+    const b = parseInt(color.substring(4, 6), 16);
+    const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+    return brightness > 125 ? defaultDark : defaultLight;
+  }
+
+  return defaultLight;
 };
 
 // Section padding: md on each side + section padding
@@ -82,7 +129,7 @@ const sectionContentWidth = screenWidth - (isTablet ? themeConstants.spacing.lg 
 // Aspect ratio overrides from editor: 'square' → 1, 'landscape' → 16/9, 'portrait' → 3/4
 const AR_MAP: Record<string, number> = { square: 1, landscape: 16 / 9, portrait: 3 / 4 };
 
-function ContentImage({ uri, inRow, inStack, arOverride }: { uri: string; inRow?: boolean; inStack?: boolean; arOverride?: string }) {
+function ContentImage({ uri, inRow, inStack, arOverride, blurRadius }: { uri: string; inRow?: boolean; inStack?: boolean; arOverride?: string; blurRadius?: number }) {
   const [aspectRatio, setAspectRatio] = useState<number>(4 / 3);
 
   useEffect(() => {
@@ -98,6 +145,7 @@ function ContentImage({ uri, inRow, inStack, arOverride }: { uri: string; inRow?
         source={{ uri }}
         style={{ flex: 1, width: '100%', borderRadius: 8 }}
         resizeMode="cover"
+        blurRadius={blurRadius}
       />
     );
   }
@@ -106,13 +154,16 @@ function ContentImage({ uri, inRow, inStack, arOverride }: { uri: string; inRow?
       source={{ uri }}
       style={[styles.contentImage, { aspectRatio: resolvedAR }]}
       resizeMode="cover"
+      blurRadius={blurRadius}
     />
   );
 }
 
 export default function ConnectPageDetailScreen() {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
   const { showSuccess } = useAlert();
+  const { updateSubscriptionStatus } = useSubscription();
   const router = useRouter();
   const {
     id,
@@ -137,16 +188,38 @@ export default function ConnectPageDetailScreen() {
   const [followersLoading, setFollowersLoading] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [subscribing, setSubscribing] = useState(false);
+  const [isRevealed, setIsRevealed] = useState(false);
   // Stores the pending subscription response so onVerify can optimistically
   // flip the UI before the webhook arrives and DB status updates to 'active'.
   const pendingSubscriptionRef = useRef<{ subscriptionId: string; amount: number } | null>(null);
   const [showPriceModal, setShowPriceModal] = useState(false);
-  const [priceInput, setPriceInput] = useState('');
+   const [priceInput, setPriceInput] = useState('');
   const [showPayoutInfo, setShowPayoutInfo] = useState(false);
   const [payoutPreview, setPayoutPreview] = useState<PayoutPreview | null>(null);
   const [showBioEdit, setShowBioEdit] = useState(false);
   const [bioInput, setBioInput] = useState('');
+
+  // Checkout Modal State
+  const [checkoutModalVisible, setCheckoutModalVisible] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [buyerName, setBuyerName] = useState('');
+  const [buyerPhone, setBuyerPhone] = useState('');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [checkingOut, setCheckingOut] = useState(false);
+  // Stores the pending buy order so onVerify can mark it paid
+  const pendingBuyOrderRef = useRef<{ orderId: string; cashfreeOrderId: string; pageId: string } | null>(null);
+
   const [savingBio, setSavingBio] = useState(false);
+
+  // Multi-currency live conversion support
+  const [countryToCurrency, setCountryToCurrency] = useState<Record<string, string>>({ IN: 'INR' });
+  const [displayPrices, setDisplayPrices] = useState<any>(null);
+
+  useEffect(() => {
+    fetchCurrencyConfig().then((config) => {
+      setCountryToCurrency(config.countryToCurrency);
+    }).catch(() => {});
+  }, []);
 
   // Category-based labels
   const isCommunity = page?.category === 'community' || page?.isAdminPage === true;
@@ -164,6 +237,7 @@ export default function ConnectPageDetailScreen() {
       setPage(response.page);
       setIsOwner(response.isOwner);
       setIsFollowing(response.isFollowing);
+      setDisplayPrices((response as any).subscriptionDisplayPrices);
       // Record view (non-critical, fire and forget)
       recordPageView(id);
     } catch (error) {
@@ -190,46 +264,85 @@ export default function ConnectPageDetailScreen() {
     }, [loadPageDetail])
   );
 
-  // Set up Cashfree subscription payment callback. Skipped in Expo Go / web,
-  // where the native module is absent and any SDK call would throw.
+  // Set up Cashfree payment callback for both subscription and one-time buy payments.
   useEffect(() => {
     if (!isCashfreeNativeAvailable) return;
     CFPaymentGatewayService.setCallback({
       onVerify(orderID: string): void {
-        logger.info('Cashfree subscription verified, orderID:', orderID);
-        // Optimistic update: flip UI to "Subscribed" immediately.
-        // The webhook may not have reached the server yet, so getSubscriptionStatus
-        // can still return isSubscribed:false if called right now.
-        if (pendingSubscriptionRef.current) {
-          setSubscriptionStatus({
-            isSubscribed: true,
-            subscription: {
-              _id: pendingSubscriptionRef.current.subscriptionId,
-              status: 'active',
-              amount: pendingSubscriptionRef.current.amount,
-              activatedAt: new Date().toISOString(),
-              currentPeriodEnd: null,
-            },
-          });
-          pendingSubscriptionRef.current = null;
+        logger.info('Cashfree payment verified, orderID:', orderID);
+        try {
+          if (!id) throw new Error('Connect Page ID is missing during Cashfree callback');
+
+          // ── One-time buy order verification ──
+          if (pendingBuyOrderRef.current) {
+            const { orderId, cashfreeOrderId, pageId } = pendingBuyOrderRef.current;
+            pendingBuyOrderRef.current = null;
+            verifyBuyOrder(pageId, { orderId, cashfreeOrderId, cashfreePaymentId: orderID })
+              .catch((err) => logger.warn('Buy order server verify failed (non-blocking):', err));
+            setCheckoutModalVisible(false);
+            setBuyerName('');
+            setBuyerPhone('');
+            setDeliveryAddress('');
+            showSuccess('Your payment is complete. Order placed!', 'Order confirmed');
+            return;
+          }
+
+          // ── Subscription verification ──
+          let newStatus: SubscriptionStatus = { isSubscribed: true, subscription: null };
+          if (pendingSubscriptionRef.current) {
+            newStatus = {
+              isSubscribed: true,
+              subscription: {
+                _id: pendingSubscriptionRef.current.subscriptionId,
+                status: 'active' as const,
+                amount: pendingSubscriptionRef.current.amount,
+                activatedAt: new Date().toISOString(),
+                currentPeriodEnd: null,
+              },
+            };
+            setSubscriptionStatus(newStatus);
+            updateSubscriptionStatus(id, newStatus);
+            pendingSubscriptionRef.current = null;
+          } else {
+            newStatus = {
+              isSubscribed: true,
+              subscription: {
+                _id: orderID || 'unknown',
+                status: 'active' as const,
+                amount: page?.subscriptionPrice || 0,
+                activatedAt: new Date().toISOString(),
+                currentPeriodEnd: null,
+              }
+            };
+            setSubscriptionStatus(newStatus);
+            updateSubscriptionStatus(id, newStatus);
+          }
+          loadSubscriptionStatus();
+          loadPageDetail();
+          showSuccess(
+            isCommunity ? 'Your purchase was completed.' : 'Your subscription is now active.',
+            'Payment received',
+          );
+        } catch (err) {
+          logger.error('Error handling Cashfree onVerify callback:', err);
+          Alert.alert('Payment Verification Error', 'An error occurred while processing your payment.');
         }
-        // Refresh from server in background to get accurate period dates etc.
-        loadSubscriptionStatus();
-        loadPageDetail();
-        showSuccess(
-          isCommunity ? 'Your purchase was completed.' : 'Your subscription is now active.',
-          'Payment received',
-        );
       },
       onError(error: CFErrorResponse, orderID: string): void {
-        logger.error('Cashfree subscription error:', JSON.stringify(error), 'orderID:', orderID);
-        Alert.alert('Payment Failed', 'Could not complete payment. Please try again.');
+        try {
+          logger.error('Cashfree payment error:', JSON.stringify(error), 'orderID:', orderID);
+          // If this was a buy order, clear it
+          if (pendingBuyOrderRef.current) {
+            pendingBuyOrderRef.current = null;
+          }
+          Alert.alert('Payment Failed', 'Could not complete payment. Please try again.');
+        } catch (err) {
+          logger.error('Error handling Cashfree onError callback:', err);
+        }
       },
     });
-    return () => {
-      CFPaymentGatewayService.removeCallback();
-    };
-  }, [loadSubscriptionStatus, loadPageDetail, isCommunity, showSuccess]);
+    return () => { CFPaymentGatewayService.removeCallback(); };
+  }, [loadSubscriptionStatus, loadPageDetail, isCommunity, showSuccess, id, page, updateSubscriptionStatus]);
 
   // Load subscription status after page loads (non-owner only)
   useEffect(() => {
@@ -332,6 +445,77 @@ export default function ConnectPageDetailScreen() {
       ]
     );
   };
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      if (Platform.OS === 'web') {
+        if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+          Alert.alert('Copied', 'UPI ID copied to clipboard!');
+        }
+      } else {
+        await Clipboard.setStringAsync(text);
+        Alert.alert('Copied', 'UPI ID copied to clipboard!');
+      }
+    } catch (err) {
+      logger.error('Failed to copy UPI:', err);
+    }
+  };
+
+  const handleBuyItem = async () => {
+    if (!selectedItem) return;
+    if (!buyerName.trim()) {
+      Alert.alert('Validation Error', 'Please enter your name.');
+      return;
+    }
+    if (!buyerPhone.trim()) {
+      Alert.alert('Validation Error', 'Please enter your phone number.');
+      return;
+    }
+    if (!deliveryAddress.trim()) {
+      Alert.alert('Validation Error', 'Please enter your delivery address.');
+      return;
+    }
+
+    if (!isCashfreeNativeAvailable) {
+      Alert.alert(
+        'Dev build required',
+        'Payments need the Cashfree native module, which is not available in Expo Go. Use a development build to complete purchases.',
+      );
+      return;
+    }
+
+    try {
+      setCheckingOut(true);
+      const result = await createBuyOrder(id, {
+        itemId: selectedItem._id,
+        buyerName: buyerName.trim(),
+        buyerPhone: buyerPhone.trim(),
+        deliveryAddress: deliveryAddress.trim(),
+      });
+
+      // Store pending order ref so onVerify knows to call verifyBuyOrder
+      pendingBuyOrderRef.current = {
+        orderId: result.orderId,
+        cashfreeOrderId: result.cashfreeOrderId,
+        pageId: id,
+      };
+
+      const env = resolveCashfreeEnvironment(result.cashfreeEnvironment);
+      const session = new CFSession(
+        result.paymentSessionId,
+        result.cashfreeOrderId,
+        env,
+      );
+      CFPaymentGatewayService.doPayment(session);
+    } catch (error: any) {
+      logger.error('Failed to initiate buy payment:', error);
+      Alert.alert('Error', error.message || 'Failed to initiate payment. Please try again.');
+    } finally {
+      setCheckingOut(false);
+    }
+  };
+
 
   const handleFollowToggle = async () => {
     if (!page || followLoading) return;
@@ -461,7 +645,7 @@ export default function ConnectPageDetailScreen() {
     return rows;
   };
 
-  const renderContentBlock = (block: ContentBlock, index: number, pageTextColor?: string, inRow = false, inStack = false) => {
+  const renderContentBlock = (block: ContentBlock, index: number, pageTextColor?: string, inRow = false, inStack = false, obfuscate = false) => {
     // Per-block override > page-level override > theme default.
     const effectiveTextColor = block.color || pageTextColor || theme.colors.text;
     const effectiveBg = block.backgroundColor || '';
@@ -492,27 +676,31 @@ export default function ConnectPageDetailScreen() {
         <React.Fragment key={block._id || index}>{node}</React.Fragment>
       );
 
+    let node = null;
     switch (block.type) {
       case 'heading':
-        return wrap(
+        node = wrap(
           <Text style={[styles.contentHeading, { color: effectiveTextColor, textAlign, fontSize: headingFontSize }, block.bold ? { fontWeight: '800' } : undefined]}>
             {block.content}
           </Text>
         );
+        break;
       case 'text':
-        return wrap(
+        node = wrap(
           <Text style={[styles.contentText, { color: effectiveTextColor, textAlign, fontSize: textFontSize }, block.bold ? { fontWeight: '700', fontFamily: getFontFamily('700') } : undefined]}>
             {block.content}
           </Text>
         );
+        break;
       case 'image':
-        return block.content ? (
+        node = block.content ? (
           <View key={block._id || index} style={blockRadius !== undefined ? { borderRadius: blockRadius, overflow: 'hidden' } : undefined}>
-            <ContentImage uri={block.content} inRow={inRow} inStack={inStack} arOverride={block.aspectRatio} />
+            <ContentImage uri={block.content} inRow={inRow} inStack={inStack} arOverride={block.aspectRatio} blurRadius={obfuscate ? 25 : undefined} />
           </View>
         ) : null;
+        break;
       case 'video':
-        return (
+        node = (
           <TouchableOpacity
             key={block._id || index}
             style={[styles.videoPlaceholder, { backgroundColor: effectiveBg || theme.colors.border }]}
@@ -524,6 +712,7 @@ export default function ConnectPageDetailScreen() {
             </Text>
           </TouchableOpacity>
         );
+        break;
       case 'button': {
         // Defensive scheme prefix: backend normalizes button URLs on save,
         // but rows saved before that fix may still have bare domains like
@@ -532,30 +721,37 @@ export default function ConnectPageDetailScreen() {
         const buttonUrl = rawUrl && /^[a-z][a-z0-9+.-]*:/i.test(rawUrl)
           ? rawUrl
           : (rawUrl ? `https://${rawUrl}` : '');
-        return (
+        const buttonBg = effectiveBg || theme.colors.primary;
+        const contrastTextColor = getContrastColor(buttonBg, '#000000', '#FFFFFF');
+        const buttonTextColor = block.color
+          ? (block.color.toLowerCase() === '#ffffff' && contrastTextColor === '#000000' ? '#000000' : block.color)
+          : contrastTextColor;
+        node = (
           <TouchableOpacity
             key={block._id || index}
-            style={[styles.contentButton, { backgroundColor: effectiveBg || theme.colors.primary }]}
+            style={[styles.contentButton, { backgroundColor: buttonBg }]}
             onPress={() => {
               if (buttonUrl) Linking.openURL(buttonUrl).catch(() => {});
             }}
             activeOpacity={0.7}
           >
-            <Text style={[styles.contentButtonText, block.color ? { color: block.color } : undefined]}>
+            <Text style={[styles.contentButtonText, { color: buttonTextColor }]}>
               {block.content || 'Button'}
             </Text>
           </TouchableOpacity>
         );
+        break;
       }
       case 'divider':
-        return (
+        node = (
           <View
             key={block._id || index}
             style={[styles.contentDivider, { backgroundColor: theme.colors.border }]}
           />
         );
+        break;
       case 'embed':
-        return (
+        node = (
           <TouchableOpacity
             key={block._id || index}
             style={[styles.embedPlaceholder, { backgroundColor: effectiveBg || theme.colors.border }]}
@@ -573,43 +769,96 @@ export default function ConnectPageDetailScreen() {
             </Text>
           </TouchableOpacity>
         );
+        break;
       default:
-        return null;
+        node = null;
     }
+
+    if (obfuscate && block.type !== 'image' && node) {
+      return (
+        <View key={block._id || index} style={{ position: 'relative', overflow: 'hidden', borderRadius: blockRadius ?? 12 }}>
+          {node}
+          <BlurView
+            intensity={35}
+            tint={isDark ? 'dark' : 'light'}
+            style={StyleSheet.absoluteFillObject}
+            {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
+          />
+          <View
+            style={{
+              ...StyleSheet.absoluteFillObject,
+              backgroundColor: isDark ? 'rgba(30, 30, 30, 0.4)' : 'rgba(240, 240, 240, 0.4)',
+              zIndex: 10,
+            }}
+          />
+        </View>
+      );
+    }
+
+    return node;
   };
 
   if (loading) {
     return (
-      <SafeAreaView
+      <View
         style={[styles.container, { backgroundColor: theme.colors.background }]}
-        edges={['top']}
       >
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   if (!page) {
     return (
-      <SafeAreaView
+      <View
         style={[styles.container, { backgroundColor: theme.colors.background }]}
-        edges={['top']}
       >
-        <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()} activeOpacity={0.7}>
-            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Connect Page</Text>
-          <View style={styles.headerRight} />
+        <View
+          style={[
+            styles.headerContainer,
+            {
+              backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+              top: 0,
+              paddingTop: insets.top,
+              height: 52 + insets.top,
+              marginTop: 0,
+              marginHorizontal: 0,
+              borderBottomLeftRadius: 24,
+              borderBottomRightRadius: 24,
+              borderTopLeftRadius: 0,
+              borderTopRightRadius: 0,
+              borderWidth: 0,
+              borderBottomWidth: 1,
+              shadowOpacity: isDark ? 0.3 : 0.1,
+            }
+          ]}
+        >
+          <BlurView
+            intensity={80}
+            tint={isDark ? 'dark' : 'light'}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <LinearGradient
+            colors={isDark ? ['rgba(255, 255, 255, 0.1)', 'transparent'] : ['rgba(255, 255, 255, 0.5)', 'transparent']}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <View style={styles.headerInner}>
+            <TouchableOpacity style={styles.backButton} onPress={() => router.back()} activeOpacity={0.7}>
+              <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+            </TouchableOpacity>
+            <GradientText text="Connect Page" style={styles.headerTitle} />
+            <View style={styles.headerRight} />
+          </View>
         </View>
         <View style={styles.loadingContainer}>
           <Text style={[styles.errorText, { color: theme.colors.textSecondary }]}>
             Page not found
           </Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -617,48 +866,78 @@ export default function ConnectPageDetailScreen() {
   const currSym = getCurrencySymbol(page.subscriptionCurrency || 'INR');
 
   return (
-    <SafeAreaView
+    <View
       style={[styles.container, { backgroundColor: theme.colors.background }]}
-      edges={['top']}
     >
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="arrow-back" size={isTablet ? 28 : 24} color={theme.colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]} numberOfLines={1}>
-          {page.name}
-        </Text>
-        {isOwner ? (
+      {/* Floating Glass Header */}
+      <View
+        style={[
+          styles.headerContainer,
+          {
+            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+            top: 0,
+            paddingTop: insets.top,
+            height: 52 + insets.top,
+            marginTop: 0,
+            marginHorizontal: 0,
+            borderBottomLeftRadius: 24,
+            borderBottomRightRadius: 24,
+            borderTopLeftRadius: 0,
+            borderTopRightRadius: 0,
+            borderWidth: 0,
+            borderBottomWidth: 1,
+            shadowOpacity: isDark ? 0.3 : 0.1,
+          }
+        ]}
+      >
+        <BlurView
+          intensity={80}
+          tint={isDark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFillObject}
+        />
+        <LinearGradient
+          colors={isDark ? ['rgba(255, 255, 255, 0.1)', 'transparent'] : ['rgba(255, 255, 255, 0.5)', 'transparent']}
+          style={StyleSheet.absoluteFillObject}
+        />
+        <View style={styles.headerInner}>
           <TouchableOpacity
-            style={styles.headerRight}
-            onPress={() => {
-              Alert.alert(
-                'Page Options',
-                undefined,
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Delete Page',
-                    style: 'destructive',
-                    onPress: handleDeletePage,
-                  },
-                ]
-              );
-            }}
+            style={styles.backButton}
+            onPress={() => router.back()}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.7}
           >
-            <Ionicons name="ellipsis-horizontal" size={isTablet ? 26 : 22} color={theme.colors.text} />
+            <Ionicons name="arrow-back" size={isTablet ? 28 : 24} color={theme.colors.text} />
           </TouchableOpacity>
-        ) : (
-          <View style={styles.headerRight} />
-        )}
+          <Text style={[styles.headerTitle, { color: theme.colors.text }]} numberOfLines={1}>
+            {page.name}
+          </Text>
+          {isOwner ? (
+            <TouchableOpacity
+              style={styles.headerRight}
+              onPress={() => {
+                Alert.alert(
+                  'Page Options',
+                  undefined,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Delete Page',
+                      style: 'destructive',
+                      onPress: handleDeletePage,
+                    },
+                  ]
+                );
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="ellipsis-horizontal" size={isTablet ? 26 : 22} color={theme.colors.text} />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.headerRight} />
+          )}
+        </View>
       </View>
 
       <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -670,8 +949,36 @@ export default function ConnectPageDetailScreen() {
             resizeMode="cover"
           />
         ) : (
-          <View style={[styles.bannerPlaceholder, { backgroundColor: theme.colors.primary + '12' }]}>
-            <Ionicons name="image-outline" size={32} color={theme.colors.primary + '30'} />
+          <View style={[styles.bannerPlaceholder, { backgroundColor: isDark ? '#000000' : '#FFFFFF', overflow: 'hidden', position: 'relative' }]}>
+            {/* Aurora Mesh Glows */}
+            <View
+              style={{
+                position: 'absolute',
+                top: -20,
+                left: -20,
+                width: 150,
+                height: 150,
+                borderRadius: 75,
+                backgroundColor: 'rgba(28, 115, 180, 0.15)',
+              }}
+            />
+            <View
+              style={{
+                position: 'absolute',
+                bottom: -20,
+                right: -20,
+                width: 150,
+                height: 150,
+                borderRadius: 75,
+                backgroundColor: 'rgba(80, 200, 120, 0.15)',
+              }}
+            />
+            <BlurView
+              intensity={50}
+              tint={isDark ? 'dark' : 'light'}
+              style={StyleSheet.absoluteFillObject}
+            />
+            <Ionicons name="people-outline" size={32} color={isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)'} />
           </View>
         )}
 
@@ -730,27 +1037,41 @@ export default function ConnectPageDetailScreen() {
           {/* Stats & Actions Row */}
           <View style={styles.actionRow}>
             <TouchableOpacity
-              style={[styles.statsButton, { borderColor: theme.colors.border }]}
+              style={[
+                styles.statsButton,
+                {
+                  backgroundColor: isDark ? 'rgba(56, 189, 248, 0.06)' : 'rgba(28, 115, 180, 0.05)',
+                  borderColor: isDark ? 'rgba(56, 189, 248, 0.2)' : 'rgba(28, 115, 180, 0.25)',
+                  borderWidth: 1,
+                }
+              ]}
               onPress={handleShowFollowers}
               activeOpacity={0.7}
             >
-              <Ionicons name="people-outline" size={16} color={theme.colors.primary} />
-              <Text style={[styles.statsButtonText, { color: theme.colors.text }]}>
+              <Ionicons name="people-outline" size={16} color={isDark ? '#38BDF8' : '#1C73B4'} />
+              <Text style={[styles.statsButtonText, { color: isDark ? '#FFFFFF' : '#1C73B4' }]}>
                 {(page.followerCount || 0) + 1}
               </Text>
-              <Text style={[styles.statsButtonLabel, { color: theme.colors.textSecondary }]}>
+              <Text style={[styles.statsButtonLabel, { color: isDark ? '#8E9AA8' : '#64748B' }]}>
                 Members
               </Text>
             </TouchableOpacity>
 
             {isOwner && (
               <TouchableOpacity
-                style={[styles.statsButton, { borderColor: theme.colors.border }]}
+                style={[
+                  styles.statsButton,
+                  {
+                    backgroundColor: isDark ? 'rgba(80, 200, 120, 0.06)' : 'rgba(80, 200, 120, 0.05)',
+                    borderColor: isDark ? 'rgba(80, 200, 120, 0.2)' : 'rgba(80, 200, 120, 0.25)',
+                    borderWidth: 1,
+                  }
+                ]}
                 onPress={() => router.push(`/connect/dashboard?pageId=${id}&category=${page.category || 'connect'}`)}
                 activeOpacity={0.7}
               >
-                <Ionicons name="analytics-outline" size={16} color={theme.colors.primary} />
-                <Text style={[styles.statsButtonLabel, { color: theme.colors.textSecondary }]}>
+                <Ionicons name="analytics-outline" size={16} color={isDark ? '#50C878' : '#107C41'} />
+                <Text style={[styles.statsButtonLabel, { color: isDark ? '#8E9AA8' : '#107C41', fontWeight: '600' }]}>
                   Dashboard
                 </Text>
               </TouchableOpacity>
@@ -760,464 +1081,210 @@ export default function ConnectPageDetailScreen() {
           {/* Follow Button (non-owner) */}
           {!isOwner && (
             <TouchableOpacity
-              style={[
-                styles.followMainButton,
-                isFollowing
-                  ? { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: 1 }
-                  : { backgroundColor: theme.colors.primary },
-              ]}
+              style={styles.followMainButtonContainer}
               onPress={handleFollowToggle}
               disabled={followLoading}
               activeOpacity={0.7}
             >
-              {followLoading ? (
-                <ActivityIndicator size="small" color={isFollowing ? theme.colors.text : '#FFFFFF'} />
-              ) : (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons
-                    name={isFollowing ? 'checkmark-circle' : 'add-circle-outline'}
-                    size={18}
-                    color={isFollowing ? theme.colors.text : '#FFFFFF'}
-                  />
-                  <Text
-                    style={[
-                      styles.followMainButtonText,
-                      { color: isFollowing ? theme.colors.text : '#FFFFFF' },
-                    ]}
-                  >
-                    {isFollowing ? 'Following' : 'Follow'}
-                  </Text>
+              {isFollowing ? (
+                <View
+                  style={[
+                    styles.followButtonInner,
+                    {
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(28, 115, 180, 0.06)',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(28, 115, 180, 0.3)',
+                    }
+                  ]}
+                >
+                  {followLoading ? (
+                    <LoadingGlobe size="small" color={isDark ? '#38BDF8' : '#1C73B4'} />
+                  ) : (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={18}
+                        color={isDark ? '#38BDF8' : '#1C73B4'}
+                      />
+                      <Text style={[styles.followMainButtonText, { color: isDark ? '#38BDF8' : '#1C73B4' }]}>
+                        Following
+                      </Text>
+                    </View>
+                  )}
                 </View>
+              ) : (
+                <LinearGradient
+                  colors={isDark ? ['#14B8A6', '#38BDF8'] : ['#50C878', '#1C73B4']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.followButtonGradient}
+                >
+                  {followLoading ? (
+                    <LoadingGlobe size="small" color="#FFFFFF" />
+                  ) : (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons
+                        name="add-circle-outline"
+                        size={18}
+                        color="#FFFFFF"
+                      />
+                      <Text style={[styles.followMainButtonText, { color: '#FFFFFF' }]}>
+                        Follow
+                      </Text>
+                    </View>
+                  )}
+                </LinearGradient>
               )}
             </TouchableOpacity>
           )}
         </View>
 
-        {/* Website Section — stacked content blocks (builder) */}
+        {/* Website Section */}
         {page.features?.website && (
-          <View style={[styles.section, { backgroundColor: page.websiteBackground || theme.colors.surface, marginTop: isTablet ? 14 : 12 }]}>
-            <View style={styles.sectionHeader}>
-              <View style={styles.sectionTitleRow}>
-                <View style={[styles.sectionIconWrap, { backgroundColor: theme.colors.primary + '12' }]}>
-                  <Ionicons name="globe-outline" size={18} color={theme.colors.primary} />
-                </View>
-                <Text style={[styles.sectionTitle, { color: page.websiteTextColor || theme.colors.text }]}>Website</Text>
-              </View>
-            </View>
-            <View style={styles.sectionContent}>
-              {page.websiteContent && page.websiteContent.length > 0 ? (
-                packBlocksIntoRows(
-                  page.websiteContent
-                    .slice()
-                    .sort((a, b) => a.order - b.order)
-                    .slice(0, isOwner ? undefined : 2)
-                ).map((row, ri) => (
-                  (() => {
-                    const isSingle = row.length === 1 && row[0].blocks.length === 1;
-                    return isSingle ? (
-                      <React.Fragment key={`wrow-${ri}`}>{renderContentBlock(row[0].blocks[0], ri, page.websiteTextColor, false, false)}</React.Fragment>
-                    ) : (
-                      <View key={`wrow-${ri}`} style={{ flexDirection: 'row', gap: 3, marginVertical: 1, alignItems: 'flex-start' }}>
-                        {row.map((cell, ci) => {
-                          const isStackedCell = cell.blocks.length > 1;
-                          const va = cell.blocks[0]?.verticalAlign;
-                          const alignSelf = va === 'center' ? 'center' as const : va === 'bottom' ? 'flex-end' as const : undefined;
-                          return (
-                            <View key={`wc-${ri}-${ci}`} style={isStackedCell ? { flex: cell.col, flexDirection: 'column', gap: 6 } : { flex: cell.col, alignSelf }}>
-                              {cell.blocks.map((block, bi) =>
-                                isStackedCell ? (
-                                  <View key={block._id || `ws-${ri}-${ci}-${bi}`} style={{ flex: 1 }}>
-                                    {renderContentBlock(block, bi, page.websiteTextColor, true, true)}
-                                  </View>
-                                ) : (
-                                  <React.Fragment key={block._id || `ws-${ri}-${ci}-${bi}`}>
-                                    {renderContentBlock(block, bi, page.websiteTextColor, row.length > 1, false)}
-                                  </React.Fragment>
-                                )
-                              )}
-                            </View>
-                          );
-                        })}
-                      </View>
-                    );
-                  })()
-                ))
-              ) : (
-                <Text style={[styles.placeholderText, { color: theme.colors.textSecondary }]}>
-                  {isOwner ? 'Add content to your website.' : 'No content yet.'}
-                </Text>
-              )}
-              {!isOwner && page.websiteContent && page.websiteContent.length > 0 && (
-                <TouchableOpacity
-                  onPress={() => router.push(`/connect/preview?pageId=${id}&section=website&pageName=${encodeURIComponent(page.name)}`)}
-                  activeOpacity={0.7}
-                  style={[styles.viewButton, { borderColor: theme.colors.primary }]}
-                >
-                  <Ionicons name="eye-outline" size={16} color={theme.colors.primary} />
-                  <Text style={[styles.viewButtonText, { color: theme.colors.primary }]}>
-                    View Website
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            {isOwner && (
-              <View style={styles.sectionBottomActions}>
-                <TouchableOpacity
-                  onPress={() => {
-                    if (page.websiteContent && page.websiteContent.length > 0) {
-                      router.push(`/connect/preview?pageId=${id}&section=website&pageName=${encodeURIComponent(page.name)}`);
-                    }
-                  }}
-                  activeOpacity={page.websiteContent && page.websiteContent.length > 0 ? 0.7 : 1}
-                  style={[
-                    styles.sectionBottomButton,
-                    { backgroundColor: theme.colors.primary },
-                    !(page.websiteContent && page.websiteContent.length > 0) && { opacity: 0.4 },
-                  ]}
-                >
-                  <Ionicons name="eye-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.sectionBottomButtonText}>Preview</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => router.push(`/connect/editContent?pageId=${id}&section=website`)}
-                  activeOpacity={0.7}
-                  style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
-                >
-                  <Ionicons name="create-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.sectionBottomButtonText}>Edit</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* Group Chat Section */}
-        {page.features?.groupChat && (
           <TouchableOpacity
-            style={[styles.section, { backgroundColor: theme.colors.surface, paddingBottom: isTablet ? themeConstants.spacing.md : 12 }, !page.features?.website && { marginTop: isTablet ? 14 : 12 }]}
-            onPress={handleOpenChat}
+            style={[
+              styles.section,
+              {
+                backgroundColor: isDark ? 'rgba(56, 189, 248, 0.04)' : 'rgba(28, 115, 180, 0.03)',
+                borderColor: isDark ? 'rgba(56, 189, 248, 0.15)' : 'rgba(28, 115, 180, 0.12)',
+                borderWidth: 1,
+                paddingBottom: isTablet ? themeConstants.spacing.md : 12,
+                marginTop: isTablet ? 14 : 12,
+              }
+            ]}
+            onPress={() => router.push(`/connect/preview?pageId=${id}&section=website&pageName=${encodeURIComponent(page.name)}`)}
             activeOpacity={0.7}
           >
             <View style={[styles.sectionHeader, { marginBottom: 0 }]}>
               <View style={styles.sectionTitleRow}>
-                <View style={[styles.sectionIconWrap, { backgroundColor: theme.colors.primary + '12' }]}>
-                  <Ionicons name="chatbubbles-outline" size={18} color={theme.colors.primary} />
+                <View style={[styles.sectionIconWrap, { backgroundColor: isDark ? 'rgba(56, 189, 248, 0.15)' : 'rgba(28, 115, 180, 0.08)' }]}>
+                  <Ionicons name="globe-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
                 </View>
                 <View>
-                  <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Group Chat</Text>
+                  <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Website</Text>
                   <Text style={[styles.chatDescription, { color: theme.colors.textSecondary }]}>
-                    {(page.followerCount || 0) + 1} members active
+                    {isOwner ? 'Manage your site and content' : 'Explore website and pages'}
                   </Text>
                 </View>
               </View>
-              <View style={[styles.chatArrowWrap, { backgroundColor: theme.colors.primary + '12' }]}>
-                <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+              <View style={[styles.chatArrowWrap, { backgroundColor: isDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(28, 115, 180, 0.08)' }]}>
+                <Ionicons name="chevron-forward" size={16} color={isDark ? '#38BDF8' : '#1C73B4'} />
               </View>
             </View>
           </TouchableOpacity>
         )}
 
-        {/* Subscription Section */}
-        {page.features?.subscription && (
-          <View style={[styles.section, { backgroundColor: theme.colors.surface }, !page.features?.website && !page.features?.groupChat && { marginTop: isTablet ? 14 : 12 }]}>
-            <View style={styles.sectionHeader}>
+        {/* Group Chat Section */}
+        {page.features?.groupChat && (
+          <TouchableOpacity
+            style={[
+              styles.section,
+              {
+                backgroundColor: isDark ? 'rgba(80, 200, 120, 0.04)' : 'rgba(80, 200, 120, 0.03)',
+                borderColor: isDark ? 'rgba(80, 200, 120, 0.15)' : 'rgba(80, 200, 120, 0.12)',
+                borderWidth: 1,
+                paddingBottom: isTablet ? themeConstants.spacing.md : 12,
+                marginTop: !page.features?.website ? (isTablet ? 14 : 12) : 0,
+              }
+            ]}
+            onPress={handleOpenChat}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.sectionHeader, { marginBottom: 0 }]}>
               <View style={styles.sectionTitleRow}>
-                <View style={[styles.sectionIconWrap, { backgroundColor: theme.colors.primary + '12' }]}>
-                  <Ionicons name="star-outline" size={18} color={theme.colors.primary} />
+                <View style={[styles.sectionIconWrap, { backgroundColor: isDark ? 'rgba(80, 200, 120, 0.15)' : 'rgba(80, 200, 120, 0.08)' }]}>
+                  <Ionicons name="chatbubbles-outline" size={18} color={isDark ? '#50C878' : '#107C41'} />
                 </View>
-                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{subLabel}</Text>
+                <View>
+                  <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Group Chat</Text>
+                  <GradientText
+                    text={`${(page.followerCount || 0) + 1} members active`}
+                    style={styles.chatDescription}
+                  />
+                </View>
+              </View>
+              <View style={[styles.chatArrowWrap, { backgroundColor: isDark ? 'rgba(80, 200, 120, 0.12)' : 'rgba(80, 200, 120, 0.08)' }]}>
+                <Ionicons name="chevron-forward" size={16} color={isDark ? '#50C878' : '#107C41'} />
               </View>
             </View>
-
-            {/* Approval status banner (owner only) */}
-            {isOwner && page.subscriptionApproval?.status === 'pending' && (
-              <View style={[styles.approvalBanner, { backgroundColor: '#FFF3CD' }]}>
-                <Ionicons name="time-outline" size={16} color="#856404" />
-                <Text style={[styles.approvalBannerText, { color: '#856404' }]}>
-                  Price {currSym}{page.subscriptionApproval.requestedPrice}/mo — Pending admin approval
-                </Text>
-              </View>
-            )}
-            {isOwner && page.subscriptionApproval?.status === 'rejected' && (
-              <View style={[styles.approvalBanner, { backgroundColor: theme.colors.error + '15' }]}>
-                <Ionicons name="close-circle-outline" size={16} color={theme.colors.error} />
-                <Text style={[styles.approvalBannerText, { color: theme.colors.error }]}>
-                  Price rejected{page.subscriptionApproval.rejectionReason ? `: ${page.subscriptionApproval.rejectionReason}` : ''}
-                </Text>
-              </View>
-            )}
-
-            <View style={styles.sectionContent}>
-              {isOwner || subscriptionStatus?.isSubscribed ? (
-                page.subscriptionContent && page.subscriptionContent.length > 0 ? (
-                  <>
-                    {packBlocksIntoRows(
-                      page.subscriptionContent.slice().sort((a, b) => a.order - b.order)
-                    ).map((row, ri) => (
-                      (() => {
-                        const isSingle = row.length === 1 && row[0].blocks.length === 1;
-                        return isSingle ? (
-                          <React.Fragment key={`srow-${ri}`}>{renderContentBlock(row[0].blocks[0], ri, page.subscriptionTextColor, false, false)}</React.Fragment>
-                        ) : (
-                          <View key={`srow-${ri}`} style={{ flexDirection: 'row', gap: 3, marginVertical: 1, alignItems: 'flex-start' }}>
-                            {row.map((cell, ci) => {
-                              const isStackedCell = cell.blocks.length > 1;
-                              const va = cell.blocks[0]?.verticalAlign;
-                              const alignSelf = va === 'center' ? 'center' as const : va === 'bottom' ? 'flex-end' as const : undefined;
-                              return (
-                                <View key={`sc-${ri}-${ci}`} style={isStackedCell ? { flex: cell.col, flexDirection: 'column', gap: 6 } : { flex: cell.col, alignSelf }}>
-                                  {cell.blocks.map((block, bi) =>
-                                    isStackedCell ? (
-                                      <View key={block._id || `ss-${ri}-${ci}-${bi}`} style={{ flex: 1 }}>
-                                        {renderContentBlock(block, bi, page.subscriptionTextColor, true, true)}
-                                      </View>
-                                    ) : (
-                                      <React.Fragment key={block._id || `ss-${ri}-${ci}-${bi}`}>
-                                        {renderContentBlock(block, bi, page.subscriptionTextColor, row.length > 1, false)}
-                                      </React.Fragment>
-                                    )
-                                  )}
-                                </View>
-                              );
-                            })}
-                          </View>
-                        );
-                      })()
-                    ))}
-                    {!isOwner && (
-                      <TouchableOpacity
-                        onPress={() => router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`)}
-                        activeOpacity={0.7}
-                        style={[styles.viewButton, { borderColor: theme.colors.primary }]}
-                      >
-                        <Ionicons name="eye-outline" size={16} color={theme.colors.primary} />
-                        <Text style={[styles.viewButtonText, { color: theme.colors.primary }]}>
-                          View {subLabel}
-                        </Text>
-                      </TouchableOpacity>
-                    )}
-                  </>
-                ) : (
-                  <Text style={[styles.placeholderText, { color: theme.colors.textSecondary }]}>
-                    {isOwner ? 'Tap the edit icon to list your services.' : 'No services listed yet.'}
-                  </Text>
-                )
-              ) : (
-                <View style={{ alignItems: 'center', paddingVertical: 16 }}>
-                  <Ionicons name="lock-closed-outline" size={28} color={theme.colors.textSecondary} style={{ marginBottom: 8 }} />
-                  <Text style={[styles.placeholderText, { color: theme.colors.textSecondary, textAlign: 'center' }]}>
-                    {isCommunity
-                      ? 'Buy to unlock exclusive content from this community.'
-                      : 'Subscribe to unlock exclusive content from this creator.'}
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            {/* Subscription pricing section */}
-            {(() => {
-              const approvalStatus = page.subscriptionApproval?.status || 'none';
-              const approvedPrice = page.subscriptionPrice;
-              const requestedPrice = page.subscriptionApproval?.requestedPrice;
-              const displayPrice = approvalStatus === 'approved' ? approvedPrice : requestedPrice;
-
-              // Owner view
-              if (isOwner) {
-                return (
-                  <View style={[styles.subscriptionPriceSection, { borderTopColor: theme.colors.border }]}>
-                    <View style={styles.priceRow}>
-                      <Text style={[styles.priceAmount, { color: theme.colors.text }]}>
-                        {currSym}{displayPrice || 0}
-                      </Text>
-                      <Text style={[styles.pricePeriod, { color: theme.colors.textSecondary }]}>/month</Text>
-                      <TouchableOpacity
-                        onPress={() => {
-                          setPriceInput(String(displayPrice || ''));
-                          setShowPriceModal(true);
-                        }}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        style={{ marginLeft: 10 }}
-                      >
-                        <Ionicons name="pencil-outline" size={16} color={theme.colors.primary} />
-                      </TouchableOpacity>
-                    </View>
-
-                    {approvalStatus === 'pending' && (
-                      <View style={[styles.approvalStatusBadge, { backgroundColor: '#FEF3C7' }]}>
-                        <Ionicons name="time-outline" size={14} color="#D97706" />
-                        <Text style={{ color: '#D97706', fontSize: 12, fontWeight: '500', marginLeft: 4 }}>
-                          Pending admin approval
-                        </Text>
-                      </View>
-                    )}
-
-                    {approvalStatus === 'approved' && (
-                      <Text style={[styles.ownerPriceNote, { color: theme.colors.textSecondary }]}>
-                        {subscribersLabel} pay {currSym}{approvedPrice}/month
-                      </Text>
-                    )}
-
-                    {approvalStatus === 'rejected' && (
-                      <View>
-                        <View style={[styles.approvalStatusBadge, { backgroundColor: '#FEE2E2' }]}>
-                          <Ionicons name="close-circle-outline" size={14} color="#DC2626" />
-                          <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '500', marginLeft: 4 }}>
-                            Price rejected
-                          </Text>
-                        </View>
-                        {page.subscriptionApproval?.rejectionReason ? (
-                          <Text style={[styles.ownerPriceNote, { color: theme.colors.textSecondary }]}>
-                            Reason: {page.subscriptionApproval.rejectionReason}
-                          </Text>
-                        ) : null}
-                      </View>
-                    )}
-
-                    {approvalStatus === 'none' && !displayPrice && (
-                      <Text style={[styles.ownerPriceNote, { color: theme.colors.textSecondary }]}>
-                        Tap the edit icon to set your price
-                      </Text>
-                    )}
-                  </View>
-                );
-              }
-
-              // Visitor view — show subscribed status or prompt to view subscription page
-              if (approvalStatus === 'approved' && approvedPrice) {
-                if (subscriptionStatus?.isSubscribed) {
-                  return (
-                    <View style={[styles.subscriptionPriceSection, { borderTopColor: theme.colors.border }]}>
-                      <View style={[styles.subscribedBadge, { backgroundColor: theme.colors.success + '15' }]}>
-                        <Ionicons name="checkmark-circle" size={18} color={theme.colors.success} />
-                        <Text style={[styles.subscribedText, { color: theme.colors.success }]}>{isCommunity ? 'Purchased' : 'Subscribed'}</Text>
-                      </View>
-                      {subscriptionStatus.subscription?.currentPeriodEnd && (
-                        <Text style={[styles.renewsText, { color: theme.colors.textSecondary }]}>
-                          Renews {new Date(subscriptionStatus.subscription.currentPeriodEnd).toLocaleDateString()}
-                        </Text>
-                      )}
-                      <TouchableOpacity
-                        onPress={handleCancelSubscription}
-                        activeOpacity={0.7}
-                        style={styles.cancelLink}
-                      >
-                        <Text style={[styles.cancelLinkText, { color: theme.colors.error }]}>
-                          Cancel {isCommunity ? 'purchase' : 'subscription'}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-                  );
-                }
-                // Show subscribe button for non-subscribed visitors
-                return (
-                  <View style={[styles.subscriptionPriceSection, { borderTopColor: theme.colors.border }]}>
-                    <TouchableOpacity
-                      style={[styles.subscribeButton, { backgroundColor: theme.colors.primary }]}
-                      onPress={handleSubscribe}
-                      activeOpacity={0.7}
-                      disabled={subscribing}
-                    >
-                      {subscribing ? (
-                        <ActivityIndicator size="small" color="#FFFFFF" />
-                      ) : (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-                          <Ionicons name={isCommunity ? 'cart-outline' : 'star'} size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-                          <Text style={styles.subscribeButtonText}>
-                            {subButtonText} · {currSym}{approvedPrice}/month
-                          </Text>
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                );
-              }
-
-              return null;
-            })()}
-
-            {/* Bottom action buttons (owner only) */}
-            {isOwner && (
-              <View style={styles.sectionBottomActions}>
-                <TouchableOpacity
-                  onPress={async () => {
-                    try {
-                      const result = await getPayoutPreview(page._id);
-                      setPayoutPreview(result.preview);
-                    } catch { /* ignore */ }
-                    setShowPayoutInfo(true);
-                  }}
-                  activeOpacity={0.7}
-                  style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
-                >
-                  <Ionicons name="information-circle-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.sectionBottomButtonText}>Details</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => {
-                    if (page.subscriptionContent && page.subscriptionContent.length > 0) {
-                      router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`);
-                    }
-                  }}
-                  activeOpacity={page.subscriptionContent && page.subscriptionContent.length > 0 ? 0.7 : 1}
-                  style={[
-                    styles.sectionBottomButton,
-                    { backgroundColor: theme.colors.primary },
-                    !(page.subscriptionContent && page.subscriptionContent.length > 0) && { opacity: 0.4 },
-                  ]}
-                >
-                  <Ionicons name="eye-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.sectionBottomButtonText}>Preview</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => router.push(`/connect/editContent?pageId=${id}&section=subscription&category=${page.category || 'connect'}`)}
-                  activeOpacity={0.7}
-                  style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
-                >
-                  <Ionicons name="create-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.sectionBottomButtonText}>Edit</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
+          </TouchableOpacity>
         )}
 
-        {/* Buy Items Section (Admin pages only) */}
-        {page.isAdminPage && page.buyItems && page.buyItems.length > 0 && (
-          <View style={[styles.section, { backgroundColor: theme.colors.surface }]}>
-            <View style={styles.sectionHeader}>
+        {/* Subscription / Buy Items Section */}
+        {page.features?.subscription && (
+          <TouchableOpacity
+            style={[
+              styles.section,
+              {
+                backgroundColor: isCommunity
+                  ? (isDark ? 'rgba(245, 158, 11, 0.04)' : 'rgba(217, 119, 6, 0.03)')
+                  : (isDark ? 'rgba(56, 189, 248, 0.04)' : 'rgba(28, 115, 180, 0.03)'),
+                borderColor: isCommunity
+                  ? (isDark ? 'rgba(245, 158, 11, 0.15)' : 'rgba(217, 119, 6, 0.12)')
+                  : (isDark ? 'rgba(56, 189, 248, 0.15)' : 'rgba(28, 115, 180, 0.12)'),
+                borderWidth: 1,
+                paddingBottom: isTablet ? themeConstants.spacing.md : 12,
+                marginTop: (!page.features?.website && !page.features?.groupChat) ? (isTablet ? 14 : 12) : 0,
+              }
+            ]}
+            onPress={() => router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.sectionHeader, { marginBottom: 0 }]}>
               <View style={styles.sectionTitleRow}>
-                <Ionicons name="cart-outline" size={20} color={theme.colors.primary} />
-                <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Buy</Text>
+                <View
+                  style={[
+                    styles.sectionIconWrap,
+                    {
+                      backgroundColor: isCommunity
+                        ? (isDark ? 'rgba(245, 158, 11, 0.15)' : 'rgba(217, 119, 6, 0.08)')
+                        : (isDark ? 'rgba(56, 189, 248, 0.15)' : 'rgba(28, 115, 180, 0.08)')
+                    }
+                  ]}
+                >
+                  <Ionicons
+                    name={isCommunity ? 'cart-outline' : 'star-outline'}
+                    size={18}
+                    color={
+                      isCommunity
+                        ? (isDark ? '#F59E0B' : '#D97706')
+                        : (isDark ? '#38BDF8' : '#1C73B4')
+                    }
+                  />
+                </View>
+                <View>
+                  <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+                    {isCommunity ? 'Buy Items' : subLabel}
+                  </Text>
+                  <Text style={[styles.chatDescription, { color: theme.colors.textSecondary }]}>
+                    {isOwner
+                      ? (isCommunity ? 'Manage items listed for sale' : 'Manage subscription content')
+                      : (isCommunity ? 'Browse items for sale' : 'Access premium content')
+                    }
+                  </Text>
+                </View>
+              </View>
+              <View
+                style={[
+                  styles.chatArrowWrap,
+                  {
+                    backgroundColor: isCommunity
+                      ? (isDark ? 'rgba(245, 158, 11, 0.12)' : 'rgba(217, 119, 6, 0.08)')
+                      : (isDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(28, 115, 180, 0.08)')
+                  }
+                ]}
+              >
+                <Ionicons
+                  name="chevron-forward"
+                  size={16}
+                  color={
+                    isCommunity
+                      ? (isDark ? '#F59E0B' : '#D97706')
+                      : (isDark ? '#38BDF8' : '#1C73B4')
+                  }
+                />
               </View>
             </View>
-            {page.buyItems
-              .filter(item => item.active)
-              .map((item, idx) => (
-                <View
-                  key={item._id || idx}
-                  style={[styles.buyItem, { borderBottomColor: theme.colors.border }]}
-                >
-                  {item.imageUrl ? (
-                    <Image source={{ uri: item.imageUrl }} style={styles.buyItemImage} />
-                  ) : null}
-                  <View style={styles.buyItemInfo}>
-                    <Text style={[styles.buyItemName, { color: theme.colors.text }]}>{item.name}</Text>
-                    <Text style={[styles.buyItemDesc, { color: theme.colors.textSecondary }]} numberOfLines={2}>
-                      {item.description}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={[styles.buyButton, { backgroundColor: theme.colors.border }]}
-                    onPress={() => Alert.alert('Coming Soon', 'Payments will be available in a future update.')}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[styles.buyButtonText, { color: theme.colors.textSecondary }]}>
-                      Buy
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              ))}
-          </View>
+          </TouchableOpacity>
         )}
 
         {/* Delete Page — Owner only */}
@@ -1285,7 +1352,7 @@ export default function ConnectPageDetailScreen() {
                 disabled={savingBio}
               >
                 {savingBio ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
+                  <LoadingGlobe size="small" color="#FFFFFF" />
                 ) : (
                   <Text style={styles.bioModalSaveText}>Save</Text>
                 )}
@@ -1319,7 +1386,7 @@ export default function ConnectPageDetailScreen() {
 
             {followersLoading ? (
               <View style={styles.modalLoading}>
-                <ActivityIndicator size="large" color={theme.colors.primary} />
+                <LoadingGlobe size="large" color={theme.colors.primary} />
               </View>
             ) : followers.length === 0 ? (
               <View style={styles.modalLoading}>
@@ -1563,9 +1630,149 @@ export default function ConnectPageDetailScreen() {
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
-    </SafeAreaView>
+
+      {/* Checkout Modal */}
+      <Modal
+        visible={checkoutModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setCheckoutModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setCheckoutModalVisible(false)} />
+          <View
+            style={[
+              styles.checkoutModalBox,
+              {
+                backgroundColor: isDark ? 'rgba(20, 25, 35, 0.98)' : 'rgba(255, 255, 255, 0.98)',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.15)',
+              }
+            ]}
+          >
+            <BlurView
+              intensity={90}
+              tint={isDark ? 'dark' : 'light'}
+              style={StyleSheet.absoluteFillObject}
+            />
+            <View style={styles.modalHeader}>
+              <Text style={[styles.checkoutModalTitle, { color: theme.colors.text, fontFamily: getFontFamily('600') }]}>Checkout</Text>
+              <TouchableOpacity onPress={() => setCheckoutModalVisible(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {selectedItem && (
+              <View style={styles.checkoutItemSummary}>
+                <Text style={[styles.checkoutItemName, { color: theme.colors.text, fontFamily: getFontFamily('600') }]} numberOfLines={1}>{selectedItem.name}</Text>
+                <Text style={[styles.checkoutItemPrice, { color: theme.colors.primary, fontFamily: getFontFamily('700') }]}>
+                  {formatConnectMoney(selectedItem.price, page?.subscriptionCurrency)}
+                </Text>
+              </View>
+            )}
+
+            {/* Cashfree payment info banner */}
+            <View style={[styles.upiInfoCard, { backgroundColor: isDark ? 'rgba(56,189,248,0.08)' : 'rgba(56,189,248,0.06)', borderColor: isDark ? 'rgba(56,189,248,0.25)' : 'rgba(56,189,248,0.2)' }]}>
+              <View style={styles.upiInfoRow}>
+                <Ionicons name="shield-checkmark" size={20} color="#38BDF8" />
+                <Text style={[styles.upiInfoTitle, { color: theme.colors.text, fontFamily: getFontFamily('600') }]}>Secure Payment via Cashfree</Text>
+              </View>
+              <Text style={[styles.upiInfoText, { color: isDark ? '#A1A1AA' : '#71717A', fontFamily: getFontFamily('400') }]}>
+                Fill in your details and tap the Pay button. You will be taken to the secure Cashfree payment screen.
+              </Text>
+            </View>
+
+            <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <Text style={[styles.inputLabel, { color: theme.colors.text, fontFamily: getFontFamily('500') }]}>Your Name</Text>
+              <TextInput
+                style={[
+                  styles.checkoutInput,
+                  {
+                    color: theme.colors.text,
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    fontFamily: getFontFamily('400')
+                  }
+                ]}
+                value={buyerName}
+                onChangeText={setBuyerName}
+                placeholder="Enter your full name"
+                placeholderTextColor={isDark ? '#71717A' : '#A1A1AA'}
+              />
+
+              <Text style={[styles.inputLabel, { color: theme.colors.text, fontFamily: getFontFamily('500') }]}>Phone Number</Text>
+              <TextInput
+                style={[
+                  styles.checkoutInput,
+                  {
+                    color: theme.colors.text,
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    fontFamily: getFontFamily('400')
+                  }
+                ]}
+                value={buyerPhone}
+                onChangeText={setBuyerPhone}
+                placeholder="Enter your phone number"
+                placeholderTextColor={isDark ? '#71717A' : '#A1A1AA'}
+                keyboardType="phone-pad"
+              />
+
+              <Text style={[styles.inputLabel, { color: theme.colors.text, fontFamily: getFontFamily('500') }]}>Delivery Address</Text>
+              <TextInput
+                style={[
+                  styles.checkoutInput,
+                  styles.checkoutAddressInput,
+                  {
+                    color: theme.colors.text,
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    fontFamily: getFontFamily('400')
+                  }
+                ]}
+                value={deliveryAddress}
+                onChangeText={setDeliveryAddress}
+                placeholder="Enter complete delivery address"
+                placeholderTextColor={isDark ? '#71717A' : '#A1A1AA'}
+                multiline
+                numberOfLines={3}
+              />
+
+              <TouchableOpacity
+                style={styles.checkoutBtn}
+                onPress={handleBuyItem}
+                disabled={checkingOut}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={['#1C73B4', '#0EA5E9', '#38BDF8']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.checkoutBtnGradient}
+                >
+                  {checkingOut ? (
+                    <LoadingGlobe size="small" color="#FFFFFF" />
+                  ) : (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="lock-closed" size={16} color="#FFFFFF" />
+                      <Text style={[styles.checkoutBtnText, { fontFamily: getFontFamily('700') }]}>
+                        Pay {formatConnectMoney(selectedItem?.price, page?.subscriptionCurrency)}
+                      </Text>
+                    </View>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+              <View style={{ height: 40 }} />
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+    </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {
@@ -1591,12 +1798,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  header: {
+  headerContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 56,
+    zIndex: 10,
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  headerInner: {
     flexDirection: 'row',
     alignItems: 'center',
+    height: 52,
     paddingHorizontal: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.md,
-    paddingVertical: isTablet ? themeConstants.spacing.md : 12,
-    borderBottomWidth: 1,
   },
   backButton: {
     padding: isTablet ? themeConstants.spacing.sm : 8,
@@ -1731,6 +1952,29 @@ const styles = StyleSheet.create({
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
+  },
+  followMainButtonContainer: {
+    width: '100%',
+    height: 48,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  followButtonInner: {
+    width: '100%',
+    height: '100%',
+    borderWidth: 1.5,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  followButtonGradient: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
   },
   // Sections
   section: {
@@ -2364,6 +2608,111 @@ const styles = StyleSheet.create({
   priceModalBtnText: {
     fontSize: isTablet ? 16 : 15,
     fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+  },
+  upiInfoCard: {
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 16,
+    gap: 8,
+  },
+  upiInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  upiInfoTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  upiInfoText: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  upiIdRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderRadius: 12,
+    marginTop: 4,
+    borderWidth: 1,
+  },
+  upiIdText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  checkoutModalBox: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    maxHeight: '85%',
+    overflow: 'hidden',
+    paddingBottom: 24,
+  },
+  checkoutModalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  checkoutItemSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  checkoutItemName: {
+    fontSize: 15,
+    fontWeight: '600',
+    flex: 1,
+    marginRight: 12,
+  },
+  checkoutItemPrice: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  modalScroll: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginBottom: 6,
+    marginTop: 12,
+  },
+  checkoutInput: {
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    fontSize: 14,
+  },
+  checkoutAddressInput: {
+    height: 80,
+    paddingTop: 12,
+    paddingBottom: 12,
+    textAlignVertical: 'top',
+  },
+  checkoutBtn: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    marginTop: 24,
+    marginBottom: 8,
+  },
+  checkoutBtnGradient: {
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkoutBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
     fontWeight: '600',
   },
 });

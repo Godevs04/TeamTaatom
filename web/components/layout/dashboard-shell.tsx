@@ -61,14 +61,22 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
   const profileHref = mounted && user?._id ? `/profile/${user._id}` : "/feed";
 
   return (
-    <div className="flex min-h-[calc(100vh-3.5rem)] w-full bg-gradient-to-b from-slate-50/90 via-[#f8fafc] to-slate-100/40 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-950">
+    <div className="relative flex min-h-[calc(100vh-3.5rem)] w-full bg-gradient-to-b from-slate-50/90 via-[#f8fafc] to-slate-100/40 dark:from-zinc-950 dark:via-zinc-900 dark:to-zinc-950 overflow-hidden">
+      {/* Liquid morphing background orbs to enhance frosted glass blur contrast */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden z-0">
+        <div className="feed-orb absolute left-[8%] top-[12%] h-[24rem] w-[24rem] rounded-full bg-primary/10 blur-3xl opacity-50 dark:bg-primary/5" />
+        <div className="feed-orb-delayed absolute right-[12%] top-[8%] h-[28rem] w-[28rem] rounded-full bg-accent/15 blur-3xl opacity-45 dark:bg-accent/8" />
+        <div className="feed-orb-late absolute left-[22%] bottom-[12%] h-80 w-80 rounded-full bg-violet-400/10 blur-3xl opacity-35 dark:bg-violet-500/5" />
+        <div className="feed-orb absolute right-[5%] bottom-[5%] h-96 w-96 rounded-full bg-pink-500/5 blur-3xl opacity-25 dark:bg-pink-600/3" />
+      </div>
+
       {/* Left sidebar — premium card style */}
-      <aside className={cn("hidden w-[280px] shrink-0 flex-col lg:flex", isShortsRoute && "lg:hidden")}>
+      <aside className={cn("hidden w-[280px] shrink-0 flex-col lg:flex z-10", isShortsRoute && "lg:hidden")}>
         <div className="sticky top-20 flex flex-col gap-6 p-5">
           {/* Profile block */}
           <Link
             href={profileHref}
-            className="group flex items-center gap-4 rounded-2xl border border-border bg-card p-4 shadow-premium transition-all duration-200 hover:shadow-premium-hover"
+            className="group flex items-center gap-4 rounded-2xl border border-white/20 dark:border-zinc-800/45 bg-white/45 dark:bg-zinc-900/45 backdrop-blur-md p-4 shadow-premium transition-all duration-300 hover:shadow-premium-hover hover:scale-[1.01] hover:border-white/35 dark:hover:border-zinc-700/50"
           >
             <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-gradient-to-br from-primary/20 via-primary/10 to-violet-500/20 ring-1 ring-black/5 dark:ring-white/10">
               {mounted && user?.profilePic ? (
@@ -118,20 +126,20 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             })}
             <Link
               href="/settings"
-              className="flex items-center gap-3 rounded-xl border border-transparent px-4 py-3 text-[15px] font-medium text-slate-600 transition-all duration-200 hover:bg-white hover:text-slate-900 hover:shadow-premium hover:border-premium dark:text-zinc-300 dark:hover:bg-zinc-800/90 dark:hover:text-white dark:hover:border-zinc-700/80"
+              className="flex items-center gap-3 rounded-xl border border-transparent px-4 py-3 text-[15px] font-medium text-slate-600 transition-all duration-200 hover:bg-white/40 hover:text-slate-900 hover:shadow-premium hover:border-white/20 dark:text-zinc-300 dark:hover:bg-zinc-800/40 dark:hover:text-white dark:hover:border-zinc-850/30"
             >
               <Settings className="h-5 w-5 shrink-0" />
               Settings
             </Link>
           </nav>
 
-          <div className="rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-3 shadow-sm border-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
+          <div className="rounded-2xl border border-white/20 bg-white/45 px-4 py-3 shadow-premium backdrop-blur-md dark:border-zinc-800/40 dark:bg-zinc-900/45 transition-all duration-300">
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-400">Follow</p>
             <SocialConnect variant="toolbar" className="justify-start" />
           </div>
 
           {/* Download app — show on smaller viewports; hide on xl for desktop web-first feel */}
-          <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-slate-50 via-white to-slate-50/80 p-5 shadow-premium border-premium dark:border-zinc-800/80 dark:from-zinc-900 dark:via-zinc-900/95 dark:to-zinc-950 xl:hidden">
+          <div className="rounded-2xl border border-white/25 bg-white/40 p-5 shadow-premium backdrop-blur-md dark:border-zinc-800/40 dark:bg-zinc-900/40 transition-all duration-300 xl:hidden">
             <div className="flex items-center gap-2.5">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
                 <Smartphone className="h-5 w-5 text-primary" />
@@ -149,7 +157,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 href="https://apps.apple.com/app/id6757185352"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2.5 rounded-xl border border-slate-200/80 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition-all duration-200 hover:border-primary/30 hover:bg-slate-50 hover:shadow-md dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:border-primary/40 dark:hover:bg-zinc-700/80"
+                className="flex items-center justify-center gap-2.5 rounded-xl border border-white/25 bg-white/50 px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition-all duration-200 hover:border-primary/30 hover:bg-white/80 hover:shadow-md dark:border-zinc-700/50 dark:bg-zinc-800/50 dark:text-zinc-100 dark:hover:border-primary/40 dark:hover:bg-zinc-700/60"
               >
                 <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                   <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
@@ -160,7 +168,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 href="https://play.google.com/store/apps/details?id=com.taatom.app"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2.5 rounded-xl border border-slate-200/80 bg-white px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition-all duration-200 hover:border-primary/30 hover:bg-slate-50 hover:shadow-md dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:border-primary/40 dark:hover:bg-zinc-700/80"
+                className="flex items-center justify-center gap-2.5 rounded-xl border border-white/25 bg-white/50 px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition-all duration-200 hover:border-primary/30 hover:bg-white/80 hover:shadow-md dark:border-zinc-700/50 dark:bg-zinc-800/50 dark:text-zinc-100 dark:hover:border-primary/40 dark:hover:bg-zinc-700/60"
               >
                 <svg className="h-5 w-5" viewBox="0 0 24 24" aria-hidden>
                   <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -197,8 +205,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
       {!isShortsRoute && <MobileBottomNav />}
 
       {/* Right sidebar — Suggestions & Recommendations */}
-      <aside className={cn("hidden w-[320px] shrink-0 flex-col gap-8 p-6 xl:flex", isShortsRoute && "xl:hidden")}>
-        <section className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-premium border-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
+      <aside className={cn("hidden w-[320px] shrink-0 flex-col gap-8 p-6 xl:flex z-10", isShortsRoute && "xl:hidden")}>
+        <section className="rounded-2xl border border-white/20 bg-white/45 p-6 shadow-premium backdrop-blur-md dark:border-zinc-800/40 dark:bg-zinc-900/45 transition-all duration-300">
           <div className="mb-4 flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-amber-500" />
             <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-400">
@@ -221,7 +229,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-slate-200/80 bg-white p-6 shadow-premium border-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
+        <section className="rounded-2xl border border-white/20 bg-white/45 p-6 shadow-premium backdrop-blur-md dark:border-zinc-800/40 dark:bg-zinc-900/45 transition-all duration-300">
           <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-400">
             Recommendations
           </h3>
@@ -233,11 +241,11 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   key={rec.label}
                   href={rec.href}
                   className={cn(
-                    "group flex flex-col items-center justify-center gap-3 rounded-2xl border border-slate-200/80 bg-gradient-to-br py-6 transition-all duration-200 hover:shadow-premium-hover dark:border-zinc-700/80",
+                    "group flex flex-col items-center justify-center gap-3 rounded-2xl border border-white/10 bg-gradient-to-br py-6 transition-all duration-200 hover:shadow-premium-hover dark:border-zinc-700/50",
                     rec.color
                   )}
                 >
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/80 shadow-sm group-hover:bg-white dark:bg-zinc-800/80 dark:group-hover:bg-zinc-800">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white/80 shadow-sm group-hover:bg-white dark:bg-zinc-850/80 dark:group-hover:bg-zinc-800">
                     <Icon className="h-6 w-6 text-slate-700 dark:text-zinc-200" />
                   </div>
                   <span className="text-sm font-semibold text-slate-800 dark:text-zinc-100">{rec.label}</span>

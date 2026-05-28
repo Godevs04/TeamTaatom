@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { useRouter } from 'expo-router';
@@ -11,7 +12,8 @@ interface PostLocationProps {
 }
 
 export default function PostLocation({ post }: PostLocationProps) {
-  const { theme } = useTheme();
+  const { theme, mode } = useTheme();
+  const isDark = mode === 'dark' || theme.colors.background === '#0B1A2B' || theme.colors.background === '#000000';
   const router = useRouter();
   const [isGeocoding, setIsGeocoding] = useState(false);
 
@@ -92,6 +94,8 @@ export default function PostLocation({ post }: PostLocationProps) {
     }
   };
 
+  const subtitleBlue = isDark ? '#38BDF8' : '#1C73B4';
+
   return (
     <TouchableOpacity
       style={styles.locationContainer}
@@ -99,13 +103,13 @@ export default function PostLocation({ post }: PostLocationProps) {
       disabled={isGeocoding}
     >
       <View style={styles.locationContent}>
-        <Ionicons name="location-outline" size={12} color={theme.colors.textSecondary} />
-        <Text style={[styles.locationText, { color: theme.colors.textSecondary }]}>
+        <Ionicons name="location-outline" size={12} color={subtitleBlue} />
+        <Text style={[styles.locationText, { color: subtitleBlue }]}>
           {post.location.address}
         </Text>
       </View>
       {isGeocoding && (
-        <ActivityIndicator size="small" color={theme.colors.primary} style={styles.loader} />
+        <LoadingGlobe size="small" color={theme.colors.primary} style={styles.loader} />
       )}
     </TouchableOpacity>
   );

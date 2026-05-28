@@ -105,3 +105,25 @@ export const uploadContentImage = async (pageId, file) => {
   }
 }
 
+// Fetch all orders for a community page
+export const getCommunityPageOrders = async (pageId) => {
+  try {
+    const response = await api.get(`${BASE}/community-pages/${pageId}/orders`)
+    return response.data?.data || response.data
+  } catch (error) {
+    logger.error('Failed to fetch community page orders:', error)
+    throw error
+  }
+}
+
+// Update the delivery status of an order
+export const updateOrderStatus = async (orderId, status) => {
+  try {
+    const response = await api.put(`${BASE}/orders/${orderId}/status`, { status })
+    return response.data?.data || response.data
+  } catch (error) {
+    logger.error('Failed to update order status:', error)
+    throw error
+  }
+}
+

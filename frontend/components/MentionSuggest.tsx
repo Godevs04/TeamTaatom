@@ -4,9 +4,9 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
   Image,
 } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { searchUsersForMention, MentionUser } from '../services/mentions';
@@ -151,7 +151,7 @@ export const MentionSuggest: React.FC<MentionSuggestProps> = ({
     <View style={[styles.container, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="small" color={theme.colors.primary} />
+          <LoadingGlobe size="small" color={theme.colors.primary} />
         </View>
       ) : (
         <>

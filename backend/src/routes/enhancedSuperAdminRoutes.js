@@ -3,6 +3,7 @@ const router = express.Router()
 const multer = require('multer')
 const SuperAdmin = require('../models/SuperAdmin')
 const SystemSettings = require('../models/SystemSettings')
+const Order = require('../models/Order')
 const logger = require('../utils/logger')
 const { sendError, sendSuccess } = require('../utils/errorCodes')
 const { generateCSRF } = require('../middleware/csrfProtection')
@@ -5087,7 +5088,6 @@ const { uploadObject, buildMediaKey } = require('../services/storage')
 const connectController = require('../controllers/connectController')
 const { generateSignedUrl } = require('../services/mediaService')
 
-// Multer for community page images (profile + banner)
 const communityUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
@@ -5097,7 +5097,12 @@ const communityUpload = multer({
   }
 }).fields([
   { name: 'profileImage', maxCount: 1 },
-  { name: 'bannerImage', maxCount: 1 }
+  { name: 'bannerImage', maxCount: 1 },
+  { name: 'buyItemImage_0', maxCount: 1 },
+  { name: 'buyItemImage_1', maxCount: 1 },
+  { name: 'buyItemImage_2', maxCount: 1 },
+  { name: 'buyItemImage_3', maxCount: 1 },
+  { name: 'buyItemImage_4', maxCount: 1 }
 ])
 
 /**
@@ -5139,6 +5144,16 @@ router.get('/community-pages', authenticateSuperAdmin, async (req, res) => {
           if (url) p.bannerImage = url
           else p.bannerImage = ''
         } catch { p.bannerImage = '' }
+      }
+      if (p.buyItems && Array.isArray(p.buyItems)) {
+        for (const item of p.buyItems) {
+          if (item.imageUrl && !item.imageUrl.startsWith('http')) {
+            try {
+              const url = await generateSignedUrl(item.imageUrl, 'DEFAULT')
+              if (url) item.imageUrl = url
+            } catch { /* keep original */ }
+          }
+        }
       }
     }
 
@@ -5216,6 +5231,37 @@ router.post('/community-pages', authenticateSuperAdmin, (req, res, next) => {
       }
     }
 
+    // Handle buyItems parsing & image uploads
+    let parsedBuyItems = []
+    if (req.body.buyItems) {
+      try {
+        parsedBuyItems = JSON.parse(req.body.buyItems)
+      } catch (err) {
+        logger.warn('Failed to parse buyItems on create:', err)
+      }
+    }
+
+    if (Array.isArray(parsedBuyItems)) {
+      for (let i = 0; i < parsedBuyItems.length; i++) {
+        const itemFile = req.files?.[`buyItemImage_${i}`]?.[0]
+        if (itemFile) {
+          try {
+            const ext = itemFile.originalname?.split('.').pop() || 'jpg'
+            const storageKey = buildMediaKey({
+              type: 'connect',
+              userId: adminUser._id.toString(),
+              filename: itemFile.originalname || `item_${i}.jpg`,
+              extension: ext
+            })
+            await uploadObject(itemFile.buffer, storageKey, itemFile.mimetype)
+            parsedBuyItems[i].imageUrl = storageKey
+          } catch (err) {
+            logger.error(`Error uploading buyItemImage_${i} on create:`, err)
+          }
+        }
+      }
+    }
+
     const pageData = {
       userId: adminUser._id,
       name: name.trim(),
@@ -5229,7 +5275,8 @@ router.post('/community-pages', authenticateSuperAdmin, (req, res, next) => {
         website: parsedFeatures?.website === true || parsedFeatures?.website === 'true' || false,
         groupChat: parsedFeatures?.groupChat === true || parsedFeatures?.groupChat === 'true' || false,
         subscription: parsedFeatures?.subscription === true || parsedFeatures?.subscription === 'true' || false
-      }
+      },
+      buyItems: parsedBuyItems
     }
 
     // Handle subscription pricing (auto-approved for admin pages)
@@ -5337,6 +5384,37 @@ router.put('/community-pages/:pageId', authenticateSuperAdmin, communityUpload, 
           approvedAt: new Date(),
           reviewedBy: req.superAdmin._id,
         }
+      }
+    }
+    // Update buyItems if provided
+    if (req.body.buyItems) {
+      let parsedBuyItems = []
+      try {
+        parsedBuyItems = JSON.parse(req.body.buyItems)
+      } catch (err) {
+        logger.warn('Failed to parse buyItems on update:', err)
+      }
+
+      if (Array.isArray(parsedBuyItems)) {
+        for (let i = 0; i < parsedBuyItems.length; i++) {
+          const itemFile = req.files?.[`buyItemImage_${i}`]?.[0]
+          if (itemFile) {
+            try {
+              const ext = itemFile.originalname?.split('.').pop() || 'jpg'
+              const key = buildMediaKey({
+                type: 'connect',
+                userId: page.userId.toString(),
+                filename: itemFile.originalname || `item_${i}.jpg`,
+                extension: ext
+              })
+              await uploadObject(itemFile.buffer, key, itemFile.mimetype)
+              parsedBuyItems[i].imageUrl = key
+            } catch (err) {
+              logger.error(`Error uploading buyItemImage_${i} on update:`, err)
+            }
+          }
+        }
+        page.buyItems = parsedBuyItems
       }
     }
 
@@ -5517,6 +5595,131 @@ router.put('/community-pages/:pageId/content', authenticateSuperAdmin, async (re
   } catch (error) {
     logger.error('Error updating community page content:', error)
     return sendError(res, 'SRV_6001', 'Failed to update content')
+  }
+})
+
+/**
+ * GET /api/v1/superadmin/community-pages/:pageId/orders
+ * List all orders for a community page
+ */
+router.get('/community-pages/:pageId/orders', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { pageId } = req.params
+    const pageNum = Math.max(parseInt(req.query.page) || 1, 1)
+    const limitNum = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100)
+    const skip = (pageNum - 1) * limitNum
+
+    const page = await ConnectPage.findOne({ _id: pageId, isAdminPage: true })
+    if (!page) return sendError(res, 'NOT_FOUND', 'Community page not found')
+
+    const [orders, total] = await Promise.all([
+      Order.find({ connectPageId: pageId })
+        .populate('userId', 'username fullName profilePic email')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      Order.countDocuments({ connectPageId: pageId })
+    ])
+
+    return sendSuccess(res, 200, 'Orders fetched successfully', {
+      orders,
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        totalPages: Math.ceil(total / limitNum)
+      }
+    })
+  } catch (error) {
+    logger.error('Error fetching orders:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch orders')
+  }
+})
+
+/**
+ * PUT /api/v1/superadmin/orders/:orderId/status
+ * Update the delivery status of an order
+ */
+router.put('/orders/:orderId/status', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const { orderId } = req.params
+    const { deliveryStatus } = req.body
+
+    if (!['pending', 'shipped', 'delivered', 'cancelled'].includes(deliveryStatus)) {
+      return sendError(res, 'VALIDATION_FAILED', 'Invalid delivery status value')
+    }
+
+    const order = await Order.findById(orderId)
+    if (!order) return sendError(res, 'NOT_FOUND', 'Order not found')
+
+    order.deliveryStatus = deliveryStatus
+    await order.save()
+
+    return sendSuccess(res, 200, 'Order status updated successfully', { order })
+  } catch (error) {
+    logger.error('Error updating order status:', error)
+    return sendError(res, 'SRV_6001', 'Failed to update order status')
+  }
+})
+
+/**
+ * GET /api/v1/superadmin/orders
+ * List ALL orders across all community pages with filters
+ */
+router.get('/orders', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const pageNum = Math.max(parseInt(req.query.page) || 1, 1)
+    const limitNum = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100)
+    const skip = (pageNum - 1) * limitNum
+    const paymentStatus = req.query.paymentStatus
+    const deliveryStatus = req.query.deliveryStatus
+    const search = (req.query.search || '').trim()
+
+    const match = {}
+    if (paymentStatus && paymentStatus !== 'all') match.paymentStatus = paymentStatus
+    if (deliveryStatus && deliveryStatus !== 'all') match.deliveryStatus = deliveryStatus
+    if (search) {
+      match.$or = [
+        { buyerName: { $regex: search, $options: 'i' } },
+        { buyerPhone: { $regex: search, $options: 'i' } },
+        { itemName: { $regex: search, $options: 'i' } },
+      ]
+    }
+
+    const [orders, total] = await Promise.all([
+      Order.find(match)
+        .populate('userId', 'username fullName profilePic email')
+        .populate('connectPageId', 'name category')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      Order.countDocuments(match)
+    ])
+
+    // Stats
+    const [stats] = await Order.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalRevenue: { $sum: { $cond: [{ $in: ['$paymentStatus', ['paid', 'completed']] }, '$price', 0] } },
+          totalOrders: { $sum: 1 },
+          paidOrders: { $sum: { $cond: [{ $in: ['$paymentStatus', ['paid', 'completed']] }, 1, 0] } },
+          pendingOrders: { $sum: { $cond: [{ $eq: ['$paymentStatus', 'pending'] }, 1, 0] } },
+          pendingDelivery: { $sum: { $cond: [{ $eq: ['$deliveryStatus', 'pending'] }, 1, 0] } },
+        }
+      }
+    ])
+
+    return sendSuccess(res, 200, 'All orders fetched', {
+      orders,
+      pagination: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) },
+      stats: stats || { totalRevenue: 0, totalOrders: 0, paidOrders: 0, pendingOrders: 0, pendingDelivery: 0 }
+    })
+  } catch (error) {
+    logger.error('Error fetching all orders:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch orders')
   }
 })
 

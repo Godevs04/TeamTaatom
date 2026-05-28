@@ -216,7 +216,9 @@ const redirectShortUrl = async (req, res) => {
       universalLink = `https://taatom.com/post/${shortUrl.postId}`;
     }
     
-    logger.debug('Redirecting to app:', { deepLink, postId: shortUrl.postId });
+    logger.debug('Redirecting to app:', { deepLink, postId: shortUrl.postId, journeyId: shortUrl.journeyId });
+    
+    const resourceId = isJourney ? shortUrl.journeyId : shortUrl.postId;
     
     // Return HTML page that attempts to open app, with fallback
     // Use both deep link and universal link for better compatibility
@@ -232,9 +234,20 @@ const redirectShortUrl = async (req, res) => {
             (function() {
               var deepLink = '${deepLink}';
               var universalLink = '${universalLink}';
+              var isJourney = ${isJourney};
+              var resourceId = '${resourceId}';
               
-              // Try deep link first
-              window.location.href = deepLink;
+              // Detect Android device
+              var isAndroid = /Android/i.test(navigator.userAgent);
+              
+              if (isAndroid) {
+                // Use intent link for Android Chrome to avoid redirection block and support auto fallback
+                var intentLink = 'intent://' + (isJourney ? 'navigate/detail?journeyId=' + resourceId : 'post/' + resourceId) + '#Intent;scheme=taatom;package=com.taatom.app;S.browser_fallback_url=' + encodeURIComponent(universalLink) + ';end';
+                window.location.href = intentLink;
+              } else {
+                // Use custom scheme for iOS / other platforms
+                window.location.href = deepLink;
+              }
               
               // Fallback: if app doesn't open in 1.5 seconds, try universal link
               setTimeout(function() {

@@ -5,6 +5,8 @@ import { useTheme } from '../context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import * as Sentry from '@sentry/react-native';
 import { sanitizeErrorForDisplay } from './errorSanitizer';
+import * as Updates from 'expo-updates';
+import { analyticsService } from '../services/analytics';
 
 interface ErrorBoundaryState {
   hasError: boolean;
@@ -32,6 +34,16 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     this.setState({ errorInfo });
+    
+    // Log crash event to local analytics service
+    try {
+      analyticsService.trackError(error, {
+        level: this.props.level || 'component',
+        componentStack: errorInfo.componentStack,
+      });
+    } catch (analyticsErr) {
+      // Silently fail if analytics service throws during error boundary catch
+    }
     
     // Use centralized error reporter for better Sentry reporting
     try {
@@ -176,10 +188,18 @@ function ErrorFallback({
         {level === 'global' && (
           <TouchableOpacity 
             style={[styles.button, styles.secondaryButton, { borderColor: theme.colors.border }]} 
-            onPress={() => {
-              // Reload app
-              if (typeof window !== 'undefined') {
-                window.location.reload();
+            onPress={async () => {
+              // Reload app using expo-updates on native, fallback to browser reload on web
+              try {
+                if (Updates && typeof Updates.reloadAsync === 'function') {
+                  await Updates.reloadAsync();
+                } else if (typeof window !== 'undefined' && window.location) {
+                  window.location.reload();
+                }
+              } catch (reloadErr) {
+                if (typeof window !== 'undefined' && window.location) {
+                  window.location.reload();
+                }
               }
             }}
           >

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   TouchableOpacity,
   Image,
@@ -24,7 +24,11 @@ interface PhotoOverlayProps {
  * - Used as custom marker content on react-native-maps
  */
 export default function PhotoOverlay({ imageUrl, label, onPress }: PhotoOverlayProps) {
-  const [imageError, setImageError] = useState(false);
+  const [imageError, setImageError] = useState(!imageUrl);
+
+  useEffect(() => {
+    setImageError(!imageUrl);
+  }, [imageUrl]);
 
   return (
     <TouchableOpacity
