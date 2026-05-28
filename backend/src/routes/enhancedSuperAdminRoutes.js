@@ -5703,9 +5703,9 @@ router.get('/orders', authenticateSuperAdmin, async (req, res) => {
       {
         $group: {
           _id: null,
-          totalRevenue: { $sum: { $cond: [{ $eq: ['$paymentStatus', 'paid'] }, '$price', 0] } },
+          totalRevenue: { $sum: { $cond: [{ $in: ['$paymentStatus', ['paid', 'completed']] }, '$price', 0] } },
           totalOrders: { $sum: 1 },
-          paidOrders: { $sum: { $cond: [{ $eq: ['$paymentStatus', 'paid'] }, 1, 0] } },
+          paidOrders: { $sum: { $cond: [{ $in: ['$paymentStatus', ['paid', 'completed']] }, 1, 0] } },
           pendingOrders: { $sum: { $cond: [{ $eq: ['$paymentStatus', 'pending'] }, 1, 0] } },
           pendingDelivery: { $sum: { $cond: [{ $eq: ['$deliveryStatus', 'pending'] }, 1, 0] } },
         }
