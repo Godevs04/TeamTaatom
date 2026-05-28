@@ -119,7 +119,7 @@ export default function CustomAlert({
     >
       <View style={styles.overlay}>
         <BlurView
-          intensity={isDark ? 30 : 20}
+          intensity={isDark ? 55 : 45}
           tint={isDark ? 'dark' : 'light'}
           style={StyleSheet.absoluteFillObject}
         />
@@ -128,16 +128,16 @@ export default function CustomAlert({
           style={[
             styles.alertContainer,
             {
-              backgroundColor: isDark ? 'rgba(30, 30, 30, 0.65)' : 'rgba(255, 255, 255, 0.65)',
-              borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.35)',
+              backgroundColor: isDark ? 'rgba(24, 24, 28, 0.90)' : 'rgba(255, 255, 255, 0.92)',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(255, 255, 255, 0.45)',
               transform: [{ scale: scaleValue }],
             },
           ]}
         >
           <BlurView
-            intensity={isDark ? 65 : 75}
+            intensity={isDark ? 80 : 90}
             tint={isDark ? 'dark' : 'light'}
-            style={StyleSheet.absoluteFillObject}
+            style={[StyleSheet.absoluteFillObject, { borderRadius: 24 }]}
           />
           
           <View style={styles.contentWrapper}>
@@ -208,7 +208,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
   },
   alertContainer: {
     width: '100%',
