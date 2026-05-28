@@ -70,6 +70,7 @@ import { trackFeatureUsage } from '../../services/analytics';
 import ImageEditModal, { ImageFilterType, FILTER_PREVIEW_OVERLAY } from '../../components/ImageEditModal';
 import AspectImageCropper, { CropTransform } from '../../components/post/AspectImageCropper';
 import { applyFilterToImages } from '../../utils/applyImageFilter';
+import { Image as ExpoImage } from 'expo-image';
 
 const logger = createLogger('PostScreen');
 
@@ -216,6 +217,38 @@ export default function PostScreen() {
 
   const [permission, requestPermission] = useCameraPermissions();
   const [latestAssetUri, setLatestAssetUri] = useState<string | null>(null);
+
+  // Helper to resolve iOS ph:// URI to standard file:// URI using MediaLibrary
+  const resolvePhUri = async (uri: string): Promise<string> => {
+    if (Platform.OS === 'ios' && uri.startsWith('ph://')) {
+      try {
+        const assetId = uri.substring(5); // strip "ph://"
+        const info = await MediaLibrary.getAssetInfoAsync(assetId);
+        if (info && info.localUri) {
+          return info.localUri;
+        }
+      } catch (e) {
+        logger.warn('Failed to resolve ph:// URI using MediaLibrary:', e);
+      }
+    }
+    return uri;
+  };
+
+  // Helper to match ph:// URIs with resolved file:// URIs using asset UUID
+  const isUriMatch = (selectedUri: string | null | undefined, itemUri: string) => {
+    if (!selectedUri) return false;
+    if (selectedUri === itemUri) return true;
+    if (Platform.OS === 'ios') {
+      const getUuid = (u: string) => {
+        const matches = u.match(/[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}/gi);
+        return matches ? matches[matches.length - 1].toUpperCase() : null;
+      };
+      const selUuid = getUuid(selectedUri);
+      const itemUuid = getUuid(itemUri);
+      if (selUuid && itemUuid && selUuid === itemUuid) return true;
+    }
+    return false;
+  };
   
   // New Instagram style state variables
   const [showDetails, setShowDetails] = useState(false);
@@ -333,12 +366,13 @@ export default function PostScreen() {
             // Set the first asset as default preview
             if (selectedImages.length === 0 && !selectedVideo) {
               const firstAsset = result.assets[0];
+              const resolvedUri = await resolvePhUri(firstAsset.uri);
               if (firstAsset.mediaType === 'video') {
-                setSelectedVideo(firstAsset.uri);
+                setSelectedVideo(resolvedUri);
                 setPostType('short');
               } else {
                 setSelectedImages([{
-                  uri: firstAsset.uri,
+                  uri: resolvedUri,
                   type: 'image/jpeg',
                   name: firstAsset.filename || `photo_${Date.now()}.jpg`,
                 }]);
@@ -4454,31 +4488,33 @@ export default function PostScreen() {
                 );
               }
 
-              const isSelected = selectedImages.some(img => img.uri === item.uri) || selectedVideo === item.uri;
-              const selectIndex = selectedImages.findIndex(img => img.uri === item.uri);
+              const isSelected = selectedImages.some(img => isUriMatch(img.uri, item.uri)) || isUriMatch(selectedVideo, item.uri);
+              const selectIndex = selectedImages.findIndex(img => isUriMatch(img.uri, item.uri));
 
               return (
                 <TouchableOpacity
-                  onPress={() => {
+                  onPress={async () => {
                     if (item.mediaType === 'video') {
-                      setSelectedVideo(item.uri);
+                      const resolvedUri = await resolvePhUri(item.uri);
+                      setSelectedVideo(resolvedUri);
                       setSelectedImages([]);
                       setPostType('short');
                     } else {
                       setSelectedVideo(null);
                       setPostType('photo');
+                      const resolvedUri = await resolvePhUri(item.uri);
                       if (isMultiSelect) {
                         setSelectedImages(prev => {
-                          const exists = prev.some(img => img.uri === item.uri);
+                          const exists = prev.some(img => isUriMatch(img.uri, resolvedUri));
                           if (exists) {
-                            return prev.filter(img => img.uri !== item.uri);
+                            return prev.filter(img => !isUriMatch(img.uri, resolvedUri));
                           } else {
                             if (prev.length >= 10) {
                               Alert.alert('Too many images', 'Maximum 10 images allowed');
                               return prev;
                             }
                             return [...prev, {
-                              uri: item.uri,
+                              uri: resolvedUri,
                               type: 'image/jpeg',
                               name: item.filename || `photo_${Date.now()}.jpg`,
                             }];
@@ -4486,7 +4522,7 @@ export default function PostScreen() {
                         });
                       } else {
                         setSelectedImages([{
-                          uri: item.uri,
+                          uri: resolvedUri,
                           type: 'image/jpeg',
                           name: item.filename || `photo_${Date.now()}.jpg`,
                         }]);
@@ -4501,7 +4537,7 @@ export default function PostScreen() {
                     borderColor: mode === 'dark' ? '#000000' : '#FFFFFF',
                   }}
                 >
-                  <Image
+                  <ExpoImage
                     source={{ uri: item.thumbnailUri || item.uri }}
                     style={{ width: '100%', height: '100%', opacity: isSelected ? 0.7 : 1 }}
                   />
@@ -4598,11 +4634,15 @@ export default function PostScreen() {
                       const firstPhoto = cameraRollAssets.find(a => a.mediaType === 'photo');
                       if (firstPhoto) {
                         setSelectedVideo(null);
-                        setSelectedImages([{
-                          uri: firstPhoto.uri,
-                          type: 'image/jpeg',
-                          name: firstPhoto.filename || `photo_${Date.now()}.jpg`,
-                        }]);
+                        resolvePhUri(firstPhoto.uri).then(resolvedUri => {
+                          setSelectedImages([{
+                            uri: resolvedUri,
+                            type: 'image/jpeg',
+                            name: firstPhoto.filename || `photo_${Date.now()}.jpg`,
+                          }]);
+                        }).catch(err => {
+                          console.warn('Failed to resolve tab photo URI:', err);
+                        });
                       }
                     } else if (tab === 'REEL') {
                       setPostType('short');
@@ -4610,7 +4650,11 @@ export default function PostScreen() {
                       const firstVideo = cameraRollAssets.find(a => a.mediaType === 'video');
                       if (firstVideo) {
                         setSelectedImages([]);
-                        setSelectedVideo(firstVideo.uri);
+                        resolvePhUri(firstVideo.uri).then(resolvedUri => {
+                          setSelectedVideo(resolvedUri);
+                        }).catch(err => {
+                          console.warn('Failed to resolve tab video URI:', err);
+                        });
                       }
                     }
                   }}

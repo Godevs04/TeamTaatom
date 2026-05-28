@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { getPostShareUrl, getJourneyShareUrl } from '../utils/config';
 import { getShortUrl, getJourneyShortUrl } from '../services/shortUrl';
-import { sendMessage, sharePostToChat } from '../services/chat';
+import { sendMessage, sharePostToChat, listChats, sendMessageToRoom } from '../services/chat';
 import { searchUsers, getSuggestedUsers } from '../services/profile';
 import api from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -50,6 +50,16 @@ interface ShareModalProps {
     status?: string;
   };
   shareUrl?: string;
+}
+
+interface RecipientItem {
+  _id: string;
+  fullName: string;
+  profilePic?: string;
+  username?: string;
+  isGroup: boolean;
+  subtitle?: string;
+  chatId?: string;
 }
 
 export default function ShareModal({
@@ -93,11 +103,12 @@ export default function ShareModal({
   const [shortUrl, setShortUrl] = useState<string>('');
   const [isLoadingUrl, setIsLoadingUrl] = useState(false);
   const [showUserPicker, setShowUserPicker] = useState(false);
-  const [users, setUsers] = useState<any[]>([]);
+  const [recipients, setRecipients] = useState<RecipientItem[]>([]);
+  const [activeChats, setActiveChats] = useState<any[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
-  const [sendingToUserId, setSendingToUserId] = useState<string | null>(null);
   const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
 
   // Fetch short URL when modal opens (non-blocking)
@@ -229,16 +240,18 @@ export default function ShareModal({
   // Handle send to chat
   const handleSendToChat = () => {
     setShowUserPicker(true);
-    setSearchQuery(''); // Reset search when opening
-    setUsers([]); // Clear previous users
-    // loadUsers will be called by useEffect when showUserPicker becomes true
+    setSearchQuery('');
+    setRecipients([]);
+    setSelectedIds([]);
   };
 
   // Cleanup when modal closes
   useEffect(() => {
     if (!showUserPicker) {
       setSearchQuery('');
-      setUsers([]);
+      setRecipients([]);
+      setSelectedIds([]);
+      setActiveChats([]);
       if (searchTimeout) {
         clearTimeout(searchTimeout);
         setSearchTimeout(null);
@@ -246,119 +259,133 @@ export default function ShareModal({
     }
   }, [showUserPicker]);
 
-  // Load users for chat - search across all users in the app
-  const loadUsers = async (query: string = '') => {
+  // Load recipients - merges active group chats with suggested/searched users
+  const loadUsers = async (query: string = '', chats?: any[]) => {
     setIsLoadingUsers(true);
+    const effectiveChats = chats !== undefined ? chats : activeChats;
     try {
-      const trimmedQuery = query.trim();
-      
-      // If query is empty or less than 2 characters, use suggested users or following users
+      const trimmedQuery = query.trim().toLowerCase();
+
+      // Build group chat items, filtered by query if present
+      const groupItems: RecipientItem[] = effectiveChats
+        .filter((c: any) => c.type === 'connect_page' && c.connectPageId)
+        .filter((c: any) =>
+          !trimmedQuery || c.connectPageId.name.toLowerCase().includes(trimmedQuery)
+        )
+        .map((c: any): RecipientItem => ({
+          _id: c._id,
+          fullName: c.connectPageId.name,
+          profilePic: c.connectPageId.profileImage,
+          isGroup: true,
+          subtitle: 'Connect Group',
+          chatId: c._id,
+        }));
+
+      let userItems: RecipientItem[] = [];
+
       if (!trimmedQuery || trimmedQuery.length < 2) {
-        // Try to get suggested users first
+        // No/short query: show suggested users
         try {
           const suggestedResponse = await getSuggestedUsers(50);
           if (suggestedResponse.users && suggestedResponse.users.length > 0) {
-            setUsers(suggestedResponse.users);
-            return;
+            userItems = suggestedResponse.users.map((u: any): RecipientItem => ({
+              _id: u._id,
+              fullName: u.fullName || u.username || 'User',
+              profilePic: u.profilePic,
+              username: u.username,
+              isGroup: false,
+            }));
           }
-        } catch (suggestedError) {
-          logger.debug('Could not get suggested users, trying following users:', suggestedError);
-        }
-        
-        // Fallback: get following users
-        try {
-          const userData = await AsyncStorage.getItem('userData');
-          if (userData) {
-            const parsed = JSON.parse(userData);
-            const response = await api.get(`/api/v1/profile/${parsed._id}/following`);
-            const followingUsers = response.data.users || [];
-            if (followingUsers.length > 0) {
-              setUsers(followingUsers);
-              return;
+        } catch {
+          // Fallback: following users
+          try {
+            const userData = await AsyncStorage.getItem('userData');
+            if (userData) {
+              const parsed = JSON.parse(userData);
+              const response = await api.get(`/api/v1/profile/${parsed._id}/following`);
+              userItems = (response.data.users || []).map((u: any): RecipientItem => ({
+                _id: u._id,
+                fullName: u.fullName || u.username || 'User',
+                profilePic: u.profilePic,
+                username: u.username,
+                isGroup: false,
+              }));
             }
+          } catch {
+            // ignore
           }
-        } catch (followingError) {
-          logger.debug('Could not get following users:', followingError);
         }
-        
-        // If both fail, set empty array
-        setUsers([]);
       } else {
-        // Query is 2+ characters, use search API
-        const response = await searchUsers(trimmedQuery, 1, 100);
-        setUsers(response.users || []);
-      }
-    } catch (error: any) {
-      logger.error('Error loading users:', error);
-      // Final fallback: try to get following users
-      try {
-        const userData = await AsyncStorage.getItem('userData');
-        if (userData) {
-          const parsed = JSON.parse(userData);
-          const response = await api.get(`/api/v1/profile/${parsed._id}/following`);
-          setUsers(response.data.users || []);
-        } else {
-          setUsers([]);
+        // Search query: search users via API
+        try {
+          const response = await searchUsers(trimmedQuery, 1, 100);
+          userItems = (response.users || []).map((u: any): RecipientItem => ({
+            _id: u._id,
+            fullName: u.fullName || u.username || 'User',
+            profilePic: u.profilePic,
+            username: u.username,
+            isGroup: false,
+          }));
+        } catch {
+          // ignore
         }
-      } catch (fallbackError) {
-        logger.error('Error loading following users:', fallbackError);
-        setUsers([]);
       }
+
+      setRecipients([...groupItems, ...userItems]);
+    } catch (error: any) {
+      logger.error('Error loading recipients:', error);
+      setRecipients([]);
     } finally {
       setIsLoadingUsers(false);
     }
   };
 
-  // Debounced search - load users when search query changes
+  // Debounced search when query changes
   useEffect(() => {
     if (!showUserPicker) return;
-
-    // Clear previous timeout
-    if (searchTimeout) {
-      clearTimeout(searchTimeout);
-    }
-
-    // Set new timeout for debounced search
+    if (searchTimeout) clearTimeout(searchTimeout);
     const timeout = setTimeout(() => {
-      loadUsers(searchQuery);
-    }, 300); // 300ms debounce
-
+      loadUsers(searchQuery, activeChats);
+    }, 300);
     setSearchTimeout(timeout);
-
-    // Cleanup
-    return () => {
-      if (timeout) {
-        clearTimeout(timeout);
-      }
-    };
+    return () => { clearTimeout(timeout); };
   }, [searchQuery, showUserPicker]);
 
-  // Preload chat recipients when share modal opens so "Send to Chat" is instant
+  // Fetch chats + load initial recipients when picker opens
   useEffect(() => {
-    if (visible && (post?._id || journey?._id)) {
-      loadUsers('').catch(() => {});
-    }
-  }, [visible, post?._id, journey?._id]);
-
-  // Load initial users when user picker opens
-  useEffect(() => {
-    if (showUserPicker && !searchQuery) {
-      loadUsers('');
-    }
+    if (!showUserPicker) return;
+    let cancelled = false;
+    const init = async () => {
+      try {
+        const chatResponse = await listChats();
+        if (cancelled) return;
+        const chats = chatResponse.chats || [];
+        setActiveChats(chats);
+        await loadUsers('', chats);
+      } catch {
+        if (!cancelled) await loadUsers('', []);
+      }
+    };
+    init();
+    return () => { cancelled = true; };
   }, [showUserPicker]);
 
-  // Send post or journey to selected user
-  const handleSendToUser = async (userId: string) => {
-    if (!post?._id && !journey?._id) return;
+  // Toggle a recipient in/out of the selection
+  const toggleRecipient = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
 
+  // Send post or journey to ALL selected recipients in parallel
+  const handleSendToRecipients = async () => {
+    if (selectedIds.length === 0 || (!post?._id && !journey?._id)) return;
     setIsSendingMessage(true);
-    setSendingToUserId(userId);
     try {
       const currentShareUrl = getShareUrl();
       let messageText = '';
 
       if (isJourneyShare && journey?._id) {
-        // Format: [JOURNEY_SHARE]journeyId|shareUrl|title|distance|status
         const dist = journey.distanceTraveled
           ? journey.distanceTraveled >= 1000
             ? `${(journey.distanceTraveled / 1000).toFixed(1)} km`
@@ -369,57 +396,74 @@ export default function ShareModal({
           currentShareUrl,
           journey.title || 'Journey',
           dist,
-          journey.status || 'completed'
+          journey.status || 'completed',
         ].join('|');
         messageText = `[JOURNEY_SHARE]${journeyData}`;
       } else if (post?._id) {
-        // Extract image URL - try multiple sources
-        let imageUrl = '';
-        if (post.imageUrl) {
-          imageUrl = post.imageUrl;
-        } else if (post.images && Array.isArray(post.images) && post.images.length > 0) {
-          imageUrl = post.images[0];
-        } else if (post.mediaUrl) {
-          imageUrl = post.mediaUrl;
-        } else if (post.videoUrl) {
-          imageUrl = post.videoUrl;
-        }
-
-        // Format: [POST_SHARE]postId|imageUrl|shareUrl|caption|authorName
+        const imageUrl =
+          post.imageUrl ||
+          (post.images && post.images.length > 0 ? post.images[0] : '') ||
+          post.mediaUrl ||
+          post.videoUrl ||
+          '';
         const postData = [
           post._id,
-          imageUrl || '',
+          imageUrl,
           currentShareUrl,
           post.caption || '',
-          post.user?.fullName || ''
+          post.user?.fullName || '',
         ].join('|');
         messageText = `[POST_SHARE]${postData}`;
       }
 
-      if (post?._id && !isJourneyShare) {
-        try {
-          await sharePostToChat(post._id, { otherUserId: userId });
-        } catch {
-          await sendMessage(userId, messageText);
-        }
-      } else {
-        await sendMessage(userId, messageText);
-      }
+      const targets = recipients.filter((r) => selectedIds.includes(r._id));
+
+      await Promise.all(
+        targets.map(async (recipient) => {
+          if (recipient.isGroup && recipient.chatId) {
+            // Group chat
+            if (post?._id && !isJourneyShare) {
+              try {
+                await sharePostToChat(post._id, { chatId: recipient.chatId });
+              } catch {
+                await sendMessageToRoom(recipient.chatId, messageText);
+              }
+            } else {
+              await sendMessageToRoom(recipient.chatId, messageText);
+            }
+          } else {
+            // 1-on-1 user
+            if (post?._id && !isJourneyShare) {
+              try {
+                await sharePostToChat(post._id, { otherUserId: recipient._id });
+              } catch {
+                await sendMessage(recipient._id, messageText);
+              }
+            } else {
+              await sendMessage(recipient._id, messageText);
+            }
+          }
+        })
+      );
 
       setIsSendingMessage(false);
-      setSendingToUserId(null);
       setShowUserPicker(false);
+      setSelectedIds([]);
 
       setTimeout(() => {
         onClose();
         setTimeout(() => {
-          Alert.alert('Success', isJourneyShare ? 'Journey sent successfully!' : 'Post sent successfully!');
+          Alert.alert(
+            'Sent!',
+            `${isJourneyShare ? 'Journey' : 'Post'} sent to ${targets.length} ${
+              targets.length === 1 ? 'recipient' : 'recipients'
+            }!`
+          );
         }, 200);
       }, 150);
     } catch (error: any) {
-      logger.error('Error sending message:', error);
+      logger.error('Error sending to recipients:', error);
       setIsSendingMessage(false);
-      setSendingToUserId(null);
       Alert.alert('Error', error.message || 'Failed to send. Please try again.');
     }
   };
@@ -445,11 +489,10 @@ export default function ShareModal({
           document.body.removeChild(textArea);
         }
       } else {
-        // Mobile: Use expo-clipboard
+        // Mobile: Use expo-clipboard to copy, fall back to Share sheet if unavailable
         try {
           await Clipboard.setStringAsync(url);
         } catch (expoClipboardError) {
-          // Fallback: Use Share API (will show share sheet)
           await Share.share({
             message: url,
             title: 'Copy Link',
@@ -663,63 +706,113 @@ export default function ShareModal({
               <Ionicons name="search" size={20} color={theme.colors.textSecondary} />
               <TextInput
                 style={[styles.searchInput, { color: theme.colors.text }]}
-                placeholder="Search users..."
+                placeholder="Search people & groups..."
                 placeholderTextColor={theme.colors.textSecondary}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
               />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')}>
+                  <Ionicons name="close-circle" size={18} color={theme.colors.textSecondary} />
+                </TouchableOpacity>
+              )}
             </View>
 
-            {/* Users List */}
+            {/* Recipients List */}
             {isLoadingUsers ? (
               <View style={styles.loadingContainer}>
                 <LoadingGlobe size="large" color={theme.colors.primary} />
               </View>
             ) : (
               <FlatList
-                data={users}
+                data={recipients}
                 keyExtractor={(item) => item._id}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={[styles.userItem, { backgroundColor: theme.colors.background }]}
-                    onPress={() => handleSendToUser(item._id)}
-                    disabled={isSendingMessage}
-                  >
-                    {item.profilePic ? (
-                      <Image
-                        source={{ uri: item.profilePic }}
-                        style={styles.userAvatar}
-                      />
-                    ) : (
-                      <View style={[styles.userAvatar, { backgroundColor: theme.colors.border }]}>
-                        <Ionicons name="person" size={24} color={theme.colors.textSecondary} />
-                      </View>
-                    )}
-                    <View style={styles.userInfo}>
-                      <Text style={[styles.userName, { color: theme.colors.text }]}>
-                        {item.fullName || item.username || 'User'}
-                      </Text>
-                      {item.username && item.username !== item.fullName && (
-                        <Text style={[styles.userUsername, { color: theme.colors.textSecondary }]}>
-                          @{item.username}
-                        </Text>
+                renderItem={({ item }) => {
+                  const isSelected = selectedIds.includes(item._id);
+                  return (
+                    <TouchableOpacity
+                      style={[
+                        styles.userItem,
+                        {
+                          backgroundColor: isSelected
+                            ? theme.colors.primary + '18'
+                            : theme.colors.background,
+                        },
+                      ]}
+                      onPress={() => toggleRecipient(item._id)}
+                      disabled={isSendingMessage}
+                      activeOpacity={0.7}
+                    >
+                      {item.isGroup ? (
+                        <View style={[styles.userAvatar, { backgroundColor: theme.colors.primary + '22' }]}>
+                          <Ionicons name="chatbubbles" size={22} color={theme.colors.primary} />
+                        </View>
+                      ) : item.profilePic ? (
+                        <Image source={{ uri: item.profilePic }} style={styles.userAvatar} />
+                      ) : (
+                        <View style={[styles.userAvatar, { backgroundColor: theme.colors.border }]}>
+                          <Ionicons name="person" size={24} color={theme.colors.textSecondary} />
+                        </View>
                       )}
-                    </View>
-                    {isSendingMessage && sendingToUserId === item._id && (
-                      <LoadingGlobe size="small" color={theme.colors.primary} />
-                    )}
-                  </TouchableOpacity>
-                )}
+                      <View style={styles.userInfo}>
+                        <Text style={[styles.userName, { color: theme.colors.text }]}>
+                          {item.fullName}
+                        </Text>
+                        {item.subtitle ? (
+                          <Text style={[styles.userUsername, { color: theme.colors.primary }]}>
+                            {item.subtitle}
+                          </Text>
+                        ) : item.username ? (
+                          <Text style={[styles.userUsername, { color: theme.colors.textSecondary }]}>
+                            @{item.username}
+                          </Text>
+                        ) : null}
+                      </View>
+                      <View
+                        style={[
+                          styles.checkCircle,
+                          {
+                            borderColor: isSelected ? theme.colors.primary : theme.colors.border,
+                            backgroundColor: isSelected ? theme.colors.primary : 'transparent',
+                          },
+                        ]}
+                      >
+                        {isSelected && <Ionicons name="checkmark" size={14} color="#fff" />}
+                      </View>
+                    </TouchableOpacity>
+                  );
+                }}
                 ListEmptyComponent={
                   <View style={styles.emptyContainer}>
                     <Ionicons name="people-outline" size={48} color={theme.colors.textSecondary} />
                     <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
-                      {searchQuery ? 'No users found' : 'No users available'}
+                      {searchQuery ? 'No results found' : 'No contacts available'}
                     </Text>
                   </View>
                 }
-                contentContainerStyle={{ paddingBottom: 20 }}
+                contentContainerStyle={{ paddingBottom: selectedIds.length > 0 ? 90 : 20 }}
               />
+            )}
+
+            {/* Floating Send Button */}
+            {selectedIds.length > 0 && (
+              <TouchableOpacity
+                style={[styles.sendButton, { backgroundColor: theme.colors.primary }]}
+                onPress={handleSendToRecipients}
+                disabled={isSendingMessage}
+                activeOpacity={0.85}
+              >
+                {isSendingMessage ? (
+                  <LoadingGlobe size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="send" size={18} color="#fff" />
+                    <Text style={styles.sendButtonText}>
+                      Send{selectedIds.length > 1 ? ` to ${selectedIds.length}` : ''}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
             )}
           </View>
         </View>
@@ -910,6 +1003,29 @@ const styles = StyleSheet.create({
   emptyText: {
     marginTop: 12,
     fontSize: 16,
+  },
+  checkCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  sendButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+    marginTop: 10,
+  },
+  sendButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
 
