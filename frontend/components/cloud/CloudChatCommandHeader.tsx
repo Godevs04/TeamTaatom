@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import MaskedView from '@react-native-masked-view/masked-view';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { cloudDesign } from '../../constants/cloudDesign';
 import CloudSearchDock from './CloudSearchDock';
@@ -30,6 +31,7 @@ export default function CloudChatCommandHeader({
   onMarkAllRead,
 }: CloudChatCommandHeaderProps) {
   const { theme, mode } = useTheme();
+  const insets = useSafeAreaInsets();
   const isDark =
     mode === 'dark' ||
     theme.colors.background === '#0B1A2B' ||
@@ -44,8 +46,9 @@ export default function CloudChatCommandHeader({
         style={[
           styles.dock,
           {
-            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)',
+            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)',
             borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+            paddingTop: insets.top,
           }
         ]}
       >
@@ -107,15 +110,18 @@ export default function CloudChatCommandHeader({
 
 const styles = StyleSheet.create({
   wrap: {
-    marginHorizontal: isTablet ? 24 : 14,
-    marginTop: isAndroid ? 6 : 4,
-    marginBottom: 8,
+    position: 'relative',
+    width: '100%',
+    zIndex: 100,
   },
   dock: {
-    borderRadius: 24,
-    borderWidth: 1,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    borderBottomWidth: 1,
     overflow: 'hidden',
-    paddingBottom: 10,
+    paddingBottom: 8,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,

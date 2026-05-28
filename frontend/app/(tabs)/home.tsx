@@ -1269,7 +1269,18 @@ export default function HomeScreen() {
       right: 0,
       paddingTop: insets.top,
       zIndex: 1000,
-      backgroundColor: 'transparent',
+      borderBottomWidth: 1,
+      borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+      backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)',
+      borderBottomLeftRadius: 24,
+      borderBottomRightRadius: 24,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.3 : 0.1,
+      shadowRadius: 10,
+      elevation: 4,
+      overflow: 'hidden',
+      paddingBottom: 6,
       ...(isWeb && {
         maxWidth: isTablet ? 800 : 600,
         alignSelf: 'center',
@@ -1517,31 +1528,13 @@ export default function HomeScreen() {
             translucent
           />
           <View style={[styles.topBarContainer, { position: 'relative' }]}>
-            <View
-              style={{
-                marginHorizontal: isTablet ? 24 : 14,
-                marginTop: isAndroid ? 6 : 4,
-                borderRadius: 24,
-                borderWidth: 1,
-                borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
-                backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)',
-                shadowColor: '#000000',
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: isDark ? 0.3 : 0.1,
-                shadowRadius: 10,
-                elevation: 4,
-                overflow: 'hidden',
-                paddingBottom: 8,
-              }}
-            >
-              <BlurView
-                intensity={95}
-                tint={isDark ? 'dark' : 'light'}
-                style={StyleSheet.absoluteFillObject}
-              />
-              {renderTopHeader()}
-              {renderFeedTabs()}
-            </View>
+            <BlurView
+              intensity={95}
+              tint={isDark ? 'dark' : 'light'}
+              style={StyleSheet.absoluteFillObject}
+            />
+            {renderTopHeader()}
+            {renderFeedTabs()}
           </View>
           <ScrollView
             style={styles.postsContainer}
@@ -1662,31 +1655,13 @@ export default function HomeScreen() {
           style={styles.topBarContainer}
           onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
         >
-          <View
-            style={{
-              marginHorizontal: isTablet ? 24 : 14,
-              marginTop: isAndroid ? 6 : 4,
-              borderRadius: 24,
-              borderWidth: 1,
-              borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
-              backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)',
-              shadowColor: '#000000',
-              shadowOffset: { width: 0, height: 4 },
-              shadowOpacity: isDark ? 0.3 : 0.1,
-              shadowRadius: 10,
-              elevation: 4,
-              overflow: 'hidden',
-              paddingBottom: 8,
-            }}
-          >
-            <BlurView
-              intensity={95}
-              tint={isDark ? 'dark' : 'light'}
-              style={StyleSheet.absoluteFillObject}
-            />
-            {renderTopHeader()}
-            {renderFeedTabs()}
-          </View>
+          <BlurView
+            intensity={95}
+            tint={isDark ? 'dark' : 'light'}
+            style={StyleSheet.absoluteFillObject}
+          />
+          {renderTopHeader()}
+          {renderFeedTabs()}
         </View>
       </View>
     </View>
