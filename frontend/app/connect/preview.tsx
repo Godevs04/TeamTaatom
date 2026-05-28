@@ -33,7 +33,8 @@ import {
   getSubscriptionStatus,
   createSubscription,
   cancelSubscription as cancelSubApi,
-  buyCommunityItem,
+  createBuyOrder,
+  verifyBuyOrder,
   getCurrencySymbol,
   fetchCurrencyConfig,
   formatConnectMoney,
@@ -51,6 +52,7 @@ import {
   CFPaymentGatewayService,
   CFEnvironment,
   CFSubscriptionSession,
+  CFSession,
 } from '../../utils/cashfreeShim';
 import { resolveCashfreeEnvironment } from '../../utils/cashfreeCheckout';
 import { logContentView } from '../../services/adCap';
@@ -128,6 +130,7 @@ export default function ContentPreviewScreen() {
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
   const [subscribing, setSubscribing] = useState(false);
   const pendingSubscriptionRef = useRef<{ subscriptionId: string; amount: number } | null>(null);
+  const pendingBuyOrderRef = useRef<{ orderId: string; cashfreeOrderId: string; pageId: string } | null>(null);
 
   // Multi-currency live conversion support
   const [countryToCurrency, setCountryToCurrency] = useState<Record<string, string>>({ IN: 'INR' });
@@ -226,10 +229,25 @@ export default function ContentPreviewScreen() {
     if (!isCashfreeNativeAvailable) return;
     CFPaymentGatewayService.setCallback({
       onVerify(orderID: string): void {
-        logger.info('Cashfree subscription verified, orderID:', orderID);
+        logger.info('Cashfree payment verified, orderID:', orderID);
         try {
           if (!pageId) {
             throw new Error('Connect Page ID is missing during Cashfree preview callback sync');
+          }
+
+          // ── One-time buy order verification ──
+          if (pendingBuyOrderRef.current) {
+            const { orderId, cashfreeOrderId, pageId: pId } = pendingBuyOrderRef.current;
+            pendingBuyOrderRef.current = null;
+            verifyBuyOrder(pId, { orderId, cashfreeOrderId, cashfreePaymentId: orderID })
+              .catch((err) => logger.warn('Buy order server verify failed (non-blocking):', err));
+            setCheckoutModalVisible(false);
+            setBuyerName('');
+            setBuyerPhone('');
+            setPayPhone('');
+            setDeliveryAddress('');
+            showSuccess('Your payment is complete. Order placed!', 'Order confirmed');
+            return;
           }
 
           if (pendingSubscriptionRef.current) {
@@ -275,7 +293,11 @@ export default function ContentPreviewScreen() {
       },
       onError(error: CFErrorResponse, orderID: string): void {
         try {
-          logger.error('Cashfree subscription error:', JSON.stringify(error), 'orderID:', orderID);
+          logger.error('Cashfree payment error:', JSON.stringify(error), 'orderID:', orderID);
+          // If this was a buy order, clear it
+          if (pendingBuyOrderRef.current) {
+            pendingBuyOrderRef.current = null;
+          }
           Alert.alert('Payment Failed', 'Could not complete payment. Please try again.');
         } catch (err) {
           logger.error('Error handling Cashfree preview onError callback:', err);
@@ -368,7 +390,7 @@ export default function ContentPreviewScreen() {
     }
   };
 
-  const handleBuyItem = async () => {
+   const handleBuyItem = async () => {
     if (!selectedItem || !pageId) return;
     if (!buyerName.trim()) {
       Alert.alert('Error', 'Please enter your name.');
@@ -386,21 +408,38 @@ export default function ContentPreviewScreen() {
       Alert.alert('Error', 'Please enter your delivery address.');
       return;
     }
+
+    if (!isCashfreeNativeAvailable) {
+      Alert.alert(
+        'Dev build required',
+        'Payments need the Cashfree native module, which is not available in Expo Go. Use a development build to complete purchases.',
+      );
+      return;
+    }
+
     try {
       setCheckingOut(true);
-      await buyCommunityItem(pageId, {
+      const result = await createBuyOrder(pageId, {
         itemId: selectedItem._id,
         buyerName: buyerName.trim(),
         buyerPhone: buyerPhone.trim(),
-        payPhone: payPhone.trim(),
         deliveryAddress: deliveryAddress.trim(),
       });
-      setCheckoutModalVisible(false);
-      setBuyerName('');
-      setBuyerPhone('');
-      setPayPhone('');
-      setDeliveryAddress('');
-      Alert.alert('Success', 'Order placed successfully! The creator will contact you soon.');
+
+      // Store pending order ref so onVerify knows to call verifyBuyOrder
+      pendingBuyOrderRef.current = {
+        orderId: result.orderId,
+        cashfreeOrderId: result.cashfreeOrderId,
+        pageId: pageId,
+      };
+
+      const env = resolveCashfreeEnvironment(result.cashfreeEnvironment);
+      const session = new CFSession(
+        result.paymentSessionId,
+        result.cashfreeOrderId,
+        env,
+      );
+      CFPaymentGatewayService.doPayment(session);
     } catch (error: any) {
       logger.error('Failed to buy item:', error);
       Alert.alert('Error', error.message || 'Failed to place order.');
