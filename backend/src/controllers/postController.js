@@ -1039,7 +1039,7 @@ const createPost = async (req, res) => {
       tags: allHashtags,
       mentions: mentionUserIds,
       type: 'photo',
-      aspectRatio: aspectRatio === '16:9' ? '16:9' : aspectRatio === 'full' ? 'full' : '1:1',
+      aspectRatio: ['16:9', 'full', '1.91:1', '1:1'].includes(aspectRatio) ? aspectRatio : '1:1',
       filter: ['vivid', 'warm', 'cool', 'bw'].includes(filter) ? filter : 'original',
       location: {
         address: address || 'Unknown Location',

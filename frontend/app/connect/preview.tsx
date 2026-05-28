@@ -351,6 +351,23 @@ export default function ContentPreviewScreen() {
     setCheckoutModalVisible(true);
   };
 
+  const copyToClipboard = async (text: string) => {
+    try {
+      if (Platform.OS === 'web') {
+        if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+          Alert.alert('Copied', 'UPI ID copied to clipboard!');
+        }
+      } else {
+        const Clipboard = require('expo-clipboard').default;
+        await Clipboard.setStringAsync(text);
+        Alert.alert('Copied', 'UPI ID copied to clipboard!');
+      }
+    } catch (err) {
+      logger.error('Failed to copy UPI:', err);
+    }
+  };
+
   const handleBuyItem = async () => {
     if (!selectedItem || !pageId) return;
     if (!buyerName.trim()) {
@@ -359,6 +376,14 @@ export default function ContentPreviewScreen() {
     }
     if (!buyerPhone.trim()) {
       Alert.alert('Error', 'Please enter your phone number.');
+      return;
+    }
+    if (!payPhone.trim()) {
+      Alert.alert('Error', 'Please enter your payment phone number.');
+      return;
+    }
+    if (!deliveryAddress.trim()) {
+      Alert.alert('Error', 'Please enter your delivery address.');
       return;
     }
     try {
@@ -615,7 +640,7 @@ export default function ContentPreviewScreen() {
                 style={styles.editBtnWrap}
               >
                 <LinearGradient
-                  colors={['#38BDF8', '#14B8A6', '#34D399']}
+                  colors={['#34D399', '#14B8A6', '#38BDF8']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={styles.editBtnGradient}
@@ -701,7 +726,7 @@ export default function ContentPreviewScreen() {
                         style={styles.buyItemButton}
                       >
                         <LinearGradient
-                          colors={['#38BDF8', '#14B8A6', '#34D399']}
+                          colors={['#34D399', '#14B8A6', '#38BDF8']}
                           start={{ x: 0, y: 0 }}
                           end={{ x: 1, y: 0 }}
                           style={styles.buyItemButtonGradient}
@@ -884,6 +909,41 @@ export default function ContentPreviewScreen() {
             )}
 
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              {pageData?.creatorPayoutInfo?.upiId ? (
+                <View style={[styles.upiInfoCard, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)', borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)' }]}>
+                  <View style={styles.upiInfoRow}>
+                    <Ionicons name="information-circle" size={20} color={theme.colors.primary} />
+                    <Text style={[styles.upiInfoTitle, { color: textColor, fontFamily: getFontFamily('600') }]}>Payment Instructions</Text>
+                  </View>
+                  <Text style={[styles.upiInfoText, { color: isDark ? '#A1A1AA' : '#71717A', fontFamily: getFontFamily('400') }]}>
+                    To place this order, please pay ₹{selectedItem?.price} to the creator's UPI ID below.
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => copyToClipboard(pageData.creatorPayoutInfo.upiId || '')}
+                    style={[styles.upiIdRow, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(255, 255, 255, 0.8)', borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)' }]}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.upiIdText, { color: theme.colors.primary, fontFamily: getFontFamily('600') }]}>
+                      {pageData.creatorPayoutInfo.upiId}
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Text style={{ fontSize: 12, color: theme.colors.primary, fontFamily: getFontFamily('500') }}>Copy</Text>
+                      <Ionicons name="copy-outline" size={16} color={theme.colors.primary} />
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={[styles.upiInfoCard, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)', borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)' }]}>
+                  <View style={styles.upiInfoRow}>
+                    <Ionicons name="information-circle" size={20} color={theme.colors.primary} />
+                    <Text style={[styles.upiInfoTitle, { color: textColor, fontFamily: getFontFamily('600') }]}>Payment Details</Text>
+                  </View>
+                  <Text style={[styles.upiInfoText, { color: isDark ? '#A1A1AA' : '#71717A', fontFamily: getFontFamily('400') }]}>
+                    Payment must be done to place this order. Please enter your payment phone number below so the creator can verify your payment.
+                  </Text>
+                </View>
+              )}
+
               <Text style={[styles.inputLabel, { color: textColor, fontFamily: getFontFamily('500') }]}>Your Name</Text>
               <TextInput
                 style={[
@@ -919,7 +979,7 @@ export default function ContentPreviewScreen() {
                 keyboardType="phone-pad"
               />
 
-              <Text style={[styles.inputLabel, { color: textColor, fontFamily: getFontFamily('500') }]}>UPI / Payment Phone (Optional)</Text>
+              <Text style={[styles.inputLabel, { color: textColor, fontFamily: getFontFamily('500') }]}>UPI / Payment Phone Number</Text>
               <TextInput
                 style={[
                   styles.checkoutInput,
@@ -932,7 +992,7 @@ export default function ContentPreviewScreen() {
                 ]}
                 value={payPhone}
                 onChangeText={setPayPhone}
-                placeholder="UPI-linked phone number"
+                placeholder="Enter UPI-linked phone number"
                 placeholderTextColor={isDark ? '#71717A' : '#A1A1AA'}
                 keyboardType="phone-pad"
               />
@@ -964,7 +1024,7 @@ export default function ContentPreviewScreen() {
                 activeOpacity={0.8}
               >
                 <LinearGradient
-                  colors={['#38BDF8', '#14B8A6', '#34D399']}
+                  colors={['#34D399', '#14B8A6', '#38BDF8']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={styles.checkoutBtnGradient}
@@ -1397,5 +1457,38 @@ const styles = StyleSheet.create({
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
+  },
+  upiInfoCard: {
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 16,
+    gap: 8,
+  },
+  upiInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  upiInfoTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  upiInfoText: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  upiIdRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderRadius: 12,
+    marginTop: 4,
+    borderWidth: 1,
+  },
+  upiIdText: {
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

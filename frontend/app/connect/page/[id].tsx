@@ -433,6 +433,23 @@ export default function ConnectPageDetailScreen() {
     );
   };
 
+  const copyToClipboard = async (text: string) => {
+    try {
+      if (Platform.OS === 'web') {
+        if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(text);
+          Alert.alert('Copied', 'UPI ID copied to clipboard!');
+        }
+      } else {
+        const Clipboard = require('expo-clipboard').default;
+        await Clipboard.setStringAsync(text);
+        Alert.alert('Copied', 'UPI ID copied to clipboard!');
+      }
+    } catch (err) {
+      logger.error('Failed to copy UPI:', err);
+    }
+  };
+
   const handleBuyItem = async () => {
     if (!selectedItem) return;
     if (!buyerName.trim()) {
@@ -980,27 +997,41 @@ export default function ConnectPageDetailScreen() {
           {/* Stats & Actions Row */}
           <View style={styles.actionRow}>
             <TouchableOpacity
-              style={[styles.statsButton, { borderColor: theme.colors.border }]}
+              style={[
+                styles.statsButton,
+                {
+                  backgroundColor: isDark ? 'rgba(56, 189, 248, 0.06)' : 'rgba(28, 115, 180, 0.05)',
+                  borderColor: isDark ? 'rgba(56, 189, 248, 0.2)' : 'rgba(28, 115, 180, 0.25)',
+                  borderWidth: 1,
+                }
+              ]}
               onPress={handleShowFollowers}
               activeOpacity={0.7}
             >
-              <Ionicons name="people-outline" size={16} color={theme.colors.primary} />
-              <Text style={[styles.statsButtonText, { color: theme.colors.text }]}>
+              <Ionicons name="people-outline" size={16} color={isDark ? '#38BDF8' : '#1C73B4'} />
+              <Text style={[styles.statsButtonText, { color: isDark ? '#FFFFFF' : '#1C73B4' }]}>
                 {(page.followerCount || 0) + 1}
               </Text>
-              <Text style={[styles.statsButtonLabel, { color: theme.colors.textSecondary }]}>
+              <Text style={[styles.statsButtonLabel, { color: isDark ? '#8E9AA8' : '#64748B' }]}>
                 Members
               </Text>
             </TouchableOpacity>
 
             {isOwner && (
               <TouchableOpacity
-                style={[styles.statsButton, { borderColor: theme.colors.border }]}
+                style={[
+                  styles.statsButton,
+                  {
+                    backgroundColor: isDark ? 'rgba(80, 200, 120, 0.06)' : 'rgba(80, 200, 120, 0.05)',
+                    borderColor: isDark ? 'rgba(80, 200, 120, 0.2)' : 'rgba(80, 200, 120, 0.25)',
+                    borderWidth: 1,
+                  }
+                ]}
                 onPress={() => router.push(`/connect/dashboard?pageId=${id}&category=${page.category || 'connect'}`)}
                 activeOpacity={0.7}
               >
-                <Ionicons name="analytics-outline" size={16} color={theme.colors.primary} />
-                <Text style={[styles.statsButtonLabel, { color: theme.colors.textSecondary }]}>
+                <Ionicons name="analytics-outline" size={16} color={isDark ? '#50C878' : '#107C41'} />
+                <Text style={[styles.statsButtonLabel, { color: isDark ? '#8E9AA8' : '#107C41', fontWeight: '600' }]}>
                   Dashboard
                 </Text>
               </TouchableOpacity>
@@ -1010,34 +1041,58 @@ export default function ConnectPageDetailScreen() {
           {/* Follow Button (non-owner) */}
           {!isOwner && (
             <TouchableOpacity
-              style={[
-                styles.followMainButton,
-                isFollowing
-                  ? { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, borderWidth: 1 }
-                  : { backgroundColor: theme.colors.primary },
-              ]}
+              style={styles.followMainButtonContainer}
               onPress={handleFollowToggle}
               disabled={followLoading}
               activeOpacity={0.7}
             >
-              {followLoading ? (
-                <LoadingGlobe size="small" color={isFollowing ? theme.colors.text : '#FFFFFF'} />
-              ) : (
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons
-                    name={isFollowing ? 'checkmark-circle' : 'add-circle-outline'}
-                    size={18}
-                    color={isFollowing ? theme.colors.text : '#FFFFFF'}
-                  />
-                  <Text
-                    style={[
-                      styles.followMainButtonText,
-                      { color: isFollowing ? theme.colors.text : '#FFFFFF' },
-                    ]}
-                  >
-                    {isFollowing ? 'Following' : 'Follow'}
-                  </Text>
+              {isFollowing ? (
+                <View
+                  style={[
+                    styles.followButtonInner,
+                    {
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(28, 115, 180, 0.06)',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(28, 115, 180, 0.3)',
+                    }
+                  ]}
+                >
+                  {followLoading ? (
+                    <LoadingGlobe size="small" color={isDark ? '#38BDF8' : '#1C73B4'} />
+                  ) : (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={18}
+                        color={isDark ? '#38BDF8' : '#1C73B4'}
+                      />
+                      <Text style={[styles.followMainButtonText, { color: isDark ? '#38BDF8' : '#1C73B4' }]}>
+                        Following
+                      </Text>
+                    </View>
+                  )}
                 </View>
+              ) : (
+                <LinearGradient
+                  colors={isDark ? ['#14B8A6', '#38BDF8'] : ['#50C878', '#1C73B4']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.followButtonGradient}
+                >
+                  {followLoading ? (
+                    <LoadingGlobe size="small" color="#FFFFFF" />
+                  ) : (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons
+                        name="add-circle-outline"
+                        size={18}
+                        color="#FFFFFF"
+                      />
+                      <Text style={[styles.followMainButtonText, { color: '#FFFFFF' }]}>
+                        Follow
+                      </Text>
+                    </View>
+                  )}
+                </LinearGradient>
               )}
             </TouchableOpacity>
           )}
@@ -1046,14 +1101,23 @@ export default function ConnectPageDetailScreen() {
         {/* Website Section */}
         {page.features?.website && (
           <TouchableOpacity
-            style={[styles.section, { backgroundColor: theme.colors.surface, paddingBottom: isTablet ? themeConstants.spacing.md : 12 }, { marginTop: isTablet ? 14 : 12 }]}
+            style={[
+              styles.section,
+              {
+                backgroundColor: isDark ? 'rgba(56, 189, 248, 0.04)' : 'rgba(28, 115, 180, 0.03)',
+                borderColor: isDark ? 'rgba(56, 189, 248, 0.15)' : 'rgba(28, 115, 180, 0.12)',
+                borderWidth: 1,
+                paddingBottom: isTablet ? themeConstants.spacing.md : 12,
+                marginTop: isTablet ? 14 : 12,
+              }
+            ]}
             onPress={() => router.push(`/connect/preview?pageId=${id}&section=website&pageName=${encodeURIComponent(page.name)}`)}
             activeOpacity={0.7}
           >
             <View style={[styles.sectionHeader, { marginBottom: 0 }]}>
               <View style={styles.sectionTitleRow}>
-                <View style={[styles.sectionIconWrap, { backgroundColor: theme.colors.primary + '12' }]}>
-                  <Ionicons name="globe-outline" size={18} color={theme.colors.primary} />
+                <View style={[styles.sectionIconWrap, { backgroundColor: isDark ? 'rgba(56, 189, 248, 0.15)' : 'rgba(28, 115, 180, 0.08)' }]}>
+                  <Ionicons name="globe-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
                 </View>
                 <View>
                   <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Website</Text>
@@ -1062,8 +1126,8 @@ export default function ConnectPageDetailScreen() {
                   </Text>
                 </View>
               </View>
-              <View style={[styles.chatArrowWrap, { backgroundColor: theme.colors.primary + '12' }]}>
-                <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+              <View style={[styles.chatArrowWrap, { backgroundColor: isDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(28, 115, 180, 0.08)' }]}>
+                <Ionicons name="chevron-forward" size={16} color={isDark ? '#38BDF8' : '#1C73B4'} />
               </View>
             </View>
           </TouchableOpacity>
@@ -1072,14 +1136,23 @@ export default function ConnectPageDetailScreen() {
         {/* Group Chat Section */}
         {page.features?.groupChat && (
           <TouchableOpacity
-            style={[styles.section, { backgroundColor: theme.colors.surface, paddingBottom: isTablet ? themeConstants.spacing.md : 12 }, !page.features?.website && { marginTop: isTablet ? 14 : 12 }]}
+            style={[
+              styles.section,
+              {
+                backgroundColor: isDark ? 'rgba(80, 200, 120, 0.04)' : 'rgba(80, 200, 120, 0.03)',
+                borderColor: isDark ? 'rgba(80, 200, 120, 0.15)' : 'rgba(80, 200, 120, 0.12)',
+                borderWidth: 1,
+                paddingBottom: isTablet ? themeConstants.spacing.md : 12,
+                marginTop: !page.features?.website ? (isTablet ? 14 : 12) : 0,
+              }
+            ]}
             onPress={handleOpenChat}
             activeOpacity={0.7}
           >
             <View style={[styles.sectionHeader, { marginBottom: 0 }]}>
               <View style={styles.sectionTitleRow}>
-                <View style={[styles.sectionIconWrap, { backgroundColor: theme.colors.primary + '12' }]}>
-                  <Ionicons name="chatbubbles-outline" size={18} color={theme.colors.primary} />
+                <View style={[styles.sectionIconWrap, { backgroundColor: isDark ? 'rgba(80, 200, 120, 0.15)' : 'rgba(80, 200, 120, 0.08)' }]}>
+                  <Ionicons name="chatbubbles-outline" size={18} color={isDark ? '#50C878' : '#107C41'} />
                 </View>
                 <View>
                   <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Group Chat</Text>
@@ -1089,8 +1162,8 @@ export default function ConnectPageDetailScreen() {
                   />
                 </View>
               </View>
-            <View style={[styles.chatArrowWrap, { backgroundColor: theme.colors.primary + '12' }]}>
-                <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+              <View style={[styles.chatArrowWrap, { backgroundColor: isDark ? 'rgba(80, 200, 120, 0.12)' : 'rgba(80, 200, 120, 0.08)' }]}>
+                <Ionicons name="chevron-forward" size={16} color={isDark ? '#50C878' : '#107C41'} />
               </View>
             </View>
           </TouchableOpacity>
@@ -1099,29 +1172,76 @@ export default function ConnectPageDetailScreen() {
         {/* Subscription / Buy Items Section */}
         {page.features?.subscription && (
           <TouchableOpacity
-            style={[styles.section, { backgroundColor: theme.colors.surface, paddingBottom: isTablet ? themeConstants.spacing.md : 12 }, !page.features?.website && !page.features?.groupChat && { marginTop: isTablet ? 14 : 12 }]}
+            style={[
+              styles.section,
+              {
+                backgroundColor: isCommunity
+                  ? (isDark ? 'rgba(245, 158, 11, 0.04)' : 'rgba(217, 119, 6, 0.03)')
+                  : (isDark ? 'rgba(56, 189, 248, 0.04)' : 'rgba(28, 115, 180, 0.03)'),
+                borderColor: isCommunity
+                  ? (isDark ? 'rgba(245, 158, 11, 0.15)' : 'rgba(217, 119, 6, 0.12)')
+                  : (isDark ? 'rgba(56, 189, 248, 0.15)' : 'rgba(28, 115, 180, 0.12)'),
+                borderWidth: 1,
+                paddingBottom: isTablet ? themeConstants.spacing.md : 12,
+                marginTop: (!page.features?.website && !page.features?.groupChat) ? (isTablet ? 14 : 12) : 0,
+              }
+            ]}
             onPress={() => router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`)}
             activeOpacity={0.7}
           >
             <View style={[styles.sectionHeader, { marginBottom: 0 }]}>
               <View style={styles.sectionTitleRow}>
-                <View style={[styles.sectionIconWrap, { backgroundColor: theme.colors.primary + '12' }]}>
-                  <Ionicons name={isCommunity ? 'cart-outline' : 'star-outline'} size={18} color={theme.colors.primary} />
+                <View
+                  style={[
+                    styles.sectionIconWrap,
+                    {
+                      backgroundColor: isCommunity
+                        ? (isDark ? 'rgba(245, 158, 11, 0.15)' : 'rgba(217, 119, 6, 0.08)')
+                        : (isDark ? 'rgba(56, 189, 248, 0.15)' : 'rgba(28, 115, 180, 0.08)')
+                    }
+                  ]}
+                >
+                  <Ionicons
+                    name={isCommunity ? 'cart-outline' : 'star-outline'}
+                    size={18}
+                    color={
+                      isCommunity
+                        ? (isDark ? '#F59E0B' : '#D97706')
+                        : (isDark ? '#38BDF8' : '#1C73B4')
+                    }
+                  />
                 </View>
                 <View>
                   <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
                     {isCommunity ? 'Buy Items' : subLabel}
                   </Text>
                   <Text style={[styles.chatDescription, { color: theme.colors.textSecondary }]}>
-                    {isOwner 
+                    {isOwner
                       ? (isCommunity ? 'Manage items listed for sale' : 'Manage subscription content')
                       : (isCommunity ? 'Browse items for sale' : 'Access premium content')
                     }
                   </Text>
                 </View>
               </View>
-              <View style={[styles.chatArrowWrap, { backgroundColor: theme.colors.primary + '12' }]}>
-                <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+              <View
+                style={[
+                  styles.chatArrowWrap,
+                  {
+                    backgroundColor: isCommunity
+                      ? (isDark ? 'rgba(245, 158, 11, 0.12)' : 'rgba(217, 119, 6, 0.08)')
+                      : (isDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(28, 115, 180, 0.08)')
+                  }
+                ]}
+              >
+                <Ionicons
+                  name="chevron-forward"
+                  size={16}
+                  color={
+                    isCommunity
+                      ? (isDark ? '#F59E0B' : '#D97706')
+                      : (isDark ? '#38BDF8' : '#1C73B4')
+                  }
+                />
               </View>
             </View>
           </TouchableOpacity>
@@ -1474,141 +1594,176 @@ export default function ConnectPageDetailScreen() {
       {/* Checkout Modal */}
       <Modal
         visible={checkoutModalVisible}
-        animationType="fade"
         transparent
+        animationType="fade"
         onRequestClose={() => setCheckoutModalVisible(false)}
       >
         <KeyboardAvoidingView
-          behavior={isIOS ? 'padding' : 'height'}
-          style={styles.priceModalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
         >
-          <TouchableOpacity
-            style={styles.priceModalOverlay}
-            activeOpacity={1}
-            onPress={() => setCheckoutModalVisible(false)}
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setCheckoutModalVisible(false)} />
+          <View
+            style={[
+              styles.checkoutModalBox,
+              {
+                backgroundColor: isDark ? 'rgba(20, 25, 35, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.15)',
+              }
+            ]}
           >
-            <TouchableOpacity
-              activeOpacity={1}
-              style={[styles.priceModalBox, { backgroundColor: theme.colors.surface }]}
-            >
-              <Text style={[styles.priceModalTitle, { color: theme.colors.text }]}>
-                Checkout
-              </Text>
-              <Text style={[styles.priceModalSubtitle, { color: theme.colors.textSecondary, marginBottom: 12 }]}>
-                Provide delivery details for {selectedItem?.name} (₹{selectedItem?.price})
-              </Text>
-              
+            <BlurView
+              intensity={90}
+              tint={isDark ? 'dark' : 'light'}
+              style={StyleSheet.absoluteFillObject}
+            />
+            <View style={styles.modalHeader}>
+              <Text style={[styles.checkoutModalTitle, { color: theme.colors.text, fontFamily: getFontFamily('600') }]}>Checkout</Text>
+              <TouchableOpacity onPress={() => setCheckoutModalVisible(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            {selectedItem && (
+              <View style={styles.checkoutItemSummary}>
+                <Text style={[styles.checkoutItemName, { color: theme.colors.text, fontFamily: getFontFamily('600') }]} numberOfLines={1}>{selectedItem.name}</Text>
+                <Text style={[styles.checkoutItemPrice, { color: theme.colors.primary, fontFamily: getFontFamily('600') }]}>
+                  {formatConnectMoney(selectedItem.price, page?.subscriptionCurrency)}
+                </Text>
+              </View>
+            )}
+
+            <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              {page?.creatorPayoutInfo?.upiId ? (
+                <View style={[styles.upiInfoCard, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)', borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)' }]}>
+                  <View style={styles.upiInfoRow}>
+                    <Ionicons name="information-circle" size={20} color={theme.colors.primary} />
+                    <Text style={[styles.upiInfoTitle, { color: theme.colors.text, fontFamily: getFontFamily('600') }]}>Payment Instructions</Text>
+                  </View>
+                  <Text style={[styles.upiInfoText, { color: isDark ? '#A1A1AA' : '#71717A', fontFamily: getFontFamily('400') }]}>
+                    To place this order, please pay ₹{selectedItem?.price} to the creator's UPI ID below.
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => copyToClipboard(page.creatorPayoutInfo.upiId || '')}
+                    style={[styles.upiIdRow, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(255, 255, 255, 0.8)', borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)' }]}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.upiIdText, { color: theme.colors.primary, fontFamily: getFontFamily('600') }]}>
+                      {page.creatorPayoutInfo.upiId}
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <Text style={{ fontSize: 12, color: theme.colors.primary, fontFamily: getFontFamily('500') }}>Copy</Text>
+                      <Ionicons name="copy-outline" size={16} color={theme.colors.primary} />
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <View style={[styles.upiInfoCard, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)', borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)' }]}>
+                  <View style={styles.upiInfoRow}>
+                    <Ionicons name="information-circle" size={20} color={theme.colors.primary} />
+                    <Text style={[styles.upiInfoTitle, { color: theme.colors.text, fontFamily: getFontFamily('600') }]}>Payment Details</Text>
+                  </View>
+                  <Text style={[styles.upiInfoText, { color: isDark ? '#A1A1AA' : '#71717A', fontFamily: getFontFamily('400') }]}>
+                    Payment must be done to place this order. Please enter your payment phone number below so the creator can verify your payment.
+                  </Text>
+                </View>
+              )}
+
+              <Text style={[styles.inputLabel, { color: theme.colors.text, fontFamily: getFontFamily('500') }]}>Your Name</Text>
               <TextInput
                 style={[
-                  styles.bioModalInput,
+                  styles.checkoutInput,
                   {
                     color: theme.colors.text,
-                    borderColor: theme.colors.border,
-                    backgroundColor: theme.colors.background,
-                    height: 40,
-                    borderRadius: themeConstants.borderRadius.sm,
-                    borderWidth: 1,
-                    paddingHorizontal: 10,
-                    marginBottom: 10,
-                    fontSize: 14
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    fontFamily: getFontFamily('400')
                   }
                 ]}
                 value={buyerName}
                 onChangeText={setBuyerName}
-                placeholder="Full Name"
-                placeholderTextColor={theme.colors.textSecondary + '80'}
+                placeholder="Enter your full name"
+                placeholderTextColor={isDark ? '#71717A' : '#A1A1AA'}
               />
 
+              <Text style={[styles.inputLabel, { color: theme.colors.text, fontFamily: getFontFamily('500') }]}>Phone Number</Text>
               <TextInput
                 style={[
-                  styles.bioModalInput,
+                  styles.checkoutInput,
                   {
                     color: theme.colors.text,
-                    borderColor: theme.colors.border,
-                    backgroundColor: theme.colors.background,
-                    height: 40,
-                    borderRadius: themeConstants.borderRadius.sm,
-                    borderWidth: 1,
-                    paddingHorizontal: 10,
-                    marginBottom: 10,
-                    fontSize: 14
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    fontFamily: getFontFamily('400')
                   }
                 ]}
                 value={buyerPhone}
                 onChangeText={setBuyerPhone}
-                placeholder="Phone Number"
-                placeholderTextColor={theme.colors.textSecondary + '80'}
+                placeholder="Enter your phone number"
+                placeholderTextColor={isDark ? '#71717A' : '#A1A1AA'}
                 keyboardType="phone-pad"
               />
 
+              <Text style={[styles.inputLabel, { color: theme.colors.text, fontFamily: getFontFamily('500') }]}>UPI / Payment Phone Number</Text>
               <TextInput
                 style={[
-                  styles.bioModalInput,
+                  styles.checkoutInput,
                   {
                     color: theme.colors.text,
-                    borderColor: theme.colors.border,
-                    backgroundColor: theme.colors.background,
-                    height: 40,
-                    borderRadius: themeConstants.borderRadius.sm,
-                    borderWidth: 1,
-                    paddingHorizontal: 10,
-                    marginBottom: 10,
-                    fontSize: 14
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    fontFamily: getFontFamily('400')
                   }
                 ]}
                 value={payPhone}
                 onChangeText={setPayPhone}
-                placeholder="Payment Phone Number (GPay/PhonePe)"
-                placeholderTextColor={theme.colors.textSecondary + '80'}
+                placeholder="Enter UPI-linked phone number"
+                placeholderTextColor={isDark ? '#71717A' : '#A1A1AA'}
                 keyboardType="phone-pad"
               />
 
+              <Text style={[styles.inputLabel, { color: theme.colors.text, fontFamily: getFontFamily('500') }]}>Delivery Address</Text>
               <TextInput
                 style={[
-                  styles.bioModalInput,
+                  styles.checkoutInput,
+                  styles.checkoutAddressInput,
                   {
                     color: theme.colors.text,
-                    borderColor: theme.colors.border,
-                    backgroundColor: theme.colors.background,
-                    height: 80,
-                    borderRadius: themeConstants.borderRadius.sm,
-                    borderWidth: 1,
-                    paddingHorizontal: 10,
-                    paddingTop: 8,
-                    marginBottom: 20,
-                    fontSize: 14,
-                    textAlignVertical: 'top'
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    fontFamily: getFontFamily('400')
                   }
                 ]}
                 value={deliveryAddress}
                 onChangeText={setDeliveryAddress}
-                placeholder="Delivery Address"
-                placeholderTextColor={theme.colors.textSecondary + '80'}
+                placeholder="Enter complete delivery address"
+                placeholderTextColor={isDark ? '#71717A' : '#A1A1AA'}
                 multiline
                 numberOfLines={3}
               />
 
-              <View style={styles.priceModalButtons}>
-                <TouchableOpacity
-                  style={[styles.priceModalBtn, { borderColor: theme.colors.border, borderWidth: 1 }]}
-                  onPress={() => setCheckoutModalVisible(false)}
-                >
-                  <Text style={[styles.priceModalBtnText, { color: theme.colors.textSecondary }]}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.priceModalBtn, { backgroundColor: theme.colors.primary }]}
-                  disabled={checkingOut}
-                  onPress={handleBuyItem}
+              <TouchableOpacity
+                style={styles.checkoutBtn}
+                onPress={handleBuyItem}
+                disabled={checkingOut}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={['#38BDF8', '#14B8A6', '#34D399']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.checkoutBtnGradient}
                 >
                   {checkingOut ? (
                     <LoadingGlobe size="small" color="#FFFFFF" />
                   ) : (
-                    <Text style={[styles.priceModalBtnText, { color: '#FFFFFF' }]}>Place Order</Text>
+                    <Text style={[styles.checkoutBtnText, { fontFamily: getFontFamily('600') }]}>Place Order</Text>
                   )}
-                </TouchableOpacity>
-              </View>
-            </TouchableOpacity>
-          </TouchableOpacity>
+                </LinearGradient>
+              </TouchableOpacity>
+              <View style={{ height: 40 }} />
+            </ScrollView>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
@@ -1797,6 +1952,29 @@ const styles = StyleSheet.create({
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
+  },
+  followMainButtonContainer: {
+    width: '100%',
+    height: 48,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  followButtonInner: {
+    width: '100%',
+    height: '100%',
+    borderWidth: 1.5,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  followButtonGradient: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
   },
   // Sections
   section: {
@@ -2430,6 +2608,111 @@ const styles = StyleSheet.create({
   priceModalBtnText: {
     fontSize: isTablet ? 16 : 15,
     fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+  },
+  upiInfoCard: {
+    padding: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 16,
+    gap: 8,
+  },
+  upiInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  upiInfoTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  upiInfoText: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  upiIdRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderRadius: 12,
+    marginTop: 4,
+    borderWidth: 1,
+  },
+  upiIdText: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  checkoutModalBox: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    maxHeight: '85%',
+    overflow: 'hidden',
+    paddingBottom: 24,
+  },
+  checkoutModalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  checkoutItemSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  checkoutItemName: {
+    fontSize: 15,
+    fontWeight: '600',
+    flex: 1,
+    marginRight: 12,
+  },
+  checkoutItemPrice: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  modalScroll: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginBottom: 6,
+    marginTop: 12,
+  },
+  checkoutInput: {
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    fontSize: 14,
+  },
+  checkoutAddressInput: {
+    height: 80,
+    paddingTop: 12,
+    paddingBottom: 12,
+    textAlignVertical: 'top',
+  },
+  checkoutBtn: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    marginTop: 24,
+    marginBottom: 8,
+  },
+  checkoutBtnGradient: {
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkoutBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
     fontWeight: '600',
   },
 });

@@ -35,7 +35,7 @@ export interface CreatePostData {
   songVolume?: number;
   spotType?: string;
   travelInfo?: string;
-  aspectRatio?: '1:1' | '16:9' | 'full';
+  aspectRatio?: '1:1' | '16:9' | 'full' | '1.91:1';
   filter?: 'original' | 'vivid' | 'warm' | 'cool' | 'bw';
   detectedPlace?: {          // Detected place data for admin review
     name?: string;
