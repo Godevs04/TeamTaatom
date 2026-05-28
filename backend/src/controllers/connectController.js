@@ -6,10 +6,12 @@ const Chat = require('../models/Chat');
 const User = require('../models/User');
 const Subscription = require('../models/Subscription');
 const Order = require('../models/Order');
+const cashfreeService = require('../services/cashfreeService');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { uploadObject, buildMediaKey } = require('../services/storage');
 const { generateSignedUrl, isSignedUrl, extractStorageKeyFromUrl } = require('../services/mediaService');
+
 
 /**
  * Subscription content gate — true when the viewer is allowed to see paid
@@ -1813,14 +1815,18 @@ const uploadContentImage = async (req, res) => {
   }
 };
 
-const buyItem = async (req, res) => {
+/**
+ * Create a Cashfree one-time payment order for a buy item.
+ * POST /api/v1/connect/page/:pageId/buy-order
+ */
+const createBuyOrder = async (req, res) => {
   try {
     const { pageId } = req.params;
     const userId = req.user._id;
-    const { itemId, buyerName, buyerPhone, payPhone, deliveryAddress } = req.body;
+    const { itemId, buyerName, buyerPhone, deliveryAddress } = req.body;
 
-    if (!itemId || !buyerName || !buyerPhone || !payPhone || !deliveryAddress) {
-      return sendError(res, 'VALIDATION_FAILED', 'All fields (itemId, buyerName, buyerPhone, payPhone, deliveryAddress) are required');
+    if (!itemId || !buyerName || !buyerPhone || !deliveryAddress) {
+      return sendError(res, 'VALIDATION_FAILED', 'Fields itemId, buyerName, buyerPhone, deliveryAddress are required');
     }
 
     const page = await ConnectPage.findById(pageId);
@@ -1828,35 +1834,163 @@ const buyItem = async (req, res) => {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Community page not found');
     }
 
-    // Find the item in buyItems
     const item = page.buyItems.id(itemId);
     if (!item || !item.active) {
       return sendError(res, 'RESOURCE_NOT_FOUND', 'Item not found or is inactive');
     }
 
+    const user = await (require('../models/User')).findById(userId).select('fullName email phone username').lean();
+    if (!user) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'User not found');
+    }
+
+    const currency = page.subscriptionCurrency || 'INR';
+    const ts = Date.now();
+    const cashfreeOrderId = `item_ord_${userId}_${ts}`;
+
+    // Build return URL
+    const webBase = (process.env.WEB_FRONTEND_URL || process.env.FRONTEND_URL || '').trim().replace(/\/$/, '');
+    const apiBase = (process.env.API_BASE_URL || '').trim().replace(/\/$/, '');
+    let returnUrl = `${apiBase}/api/v1/connect/order/return?pageId=${encodeURIComponent(pageId)}`;
+    if (webBase) {
+      returnUrl = `${webBase}/connect/page/${pageId}?order_return=1`;
+    }
+
+    // Create Cashfree order
+    const cfResult = await cashfreeService.createOrder({
+      orderId: cashfreeOrderId,
+      amount: item.price,
+      currency,
+      customer: {
+        id: userId.toString(),
+        name: user.fullName || user.username || 'User',
+        email: user.email || `${user.username}@taatom.app`,
+        phone: user.phone || buyerPhone || '9999999999',
+      },
+      returnUrl,
+      orderNote: `${item.name} - ${page.name}`,
+    });
+
+    // Save a pending order in DB
     const order = new Order({
       userId,
       connectPageId: pageId,
       itemId: item._id,
       itemName: item.name,
       price: item.price,
-      currency: page.subscriptionCurrency || 'INR',
+      currency,
       buyerName: buyerName.trim(),
       buyerPhone: buyerPhone.trim(),
-      payPhone: payPhone.trim(),
       deliveryAddress: deliveryAddress.trim(),
-      paymentStatus: 'completed', // Simulated/mock payment
-      deliveryStatus: 'pending'
+      cashfreeOrderId: cfResult.orderId,
+      paymentSessionId: cfResult.paymentSessionId,
+      cashfreeEnvironment: (process.env.CASHFREE_ENV || 'sandbox').toLowerCase() === 'production' ? 'production' : 'sandbox',
+      paymentStatus: 'pending',
+      deliveryStatus: 'pending',
     });
-
     await order.save();
 
-    return sendSuccess(res, 201, 'Order placed successfully', { order });
+    return sendSuccess(res, 201, 'Payment order created', {
+      orderId: order._id,
+      cashfreeOrderId: cfResult.orderId,
+      paymentSessionId: cfResult.paymentSessionId,
+      amount: item.price,
+      currency,
+      cashfreeEnvironment: order.cashfreeEnvironment,
+      itemName: item.name,
+    });
   } catch (error) {
-    logger.error('Error placing order:', error);
-    return sendError(res, 'SERVER_ERROR', 'Failed to place order');
+    logger.error('Error creating buy order:', error);
+    return sendError(res, 'SERVER_ERROR', error.message || 'Failed to create payment order');
   }
 };
+
+/**
+ * Verify and complete a buy item payment after Cashfree SDK callback.
+ * POST /api/v1/connect/page/:pageId/buy-verify
+ */
+const verifyBuyOrder = async (req, res) => {
+  try {
+    const { pageId } = req.params;
+    const userId = req.user._id;
+    const { orderId, cashfreeOrderId, cashfreePaymentId } = req.body;
+
+    if (!orderId && !cashfreeOrderId) {
+      return sendError(res, 'VALIDATION_FAILED', 'orderId or cashfreeOrderId is required');
+    }
+
+    // Find order
+    const query = orderId
+      ? { _id: orderId, userId, connectPageId: pageId }
+      : { cashfreeOrderId, userId, connectPageId: pageId };
+    const order = await Order.findOne(query);
+    if (!order) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Order not found');
+    }
+
+    if (order.paymentStatus === 'paid') {
+      return sendSuccess(res, 200, 'Order already verified', { order });
+    }
+
+    // Optionally verify with Cashfree (best-effort — don't fail if Cashfree is unreachable)
+    let cfVerified = false;
+    if (cashfreeService.isCashfreeConfigured()) {
+      try {
+        const cfOrder = await cashfreeService.getOrderStatus(order.cashfreeOrderId);
+        const cfStatus = String(cfOrder?.order_status || '').toUpperCase();
+        cfVerified = cfStatus === 'PAID';
+      } catch (cfErr) {
+        logger.warn('Cashfree order status check failed (non-blocking):', cfErr.message);
+        // If Cashfree is unreachable, trust the SDK callback
+        cfVerified = true;
+      }
+    } else {
+      // Cashfree not configured (dev/sandbox without creds) — trust SDK
+      cfVerified = true;
+    }
+
+    if (!cfVerified) {
+      return sendError(res, 'PAYMENT_FAILED', 'Payment has not been completed for this order');
+    }
+
+    order.paymentStatus = 'paid';
+    if (cashfreePaymentId) order.cashfreePaymentId = cashfreePaymentId;
+    await order.save();
+
+    return sendSuccess(res, 200, 'Payment verified and order confirmed', { order });
+  } catch (error) {
+    logger.error('Error verifying buy order:', error);
+    return sendError(res, 'SERVER_ERROR', error.message || 'Failed to verify payment');
+  }
+};
+
+/**
+ * Get orders for a page (page owner only)
+ * GET /api/v1/connect/page/:pageId/orders
+ */
+const getPageOrders = async (req, res) => {
+  try {
+    const { pageId } = req.params;
+    const userId = req.user._id;
+
+    const page = await ConnectPage.findById(pageId).select('userId');
+    if (!page) return sendError(res, 'RESOURCE_NOT_FOUND', 'Page not found');
+    if (page.userId.toString() !== userId.toString()) {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the page owner can view orders');
+    }
+
+    const orders = await Order.find({ connectPageId: pageId })
+      .populate('userId', 'username fullName profilePic')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return sendSuccess(res, 200, 'Orders fetched', { orders });
+  } catch (error) {
+    logger.error('Error fetching page orders:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to fetch orders');
+  }
+};
+
 
 module.exports = {
   // CRUD
@@ -1894,5 +2028,9 @@ module.exports = {
   // Shared helpers used by SuperAdmin routes
   sanitizeContentBlocks,
   normalizeColor,
-  buyItem,
+  // Buy Items (Cashfree one-time payment)
+  createBuyOrder,
+  verifyBuyOrder,
+  getPageOrders,
 };
+

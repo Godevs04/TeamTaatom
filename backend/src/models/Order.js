@@ -42,20 +42,36 @@ const OrderSchema = new Schema({
     required: true,
     trim: true
   },
-  payPhone: {
-    type: String,
-    required: true,
-    trim: true
-  },
   deliveryAddress: {
     type: String,
     required: true,
     trim: true
   },
+  // Cashfree one-time payment fields
+  cashfreeOrderId: {
+    type: String,
+    trim: true,
+    index: true,
+    sparse: true
+  },
+  paymentSessionId: {
+    type: String,
+    trim: true
+  },
+  cashfreePaymentId: {
+    type: String,
+    trim: true
+  },
+  cashfreeEnvironment: {
+    type: String,
+    enum: ['sandbox', 'production'],
+    default: 'sandbox'
+  },
   paymentStatus: {
     type: String,
-    enum: ['pending', 'completed', 'failed'],
-    default: 'completed'
+    enum: ['pending', 'paid', 'failed'],
+    default: 'pending',
+    index: true
   },
   deliveryStatus: {
     type: String,
@@ -72,3 +88,4 @@ OrderSchema.index({ connectPageId: 1, createdAt: -1 });
 OrderSchema.index({ userId: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Order', OrderSchema);
+

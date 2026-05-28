@@ -37,7 +37,8 @@ import {
   createSubscription,
   getSubscriptionStatus,
   cancelSubscription as cancelSubApi,
-  buyCommunityItem,
+  createBuyOrder,
+  verifyBuyOrder,
   getPayoutPreview,
   getCurrencySymbol,
   formatConnectMoney,
@@ -54,11 +55,13 @@ import { optimizeCloudinaryUrl } from '../../../utils/imageCache';
 import logger from '../../../utils/logger';
 import { useSubscription } from '../../../context/SubscriptionContext';
 import { NativeModules } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import {
   CFErrorResponse,
   CFPaymentGatewayService,
   CFEnvironment,
   CFSubscriptionSession,
+  CFSession,
 } from '../../../utils/cashfreeShim';
 import { resolveCashfreeEnvironment } from '../../../utils/cashfreeCheckout';
 
@@ -200,9 +203,10 @@ export default function ConnectPageDetailScreen() {
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [buyerName, setBuyerName] = useState('');
   const [buyerPhone, setBuyerPhone] = useState('');
-  const [payPhone, setPayPhone] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [checkingOut, setCheckingOut] = useState(false);
+  // Stores the pending buy order so onVerify can mark it paid
+  const pendingBuyOrderRef = useRef<{ orderId: string; cashfreeOrderId: string; pageId: string } | null>(null);
 
   const [savingBio, setSavingBio] = useState(false);
 
@@ -259,23 +263,31 @@ export default function ConnectPageDetailScreen() {
     }, [loadPageDetail])
   );
 
-  // Set up Cashfree subscription payment callback. Skipped in Expo Go / web,
-  // where the native module is absent and any SDK call would throw.
+  // Set up Cashfree payment callback for both subscription and one-time buy payments.
   useEffect(() => {
     if (!isCashfreeNativeAvailable) return;
     CFPaymentGatewayService.setCallback({
       onVerify(orderID: string): void {
-        logger.info('Cashfree subscription verified, orderID:', orderID);
+        logger.info('Cashfree payment verified, orderID:', orderID);
         try {
-          if (!id) {
-            throw new Error('Connect Page ID is missing during Cashfree callback sync');
+          if (!id) throw new Error('Connect Page ID is missing during Cashfree callback');
+
+          // ── One-time buy order verification ──
+          if (pendingBuyOrderRef.current) {
+            const { orderId, cashfreeOrderId, pageId } = pendingBuyOrderRef.current;
+            pendingBuyOrderRef.current = null;
+            verifyBuyOrder(pageId, { orderId, cashfreeOrderId, cashfreePaymentId: orderID })
+              .catch((err) => logger.warn('Buy order server verify failed (non-blocking):', err));
+            setCheckoutModalVisible(false);
+            setBuyerName('');
+            setBuyerPhone('');
+            setDeliveryAddress('');
+            showSuccess('Your payment is complete. Order placed!', 'Order confirmed');
+            return;
           }
 
-          let newStatus: SubscriptionStatus = {
-            isSubscribed: true,
-            subscription: null
-          };
-
+          // ── Subscription verification ──
+          let newStatus: SubscriptionStatus = { isSubscribed: true, subscription: null };
           if (pendingSubscriptionRef.current) {
             newStatus = {
               isSubscribed: true,
@@ -304,8 +316,6 @@ export default function ConnectPageDetailScreen() {
             setSubscriptionStatus(newStatus);
             updateSubscriptionStatus(id, newStatus);
           }
-
-          // Refresh from server in background to get accurate period dates etc.
           loadSubscriptionStatus();
           loadPageDetail();
           showSuccess(
@@ -313,22 +323,24 @@ export default function ConnectPageDetailScreen() {
             'Payment received',
           );
         } catch (err) {
-          logger.error('Error handling Cashfree onVerify callback sync:', err);
-          Alert.alert('Payment Verification Error', 'An error occurred while updating your subscription status.');
+          logger.error('Error handling Cashfree onVerify callback:', err);
+          Alert.alert('Payment Verification Error', 'An error occurred while processing your payment.');
         }
       },
       onError(error: CFErrorResponse, orderID: string): void {
         try {
-          logger.error('Cashfree subscription error:', JSON.stringify(error), 'orderID:', orderID);
+          logger.error('Cashfree payment error:', JSON.stringify(error), 'orderID:', orderID);
+          // If this was a buy order, clear it
+          if (pendingBuyOrderRef.current) {
+            pendingBuyOrderRef.current = null;
+          }
           Alert.alert('Payment Failed', 'Could not complete payment. Please try again.');
         } catch (err) {
           logger.error('Error handling Cashfree onError callback:', err);
         }
       },
     });
-    return () => {
-      CFPaymentGatewayService.removeCallback();
-    };
+    return () => { CFPaymentGatewayService.removeCallback(); };
   }, [loadSubscriptionStatus, loadPageDetail, isCommunity, showSuccess, id, page, updateSubscriptionStatus]);
 
   // Load subscription status after page loads (non-owner only)
@@ -441,7 +453,6 @@ export default function ConnectPageDetailScreen() {
           Alert.alert('Copied', 'UPI ID copied to clipboard!');
         }
       } else {
-        const Clipboard = require('expo-clipboard').default;
         await Clipboard.setStringAsync(text);
         Alert.alert('Copied', 'UPI ID copied to clipboard!');
       }
@@ -460,34 +471,45 @@ export default function ConnectPageDetailScreen() {
       Alert.alert('Validation Error', 'Please enter your phone number.');
       return;
     }
-    if (!payPhone.trim()) {
-      Alert.alert('Validation Error', 'Please enter your payment phone number.');
-      return;
-    }
     if (!deliveryAddress.trim()) {
       Alert.alert('Validation Error', 'Please enter your delivery address.');
       return;
     }
 
+    if (!isCashfreeNativeAvailable) {
+      Alert.alert(
+        'Dev build required',
+        'Payments need the Cashfree native module, which is not available in Expo Go. Use a development build to complete purchases.',
+      );
+      return;
+    }
+
     try {
       setCheckingOut(true);
-      await buyCommunityItem(id, {
+      const result = await createBuyOrder(id, {
         itemId: selectedItem._id,
         buyerName: buyerName.trim(),
         buyerPhone: buyerPhone.trim(),
-        payPhone: payPhone.trim(),
-        deliveryAddress: deliveryAddress.trim()
+        deliveryAddress: deliveryAddress.trim(),
       });
-      Alert.alert('Success', 'Order placed successfully! The admin will deliver your items soon.');
-      setCheckoutModalVisible(false);
-      setBuyerName('');
-      setBuyerPhone('');
-      setPayPhone('');
-      setDeliveryAddress('');
+
+      // Store pending order ref so onVerify knows to call verifyBuyOrder
+      pendingBuyOrderRef.current = {
+        orderId: result.orderId,
+        cashfreeOrderId: result.cashfreeOrderId,
+        pageId: id,
+      };
+
+      const env = resolveCashfreeEnvironment(result.cashfreeEnvironment);
+      const session = new CFSession(
+        result.paymentSessionId,
+        result.cashfreeOrderId,
+        env,
+      );
+      CFPaymentGatewayService.doPayment(session);
     } catch (error: any) {
-      logger.error('Failed to buy item:', error);
-      const msg = error.message || 'Failed to place order. Please try again.';
-      Alert.alert('Error', msg);
+      logger.error('Failed to initiate buy payment:', error);
+      Alert.alert('Error', error.message || 'Failed to initiate payment. Please try again.');
     } finally {
       setCheckingOut(false);
     }
@@ -1595,7 +1617,7 @@ export default function ConnectPageDetailScreen() {
       <Modal
         visible={checkoutModalVisible}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setCheckoutModalVisible(false)}
       >
         <KeyboardAvoidingView
@@ -1607,7 +1629,7 @@ export default function ConnectPageDetailScreen() {
             style={[
               styles.checkoutModalBox,
               {
-                backgroundColor: isDark ? 'rgba(20, 25, 35, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+                backgroundColor: isDark ? 'rgba(20, 25, 35, 0.98)' : 'rgba(255, 255, 255, 0.98)',
                 borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.15)',
               }
             ]}
@@ -1627,48 +1649,24 @@ export default function ConnectPageDetailScreen() {
             {selectedItem && (
               <View style={styles.checkoutItemSummary}>
                 <Text style={[styles.checkoutItemName, { color: theme.colors.text, fontFamily: getFontFamily('600') }]} numberOfLines={1}>{selectedItem.name}</Text>
-                <Text style={[styles.checkoutItemPrice, { color: theme.colors.primary, fontFamily: getFontFamily('600') }]}>
+                <Text style={[styles.checkoutItemPrice, { color: theme.colors.primary, fontFamily: getFontFamily('700') }]}>
                   {formatConnectMoney(selectedItem.price, page?.subscriptionCurrency)}
                 </Text>
               </View>
             )}
 
-            <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-              {page?.creatorPayoutInfo?.upiId ? (
-                <View style={[styles.upiInfoCard, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)', borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)' }]}>
-                  <View style={styles.upiInfoRow}>
-                    <Ionicons name="information-circle" size={20} color={theme.colors.primary} />
-                    <Text style={[styles.upiInfoTitle, { color: theme.colors.text, fontFamily: getFontFamily('600') }]}>Payment Instructions</Text>
-                  </View>
-                  <Text style={[styles.upiInfoText, { color: isDark ? '#A1A1AA' : '#71717A', fontFamily: getFontFamily('400') }]}>
-                    To place this order, please pay ₹{selectedItem?.price} to the creator's UPI ID below.
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => copyToClipboard(page.creatorPayoutInfo.upiId || '')}
-                    style={[styles.upiIdRow, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(255, 255, 255, 0.8)', borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)' }]}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[styles.upiIdText, { color: theme.colors.primary, fontFamily: getFontFamily('600') }]}>
-                      {page.creatorPayoutInfo.upiId}
-                    </Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                      <Text style={{ fontSize: 12, color: theme.colors.primary, fontFamily: getFontFamily('500') }}>Copy</Text>
-                      <Ionicons name="copy-outline" size={16} color={theme.colors.primary} />
-                    </View>
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <View style={[styles.upiInfoCard, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)', borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)' }]}>
-                  <View style={styles.upiInfoRow}>
-                    <Ionicons name="information-circle" size={20} color={theme.colors.primary} />
-                    <Text style={[styles.upiInfoTitle, { color: theme.colors.text, fontFamily: getFontFamily('600') }]}>Payment Details</Text>
-                  </View>
-                  <Text style={[styles.upiInfoText, { color: isDark ? '#A1A1AA' : '#71717A', fontFamily: getFontFamily('400') }]}>
-                    Payment must be done to place this order. Please enter your payment phone number below so the creator can verify your payment.
-                  </Text>
-                </View>
-              )}
+            {/* Cashfree payment info banner */}
+            <View style={[styles.upiInfoCard, { backgroundColor: isDark ? 'rgba(56,189,248,0.08)' : 'rgba(56,189,248,0.06)', borderColor: isDark ? 'rgba(56,189,248,0.25)' : 'rgba(56,189,248,0.2)' }]}>
+              <View style={styles.upiInfoRow}>
+                <Ionicons name="shield-checkmark" size={20} color="#38BDF8" />
+                <Text style={[styles.upiInfoTitle, { color: theme.colors.text, fontFamily: getFontFamily('600') }]}>Secure Payment via Cashfree</Text>
+              </View>
+              <Text style={[styles.upiInfoText, { color: isDark ? '#A1A1AA' : '#71717A', fontFamily: getFontFamily('400') }]}>
+                Fill in your details and tap the Pay button. You will be taken to the secure Cashfree payment screen.
+              </Text>
+            </View>
 
+            <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
               <Text style={[styles.inputLabel, { color: theme.colors.text, fontFamily: getFontFamily('500') }]}>Your Name</Text>
               <TextInput
                 style={[
@@ -1704,24 +1702,6 @@ export default function ConnectPageDetailScreen() {
                 keyboardType="phone-pad"
               />
 
-              <Text style={[styles.inputLabel, { color: theme.colors.text, fontFamily: getFontFamily('500') }]}>UPI / Payment Phone Number</Text>
-              <TextInput
-                style={[
-                  styles.checkoutInput,
-                  {
-                    color: theme.colors.text,
-                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
-                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                    fontFamily: getFontFamily('400')
-                  }
-                ]}
-                value={payPhone}
-                onChangeText={setPayPhone}
-                placeholder="Enter UPI-linked phone number"
-                placeholderTextColor={isDark ? '#71717A' : '#A1A1AA'}
-                keyboardType="phone-pad"
-              />
-
               <Text style={[styles.inputLabel, { color: theme.colors.text, fontFamily: getFontFamily('500') }]}>Delivery Address</Text>
               <TextInput
                 style={[
@@ -1749,7 +1729,7 @@ export default function ConnectPageDetailScreen() {
                 activeOpacity={0.8}
               >
                 <LinearGradient
-                  colors={['#38BDF8', '#14B8A6', '#34D399']}
+                  colors={['#1C73B4', '#0EA5E9', '#38BDF8']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={styles.checkoutBtnGradient}
@@ -1757,7 +1737,12 @@ export default function ConnectPageDetailScreen() {
                   {checkingOut ? (
                     <LoadingGlobe size="small" color="#FFFFFF" />
                   ) : (
-                    <Text style={[styles.checkoutBtnText, { fontFamily: getFontFamily('600') }]}>Place Order</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="lock-closed" size={16} color="#FFFFFF" />
+                      <Text style={[styles.checkoutBtnText, { fontFamily: getFontFamily('700') }]}>
+                        Pay {formatConnectMoney(selectedItem?.price, page?.subscriptionCurrency)}
+                      </Text>
+                    </View>
                   )}
                 </LinearGradient>
               </TouchableOpacity>

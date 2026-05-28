@@ -5663,4 +5663,64 @@ router.put('/orders/:orderId/status', authenticateSuperAdmin, async (req, res) =
   }
 })
 
+/**
+ * GET /api/v1/superadmin/orders
+ * List ALL orders across all community pages with filters
+ */
+router.get('/orders', authenticateSuperAdmin, async (req, res) => {
+  try {
+    const pageNum = Math.max(parseInt(req.query.page) || 1, 1)
+    const limitNum = Math.min(Math.max(parseInt(req.query.limit) || 20, 1), 100)
+    const skip = (pageNum - 1) * limitNum
+    const paymentStatus = req.query.paymentStatus
+    const deliveryStatus = req.query.deliveryStatus
+    const search = (req.query.search || '').trim()
+
+    const match = {}
+    if (paymentStatus && paymentStatus !== 'all') match.paymentStatus = paymentStatus
+    if (deliveryStatus && deliveryStatus !== 'all') match.deliveryStatus = deliveryStatus
+    if (search) {
+      match.$or = [
+        { buyerName: { $regex: search, $options: 'i' } },
+        { buyerPhone: { $regex: search, $options: 'i' } },
+        { itemName: { $regex: search, $options: 'i' } },
+      ]
+    }
+
+    const [orders, total] = await Promise.all([
+      Order.find(match)
+        .populate('userId', 'username fullName profilePic email')
+        .populate('connectPageId', 'name category')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      Order.countDocuments(match)
+    ])
+
+    // Stats
+    const [stats] = await Order.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalRevenue: { $sum: { $cond: [{ $eq: ['$paymentStatus', 'paid'] }, '$price', 0] } },
+          totalOrders: { $sum: 1 },
+          paidOrders: { $sum: { $cond: [{ $eq: ['$paymentStatus', 'paid'] }, 1, 0] } },
+          pendingOrders: { $sum: { $cond: [{ $eq: ['$paymentStatus', 'pending'] }, 1, 0] } },
+          pendingDelivery: { $sum: { $cond: [{ $eq: ['$deliveryStatus', 'pending'] }, 1, 0] } },
+        }
+      }
+    ])
+
+    return sendSuccess(res, 200, 'All orders fetched', {
+      orders,
+      pagination: { page: pageNum, limit: limitNum, total, totalPages: Math.ceil(total / limitNum) },
+      stats: stats || { totalRevenue: 0, totalOrders: 0, paidOrders: 0, pendingOrders: 0, pendingDelivery: 0 }
+    })
+  } catch (error) {
+    logger.error('Error fetching all orders:', error)
+    return sendError(res, 'SRV_6001', 'Failed to fetch orders')
+  }
+})
+
 module.exports = router
