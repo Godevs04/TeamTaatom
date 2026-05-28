@@ -39,12 +39,17 @@ export default function PremiumGlassCard({
   const finalShadowOpacity = isDark ? 0.45 : shadowOpacity;
   const finalShadowRadius = isDark ? (subtle ? 16 : 32) : (subtle ? 16 : 24);
 
+  // Extract the final borderRadius — prefer the one passed via `style` so that
+  // circular usages (e.g. PremiumIconButton) are respected by ALL inner layers.
+  const flatStyle = StyleSheet.flatten(style) as ViewStyle | undefined;
+  const finalRadius = flatStyle?.borderRadius ?? radius;
+
   return (
     <View
       style={[
         styles.card,
         {
-          borderRadius: radius,
+          borderRadius: finalRadius,
           borderColor: subtle
             ? (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0, 0, 0, 0.08)')
             : (theme.colors.glassBorder || theme.colors.border),
@@ -61,7 +66,7 @@ export default function PremiumGlassCard({
         <BlurView
           intensity={subtle ? theme.glass.blur.light : strong ? theme.glass.blur.medium : theme.glass.blur.light}
           tint={isDark ? 'dark' : 'light'}
-          style={[StyleSheet.absoluteFillObject, { borderRadius: radius }]}
+          style={[StyleSheet.absoluteFillObject, { borderRadius: finalRadius }]}
         />
       ) : null}
       <LinearGradient
@@ -69,7 +74,7 @@ export default function PremiumGlassCard({
           theme.colors.innerHighlight || 'rgba(255,255,255,0.08)',
           isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.18)',
         ]}
-        style={StyleSheet.absoluteFillObject}
+        style={[StyleSheet.absoluteFillObject, { borderRadius: finalRadius }]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         pointerEvents="none"
@@ -80,7 +85,7 @@ export default function PremiumGlassCard({
             'rgba(255,255,255,0.36)',
             'rgba(0,0,0,0)',
           ]}
-          style={[styles.innerLift, subtle && styles.innerLiftSubtle]}
+          style={[styles.innerLift, subtle && styles.innerLiftSubtle, { borderRadius: finalRadius }]}
           start={{ x: 0, y: 0 }}
           end={{ x: 0.8, y: 1 }}
           pointerEvents="none"

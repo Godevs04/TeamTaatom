@@ -34,6 +34,7 @@ const ConnectDashboard = lazyWithRetry(() => import('./pages/ConnectDashboard'))
 const ConnectPageDetail = lazyWithRetry(() => import('./pages/ConnectPageDetail'))
 const CommunityPages = lazyWithRetry(() => import('./pages/CommunityPages'))
 const CommunityPageEditor = lazyWithRetry(() => import('./pages/CommunityPageEditor'))
+const Orders = lazyWithRetry(() => import('./pages/Orders'))
 
 // Loading component
 const LoadingSpinner = () => (
@@ -112,6 +113,7 @@ function App() {
                         <Route path="/connect-dashboard/:pageId" element={<ConnectPageDetail />} />
                         <Route path="/community-pages" element={<CommunityPages />} />
                         <Route path="/community-pages/:pageId/edit" element={<CommunityPageEditor />} />
+                        <Route path="/orders" element={<Orders />} />
                         <Route path="/system" element={<System />} />
                         {TestPage ? <Route path="/test" element={<TestPage />} /> : <Route path="/test" element={<Navigate to="/dashboard" replace />} />}
                       </Routes>

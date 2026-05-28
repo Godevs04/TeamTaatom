@@ -4182,10 +4182,7 @@ export default function LocaleScreen() {
                 renderItem={renderAdminLocaleItem}
                 keyExtractor={localeKeyExtractor}
                 showsVerticalScrollIndicator={true}
-                 onScroll={(e) => {
-                   if (e.target !== e.currentTarget) return;
-                   handleVerticalScroll(e);
-                 }}
+                 onScroll={handleVerticalScroll}
                 scrollEventThrottle={16}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"

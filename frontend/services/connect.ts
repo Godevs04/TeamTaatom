@@ -778,22 +778,48 @@ export const getLanguages = async (): Promise<{ languages: GeoItem[] }> => {
   }
 };
 
-export const buyCommunityItem = async (
+
+export interface BuyOrderResponse {
+  orderId: string;
+  cashfreeOrderId: string;
+  paymentSessionId: string;
+  amount: number;
+  currency: string;
+  cashfreeEnvironment: 'sandbox' | 'production';
+  itemName: string;
+}
+
+export const createBuyOrder = async (
   pageId: string,
   body: {
     itemId: string;
     buyerName: string;
     buyerPhone: string;
-    payPhone: string;
     deliveryAddress: string;
   }
-): Promise<any> => {
+): Promise<BuyOrderResponse> => {
   try {
-    const response = await api.post(`/api/v1/connect/page/${pageId}/buy`, body);
-    return response.data;
+    const response = await api.post(`/api/v1/connect/page/${pageId}/buy-order`, body);
+    return response.data.data || response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
     throw new Error(parsedError.userMessage);
   }
 };
 
+export const verifyBuyOrder = async (
+  pageId: string,
+  body: {
+    orderId?: string;
+    cashfreeOrderId?: string;
+    cashfreePaymentId?: string;
+  }
+): Promise<any> => {
+  try {
+    const response = await api.post(`/api/v1/connect/page/${pageId}/buy-verify`, body);
+    return response.data.data || response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};

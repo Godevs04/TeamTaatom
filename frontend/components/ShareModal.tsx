@@ -25,6 +25,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import logger from '../utils/logger';
 import BottomSheet, { BottomSheetView, BottomSheetBackdrop } from '@gorhom/bottom-sheet';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import * as Clipboard from 'expo-clipboard';
 
 interface ShareModalProps {
   visible: boolean;
@@ -444,10 +445,8 @@ export default function ShareModal({
           document.body.removeChild(textArea);
         }
       } else {
-        // Mobile: Try to use expo-clipboard if available, otherwise use Share API
+        // Mobile: Use expo-clipboard
         try {
-          // Try expo-clipboard first (if installed)
-          const Clipboard = require('expo-clipboard').default;
           await Clipboard.setStringAsync(url);
         } catch (expoClipboardError) {
           // Fallback: Use Share API (will show share sheet)

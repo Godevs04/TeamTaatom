@@ -45,6 +45,7 @@ import { crashReportingService } from '../../services/crashReporting';
 import logger from '../../utils/logger';
 import { useSubscription } from '../../context/SubscriptionContext';
 import { NativeModules } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import {
   CFErrorResponse,
   CFPaymentGatewayService,
@@ -168,7 +169,7 @@ export default function ContentPreviewScreen() {
           isWebsite
             ? getWebsiteContent(pageId)
             : getSubscriptionContent(pageId),
-          isSubscription ? getPageDetail(pageId).catch(() => null) : Promise.resolve(null),
+          (isWebsite || isSubscription) ? getPageDetail(pageId).catch(() => null) : Promise.resolve(null),
         ]);
         const data = isWebsite
           ? (contentResponse as any).websiteContent
@@ -359,7 +360,6 @@ export default function ContentPreviewScreen() {
           Alert.alert('Copied', 'UPI ID copied to clipboard!');
         }
       } else {
-        const Clipboard = require('expo-clipboard').default;
         await Clipboard.setStringAsync(text);
         Alert.alert('Copied', 'UPI ID copied to clipboard!');
       }
