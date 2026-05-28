@@ -455,14 +455,24 @@ export default function SearchScreen() {
         style={[
           styles.header, 
           { 
-            backgroundColor: isDark ? 'rgba(25, 25, 25, 0.55)' : 'rgba(255, 255, 255, 0.65)', 
-            borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.06)',
+            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)', 
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+            borderWidth: 1,
+            borderRadius: 24,
+            marginHorizontal: isTablet ? 24 : 14,
+            marginTop: isAndroid ? 6 : 4,
+            marginBottom: 8,
+            shadowColor: '#000000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: isDark ? 0.3 : 0.1,
+            shadowRadius: 10,
+            elevation: 4,
             overflow: 'hidden'
           }
         ]}
       >
         <BlurView
-          intensity={65}
+          intensity={80}
           tint={isDark ? 'dark' : 'light'}
           style={StyleSheet.absoluteFillObject}
         />
@@ -716,7 +726,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: isTablet ? theme.spacing.xl : theme.spacing.lg,
     paddingVertical: isTablet ? theme.spacing.md : 12,
-    borderBottomWidth: 1,
   },
   backButton: {
     // Minimum touch target: 44x44 for iOS, 48x48 for Android

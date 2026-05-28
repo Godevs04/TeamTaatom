@@ -66,6 +66,7 @@ const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
 const isWeb = Platform.OS === 'web';
 const isIOS = Platform.OS === 'ios';
+const isAndroid = Platform.OS === 'android';
 
 const getFontFamily = (weight: '400' | '500' | '600' | '700' = '400') => {
   if (isWeb) return 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
@@ -643,10 +644,12 @@ export default function ContentPreviewScreen() {
         style={[
           styles.headerContainer,
           {
-            backgroundColor: isDark ? 'rgba(20, 23, 24, 0.7)' : 'rgba(250, 251, 251, 0.7)',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
-            height: 60 + insets.top,
-            paddingTop: insets.top,
+            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+            top: insets.top,
+            marginTop: isAndroid ? 6 : 4,
+            marginHorizontal: isTablet ? 24 : 14,
+            shadowOpacity: isDark ? 0.3 : 0.1,
           }
         ]}
       >
@@ -714,7 +717,7 @@ export default function ContentPreviewScreen() {
       ) : (
         <ScrollView
           style={[styles.scrollContent, pageBackground ? { backgroundColor: pageBackground } : null]}
-          contentContainerStyle={[styles.contentContainer, { paddingTop: 60 + insets.top + 16 }]}
+          contentContainerStyle={[styles.contentContainer, { paddingTop: 56 + (isAndroid ? 6 : 4) + insets.top + 16 }]}
           showsVerticalScrollIndicator={false}
         >
           {/* Buy Items Listing for Community Category */}
@@ -1130,21 +1133,18 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     position: 'absolute',
-    top: 0,
     left: 0,
     right: 0,
-    height: 60,
+    height: 56,
     zIndex: 10,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
+    borderRadius: 24,
     overflow: 'hidden',
     borderWidth: 1,
-    borderTopWidth: 0,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 10,
-    elevation: 3,
+    elevation: 4,
   },
   headerInner: {
     flexDirection: 'row',

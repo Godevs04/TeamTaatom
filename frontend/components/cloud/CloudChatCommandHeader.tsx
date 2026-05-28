@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, Pressable, Platform, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import MaskedView from '@react-native-masked-view/masked-view';
@@ -7,6 +7,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import { cloudDesign } from '../../constants/cloudDesign';
 import CloudSearchDock from './CloudSearchDock';
+
+const { width: screenWidth } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isAndroid = Platform.OS === 'android';
 
 interface CloudChatCommandHeaderProps {
   title: string;
@@ -40,13 +44,12 @@ export default function CloudChatCommandHeader({
         style={[
           styles.dock,
           {
-            backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.72)',
-            borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.8)',
-          },
-          cloudDesign.shadowCard,
+            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+          }
         ]}
       >
-        <BlurView intensity={isDark ? 50 : 28} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
+        <BlurView intensity={isDark ? 95 : 80} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
         <View style={styles.topRow}>
           {onBack ? (
             <TouchableOpacity onPress={onBack} style={[styles.iconBtn, { overflow: 'hidden', borderRadius: 20 }]} hitSlop={10}>
@@ -104,15 +107,20 @@ export default function CloudChatCommandHeader({
 
 const styles = StyleSheet.create({
   wrap: {
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 4,
+    marginHorizontal: isTablet ? 24 : 14,
+    marginTop: isAndroid ? 6 : 4,
+    marginBottom: 8,
   },
   dock: {
-    borderRadius: 22,
+    borderRadius: 24,
     borderWidth: 1,
     overflow: 'hidden',
     paddingBottom: 10,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 4,
   },
   topRow: {
     flexDirection: 'row',

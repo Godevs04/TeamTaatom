@@ -77,7 +77,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
   const { theme } = useTheme();
   const [sound, setSound] = useState<Audio.Sound | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(() => externalMuted !== undefined ? externalMuted : audioManager.getSessionMuted());
   const [isLoading, setIsLoading] = useState(false);
   // URL fetched dynamically when getShorts URL generation failed (storage issues, etc.)
   const [fetchedUrl, setFetchedUrl] = useState<string | null>(null);
@@ -178,11 +178,25 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
     };
   }, [post._id, onPlayingChange]);
 
+  // Reset player states when post changes (recycled cells)
+  useEffect(() => {
+    if (isMountedRef.current) {
+      setSound(null);
+      setIsPlaying(false);
+      setIsLoading(false);
+      setFetchedUrl(null);
+      const initialMuted = externalMuted !== undefined ? externalMuted : audioManager.getSessionMuted();
+      setIsMuted(initialMuted);
+    }
+  }, [post._id]);
+
+
   // Sync external mute prop → internal mute state + live sound volume
   useEffect(() => {
     if (externalMuted === undefined) return;
     setIsMuted(externalMuted);
     if (soundRef.current) {
+      soundRef.current.setIsMutedAsync(externalMuted).catch(() => {});
       soundRef.current.setVolumeAsync(externalMuted ? 0 : volume).catch(() => {});
     }
   }, [externalMuted, volume]);
@@ -596,7 +610,8 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
       }
 
       const newMutedState = !isMuted;
-      await soundRef.current.setVolumeAsync(newMutedState ? 0 : volume);
+      await soundRef.current.setIsMutedAsync(newMutedState).catch(() => {});
+      await soundRef.current.setVolumeAsync(newMutedState ? 0 : volume).catch(() => {});
       setIsMuted(newMutedState);
 
       // Animate mute icon
