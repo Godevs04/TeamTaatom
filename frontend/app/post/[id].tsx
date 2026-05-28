@@ -1,23 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { View, ScrollView, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import { View, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
-import { getPostById, toggleLike } from '../../services/posts';
-import { realtimePostsService } from '../../services/realtimePosts';
+import { getPostById } from '../../services/posts';
 import { trackPostView } from '../../services/analytics';
-import PostHeader from '../../components/post/PostHeader';
-import PostActions from '../../components/post/PostActions';
-import PostCaption from '../../components/post/PostCaption';
-import PostLikesCount from '../../components/post/PostLikesCount';
-import PostComments from '../../components/post/PostComments';
+import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import { createLogger } from '../../utils/logger';
-import FastImage from '../../components/ui/FastImage';
 
 const logger = createLogger('PostDetail');
-const { width: screenWidth } = Dimensions.get('window');
 
 export default function PostDetail() {
   const { id } = useLocalSearchParams();
@@ -27,56 +20,28 @@ export default function PostDetail() {
 
   const [post, setPost] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [isLiked, setIsLiked] = useState(false);
-  const [commentsVisible, setCommentsVisible] = useState(false);
-  const [comments, setComments] = useState<any[]>([]);
 
   // Fetch post details
-  useEffect(() => {
-    const fetchPost = async () => {
-      try {
-        if (!id) {
-          logger.error('No post ID provided');
-          return;
-        }
-
-        const response = await getPostById(id as string);
-        if (response?.post) {
-          setPost(response.post);
-          setIsLiked(response.post.isLiked || false);
-          setComments(response.post.comments || []);
-        }
-      } catch (error) {
-        logger.error('Failed to fetch post:', error);
-      } finally {
-        setLoading(false);
+  const fetchPost = useCallback(async () => {
+    try {
+      if (!id) {
+        logger.error('No post ID provided');
+        return;
       }
-    };
+      const response = await getPostById(id as string);
+      if (response?.post) {
+        setPost(response.post);
+      }
+    } catch (error) {
+      logger.error('Failed to fetch post:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
 
+  useEffect(() => {
     fetchPost();
-  }, [id]);
-
-  // Listen for WebSocket real-time updates for like state
-  useEffect(() => {
-    if (!id) return;
-    const unsubscribe = realtimePostsService.subscribeToLikes(({ postId, isLiked: nextIsLiked, likesCount }) => {
-      if (postId === id) {
-        setIsLiked(nextIsLiked);
-        setPost(prev => {
-          if (!prev) return prev;
-          if (prev.isLiked === nextIsLiked && prev.likesCount === likesCount) {
-            return prev;
-          }
-          return {
-            ...prev,
-            isLiked: nextIsLiked,
-            likesCount
-          };
-        });
-      }
-    });
-    return unsubscribe;
-  }, [id]);
+  }, [fetchPost]);
 
   // View tracking: send view event after 2 seconds (2-second rule)
   useEffect(() => {
@@ -88,38 +53,6 @@ export default function PostDetail() {
 
     return () => clearTimeout(timer);
   }, [post?._id]);
-
-  // Handle like toggle
-  const handleLike = useCallback(async () => {
-    try {
-      if (!id) return;
-
-      const result = await toggleLike(id as string);
-      setIsLiked(result.isLiked);
-
-      // Update post like count
-      if (post) {
-        setPost({
-          ...post,
-          likesCount: result.likesCount,
-          isLiked: result.isLiked
-        });
-      }
-    } catch (error) {
-      logger.error('Failed to toggle like:', error);
-    }
-  }, [id, post]);
-
-  // Handle comment added
-  const handleCommentAdded = useCallback((newComment: any) => {
-    setComments(prev => [newComment, ...prev]);
-    if (post) {
-      setPost({
-        ...post,
-        commentsCount: (post.commentsCount || 0) + 1
-      });
-    }
-  }, [post]);
 
   if (loading || !post) {
     return (
@@ -136,70 +69,23 @@ export default function PostDetail() {
     );
   }
 
-  const imageHeight = Math.min(screenWidth, 500);
-
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]}>
       {/* Header with back button */}
-      <View style={styles.header}>
+      <View style={[styles.header, { borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#e0e0e0' }]}>
         <TouchableOpacity onPress={() => router.back()}>
           <Ionicons name="arrow-back" size={24} color={isDark ? '#fff' : '#000'} />
         </TouchableOpacity>
         <View style={{ flex: 1 }} />
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} bounces={true}>
-        {/* Post Image */}
-        {post.imageUrl && (
-          <FastImage
-            source={{ uri: post.imageUrl }}
-            style={[styles.image, { height: imageHeight }]}
-            contentFit="contain"
-          />
-        )}
-
-        <View style={styles.content}>
-          {/* Post Header (User info) */}
-          <PostHeader post={post} showReportButton={true} onMenuPress={() => {}} />
-
-          {/* Likes Count */}
-          {post.likesCount > 0 && (
-            <PostLikesCount likesCount={post.likesCount} />
-          )}
-
-          {/* Post Caption */}
-          <PostCaption post={post} />
-
-          {/* Actions (Like, Comment, Share, Save) */}
-          <PostActions
-            isLiked={isLiked}
-            isSaved={post.isSaved || false}
-            onLike={handleLike}
-            onComment={() => setCommentsVisible(true)}
-            onShare={() => {
-              // Share functionality
-              logger.debug('Share post:', post._id);
-            }}
-            onSave={() => {
-              // Save functionality
-              logger.debug('Save post:', post._id);
-            }}
-            showBookmark={true}
-          />
-
-
-        </View>
+      <ScrollView showsVerticalScrollIndicator={false} bounces={true} contentContainerStyle={styles.scrollContent}>
+        <OptimizedPhotoCard 
+          post={post} 
+          isCurrentlyVisible={true} 
+          onRefresh={fetchPost}
+        />
       </ScrollView>
-
-      {/* Comments Modal */}
-      <PostComments
-        visible={commentsVisible}
-        postId={id as string}
-        comments={comments}
-        onClose={() => setCommentsVisible(false)}
-        onCommentAdded={handleCommentAdded}
-        commentsDisabled={post.commentsDisabled || false}
-      />
     </SafeAreaView>
   );
 }
@@ -214,20 +100,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  image: {
-    width: '100%',
-    backgroundColor: '#000',
+  scrollContent: {
+    paddingHorizontal: 12,
+    paddingTop: 12,
   },
-  content: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-
 });

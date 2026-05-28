@@ -157,10 +157,9 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
   // in-flight loadAsync can resolve and decide it's still "visible".
   isVisibleRef.current = isEffectiveVisible;
 
-  // Cleanup on unmount
+  // Cleanup on post change or unmount
   useEffect(() => {
     return () => {
-      isMountedRef.current = false; // Mark as unmounted
       // Bump the load token so any awaited loadAndPlaySong knows it's stale
       // and unloads its sound instead of playing it on a dead component.
       loadTokenRef.current += 1;
@@ -428,7 +427,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
       
       throw error;
     }
-  }, [song?.s3Url, (song as any)?.cloudinaryUrl, fetchedUrl, autoPlay, isMuted, volume, startTime, endTime, onPlayingChange]);
+  }, [post._id, song?.s3Url, (song as any)?.cloudinaryUrl, fetchedUrl, autoPlay, isMuted, volume, startTime, endTime, onPlayingChange]);
 
   useEffect(() => {
     // For shorts and home page: sync with visibility and autoPlay prop
