@@ -473,6 +473,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
                 await soundRef.current.playAsync();
               }
               setIsPlaying(true);
+              onPlayingChange?.(soundRef.current);
             } catch (err) {
               logger.error('[SONGPLAYER] Error checking sound status or playing:', err);
               // Fallback: reload
@@ -554,6 +555,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
           logger.debug('Pausing playback...');
           await soundRef.current.pauseAsync();
           setIsPlaying(false);
+          onPlayingChange?.(null);
         } else {
           logger.debug('Starting playback...');
           const effectiveMuted = externalMuted !== undefined ? externalMuted : isMuted;
@@ -564,6 +566,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
             await audioManager.playSound(soundRef.current, post._id.toString());
           }
           setIsPlaying(true);
+          onPlayingChange?.(soundRef.current);
           logger.debug('Playback started');
         }
       } else {

@@ -192,6 +192,7 @@ interface ShortsProgressBarProps {
   songEndSec?: number;
   currentPlayerRef: React.MutableRefObject<Audio.Sound | null>;
   progressCallbacks: React.MutableRefObject<Record<string, (position: number, duration: number) => void>>;
+  lastVideoPositionRef: React.MutableRefObject<Record<string, number>>;
 }
 
 const ShortsProgressBar = ({
@@ -204,6 +205,7 @@ const ShortsProgressBar = ({
   songEndSec,
   currentPlayerRef,
   progressCallbacks,
+  lastVideoPositionRef,
 }: ShortsProgressBarProps) => {
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -260,11 +262,11 @@ const ShortsProgressBar = ({
         }).catch(() => {});
       }
       if (hasMusic && currentPlayerRef.current) {
-        currentPlayerRef.current.setPositionAsync(finalAudioMs, {
-          toleranceMillisBefore: 0,
-          toleranceMillisAfter: 0,
-        }).catch(() => {});
+        // Audio seek does not use tolerance parameters (to prevent codec rejection errors)
+        currentPlayerRef.current.setPositionAsync(finalAudioMs).catch(() => {});
       }
+      // Update lastVideoPosition immediately to prevent false loop detection triggers
+      lastVideoPositionRef.current[shortId] = targetMs;
     };
 
     if (forceSeek) {
@@ -340,48 +342,78 @@ const ShortsProgressBar = ({
         
         // Seek to final precise destination simultaneously and resume play smoothly with CRITICAL BUFFER LOCK
         const executeFinalSeekAndPlay = async () => {
+          const video = getVideoRef();
+          const audio = hasMusic ? currentPlayerRef.current : null;
+
           try {
-            const seekPromises: Promise<any>[] = [];
-
+            // Pause explicitly first to reset players stream state (prevents stale buffer playing)
             if (video) {
-              // Exact seek tolerance in expo-av (toleranceMillisBefore/After: 0)
-              seekPromises.push(
-                video.setPositionAsync(finalTargetMs, {
-                  toleranceMillisBefore: 0,
-                  toleranceMillisAfter: 0,
-                })
-              );
+              await video.pauseAsync().catch(() => {});
             }
-            if (hasMusic && currentPlayerRef.current) {
-              seekPromises.push(
-                currentPlayerRef.current.setPositionAsync(finalAudioMs, {
-                  toleranceMillisBefore: 0,
-                  toleranceMillisAfter: 0,
-                })
-              );
+            if (audio) {
+              await audio.pauseAsync().catch(() => {});
             }
 
-            // CRITICAL LOCK: Await both seek promises to fully resolve (meaning buffering is complete at the new position)
-            await Promise.all(seekPromises);
+            // Perform seek operations with robust retry loop and backoff
+            const seekVideo = async () => {
+              if (!video) return;
+              for (let i = 0; i < 3; i++) {
+                try {
+                  await video.setPositionAsync(finalTargetMs, {
+                    toleranceMillisBefore: 0,
+                    toleranceMillisAfter: 0,
+                  });
+                  return; // success
+                } catch (e) {
+                  logger.warn(`Video seek attempt ${i + 1} failed:`, e);
+                  if (i === 2) throw e;
+                  await new Promise((resolve) => setTimeout(resolve, 50));
+                }
+              }
+            };
 
-            // Once buffer is confirmed at the new timestamp, resume play simultaneously
+            const seekAudio = async () => {
+              if (!audio) return;
+              for (let i = 0; i < 3; i++) {
+                try {
+                  await audio.setPositionAsync(finalAudioMs);
+                  return; // success
+                } catch (e) {
+                  logger.warn(`Audio seek attempt ${i + 1} failed:`, e);
+                  if (i === 2) throw e;
+                  await new Promise((resolve) => setTimeout(resolve, 50));
+                }
+              }
+            };
+
+            // Update last video position immediately to prevent false loop detection triggers
+            lastVideoPositionRef.current[shortId] = finalTargetMs;
+
+            // Wait for both seeks to complete (ignoring individual catch rejections so one doesn't abort the other)
+            await Promise.all([
+              seekVideo().catch((err) => logger.error("Final video seek failed after retries:", err)),
+              seekAudio().catch((err) => logger.error("Final audio seek failed after retries:", err)),
+            ]);
+
+            // Once seeking is completed, resume playback
             if (video) {
-              await video.playAsync();
+              await video.playAsync().catch(() => {});
             }
-            if (hasMusic && currentPlayerRef.current) {
-              await currentPlayerRef.current.playAsync();
+            if (audio) {
+              await audio.playAsync().catch(() => {});
             }
           } catch (err) {
+            logger.error("Error in executeFinalSeekAndPlay:", err);
             // Safe fallback
             if (video) video.playAsync().catch(() => {});
-            if (hasMusic && currentPlayerRef.current) currentPlayerRef.current.playAsync().catch(() => {});
+            if (audio) audio.playAsync().catch(() => {});
           }
         };
         
         executeFinalSeekAndPlay();
       }}
     >
-      <View style={[styles.progressBarBackground, isPressing && { height: 4 }]} />
+      <View style={[styles.progressBarBackground, isPressing && { height: 14 }]} />
       <LinearGradient
         colors={['#50C878', '#1C73B4']} // beautiful premium green-blue gradient
         start={{ x: 0, y: 0 }}
@@ -389,7 +421,7 @@ const ShortsProgressBar = ({
         style={[
           styles.progressBarFill,
           { width: `${progress * 100}%` },
-          isPressing && { height: 4 },
+          isPressing && { height: 14 },
         ]}
       />
     </View>
@@ -3395,6 +3427,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               songEndSec={item.song?.endTime}
               currentPlayerRef={currentPlayerRef}
               progressCallbacks={progressCallbacks}
+              lastVideoPositionRef={lastVideoPositionRef}
             />
           )}
       </View>
@@ -4220,7 +4253,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: 16,
+    height: 24,
     justifyContent: 'flex-end',
     zIndex: 20,
   },
@@ -4229,10 +4262,10 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: 2,
+    height: 10,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   progressBarFill: {
-    height: 2,
+    height: 10,
   },
 });
