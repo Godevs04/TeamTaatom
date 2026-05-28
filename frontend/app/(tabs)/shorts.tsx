@@ -253,10 +253,17 @@ const ShortsProgressBar = ({
     const performSeek = () => {
       const video = getVideoRef();
       if (video) {
-        video.setPositionAsync(targetMs).catch(() => {});
+        // Enforce frame-accurate seeking using precise tolerance options in expo-av
+        video.setPositionAsync(targetMs, {
+          toleranceMillisBefore: 0,
+          toleranceMillisAfter: 0,
+        }).catch(() => {});
       }
       if (hasMusic && currentPlayerRef.current) {
-        currentPlayerRef.current.setPositionAsync(finalAudioMs).catch(() => {});
+        currentPlayerRef.current.setPositionAsync(finalAudioMs, {
+          toleranceMillisBefore: 0,
+          toleranceMillisAfter: 0,
+        }).catch(() => {});
       }
     };
 
@@ -331,26 +338,50 @@ const ShortsProgressBar = ({
 
         const video = getVideoRef();
         
-        // Seek to final precise destination simultaneously and resume play smoothly
+        // Seek to final precise destination simultaneously and resume play smoothly with CRITICAL BUFFER LOCK
         const executeFinalSeekAndPlay = async () => {
-          if (video) {
-            try {
-              await video.setPositionAsync(finalTargetMs);
+          try {
+            const seekPromises: Promise<any>[] = [];
+
+            if (video) {
+              // Exact seek tolerance in expo-av (toleranceMillisBefore/After: 0)
+              seekPromises.push(
+                video.setPositionAsync(finalTargetMs, {
+                  toleranceMillisBefore: 0,
+                  toleranceMillisAfter: 0,
+                })
+              );
+            }
+            if (hasMusic && currentPlayerRef.current) {
+              seekPromises.push(
+                currentPlayerRef.current.setPositionAsync(finalAudioMs, {
+                  toleranceMillisBefore: 0,
+                  toleranceMillisAfter: 0,
+                })
+              );
+            }
+
+            // CRITICAL LOCK: Await both seek promises to fully resolve (meaning buffering is complete at the new position)
+            await Promise.all(seekPromises);
+
+            // Once buffer is confirmed at the new timestamp, resume play simultaneously
+            if (video) {
               await video.playAsync();
-            } catch (err) {}
-          }
-          if (hasMusic && currentPlayerRef.current) {
-            try {
-              await currentPlayerRef.current.setPositionAsync(finalAudioMs);
+            }
+            if (hasMusic && currentPlayerRef.current) {
               await currentPlayerRef.current.playAsync();
-            } catch (err) {}
+            }
+          } catch (err) {
+            // Safe fallback
+            if (video) video.playAsync().catch(() => {});
+            if (hasMusic && currentPlayerRef.current) currentPlayerRef.current.playAsync().catch(() => {});
           }
         };
         
         executeFinalSeekAndPlay();
       }}
     >
-      <View style={[styles.progressBarBackground, isPressing && { height: 8 }]} />
+      <View style={[styles.progressBarBackground, isPressing && { height: 4 }]} />
       <LinearGradient
         colors={['#50C878', '#1C73B4']} // beautiful premium green-blue gradient
         start={{ x: 0, y: 0 }}
@@ -358,7 +389,7 @@ const ShortsProgressBar = ({
         style={[
           styles.progressBarFill,
           { width: `${progress * 100}%` },
-          isPressing && { height: 8 },
+          isPressing && { height: 4 },
         ]}
       />
     </View>
@@ -4198,10 +4229,10 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: 5,
+    height: 2,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   progressBarFill: {
-    height: 5,
+    height: 2,
   },
 });
