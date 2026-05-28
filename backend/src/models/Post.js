@@ -89,7 +89,7 @@ const postSchema = new mongoose.Schema({
   // 'full' = render at the image's natural aspect ratio (measured on load).
   aspectRatio: {
     type: String,
-    enum: ['1:1', '16:9', 'full'],
+    enum: ['1:1', '16:9', 'full', '1.91:1'],
     default: '1:1'
   },
   // Photo filter chosen at post creation. Applied non-destructively at

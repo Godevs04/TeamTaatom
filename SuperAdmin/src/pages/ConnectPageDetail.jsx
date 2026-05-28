@@ -142,7 +142,7 @@ const ConnectPageDetail = () => {
   }, [pageId])
 
   const loadPayouts = useCallback(async () => {
-    if (page && page.category === 'community') return
+    if (data?.page?.category === 'community') return
     try {
       setPayoutsLoading(true)
       const res = await getConnectPagePayouts(pageId, { page: 1, limit: 50 })
@@ -155,7 +155,7 @@ const ConnectPageDetail = () => {
     } finally {
       setPayoutsLoading(false)
     }
-  }, [pageId, page?.category])
+  }, [pageId, data?.page?.category])
 
 
   useEffect(() => { load() }, [load])

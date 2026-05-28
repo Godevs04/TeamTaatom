@@ -800,19 +800,16 @@ export default function ConnectHubScreen() {
         </Text>
 
         {/* Your current location (free-form, Places autocomplete) */}
-        <Text style={[styles.filterFieldLabel, { color: isDark ? '#38BDF8' : '#1C73B4' }]}>
+        <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>
           Your current location
         </Text>
-        <View style={[styles.filterSelect, { borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)', overflow: 'hidden', position: 'relative' }]}>
-          <LinearGradient
-            colors={isDark ? ['rgba(28, 115, 180, 0.15)', 'rgba(80, 200, 120, 0.05)'] : ['rgba(28, 115, 180, 0.1)', 'rgba(80, 200, 120, 0.03)']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={StyleSheet.absoluteFillObject}
-          />
-          <Ionicons name="navigate-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} style={{ zIndex: 1 }} />
+        <View style={[styles.filterSelect, {
+          backgroundColor: isDark ? 'rgba(28, 115, 180, 0.15)' : 'rgba(28, 115, 180, 0.08)',
+          borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)'
+        }]}>
+          <Ionicons name="navigate-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
           <TextInput
-            style={[styles.filterTextInput, { color: isDark ? '#38BDF8' : '#1C73B4', zIndex: 1 }]}
+            style={[styles.filterTextInput, { color: isDark ? '#38BDF8' : '#1C73B4' }]}
             value={userLocationInput}
             onChangeText={handleUserLocationChange}
             placeholder="Type a city…"
@@ -820,9 +817,10 @@ export default function ConnectHubScreen() {
             autoCorrect={false}
             autoCapitalize="words"
             returnKeyType="search"
+            underlineColorAndroid="transparent"
           />
           {loadingUserLocation ? (
-            <LoadingGlobe size="small" color={isDark ? '#38BDF8' : '#1C73B4'} style={{ zIndex: 1 }} />
+            <LoadingGlobe size="small" color={isDark ? '#38BDF8' : '#1C73B4'} />
           ) : userLocationInput.length > 0 ? (
             <TouchableOpacity
               onPress={() => {
@@ -831,7 +829,6 @@ export default function ConnectHubScreen() {
                 setUserLocationSuggestions([]);
               }}
               hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-              style={{ zIndex: 1 }}
             >
               <Ionicons name="close-circle" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
             </TouchableOpacity>
@@ -856,88 +853,76 @@ export default function ConnectHubScreen() {
         )}
 
         {/* People-from country */}
-        <Text style={[styles.filterFieldLabel, { color: isDark ? '#38BDF8' : '#1C73B4' }]}>
+        <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>
           Which country&apos;s people would you like to connect with?
         </Text>
         <TouchableOpacity
-          style={[styles.filterSelect, { borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)', overflow: 'hidden', position: 'relative' }]}
+          style={[styles.filterSelect, {
+            backgroundColor: isDark ? 'rgba(28, 115, 180, 0.15)' : 'rgba(28, 115, 180, 0.08)',
+            borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)'
+          }]}
           onPress={() => setShowCountryPicker(true)}
           activeOpacity={0.7}
         >
-          <LinearGradient
-            colors={isDark ? ['rgba(28, 115, 180, 0.15)', 'rgba(80, 200, 120, 0.05)'] : ['rgba(28, 115, 180, 0.1)', 'rgba(80, 200, 120, 0.03)']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={StyleSheet.absoluteFillObject}
-          />
-          <Ionicons name="flag-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} style={{ zIndex: 1 }} />
-          <Text style={[styles.filterSelectText, { color: selectedCountry ? (isDark ? '#38BDF8' : '#1C73B4') : (isDark ? 'rgba(56, 189, 248, 0.6)' : 'rgba(28, 115, 180, 0.6)'), zIndex: 1 }]}>
+          <Ionicons name="flag-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
+          <Text style={[styles.filterSelectText, { color: selectedCountry ? (isDark ? '#38BDF8' : '#1C73B4') : (isDark ? 'rgba(56, 189, 248, 0.6)' : 'rgba(28, 115, 180, 0.6)') }]}>
             {getSelectedLabel(countries, selectedCountry, 'Select country (optional)')}
           </Text>
-          <Ionicons name="chevron-down" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} style={{ zIndex: 1 }} />
+          <Ionicons name="chevron-down" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
         </TouchableOpacity>
 
         {/* Where they currently are */}
-        <Text style={[styles.filterFieldLabel, { color: isDark ? '#38BDF8' : '#1C73B4' }]}>
+        <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>
           Which country should they currently be in?
         </Text>
         <TouchableOpacity
-          style={[styles.filterSelect, { borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)', overflow: 'hidden', position: 'relative' }]}
+          style={[styles.filterSelect, {
+            backgroundColor: isDark ? 'rgba(28, 115, 180, 0.15)' : 'rgba(28, 115, 180, 0.08)',
+            borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)'
+          }]}
           onPress={() => setShowCurrentCountryPicker(true)}
           activeOpacity={0.7}
         >
-          <LinearGradient
-            colors={isDark ? ['rgba(28, 115, 180, 0.15)', 'rgba(80, 200, 120, 0.05)'] : ['rgba(28, 115, 180, 0.1)', 'rgba(80, 200, 120, 0.03)']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={StyleSheet.absoluteFillObject}
-          />
-          <Ionicons name="location-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} style={{ zIndex: 1 }} />
-          <Text style={[styles.filterSelectText, { color: selectedCurrentCountry ? (isDark ? '#38BDF8' : '#1C73B4') : (isDark ? 'rgba(56, 189, 248, 0.6)' : 'rgba(28, 115, 180, 0.6)'), zIndex: 1 }]}>
+          <Ionicons name="location-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
+          <Text style={[styles.filterSelectText, { color: selectedCurrentCountry ? (isDark ? '#38BDF8' : '#1C73B4') : (isDark ? 'rgba(56, 189, 248, 0.6)' : 'rgba(28, 115, 180, 0.6)') }]}>
             {getSelectedLabel(countries, selectedCurrentCountry, 'Select country (optional)')}
           </Text>
-          <Ionicons name="chevron-down" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} style={{ zIndex: 1 }} />
+          <Ionicons name="chevron-down" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
         </TouchableOpacity>
 
         {/* Language Picker */}
-        <Text style={[styles.filterFieldLabel, { color: isDark ? '#38BDF8' : '#1C73B4' }]}>
+        <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>
           Language (required)
         </Text>
         <TouchableOpacity
-          style={[styles.filterSelect, { borderColor: !selectedLanguage ? (isDark ? 'rgba(56, 189, 248, 0.45)' : 'rgba(28, 115, 180, 0.4)') : (isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)'), overflow: 'hidden', position: 'relative' }]}
+          style={[styles.filterSelect, {
+            backgroundColor: isDark ? 'rgba(28, 115, 180, 0.15)' : 'rgba(28, 115, 180, 0.08)',
+            borderColor: !selectedLanguage ? (isDark ? 'rgba(56, 189, 248, 0.45)' : 'rgba(28, 115, 180, 0.4)') : (isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)')
+          }]}
           onPress={() => setShowLanguagePicker(true)}
           activeOpacity={0.7}
         >
-          <LinearGradient
-            colors={isDark ? ['rgba(28, 115, 180, 0.15)', 'rgba(80, 200, 120, 0.05)'] : ['rgba(28, 115, 180, 0.1)', 'rgba(80, 200, 120, 0.03)']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={StyleSheet.absoluteFillObject}
-          />
-          <Ionicons name="language-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} style={{ zIndex: 1 }} />
-          <Text style={[styles.filterSelectText, { color: selectedLanguage ? (isDark ? '#38BDF8' : '#1C73B4') : (isDark ? 'rgba(56, 189, 248, 0.6)' : 'rgba(28, 115, 180, 0.6)'), zIndex: 1 }]}>
+          <Ionicons name="language-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
+          <Text style={[styles.filterSelectText, { color: selectedLanguage ? (isDark ? '#38BDF8' : '#1C73B4') : (isDark ? 'rgba(56, 189, 248, 0.6)' : 'rgba(28, 115, 180, 0.6)') }]}>
             {getSelectedLabel(languages, selectedLanguage, 'Select Language *')}
           </Text>
-          <Ionicons name="chevron-down" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} style={{ zIndex: 1 }} />
+          <Ionicons name="chevron-down" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
         </TouchableOpacity>
 
         {/* Travel Style Picker */}
         <TouchableOpacity
-          style={[styles.filterSelect, { borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)', overflow: 'hidden', position: 'relative' }]}
+          style={[styles.filterSelect, {
+            backgroundColor: isDark ? 'rgba(28, 115, 180, 0.15)' : 'rgba(28, 115, 180, 0.08)',
+            borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)'
+          }]}
           onPress={() => setShowTravelStylePicker(true)}
           activeOpacity={0.7}
         >
-          <LinearGradient
-            colors={isDark ? ['rgba(28, 115, 180, 0.15)', 'rgba(80, 200, 120, 0.05)'] : ['rgba(28, 115, 180, 0.1)', 'rgba(80, 200, 120, 0.03)']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={StyleSheet.absoluteFillObject}
-          />
-          <Ionicons name="compass-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} style={{ zIndex: 1 }} />
-          <Text style={[styles.filterSelectText, { color: selectedTravelStyle ? (isDark ? '#38BDF8' : '#1C73B4') : (isDark ? 'rgba(56, 189, 248, 0.6)' : 'rgba(28, 115, 180, 0.6)'), zIndex: 1 }]}>
+          <Ionicons name="compass-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
+          <Text style={[styles.filterSelectText, { color: selectedTravelStyle ? (isDark ? '#38BDF8' : '#1C73B4') : (isDark ? 'rgba(56, 189, 248, 0.6)' : 'rgba(28, 115, 180, 0.6)') }]}>
             {selectedTravelStyle ? TRAVEL_STYLES.find(s => s.code === selectedTravelStyle)?.name || 'Travel Style' : 'Select Travel Style (optional)'}
           </Text>
-          <Ionicons name="chevron-down" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} style={{ zIndex: 1 }} />
+          <Ionicons name="chevron-down" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
         </TouchableOpacity>
 
         {/* Search Button */}
@@ -948,7 +933,7 @@ export default function ConnectHubScreen() {
           activeOpacity={0.7}
         >
           <LinearGradient
-            colors={['#1C73B4', '#50C878']}
+            colors={['#50C878', '#1C73B4']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.findButton}
@@ -1087,11 +1072,35 @@ export default function ConnectHubScreen() {
       {/* FAB — Create Connect Page (Connect tab only) */}
       {activeTab === 'connect' && (
         <TouchableOpacity
-          style={[styles.fab, { backgroundColor: isDark ? '#38BDF8' : '#1C73B4', shadowColor: theme.colors.glowBlue }]}
+          style={{
+            position: 'absolute',
+            right: isTablet ? 32 : 20,
+            bottom: isTablet ? 32 : 20,
+            width: isTablet ? 60 : 56,
+            height: isTablet ? 60 : 56,
+            shadowColor: theme.colors.glowBlue || '#32A8FF',
+            shadowOffset: { width: 0, height: 12 },
+            shadowOpacity: 0.35,
+            shadowRadius: 18,
+            elevation: 8,
+          }}
           onPress={() => router.push('/connect/create')}
           activeOpacity={0.8}
         >
-          <Ionicons name="add" size={28} color={isDark ? '#000000' : '#FFFFFF'} />
+          <LinearGradient
+            colors={['#50C878', '#1C73B4']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{
+              width: '100%',
+              height: '100%',
+              borderRadius: isTablet ? 30 : 28,
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+          >
+            <Ionicons name="add" size={28} color="#FFFFFF" />
+          </LinearGradient>
         </TouchableOpacity>
       )}
 
