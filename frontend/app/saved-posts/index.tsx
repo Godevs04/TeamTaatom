@@ -19,6 +19,7 @@ import { getPostById } from '../../services/posts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createLogger } from '../../utils/logger';
 import { PostType } from '../../types/post';
+import { realtimePostsService } from '../../services/realtimePosts';
 
 const logger = createLogger('SavedPostsScreen');
 
@@ -149,6 +150,17 @@ export default function SavedPostsScreen() {
   useEffect(() => {
     loadSavedPosts();
   }, [loadSavedPosts]);
+
+  useEffect(() => {
+    const unsubscribe = realtimePostsService.subscribeToLikes(({ postId, isLiked, likesCount }) => {
+      setPosts(prev => prev.map(post => (
+        post._id === postId
+          ? { ...post, isLiked, likesCount } as any
+          : post
+      )));
+    });
+    return unsubscribe;
+  }, []);
 
   // Scroll to specific post if postId is provided
   useEffect(() => {

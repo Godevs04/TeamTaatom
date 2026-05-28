@@ -2020,7 +2020,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                       marginTop: 2,
                       gap: 3,
                     }}>
-                      <Text style={isOwn ? bubbleStyles.timeOut : bubbleStyles.textIn}>
+                      <Text style={isOwn ? bubbleStyles.timeOut : bubbleStyles.timeIn}>
                         {item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                       </Text>
                       {isOwn && (
@@ -2699,6 +2699,14 @@ export default function ChatModal() {
         // chat list, a further swipe-back pops /chat to wherever they came from.
         externalEntryRef.current = false;
         chatIdModeRef.current = false;
+        
+        // Clear query parameters from URL so that subsequent back navigation works correctly
+        try {
+          router.replace('/chat');
+        } catch (err) {
+          logger.error('Failed to clear chat params on swipe back:', err);
+        }
+        
         // Detach immediately so a rapid second iOS swipe-back actually pops
         // the chat list. Without this, the old listener stays attached until
         // the next render's cleanup runs — long enough for users on iOS to
@@ -3117,6 +3125,13 @@ export default function ChatModal() {
         setActiveChat(null);
         setActiveMessages([]);
         refreshChatList();
+        
+        // Clear query parameters from URL so that subsequent back navigation works correctly
+        try {
+          router.replace('/chat');
+        } catch (err) {
+          logger.error('Failed to clear chat params on close:', err);
+        }
       }}
       messages={activeMessages} 
       onSendMessage={handleNewMessage} 
@@ -4082,9 +4097,14 @@ export default function ChatModal() {
                           : other ? String(other.fullName || other._id || other) : '[No other user found]'}
                       </Text>
                       {(item as any).type === 'connect_page' && (
-                        <View style={styles.connectBadge}>
-                          <Text style={[styles.connectBadgeText, { color: theme.colors.primary }]}>Connect</Text>
-                        </View>
+                        <LinearGradient
+                          colors={['#1C73B4', '#50C878']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={[styles.connectBadge, { borderWidth: 0 }]}
+                        >
+                          <Text style={[styles.connectBadgeText, { color: '#FFFFFF' }]}>Connect</Text>
+                        </LinearGradient>
                       )}
                     </View>
                     <Text style={[styles.chatTime, unreadCount > 0 && { color: theme.colors.primary }]}>

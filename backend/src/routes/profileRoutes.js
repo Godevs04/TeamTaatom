@@ -23,6 +23,12 @@ const {
   getSuggestedUsers,
   saveInterests,
   completeProfileOnboarding,
+  requestRouteAccess,
+  approveRouteAccess,
+  rejectRouteAccess,
+  revokeRouteAccess,
+  getRouteAccessRequests,
+  getApprovedUsers
 } = require('../controllers/profileController');
 
 const router = express.Router();
@@ -678,5 +684,13 @@ router.put('/:id/push-token', authMiddleware, async (req, res) => {
     res.status(500).json({ error: 'Failed to update push token' });
   }
 });
+
+// Route privacy and access control routes
+router.post('/:id/route-access/request', authMiddleware, requestRouteAccess);
+router.post('/route-access/requests/:requestId/approve', authMiddleware, approveRouteAccess);
+router.post('/route-access/requests/:requestId/reject', authMiddleware, rejectRouteAccess);
+router.delete('/:id/route-access', authMiddleware, revokeRouteAccess);
+router.get('/route-access/requests', authMiddleware, getRouteAccessRequests);
+router.get('/route-access/approved', authMiddleware, getApprovedUsers);
 
 module.exports = router;

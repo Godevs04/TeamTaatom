@@ -32,6 +32,95 @@ const getStableCacheKey = (url?: string | null): string | undefined => {
 // aspect — visible as feed jitter, especially when scrolling pauses.
 const naturalAspectCache: Map<string, number> = new Map();
 
+interface CarouselItemProps {
+  item: string;
+  index: number;
+  currentImageIndex: number;
+  scale: any;
+  focalX: any;
+  focalY: any;
+  composedGesture: any;
+  animatedImageStyle: any;
+  containerWidth: number;
+  filter?: string;
+  heartScale: Animated.Value;
+  heartOpacity: Animated.Value;
+}
+
+const CarouselItem = React.memo(({
+  item,
+  index,
+  currentImageIndex,
+  scale,
+  focalX,
+  focalY,
+  composedGesture,
+  animatedImageStyle,
+  containerWidth,
+  filter,
+  heartScale,
+  heartOpacity,
+}: CarouselItemProps) => {
+  const slideContainerStyle = useAnimatedStyle(() => {
+    const isActive = index === currentImageIndex;
+    const isZooming = scale.value > 1.01;
+    return {
+      overflow: (isActive && isZooming) ? 'visible' : 'hidden',
+      zIndex: (isActive && isZooming) ? 999 : 1,
+    };
+  });
+
+  const isActive = index === currentImageIndex;
+
+  return (
+    <GestureDetector gesture={isActive ? composedGesture : Gesture.Tap()}>
+      <ReAnimated.View
+        style={[
+          { width: containerWidth, height: '100%', position: 'relative' },
+          slideContainerStyle,
+        ]}
+      >
+        <ReAnimated.View
+          style={[
+            StyleSheet.absoluteFill,
+            isActive ? animatedImageStyle : null,
+          ]}
+        >
+          <ExpoImage
+            source={{
+              uri: applyCloudinaryFilter(item, filter),
+              cacheKey: getStableCacheKey(item) ? `${getStableCacheKey(item)}:${filter || 'original'}` : undefined,
+            }}
+            placeholderContentFit="cover"
+            cachePolicy="memory-disk"
+            contentFit="cover"
+            transition={250}
+            priority={isActive ? "high" : "normal"}
+            style={styles.image}
+          />
+
+          {/* Heart animation overlay */}
+          {isActive && (
+            <View style={styles.heartContainer} pointerEvents="none">
+              <Animated.View
+                style={[
+                  styles.heartAnimation,
+                  {
+                    transform: [{ scale: heartScale }],
+                    opacity: heartOpacity,
+                  },
+                ]}
+              >
+                <Ionicons name="heart" size={80} color="#fff" />
+              </Animated.View>
+            </View>
+          )}
+        </ReAnimated.View>
+      </ReAnimated.View>
+    </GestureDetector>
+  );
+});
+
 interface PostImageProps {
   post: PostType;
   onPress: () => void;
@@ -43,6 +132,7 @@ interface PostImageProps {
   pulseAnim: Animated.Value;
   isCurrentlyVisible?: boolean; // Whether this post is currently visible in viewport (for music playback)
   onDoubleTap?: () => void; // Callback for double-tap to like
+  onZoomStateChange?: (isZooming: boolean) => void; // Callback for pinch zoom state changes
 }
 
 export default function PostImage({
@@ -56,11 +146,21 @@ export default function PostImage({
   pulseAnim,
   isCurrentlyVisible = false,
   onDoubleTap,
+  onZoomStateChange,
 }: PostImageProps) {
   const { theme } = useTheme();
   const [blurUpUri, setBlurUpUri] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(() => audioManager.getSessionMuted());
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [scrollEnabled, setScrollEnabled] = useState(true);
+  const [containerWidth, setContainerWidth] = useState(screenWidth - 32);
+
+  const handleLayout = useCallback((event: any) => {
+    const { width } = event.nativeEvent.layout;
+    if (width && width > 0) {
+      setContainerWidth(width);
+    }
+  }, []);
   const flatListRef = useRef<FlatList>(null);
   const songPlayerRef = useRef<any>(null);
   const isTogglingMuteRef = useRef(false);
@@ -233,12 +333,35 @@ export default function PostImage({
   }, [post.aspectRatio, imageUri]);
 
   // 16:9 is portrait (1080×1920) → container aspectRatio = 9/16 (taller than wide).
-  const aspectRatioValue =
-    post.aspectRatio === '16:9'
-      ? 9 / 16
-      : post.aspectRatio === 'full'
-        ? (naturalAspect ?? 1)
-        : 1;
+  const getAspectRatio = () => {
+    if (!post.aspectRatio) return 1;
+    if (post.aspectRatio === 'full') return naturalAspect ?? 1;
+    if (post.aspectRatio === '1:1') return 1;
+    
+    // Cast to any to handle DB values that don't match the strict TS union
+    const rawAspect = post.aspectRatio as any;
+    if (rawAspect === '1.91:1' || rawAspect === '1.91') return 1.91;
+    
+    if (typeof rawAspect === 'string') {
+      if (rawAspect.includes(':')) {
+        const parts = rawAspect.split(':');
+        const w = parseFloat(parts[0]);
+        const h = parseFloat(parts[1]);
+        if (!isNaN(w) && !isNaN(h) && h !== 0) {
+          return w / h;
+        }
+      }
+      const parsedFloat = parseFloat(rawAspect);
+      if (!isNaN(parsedFloat) && parsedFloat > 0) {
+        return parsedFloat;
+      }
+    } else if (typeof rawAspect === 'number' && rawAspect > 0) {
+      return rawAspect;
+    }
+    return 1;
+  };
+
+  const aspectRatioValue = getAspectRatio();
 
   // Pinch-to-zoom shared values
   const scale = useSharedValue(1);
@@ -246,6 +369,12 @@ export default function PostImage({
   const focalY = useSharedValue(0);
 
   const pinchGesture = Gesture.Pinch()
+    .onStart(() => {
+      runOnJS(setScrollEnabled)(false);
+      if (onZoomStateChange) {
+        runOnJS(onZoomStateChange)(true);
+      }
+    })
     .onUpdate((e) => {
       // Clamp scale within the UI worklet to prevent crashes (Max 5, Min 1)
       const currentScale = (e.scale && !isNaN(e.scale) && isFinite(e.scale)) ? e.scale : 1;
@@ -258,6 +387,10 @@ export default function PostImage({
       scale.value = withSpring(1);
       focalX.value = withSpring(0);
       focalY.value = withSpring(0);
+      runOnJS(setScrollEnabled)(true);
+      if (onZoomStateChange) {
+        runOnJS(onZoomStateChange)(false);
+      }
     });
 
   // Composed Gestures
@@ -274,9 +407,9 @@ export default function PostImage({
     const fx = (focalX.value && !isNaN(focalX.value) && isFinite(focalX.value)) ? focalX.value : 0;
     const fy = (focalY.value && !isNaN(focalY.value) && isFinite(focalY.value)) ? focalY.value : 0;
 
-    const width = CARD_WIDTH;
-    const height = aspectRatioValue ? (CARD_WIDTH / aspectRatioValue) : CARD_WIDTH;
-    const safeHeight = (height && !isNaN(height) && isFinite(height)) ? height : CARD_WIDTH;
+    const width = containerWidth;
+    const height = aspectRatioValue ? (containerWidth / aspectRatioValue) : containerWidth;
+    const safeHeight = (height && !isNaN(height) && isFinite(height)) ? height : containerWidth;
 
     // Calculate translation relative to center
     const x = fx - width / 2;
@@ -298,8 +431,21 @@ export default function PostImage({
     };
   });
 
+  const containerAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      overflow: scale.value > 1.01 ? 'visible' : 'hidden',
+      zIndex: scale.value > 1.01 ? 999 : 1,
+    };
+  });
+
+  const indicatorsAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: withSpring(scale.value > 1.01 ? 0 : 1, { damping: 15 }),
+    };
+  });
+
   return (
-    <View style={[styles.imageContainer, { aspectRatio: aspectRatioValue }]}>
+    <ReAnimated.View onLayout={handleLayout} style={[styles.imageContainer, { aspectRatio: aspectRatioValue }, containerAnimatedStyle]}>
       {imageLoading && (
         <View style={styles.imageLoader} pointerEvents="none">
           <LoadingGlobe color={theme.colors.primary} size="large" />
@@ -316,73 +462,71 @@ export default function PostImage({
                 data={resolvedImages}
                 horizontal
                 pagingEnabled={true}
-                snapToInterval={CARD_WIDTH}
+                snapToInterval={containerWidth}
                 snapToAlignment="center"
                 decelerationRate="fast"
                 showsHorizontalScrollIndicator={false}
-                scrollEnabled={true}
+                scrollEnabled={scrollEnabled}
                 style={{ margin: 0, padding: 0 }}
                 contentContainerStyle={{ marginHorizontal: 0, paddingHorizontal: 0 }}
                 onMomentumScrollEnd={(event) => {
-                  const index = Math.round(event.nativeEvent.contentOffset.x / CARD_WIDTH);
+                  const index = Math.round(event.nativeEvent.contentOffset.x / containerWidth);
                   setCurrentImageIndex(index);
+                  scale.value = 1;
+                  focalX.value = 0;
+                  focalY.value = 0;
+                  setScrollEnabled(true);
                 }}
-                renderItem={({ item }) => (
-                  <GestureDetector gesture={listComposedGesture}>
-                    <View style={{ width: CARD_WIDTH, height: '100%', marginHorizontal: 0, paddingHorizontal: 0 }}>
-                      <ExpoImage
-                        source={{
-                          uri: applyCloudinaryFilter(item, post.filter),
-                          cacheKey: getStableCacheKey(item) ? `${getStableCacheKey(item)}:${post.filter || 'original'}` : undefined,
-                        }}
-                        cachePolicy="memory-disk"
-                        contentFit="contain"
-                        transition={250}
-                        style={styles.image}
-                      />
-                      {/* Heart animation overlay */}
-                      <View style={styles.heartContainer} pointerEvents="none">
-                        <Animated.View
-                          style={[
-                            styles.heartAnimation,
-                            {
-                              transform: [{ scale: heartScale }],
-                              opacity: heartOpacity,
-                            },
-                          ]}
-                        >
-                          <Ionicons name="heart" size={80} color="#fff" />
-                        </Animated.View>
-                      </View>
-                    </View>
-                  </GestureDetector>
+                renderItem={({ item, index }) => (
+                  <CarouselItem
+                    item={item}
+                    index={index}
+                    currentImageIndex={currentImageIndex}
+                    scale={scale}
+                    focalX={focalX}
+                    focalY={focalY}
+                    composedGesture={composedGesture}
+                    animatedImageStyle={animatedImageStyle}
+                    containerWidth={containerWidth}
+                    filter={post.filter}
+                    heartScale={heartScale}
+                    heartOpacity={heartOpacity}
+                  />
                 )}
                 keyExtractor={(item, index) => index.toString()}
+                getItemLayout={(data, index) => ({
+                  length: containerWidth,
+                  offset: containerWidth * index,
+                  index,
+                })}
               />
               
-              {/* Image counter */}
-              <View style={styles.imageCounter} pointerEvents="none">
-                <Text style={styles.imageCounterText}>
-                  {currentImageIndex + 1} / {post.images.length}
-                </Text>
-              </View>
-              
-              {/* Image dots indicator */}
-              <View style={styles.dotsContainer} pointerEvents="none">
-                {post.images.map((_, index) => (
-                  <View
-                    key={index}
-                    style={[
-                      styles.dotIndicator,
-                      {
-                        backgroundColor: index === currentImageIndex 
-                          ? theme.colors.primary 
-                          : 'rgba(255,255,255,0.5)'
-                      }
-                    ]}
-                  />
-                ))}
-              </View>
+              {/* Image counter and dot indicators wrapped in animated view */}
+              <ReAnimated.View style={[StyleSheet.absoluteFill, indicatorsAnimatedStyle]} pointerEvents="none">
+                {/* Image counter */}
+                <View style={styles.imageCounter}>
+                  <Text style={styles.imageCounterText}>
+                    {currentImageIndex + 1} / {post.images.length}
+                  </Text>
+                </View>
+                
+                {/* Image dots indicator */}
+                <View style={styles.dotsContainer}>
+                  {post.images.map((_, index) => (
+                    <View
+                      key={index}
+                      style={[
+                        styles.dotIndicator,
+                        {
+                          backgroundColor: index === currentImageIndex 
+                            ? theme.colors.primary 
+                            : 'rgba(255,255,255,0.5)'
+                        }
+                      ]}
+                    />
+                  ))}
+                </View>
+              </ReAnimated.View>
             </View>
           ) : (
             <GestureDetector gesture={composedGesture}>
@@ -393,9 +537,9 @@ export default function PostImage({
                     cacheKey: getStableCacheKey(imageUri) ? `${getStableCacheKey(imageUri)}:${post.filter || 'original'}` : undefined,
                   }}
                   placeholder={blurUpUri ? { uri: blurUpUri } : undefined}
-                  placeholderContentFit="contain"
+                  placeholderContentFit="cover"
                   cachePolicy="memory-disk"
-                  contentFit="contain"
+                  contentFit="cover"
                   transition={250}
                   priority="high"
                   style={styles.image}
@@ -478,9 +622,11 @@ export default function PostImage({
           </View>
         </TouchableOpacity>
       )}
-    </View>
+    </ReAnimated.View>
   );
 }
+
+// CarouselItem hoisted to top of file
 
 const styles = StyleSheet.create({
   imageContainer: {

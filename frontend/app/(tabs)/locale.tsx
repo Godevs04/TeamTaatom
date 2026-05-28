@@ -32,6 +32,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { geocodeAddress, calculateDistance, invalidateDistanceCacheIfMoved, distanceCache, placesCache, roundCoord, getLocaleDistanceKm, calculateDrivingDistanceKm } from '../../utils/locationUtils';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
+import MaskedView from '@react-native-masked-view/masked-view';
 import { getCountries, getStatesByCountry, Country, State } from '../../services/location';
 import { getLocales, getLocaleById, Locale } from '../../services/locale';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -3707,11 +3708,11 @@ export default function LocaleScreen() {
             }}
           >
             <ExpoImage
-              source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: 600, height: 450 }) }}
+              source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: 400, height: 300 }) }}
               style={{ width: '100%', height: '100%' }}
               contentFit="cover"
               cachePolicy="memory-disk"
-              transition={120}
+              transition={0}
             />
           </Animated.View>
         ) : (
@@ -3941,11 +3942,11 @@ export default function LocaleScreen() {
       >
         {safeImageUrl ? (
           <ExpoImage
-            source={{ uri: optimizeCloudinaryUrl(safeImageUrl, { width: 400, height: 300 }) }}
+            source={{ uri: optimizeCloudinaryUrl(safeImageUrl, { width: 300, height: 200 }) }}
             style={styles.cardImage as ImageStyle}
             contentFit="cover"
             cachePolicy="memory-disk"
-            transition={120}
+            transition={0}
           />
         ) : (
           <LinearGradient
@@ -3966,6 +3967,7 @@ export default function LocaleScreen() {
         />
         <View style={styles.cardContent}>
           <View style={styles.cardTitleRow}>
+            <Ionicons name="location" size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
             <Text style={styles.cardTitle}>{safeName}</Text>
           </View>
           <Text style={[styles.cardSubtitle, { color: '#FFFFFF' }]}>
@@ -4011,11 +4013,19 @@ export default function LocaleScreen() {
           accessibilityLabel={`Remove ${safeName} from saved`}
           accessibilityRole="button"
         >
-          <Ionicons
-            name="bookmark"
-            size={20}
-            color="#FFD700"
-          />
+          <MaskedView
+            style={{ width: 20, height: 20 }}
+            maskElement={
+              <Ionicons name="bookmark" size={20} color="#000000" />
+            }
+          >
+            <LinearGradient
+              colors={['#1C73B4', '#50C878']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{ flex: 1 }}
+            />
+          </MaskedView>
         </TouchableOpacity>
       </TouchableOpacity>
     );
@@ -4074,23 +4084,37 @@ export default function LocaleScreen() {
           theme={theme}
         />
       
-      <LinearGradient
-        colors={isDark ? ['#000000', '#000000'] : ['#FFFFFF', '#F5F7FA']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
+      <View
         style={[
           styles.headerPanel,
           {
             paddingTop: insets.top,
-            shadowColor: '#000000',
+            backgroundColor: 'transparent',
+            borderBottomWidth: 1,
+            borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.35)',
+            borderTopWidth: 1,
+            borderTopColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.45)',
+            
+            // Soft ambient blue glow
+            shadowColor: isDark ? '#38BDF8' : '#1C73B4',
             shadowOffset: { width: 0, height: 6 },
-            shadowOpacity: 0.15,
-            shadowRadius: 12,
-            elevation: 6,
+            shadowOpacity: isDark ? 0.04 : 0.06,
+            shadowRadius: 20,
+            elevation: 2,
           }
         ]}
         onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
       >
+        <BlurView
+          intensity={95}
+          tint={isDark ? 'dark' : 'light'}
+          style={[
+            StyleSheet.absoluteFillObject,
+            {
+              backgroundColor: isDark ? 'rgba(15, 22, 35, 0.82)' : 'rgba(250, 252, 255, 0.85)',
+            }
+          ]}
+        />
         <View style={styles.topNavigation}>
           <CloudSegmentedControl
             segments={[
@@ -4111,7 +4135,7 @@ export default function LocaleScreen() {
           placeholder="Search destinations"
           style={{ marginBottom: 12 }}
         />
-      </LinearGradient>
+      </View>
 
       {/* Content
           Permanent fix for the saved-tab crash: previously this was
@@ -4158,7 +4182,10 @@ export default function LocaleScreen() {
                 renderItem={renderAdminLocaleItem}
                 keyExtractor={localeKeyExtractor}
                 showsVerticalScrollIndicator={true}
-                onScroll={handleVerticalScroll}
+                 onScroll={(e) => {
+                   if (e.target !== e.currentTarget) return;
+                   handleVerticalScroll(e);
+                 }}
                 scrollEventThrottle={16}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
@@ -4265,7 +4292,10 @@ export default function LocaleScreen() {
                   )
                 : null
           }
-          onScroll={handleScroll}
+          onScroll={(e) => {
+            if (e.target !== e.currentTarget) return;
+            handleScroll(e);
+          }}
           scrollEventThrottle={16}
           refreshControl={
             <RefreshControl

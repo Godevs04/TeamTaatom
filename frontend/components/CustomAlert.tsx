@@ -9,6 +9,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface CustomAlertProps {
   visible: boolean;
@@ -35,7 +37,7 @@ export default function CustomAlert({
   onCancel,
   onClose,
 }: CustomAlertProps) {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const [scaleValue] = React.useState(new Animated.Value(0));
 
   React.useEffect(() => {
@@ -77,6 +79,19 @@ export default function CustomAlert({
     }
   };
 
+  const getIconBgColor = () => {
+    switch (type) {
+      case 'success':
+        return 'rgba(76, 175, 80, 0.12)';
+      case 'error':
+        return 'rgba(244, 67, 54, 0.12)';
+      case 'warning':
+        return 'rgba(255, 152, 0, 0.12)';
+      default:
+        return isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)';
+    }
+  };
+
   const handleConfirm = () => {
     if (onConfirm) {
       onConfirm();
@@ -103,60 +118,83 @@ export default function CustomAlert({
       onRequestClose={onClose}
     >
       <View style={styles.overlay}>
+        <BlurView
+          intensity={isDark ? 30 : 20}
+          tint={isDark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFillObject}
+        />
+        
         <Animated.View
           style={[
             styles.alertContainer,
             {
-              backgroundColor: theme.colors.surface,
-              borderColor: theme.colors.border,
+              backgroundColor: isDark ? 'rgba(30, 30, 30, 0.65)' : 'rgba(255, 255, 255, 0.65)',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.35)',
               transform: [{ scale: scaleValue }],
             },
           ]}
         >
-          <View style={styles.iconContainer}>
-            <Ionicons
-              name={getIconName()}
-              size={48}
-              color={getIconColor()}
-            />
-          </View>
+          <BlurView
+            intensity={isDark ? 65 : 75}
+            tint={isDark ? 'dark' : 'light'}
+            style={StyleSheet.absoluteFillObject}
+          />
           
-          <Text style={[styles.title, { color: theme.colors.text }]}>
-            {title}
-          </Text>
-          
-          <Text style={[styles.message, { color: theme.colors.textSecondary }]}>
-            {message}
-          </Text>
-          
-          <View style={styles.buttonContainer}>
-            {showCancel && (
-              <TouchableOpacity
-                style={[
-                  styles.button,
-                  styles.cancelButton,
-                  { borderColor: theme.colors.border },
-                ]}
-                onPress={handleCancel}
-              >
-                <Text style={[styles.buttonText, { color: theme.colors.text }]}>
-                  {cancelText}
-                </Text>
-              </TouchableOpacity>
-            )}
+          <View style={styles.contentWrapper}>
+            <View style={styles.iconContainer}>
+              <View style={[styles.iconBadge, { backgroundColor: getIconBgColor() }]}>
+                <Ionicons
+                  name={getIconName()}
+                  size={32}
+                  color={getIconColor()}
+                />
+              </View>
+            </View>
             
-            <TouchableOpacity
-              style={[
-                styles.button,
-                styles.confirmButton,
-                { backgroundColor: getIconColor() },
-              ]}
-              onPress={handleConfirm}
-            >
-              <Text style={[styles.buttonText, { color: 'white' }]}>
-                {confirmText}
-              </Text>
-            </TouchableOpacity>
+            <Text style={[styles.title, { color: theme.colors.text }]}>
+              {title}
+            </Text>
+            
+            <Text style={[styles.message, { color: theme.colors.textSecondary }]}>
+              {message}
+            </Text>
+            
+            <View style={styles.buttonContainer}>
+              {showCancel && (
+                <TouchableOpacity
+                  style={[
+                    styles.cancelButton,
+                    { 
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.12)',
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)'
+                    },
+                  ]}
+                  onPress={handleCancel}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.buttonText, { color: theme.colors.text }]}>
+                    {cancelText}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              
+              <TouchableOpacity
+                style={styles.confirmButtonWrapper}
+                onPress={handleConfirm}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={['#50C878', '#1C73B4']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.confirmButtonGradient}
+                >
+                  <Text style={styles.confirmButtonText}>
+                    {confirmText}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
           </View>
         </Animated.View>
       </View>
@@ -167,32 +205,46 @@ export default function CustomAlert({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
   },
   alertContainer: {
     width: '100%',
     maxWidth: 320,
-    borderRadius: 16,
-    padding: 24,
-    borderWidth: 1,
-    elevation: 8,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    overflow: 'hidden',
+    elevation: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.25,
-    shadowRadius: 8,
+    shadowRadius: 15,
+  },
+  contentWrapper: {
+    padding: 24,
+    zIndex: 2,
   },
   iconContainer: {
     alignItems: 'center',
     marginBottom: 16,
   },
+  iconBadge: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
   title: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
     textAlign: 'center',
     marginBottom: 8,
+    letterSpacing: 0.3,
   },
   message: {
     fontSize: 14,
@@ -204,18 +256,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
   },
-  button: {
+  confirmButtonWrapper: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+    height: 46,
+    borderRadius: 14,
+    overflow: 'hidden',
+  },
+  confirmButtonGradient: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
   },
-  cancelButton: {
-    borderWidth: 1,
+  confirmButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
-  confirmButton: {
-    // backgroundColor set dynamically
+  cancelButton: {
+    flex: 1,
+    borderWidth: 1,
+    height: 46,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   buttonText: {
     fontSize: 14,

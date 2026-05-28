@@ -4,6 +4,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import MaskedView from '@react-native-masked-view/masked-view';
 import { cloudDesign, localeSubtitle } from '../../constants/cloudDesign';
 import { useCloudGlassTokens } from './CloudGlassSurface';
 import { optimizeCloudinaryUrl } from '../../utils/imageCache';
@@ -115,7 +116,7 @@ function CloudLocaleCard({
             style={styles.image as ImageStyle}
             contentFit="cover"
             cachePolicy="memory-disk"
-            transition={120}
+            transition={0}
           />
         ) : (
           <LinearGradient
@@ -149,7 +150,23 @@ function CloudLocaleCard({
             onPress={(e) => { e?.stopPropagation?.(); onSavePress(); }}
             hitSlop={10}
           >
-            <Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={isHero ? 20 : 14} color={saved ? '#FFD166' : (glass.isDark ? '#7AB3D6' : '#1C73B4')} />
+            {saved ? (
+              <MaskedView
+                style={{ width: isHero ? 20 : 14, height: isHero ? 20 : 14 }}
+                maskElement={
+                  <Ionicons name="bookmark" size={isHero ? 20 : 14} color="#000000" />
+                }
+              >
+                <LinearGradient
+                  colors={['#1C73B4', '#50C878']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{ flex: 1 }}
+                />
+              </MaskedView>
+            ) : (
+              <Ionicons name="bookmark-outline" size={isHero ? 20 : 14} color={glass.isDark ? '#7AB3D6' : '#1C73B4'} />
+            )}
           </TouchableOpacity>
         </BlurView>
       )}
@@ -211,9 +228,12 @@ function CloudLocaleCard({
           },
         ]}
       >
-        <Text style={[styles.name, isHero && styles.nameHero, { color: glass.textPrimary }]} numberOfLines={1}>
-          {locale.name}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, width: '100%' }}>
+          <Ionicons name="location" size={isHero ? 14 : 10} color={glass.isDark ? '#38BDF8' : '#1C73B4'} />
+          <Text style={[styles.name, isHero && styles.nameHero, { color: glass.textPrimary, flex: 1 }]} numberOfLines={1}>
+            {locale.name}
+          </Text>
+        </View>
         <Text style={[styles.sub, { color: glass.textMuted }]} numberOfLines={1}>
           {localeSubtitle(locale)}
         </Text>

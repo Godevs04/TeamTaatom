@@ -27,6 +27,8 @@ export default function PremiumIconButton({
   const { theme } = useTheme();
   const iconColor = color || theme.colors.blueDeep || theme.colors.primary;
 
+  const isBackButton = icon === 'chevron-back' || icon === 'arrow-back' || icon === 'chevron-back-outline' || icon === 'arrow-back-outline';
+
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -41,10 +43,12 @@ export default function PremiumIconButton({
         contentStyle={styles.content}
       >
         <LinearGradient
-          colors={['rgba(255,255,255,0.62)', 'rgba(217,239,255,0.28)']}
+          colors={isBackButton ? ['#1C73B4', '#50C878'] : ['rgba(255,255,255,0.62)', 'rgba(217,239,255,0.28)']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
           style={StyleSheet.absoluteFillObject}
         />
-        <Ionicons name={icon} size={iconSize} color={iconColor} />
+        <Ionicons name={icon} size={iconSize} color={isBackButton ? '#FFFFFF' : iconColor} />
       </PremiumGlassCard>
     </TouchableOpacity>
   );

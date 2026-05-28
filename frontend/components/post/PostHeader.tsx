@@ -18,7 +18,8 @@ interface PostHeaderProps {
 }
 
 export default function PostHeader({ post, onMenuPress, onReportPress, showReportButton }: PostHeaderProps) {
-  const { theme } = useTheme();
+  const { theme, mode } = useTheme();
+  const isDark = mode === 'dark' || theme.colors.background === '#0B1A2B' || theme.colors.background === '#000000';
   const router = useRouter();
 
   // Handle case where user might be undefined (from fallback user object)
@@ -71,10 +72,11 @@ export default function PostHeader({ post, onMenuPress, onReportPress, showRepor
             const song = post.song.songId;
             const songTitle = song.title || 'Unknown Song';
             const songArtist = song.artist || 'Unknown Artist';
+            const subtitleBlue = isDark ? '#38BDF8' : '#1C73B4';
             return (
               <View style={styles.inlineSong}>
-                <Ionicons name="musical-notes" size={12} color={theme.colors.textPassive} />
-                <Text style={[styles.inlineSongText, { color: theme.colors.textPassive }]} numberOfLines={1}>
+                <Ionicons name="musical-notes" size={12} color={subtitleBlue} />
+                <Text style={[styles.inlineSongText, { color: subtitleBlue }]} numberOfLines={1}>
                   {songTitle} · {songArtist}
                 </Text>
               </View>

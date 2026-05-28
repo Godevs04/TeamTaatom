@@ -81,7 +81,7 @@ try {
         if (Number.isNaN(lat) || Number.isNaN(lng)) continue;
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
         const accuracy = loc.coords?.accuracy || 0;
-        if (accuracy > 30) continue; // Filter out poor accuracy fixes in background
+        if (accuracy > 80) continue; // Filter out poor accuracy fixes in background (relaxed to 80m for low-power updates)
         valid.push({
           latitude: lat,
           longitude: lng,

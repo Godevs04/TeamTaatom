@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import MaskedView from '@react-native-masked-view/masked-view';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import { cloudDesign } from '../../constants/cloudDesign';
@@ -43,8 +44,14 @@ export default function CloudChatConversationHeader({
       <BlurView intensity={isDark ? 40 : 20} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
       <View style={styles.border} />
       <View style={styles.row}>
-        <TouchableOpacity onPress={onBack} style={styles.back} hitSlop={10}>
-          <Ionicons name="chevron-back" size={24} color={titleColor} />
+        <TouchableOpacity onPress={onBack} style={[styles.back, { overflow: 'hidden', borderRadius: 20 }]} hitSlop={10}>
+          <LinearGradient
+            colors={['#1C73B4', '#50C878']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.center} onPress={onTitlePress} activeOpacity={onTitlePress ? 0.7 : 1} disabled={!onTitlePress}>
           {avatarUris.length > 0 ? (

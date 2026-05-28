@@ -43,6 +43,21 @@ export async function middleware(req: NextRequest) {
         const res = await fetch(`${BACKEND_ORIGIN}/s/${shortCode}`);
         if (res.status === 200) {
           const html = await res.text();
+          
+          // Check if request is from a mobile browser
+          const userAgent = req.headers.get("user-agent") || "";
+          const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(userAgent);
+          
+          if (isMobile) {
+            // For mobile, return the backend's redirect HTML page directly
+            // This page contains scripts to open the app via custom deep links (taatom://)
+            return new NextResponse(html, {
+              headers: {
+                "Content-Type": "text/html; charset=utf-8",
+              },
+            });
+          }
+
           const urlMatch = html.match(/universalLink\s*=\s*['"]([^'"]+)['"]/);
           if (urlMatch && urlMatch[1]) {
             const targetUrl = new URL(urlMatch[1]);

@@ -56,38 +56,32 @@ export default function CloudGlassCard({
   const cardStyle = isDark
     ? {
         borderRadius,
-        backgroundColor: 'rgba(25, 25, 25, 0.72)',
-        borderTopWidth: 1,
-        borderLeftWidth: 1,
-        borderBottomWidth: 1,
-        borderRightWidth: 1,
-        borderTopColor: 'rgba(255, 255, 255, 0.08)',
-        borderLeftColor: 'rgba(255, 255, 255, 0.08)',
-        borderBottomColor: 'rgba(255, 255, 255, 0.08)',
-        borderRightColor: 'rgba(255, 255, 255, 0.08)',
+        backgroundColor: 'rgba(20, 24, 30, 0.45)',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.12)',
         shadowColor: '#000000',
         shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.45,
-        shadowRadius: 32,
-        elevation: Platform.OS === 'android' ? 0 : 10,
+        shadowOpacity: 0.22,
+        shadowRadius: 24,
+        elevation: Platform.OS === 'android' ? 0 : 4,
       }
     : {
         borderRadius,
-        borderColor: glass.border,
-        backgroundColor: glass.fill,
-        shadowColor: glass.shadowColor,
-        shadowOpacity: glass.shadowOpacity as number,
-        shadowOffset: cloudDesign.postGlass.shadowOffset,
-        shadowRadius: cloudDesign.postGlass.shadowRadius,
-        elevation: Platform.OS === 'android' ? 0 : cloudDesign.postGlass.elevation,
+        backgroundColor: 'rgba(255, 255, 255, 0.35)',
         borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.45)',
+        shadowColor: '#1A365D',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.05,
+        shadowRadius: 24,
+        elevation: Platform.OS === 'android' ? 0 : 2,
       };
 
   return (
     <View style={[styles.card, cardStyle, style]}>
       {blur ? (
         <BlurView
-          intensity={isDark ? 15 : glass.blurIntensity}
+          intensity={65}
           tint={isDark ? 'dark' : 'light'}
           style={StyleSheet.absoluteFillObject}
           {...(Platform.OS === 'android'
@@ -95,20 +89,17 @@ export default function CloudGlassCard({
             : {})}
         />
       ) : null}
-      {isDark ? (
-        <LinearGradient
-          colors={['rgba(255, 255, 255, 0.08)', 'rgba(255, 255, 255, 0.01)']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFillObject}
-        />
-      ) : (
-        <LinearGradient
-          colors={[glass.insetTop, 'transparent']}
-          style={[styles.insetHighlight, { borderTopLeftRadius: borderRadius, borderTopRightRadius: borderRadius }]}
-          pointerEvents="none"
-        />
-      )}
+      <LinearGradient
+        colors={
+          isDark
+            ? ['rgba(255, 255, 255, 0.18)', 'rgba(255, 255, 255, 0.02)']
+            : ['rgba(255, 255, 255, 0.65)', 'rgba(255, 255, 255, 0.1)']
+        }
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0.4, y: 0.4 }}
+        style={StyleSheet.absoluteFillObject}
+        pointerEvents="none"
+      />
       <View style={[styles.content, contentStyle]}>{children}</View>
     </View>
   );

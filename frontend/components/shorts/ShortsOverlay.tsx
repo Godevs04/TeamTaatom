@@ -6,6 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { PostType } from '../../types/post';
 import SongPlayer from '../SongPlayer';
 import { useTheme } from '../../context/ThemeContext';
+import { BlurView } from 'expo-blur';
 import ShortsActions from './ShortsActions';
 
 interface ShortsOverlayProps {
@@ -57,7 +58,7 @@ const ShortsOverlay = ({
   onTouchMove,
   onTouchEnd,
 }: ShortsOverlayProps) => {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const [isExpanded, setIsExpanded] = useState(false);
 
   // Absolute State Isolation: manage likes, counts, and interactive animations locally
@@ -224,7 +225,11 @@ const ShortsOverlay = ({
 
               {/* Glassmorphic Caption Card */}
               {post.caption && (
-                <View style={[styles.captionCard, { backgroundColor: theme.colors.glassSurface, borderColor: theme.colors.glassBorder }]}>
+                <BlurView
+                  intensity={75}
+                  tint={isDark ? 'dark' : 'light'}
+                  style={[styles.captionCard, { overflow: 'hidden', backgroundColor: isDark ? 'rgba(10, 18, 32, 0.45)' : 'rgba(255, 255, 255, 0.45)', borderColor: theme.colors.glassBorder }]}
+                >
                   <Pressable
                     onPress={(e) => {
                       e.stopPropagation();
@@ -232,15 +237,15 @@ const ShortsOverlay = ({
                     }}
                     style={styles.captionPressable}
                   >
-                    <Text style={styles.captionText} numberOfLines={isExpanded ? undefined : 2}>
-                      {post.caption}
+                    <Text style={[styles.captionText, { color: '#38BDF8', fontWeight: isExpanded ? '400' : 'bold' }]}>
+                      {isExpanded ? post.caption : '...'}
                     </Text>
                   </Pressable>
-                </View>
+                </BlurView>
               )}
 
               {/* Tag Badges */}
-              {post.tags && post.tags.length > 0 && (
+              {isExpanded && post.tags && post.tags.length > 0 && (
                 <View style={styles.tagsRow}>
                   {post.tags.slice(0, 3).map((tag, i) => (
                     <View key={i} style={[styles.tagBadge, { backgroundColor: theme.colors.primary + '24', borderColor: theme.colors.primary + '66' }]}>
@@ -253,8 +258,8 @@ const ShortsOverlay = ({
               {/* Song Badge - Instagram Style */}
               {post.song?.songId && (
                 <View style={[styles.inlineBadge, { backgroundColor: theme.colors.glassSurface, borderColor: theme.colors.glassBorder }]}>
-                  <Ionicons name="musical-notes" size={13} color="rgba(255,255,255,0.9)" />
-                  <Text style={styles.inlineBadgeText} numberOfLines={1}>
+                  <Ionicons name="musical-notes" size={13} color="#38BDF8" />
+                  <Text style={[styles.inlineBadgeText, { color: '#38BDF8' }]} numberOfLines={1}>
                     {post.song.songId.title || 'Original Audio'} · {post.song.songId.artist || 'Unknown Artist'}
                   </Text>
                 </View>
@@ -263,12 +268,12 @@ const ShortsOverlay = ({
               {/* Location Badge - Linked to interactive map */}
               {post.location?.address && (
                 <TouchableOpacity
-                  style={[styles.inlineBadge, styles.locationBadge, { backgroundColor: theme.colors.glassSurface, borderColor: theme.colors.glassBorder }]}
+                  style={[styles.inlineBadge, styles.locationBadge, { backgroundColor: 'rgba(56, 189, 248, 0.08)', borderColor: 'rgba(56, 189, 248, 0.2)' }]}
                   onPress={() => onLocationPress(post.location.address)}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="location" size={13} color="#00E5FF" />
-                  <Text style={[styles.inlineBadgeText, styles.locationText]} numberOfLines={1}>
+                  <Ionicons name="location" size={13} color="#38BDF8" />
+                  <Text style={[styles.inlineBadgeText, styles.locationText, { color: '#38BDF8' }]} numberOfLines={1}>
                     {post.location.address}
                   </Text>
                 </TouchableOpacity>

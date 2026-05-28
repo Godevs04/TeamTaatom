@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
+import { BlurView } from 'expo-blur';
 
 const { width, height } = Dimensions.get('window');
 
@@ -42,7 +43,7 @@ export default function CustomOptions({
   showCancel = true,
   cancelText = 'Cancel',
 }: CustomOptionsProps) {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const scaleAnim = useRef(new Animated.Value(0)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
@@ -76,40 +77,6 @@ export default function CustomOptions({
     }
   }, [visible, scaleAnim, opacityAnim]);
 
-  const getOptionStyle = (style?: 'default' | 'cancel' | 'destructive') => {
-    switch (style) {
-      case 'destructive':
-        return {
-          backgroundColor: 'transparent',
-          borderColor: theme.colors.error,
-          borderWidth: 1,
-        };
-      case 'cancel':
-        return {
-          backgroundColor: 'transparent',
-          borderColor: theme.colors.border,
-          borderWidth: 1,
-        };
-      default:
-        return {
-          backgroundColor: theme.colors.primary,
-          borderColor: 'transparent',
-          borderWidth: 0,
-        };
-    }
-  };
-
-  const getTextColor = (style?: 'default' | 'cancel' | 'destructive') => {
-    switch (style) {
-      case 'destructive':
-        return theme.colors.error;
-      case 'cancel':
-        return theme.colors.textSecondary;
-      default:
-        return theme.colors.text;
-    }
-  };
-
   return (
     <Modal
       transparent={true}
@@ -119,98 +86,126 @@ export default function CustomOptions({
     >
       <StatusBar backgroundColor="rgba(0,0,0,0.5)" barStyle="light-content" />
       <View style={styles.overlay}>
+        <BlurView
+          intensity={isDark ? 30 : 20}
+          tint={isDark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFillObject}
+        />
+        
         <Animated.View
           style={[
             styles.optionsContainer,
             {
-              backgroundColor: theme.colors.surface,
+              backgroundColor: isDark ? 'rgba(30, 30, 30, 0.65)' : 'rgba(255, 255, 255, 0.65)',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.35)',
               transform: [{ scale: scaleAnim }],
               opacity: opacityAnim,
             },
           ]}
         >
-          {title && (
-            <Text style={[styles.title, { color: theme.colors.text }]}>
-              {title}
-            </Text>
-          )}
+          <BlurView
+            intensity={isDark ? 65 : 75}
+            tint={isDark ? 'dark' : 'light'}
+            style={StyleSheet.absoluteFillObject}
+          />
           
-          {message && (
-            <Text style={[styles.message, { color: theme.colors.textSecondary }]}>
-              {message}
-            </Text>
-          )}
+          <View style={styles.contentWrapper}>
+            {title && (
+              <Text style={[styles.title, { color: theme.colors.text }]}>
+                {title}
+              </Text>
+            )}
+            
+            {message && (
+              <Text style={[styles.message, { color: theme.colors.textSecondary }]}>
+                {message}
+              </Text>
+            )}
 
-          <ScrollView style={styles.optionsList} showsVerticalScrollIndicator={false}>
-            {options.map((option, index) => (
-              <TouchableOpacity
-                key={index}
-                style={[
-                  styles.optionItem,
-                  {
-                    backgroundColor: option.disabled 
-                      ? theme.colors.surfaceSecondary 
-                      : 'transparent',
-                    borderBottomColor: theme.colors.border,
-                    borderBottomWidth: index < options.length - 1 ? 1 : 0,
-                  },
-                ]}
-                onPress={() => {
-                  if (!option.disabled) {
-                    onClose();
-                    option.onPress();
-                  }
-                }}
-                disabled={option.disabled}
-              >
-                <View style={styles.optionContent}>
-                  {option.icon && (
-                    <Ionicons
-                      name={option.icon as any}
-                      size={20}
-                      color={option.disabled ? theme.colors.textSecondary : theme.colors.text}
-                      style={styles.optionIcon}
-                    />
-                  )}
-                  <Text
+            <ScrollView style={styles.optionsList} showsVerticalScrollIndicator={false}>
+              {options.map((option, index) => {
+                const isDestructive = option.style === 'destructive';
+                return (
+                  <TouchableOpacity
+                    key={index}
                     style={[
-                      styles.optionText,
+                      styles.optionItem,
                       {
-                        color: option.disabled 
-                          ? theme.colors.textSecondary 
-                          : theme.colors.text,
+                        backgroundColor: option.disabled 
+                          ? 'rgba(0, 0, 0, 0.05)'
+                          : 'transparent',
+                        borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.06)',
+                        borderBottomWidth: index < options.length - 1 ? 1 : 0,
                       },
                     ]}
+                    onPress={() => {
+                      if (!option.disabled) {
+                        onClose();
+                        option.onPress();
+                      }
+                    }}
+                    disabled={option.disabled}
+                    activeOpacity={0.7}
                   >
-                    {option.text}
-                  </Text>
-                </View>
-                <Ionicons
-                  name="chevron-forward"
-                  size={16}
-                  color={option.disabled ? theme.colors.textSecondary : theme.colors.textSecondary}
-                />
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+                    <View style={styles.optionContent}>
+                      {option.icon && (
+                        <Ionicons
+                          name={option.icon as any}
+                          size={20}
+                          color={
+                            option.disabled 
+                              ? theme.colors.textSecondary 
+                              : isDestructive 
+                                ? '#F44336' 
+                                : theme.colors.text
+                          }
+                          style={styles.optionIcon}
+                        />
+                      )}
+                      <Text
+                        style={[
+                          styles.optionText,
+                          {
+                            color: option.disabled 
+                              ? theme.colors.textSecondary 
+                              : isDestructive 
+                                ? '#F44336' 
+                                : theme.colors.text,
+                            fontWeight: isDestructive ? '700' : '500',
+                          },
+                        ]}
+                      >
+                        {option.text}
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={16}
+                      color={isDestructive ? 'rgba(244, 67, 54, 0.5)' : theme.colors.textSecondary}
+                    />
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
 
-          {showCancel && (
-            <TouchableOpacity
-              style={[
-                styles.cancelButton,
-                {
-                  backgroundColor: 'transparent',
-                  borderColor: theme.colors.border,
-                  borderWidth: 1,
-                },
-              ]}
-              onPress={onClose}
-            >
-              <Text style={[styles.cancelText, { color: theme.colors.textSecondary }]}>
-                {cancelText}
-              </Text>
-            </TouchableOpacity>
-          )}
+            {showCancel && (
+              <TouchableOpacity
+                style={[
+                  styles.cancelButton,
+                  {
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.12)',
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)',
+                  },
+                ]}
+                onPress={onClose}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.cancelText, { color: theme.colors.text }]}>
+                  {cancelText}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </Animated.View>
       </View>
     </Modal>
@@ -222,36 +217,40 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
   },
   optionsContainer: {
     width: width * 0.9,
+    maxWidth: 340,
     maxHeight: height * 0.75,
     borderRadius: 24,
-    padding: 0,
-    alignItems: 'center',
+    borderWidth: 1.5,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 15 },
-    shadowOpacity: 0.15,
-    shadowRadius: 25,
-    elevation: 15,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 15,
+    elevation: 10,
     overflow: 'hidden',
   },
+  contentWrapper: {
+    width: '100%',
+    zIndex: 2,
+  },
   title: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '700',
     marginBottom: 8,
     textAlign: 'center',
     paddingHorizontal: 24,
     paddingTop: 24,
+    letterSpacing: 0.3,
   },
   message: {
-    fontSize: 16,
+    fontSize: 14,
     textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 22,
+    marginBottom: 20,
+    lineHeight: 20,
     paddingHorizontal: 24,
-    opacity: 0.8,
   },
   optionsList: {
     width: '100%',
@@ -261,9 +260,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 18,
+    paddingVertical: 16,
     paddingHorizontal: 24,
-    minHeight: 60,
+    minHeight: 56,
   },
   optionContent: {
     flexDirection: 'row',
@@ -271,28 +270,27 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   optionIcon: {
-    marginRight: 16,
+    marginRight: 12,
     width: 24,
     height: 24,
     justifyContent: 'center',
     alignItems: 'center',
   },
   optionText: {
-    fontSize: 17,
-    fontWeight: '500',
+    fontSize: 15,
     flex: 1,
     letterSpacing: 0.2,
   },
   cancelButton: {
-    width: '100%',
-    paddingVertical: 16,
+    height: 48,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
-    borderTopWidth: 1,
+    margin: 16,
+    borderRadius: 14,
+    borderWidth: 1,
   },
   cancelText: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '600',
     letterSpacing: 0.2,
   },

@@ -2,6 +2,7 @@ import { registerRootComponent } from 'expo';
 import { ExpoRoot } from 'expo-router';
 import React from 'react';
 import { registerBackgroundHandler } from './services/fcm';
+import './hooks/useJourneyTracking';
 
 // Register FCM background message handler (must be at root level)
 registerBackgroundHandler();

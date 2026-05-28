@@ -11,6 +11,10 @@ import {
   StatusBar,
   Linking,
   Alert,
+  Modal,
+  TextInput,
+  Pressable,
+  KeyboardAvoidingView,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -19,6 +23,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode } from 'expo-av';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { theme as themeConstants } from '../../constants/theme';
 import {
   getWebsiteContent,
@@ -27,8 +33,10 @@ import {
   getSubscriptionStatus,
   createSubscription,
   cancelSubscription as cancelSubApi,
+  buyCommunityItem,
   getCurrencySymbol,
   fetchCurrencyConfig,
+  formatConnectMoney,
   ContentBlock,
   ConnectPageType,
   SubscriptionStatus,
@@ -99,7 +107,7 @@ function PreviewImage({ uri, inRow, inStack, arOverride }: { uri: string; inRow?
 }
 
 export default function ContentPreviewScreen() {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const { showSuccess } = useAlert();
   const { updateSubscriptionStatus } = useSubscription();
   const router = useRouter();
@@ -123,6 +131,15 @@ export default function ContentPreviewScreen() {
   const [countryToCurrency, setCountryToCurrency] = useState<Record<string, string>>({ IN: 'INR' });
   const [displayPrices, setDisplayPrices] = useState<any>(null);
 
+  // Buy Items Checkout states
+  const [checkoutModalVisible, setCheckoutModalVisible] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [buyerName, setBuyerName] = useState('');
+  const [buyerPhone, setBuyerPhone] = useState('');
+  const [payPhone, setPayPhone] = useState('');
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [checkingOut, setCheckingOut] = useState(false);
+
   useEffect(() => {
     fetchCurrencyConfig().then((config) => {
       setCountryToCurrency(config.countryToCurrency);
@@ -131,6 +148,7 @@ export default function ContentPreviewScreen() {
 
   const isWebsite = section === 'website';
   const isSubscription = section === 'subscription';
+  const isLocked = isSubscription && !isOwner && !subscriptionStatus?.isSubscribed;
   const isCommunity = pageData?.category === 'community';
   const subLabel = isCommunity ? 'Buy' : 'Subscription';
   const subButtonText = isCommunity ? 'Buy' : 'Subscribe';
@@ -327,6 +345,44 @@ export default function ContentPreviewScreen() {
     );
   };
 
+  const handleBuyPress = (item: any) => {
+    setSelectedItem(item);
+    setCheckoutModalVisible(true);
+  };
+
+  const handleBuyItem = async () => {
+    if (!selectedItem || !pageId) return;
+    if (!buyerName.trim()) {
+      Alert.alert('Error', 'Please enter your name.');
+      return;
+    }
+    if (!buyerPhone.trim()) {
+      Alert.alert('Error', 'Please enter your phone number.');
+      return;
+    }
+    try {
+      setCheckingOut(true);
+      await buyCommunityItem(pageId, {
+        itemId: selectedItem._id,
+        buyerName: buyerName.trim(),
+        buyerPhone: buyerPhone.trim(),
+        payPhone: payPhone.trim(),
+        deliveryAddress: deliveryAddress.trim(),
+      });
+      setCheckoutModalVisible(false);
+      setBuyerName('');
+      setBuyerPhone('');
+      setPayPhone('');
+      setDeliveryAddress('');
+      Alert.alert('Success', 'Order placed successfully! The creator will contact you soon.');
+    } catch (error: any) {
+      logger.error('Failed to buy item:', error);
+      Alert.alert('Error', error.message || 'Failed to place order.');
+    } finally {
+      setCheckingOut(false);
+    }
+  };
+
   const sorted = [...content].sort((a, b) => a.order - b.order);
 
   // A cell in a grid row — may contain multiple stacked blocks.
@@ -394,120 +450,186 @@ export default function ContentPreviewScreen() {
         <React.Fragment key={block._id || index}>{node}</React.Fragment>
       );
 
-    switch (block.type) {
-      case 'heading':
-        return wrapBg(
-          <Text style={[styles.headingBlock, { color: effectiveTextColor, textAlign, fontSize: headingFontSize }, block.bold ? { fontWeight: '800' } : undefined]}>
-            {block.content}
-          </Text>
-        );
-      case 'text':
-        return wrapBg(
-          <Text style={[styles.textBlock, { color: effectiveTextColor, textAlign, fontSize: textFontSize }, block.bold ? { fontWeight: '700', fontFamily: getFontFamily('700') } : undefined]}>
-            {block.content}
-          </Text>
-        );
-      case 'image':
-        return block.content ? (
-          <View key={block._id || index} style={blockRadius !== undefined ? { borderRadius: blockRadius, overflow: 'hidden' } : undefined}>
-            <PreviewImage uri={block.content} inRow={inRow} inStack={inStack} arOverride={block.aspectRatio} />
-          </View>
-        ) : null;
-      case 'video':
-        return (
-          <View key={block._id || index} style={styles.videoContainer}>
-            <Video
-              source={{
-                uri: block.content,
-                overrideFileExtensionAndroid: (block.content.toLowerCase().includes('m3u8') || block.content.toLowerCase().includes('hls')) ? 'm3u8' : 'mp4'
+    const getRawElement = () => {
+      switch (block.type) {
+        case 'heading':
+          return wrapBg(
+            <Text style={[styles.headingBlock, { color: effectiveTextColor, textAlign, fontSize: headingFontSize }, block.bold ? { fontWeight: '800' } : undefined]}>
+              {block.content}
+            </Text>
+          );
+        case 'text':
+          return wrapBg(
+            <Text style={[styles.textBlock, { color: effectiveTextColor, textAlign, fontSize: textFontSize }, block.bold ? { fontWeight: '700', fontFamily: getFontFamily('700') } : undefined]}>
+              {block.content}
+            </Text>
+          );
+        case 'image':
+          return block.content ? (
+            <View key={block._id || index} style={blockRadius !== undefined ? { borderRadius: blockRadius, overflow: 'hidden' } : undefined}>
+              <PreviewImage uri={block.content} inRow={inRow} inStack={inStack} arOverride={block.aspectRatio} />
+            </View>
+          ) : null;
+        case 'video':
+          return (
+            <View key={block._id || index} style={styles.videoContainer}>
+              <Video
+                source={{
+                  uri: block.content,
+                  overrideFileExtensionAndroid: (block.content.toLowerCase().includes('m3u8') || block.content.toLowerCase().includes('hls')) ? 'm3u8' : 'mp4'
+                }}
+                style={styles.videoBlock}
+                resizeMode={ResizeMode.CONTAIN}
+                useNativeControls
+                shouldPlay={false}
+              />
+            </View>
+          );
+        case 'button': {
+          const rawUrl = block.url?.trim();
+          const buttonUrl = rawUrl && /^[a-z][a-z0-9+.-]*:/i.test(rawUrl)
+            ? rawUrl
+            : (rawUrl ? `https://${rawUrl}` : '');
+          return (
+            <TouchableOpacity
+              key={block._id || index}
+              style={[styles.buttonBlock, { backgroundColor: effectiveBg || theme.colors.primary }]}
+              onPress={() => {
+                if (buttonUrl) Linking.openURL(buttonUrl).catch(() => {});
               }}
-              style={styles.videoBlock}
-              resizeMode={ResizeMode.CONTAIN}
-              useNativeControls
-              shouldPlay={false}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.buttonBlockText, block.color ? { color: block.color } : undefined]}>
+                {block.content || 'Button'}
+              </Text>
+            </TouchableOpacity>
+          );
+        }
+        case 'divider':
+          return (
+            <View
+              key={block._id || index}
+              style={[styles.dividerBlock, { backgroundColor: theme.colors.border }]}
             />
-          </View>
-        );
-      case 'button': {
-        const rawUrl = block.url?.trim();
-        const buttonUrl = rawUrl && /^[a-z][a-z0-9+.-]*:/i.test(rawUrl)
-          ? rawUrl
-          : (rawUrl ? `https://${rawUrl}` : '');
-        return (
-          <TouchableOpacity
-            key={block._id || index}
-            style={[styles.buttonBlock, { backgroundColor: effectiveBg || theme.colors.primary }]}
-            onPress={() => {
-              if (buttonUrl) Linking.openURL(buttonUrl).catch(() => {});
-            }}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.buttonBlockText, block.color ? { color: block.color } : undefined]}>
-              {block.content || 'Button'}
-            </Text>
-          </TouchableOpacity>
-        );
+          );
+        case 'embed':
+          return (
+            <TouchableOpacity
+              key={block._id || index}
+              style={[styles.embedBlock, { backgroundColor: effectiveBg || theme.colors.border }]}
+              onPress={() => {
+                if (block.content) Linking.openURL(block.content).catch(() => {});
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="open-outline" size={28} color={theme.colors.textSecondary} />
+              <Text style={[styles.embedBlockLabel, { color: theme.colors.textSecondary }]}>
+                {block.embedType === 'youtube' ? 'YouTube Video' : block.embedType === 'map' ? 'Google Map' : 'External Content'}
+              </Text>
+              <Text style={[styles.embedBlockLink, { color: theme.colors.primary }]}>
+                Tap to open
+              </Text>
+            </TouchableOpacity>
+          );
+        default:
+          return null;
       }
-      case 'divider':
-        return (
-          <View
-            key={block._id || index}
-            style={[styles.dividerBlock, { backgroundColor: theme.colors.border }]}
-          />
-        );
-      case 'embed':
-        return (
-          <TouchableOpacity
-            key={block._id || index}
-            style={[styles.embedBlock, { backgroundColor: effectiveBg || theme.colors.border }]}
-            onPress={() => {
-              if (block.content) Linking.openURL(block.content).catch(() => {});
-            }}
-            activeOpacity={0.7}
+    };
+
+    const element = getRawElement();
+    if (!element) return null;
+
+    if (isLocked) {
+      return (
+        <View key={block._id || index} pointerEvents="none" style={{ position: 'relative', overflow: 'hidden', borderRadius: blockRadius ?? 12, marginBottom: 8 }}>
+          {element}
+          <BlurView
+            intensity={40}
+            tint="dark"
+            style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.15)' }]}
           >
-            <Ionicons name="open-outline" size={28} color={theme.colors.textSecondary} />
-            <Text style={[styles.embedBlockLabel, { color: theme.colors.textSecondary }]}>
-              {block.embedType === 'youtube' ? 'YouTube Video' : block.embedType === 'map' ? 'Google Map' : 'External Content'}
-            </Text>
-            <Text style={[styles.embedBlockLink, { color: theme.colors.primary }]}>
-              Tap to open
-            </Text>
-          </TouchableOpacity>
-        );
-      default:
-        return null;
+            <View style={{ backgroundColor: 'rgba(0,0,0,0.5)', padding: 8, borderRadius: 20 }}>
+              <Ionicons name="lock-closed" size={18} color="#FFFFFF" />
+            </View>
+          </BlurView>
+        </View>
+      );
     }
+
+    return element;
   };
+
+  const buyItemsList = pageData?.buyItems?.filter(item => item.active) || [];
+  const hasBuyItems = isCommunity && isSubscription && buyItemsList.length > 0;
+  const isEmpty = !loading && sorted.length === 0 && !hasBuyItems;
+  const screenBg = isEmpty ? '#FFFFFF' : theme.colors.background;
+  const headerBg = isEmpty ? '#FFFFFF' : theme.colors.surface;
+  const headerBorderColor = isEmpty ? '#FFFFFF' : theme.colors.border;
+  const textColor = isEmpty ? '#000000' : theme.colors.text;
 
   return (
     <SafeAreaView
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
+      style={[styles.container, { backgroundColor: screenBg }]}
       edges={['top']}
     >
-      {/* Header */}
+      <StatusBar barStyle={isEmpty ? 'dark-content' : (isDark ? 'light-content' : 'dark-content')} />
+      {/* Floating Glass Header */}
       <View
         style={[
-          styles.header,
-          { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border },
+          styles.headerContainer,
+          {
+            backgroundColor: isDark ? 'rgba(20, 23, 24, 0.7)' : 'rgba(250, 251, 251, 0.7)',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+          }
         ]}
       >
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="arrow-back" size={isTablet ? 28 : 24} color={theme.colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]} numberOfLines={1}>
-          {title}
-        </Text>
-        <View style={styles.headerRight}>
-          <View
-            style={[styles.liveBadge, { backgroundColor: theme.colors.primary + '15' }]}
+        <BlurView
+          intensity={80}
+          tint={isDark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFillObject}
+        />
+        <LinearGradient
+          colors={isDark ? ['rgba(255, 255, 255, 0.1)', 'transparent'] : ['rgba(255, 255, 255, 0.5)', 'transparent']}
+          style={StyleSheet.absoluteFillObject}
+        />
+        <View style={styles.headerInner}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.back()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            activeOpacity={0.7}
           >
-            <View style={[styles.liveDot, { backgroundColor: theme.colors.primary }]} />
-            <Text style={[styles.liveText, { color: theme.colors.primary }]}>Preview</Text>
+            <Ionicons name="arrow-back" size={isTablet ? 28 : 24} color={textColor} />
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: textColor }]} numberOfLines={1}>
+            {title}
+          </Text>
+          <View style={styles.headerRight}>
+            {isOwner ? (
+              <TouchableOpacity
+                onPress={() => router.push(`/connect/editContent?pageId=${pageId}&section=${section}${section === 'subscription' ? `&category=${pageData?.category || 'connect'}` : ''}`)}
+                activeOpacity={0.7}
+                style={styles.editBtnWrap}
+              >
+                <LinearGradient
+                  colors={['#38BDF8', '#14B8A6', '#34D399']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.editBtnGradient}
+                >
+                  <Text style={styles.editBtnText}>
+                    Edit
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            ) : (
+              <View
+                style={[styles.liveBadge, { backgroundColor: theme.colors.primary + '15' }]}
+              >
+                <View style={[styles.liveDot, { backgroundColor: theme.colors.primary }]} />
+                <Text style={[styles.liveText, { color: theme.colors.primary }]}>Preview</Text>
+              </View>
+            )}
           </View>
         </View>
       </View>
@@ -516,23 +638,81 @@ export default function ContentPreviewScreen() {
         <View style={styles.loadingContainer}>
           <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
-      ) : sorted.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Ionicons
-            name="document-text-outline"
-            size={48}
-            color={theme.colors.textSecondary + '50'}
-          />
-          <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
-            No content to preview yet.
+      ) : isEmpty ? (
+        <View style={[styles.emptyContainer, { backgroundColor: '#FFFFFF' }]}>
+          <Text style={[styles.emptyText, { color: '#000000', fontFamily: getFontFamily('600'), fontWeight: '600', fontSize: 16 }]}>
+            No content yet
           </Text>
         </View>
       ) : (
         <ScrollView
           style={[styles.scrollContent, pageBackground ? { backgroundColor: pageBackground } : null]}
-          contentContainerStyle={styles.contentContainer}
+          contentContainerStyle={[styles.contentContainer, { paddingTop: 76 }]}
           showsVerticalScrollIndicator={false}
         >
+          {/* Buy Items Listing for Community Category */}
+          {hasBuyItems && (
+            <View style={styles.buyItemsSection}>
+              <Text style={[styles.buySectionTitle, { color: textColor, fontFamily: getFontFamily('600') }]}>
+                Items Available for Purchase
+              </Text>
+              {buyItemsList.map((item, index) => (
+                <View
+                  key={item._id || index}
+                  style={[
+                    styles.buyItemCard,
+                    {
+                      backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+                    }
+                  ]}
+                >
+                  <BlurView
+                    intensity={15}
+                    tint={isDark ? 'dark' : 'light'}
+                    style={StyleSheet.absoluteFillObject}
+                  />
+                  <View style={styles.buyItemInner}>
+                    {item.imageUrl ? (
+                      <Image source={{ uri: item.imageUrl }} style={styles.buyItemImage} resizeMode="cover" />
+                    ) : (
+                      <View style={[styles.buyItemImagePlaceholder, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)' }]}>
+                        <Ionicons name="cube-outline" size={24} color={textColor + '60'} />
+                      </View>
+                    )}
+                    <View style={styles.buyItemInfo}>
+                      <Text style={[styles.buyItemName, { color: textColor, fontFamily: getFontFamily('600') }]} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      <Text style={[styles.buyItemDesc, { color: isDark ? '#A1A1AA' : '#71717A', fontFamily: getFontFamily('400') }]} numberOfLines={2}>
+                        {item.description}
+                      </Text>
+                      <Text style={[styles.buyItemPrice, { color: theme.colors.primary, fontFamily: getFontFamily('600') }]}>
+                        {formatConnectMoney(item.price, pageData?.subscriptionCurrency)}
+                      </Text>
+                    </View>
+                    {!isOwner && (
+                      <TouchableOpacity
+                        onPress={() => handleBuyPress(item)}
+                        activeOpacity={0.8}
+                        style={styles.buyItemButton}
+                      >
+                        <LinearGradient
+                          colors={['#38BDF8', '#14B8A6', '#34D399']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={styles.buyItemButtonGradient}
+                        >
+                          <Text style={styles.buyItemButtonText}>Buy</Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
           {packBlocksIntoRows(sorted).map((row, ri) => {
             const isSingle = row.length === 1 && row[0].blocks.length === 1;
             return isSingle ? (
@@ -657,6 +837,147 @@ export default function ContentPreviewScreen() {
           <View style={{ height: 40 }} />
         </ScrollView>
       )}
+
+      {/* Checkout Modal */}
+      <Modal
+        visible={checkoutModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setCheckoutModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setCheckoutModalVisible(false)} />
+          <View
+            style={[
+              styles.checkoutModalBox,
+              {
+                backgroundColor: isDark ? 'rgba(20, 25, 35, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.15)',
+              }
+            ]}
+          >
+            <BlurView
+              intensity={90}
+              tint={isDark ? 'dark' : 'light'}
+              style={StyleSheet.absoluteFillObject}
+            />
+            <View style={styles.modalHeader}>
+              <Text style={[styles.checkoutModalTitle, { color: textColor, fontFamily: getFontFamily('600') }]}>Checkout</Text>
+              <TouchableOpacity onPress={() => setCheckoutModalVisible(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={24} color={textColor} />
+              </TouchableOpacity>
+            </View>
+
+            {selectedItem && (
+              <View style={styles.checkoutItemSummary}>
+                <Text style={[styles.checkoutItemName, { color: textColor, fontFamily: getFontFamily('600') }]} numberOfLines={1}>{selectedItem.name}</Text>
+                <Text style={[styles.checkoutItemPrice, { color: theme.colors.primary, fontFamily: getFontFamily('600') }]}>
+                  {formatConnectMoney(selectedItem.price, pageData?.subscriptionCurrency)}
+                </Text>
+              </View>
+            )}
+
+            <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <Text style={[styles.inputLabel, { color: textColor, fontFamily: getFontFamily('500') }]}>Your Name</Text>
+              <TextInput
+                style={[
+                  styles.checkoutInput,
+                  {
+                    color: textColor,
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    fontFamily: getFontFamily('400')
+                  }
+                ]}
+                value={buyerName}
+                onChangeText={setBuyerName}
+                placeholder="Enter your full name"
+                placeholderTextColor={isDark ? '#71717A' : '#A1A1AA'}
+              />
+
+              <Text style={[styles.inputLabel, { color: textColor, fontFamily: getFontFamily('500') }]}>Phone Number</Text>
+              <TextInput
+                style={[
+                  styles.checkoutInput,
+                  {
+                    color: textColor,
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    fontFamily: getFontFamily('400')
+                  }
+                ]}
+                value={buyerPhone}
+                onChangeText={setBuyerPhone}
+                placeholder="Enter your phone number"
+                placeholderTextColor={isDark ? '#71717A' : '#A1A1AA'}
+                keyboardType="phone-pad"
+              />
+
+              <Text style={[styles.inputLabel, { color: textColor, fontFamily: getFontFamily('500') }]}>UPI / Payment Phone (Optional)</Text>
+              <TextInput
+                style={[
+                  styles.checkoutInput,
+                  {
+                    color: textColor,
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    fontFamily: getFontFamily('400')
+                  }
+                ]}
+                value={payPhone}
+                onChangeText={setPayPhone}
+                placeholder="UPI-linked phone number"
+                placeholderTextColor={isDark ? '#71717A' : '#A1A1AA'}
+                keyboardType="phone-pad"
+              />
+
+              <Text style={[styles.inputLabel, { color: textColor, fontFamily: getFontFamily('500') }]}>Delivery Address</Text>
+              <TextInput
+                style={[
+                  styles.checkoutInput,
+                  styles.checkoutAddressInput,
+                  {
+                    color: textColor,
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    fontFamily: getFontFamily('400')
+                  }
+                ]}
+                value={deliveryAddress}
+                onChangeText={setDeliveryAddress}
+                placeholder="Enter complete delivery address"
+                placeholderTextColor={isDark ? '#71717A' : '#A1A1AA'}
+                multiline
+                numberOfLines={3}
+              />
+
+              <TouchableOpacity
+                style={styles.checkoutBtn}
+                onPress={handleBuyItem}
+                disabled={checkingOut}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={['#38BDF8', '#14B8A6', '#34D399']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.checkoutBtnGradient}
+                >
+                  {checkingOut ? (
+                    <LoadingGlobe size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={[styles.checkoutBtnText, { fontFamily: getFontFamily('600') }]}>Place Order</Text>
+                  )}
+                </LinearGradient>
+              </TouchableOpacity>
+              <View style={{ height: 40 }} />
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -704,6 +1025,193 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
+  },
+  headerContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 60,
+    zIndex: 10,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderTopWidth: 0,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  headerInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: '100%',
+  },
+  editBtnWrap: {
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  editBtnGradient: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  buyItemsSection: {
+    marginBottom: 20,
+  },
+  buySectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  buyItemCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  buyItemInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+  },
+  buyItemImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+  },
+  buyItemImagePlaceholder: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buyItemInfo: {
+    flex: 1,
+    marginLeft: 12,
+    marginRight: 8,
+  },
+  buyItemName: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  buyItemDesc: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  buyItemPrice: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  buyItemButton: {
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  buyItemButtonGradient: {
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  buyItemButtonText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'flex-end',
+  },
+  checkoutModalBox: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    maxHeight: '85%',
+    overflow: 'hidden',
+    paddingBottom: 24,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  checkoutModalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  checkoutItemSummary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  checkoutItemName: {
+    fontSize: 15,
+    fontWeight: '600',
+    flex: 1,
+    marginRight: 12,
+  },
+  checkoutItemPrice: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  modalScroll: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+  },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginBottom: 6,
+    marginTop: 12,
+  },
+  checkoutInput: {
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    fontSize: 14,
+  },
+  checkoutAddressInput: {
+    height: 80,
+    paddingTop: 12,
+    paddingBottom: 12,
+    textAlignVertical: 'top',
+  },
+  checkoutBtn: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    marginTop: 24,
+    marginBottom: 8,
+  },
+  checkoutBtnGradient: {
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkoutBtnText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
   liveDot: {
     width: 6,

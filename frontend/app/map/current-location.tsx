@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -9,8 +9,10 @@ import {
   Platform,
   KeyboardAvoidingView,
 } from 'react-native';
+import MaskedView from '@react-native-masked-view/masked-view';
+import { LinearGradient } from 'expo-linear-gradient';
 import LoadingGlobe from '../../components/LoadingGlobe';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
@@ -25,11 +27,12 @@ import PolylineRenderer from '../../components/PolylineRenderer';
 import { DirectionsRoute, fetchDirectionsRoute, getManeuverIcon } from '../../services/directions';
 import { useMapStyle } from '../../hooks/useMapStyle';
 import logger from '../../utils/logger';
+import { BlurView } from 'expo-blur';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 // Create styles function that uses the constants
-const createStyles = () => {
+const createStyles = (isDark: boolean) => {
   const isTabletLocal = screenWidth >= 768;
   const isAndroidLocal = Platform.OS === 'android';
   const isWebLocal = Platform.OS === 'web';
@@ -38,28 +41,41 @@ const createStyles = () => {
     container: {
       flex: 1,
     },
+    headerShadowWrapper: {
+      position: 'absolute',
+      left: 16,
+      right: 16,
+      zIndex: 1000,
+      
+      // Soft ambient glow shadow
+      shadowColor: isDark ? '#38BDF8' : '#1C73B4',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.08 : 0.12,
+      shadowRadius: 16,
+      elevation: 4,
+    },
+    headerFloating: {
+      borderRadius: 20,
+      borderWidth: 1,
+      overflow: 'hidden',
+      backgroundColor: isDark ? 'rgba(15, 22, 35, 0.82)' : 'rgba(250, 252, 255, 0.85)',
+      borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.35)',
+    },
     header: {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
-      paddingHorizontal: isTabletLocal ? 24 : 16,
-      paddingTop: isAndroidLocal ? (isTabletLocal ? 18 : 16) : (isTabletLocal ? 14 : 12),
-      paddingBottom: isTabletLocal ? 16 : 12,
-      borderBottomWidth: 1,
-      minHeight: isAndroidLocal ? (isTabletLocal ? 72 : 64) : (isTabletLocal ? 64 : 56),
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      minHeight: 56,
     },
     backButton: {
-      // Minimum touch target: 44x44 for iOS, 48x48 for Android
-      minWidth: isAndroidLocal ? 48 : 44,
-      minHeight: isAndroidLocal ? 48 : 44,
+      width: 40,
+      height: 40,
+      borderRadius: 20,
       justifyContent: 'center',
       alignItems: 'center',
-      padding: isTabletLocal ? 10 : (isAndroidLocal ? 10 : 8),
-      marginLeft: isTabletLocal ? -10 : -8,
-      ...(isWebLocal && {
-        cursor: 'pointer',
-        transition: 'all 0.2s ease',
-      } as any),
+      overflow: 'hidden',
     },
     titleContainer: {
       flex: 1,
@@ -68,7 +84,7 @@ const createStyles = () => {
       justifyContent: 'center',
     },
     headerTitle: {
-      fontSize: 18,
+      fontSize: 16,
       fontWeight: '600',
       textAlign: 'center',
     },
@@ -82,7 +98,7 @@ const createStyles = () => {
       padding: 8,
     },
     mapContainer: {
-      flex: 1,
+      ...StyleSheet.absoluteFillObject,
     },
     map: {
       width: '100%',
@@ -114,14 +130,42 @@ const createStyles = () => {
       fontSize: 16,
       fontWeight: '600',
     },
+    
+    // Bottom panel styling
+    infoShadowWrapper: {
+      position: 'absolute',
+      left: 16,
+      right: 16,
+      zIndex: 1000,
+      
+      // Soft ambient glow shadow
+      shadowColor: isDark ? '#38BDF8' : '#1C73B4',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.08 : 0.12,
+      shadowRadius: 16,
+      elevation: 4,
+    },
+    infoFloating: {
+      borderRadius: 20,
+      borderWidth: 1,
+      overflow: 'hidden',
+      backgroundColor: isDark ? 'rgba(15, 22, 35, 0.82)' : 'rgba(250, 252, 255, 0.85)',
+      borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.35)',
+    },
     locationInfo: {
       padding: 16,
-      borderTopWidth: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    locationDetails: {
+      flex: 1,
+      marginRight: 12,
     },
     locationRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginBottom: 8,
+      marginBottom: 6,
     },
     locationText: {
       fontSize: 14,
@@ -141,19 +185,15 @@ const createStyles = () => {
       alignItems: 'center',
     },
     directionButton: {
-      position: 'absolute',
-      bottom: 16,
-      right: 16,
-      width: 56,
-      height: 56,
-      borderRadius: 28,
+      width: 48,
+      height: 48,
+      borderRadius: 24,
       justifyContent: 'center',
       alignItems: 'center',
-      zIndex: 10,
+      overflow: 'hidden',
     },
     routePanel: {
       position: 'absolute',
-      top: 16,
       left: 16,
       right: 16,
       paddingHorizontal: 16,
@@ -178,8 +218,6 @@ const createStyles = () => {
   });
 };
 
-const styles = createStyles();
-
 const GROWTH_GREEN = '#22C55E';
 
 export default function CurrentLocationMap() {
@@ -191,6 +229,8 @@ export default function CurrentLocationMap() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(isDark), [isDark]);
+  const insets = useSafeAreaInsets();
   const mapStyle = useMapStyle();
   const [route, setRoute] = useState<DirectionsRoute | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
@@ -221,6 +261,16 @@ export default function CurrentLocationMap() {
                                !isNaN(postLatitude) && !isNaN(postLongitude);
   
   const isPostLocation = hasValidCoordinates; // Use valid coordinates check
+
+  const [tracksViewChanges, setTracksViewChanges] = useState(true);
+
+  useEffect(() => {
+    setTracksViewChanges(true);
+    const timer = setTimeout(() => {
+      setTracksViewChanges(false);
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [location, route]);
 
   useEffect(() => {
     // Create a unique key for these params to avoid duplicate logging
@@ -561,19 +611,31 @@ function initMap(){
   var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${lat},lng:${lng}},zoom:15,mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true});
   
   // Custom OverlayView class
-  function PhotoOverlay(pos,el){this.position=pos;this.div=el;this.setMap(map);}
-  PhotoOverlay.prototype=new google.maps.OverlayView();
-  PhotoOverlay.prototype.onAdd=function(){this.getPanes().overlayMouseTarget.appendChild(this.div);};
-  PhotoOverlay.prototype.draw=function(){
-    var pt=this.getProjection().fromLatLngToDivPixel(this.position);
-    if(pt){
-      this.div.style.left=pt.x+'px';
-      this.div.style.top=pt.y+'px';
-      this.div.style.position='absolute';
-      this.div.style.transform='translate(-50%,-50%)';
+  class PhotoOverlay extends google.maps.OverlayView {
+    constructor(pos, el) {
+      super();
+      this.position = pos;
+      this.div = el;
+      this.setMap(map);
     }
-  };
-  PhotoOverlay.prototype.onRemove=function(){if(this.div&&this.div.parentNode)this.div.parentNode.removeChild(this.div);};
+    onAdd() {
+      this.getPanes().overlayMouseTarget.appendChild(this.div);
+    }
+    draw() {
+      var pt = this.getProjection().fromLatLngToDivPixel(this.position);
+      if (pt) {
+        this.div.style.left = pt.x + 'px';
+        this.div.style.top = pt.y + 'px';
+        this.div.style.position = 'absolute';
+        this.div.style.transform = 'translate(-50%,-50%)';
+      }
+    }
+    onRemove() {
+      if (this.div && this.div.parentNode) {
+        this.div.parentNode.removeChild(this.div);
+      }
+    }
+  }
 
   var routePath=${JSON.stringify(route?.coordinates.map((coord) => ({ lat: coord.latitude, lng: coord.longitude })) || [])};
   if(routePath.length>1){
@@ -594,14 +656,8 @@ function initMap(){
   div.style.cssText='position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
   
   var isPostLoc = ${isPostLocation};
-  if (isPostLoc) {
-    div.innerHTML = '<div class="glass-marker-card">' +
-      '<div class="marker-thumb-placeholder">📍</div>' +
-      '<div class="marker-info">' +
-        '<div class="marker-title">' + htmlEsc(rawTitle) + '</div>' +
-        '<div class="marker-subtitle">Destination</div>' +
-      '</div>' +
-    '</div>';
+  if (isPostLoc || routePath.length > 1) {
+    div.innerHTML = '<div style="font-size: 32px; line-height: 1; margin-top: -16px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.35));">📍</div>';
   } else {
     div.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
   }
@@ -642,13 +698,13 @@ function initMap(){
         provider={getMapProvider()}
         {...mapStyle.nativeMapProps}
         initialRegion={{
-          latitude: location.coords.latitude,
-          longitude: location.coords.longitude,
+          latitude: isPostLocation ? postLatitude! : location.coords.latitude,
+          longitude: isPostLocation ? postLongitude! : location.coords.longitude,
           latitudeDelta: 0.1,
           longitudeDelta: 0.1,
         }}
-        showsUserLocation={(!isPostLocation && !hasValidCoordinates) || !!route}
-        showsMyLocationButton={(!isPostLocation && !hasValidCoordinates) || !!route}
+        showsUserLocation={true}
+        showsMyLocationButton={true}
         showsCompass={true}
         showsScale={true}
         mapType={mapStyle.mapType}
@@ -665,10 +721,12 @@ function initMap(){
           />
         )}
         <Marker
-          coordinate={{
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-          }}
+          coordinate={
+            isPostLocation
+              ? { latitude: postLatitude!, longitude: postLongitude! }
+              : { latitude: location.coords.latitude, longitude: location.coords.longitude }
+          }
+          tracksViewChanges={tracksViewChanges}
           title={
             isPostLocation
               ? (postAddress || 'Post Location')
@@ -696,72 +754,33 @@ function initMap(){
             }
           }}
         >
-          <PremiumMapMarker icon={isPostLocation ? 'flag' : 'navigate'} active={isPostLocation} />
+          <PremiumMapMarker 
+            icon={isPostLocation ? 'location' : 'navigate'} 
+            active={isPostLocation} 
+            label={isPostLocation ? (locationName || postAddress || 'Location') : undefined}
+            activeTitle={isPostLocation ? (locationName || postAddress || 'Location') : undefined}
+            activeSubtitle={isPostLocation ? (params.spotTypes as string || params.description as string || 'Visited place') : undefined}
+            photo={isPostLocation ? (params.imageUrl as string || undefined) : undefined}
+          />
         </Marker>
       </MapView>
     );
   };
 
   return (
-    <SafeAreaView 
-      style={[styles.container, { backgroundColor: theme.colors.background }]}
-      edges={['top']}
-    >
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <StatusBar 
-        barStyle={theme.colors.text === '#FFFFFF' ? 'light-content' : 'dark-content'} 
-        backgroundColor={theme.colors.background} 
+        barStyle={isDark ? 'light-content' : 'dark-content'} 
+        backgroundColor="transparent"
+        translucent
       />
       
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => {
-            // CRITICAL: For TripScore and locale flows, just go back to existing detail screen
-            // This prevents creating duplicate detail screens
-            if (isTripScoreFlow || (locationName && params.userId === 'admin-locale')) {
-              // TripScore or Locale flow: just go back to the detail screen that's already in stack
-              router.back();
-            } else {
-              router.back();
-            }
-          }}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-        </TouchableOpacity>
-        
-        <View style={styles.titleContainer}>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
-            {isApproximate ? 'Approximate Location' : isPostLocation ? (postAddress || 'Post Location') : 'Current Location'}
-          </Text>
-          {isWatching && !isPostLocation && (
-            <View style={styles.watchingIndicator}>
-              <Ionicons name="radio" size={12} color={theme.colors.success} />
-            </View>
-          )}
-        </View>
-        
-        <TouchableOpacity 
-          style={styles.refreshButton}
-          onPress={handleRefresh}
-        >
-          <Ionicons name="refresh" size={24} color={theme.colors.primary} />
-        </TouchableOpacity>
-      </View>
-
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-      >
       {/* Map Container */}
       <View style={styles.mapContainer}>
         {renderMap()}
 
         {(routeLoading || route) && (
-          <GlassMapPanel style={styles.routePanel} tint={mapStyle.glassTint}>
+          <GlassMapPanel style={[styles.routePanel, { top: insets.top + 80 }]} tint={mapStyle.glassTint}>
             <View style={styles.routeHeader}>
               <Ionicons
                 name={route ? getManeuverIcon(route.steps[0]?.maneuver) as any : 'navigate'}
@@ -777,72 +796,138 @@ function initMap(){
             </Text>
           </GlassMapPanel>
         )}
-
-        {/* Direction Button */}
-        {isPostLocation && postLatitude && postLongitude && (
-          <TouchableOpacity
-            style={[styles.directionButton, { backgroundColor: theme.colors.primary }]}
-            onPress={loadRoute}
-            disabled={routeLoading}
-          >
-            {routeLoading ? <LoadingGlobe color="white" /> : <Ionicons name="navigate" size={20} color="white" />}
-          </TouchableOpacity>
-        )}
       </View>
 
-      {/* Location Info */}
+      {/* Floating Header */}
+      <View style={[styles.headerShadowWrapper, { top: insets.top + 8 }]}>
+        <BlurView
+          intensity={95}
+          tint={isDark ? 'dark' : 'light'}
+          style={styles.headerFloating}
+        >
+          <View style={styles.header}>
+            <TouchableOpacity 
+              style={styles.backButton}
+              onPress={() => {
+                router.back();
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.7}
+            >
+              <LinearGradient
+                colors={['#1C73B4', '#50C878']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFillObject}
+              />
+              <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
+            </TouchableOpacity>
+            
+            <View style={styles.titleContainer}>
+              <Text style={[styles.headerTitle, { color: theme.colors.text }]} numberOfLines={1}>
+                {isApproximate ? 'Approximate Location' : isPostLocation ? (postAddress || 'Post Location') : 'Current Location'}
+              </Text>
+              {isWatching && !isPostLocation && (
+                <View style={styles.watchingIndicator}>
+                  <Ionicons name="radio" size={12} color={theme.colors.success} />
+                </View>
+              )}
+            </View>
+            
+            <TouchableOpacity 
+              style={styles.refreshButton}
+              onPress={handleRefresh}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="refresh" size={24} color={theme.colors.primary} />
+            </TouchableOpacity>
+          </View>
+        </BlurView>
+      </View>
+
+      {/* Floating Bottom Location Info Panel */}
       {location && (
-        <View style={[styles.locationInfo, { backgroundColor: theme.colors.surface, borderTopColor: theme.colors.border }]}>
-          {isPostLocation && postAddress && (
-            <View style={styles.locationRow}>
-              <Ionicons name="location" size={20} color={theme.colors.primary} />
-              <Text style={[styles.locationText, { color: theme.colors.text }]}>
-                {postAddress}
-              </Text>
+        <View style={[styles.infoShadowWrapper, { bottom: insets.bottom + 16 }]}>
+          <BlurView
+            intensity={95}
+            tint={isDark ? 'dark' : 'light'}
+            style={styles.infoFloating}
+          >
+            <View style={styles.locationInfo}>
+              <View style={styles.locationDetails}>
+                {isPostLocation && postAddress && (
+                  <View style={styles.locationRow}>
+                    <Ionicons name="location" size={18} color={theme.colors.primary} />
+                    <Text style={[styles.locationText, { color: theme.colors.text }]} numberOfLines={1}>
+                      {postAddress}
+                    </Text>
+                  </View>
+                )}
+                {isPostLocation && userCoords && (
+                  <View style={styles.locationRow}>
+                    <Ionicons name="navigate" size={18} color={theme.colors.primary} />
+                    <Text style={[styles.locationText, { color: theme.colors.text }]} numberOfLines={1}>
+                      {(() => {
+                        if (route?.distanceText) {
+                          return `${route.distanceText.toLowerCase()} from you`;
+                        }
+                        const km = calculateDistance(
+                          userCoords.latitude,
+                          userCoords.longitude,
+                          postLatitude!,
+                          postLongitude!
+                        );
+                        return km < 1
+                          ? `${Math.round(km * 1000)} m from you`
+                          : `${km.toFixed(1)} km from you`;
+                      })()}
+                    </Text>
+                  </View>
+                )}
+                {isApproximate && approximateLabel && (
+                  <View style={[styles.locationRow, { marginTop: 4, backgroundColor: theme.colors.primary + '15', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, marginBottom: 0 }]}>
+                    <Ionicons name="information-circle-outline" size={14} color={theme.colors.primary} />
+                    <Text style={[styles.locationText, { color: theme.colors.primary, fontSize: 11, marginLeft: 4 }]} numberOfLines={1}>
+                      Showing nearest: {approximateLabel}
+                    </Text>
+                  </View>
+                )}
+                {!isPostLocation && location.coords.accuracy && location.coords.accuracy > 0 && (
+                  <View style={[styles.locationRow, { marginBottom: 0 }]}>
+                    <Ionicons name="checkmark-circle" size={18} color={theme.colors.success} />
+                    <Text style={[styles.locationText, { color: theme.colors.text }]}>
+                      Accuracy: ±{Math.round(location.coords.accuracy)}m
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Action Buttons inside Info Panel */}
+              {isPostLocation && postLatitude && postLongitude && (
+                <TouchableOpacity
+                  style={styles.directionButton}
+                  onPress={loadRoute}
+                  disabled={routeLoading}
+                  activeOpacity={0.7}
+                >
+                  <LinearGradient
+                    colors={['#1C73B4', '#50C878']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={StyleSheet.absoluteFillObject}
+                  />
+                  {routeLoading ? (
+                    <LoadingGlobe color="white" size="small" />
+                  ) : (
+                    <Ionicons name="navigate" size={20} color="white" />
+                  )}
+                </TouchableOpacity>
+              )}
             </View>
-          )}
-          {isPostLocation && userCoords && (
-            <View style={styles.locationRow}>
-              <Ionicons name="navigate" size={20} color={theme.colors.primary} />
-              <Text style={[styles.locationText, { color: theme.colors.text }]}>
-                {(() => {
-                  if (route?.distanceText) {
-                    return `${route.distanceText.toLowerCase()} from your current location`;
-                  }
-                  const km = calculateDistance(
-                    userCoords.latitude,
-                    userCoords.longitude,
-                    postLatitude!,
-                    postLongitude!
-                  );
-                  return km < 1
-                    ? `${Math.round(km * 1000)} m from your current location`
-                    : `${km.toFixed(1)} km from your current location`;
-                })()}
-              </Text>
-            </View>
-          )}
-          {isApproximate && approximateLabel && (
-            <View style={[styles.locationRow, { marginTop: 6, backgroundColor: theme.colors.primary + '15', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6 }]}>
-              <Ionicons name="information-circle-outline" size={16} color={theme.colors.primary} />
-              <Text style={[styles.locationText, { color: theme.colors.primary, fontSize: 12, marginLeft: 6 }]}>
-                Exact address not found on maps. Showing nearest area: {approximateLabel}
-              </Text>
-            </View>
-          )}
-          {!isPostLocation && location.coords.accuracy && location.coords.accuracy > 0 && (
-            <View style={styles.locationRow}>
-              <Ionicons name="checkmark-circle" size={20} color={theme.colors.success} />
-              <Text style={[styles.locationText, { color: theme.colors.text }]}>
-                Accuracy: ±{Math.round(location.coords.accuracy)}m
-              </Text>
-            </View>
-          )}
+          </BlurView>
         </View>
       )}
-
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 

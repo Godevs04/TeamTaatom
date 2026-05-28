@@ -37,7 +37,7 @@ const ALERT_RED = '#EF4444';
 export default function NavigateIndexScreen() {
   const router = useRouter();
   const { theme } = useTheme();
-  const { showAlert } = useAlert();
+  const { showAlert, showError, showDestructiveConfirm } = useAlert();
   const {
     initialized,
     isTracking,
@@ -126,50 +126,40 @@ export default function NavigateIndexScreen() {
   };
 
   const handleEndJourney = () => {
-    Alert.alert('End Journey?', 'This will complete your current journey. You can view it later in your profile.', [
-      {
-        text: 'Cancel',
-        onPress: () => {},
-        style: 'cancel',
+    showDestructiveConfirm(
+      'This will complete your current journey. You can view it later in your profile.',
+      async () => {
+        try {
+          setIsLoading(true);
+          await stopJourneyRecording();
+          router.push('/navigate/complete');
+        } catch (err: any) {
+          showError(err.message || 'Unknown error', 'Failed to end journey');
+        } finally {
+          setIsLoading(false);
+        }
       },
-      {
-        text: 'End Journey',
-        onPress: async () => {
-          try {
-            setIsLoading(true);
-            await stopJourneyRecording();
-            router.push('/navigate/complete');
-          } catch (err: any) {
-            showAlert('Failed to end journey', err.message);
-          } finally {
-            setIsLoading(false);
-          }
-        },
-        style: 'destructive',
-      },
-    ]);
+      'End Journey?',
+      'End Journey',
+      'Cancel'
+    );
   };
 
   const handleDeleteJourney = (journeyItem: any) => {
-    Alert.alert(
-      'Delete Journey',
+    showDestructiveConfirm(
       `Are you sure you want to delete "${journeyItem.title || 'Untitled Journey'}"? This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteJourney(journeyItem._id);
-              setJourneys((prev) => prev.filter((j) => j._id !== journeyItem._id));
-              showAlert('Journey deleted', '');
-            } catch (err: any) {
-              showAlert('Failed to delete', err.message || 'Something went wrong');
-            }
-          },
-        },
-      ]
+      async () => {
+        try {
+          await deleteJourney(journeyItem._id);
+          setJourneys((prev) => prev.filter((j) => j._id !== journeyItem._id));
+          showAlert('Journey deleted', '');
+        } catch (err: any) {
+          showError(err.message || 'Something went wrong', 'Failed to delete');
+        }
+      },
+      'Delete Journey',
+      'Delete',
+      'Cancel'
     );
   };
 

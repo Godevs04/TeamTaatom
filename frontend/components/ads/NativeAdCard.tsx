@@ -39,6 +39,9 @@ export type NativeAdCardProps = {
    *  the 5-per-8h limit. Does NOT fire if the ad fails to load (no impression
    *  to count in that case). */
   onImpression?: () => void;
+  /** Fired when this slot cannot render an ad. The parent should remove the slot
+   *  from its data array so the slot does not occupy a blank space in the feed. */
+  onLoadFailed?: () => void;
 };
 
 type AdsModule = {
@@ -49,7 +52,7 @@ type AdsModule = {
   NativeAssetType: typeof import('react-native-google-mobile-ads').NativeAssetType;
 };
 
-function NativeAdCardComponent({ adIndex, onImpression }: NativeAdCardProps) {
+function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAdCardProps) {
   const { theme } = useTheme();
   const [adsModule, setAdsModule] = useState<AdsModule | null>(null);
   const [moduleError, setModuleError] = useState(false);
@@ -63,11 +66,24 @@ function NativeAdCardComponent({ adIndex, onImpression }: NativeAdCardProps) {
 
   const unitId = Platform.OS === 'android' ? ADMOB.android.native : ADMOB.ios.native;
 
+  // Refs to fire onLoadFailed at most once per slot, regardless of which
+  // failure path triggered it. Without these, the parent could be told to
+  // remove the slot multiple times (re-render churn) or get stuck in a loop.
+  const failureFiredRef = useRef(false);
+  const onLoadFailedRef = useRef(onLoadFailed);
+  onLoadFailedRef.current = onLoadFailed;
+  const fireLoadFailed = () => {
+    if (failureFiredRef.current) return;
+    failureFiredRef.current = true;
+    try { onLoadFailedRef.current?.(); } catch { /* swallow */ }
+  };
+
   // Lazy-load the native ads module only on mount. Never require() in Expo Go — native module is not registered and require() throws.
   useEffect(() => {
     if (isWeb || isExpoGo) {
       setLoading(false);
       setModuleError(true);
+      fireLoadFailed();
       return;
     }
     try {
@@ -82,6 +98,7 @@ function NativeAdCardComponent({ adIndex, onImpression }: NativeAdCardProps) {
     } catch {
       setModuleError(true);
       setLoading(false);
+      fireLoadFailed();
     }
   }, []);
 
@@ -91,6 +108,7 @@ function NativeAdCardComponent({ adIndex, onImpression }: NativeAdCardProps) {
       if (adsModule === null && !moduleError) return;
       setLoading(false);
       setError(true);
+      if (unitId && unitId.includes('XXXXXXXXXX')) fireLoadFailed();
       return;
     }
 
@@ -118,6 +136,7 @@ function NativeAdCardComponent({ adIndex, onImpression }: NativeAdCardProps) {
         if (!destroyedRef.current) {
           setError(true);
           setLoading(false);
+          fireLoadFailed();
         }
       });
 

@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View, StyleProp, ViewStyle } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import { cloudDesign } from '../../constants/cloudDesign';
 
@@ -43,32 +44,41 @@ export default function CloudSegmentedControl<T extends string>({
       <BlurView intensity={isDark ? 40 : 24} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
       {segments.map((seg) => {
         const active = value === seg.key;
+        const useGradient = active;
+
         return (
           <TouchableOpacity
             key={seg.key}
             style={[
               styles.seg,
-              active &&
+              active && !useGradient &&
                 (isDark
                   ? styles.segActiveDark
                   : styles.segActiveLight),
+              useGradient && { overflow: 'hidden' }
             ]}
             onPress={() => onChange(seg.key)}
             activeOpacity={0.75}
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
           >
+            {useGradient && (
+              <LinearGradient
+                colors={['#1C73B4', '#50C878']}
+                style={StyleSheet.absoluteFillObject}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              />
+            )}
             <Text
               style={[
                 styles.label,
                 {
                   color: active
-                    ? isDark
+                    ? (useGradient
                       ? '#FFFFFF'
-                      : '#121212'
-                    : isDark
-                      ? theme.colors.textSecondary
-                      : '#667085',
+                      : (isDark ? '#FFFFFF' : '#121212'))
+                    : (isDark ? theme.colors.textSecondary : '#667085'),
                 },
               ]}
             >

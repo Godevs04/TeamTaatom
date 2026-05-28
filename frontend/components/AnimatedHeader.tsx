@@ -4,7 +4,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
-import { BlurView } from 'expo-blur';
 
 interface AnimatedHeaderProps {
   showSearch?: boolean;
@@ -134,17 +133,7 @@ export default function AnimatedHeader({
   const styles = getStyles(theme);
 
   return (
-    <View style={[styles.header, { backgroundColor: 'transparent', paddingTop: disableSafeArea ? 0 : insets.top, position: 'relative', overflow: 'hidden' }]}>
-      <BlurView 
-        intensity={80} 
-        tint={isDark ? 'dark' : 'light'} 
-        style={[
-          StyleSheet.absoluteFillObject,
-          {
-            backgroundColor: isDark ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.8)',
-          }
-        ]} 
-      />
+    <View style={[styles.header, { backgroundColor: 'transparent', paddingTop: disableSafeArea ? 0 : insets.top, position: 'relative' }]}>
       {(showSearch || showChat) && (
         <TouchableOpacity
           onPress={handleLogoPress}

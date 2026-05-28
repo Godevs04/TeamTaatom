@@ -193,12 +193,19 @@ interface FeedListItemProps {
   item: FeedItem;
   isCurrentlyVisible: boolean;
   onRefresh: () => void;
+  onAdLoadFailed: (adIndex: number) => void;
 }
 
 const FeedListItem = React.memo(
-  ({ item, isCurrentlyVisible, onRefresh }: FeedListItemProps) => {
+  ({ item, isCurrentlyVisible, onRefresh, onAdLoadFailed }: FeedListItemProps) => {
     if (isAdItem(item)) {
-      return <NativeAdCard adIndex={item.adIndex} onImpression={recordGoogleAdImpression} />;
+      return (
+        <NativeAdCard
+          adIndex={item.adIndex}
+          onImpression={recordGoogleAdImpression}
+          onLoadFailed={() => onAdLoadFailed(item.adIndex)}
+        />
+      );
     }
     return (
       <OptimizedPhotoCard
@@ -213,6 +220,9 @@ const FeedListItem = React.memo(
       return false;
     }
     if (prevProps.onRefresh !== nextProps.onRefresh) {
+      return false;
+    }
+    if (prevProps.onAdLoadFailed !== nextProps.onAdLoadFailed) {
       return false;
     }
     
@@ -272,14 +282,51 @@ export default function HomeScreen() {
   }, [posts]);
 
   useEffect(() => {
-    const unsubscribe = realtimePostsService.subscribeToViews(({ postId, viewsCount }) => {
+    const unsubscribeViews = realtimePostsService.subscribeToViews(({ postId, viewsCount }) => {
       setPosts(prev => prev.map(post => (
         post._id === postId
           ? { ...post, viewsCount, views: viewsCount } as any
           : post
       )));
     });
-    return unsubscribe;
+
+    const unsubscribeLikes = realtimePostsService.subscribeToLikes(({ postId, isLiked, likesCount }) => {
+      // 1. Sync local likedPostIdsRef Set
+      const set = likedPostIdsRef.current;
+      if (isLiked) set.add(postId);
+      else set.delete(postId);
+      AsyncStorage.setItem(LIKED_POSTS_STORAGE_KEY, JSON.stringify([...set])).catch(() => {});
+
+      // 2. Update posts state
+      setPosts(prev => prev.map(post => {
+        if (post._id === postId) {
+          if (post.isLiked === isLiked && post.likesCount === likesCount) {
+            return post;
+          }
+          return { ...post, isLiked, likesCount } as any;
+        }
+        return post;
+      }));
+
+      // 3. Update tab caches (feedCacheRef.current)
+      const modes: FeedMode[] = ['recents', 'friends', 'popular'];
+      modes.forEach(mode => {
+        const cache = feedCacheRef.current[mode];
+        if (cache && cache.posts) {
+          cache.posts = cache.posts.map(post => {
+            if (post._id === postId) {
+              return { ...post, isLiked, likesCount } as any;
+            }
+            return post;
+          });
+        }
+      });
+    });
+
+    return () => {
+      unsubscribeViews();
+      unsubscribeLikes();
+    };
   }, [setPosts]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -301,6 +348,13 @@ export default function HomeScreen() {
   const visibleIndexRef = useRef<number | null>(null);
   const visiblePostIdRef = useRef<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [failedAdIndices, setFailedAdIndices] = useState<number[]>([]);
+  const handleAdLoadFailed = useCallback((adIndex: number) => {
+    setFailedAdIndices(prev => {
+      if (prev.includes(adIndex)) return prev;
+      return [...prev, adIndex];
+    });
+  }, []);
   const isFetchingRef = useRef(false);
   const hasInitializedRef = useRef(false);
   const lastErrorTimeRef = useRef(0);
@@ -1216,11 +1270,18 @@ export default function HomeScreen() {
       paddingTop: insets.top,
       zIndex: 1000,
       backgroundColor: 'transparent',
-      borderTopWidth: 0,
-      borderBottomWidth: 0,
-      borderBottomLeftRadius: 24,
-      borderBottomRightRadius: 24,
-      overflow: 'hidden',
+      borderBottomWidth: 1,
+      borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.35)',
+      borderTopWidth: 1,
+      borderTopColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.45)',
+      
+      // Soft ambient blue glow
+      shadowColor: isDark ? '#38BDF8' : '#1C73B4',
+      shadowOffset: { width: 0, height: 6 },
+      shadowOpacity: isDark ? 0.04 : 0.06,
+      shadowRadius: 20,
+      elevation: 2,
+
       ...(isWeb && {
         maxWidth: isTablet ? 800 : 600,
         alignSelf: 'center',
@@ -1322,8 +1383,14 @@ export default function HomeScreen() {
     if (isWeb || posts.length === 0) return posts as FeedItem[];
     const showAds = hasScrolledPastFifthPost && adsAllowedAfter30s && !adCap.isCapped;
     if (!showAds) return posts as FeedItem[];
-    return injectAds(posts, adCap) as FeedItem[];
-  }, [posts, hasScrolledPastFifthPost, adsAllowedAfter30s, adCap]);
+    const rawFeed = injectAds(posts, adCap) as FeedItem[];
+    return rawFeed.filter(item => {
+      if (isAdItem(item)) {
+        return !failedAdIndices.includes(item.adIndex);
+      }
+      return true;
+    });
+  }, [posts, hasScrolledPastFifthPost, adsAllowedAfter30s, adCap, failedAdIndices]);
 
   const renderTopHeader = () => (
     <AnimatedHeader
@@ -1431,9 +1498,10 @@ export default function HomeScreen() {
         item={item}
         isCurrentlyVisible={!isAdItem(item) && visiblePostIdRef.current === item._id}
         onRefresh={handleRefresh}
+        onAdLoadFailed={handleAdLoadFailed}
       />
     );
-  }, [handleRefresh]);
+  }, [handleRefresh, handleAdLoadFailed]);
 
   const screenBg = (
     <>
@@ -1461,11 +1529,15 @@ export default function HomeScreen() {
             translucent
           />
           <View style={[styles.topBarContainer, { position: 'relative', shadowOpacity: 0, elevation: 0 }]}>
-            <LinearGradient
-              colors={mode === 'dark' ? ['#000000', '#000000'] : ['#FFFFFF', '#FFFFFF']}
-              style={StyleSheet.absoluteFillObject}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0, y: 1 }}
+            <BlurView
+              intensity={95}
+              tint={isDark ? 'dark' : 'light'}
+              style={[
+                StyleSheet.absoluteFillObject,
+                {
+                  backgroundColor: isDark ? 'rgba(15, 22, 35, 0.82)' : 'rgba(250, 252, 255, 0.85)',
+                }
+              ]}
             />
             {renderTopHeader()}
             {renderFeedTabs()}
@@ -1519,6 +1591,7 @@ export default function HomeScreen() {
               ]}
               showsVerticalScrollIndicator={false}
               onScroll={(e) => {
+                if (e.target !== e.currentTarget) return;
                 homeScrollOffsetRef.current = e.nativeEvent.contentOffset.y;
                 handleScroll(e);
               }}
@@ -1585,11 +1658,15 @@ export default function HomeScreen() {
 
         {/* Absolute Top Bar (zIndex: 1000) */}
         <View style={styles.topBarContainer}>
-          <LinearGradient
-            colors={mode === 'dark' ? ['#000000', '#000000'] : ['#FFFFFF', '#FFFFFF']}
-            style={StyleSheet.absoluteFillObject}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 1 }}
+          <BlurView
+            intensity={95}
+            tint={isDark ? 'dark' : 'light'}
+            style={[
+              StyleSheet.absoluteFillObject,
+              {
+                backgroundColor: isDark ? 'rgba(15, 22, 35, 0.82)' : 'rgba(250, 252, 255, 0.85)',
+              }
+            ]}
           />
           {renderTopHeader()}
           {renderFeedTabs()}

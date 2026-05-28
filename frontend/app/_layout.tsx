@@ -184,6 +184,13 @@ function RootLayoutInner() {
     try {
       const parsed = Linking.parse(url);
       let targetPath = parsed.path;
+      
+      // For custom scheme (taatom://), if hostname is present (e.g. 'post', 'navigate', 'connect'),
+      // prepend it to the targetPath as Linking.parse treats the first path segment as the hostname.
+      if (parsed.scheme === 'taatom' && parsed.hostname && parsed.hostname !== '') {
+        targetPath = parsed.hostname + (targetPath ? '/' + targetPath : '');
+      }
+      
       if (!targetPath) return;
 
       if (!targetPath.startsWith('/')) {

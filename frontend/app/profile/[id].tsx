@@ -6,7 +6,8 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
-import { toggleFollow, getTravelMapData, toggleBlockUser, getBlockStatus } from '../../services/profile';
+import { toggleFollow, getTravelMapData, toggleBlockUser, getBlockStatus, requestRouteAccess } from '../../services/profile';
+import AlertService from '../../services/alertService';
 import { createReport } from '../../services/report';
 import ReportReasonModal, { ReportReasonType } from '../../components/ReportReasonModal';
 import WorldMap from '../../components/WorldMap';
@@ -601,6 +602,31 @@ export default function UserProfileScreen() {
     }
   };
 
+  const [routeAccessLoading, setRouteAccessLoading] = useState(false);
+
+  const handleRequestRouteAccess = async () => {
+    if (!profile?._id) return;
+    try {
+      setRouteAccessLoading(true);
+      const res = await requestRouteAccess(profile._id);
+      
+      updateProfileState((prev: any) => prev ? {
+        ...prev,
+        routeAccessStatus: res.status
+      } : prev);
+      
+      if (res.status === 'approved') {
+        AlertService.showSuccess('Access Granted', 'You have been granted access to view travel routes.');
+      } else {
+        AlertService.showSuccess('Request Sent', 'Your request to view traveling routes has been sent.');
+      }
+    } catch (err: any) {
+      showError(err.message || 'Failed to request route access');
+    } finally {
+      setRouteAccessLoading(false);
+    }
+  };
+
   if (loading || !profile) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}>
@@ -687,19 +713,25 @@ export default function UserProfileScreen() {
               {/* Top Row (Avatar & Telemetry Stats) */}
               <View style={styles.topRow}>
                 {/* Left Column (Avatar) */}
-                <View style={[
-                  styles.avatarContainer,
-                  {
-                    borderColor: profileTheme.accent,
-                    backgroundColor: isDark ? '#080F19' : '#F0F5FA',
-                  }
-                ]}>
-                  <FastImage
-                    source={profile.profilePic ? { uri: profile.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                    style={styles.avatarImage}
-                    contentFit="cover"
-                  />
-                </View>
+                <ExpoLinearGradient
+                  colors={['#1C73B4', '#50C878']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.avatarGradientWrapper}
+                >
+                  <View style={[
+                    styles.avatarContainer,
+                    {
+                      backgroundColor: isDark ? '#080F19' : '#F0F5FA',
+                    }
+                  ]}>
+                    <FastImage
+                      source={profile.profilePic ? { uri: profile.profilePic } : require('../../assets/avatars/male_avatar.png')}
+                      style={styles.avatarImage}
+                      contentFit="cover"
+                    />
+                  </View>
+                </ExpoLinearGradient>
 
                 {/* Right Column (Telemetry Stats) */}
                 <View style={styles.statsContainer}>
@@ -838,16 +870,80 @@ export default function UserProfileScreen() {
 
         {(profile.canViewPosts || isOwnProfile) ? (
           <CloudActionGroup style={{ marginBottom: 12 }}>
-            {profile.canViewPosts ? (
-              <CloudListRow
-                icon="map-outline"
-                title="Travels"
-                subtitle="View completed journeys and travel history"
-                onPress={() => router.push(`/journeys?userId=${id}`)}
-                showDivider={false}
-                iconTint={profileTheme.accent}
-              />
-            ) : null}
+            {(() => {
+              const routeVisibility = profile.routeVisibility || 'everyone';
+              
+              if (isOwnProfile) {
+                return (
+                  <CloudListRow
+                    icon="map-outline"
+                    title="Journeys"
+                    subtitle="View completed journeys and travel history"
+                    onPress={() => router.push(`/journeys?userId=${id}`)}
+                    showDivider={false}
+                    iconTint={profileTheme.accent}
+                  />
+                );
+              }
+
+              if (routeVisibility === 'private') {
+                return null;
+              }
+
+              if (routeVisibility === 'approved_only') {
+                const status = profile.routeAccessStatus || 'none';
+                if (status === 'approved') {
+                  return (
+                    <CloudListRow
+                      icon="map-outline"
+                      title="Journeys"
+                      subtitle="View completed journeys and travel history"
+                      onPress={() => router.push(`/journeys?userId=${id}`)}
+                      showDivider={false}
+                      iconTint={profileTheme.accent}
+                    />
+                  );
+                } else if (status === 'pending') {
+                  return (
+                    <CloudListRow
+                      icon="git-pull-request-outline"
+                      title="Route Access Pending"
+                      subtitle="Your request to view routes is pending approval"
+                      onPress={() => AlertService.showInfo('Request Pending', 'Your request to view traveling routes is pending approval.')}
+                      showDivider={false}
+                      iconTint="#EAB308"
+                    />
+                  );
+                } else {
+                  return (
+                    <CloudListRow
+                      icon={routeAccessLoading ? 'sync-outline' : 'lock-closed-outline'}
+                      title="Request Route Access"
+                      subtitle="Request permission to view traveling routes"
+                      onPress={handleRequestRouteAccess}
+                      showDivider={false}
+                      iconTint={profileTheme.accent}
+                    />
+                  );
+                }
+              }
+
+              // Default routeVisibility === 'everyone'
+              if (profile.canViewPosts) {
+                return (
+                  <CloudListRow
+                    icon="map-outline"
+                    title="Journeys"
+                    subtitle="View completed journeys and travel history"
+                    onPress={() => router.push(`/journeys?userId=${id}`)}
+                    showDivider={false}
+                    iconTint={profileTheme.accent}
+                  />
+                );
+              }
+
+              return null;
+            })()}
             <CloudListRow
               icon="globe-outline"
               title={isOwnProfile ? 'My Location' : 'Their Location'}
@@ -906,7 +1002,7 @@ export default function UserProfileScreen() {
               >
                 {activeTab === 'posts' && (
                   <ExpoLinearGradient
-                    colors={isDark ? ['#1C73B4', '#50C878'] : ['#1C73B4', '#1C73B4']}
+                    colors={['#1C73B4', '#50C878']}
                     style={StyleSheet.absoluteFillObject}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
@@ -928,7 +1024,7 @@ export default function UserProfileScreen() {
               >
                 {activeTab === 'shorts' && (
                   <ExpoLinearGradient
-                    colors={isDark ? ['#1C73B4', '#50C878'] : ['#1C73B4', '#1C73B4']}
+                    colors={['#1C73B4', '#50C878']}
                     style={StyleSheet.absoluteFillObject}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
@@ -1294,16 +1390,23 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     paddingHorizontal: 0,
   },
+  avatarGradientWrapper: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    padding: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   avatarImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 36,
+    borderRadius: 35,
   },
   avatarContainer: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 2,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     overflow: 'hidden',
   },
   topRow: {
@@ -1547,7 +1650,7 @@ const styles = StyleSheet.create({
   // Posts Container
   postsContainer: {
     marginHorizontal: 0,
-    marginTop: 8,
+    marginTop: -16,
     borderRadius: 20,
     borderWidth: 1,
     marginBottom: 24,
@@ -1559,11 +1662,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   pillTab: {
+    flex: 1,
     paddingHorizontal: 20,
     paddingVertical: 8,
     borderRadius: 20,
     backgroundColor: 'transparent',
     overflow: 'hidden',
+    alignItems: 'center',
   },
   pillTabActive: {
   },
