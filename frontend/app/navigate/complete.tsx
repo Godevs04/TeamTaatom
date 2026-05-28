@@ -23,6 +23,7 @@ import PolylineRenderer from '../../components/PolylineRenderer';
 import GlassMapPanel from '../../components/GlassMapPanel';
 import PremiumMapMarker from '../../components/PremiumMapMarker';
 import { useMapStyle } from '../../hooks/useMapStyle';
+import NavBar from '../../components/NavBar';
 
 const GROWTH_GREEN = '#22C55E';
 const ACTION_BLUE = '#3B82F6';
@@ -113,11 +114,11 @@ export default function CompleteScreen() {
 
   if (!journey) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
         <View style={styles.centerContainer}>
           <LoadingGlobe size="large" color={GROWTH_GREEN} />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -130,11 +131,9 @@ export default function CompleteScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
-      <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Journey Complete!</Text>
-      </View>
+      <NavBar title="Journey Complete!" showBack={false} />
 
       <ScrollView style={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         {/* Map View */}
@@ -341,7 +340,7 @@ function initMap(){
           </TouchableOpacity>
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 

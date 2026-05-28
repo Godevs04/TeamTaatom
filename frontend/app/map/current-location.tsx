@@ -43,23 +43,14 @@ const createStyles = (isDark: boolean) => {
     },
     headerShadowWrapper: {
       position: 'absolute',
-      left: 16,
-      right: 16,
       zIndex: 1000,
-      
-      // Soft ambient glow shadow
-      shadowColor: isDark ? '#38BDF8' : '#1C73B4',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: isDark ? 0.08 : 0.12,
-      shadowRadius: 16,
-      elevation: 4,
     },
     headerFloating: {
-      borderRadius: 20,
+      borderRadius: 24,
       borderWidth: 1,
       overflow: 'hidden',
-      backgroundColor: isDark ? 'rgba(15, 22, 35, 0.82)' : 'rgba(250, 252, 255, 0.85)',
-      borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.35)',
+      backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)',
+      borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
     },
     header: {
       flexDirection: 'row',
@@ -193,12 +184,8 @@ const createStyles = (isDark: boolean) => {
       overflow: 'hidden',
     },
     routePanel: {
-      position: 'absolute',
-      left: 16,
-      right: 16,
       paddingHorizontal: 16,
       paddingVertical: 14,
-      zIndex: 12,
     },
     routeHeader: {
       flexDirection: 'row',
@@ -234,6 +221,7 @@ export default function CurrentLocationMap() {
   const mapStyle = useMapStyle();
   const [route, setRoute] = useState<DirectionsRoute | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
+  const [headerCardHeight, setHeaderCardHeight] = useState(60);
   const hasLoggedParamsRef = useRef<string>('');
   const mapRef = useRef<any>(null);
 
@@ -778,30 +766,24 @@ function initMap(){
       {/* Map Container */}
       <View style={styles.mapContainer}>
         {renderMap()}
-
-        {(routeLoading || route) && (
-          <GlassMapPanel style={[styles.routePanel, { top: insets.top + 80 }]} tint={mapStyle.glassTint}>
-            <View style={styles.routeHeader}>
-              <Ionicons
-                name={route ? getManeuverIcon(route.steps[0]?.maneuver) as any : 'navigate'}
-                size={18}
-                color={mapStyle.routeColor}
-              />
-              <Text style={[styles.routeMeta, { color: mapStyle.routeColor }]}>
-                {routeLoading ? 'Finding route' : `${route?.durationText || 'Route'} - ${route?.distanceText || ''}`}
-              </Text>
-            </View>
-            <Text style={[styles.routeInstruction, { color: theme.colors.text }]} numberOfLines={2}>
-              {routeLoading ? 'Preparing in-app navigation...' : route?.steps[0]?.instruction || 'Route ready inside Taatom'}
-            </Text>
-          </GlassMapPanel>
-        )}
       </View>
 
       {/* Floating Header */}
-      <View style={[styles.headerShadowWrapper, { top: insets.top + 8 }]}>
+      <View 
+        onLayout={(e) => setHeaderCardHeight(e.nativeEvent.layout.height)}
+        style={[
+          styles.headerShadowWrapper, 
+          { 
+            top: insets.top,
+            left: 0,
+            right: 0,
+            marginTop: Platform.OS === 'android' ? 6 : 4,
+            marginHorizontal: screenWidth >= 768 ? 24 : 14,
+          }
+        ]}
+      >
         <BlurView
-          intensity={95}
+          intensity={80}
           tint={isDark ? 'dark' : 'light'}
           style={styles.headerFloating}
         >
@@ -842,6 +824,25 @@ function initMap(){
               <Ionicons name="refresh" size={24} color={theme.colors.primary} />
             </TouchableOpacity>
           </View>
+
+          {/* Sub-top bar: Route panel integrated inside card */}
+          {(routeLoading || route) && (
+            <View style={[styles.routePanel, { borderTopWidth: 1, borderTopColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)' }]}>
+              <View style={styles.routeHeader}>
+                <Ionicons
+                  name={route ? getManeuverIcon(route.steps[0]?.maneuver) as any : 'navigate'}
+                  size={18}
+                  color={isDark ? '#38BDF8' : '#1C73B4'}
+                />
+                <Text style={[styles.routeMeta, { color: isDark ? '#38BDF8' : '#1C73B4' }]}>
+                  {routeLoading ? 'Finding route' : `${route?.durationText || 'Route'} - ${route?.distanceText || ''}`}
+                </Text>
+              </View>
+              <Text style={[styles.routeInstruction, { color: theme.colors.text }]} numberOfLines={2}>
+                {routeLoading ? 'Preparing in-app navigation...' : route?.steps[0]?.instruction || 'Route ready inside Taatom'}
+              </Text>
+            </View>
+          )}
         </BlurView>
       </View>
 

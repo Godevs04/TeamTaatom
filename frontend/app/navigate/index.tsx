@@ -20,6 +20,7 @@ import { useAlert } from '../../context/AlertContext';
 import { useJourney } from '../../context/JourneyContext';
 import JourneyCard from '../../components/JourneyCard';
 import { getUserJourneys, deleteJourney } from '../../services/journey';
+import NavBar from '../../components/NavBar';
 
 const GROWTH_GREEN = '#22C55E';
 const ACTION_BLUE = '#3B82F6';
@@ -208,18 +209,9 @@ export default function NavigateIndexScreen() {
   );
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top', 'left', 'right']}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
-      <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-        >
-          <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>My Journeys</Text>
-        <View style={{ width: 44 }} />
-      </View>
+      <NavBar title="My Journeys" showBack={true} onBack={() => router.back()} />
 
       {/* Paused Journey Banner */}
       {isPaused && journey && (
@@ -323,7 +315,7 @@ export default function NavigateIndexScreen() {
           <LoadingGlobe size="large" color={GROWTH_GREEN} />
         </View>
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 

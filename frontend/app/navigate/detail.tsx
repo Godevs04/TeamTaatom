@@ -13,7 +13,8 @@ import {
   Modal,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import NavBar from '../../components/NavBar';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
@@ -50,6 +51,7 @@ export default function JourneyDetailScreen() {
   const { theme, isDark } = useTheme();
   const mapStyle = useMapStyle();
   const journeyId = typeof params.journeyId === 'string' ? params.journeyId : '';
+  const insets = useSafeAreaInsets();
 
   const { showAlert, showSuccess, showError: showErrorAlert } = useAlert();
   const [journey, setJourney] = useState<any>(null);
@@ -173,31 +175,19 @@ export default function JourneyDetailScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Journey</Text>
-          <View style={{ width: 40 }} />
-        </View>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <NavBar title="Journey" showBack={true} onBack={() => router.back()} />
         <View style={styles.loadingContainer}>
           <LoadingGlobe size="large" color={GROWTH_GREEN} />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   if (error || !journey) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Journey</Text>
-          <View style={{ width: 40 }} />
-        </View>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <NavBar title="Journey" showBack={true} onBack={() => router.back()} />
         <View style={styles.loadingContainer}>
           <Ionicons name="alert-circle-outline" size={48} color={ALERT_RED} />
           <Text style={[styles.errorText, { color: theme.colors.text }]}>{error || 'Journey not found'}</Text>
@@ -205,7 +195,7 @@ export default function JourneyDetailScreen() {
             <Text style={styles.retryBtnText}>Go Back</Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -213,23 +203,22 @@ export default function JourneyDetailScreen() {
   const statusColor = getStatusColor(journey.status);
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
-      <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]} numberOfLines={1}>
-          {journey.title || 'Journey'}
-        </Text>
-        <TouchableOpacity onPress={() => setShowMenu(!showMenu)} style={styles.backBtn}>
-          <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.text} />
-        </TouchableOpacity>
-      </View>
+      <NavBar
+        title={journey.title || 'Journey'}
+        showBack={true}
+        onBack={() => router.back()}
+        rightComponent={
+          <TouchableOpacity onPress={() => setShowMenu(!showMenu)} style={styles.backBtn}>
+            <Ionicons name="ellipsis-vertical" size={22} color={theme.colors.text} />
+          </TouchableOpacity>
+        }
+      />
 
       {/* Dropdown Menu */}
       {showMenu && (
-        <View style={[styles.menuDropdown, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+        <View style={[styles.menuDropdown, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border, top: insets.top + 70 }]}>
           <TouchableOpacity style={styles.menuItem} onPress={handleShare}>
             <Ionicons name="share-social-outline" size={18} color={theme.colors.text} />
             <Text style={[styles.menuItemText, { color: theme.colors.text }]}>Share Journey</Text>
@@ -546,7 +535,7 @@ function initMap(){
           status: journey.status,
         } : undefined}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 

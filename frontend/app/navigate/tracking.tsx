@@ -26,6 +26,7 @@ import GlassMapPanel from '../../components/GlassMapPanel';
 import PremiumMapMarker from '../../components/PremiumMapMarker';
 import { useMapStyle } from '../../hooks/useMapStyle';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BlurView } from 'expo-blur';
 
 const GROWTH_GREEN = '#22C55E';
 const ACTION_BLUE = '#3B82F6';
@@ -487,50 +488,95 @@ window.updateMapData = function(path, currentLat, currentLng) {
       )}
 
       {/* Floating Top Frosted Glass Status Panel */}
-      <GlassMapPanel style={[styles.topPanel, { top: insets.top + 8 }]} tint={mapStyle.glassTint}>
-        <TouchableOpacity
-          style={[styles.minimizeButton, { backgroundColor: theme.colors.background }]}
-          onPress={() => router.push('/(tabs)/home')}
-          accessibilityLabel="Minimize tracking map"
-        >
-          <Ionicons name="chevron-down" size={22} color={theme.colors.text} />
-        </TouchableOpacity>
+      <View 
+        style={[
+          styles.topPanel, 
+          { 
+            top: insets.top,
+            left: 0,
+            right: 0,
+            marginTop: Platform.OS === 'android' ? 6 : 4,
+            marginHorizontal: screenWidth >= 768 ? 24 : 14,
+            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+            borderWidth: 1,
+            borderRadius: 24,
+            shadowColor: '#000000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: isDark ? 0.3 : 0.1,
+            shadowRadius: 10,
+            elevation: 4,
+            overflow: 'hidden',
+          }
+        ]}
+      >
+        <BlurView
+          intensity={80}
+          tint={isDark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFillObject}
+        />
+        
+        {/* Main Status Row */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', padding: 10 }}>
+          <TouchableOpacity
+            style={[styles.minimizeButton, { backgroundColor: theme.colors.background }]}
+            onPress={() => router.push('/(tabs)/home')}
+            accessibilityLabel="Minimize tracking map"
+          >
+            <Ionicons name="chevron-down" size={22} color={theme.colors.text} />
+          </TouchableOpacity>
 
-        <View style={styles.topBarDivider} />
+          <View style={styles.topBarDivider} />
 
-        <View style={styles.topStatusInfo}>
-          <View style={styles.recordingStatusRow}>
-            <Animated.View
-              style={[
-                styles.recordingDot,
-                {
-                  backgroundColor: isPaused ? ACTION_BLUE : ALERT_RED,
-                  transform: [{ scale: pulseAnim }],
-                },
-              ]}
-            />
-            <Text style={[styles.recordingText, { color: isPaused ? ACTION_BLUE : ALERT_RED }]}>
-              {isPaused ? 'Paused' : 'Recording'}
-            </Text>
-            <Text style={[styles.topTimer, { color: theme.colors.text }]}>
-              {formatDuration()}
+          <View style={styles.topStatusInfo}>
+            <View style={styles.recordingStatusRow}>
+              <Animated.View
+                style={[
+                  styles.recordingDot,
+                  {
+                    backgroundColor: isPaused ? ACTION_BLUE : ALERT_RED,
+                    transform: [{ scale: pulseAnim }],
+                  },
+                ]}
+              />
+              <Text style={[styles.recordingText, { color: isPaused ? ACTION_BLUE : ALERT_RED }]}>
+                {isPaused ? 'Paused' : 'Recording'}
+              </Text>
+              <Text style={[styles.topTimer, { color: theme.colors.text }]}>
+                {formatDuration()}
+              </Text>
+            </View>
+            <Text style={[styles.journeyTitleSub, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+              {journey?.title || 'Active Journey'}
             </Text>
           </View>
-          <Text style={[styles.journeyTitleSub, { color: theme.colors.textSecondary }]} numberOfLines={1}>
-            {journey?.title || 'Active Journey'}
-          </Text>
         </View>
-      </GlassMapPanel>
 
-      {/* Background Permission Warning Banner overlay below top status panel */}
-      {!bgPermissionGranted && (
-        <View style={[styles.warningBanner, { top: insets.top + 72 }]}>
-          <Ionicons name="warning" size={16} color="#D97706" />
-          <Text style={styles.warningText}>
-            Background location disabled. Select "Always Allow" in Settings to track route in background.
-          </Text>
-        </View>
-      )}
+        {/* Nested warning banner inside card */}
+        {!bgPermissionGranted && (
+          <View style={[
+            styles.warningBanner,
+            { 
+              position: 'relative', 
+              top: 0, 
+              left: 0, 
+              right: 0,
+              borderWidth: 0,
+              borderTopWidth: 1,
+              borderTopColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+              borderRadius: 0,
+              backgroundColor: 'rgba(217, 119, 6, 0.1)',
+              paddingHorizontal: 12,
+              paddingVertical: 8,
+            }
+          ]}>
+            <Ionicons name="warning" size={16} color="#D97706" />
+            <Text style={styles.warningText}>
+              Background location disabled. Select "Always Allow" in Settings to track route in background.
+            </Text>
+          </View>
+        )}
+      </View>
 
       {/* Collapsed Handle Up-Arrow Button */}
       {!isSheetExpanded && (
@@ -689,15 +735,7 @@ const styles = StyleSheet.create({
   },
   topPanel: {
     position: 'absolute',
-    left: 16,
-    right: 16,
     zIndex: 100,
-    padding: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   minimizeButton: {
     width: 36,

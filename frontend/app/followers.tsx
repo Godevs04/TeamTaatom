@@ -8,6 +8,7 @@ import { UserType } from '../types/user';
 import { toggleFollow } from '../services/profile';
 import api from '../services/api';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import NavBar from '../components/NavBar';
 import { theme } from '../constants/theme';
 import { parseError } from '../utils/errorCodes';
 import logger from '../utils/logger';
@@ -318,28 +319,17 @@ export default function FollowersFollowingList() {
 
   return (
     <View style={styles(theme).container}>
-      <SafeAreaView edges={['top']} style={styles(theme).safeArea}>
-        {/* Header */}
-        <View style={styles(theme).header}>
-          <TouchableOpacity
-            onPress={() => {
-              if (router.canGoBack?.()) {
-                router.back();
-              } else {
-                router.replace('/profile');
-              }
-            }}
-            style={styles(theme).backButton}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
-          </TouchableOpacity>
-          <Text style={styles(theme).headerTitle}>
-            {type === 'followers' ? 'Followers' : 'Following'}
-          </Text>
-          <View style={styles(theme).headerSpacer} />
-        </View>
-      </SafeAreaView>
+      <NavBar
+        title={type === 'followers' ? 'Followers' : 'Following'}
+        showBack={true}
+        onBack={() => {
+          if (router.canGoBack?.()) {
+            router.back();
+          } else {
+            router.replace('/profile');
+          }
+        }}
+      />
 
       {/* Content */}
       {loading ? (
