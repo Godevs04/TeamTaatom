@@ -209,6 +209,10 @@ const ShortsProgressBar = ({
   const [duration, setDuration] = useState(0);
   const [isPressing, setIsPressing] = useState(false);
 
+  const lastSeekTimeRef = useRef(0);
+  const pendingSeekTimeoutRef = useRef<any>(null);
+  const isPressingRef = useRef(false);
+
   useEffect(() => {
     if (index !== currentVisibleIndex) {
       setProgress(0);
@@ -217,42 +221,73 @@ const ShortsProgressBar = ({
 
     progressCallbacks.current[shortId] = (pos: number, dur: number) => {
       setDuration(dur);
-      if (dur > 0 && !isPressing) {
+      if (dur > 0 && !isPressingRef.current) {
         setProgress(pos / dur);
       }
     };
 
     return () => {
       delete progressCallbacks.current[shortId];
+      if (pendingSeekTimeoutRef.current) {
+        clearTimeout(pendingSeekTimeoutRef.current);
+      }
     };
-  }, [shortId, index, currentVisibleIndex, isPressing]);
+  }, [shortId, index, currentVisibleIndex]);
 
-  const handleTouch = async (event: any) => {
+  const handleTouch = (event: any, forceSeek = false) => {
     if (duration <= 0) return;
     const pageX = event.nativeEvent.pageX;
     const newProgress = Math.max(0, Math.min(1, pageX / SCREEN_WIDTH));
     setProgress(newProgress);
 
     const targetMs = newProgress * duration;
-    const video = getVideoRef();
-    if (video) {
-      try {
-        await video.setPositionAsync(targetMs);
-      } catch (err) {
-        // Handle silently
-      }
-    }
+    
+    // Calculate music seek offset
+    const startSec = songStartSec || 0;
+    const endSec = songEndSec;
+    const songStartMs = startSec * 1000;
+    const segmentMs = endSec && endSec > startSec ? (endSec - startSec) * 1000 : 60000;
+    const audioOffsetMs = targetMs % segmentMs;
+    const finalAudioMs = songStartMs + audioOffsetMs;
 
-    if (hasMusic && currentPlayerRef.current) {
-      try {
-        const startSec = songStartSec || 0;
-        const endSec = songEndSec;
-        const songStartMs = startSec * 1000;
-        const segmentMs = endSec && endSec > startSec ? (endSec - startSec) * 1000 : 60000;
-        const audioOffsetMs = targetMs % segmentMs;
-        await currentPlayerRef.current.setPositionAsync(songStartMs + audioOffsetMs);
-      } catch (err) {
-        // Handle silently
+    const performSeek = () => {
+      const video = getVideoRef();
+      if (video) {
+        video.setPositionAsync(targetMs).catch(() => {});
+      }
+      if (hasMusic && currentPlayerRef.current) {
+        currentPlayerRef.current.setPositionAsync(finalAudioMs).catch(() => {});
+      }
+    };
+
+    if (forceSeek) {
+      if (pendingSeekTimeoutRef.current) {
+        clearTimeout(pendingSeekTimeoutRef.current);
+        pendingSeekTimeoutRef.current = null;
+      }
+      lastSeekTimeRef.current = Date.now();
+      performSeek();
+    } else {
+      const now = Date.now();
+      const timeSinceLastSeek = now - lastSeekTimeRef.current;
+      
+      if (timeSinceLastSeek > 100) { // 100ms throttle prevents bridge congestion
+        if (pendingSeekTimeoutRef.current) {
+          clearTimeout(pendingSeekTimeoutRef.current);
+          pendingSeekTimeoutRef.current = null;
+        }
+        lastSeekTimeRef.current = now;
+        performSeek();
+      } else {
+        // Schedule a trailing edge seek to catch final move coordinates
+        if (pendingSeekTimeoutRef.current) {
+          clearTimeout(pendingSeekTimeoutRef.current);
+        }
+        pendingSeekTimeoutRef.current = setTimeout(() => {
+          lastSeekTimeRef.current = Date.now();
+          performSeek();
+          pendingSeekTimeoutRef.current = null;
+        }, 100 - timeSinceLastSeek);
       }
     }
   };
@@ -262,11 +297,57 @@ const ShortsProgressBar = ({
       style={styles.progressBarContainer}
       onTouchStart={(e) => {
         setIsPressing(true);
-        handleTouch(e);
+        isPressingRef.current = true;
+        
+        // Pause players immediately when dragging starts to prevent auditory stuttering and visual racing
+        const video = getVideoRef();
+        if (video) {
+          video.pauseAsync().catch(() => {});
+        }
+        if (hasMusic && currentPlayerRef.current) {
+          currentPlayerRef.current.pauseAsync().catch(() => {});
+        }
+        
+        handleTouch(e, true);
       }}
-      onTouchMove={handleTouch}
-      onTouchEnd={() => {
+      onTouchMove={(e) => handleTouch(e, false)}
+      onTouchEnd={(e) => {
         setIsPressing(false);
+        isPressingRef.current = false;
+        
+        if (pendingSeekTimeoutRef.current) {
+          clearTimeout(pendingSeekTimeoutRef.current);
+          pendingSeekTimeoutRef.current = null;
+        }
+        
+        // Calculate final exact seek coordinates on release
+        const finalTargetMs = progress * duration;
+        const startSec = songStartSec || 0;
+        const endSec = songEndSec;
+        const songStartMs = startSec * 1000;
+        const segmentMs = endSec && endSec > startSec ? (endSec - startSec) * 1000 : 60000;
+        const audioOffsetMs = finalTargetMs % segmentMs;
+        const finalAudioMs = songStartMs + audioOffsetMs;
+
+        const video = getVideoRef();
+        
+        // Seek to final precise destination simultaneously and resume play smoothly
+        const executeFinalSeekAndPlay = async () => {
+          if (video) {
+            try {
+              await video.setPositionAsync(finalTargetMs);
+              await video.playAsync();
+            } catch (err) {}
+          }
+          if (hasMusic && currentPlayerRef.current) {
+            try {
+              await currentPlayerRef.current.setPositionAsync(finalAudioMs);
+              await currentPlayerRef.current.playAsync();
+            } catch (err) {}
+          }
+        };
+        
+        executeFinalSeekAndPlay();
       }}
     >
       <View style={[styles.progressBarBackground, isPressing && { height: 8 }]} />
@@ -3111,7 +3192,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     const songArtist = song.artist || 'Unknown Artist';
                     return (
                       <View style={styles.inlineSong}>
-                        <Ionicons name="musical-notes" size={12} color="rgba(255,255,255,0.85)" />
+                        <Ionicons name="musical-notes" size={12} color="#38BDF8" />
                         <Text style={styles.inlineSongText} numberOfLines={1}>
                           {songTitle} · {songArtist}
                         </Text>
@@ -3151,7 +3232,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                         onPress={handleLocationPress}
                         activeOpacity={0.7}
                       >
-                        <Ionicons name="location-outline" size={12} color="rgba(255,255,255,0.85)" />
+                        <Ionicons name="location-outline" size={12} color="#38BDF8" />
                         <Text style={styles.inlineLocationText} numberOfLines={1}>
                           {item.location.address}
                         </Text>
@@ -3986,7 +4067,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   inlineSongText: {
-    color: 'rgba(255,255,255,0.85)',
+    color: '#38BDF8',
     fontSize: isTablet ? 13 : 12,
     fontFamily: getFontFamily('400'),
     marginLeft: 6,
@@ -4004,7 +4085,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   inlineLocationText: {
-    color: 'rgba(255,255,255,0.85)',
+    color: '#38BDF8',
     fontSize: isTablet ? 13 : 12,
     fontFamily: getFontFamily('400'),
     marginLeft: 6,
