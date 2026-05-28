@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Platform, LayoutChangeEvent } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Platform, LayoutChangeEvent, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -30,29 +30,39 @@ export function PostCreateHeader({
 }) {
   const { theme, mode } = useTheme();
   const insets = useSafeAreaInsets();
-  const isWeb = Platform.OS === 'web';
-  const topBarHeight = isWeb ? 56 : (56 + (insets.top || 0));
   const isDark = mode === 'dark';
-  const topBarBg = isDark ? 'rgba(10, 15, 25, 0.7)' : 'rgba(255, 255, 255, 0.65)';
   const textColor = isDark ? '#FFFFFF' : '#122236';
 
+  const isAndroid = Platform.OS === 'android';
+  const { width: screenWidth } = Dimensions.get('window');
+  const isTablet = screenWidth >= 768;
+
   return (
-    <>
-      <View style={[styles.solidTopBar, { height: topBarHeight, paddingTop: topBarHeight - 56, overflow: 'hidden' }]}>
+    <View style={{
+      paddingTop: insets.top,
+      backgroundColor: 'transparent',
+      zIndex: 100,
+    }}>
+      <View style={{
+        marginHorizontal: isTablet ? 24 : 14,
+        marginTop: isAndroid ? 6 : 4,
+        marginBottom: 8,
+        borderRadius: 24,
+        borderWidth: 1,
+        borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+        backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)',
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: isDark ? 0.3 : 0.1,
+        shadowRadius: 10,
+        elevation: 4,
+        overflow: 'hidden',
+      }}>
         <BlurView
           intensity={80}
           tint={isDark ? 'dark' : 'light'}
           style={StyleSheet.absoluteFillObject}
         />
-        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: topBarBg }]} />
-        <View style={{
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          height: 1,
-          backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-        }} />
         <View style={styles.topBarContent}>
           <Pressable
             onPress={onClose}
@@ -75,7 +85,7 @@ export function PostCreateHeader({
           </View>
         </View>
       </View>
-    </>
+    </View>
   );
 }
 

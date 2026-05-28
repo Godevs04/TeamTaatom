@@ -2256,16 +2256,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  floatingHeaderContainer: {
-    position: 'absolute',
-    borderRadius: 24,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 4,
-  },
+
   previewButton: {
     minHeight: 34,
     paddingHorizontal: 12,

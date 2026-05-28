@@ -18,6 +18,7 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { getActivityFeed, Activity as ActivityType } from '../../services/activity';
+import NavBar from '../../components/NavBar';
 import EmptyState from '../../components/EmptyState';
 import LoadingSkeleton from '../../components/LoadingSkeleton';
 import { PostType } from '../../types/post';
@@ -206,19 +207,8 @@ export default function ActivityFeedScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top']}>
-      <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity 
-          onPress={() => router.back()}
-          style={styles.backButton}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Activity Feed</Text>
-        <View style={styles.placeholder} />
-      </View>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <NavBar title="Activity Feed" showBack={true} onBack={() => router.back()} />
 
       {/* Filter Tabs */}
       <View style={[styles.filterContainer, { borderBottomColor: theme.colors.border }]}>
@@ -272,7 +262,7 @@ export default function ActivityFeedScreen() {
           showsVerticalScrollIndicator={false}
         />
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
