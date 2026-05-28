@@ -182,6 +182,108 @@ const MemoizedVideo = React.memo(
 
 MemoizedVideo.displayName = 'MemoizedShortsVideo';
 
+interface ShortsProgressBarProps {
+  shortId: string;
+  index: number;
+  currentVisibleIndex: number;
+  getVideoRef: () => Video | null;
+  hasMusic: boolean;
+  songStartSec?: number;
+  songEndSec?: number;
+  currentPlayerRef: React.MutableRefObject<Audio.Sound | null>;
+  progressCallbacks: React.MutableRefObject<Record<string, (position: number, duration: number) => void>>;
+}
+
+const ShortsProgressBar = ({
+  shortId,
+  index,
+  currentVisibleIndex,
+  getVideoRef,
+  hasMusic,
+  songStartSec,
+  songEndSec,
+  currentPlayerRef,
+  progressCallbacks,
+}: ShortsProgressBarProps) => {
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [isPressing, setIsPressing] = useState(false);
+
+  useEffect(() => {
+    if (index !== currentVisibleIndex) {
+      setProgress(0);
+      return;
+    }
+
+    progressCallbacks.current[shortId] = (pos: number, dur: number) => {
+      setDuration(dur);
+      if (dur > 0 && !isPressing) {
+        setProgress(pos / dur);
+      }
+    };
+
+    return () => {
+      delete progressCallbacks.current[shortId];
+    };
+  }, [shortId, index, currentVisibleIndex, isPressing]);
+
+  const handleTouch = async (event: any) => {
+    if (duration <= 0) return;
+    const pageX = event.nativeEvent.pageX;
+    const newProgress = Math.max(0, Math.min(1, pageX / SCREEN_WIDTH));
+    setProgress(newProgress);
+
+    const targetMs = newProgress * duration;
+    const video = getVideoRef();
+    if (video) {
+      try {
+        await video.setPositionAsync(targetMs);
+      } catch (err) {
+        // Handle silently
+      }
+    }
+
+    if (hasMusic && currentPlayerRef.current) {
+      try {
+        const startSec = songStartSec || 0;
+        const endSec = songEndSec;
+        const songStartMs = startSec * 1000;
+        const segmentMs = endSec && endSec > startSec ? (endSec - startSec) * 1000 : 60000;
+        const audioOffsetMs = targetMs % segmentMs;
+        await currentPlayerRef.current.setPositionAsync(songStartMs + audioOffsetMs);
+      } catch (err) {
+        // Handle silently
+      }
+    }
+  };
+
+  return (
+    <View
+      style={styles.progressBarContainer}
+      onTouchStart={(e) => {
+        setIsPressing(true);
+        handleTouch(e);
+      }}
+      onTouchMove={handleTouch}
+      onTouchEnd={() => {
+        setIsPressing(false);
+      }}
+    >
+      <View style={[styles.progressBarBackground, isPressing && { height: 6 }]} />
+      <LinearGradient
+        colors={['#F58529', '#DD2A7B', '#8134AF']} // beautiful Instagram sunset gradient
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={[
+          styles.progressBarFill,
+          { width: `${progress * 100}%` },
+          isPressing && { height: 6 },
+        ]}
+      />
+    </View>
+  );
+};
+
 const likeRailListeners = new Map<string, Set<(isLiked: boolean) => void>>();
 
 const emitLikeRailState = (shortId: string, isLiked: boolean) => {
@@ -585,6 +687,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const activeVideoIdRef = useRef<string | null>(null);
   // Track current audio player (Sound from SongPlayer) so we can pause when tab/focus/scroll/background
   const currentPlayerRef = useRef<Audio.Sound | null>(null);
+  // Callbacks map to track position/duration of playing videos and update progress bars efficiently
+  const progressCallbacks = useRef<Record<string, (position: number, duration: number) => void>>({});
   // Track each video's last known position to detect native loop restarts
   const lastVideoPositionRef = useRef<Record<string, number>>({});
   // Mirror of `shorts` state for stable callbacks (handleSongPlayingChange) that
@@ -2717,6 +2821,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 }}
                 onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
                   if (status.isLoaded) {
+                    if (index === currentVisibleIndex) {
+                      const cb = progressCallbacks.current[item._id];
+                      if (cb) {
+                        cb(status.positionMillis, status.durationMillis || 1);
+                      }
+                    }
                     const wasPlaying = videoStates[item._id];
                     const isNowPlaying = status.isPlaying;
                     
@@ -3131,6 +3241,20 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               )}
             </View>
           </View>
+          
+          {shouldRenderVideo && (
+            <ShortsProgressBar
+              shortId={item._id}
+              index={index}
+              currentVisibleIndex={currentVisibleIndex}
+              getVideoRef={() => videoRefs.current[item._id]}
+              hasMusic={!!(item.song?.songId?._id || item.song?.songId)}
+              songStartSec={item.song?.startTime}
+              songEndSec={item.song?.endTime}
+              currentPlayerRef={currentPlayerRef}
+              progressCallbacks={progressCallbacks}
+            />
+          )}
       </View>
       )} />
     );
@@ -3948,5 +4072,25 @@ const styles = StyleSheet.create({
   moreText: {
     fontWeight: '700',
     color: 'rgba(255, 255, 255, 0.8)',
+  },
+  progressBarContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 16,
+    justifyContent: 'flex-end',
+    zIndex: 20,
+  },
+  progressBarBackground: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  progressBarFill: {
+    height: 3,
   },
 });
