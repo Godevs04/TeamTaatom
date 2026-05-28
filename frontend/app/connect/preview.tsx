@@ -816,7 +816,7 @@ export default function ContentPreviewScreen() {
           })}
 
           {/* Subscribe section */}
-          {isSubscription && pageData && (pageData.subscriptionPrice || pageData.subscriptionApproval?.requestedPrice) && (() => {
+          {!isCommunity && isSubscription && pageData && (pageData.subscriptionPrice || pageData.subscriptionApproval?.requestedPrice) && (() => {
             const approvalStatus = pageData.subscriptionApproval?.status || 'none';
             const approvedPrice = pageData.subscriptionPrice;
             const requestedPrice = pageData.subscriptionApproval?.requestedPrice;
