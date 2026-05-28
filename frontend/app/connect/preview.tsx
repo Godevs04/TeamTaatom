@@ -634,9 +634,8 @@ export default function ContentPreviewScreen() {
   const textColor = isEmpty ? '#000000' : theme.colors.text;
 
   return (
-    <SafeAreaView
+    <View
       style={[styles.container, { backgroundColor: screenBg }]}
-      edges={['top']}
     >
       <StatusBar barStyle={isEmpty ? 'dark-content' : (isDark ? 'light-content' : 'dark-content')} />
       {/* Floating Glass Header */}
@@ -644,11 +643,19 @@ export default function ContentPreviewScreen() {
         style={[
           styles.headerContainer,
           {
-            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)',
+            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)',
             borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
-            top: insets.top,
-            marginTop: isAndroid ? 6 : 4,
-            marginHorizontal: isTablet ? 24 : 14,
+            top: 0,
+            paddingTop: insets.top,
+            height: 52 + insets.top,
+            marginTop: 0,
+            marginHorizontal: 0,
+            borderBottomLeftRadius: 24,
+            borderBottomRightRadius: 24,
+            borderTopLeftRadius: 0,
+            borderTopRightRadius: 0,
+            borderWidth: 0,
+            borderBottomWidth: 1,
             shadowOpacity: isDark ? 0.3 : 0.1,
           }
         ]}
@@ -1083,7 +1090,7 @@ export default function ContentPreviewScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -1149,7 +1156,7 @@ const styles = StyleSheet.create({
   headerInner: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: '100%',
+    height: 52,
   },
   editBtnWrap: {
     borderRadius: 16,

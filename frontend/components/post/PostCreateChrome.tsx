@@ -39,50 +39,48 @@ export function PostCreateHeader({
 
   return (
     <View style={{
+      width: '100%',
       paddingTop: insets.top,
-      backgroundColor: 'transparent',
+      backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)',
+      borderBottomWidth: 1,
+      borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+      borderBottomLeftRadius: 24,
+      borderBottomRightRadius: 24,
+      borderTopLeftRadius: 0,
+      borderTopRightRadius: 0,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.3 : 0.1,
+      shadowRadius: 10,
+      elevation: 4,
+      overflow: 'hidden',
       zIndex: 100,
+      position: 'relative',
     }}>
-      <View style={{
-        marginHorizontal: isTablet ? 24 : 14,
-        marginTop: isAndroid ? 6 : 4,
-        marginBottom: 8,
-        borderRadius: 24,
-        borderWidth: 1,
-        borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
-        backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)',
-        shadowColor: '#000000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: isDark ? 0.3 : 0.1,
-        shadowRadius: 10,
-        elevation: 4,
-        overflow: 'hidden',
-      }}>
-        <BlurView
-          intensity={80}
-          tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
-        />
-        <View style={styles.topBarContent}>
-          <Pressable
-            onPress={onClose}
-            style={styles.topBarButton}
-            accessibilityLabel={isDetail ? "Back" : "Close"}
-          >
-            <Ionicons name={isDetail ? "arrow-back" : "close"} size={26} color={textColor} />
-          </Pressable>
-          <View style={styles.topBarCenter}>
-            <Text style={[styles.topBarTitle, { color: textColor }]}>New post</Text>
-          </View>
-          <View style={[styles.topBarButton, { alignItems: 'flex-end', minWidth: 60 }]}>
-            {showNext && onNext ? (
-              <Pressable onPress={onNext} hitSlop={12}>
-                <Text style={{ color: '#14B8A6', fontWeight: 'bold', fontSize: 16 }}>{nextText}</Text>
-              </Pressable>
-            ) : (
-              <View style={{ width: 40 }} />
-            )}
-          </View>
+      <BlurView
+        intensity={80}
+        tint={isDark ? 'dark' : 'light'}
+        style={StyleSheet.absoluteFillObject}
+      />
+      <View style={styles.topBarContent}>
+        <Pressable
+          onPress={onClose}
+          style={styles.topBarButton}
+          accessibilityLabel={isDetail ? "Back" : "Close"}
+        >
+          <Ionicons name={isDetail ? "arrow-back" : "close"} size={26} color={textColor} />
+        </Pressable>
+        <View style={styles.topBarCenter}>
+          <Text style={[styles.topBarTitle, { color: textColor }]}>New post</Text>
+        </View>
+        <View style={[styles.topBarButton, { alignItems: 'flex-end', minWidth: 60 }]}>
+          {showNext && onNext ? (
+            <Pressable onPress={onNext} hitSlop={12}>
+              <Text style={{ color: '#14B8A6', fontWeight: 'bold', fontSize: 16 }}>{nextText}</Text>
+            </Pressable>
+          ) : (
+            <View style={{ width: 40 }} />
+          )}
         </View>
       </View>
     </View>

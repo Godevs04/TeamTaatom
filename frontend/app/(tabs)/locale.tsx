@@ -4092,7 +4092,17 @@ export default function LocaleScreen() {
           right: 0,
           zIndex: 10,
           paddingTop: insets.top,
-          backgroundColor: 'transparent',
+          borderBottomWidth: 1,
+          borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+          backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)',
+          borderBottomLeftRadius: 24,
+          borderBottomRightRadius: 24,
+          shadowColor: '#000000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: isDark ? 0.3 : 0.1,
+          shadowRadius: 10,
+          elevation: 4,
+          overflow: 'hidden',
           ...(isWebLocal && {
             maxWidth: isTabletLocal ? 1200 : 1000,
             alignSelf: 'center',
@@ -4101,48 +4111,31 @@ export default function LocaleScreen() {
         }}
         onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
       >
-        <View
-          style={{
-            marginHorizontal: isTabletLocal ? 24 : 14,
-            marginTop: isAndroidLocal ? 6 : 4,
-            borderRadius: 24,
-            borderWidth: 1,
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
-            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)',
-            shadowColor: '#000000',
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: isDark ? 0.3 : 0.1,
-            shadowRadius: 10,
-            elevation: 4,
-            overflow: 'hidden',
-          }}
-        >
-          <BlurView
-            intensity={95}
-            tint={isDark ? 'dark' : 'light'}
-            style={StyleSheet.absoluteFillObject}
-          />
-          <View style={styles.topNavigation}>
-            <CloudSegmentedControl
-              segments={[
-                { key: 'locale', label: 'Locale' },
-                { key: 'saved', label: 'Saved' },
-              ]}
-              value={activeTab}
-              onChange={(tab) => setActiveTab(tab as 'locale' | 'saved')}
-            />
-          </View>
-
-          <CloudSearchDock
-            value={searchInput}
-            onChangeText={setSearchInput}
-            onSubmit={handleSearchSubmit}
-            onFilterPress={() => setShowFilterModal(true)}
-            filterBadgeCount={activeFilterCount}
-            placeholder="Search destinations"
-            style={{ marginBottom: 12 }}
+        <BlurView
+          intensity={95}
+          tint={isDark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFillObject}
+        />
+        <View style={styles.topNavigation}>
+          <CloudSegmentedControl
+            segments={[
+              { key: 'locale', label: 'Locale' },
+              { key: 'saved', label: 'Saved' },
+            ]}
+            value={activeTab}
+            onChange={(tab) => setActiveTab(tab as 'locale' | 'saved')}
           />
         </View>
+
+        <CloudSearchDock
+          value={searchInput}
+          onChangeText={setSearchInput}
+          onSubmit={handleSearchSubmit}
+          onFilterPress={() => setShowFilterModal(true)}
+          filterBadgeCount={activeFilterCount}
+          placeholder="Search destinations"
+          style={{ marginBottom: 12 }}
+        />
       </View>
 
       {/* Content

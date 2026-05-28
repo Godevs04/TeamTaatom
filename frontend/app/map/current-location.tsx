@@ -774,20 +774,32 @@ function initMap(){
         style={[
           styles.headerShadowWrapper, 
           { 
-            top: insets.top,
+            top: 0,
             left: 0,
             right: 0,
-            marginTop: Platform.OS === 'android' ? 6 : 4,
-            marginHorizontal: screenWidth >= 768 ? 24 : 14,
+            paddingTop: insets.top,
+            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)',
+            borderBottomWidth: 1,
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+            borderBottomLeftRadius: 24,
+            borderBottomRightRadius: 24,
+            borderTopLeftRadius: 0,
+            borderTopRightRadius: 0,
+            shadowColor: '#000000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: isDark ? 0.3 : 0.1,
+            shadowRadius: 10,
+            elevation: 4,
+            overflow: 'hidden',
           }
         ]}
       >
         <BlurView
           intensity={80}
           tint={isDark ? 'dark' : 'light'}
-          style={styles.headerFloating}
-        >
-          <View style={styles.header}>
+          style={StyleSheet.absoluteFillObject}
+        />
+        <View style={styles.header}>
             <TouchableOpacity 
               style={styles.backButton}
               onPress={() => {
@@ -843,7 +855,6 @@ function initMap(){
               </Text>
             </View>
           )}
-        </BlurView>
       </View>
 
       {/* Floating Bottom Location Info Panel */}

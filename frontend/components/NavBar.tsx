@@ -40,38 +40,36 @@ export default function NavBar(props: NavBarProps) {
   return (
     <View 
       style={{
+        width: '100%',
         paddingTop: insets.top,
-        backgroundColor: 'transparent',
-        zIndex: 10,
-        position: 'relative',
-      }}
-    >
-      <View style={{
-        marginHorizontal: isTablet ? 24 : 14,
-        marginTop: isAndroid ? 6 : 4,
-        marginBottom: 8,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: isTablet ? 18 : 10,
-        paddingVertical: 8,
-        minHeight: isTablet ? 64 : 56,
-        borderRadius: 24,
-        borderWidth: 1,
+        backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)',
+        borderBottomWidth: 1,
         borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
-        backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)',
+        borderBottomLeftRadius: 24,
+        borderBottomRightRadius: 24,
         shadowColor: '#000000',
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: isDark ? 0.3 : 0.1,
         shadowRadius: 10,
         elevation: 4,
         overflow: 'hidden',
+        zIndex: 10,
+        position: 'relative',
+      }}
+    >
+      <BlurView
+        intensity={80}
+        tint={isDark ? 'dark' : 'light'}
+        style={StyleSheet.absoluteFillObject}
+      />
+      <View style={{
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        paddingHorizontal: isTablet ? 24 : 16,
+        paddingVertical: 6,
+        minHeight: isTablet ? 56 : 48,
       }}>
-        <BlurView
-          intensity={80}
-          tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
-        />
         {shouldShowBack && (
           <PremiumIconButton
             icon="chevron-back"

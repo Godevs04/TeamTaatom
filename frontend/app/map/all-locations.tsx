@@ -1512,14 +1512,20 @@ function initMap(){
         style={[
           styles.floatingHeaderContainer,
           {
-            top: insets.top,
+            top: 0,
             left: 0,
             right: 0,
-            marginTop: isAndroid ? 6 : 4,
-            marginHorizontal: isTablet ? 24 : 14,
-            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)',
+            paddingTop: insets.top,
+            marginTop: 0,
+            marginHorizontal: 0,
+            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)',
             borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
-            borderWidth: 1,
+            borderWidth: 0,
+            borderBottomWidth: 1,
+            borderBottomLeftRadius: 24,
+            borderBottomRightRadius: 24,
+            borderTopLeftRadius: 0,
+            borderTopRightRadius: 0,
             shadowOpacity: isDark ? 0.3 : 0.1,
           }
         ]}

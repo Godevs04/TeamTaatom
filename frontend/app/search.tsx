@@ -16,7 +16,7 @@ import {
   Keyboard,
 } from 'react-native';
 import LoadingGlobe from '../components/LoadingGlobe';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -76,6 +76,7 @@ export default function SearchScreen() {
   const { theme, mode, isDark } = useTheme();
   const { showError } = useAlert();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     loadSearchHistory();
@@ -440,7 +441,7 @@ export default function SearchScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <StatusBar 
         barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
         backgroundColor={theme.colors.background} 
@@ -455,13 +456,18 @@ export default function SearchScreen() {
         style={[
           styles.header, 
           { 
-            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)', 
+            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)', 
             borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
-            borderWidth: 1,
-            borderRadius: 24,
-            marginHorizontal: isTablet ? 24 : 14,
-            marginTop: isAndroid ? 6 : 4,
+            borderWidth: 0,
+            borderBottomWidth: 1,
+            borderRadius: 0,
+            borderBottomLeftRadius: 24,
+            borderBottomRightRadius: 24,
+            marginHorizontal: 0,
+            marginTop: 0,
             marginBottom: 8,
+            paddingTop: insets.top + 6,
+            paddingBottom: 6,
             shadowColor: '#000000',
             shadowOffset: { width: 0, height: 4 },
             shadowOpacity: isDark ? 0.3 : 0.1,
@@ -708,7 +714,7 @@ export default function SearchScreen() {
         </View>
       </Modal> */}
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 
