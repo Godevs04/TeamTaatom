@@ -3162,7 +3162,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   {item.caption ? (() => {
                     const isExpanded = !!expandedCaptions[item._id];
                     const canExpand = item.caption.length > 80;
-                    const showTags = !canExpand || isExpanded;
+                    const showTags = isExpanded;
                     return (
                       <TouchableOpacity 
                         activeOpacity={0.9}
@@ -3204,23 +3204,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                         )}
                       </TouchableOpacity>
                     );
-                  })() : (
-                    item.tags && item.tags.length > 0 && (
-                      <View style={styles.tagsContainer}>
-                        {item.tags.slice(0, 3).map((tag, tagIndex) => (
-                          <LinearGradient
-                            key={tagIndex}
-                            colors={['#1C73B4', '#50C878']}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 0 }}
-                            style={styles.tagBadgeGradient}
-                          >
-                            <Text style={styles.tagTextGradient}>#{tag}</Text>
-                          </LinearGradient>
-                        ))}
-                      </View>
-                    )
-                  )}
+                  })() : null}
                 </View>
               </TouchableOpacity>
               
