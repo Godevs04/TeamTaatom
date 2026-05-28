@@ -5,10 +5,13 @@ const ConnectPageView = require('../models/ConnectPageView');
 const Chat = require('../models/Chat');
 const User = require('../models/User');
 const Subscription = require('../models/Subscription');
+const Order = require('../models/Order');
+const cashfreeService = require('../services/cashfreeService');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { uploadObject, buildMediaKey } = require('../services/storage');
 const { generateSignedUrl, isSignedUrl, extractStorageKeyFromUrl } = require('../services/mediaService');
+
 
 /**
  * Subscription content gate — true when the viewer is allowed to see paid
@@ -132,6 +135,18 @@ const resolvePageImages = async (page) => {
       page.bannerImage = '';
     }
   }
+  if (page.buyItems && Array.isArray(page.buyItems)) {
+    for (const item of page.buyItems) {
+      if (item.imageUrl && !item.imageUrl.startsWith('http')) {
+        try {
+          const url = await generateSignedUrl(item.imageUrl, 'DEFAULT');
+          if (url) item.imageUrl = url;
+        } catch (e) {
+          logger.warn(`Failed to resolve signed URL for buy item image: ${item.imageUrl}`, e.message);
+        }
+      }
+    }
+  }
   return page;
 };
 
@@ -236,18 +251,25 @@ const createPage = async (req, res) => {
       if (parsedPayout.bankIfsc) pageData.creatorPayoutInfo.bankIfsc = parsedPayout.bankIfsc;
       if (parsedPayout.upiId) pageData.creatorPayoutInfo.upiId = parsedPayout.upiId;
       if (parsedPayout.wiseEmail) pageData.creatorPayoutInfo.wiseEmail = parsedPayout.wiseEmail;
+      if (parsedPayout.payoutMethod) pageData.creatorPayoutInfo.payoutMethod = parsedPayout.payoutMethod;
+      if (parsedPayout.bankName) pageData.creatorPayoutInfo.bankName = parsedPayout.bankName;
+      if (parsedPayout.bankCountry) pageData.creatorPayoutInfo.bankCountry = parsedPayout.bankCountry;
+      if (parsedPayout.swiftCode) pageData.creatorPayoutInfo.swiftCode = parsedPayout.swiftCode;
+      if (parsedPayout.iban) pageData.creatorPayoutInfo.iban = parsedPayout.iban;
+      if (parsedPayout.routingNumber) pageData.creatorPayoutInfo.routingNumber = parsedPayout.routingNumber;
     }
 
-    // Set subscription price if provided — requires admin approval before going live
+    // Set subscription price if provided — democratized: approved instantly
     if (pageData.features.subscription && subscriptionPrice) {
       const price = parseFloat(subscriptionPrice);
       const priceValidation = validatePrice(price, resolvedCurrency);
       if (priceValidation.valid) {
+        pageData.subscriptionPrice = price;
         pageData.subscriptionApproval = {
-          status: 'pending',
+          status: 'approved',
           requestedPrice: price,
+          approvedAt: new Date(),
         };
-        // subscriptionPrice stays null until admin approves
       }
     }
 
@@ -298,6 +320,28 @@ const getMyPages = async (req, res) => {
     logger.error('Error fetching my pages:', error);
     return sendError(res, 'SERVER_ERROR', 'Failed to fetch pages');
   }
+};
+
+const maskSubscriptionContent = (content) => {
+  if (!content || !Array.isArray(content)) return [];
+  return content.map(block => {
+    const masked = { ...block };
+    if (block.type === 'heading') {
+      masked.content = 'Premium Section';
+    } else if (block.type === 'text') {
+      masked.content = 'This premium content is locked. Subscribe to unlock this section and access all premium services, links, and exclusive content.';
+    } else if (block.type === 'image') {
+      masked.content = 'https://images.unsplash.com/photo-1508739773434-c26b3d09e071?auto=format&fit=crop&q=80&w=600';
+    } else if (block.type === 'video') {
+      masked.content = '';
+    } else if (block.type === 'button') {
+      masked.content = 'Unlock Content';
+      masked.url = '';
+    } else if (block.type === 'embed') {
+      masked.content = '';
+    }
+    return masked;
+  });
 };
 
 /**
@@ -426,7 +470,7 @@ const getPageDetail = async (req, res) => {
       ? false
       : await userCanReadSubscriptionContent(currentUserId, pageOwnerId, pageId);
     if (!isOwner && !isSubscribed) {
-      page.subscriptionContent = [];
+      page.subscriptionContent = maskSubscriptionContent(page.subscriptionContent);
     }
 
     return sendSuccess(res, 200, 'Page detail fetched', {
@@ -500,24 +544,30 @@ const updatePage = async (req, res) => {
       if (parsedPayout.bankIfsc !== undefined) updates['creatorPayoutInfo'].bankIfsc = parsedPayout.bankIfsc;
       if (parsedPayout.upiId !== undefined) updates['creatorPayoutInfo'].upiId = parsedPayout.upiId;
       if (parsedPayout.wiseEmail !== undefined) updates['creatorPayoutInfo'].wiseEmail = parsedPayout.wiseEmail;
+      if (parsedPayout.payoutMethod !== undefined) updates['creatorPayoutInfo'].payoutMethod = parsedPayout.payoutMethod;
+      if (parsedPayout.bankName !== undefined) updates['creatorPayoutInfo'].bankName = parsedPayout.bankName;
+      if (parsedPayout.bankCountry !== undefined) updates['creatorPayoutInfo'].bankCountry = parsedPayout.bankCountry;
+      if (parsedPayout.swiftCode !== undefined) updates['creatorPayoutInfo'].swiftCode = parsedPayout.swiftCode;
+      if (parsedPayout.iban !== undefined) updates['creatorPayoutInfo'].iban = parsedPayout.iban;
+      if (parsedPayout.routingNumber !== undefined) updates['creatorPayoutInfo'].routingNumber = parsedPayout.routingNumber;
     }
 
-    // Handle subscription price change — goes to pending approval
+    // Handle subscription price change — democratized: approved instantly
     if (req.body.subscriptionPrice !== undefined) {
       const { validatePrice, getCurrencyConfig } = require('../utils/currencyConfig');
       const currency = updates['subscriptionCurrency'] || page.subscriptionCurrency || 'INR';
       const price = parseFloat(req.body.subscriptionPrice);
       const priceValidation = validatePrice(price, currency);
       if (priceValidation.valid) {
+        updates['subscriptionPrice'] = price;
         updates['subscriptionApproval'] = {
-          status: 'pending',
+          status: 'approved',
           requestedPrice: price,
-          approvedAt: null,
+          approvedAt: new Date(),
           rejectedAt: null,
           rejectionReason: '',
           reviewedBy: null
         };
-        // Don't update subscriptionPrice directly — wait for admin approval
       } else {
         const config = getCurrencyConfig(currency);
         return sendError(res, 'VALIDATION_FAILED', `Price must be between ${config.symbol}${config.minPrice} and ${config.symbol}${config.maxPrice}`);
@@ -1765,6 +1815,183 @@ const uploadContentImage = async (req, res) => {
   }
 };
 
+/**
+ * Create a Cashfree one-time payment order for a buy item.
+ * POST /api/v1/connect/page/:pageId/buy-order
+ */
+const createBuyOrder = async (req, res) => {
+  try {
+    const { pageId } = req.params;
+    const userId = req.user._id;
+    const { itemId, buyerName, buyerPhone, deliveryAddress } = req.body;
+
+    if (!itemId || !buyerName || !buyerPhone || !deliveryAddress) {
+      return sendError(res, 'VALIDATION_FAILED', 'Fields itemId, buyerName, buyerPhone, deliveryAddress are required');
+    }
+
+    const page = await ConnectPage.findById(pageId);
+    if (!page || page.status === 'archived') {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Community page not found');
+    }
+
+    const item = page.buyItems.id(itemId);
+    if (!item || !item.active) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Item not found or is inactive');
+    }
+
+    const user = await (require('../models/User')).findById(userId).select('fullName email phone username').lean();
+    if (!user) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'User not found');
+    }
+
+    const currency = page.subscriptionCurrency || 'INR';
+    const ts = Date.now();
+    const cashfreeOrderId = `item_ord_${userId}_${ts}`;
+
+    // Build return URL
+    const webBase = (process.env.WEB_FRONTEND_URL || process.env.FRONTEND_URL || '').trim().replace(/\/$/, '');
+    const apiBase = (process.env.API_BASE_URL || '').trim().replace(/\/$/, '');
+    let returnUrl = `${apiBase}/api/v1/connect/order/return?pageId=${encodeURIComponent(pageId)}`;
+    if (webBase) {
+      returnUrl = `${webBase}/connect/page/${pageId}?order_return=1`;
+    }
+
+    // Create Cashfree order
+    const cfResult = await cashfreeService.createOrder({
+      orderId: cashfreeOrderId,
+      amount: item.price,
+      currency,
+      customer: {
+        id: userId.toString(),
+        name: user.fullName || user.username || 'User',
+        email: user.email || `${user.username}@taatom.app`,
+        phone: user.phone || buyerPhone || '9999999999',
+      },
+      returnUrl,
+      orderNote: `${item.name} - ${page.name}`,
+    });
+
+    // Save a pending order in DB
+    const order = new Order({
+      userId,
+      connectPageId: pageId,
+      itemId: item._id,
+      itemName: item.name,
+      price: item.price,
+      currency,
+      buyerName: buyerName.trim(),
+      buyerPhone: buyerPhone.trim(),
+      deliveryAddress: deliveryAddress.trim(),
+      cashfreeOrderId: cfResult.orderId,
+      paymentSessionId: cfResult.paymentSessionId,
+      cashfreeEnvironment: (process.env.CASHFREE_ENV || 'sandbox').toLowerCase() === 'production' ? 'production' : 'sandbox',
+      paymentStatus: 'pending',
+      deliveryStatus: 'pending',
+    });
+    await order.save();
+
+    return sendSuccess(res, 201, 'Payment order created', {
+      orderId: order._id,
+      cashfreeOrderId: cfResult.orderId,
+      paymentSessionId: cfResult.paymentSessionId,
+      amount: item.price,
+      currency,
+      cashfreeEnvironment: order.cashfreeEnvironment,
+      itemName: item.name,
+    });
+  } catch (error) {
+    logger.error('Error creating buy order:', error);
+    return sendError(res, 'SERVER_ERROR', error.message || 'Failed to create payment order');
+  }
+};
+
+/**
+ * Verify and complete a buy item payment after Cashfree SDK callback.
+ * POST /api/v1/connect/page/:pageId/buy-verify
+ */
+const verifyBuyOrder = async (req, res) => {
+  try {
+    const { pageId } = req.params;
+    const userId = req.user._id;
+    const { orderId, cashfreeOrderId, cashfreePaymentId } = req.body;
+
+    if (!orderId && !cashfreeOrderId) {
+      return sendError(res, 'VALIDATION_FAILED', 'orderId or cashfreeOrderId is required');
+    }
+
+    // Find order
+    const query = orderId
+      ? { _id: orderId, userId, connectPageId: pageId }
+      : { cashfreeOrderId, userId, connectPageId: pageId };
+    const order = await Order.findOne(query);
+    if (!order) {
+      return sendError(res, 'RESOURCE_NOT_FOUND', 'Order not found');
+    }
+
+    if (order.paymentStatus === 'paid') {
+      return sendSuccess(res, 200, 'Order already verified', { order });
+    }
+
+    // Optionally verify with Cashfree (best-effort — don't fail if Cashfree is unreachable)
+    let cfVerified = false;
+    if (cashfreeService.isCashfreeConfigured()) {
+      try {
+        const cfOrder = await cashfreeService.getOrderStatus(order.cashfreeOrderId);
+        const cfStatus = String(cfOrder?.order_status || '').toUpperCase();
+        cfVerified = cfStatus === 'PAID';
+      } catch (cfErr) {
+        logger.warn('Cashfree order status check failed (non-blocking):', cfErr.message);
+        // If Cashfree is unreachable, trust the SDK callback
+        cfVerified = true;
+      }
+    } else {
+      // Cashfree not configured (dev/sandbox without creds) — trust SDK
+      cfVerified = true;
+    }
+
+    if (!cfVerified) {
+      return sendError(res, 'PAYMENT_FAILED', 'Payment has not been completed for this order');
+    }
+
+    order.paymentStatus = 'paid';
+    if (cashfreePaymentId) order.cashfreePaymentId = cashfreePaymentId;
+    await order.save();
+
+    return sendSuccess(res, 200, 'Payment verified and order confirmed', { order });
+  } catch (error) {
+    logger.error('Error verifying buy order:', error);
+    return sendError(res, 'SERVER_ERROR', error.message || 'Failed to verify payment');
+  }
+};
+
+/**
+ * Get orders for a page (page owner only)
+ * GET /api/v1/connect/page/:pageId/orders
+ */
+const getPageOrders = async (req, res) => {
+  try {
+    const { pageId } = req.params;
+    const userId = req.user._id;
+
+    const page = await ConnectPage.findById(pageId).select('userId');
+    if (!page) return sendError(res, 'RESOURCE_NOT_FOUND', 'Page not found');
+    if (page.userId.toString() !== userId.toString()) {
+      return sendError(res, 'BUSINESS_INSUFFICIENT_PERMISSIONS', 'Only the page owner can view orders');
+    }
+
+    const orders = await Order.find({ connectPageId: pageId })
+      .populate('userId', 'username fullName profilePic')
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return sendSuccess(res, 200, 'Orders fetched', { orders });
+  } catch (error) {
+    logger.error('Error fetching page orders:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to fetch orders');
+  }
+};
+
+
 module.exports = {
   // CRUD
   createPage,
@@ -1801,4 +2028,9 @@ module.exports = {
   // Shared helpers used by SuperAdmin routes
   sanitizeContentBlocks,
   normalizeColor,
+  // Buy Items (Cashfree one-time payment)
+  createBuyOrder,
+  verifyBuyOrder,
+  getPageOrders,
 };
+

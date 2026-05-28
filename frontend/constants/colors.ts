@@ -1,69 +1,86 @@
 export const colors = {
   // Core brand
-  primary: '#5BBCF8',
-  lightBlue: '#2B5F8A',
-  secondary: '#3D9AE0',
-  accent: '#43B89C',
-  coral: '#FF8F70',
-  sun: '#FFD166',
-  softGray: '#1A2A3A',
+  primary: '#FFFFFF',
+  lightBlue: '#000000',
+  secondary: '#38BDF8',
+  accent: '#50C878', // Emerald Green
+  coral: '#38BDF8', // Remapped from coral to Sky Blue to obey palette restriction
+  sun: '#50C878', // Remapped from sun to Emerald Green
+  softGray: '#000000',
   white: '#FFFFFF',
+  pinActive: '#38BDF8', // Sky Blue
+  pinInactive: '#38BDF8',
+  mapPolyline: '#1C73B4', // Ocean Blue
+  link: '#38BDF8', // Sky Blue (Dark)
 
   // System
-  success: '#34C759',
-  warning: '#FF9F0A',
+  success: '#50C878', // Emerald Green
+  warning: '#38BDF8', // Sky Blue
   error: '#FF453A',
 
   // Surfaces (dark)
-  background: '#0B1A2B',
-  surface: '#122236',
-  surfaceSecondary: '#0F1E30',
+  background: '#000000',
+  surface: '#0A1220', // Slate Dark Navy
+  surfaceSecondary: 'rgba(255, 255, 255, 0.06)',
+  surfaceTertiary: 'rgba(255, 255, 255, 0.10)',
+  glassBorderHighlight: 'rgba(28, 115, 180, 0.15)',
+  glassBorderShadow: 'rgba(28, 115, 180, 0.05)',
+
+  // Day Theme counterparts (contradict and suit)
+  lightBackground: '#FFFFFF',
+  lightSurfaceSecondary: 'rgba(255, 255, 255, 0.85)',
+  lightSurfaceTertiary: 'rgba(255, 255, 255, 0.90)',
+  lightGlassBorderHighlight: 'rgba(28, 115, 180, 0.15)',
+  lightGlassBorderShadow: 'rgba(28, 115, 180, 0.05)',
 
   // Content
-  text: '#E8F4FF',
-  textSecondary: '#8FAABB',
-  textMuted: '#4A6274',
+  text: '#FFFFFF',
+  textSecondary: '#8E9AA8', // Slate Gray
+  textMuted: '#6C7A89',
+  textPassive: '#4A5568',
+  iconPassive: '#4A5568',
 
   // Lines / hairlines
-  border: 'rgba(91, 188, 248, 0.18)',
-  hairline: 'rgba(91, 188, 248, 0.10)',
+  border: 'rgba(28, 115, 180, 0.15)',
+  hairline: 'rgba(28, 115, 180, 0.15)',
+  borderTint: 'rgba(28, 115, 180, 0.15)',
 
   // Card tint
-  card: '#162D44',
-  shadow: 'rgba(0, 0, 0, 0.40)',
-  overlay: 'rgba(0, 0, 0, 0.52)',
+  card: 'rgba(0, 0, 0, 0.75)',
+  shadow: 'rgba(0, 0, 0, 0.55)',
+  overlay: 'rgba(0, 0, 0, 0.55)',
 
   // Glass tokens
   glass: {
-    background: 'rgba(18, 34, 54, 0.72)',
-    border: 'rgba(91, 188, 248, 0.18)',
-    highlight: 'rgba(91, 188, 248, 0.12)',
+    background: 'rgba(0, 0, 0, 0.75)',
+    border: 'rgba(28, 115, 180, 0.15)',
+    highlight: 'rgba(28, 115, 180, 0.15)',
   },
-  glassBackground: 'rgba(18, 34, 54, 0.58)',
-  frostTint: 'rgba(11, 26, 43, 0.55)',
-  frostTintMedium: 'rgba(18, 34, 54, 0.68)',
-  frostTintStrong: 'rgba(22, 45, 68, 0.86)',
-  appBackgroundGradient: ['#0B1A2B', '#0F1E30', '#122236'],
+  glassBackground: 'rgba(0, 0, 0, 0.75)',
+  frostTint: 'rgba(0, 0, 0, 0.75)',
+  frostTintMedium: 'rgba(0, 0, 0, 0.75)',
+  frostTintStrong: 'rgba(0, 0, 0, 0.85)',
+  appBackgroundGradient: ['#000000', '#000000'],
 
   // Premium glass theme tokens
-  screenGradient: ['#0B1A2B', '#0F1E30', '#122236'],
-  glassSurface: 'rgba(18, 34, 54, 0.76)',
-  glassStrong: 'rgba(22, 45, 68, 0.92)',
-  glassBorder: 'rgba(91, 188, 248, 0.16)',
-  glowBlue: 'rgba(91, 188, 248, 0.28)',
-  innerHighlight: 'rgba(91, 188, 248, 0.10)',
-  softShadow: 'rgba(0, 0, 0, 0.32)',
+  screenGradient: ['#000000', '#000000'],
+  glassSurface: 'rgba(10, 18, 32, 0.75)',
+  glassStrong: 'rgba(10, 18, 32, 0.85)',
+  glassBorder: 'rgba(28, 115, 180, 0.15)',
+  glowBlue: 'rgba(28, 115, 180, 0.15)',
+  innerHighlight: 'rgba(28, 115, 180, 0.15)',
+  softShadow: 'rgba(0, 0, 0, 0.55)',
   /** Solid tab bar (not translucent) */
-  floatingDock: '#152A42',
-  cloudSurface: '#162D44',
-  skyPale: '#0F1E30',
-  blueDeep: '#5BBCF8',
-  blueMid: '#3D9AE0',
+  floatingDock: '#000000',
+  cloudSurface: '#000000',
+  skyPale: '#000000',
+  blueDeep: '#FFFFFF',
+  blueMid: '#38BDF8',
 
   gradient: {
-    primary: ['#0F1E30', '#122236'],
-    secondary: ['#3D9AE0', '#2B7FD4'],
-    dark: ['#0B1A2B', '#0F1E30'],
-    button: ['#5BBCF8', '#2B7FD4']
+    primary: ['#000000', '#000000'] as [string, string],
+    secondary: ['#1C73B4', '#50C878'] as [string, string],
+    dark: ['#000000', '#000000'] as [string, string],
+    button: ['#1C73B4', '#50C878'] as [string, string]
   }
 };

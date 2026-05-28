@@ -19,7 +19,7 @@ import logger from '../utils/logger';
 const STORAGE_KEY = '@taatom/adCap/v1';
 const MAX_GOOGLE_ADS = 5;
 const WINDOW_MS = 8 * 60 * 60 * 1000; // 8 hours
-const LAUNCH_DELAY_MS = 30000; // 30 seconds
+const LAUNCH_DELAY_MS = __DEV__ ? 1000 : 30000; // 30 seconds (1s in dev)
 const VIEW_EXPIRY_MS = 8 * 60 * 60 * 1000; // 8 hours
 
 export interface ContentViewEntry {
@@ -406,3 +406,8 @@ export function useAdCap() {
 
 export const AD_CAP_MAX = MAX_GOOGLE_ADS;
 export const AD_CAP_WINDOW_MS = WINDOW_MS;
+
+// Eagerly pre-load state on module import to prevent cold-start race conditions.
+ensureLoaded().catch((err) => {
+  logger.error('Failed to pre-load adCap state:', err);
+});

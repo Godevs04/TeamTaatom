@@ -3,13 +3,13 @@ import {
   View,
   Text,
   StyleSheet,
-  ActivityIndicator,
   FlatList,
   TouchableOpacity,
   RefreshControl,
   Platform,
   Dimensions,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +17,7 @@ import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import logger from '../../utils/logger';
+import { realtimePostsService } from '../../services/realtimePosts';
 
 // Platform-specific constants
 const { width: screenWidth } = Dimensions.get('window');
@@ -60,6 +61,17 @@ export default function UserPostsScreen() {
   useEffect(() => {
     fetchUserPosts();
   }, [fetchUserPosts]);
+
+  useEffect(() => {
+    const unsubscribe = realtimePostsService.subscribeToLikes(({ postId, isLiked, likesCount }) => {
+      setPosts(prev => prev.map(post => (
+        post._id === postId
+          ? { ...post, isLiked, likesCount } as any
+          : post
+      )));
+    });
+    return unsubscribe;
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -176,7 +188,7 @@ export default function UserPostsScreen() {
           <Text style={styles.headerTitle}>Posts</Text>
         </View>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
           <Text style={[styles.emptyMessage, { marginTop: theme.spacing.md }]}>
             Loading posts...
           </Text>
@@ -216,6 +228,7 @@ export default function UserPostsScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 20 }}
           onScroll={(e) => {
+            if (e.target !== e.currentTarget) return;
             scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
           }}
           scrollEventThrottle={16}

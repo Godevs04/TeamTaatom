@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, ViewProps, StyleProp, ViewStyle, Pressable } from 'react-native';
+import { View, StyleSheet, ViewProps, StyleProp, ViewStyle, Pressable, Platform } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
@@ -37,10 +37,18 @@ export const GlassCard = ({
   const { theme, isDark } = useTheme();
 
   const getBlurIntensity = () => {
-    switch (variant) {
-      case 'strong': return 80;
-      case 'subtle': return 30;
-      default: return theme.glass.blurIntensity || 50;
+    if (isDark) {
+      switch (variant) {
+        case 'strong': return 30;
+        case 'subtle': return 10;
+        default: return 15;
+      }
+    } else {
+      switch (variant) {
+        case 'strong': return 80;
+        case 'subtle': return 30;
+        default: return 45;
+      }
     }
   };
   
@@ -95,6 +103,135 @@ export const GlassCard = ({
   const borderColor = error ? theme.colors.error : theme.colors.glass.border;
   const innerRadius = Math.max(0, theme.borderRadius.md - borderWidth);
 
+  const isAndroid = Platform.OS === 'android';
+
+  // Fallback background color on Android to ensure readability without blur
+  const backgroundColor = isAndroid
+    ? (isDark ? 'rgba(25, 25, 25, 0.9)' : 'rgba(255, 255, 255, 0.95)')
+    : (isDark ? frostTint : (theme.colors.lightSurfaceSecondary || 'rgba(255, 255, 255, 0.40)'));
+
+  // Standard elevation/shadow for Android performance fallback
+  const androidShadow = isAndroid && !error ? {
+    elevation: 4,
+    shadowColor: isDark ? '#000' : '#1A2B3C',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: isDark ? 0.15 : 0.05,
+    shadowRadius: 6,
+  } : {};
+
+  const borderStyles = isDark ? {
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderBottomWidth: 1,
+    borderRightWidth: 1,
+    borderTopColor: error ? theme.colors.error : 'rgba(255, 255, 255, 0.08)',
+    borderLeftColor: error ? theme.colors.error : 'rgba(255, 255, 255, 0.08)',
+    borderBottomColor: error ? theme.colors.error : 'rgba(255, 255, 255, 0.08)',
+    borderRightColor: error ? theme.colors.error : 'rgba(255, 255, 255, 0.08)',
+  } : {
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderBottomWidth: 1,
+    borderRightWidth: 1,
+    borderTopColor: error ? theme.colors.error : 'rgba(255, 255, 255, 0.8)',
+    borderLeftColor: error ? theme.colors.error : 'rgba(255, 255, 255, 0.8)',
+    borderBottomColor: error ? theme.colors.error : 'rgba(255, 255, 255, 0.2)',
+    borderRightColor: error ? theme.colors.error : 'rgba(255, 255, 255, 0.2)',
+  };
+
+  const finalShadow = error 
+    ? {} 
+    : isDark 
+      ? {
+          shadowColor: '#000000',
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.45,
+          shadowRadius: 32,
+          elevation: 10,
+        }
+      : {
+          shadowColor: '#1A2B3C',
+          shadowOffset: { width: 0, height: 8 },
+          shadowOpacity: 0.08,
+          shadowRadius: 24,
+          elevation: 6,
+        };
+
+  const renderCardContent = () => {
+    if (hasGradientBorder && !error && !isDark) {
+      return (
+        <LinearGradient
+          colors={(gradientColors || [theme.colors.primary, theme.colors.secondary]) as any}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[
+            styles.container,
+            {
+              padding: borderWidth,
+              borderRadius: theme.borderRadius.md,
+              // @ts-ignore
+              ...(theme.shadows.medium),
+              ...androidShadow,
+            }
+          ]}
+        >
+          <BlurView
+            intensity={40}
+            tint="light"
+            style={{
+              flex: 1,
+              borderRadius: innerRadius,
+              overflow: 'hidden',
+              backgroundColor: 'rgba(255, 255, 255, 0.6)',
+            }}
+            {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
+          >
+            <View style={styles.content}>
+              {children}
+            </View>
+          </BlurView>
+        </LinearGradient>
+      );
+    }
+
+    const containerStyle: ViewStyle = {
+      borderRadius: theme.borderRadius.md,
+      backgroundColor: isDark ? 'rgba(25, 25, 25, 0.72)' : 'rgba(255, 255, 255, 0.6)',
+      // @ts-ignore
+      ...finalShadow,
+      ...(isDark ? {} : androidShadow),
+      ...borderStyles,
+    };
+
+    return (
+      <BlurView
+        intensity={isDark ? 20 : 40}
+        tint={isDark ? 'dark' : 'light'}
+        style={[styles.container, containerStyle]}
+        {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
+      >
+        {isDark ? (
+          <LinearGradient
+            colors={['rgba(255, 255, 255, 0.08)', 'rgba(255, 255, 255, 0.01)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+        ) : (
+          <LinearGradient
+            colors={['rgba(255, 255, 255, 0.20)', 'rgba(255, 255, 255, 0.02)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+        )}
+        <View style={styles.content}>
+          {children}
+        </View>
+      </BlurView>
+    );
+  };
+
   const content = (
     <Pressable
       onPress={onPress}
@@ -107,56 +244,7 @@ export const GlassCard = ({
       style={{ width: '100%' }}
     >
       <Animated.View style={[animatedStyle, style]} {...props}>
-        {hasGradientBorder && !error ? (
-          <LinearGradient
-            colors={(gradientColors || [theme.colors.primary, theme.colors.secondary]) as any}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={[
-              styles.container,
-              {
-                padding: borderWidth,
-                borderRadius: theme.borderRadius.md,
-                // @ts-ignore - shadows might not be strongly typed here
-                ...(theme.shadows.medium),
-              }
-            ]}
-          >
-            <View style={{
-              flex: 1,
-              borderRadius: innerRadius,
-              overflow: 'hidden',
-              backgroundColor: isDark ? frostTint : theme.colors.glassBackground,
-            }}>
-              <BlurView
-                intensity={isDark ? blurIntensity : blurIntensity * 0.8}
-                tint={blurTint}
-                style={StyleSheet.absoluteFillObject}
-              />
-              <View style={styles.content}>
-                {children}
-              </View>
-            </View>
-          </LinearGradient>
-        ) : (
-          <View style={[styles.container, {
-            borderColor: borderColor,
-            borderWidth: borderWidth,
-            borderRadius: theme.borderRadius.md,
-            backgroundColor: isDark ? frostTint : theme.colors.glassBackground,
-            // @ts-ignore
-            ...(error ? {} : theme.shadows.medium),
-          }]}>
-            <BlurView
-              intensity={isDark ? blurIntensity : blurIntensity * 0.8}
-              tint={blurTint}
-              style={StyleSheet.absoluteFillObject}
-            />
-            <View style={styles.content}>
-              {children}
-            </View>
-          </View>
-        )}
+        {renderCardContent()}
       </Animated.View>
     </Pressable>
   );

@@ -542,12 +542,7 @@ export default function CreateTripPage() {
 
   return (
     <div className="relative mx-auto w-full max-w-4xl space-y-6 sm:space-y-8">
-      <div className="pointer-events-none absolute inset-x-0 -top-8 h-80 overflow-hidden" aria-hidden>
-        <div className="feed-orb absolute -left-28 top-0 h-72 w-72 rounded-full bg-primary/[0.06] blur-3xl" />
-        <div className="feed-orb-delayed absolute right-0 top-16 h-72 w-72 rounded-full bg-violet-500/[0.05] blur-3xl" />
-        <div className="feed-orb-late absolute left-1/4 top-36 h-52 w-52 rounded-full bg-sky-400/[0.04] blur-3xl" />
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#f8fafc]/80 dark:to-zinc-950/90" />
-      </div>
+      <div className="pointer-events-none fixed inset-0 -z-10 bg-gradient-to-br from-[#F5F8FA] via-[#F0F7F6] to-[#F8FAFC] dark:from-[#141718] dark:via-[#0F1E22] dark:to-[#121415]" aria-hidden />
 
       <motion.header
         initial={{ opacity: 0, y: -10 }}
@@ -624,10 +619,10 @@ export default function CreateTripPage() {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: easeOut, delay: 0.06 }}
-        className="relative z-10 rounded-[1.75rem] border border-slate-200/70 bg-white/75 p-[1px] shadow-[0_20px_50px_-28px_rgba(15,23,42,0.16)] backdrop-blur-md dark:border-zinc-800/70 dark:bg-zinc-900/50 dark:shadow-[0_20px_50px_-28px_rgba(0,0,0,0.45)] sm:rounded-[1.85rem]"
+        className="relative z-10 rounded-[1.75rem] border border-white/45 bg-white/35 p-[1px] shadow-[0_8px_32px_rgba(26,54,93,0.06)] backdrop-blur-xl dark:border-white/12 dark:bg-zinc-950/45 dark:shadow-[0_8px_32px_rgba(0,0,0,0.22)] sm:rounded-[1.85rem]"
       >
-        <Card className="overflow-visible rounded-[1.7rem] border-0 bg-gradient-to-br from-white via-white to-slate-50/50 shadow-none dark:from-zinc-900 dark:via-zinc-900 dark:to-zinc-950 sm:rounded-[1.8rem]">
-          <CardHeader className="space-y-1 border-b border-slate-100/90 dark:border-zinc-800/90 px-5 pb-5 pt-6 dark:border-zinc-800/90 sm:px-8 sm:pb-6 sm:pt-8">
+        <Card className="overflow-visible rounded-[1.7rem] border-0 bg-transparent shadow-none sm:rounded-[1.8rem]">
+          <CardHeader className="space-y-1 border-b border-slate-200/20 dark:border-zinc-800/40 px-5 pb-5 pt-6 sm:px-8 sm:pb-6 sm:pt-8">
             <CardTitle className="flex items-center gap-2.5 text-lg font-semibold text-slate-900 dark:text-zinc-50 sm:text-xl">
               <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary ring-1 ring-primary/15">
                 {mode === "post" ? <ImagePlus className="h-5 w-5" aria-hidden /> : <Video className="h-5 w-5" aria-hidden />}
@@ -642,7 +637,7 @@ export default function CreateTripPage() {
           </CardHeader>
         <CardContent className="space-y-0 overflow-visible px-5 pb-6 sm:px-8 sm:pb-8">
           {mode === "post" ? (
-            <section className="space-y-4 border-b border-slate-100/90 dark:border-zinc-800/90 pb-8">
+            <section className="space-y-4 border-b border-slate-200/20 dark:border-zinc-800/40 pb-8">
               <div className="grid gap-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <ImagePlus className="h-4 w-4 text-primary shrink-0" aria-hidden />
@@ -668,12 +663,12 @@ export default function CreateTripPage() {
                   className={`rounded-2xl border-2 border-dashed transition-colors duration-300 ${
                     isDragOver
                       ? "border-primary/60 bg-primary/[0.05] ring-2 ring-primary/15"
-                      : "border-slate-200/80 bg-gradient-to-br from-slate-50/60 via-white to-slate-50/30 hover:border-slate-300/90 dark:border-zinc-700 dark:from-zinc-900/80 dark:via-zinc-900 dark:to-zinc-950 dark:hover:border-zinc-600"
+                      : "border-slate-200/80 bg-white/40 hover:border-slate-300/90 dark:border-zinc-700 dark:bg-zinc-900/30 dark:hover:border-zinc-600"
                   } p-5 sm:p-6`}
                 >
                   <div className="flex flex-col items-center justify-center gap-3 text-center sm:gap-4">
-                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary/12 to-violet-500/10 text-primary shadow-sm ring-1 ring-primary/10 sm:h-14 sm:w-14">
-                      <Upload className="h-6 w-6 sm:h-7 sm:w-7" aria-hidden />
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white shadow-sm ring-1 ring-slate-200 dark:bg-zinc-800 dark:ring-zinc-700 sm:h-14 sm:w-14">
+                      <Upload className="h-6 w-6 text-primary sm:h-7 sm:w-7" aria-hidden />
                     </div>
                     <div>
                       <p className="text-sm font-semibold text-slate-800 dark:text-zinc-100">Drop images here</p>
@@ -684,7 +679,7 @@ export default function CreateTripPage() {
                         type="button"
                         variant="outline"
                         onClick={() => fileInputRef.current?.click()}
-                        className="gap-2 rounded-xl border-slate-200/80 bg-white/95 shadow-sm transition-shadow hover:shadow-md dark:border-zinc-700 dark:bg-zinc-800/90"
+                        className="gap-2 rounded-full border-slate-200/40 bg-white/50 backdrop-blur-sm shadow-sm transition-shadow hover:shadow-md dark:border-zinc-700/40 dark:bg-zinc-800/30"
                       >
                         <ImagePlus className="h-4 w-4" aria-hidden />
                         {files.length === 0 ? "Choose photos" : "Add more"}
@@ -766,7 +761,7 @@ export default function CreateTripPage() {
                             type="button"
                             size="sm"
                             variant="secondary"
-                            className="h-8 flex-1 rounded-lg text-xs font-semibold shadow-sm"
+                            className="h-8 flex-1 rounded-full text-xs font-semibold shadow-sm"
                             onClick={() => openPostCrop(i)}
                           >
                             <Crop className="mr-1 h-3.5 w-3.5" />
@@ -776,7 +771,7 @@ export default function CreateTripPage() {
                             type="button"
                             size="icon"
                             variant="secondary"
-                            className="h-8 w-8 shrink-0 rounded-lg shadow-sm"
+                            className="h-8 w-8 shrink-0 rounded-full shadow-sm"
                             onClick={() => removeFile(i)}
                             aria-label="Remove photo"
                           >
@@ -796,7 +791,7 @@ export default function CreateTripPage() {
               </div>
             </section>
           ) : (
-            <section className="space-y-5 border-b border-slate-100/90 dark:border-zinc-800/90 pb-8">
+            <section className="space-y-5 border-b border-slate-200/20 dark:border-zinc-800/40 pb-8">
               <div className="grid gap-3">
                 <label className="text-sm font-semibold text-slate-900">Video (required)</label>
                 <input
@@ -806,7 +801,7 @@ export default function CreateTripPage() {
                   className="hidden"
                   onChange={(e) => setVideoFile(e.target.files?.[0] ?? null)}
                 />
-                <Button type="button" variant="outline" onClick={() => videoInputRef.current?.click()} className="gap-2 rounded-xl">
+                <Button type="button" variant="outline" onClick={() => videoInputRef.current?.click()} className="gap-2 rounded-full border-slate-200/40 bg-white/30 backdrop-blur-sm shadow-sm transition-shadow hover:shadow-md dark:border-zinc-700/40 dark:bg-zinc-800/30">
                   <Video className="h-4 w-4" />
                   {videoFile ? videoFile.name : "Choose video"}
                 </Button>
@@ -818,13 +813,13 @@ export default function CreateTripPage() {
                   onChange={(e) => setThumbnailFile(e.target.files?.[0] ?? null)}
                 />
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="outline" size="sm" onClick={() => thumbInputRef.current?.click()} className="rounded-xl gap-1.5">
+                  <Button type="button" variant="outline" size="sm" onClick={() => thumbInputRef.current?.click()} className="rounded-full gap-1.5 border-slate-200/40 bg-white/30 backdrop-blur-sm">
                     <ImagePlus className="h-4 w-4" />
                     Thumbnail (optional)
                   </Button>
                   {thumbnailFile && (
                     <>
-                      <Button type="button" variant="secondary" size="sm" onClick={openThumbCrop} className="rounded-xl gap-1.5">
+                      <Button type="button" variant="secondary" size="sm" onClick={openThumbCrop} className="rounded-full gap-1.5">
                         <Crop className="h-4 w-4" />
                         Crop cover
                       </Button>
@@ -841,7 +836,7 @@ export default function CreateTripPage() {
               </div>
               <div className="space-y-3 rounded-xl border border-slate-200/70 bg-slate-50/60 p-4 ring-1 ring-slate-100/80 dark:border-zinc-700 dark:bg-zinc-900/40">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Button type="button" variant="outline" size="sm" className="gap-2 rounded-xl" onClick={() => setSongPickerOpen(true)}>
+                  <Button type="button" variant="outline" size="sm" className="gap-2 rounded-full border-slate-200/40 bg-white/30 backdrop-blur-sm" onClick={() => setSongPickerOpen(true)}>
                     <Music className="h-4 w-4" />
                     {librarySong ? "Change Taatom song" : "Use Taatom music"}
                   </Button>
@@ -915,7 +910,7 @@ export default function CreateTripPage() {
           )}
 
           {/* Caption */}
-          <section className="space-y-3 border-b border-slate-100/90 dark:border-zinc-800/90 py-8">
+          <section className="space-y-3 border-b border-slate-200/20 dark:border-zinc-800/40 py-8">
             <div className="flex flex-wrap items-end justify-between gap-2">
               <label className="text-sm font-semibold text-slate-900 dark:text-zinc-50">Caption</label>
               <span className="text-xs font-medium text-muted-foreground tabular-nums">Optional · max {CAPTION_MAX}</span>
@@ -924,7 +919,7 @@ export default function CreateTripPage() {
               value={caption}
               onChange={(e) => setCaption(e.target.value)}
               placeholder="What's happening? Use @ to mention someone or # for hashtags"
-              className="min-h-[108px] w-full resize-y rounded-2xl border border-slate-200/80 bg-white/90 px-4 py-3.5 text-sm leading-relaxed shadow-sm transition-[border-color,box-shadow,background-color] ring-offset-background placeholder:text-slate-400 focus-visible:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:ring-offset-2 dark:border-zinc-700 dark:bg-zinc-900/80 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+              className="min-h-[108px] w-full resize-y rounded-2xl border border-slate-200/50 bg-white/45 backdrop-blur-sm px-4 py-3.5 text-sm leading-relaxed shadow-sm transition-[border-color,box-shadow,background-color] ring-offset-background placeholder:text-slate-400 focus-visible:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:ring-offset-2 dark:border-zinc-700/50 dark:bg-zinc-900/35 dark:text-zinc-100 dark:placeholder:text-zinc-500"
               maxLength={CAPTION_MAX}
             />
             {caption.length > 0 && (
@@ -936,7 +931,7 @@ export default function CreateTripPage() {
           </section>
 
           {/* Place name / Location + Detect place */}
-          <section className="space-y-3 border-b border-slate-100/90 dark:border-zinc-800/90 py-8">
+          <section className="space-y-3 border-b border-slate-200/20 dark:border-zinc-800/40 py-8">
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary ring-1 ring-primary/10">
@@ -947,10 +942,10 @@ export default function CreateTripPage() {
               <span className="text-xs font-medium text-muted-foreground tabular-nums">Optional · max {PLACE_NAME_MAX}</span>
             </div>
             <div
-              className={`flex overflow-hidden rounded-2xl border bg-white shadow-sm transition-[box-shadow,border-color] focus-within:border-primary/35 focus-within:shadow-md focus-within:ring-2 focus-within:ring-primary/15 dark:bg-zinc-900/70 ${
+              className={`flex overflow-hidden rounded-2xl border bg-white/45 backdrop-blur-sm shadow-sm transition-[box-shadow,border-color] focus-within:border-primary/35 focus-within:shadow-md focus-within:ring-2 focus-within:ring-primary/15 dark:bg-zinc-900/35 ${
                 placeNameError
                   ? "border-destructive ring-2 ring-destructive/20"
-                  : "border-slate-200/85 dark:border-zinc-700 dark:bg-zinc-900/70"
+                  : "border-slate-200/50 dark:border-zinc-700/50 dark:bg-zinc-900/35"
               }`}
             >
               <Input
@@ -958,7 +953,7 @@ export default function CreateTripPage() {
                 onChange={(e) => setPlaceName(e.target.value)}
                 placeholder="Add a place name or address"
                 maxLength={PLACE_NAME_MAX}
-                className="min-w-0 flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 rounded-none px-4 py-3.5 h-11 sm:h-12"
+                className="min-w-0 flex-1 border-0 bg-transparent shadow-none focus-visible:ring-0 focus-visible:ring-offset-0 rounded-none px-4 py-3.5 h-11 sm:h-12 placeholder:text-slate-400 dark:placeholder:text-zinc-500"
               />
               <span className="hidden w-px shrink-0 self-stretch bg-slate-200/90 dark:bg-zinc-600/60 sm:block" aria-hidden />
               <Button
@@ -1017,7 +1012,7 @@ export default function CreateTripPage() {
                     setShowSpotTypeDropdown((v) => !v);
                     setShowTravelInfoDropdown(false);
                   }}
-                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200/85 bg-white px-4 py-3.5 text-sm shadow-sm transition-[border-color,box-shadow] hover:border-slate-300 hover:shadow dark:border-zinc-700 dark:bg-zinc-900/80 dark:hover:border-zinc-600"
+                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200/50 bg-white/45 backdrop-blur-sm px-4 py-3.5 text-sm shadow-sm transition-[border-color,box-shadow] hover:border-slate-300 dark:border-zinc-700/50 dark:bg-zinc-900/35 dark:hover:bg-zinc-900/50"
                 >
                   <span className={spotType ? "font-medium text-foreground" : "text-muted-foreground"}>
                     {SPOT_TYPE_OPTIONS.find((o) => o.value === spotType)?.label ?? "Select spot type"}
@@ -1061,7 +1056,7 @@ export default function CreateTripPage() {
                     setShowTravelInfoDropdown((v) => !v);
                     setShowSpotTypeDropdown(false);
                   }}
-                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200/85 bg-white px-4 py-3.5 text-sm shadow-sm transition-[border-color,box-shadow] hover:border-slate-300 hover:shadow dark:border-zinc-700 dark:bg-zinc-900/80 dark:hover:border-zinc-600"
+                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200/50 bg-white/45 backdrop-blur-sm px-4 py-3.5 text-sm shadow-sm transition-[border-color,box-shadow] hover:border-slate-300 dark:border-zinc-700/50 dark:bg-zinc-900/35 dark:hover:bg-zinc-900/50"
                 >
                   <span className={travelInfo ? "font-medium text-foreground" : "text-muted-foreground"}>
                     {TRAVEL_INFO_OPTIONS.find((o) => o.value === travelInfo)?.label ?? "Select travel method"}
@@ -1109,16 +1104,24 @@ export default function CreateTripPage() {
             </div>
           )}
 
-          <div className="flex flex-wrap items-end justify-end gap-2 border-t border-slate-100/90 pt-6 dark:border-zinc-800/90 sm:gap-3 sm:pt-8">
-            <Button variant="outline" onClick={() => router.back()} disabled={submitting} className="rounded-xl">
+          <div className="flex flex-wrap items-end justify-end gap-2 border-t border-slate-200/20 pt-6 dark:border-zinc-800/40 sm:gap-3 sm:pt-8">
+            <Button variant="outline" onClick={() => router.back()} disabled={submitting} className="rounded-full border-slate-200/40 bg-white/30 backdrop-blur-sm">
               Cancel
             </Button>
             {mode === "post" ? (
-              <Button onClick={onSubmitPost} disabled={!canSubmitPost} className="rounded-xl shadow-md shadow-primary/20 transition-[box-shadow,transform] hover:shadow-lg hover:shadow-primary/25 active:scale-[0.98]">
+              <Button
+                onClick={onSubmitPost}
+                disabled={!canSubmitPost}
+                className="rounded-full bg-gradient-to-r from-[#38BDF8] via-[#14B8A6] to-[#34D399] text-white font-bold border border-white/20 shadow-[0_6px_20px_rgba(20,184,166,0.25)] hover:shadow-[0_8px_24px_rgba(20,184,166,0.4)] transition-all duration-300 hover:opacity-95 active:scale-[0.98] h-11 px-6 py-2"
+              >
                 {submitting ? "Publishing…" : "Publish"}
               </Button>
             ) : (
-              <Button onClick={onSubmitShort} disabled={!canSubmitShort} className="rounded-xl shadow-md shadow-primary/20 transition-[box-shadow,transform] hover:shadow-lg hover:shadow-primary/25 active:scale-[0.98]">
+              <Button
+                onClick={onSubmitShort}
+                disabled={!canSubmitShort}
+                className="rounded-full bg-gradient-to-r from-[#38BDF8] via-[#14B8A6] to-[#34D399] text-white font-bold border border-white/20 shadow-[0_6px_20px_rgba(20,184,166,0.25)] hover:shadow-[0_8px_24px_rgba(20,184,166,0.4)] transition-all duration-300 hover:opacity-95 active:scale-[0.98] h-11 px-6 py-2"
+              >
                 {submitting ? "Uploading…" : "Upload short"}
               </Button>
             )}

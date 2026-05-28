@@ -12,13 +12,28 @@ interface GlassMapPanelProps {
 
 export default function GlassMapPanel({
   children,
-  intensity = 60,
+  intensity = 80,
   tint = 'dark',
   style,
   contentStyle,
 }: GlassMapPanelProps) {
+  const dynamicShellStyle = {
+    backgroundColor:
+      tint === 'light'
+        ? 'rgba(255, 255, 255, 0.85)'
+        : tint === 'dark'
+        ? 'rgba(20, 24, 33, 0.85)'
+        : 'rgba(255, 255, 255, 0.85)',
+    borderColor:
+      tint === 'light'
+        ? 'rgba(0, 0, 0, 0.08)'
+        : tint === 'dark'
+        ? 'rgba(255, 255, 255, 0.14)'
+        : 'rgba(0, 0, 0, 0.08)',
+  };
+
   return (
-    <View style={[styles.shell, style]}>
+    <View style={[styles.shell, dynamicShellStyle, style]}>
       <BlurView intensity={intensity} tint={tint} style={StyleSheet.absoluteFill} />
       <View style={[styles.content, contentStyle]}>{children}</View>
     </View>
@@ -30,8 +45,6 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.14)',
-    backgroundColor: 'rgba(15, 23, 36, 0.36)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 18 },
     shadowOpacity: 0.22,
@@ -39,7 +52,7 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   content: {
-    padding: 16,
+    padding: 12,
+    flexShrink: 1,
   },
 });
-

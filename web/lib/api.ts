@@ -659,3 +659,8 @@ export async function saveUserInterests(interests: string[]) {
   await api.post("/profile/interests", { interests });
 }
 
+export async function getGlobalSubscriptionStatus(): Promise<{ isPremium: boolean; subscription: unknown }> {
+  const res = await api.get("/subscription/status");
+  return res.data as { isPremium: boolean; subscription: unknown };
+}
+

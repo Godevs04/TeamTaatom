@@ -5,18 +5,20 @@ import {
   TouchableOpacity,
   Modal,
   ScrollView,
-  Image,
   StyleSheet,
   Platform,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../context/ThemeContext';
 
 // Re-exported for callers that previously imported CropTransform from here.
 export type { CropTransform } from './post/AspectImageCropper';
 
 export type ImageFilterType = 'original' | 'vivid' | 'warm' | 'cool' | 'bw';
-export type AspectRatioChoice = '1:1' | '16:9' | 'full';
+export type AspectRatioChoice = '1.91:1' | '1:1';
 
 export interface SelectedImageItem {
   uri: string;
@@ -26,8 +28,7 @@ export interface SelectedImageItem {
 
 const ASPECT_OPTIONS: { id: AspectRatioChoice; label: string; icon: string }[] = [
   { id: '1:1', label: '1:1', icon: 'square-outline' },
-  { id: '16:9', label: '16:9', icon: 'tablet-portrait-outline' },
-  { id: 'full', label: 'Full Image', icon: 'expand-outline' },
+  { id: '1.91:1', label: '1.91:1', icon: 'image-outline' },
 ];
 
 const FILTER_OPTIONS: { id: ImageFilterType; label: string; icon: string }[] = [
@@ -73,7 +74,7 @@ export default function ImageEditModal({
   selectedAspectRatio = '1:1',
   onAspectRatioChange,
 }: ImageEditModalProps) {
-  const { theme } = useTheme();
+  const { theme, mode } = useTheme();
   const searchAbortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -92,130 +93,244 @@ export default function ImageEditModal({
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-        <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-          <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-            <Text style={[styles.title, { color: theme.colors.text }]}>Edit photos</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={12} style={styles.closeBtn}>
-              <Ionicons name="close" size={28} color={theme.colors.text} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
-            {/* Aspect ratio — Square / 16:9 / Full Image (zoom-to-fill, non-destructive) */}
-            <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>
-              Aspect ratio
-            </Text>
-            <View style={styles.aspectRow}>
-              {ASPECT_OPTIONS.map((opt) => {
-                const isActive = selectedAspectRatio === opt.id;
-                return (
-                  <TouchableOpacity
-                    key={opt.id}
-                    onPress={() => onAspectRatioChange?.(opt.id)}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: isActive }}
-                    style={[
-                      styles.aspectChip,
-                      {
-                        backgroundColor: isActive ? theme.colors.primary : theme.colors.surface,
-                        borderColor: isActive ? theme.colors.primary : theme.colors.border,
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name={opt.icon as any}
-                      size={20}
-                      color={isActive ? '#fff' : theme.colors.text}
-                    />
-                    <Text style={[styles.aspectLabel, { color: isActive ? '#fff' : theme.colors.text }]}>
-                      {opt.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+        <View style={[
+          styles.container,
+          {
+            borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.45)',
+            borderWidth: 1,
+            overflow: 'hidden',
+            backgroundColor: mode === 'dark' ? 'rgba(10, 18, 32, 0.75)' : 'rgba(255, 255, 255, 0.65)',
+            ...theme.shadows.large,
+          }
+        ]}>
+          <BlurView
+            intensity={80}
+            tint={mode === 'dark' ? 'dark' : 'light'}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <LinearGradient
+            colors={
+              mode === 'dark'
+                ? ['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0.02)']
+                : ['rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.1)']
+            }
+            start={{ x: 0, y: 0 }}
+            end={{ x: 0.4, y: 0.4 }}
+            style={StyleSheet.absoluteFillObject}
+            pointerEvents="none"
+          />
+          <View style={{ flex: 1, zIndex: 1 }}>
+            <View style={[styles.header, { borderBottomColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }]}>
+              <Text style={[styles.title, { color: theme.colors.text }]}>Edit photos</Text>
+              <TouchableOpacity onPress={onClose} hitSlop={12} style={styles.closeBtn}>
+                <Ionicons name="close" size={28} color={theme.colors.text} />
+              </TouchableOpacity>
             </View>
 
-            {/* Photos — informational thumbnails. Pinch+pan cropping happens on the post creation
-                screen itself, not in this modal. */}
-            <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary, marginTop: 16 }]}>
-              Photos
-            </Text>
-            <View style={styles.thumbRow}>
-              {images.map((img, index) => (
-                <Image key={`${img.uri}-${index}`} source={{ uri: img.uri }} style={styles.thumbSmall} />
-              ))}
-            </View>
-
-            {/* Filter preview — first selected image with approximate overlay. */}
-            {images.length > 0 && (
-              <>
-                <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary, marginTop: theme.spacing.lg }]}>
-                  Preview
-                </Text>
-                <View style={styles.previewContainer}>
-                  <Image source={{ uri: images[0].uri }} style={styles.previewImage} />
-                  {FILTER_PREVIEW_OVERLAY[selectedFilter] && (
-                    <View
-                      pointerEvents="none"
+            <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+              {/* Aspect ratio */}
+              <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>
+                Aspect ratio
+              </Text>
+              <View style={styles.aspectRow}>
+                {ASPECT_OPTIONS.map((opt) => {
+                  const isActive = selectedAspectRatio === opt.id;
+                  return (
+                    <TouchableOpacity
+                      key={opt.id}
+                      onPress={() => onAspectRatioChange?.(opt.id)}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected: isActive }}
                       style={[
-                        StyleSheet.absoluteFillObject,
-                        { backgroundColor: FILTER_PREVIEW_OVERLAY[selectedFilter]! },
-                      ]}
-                    />
-                  )}
-                </View>
-              </>
-            )}
-
-            {/* Filters */}
-            <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary, marginTop: theme.spacing.lg }]}>
-              Filter
-            </Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-              {FILTER_OPTIONS.map((f) => {
-                const selected = selectedFilter === f.id;
-                const supported = isFilterSupported(f.id);
-                return (
-                  <TouchableOpacity
-                    key={f.id}
-                    onPress={() => supported && onFilterChange(f.id)}
-                    style={[
-                      styles.filterChip,
-                      {
-                        backgroundColor: selected ? theme.colors.primary : theme.colors.surface,
-                        borderColor: selected ? theme.colors.primary : theme.colors.border,
-                        opacity: supported ? 1 : 0.6,
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name={f.icon as any}
-                      size={20}
-                      color={selected ? '#fff' : theme.colors.text}
-                    />
-                    <Text
-                      style={[
-                        styles.filterLabel,
-                        { color: selected ? '#fff' : theme.colors.text },
+                        styles.aspectChip,
+                        {
+                          backgroundColor: isActive ? 'transparent' : (mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.3)'),
+                          borderColor: isActive ? 'transparent' : theme.colors.border,
+                          overflow: 'hidden',
+                        },
                       ]}
                     >
-                      {f.label}
-                    </Text>
-                    {!supported && (
-                      <Text style={[styles.comingSoon, { color: theme.colors.textSecondary }]}>Soon</Text>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-          </ScrollView>
+                      {isActive && (
+                        <LinearGradient
+                          colors={['#38BDF8', '#14B8A6', '#34D399']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={StyleSheet.absoluteFillObject}
+                        />
+                      )}
+                      {isActive && (
+                        <LinearGradient
+                          colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 0, y: 0.4 }}
+                          style={StyleSheet.absoluteFillObject}
+                          pointerEvents="none"
+                        />
+                      )}
+                      <Ionicons
+                        name={opt.icon as any}
+                        size={20}
+                        color={isActive ? '#fff' : theme.colors.text}
+                        style={{ zIndex: 1 }}
+                      />
+                      <Text style={[styles.aspectLabel, { color: isActive ? '#fff' : theme.colors.text, zIndex: 1 }]}>
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
 
-          <TouchableOpacity
-            onPress={onClose}
-            style={[styles.doneBtn, { backgroundColor: theme.colors.primary }]}
-          >
-            <Text style={styles.doneBtnText}>Done</Text>
-          </TouchableOpacity>
+              {/* Photos — informational thumbnails. Pinch+pan cropping happens on the post creation
+                  screen itself, not in this modal. */}
+              {/* Filter preview — first selected image with approximate overlay. */}
+              {images.length > 0 && (
+                <>
+                  <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary, marginTop: theme.spacing.lg }]}>
+                    Preview
+                  </Text>
+                  <View style={{
+                    width: '100%',
+                    height: 240,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    backgroundColor: mode === 'dark' ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.3)',
+                    borderRadius: 16,
+                    marginBottom: 6,
+                    padding: 12,
+                    borderWidth: 1,
+                    borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                  }}>
+                    <View style={[
+                      styles.previewContainer,
+                      {
+                        height: '100%',
+                        aspectRatio: selectedAspectRatio === '1.91:1' ? 1.91 / 1 : 1 / 1,
+                        width: undefined,
+                      }
+                    ]}>
+                      <ExpoImage source={{ uri: images[0].uri }} style={styles.previewImage} />
+                      {FILTER_PREVIEW_OVERLAY[selectedFilter] && (
+                        <View
+                          pointerEvents="none"
+                          style={[
+                            StyleSheet.absoluteFillObject,
+                            { backgroundColor: FILTER_PREVIEW_OVERLAY[selectedFilter]! },
+                          ]}
+                        />
+                      )}
+                    </View>
+                  </View>
+                </>
+              )}
+
+              {/* Filters */}
+              <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary, marginTop: theme.spacing.lg }]}>
+                Filter
+              </Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
+                {FILTER_OPTIONS.map((f) => {
+                  const selected = selectedFilter === f.id;
+                  const supported = isFilterSupported(f.id);
+                  return (
+                    <TouchableOpacity
+                      key={f.id}
+                      onPress={() => supported && onFilterChange(f.id)}
+                      style={[
+                        styles.filterChip,
+                        {
+                          backgroundColor: selected ? 'transparent' : (mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.3)'),
+                          borderColor: selected ? 'transparent' : theme.colors.border,
+                          opacity: supported ? 1 : 0.6,
+                          overflow: 'hidden',
+                        },
+                      ]}
+                    >
+                      {selected && (
+                        <LinearGradient
+                          colors={['#38BDF8', '#14B8A6', '#34D399']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={StyleSheet.absoluteFillObject}
+                        />
+                      )}
+                      {selected && (
+                        <LinearGradient
+                          colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 0, y: 0.4 }}
+                          style={StyleSheet.absoluteFillObject}
+                          pointerEvents="none"
+                        />
+                      )}
+                      <Ionicons
+                        name={f.icon as any}
+                        size={20}
+                        color={selected ? '#fff' : theme.colors.text}
+                        style={{ zIndex: 1 }}
+                      />
+                      <Text
+                        style={[
+                          styles.filterLabel,
+                          { color: selected ? '#fff' : theme.colors.text, zIndex: 1 },
+                        ]}
+                      >
+                        {f.label}
+                      </Text>
+                      {!supported && (
+                        <Text style={[styles.comingSoon, { color: theme.colors.textSecondary, zIndex: 1 }]}>Soon</Text>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </ScrollView>
+
+            <TouchableOpacity
+              onPress={onClose}
+              style={{
+                marginHorizontal: 20,
+                marginTop: 8,
+                borderRadius: 9999,
+                shadowColor: '#14B8A6',
+                shadowOffset: { width: 0, height: 6 },
+                shadowOpacity: 0.3,
+                shadowRadius: 12,
+                elevation: 4,
+                overflow: 'hidden',
+              }}
+              activeOpacity={0.8}
+            >
+              <LinearGradient
+                colors={['#38BDF8', '#14B8A6', '#34D399']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={{
+                  paddingVertical: 16,
+                  borderRadius: 9999,
+                  alignItems: 'center',
+                  borderWidth: 1,
+                  borderColor: 'rgba(255, 255, 255, 0.35)',
+                }}
+              >
+                <LinearGradient
+                  colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 0, y: 0.4 }}
+                  style={StyleSheet.absoluteFillObject}
+                  pointerEvents="none"
+                />
+                <Text style={{
+                  color: '#FFFFFF',
+                  fontSize: 16,
+                  fontWeight: '700',
+                  zIndex: 1,
+                }}>
+                  Done
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
@@ -279,21 +394,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
-  thumbRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 4,
-  },
-  thumbSmall: {
-    width: 64,
-    height: 64,
-    borderRadius: 8,
-    backgroundColor: '#eee',
-  },
   previewContainer: {
-    width: '100%',
-    height: 180,
     borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: '#000',

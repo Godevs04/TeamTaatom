@@ -4,33 +4,41 @@
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 255 255 255;
+    --foreground: 0 0 0;
 
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --glass-surface: 255 255 255;
+    --glass-opacity-base: 0.85;
+    --glass-opacity-elevated: 0.90;
+    --glass-border-light: rgba(28, 115, 180, 0.15);
+    --glass-border-dark: rgba(28, 115, 180, 0.05);
+    --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
+    --glass-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.20) 0%, rgba(255, 255, 255, 0) 100%);
 
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --card: 255 255 255;
+    --card-foreground: 0 0 0;
 
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
+    --popover: 255 255 255;
+    --popover-foreground: 0 0 0;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --primary: 206 63% 41%; /* Ocean Blue #1C73B4 */
+    --primary-foreground: 255 255 255;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --secondary: 255 255 255;
+    --secondary-foreground: 0 0 0;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --muted: 255 255 255;
+    --muted-foreground: 0 0 0 / 55%;
+
+    --accent: 147 50% 55%; /* Emerald Green #50C878 */
+    --accent-foreground: 255 255 255;
 
     --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive-foreground: 255 255 255;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
+    --border: 28 115 180 / 0.15;
+    --input: 28 115 180 / 0.15;
+    --ring: 28 115 180 / 0.15;
 
     --radius: 14px;
   }
@@ -38,33 +46,41 @@
   .dark {
     color-scheme: dark;
 
-    --background: 224 32% 8%;
-    --foreground: 210 40% 98%;
+    --background: 0 0 0;
+    --glass-surface: 0 0 0;
+    --glass-opacity-base: 0.75;
+    --glass-opacity-elevated: 0.85;
+    --glass-border-light: rgba(28, 115, 180, 0.15);
+    --glass-border-dark: rgba(28, 115, 180, 0.05);
+    --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.60);
+    --glass-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0) 100%);
 
-    --card: 224 28% 11%;
-    --card-foreground: 210 40% 98%;
+    --foreground: 255 255 255;
 
-    --popover: 224 28% 12%;
-    --popover-foreground: 210 40% 98%;
+    --card: 0 0 0;
+    --card-foreground: 255 255 255;
 
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --popover: 0 0 0;
+    --popover-foreground: 255 255 255;
 
-    --secondary: 217.2 25% 16%;
-    --secondary-foreground: 210 40% 98%;
+    --primary: 206 63% 41%; /* Ocean Blue #1C73B4 */
+    --primary-foreground: 255 255 255;
 
-    --muted: 217.2 22% 18%;
-    --muted-foreground: 215 16% 65%;
+    --secondary: 0 0 0;
+    --secondary-foreground: 255 255 255;
 
-    --accent: 217.2 25% 17%;
-    --accent-foreground: 210 40% 98%;
+    --muted: 0 0 0;
+    --muted-foreground: 255 255 255 / 55%;
+
+    --accent: 147 50% 55%; /* Emerald Green #50C878 */
+    --accent-foreground: 0 0 0;
 
     --destructive: 0 62.8% 40%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive-foreground: 255 255 255;
 
-    --border: 217.2 20% 20%;
-    --input: 217.2 20% 20%;
-    --ring: 224.3 76.3% 55%;
+    --border: 28 115 180 / 0.15;
+    --input: 28 115 180 / 0.15;
+    --ring: 28 115 180 / 0.15;
   }
 
   * {
@@ -73,6 +89,12 @@
 
   body {
     @apply bg-background text-foreground antialiased;
+  }
+
+  .dark body {
+    background-image: none;
+    background-color: #000000;
+    background-attachment: fixed;
   }
 
   .dark .shadow-card {
@@ -85,6 +107,10 @@
 
 /* Premium surfaces */
 @layer utilities {
+  .bg-taatom-gradient {
+    background: linear-gradient(to right, #1C73B4, #50C878);
+  }
+  
   .shadow-premium {
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.04), 0 12px 32px rgba(0, 0, 0, 0.06);
   }
@@ -98,14 +124,12 @@
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.35), 0 8px 28px rgba(0, 0, 0, 0.3), 0 18px 50px rgba(0, 0, 0, 0.4);
   }
   .border-premium {
-    border-color: rgba(15, 23, 42, 0.06);
+    border-color: rgba(28, 115, 180, 0.15);
   }
   .dark .border-premium {
-    border-color: rgba(255, 255, 255, 0.08);
+    border-color: rgba(28, 115, 180, 0.15);
   }
 
-  /* Landing: soft wash + subtle grid */
-  /* Feed: very slow ambient drift (GPU-friendly transforms only) */
   @keyframes feed-orb-drift {
     0%,
     100% {
@@ -135,27 +159,73 @@
   }
 
   .landing-bg {
-    background-color: #f8f9fa;
+    background-color: #FFFFFF;
     background-image:
-      linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(248, 249, 250, 1) 40%, rgba(241, 245, 249, 0.6) 100%),
-      radial-gradient(1000px 520px at 12% -8%, rgba(37, 99, 235, 0.08), transparent 55%),
-      radial-gradient(880px 480px at 92% 15%, rgba(139, 92, 246, 0.07), transparent 50%),
-      linear-gradient(rgba(148, 163, 184, 0.12) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(148, 163, 184, 0.12) 1px, transparent 1px);
+      linear-gradient(180deg, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 1) 40%, rgba(255, 255, 255, 0.6) 100%),
+      radial-gradient(1000px 520px at 12% -8%, rgba(28, 115, 180, 0.08), transparent 55%),
+      radial-gradient(880px 480px at 92% 15%, rgba(80, 200, 120, 0.07), transparent 50%),
+      linear-gradient(rgba(28, 115, 180, 0.12) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(28, 115, 180, 0.12) 1px, transparent 1px);
     background-size: auto, auto, auto, 40px 40px, 40px 40px;
     background-position: 0 0, 0 0, 0 0, center center, center center;
   }
 
   .dark .landing-bg {
-    background-color: hsl(224 47% 6%);
+    background-color: #000000;
     background-image:
-      linear-gradient(180deg, hsl(224 47% 8%) 0%, hsl(224 45% 6%) 45%, hsl(222 40% 5%) 100%),
-      radial-gradient(900px 480px at 12% -8%, rgba(37, 99, 235, 0.14), transparent 55%),
-      radial-gradient(780px 420px at 92% 12%, rgba(139, 92, 246, 0.1), transparent 50%),
-      linear-gradient(rgba(148, 163, 184, 0.06) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(148, 163, 184, 0.06) 1px, transparent 1px);
+      linear-gradient(135deg, #000000 0%, #000000 100%),
+      radial-gradient(900px 480px at 12% -8%, rgba(255, 255, 255, 0.02), transparent 55%),
+      radial-gradient(780px 420px at 92% 12%, rgba(255, 255, 255, 0.01), transparent 50%),
+      linear-gradient(rgba(28, 115, 180, 0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(28, 115, 180, 0.02) 1px, transparent 1px);
     background-size: auto, auto, auto, 40px 40px, 40px 40px;
     background-position: 0 0, 0 0, 0 0, center center, center center;
   }
-}
 
+  /* Stashed cosmetic styles */
+  .stashed-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: center;
+    height: 150vh;
+    background: hsl(0deg 0% 95%);
+    margin: 0;
+    padding: 0;
+  }
+  
+  .stashed-header {
+    width: 100%;
+    padding: 2rem;
+    z-index: 2;
+  }
+  
+  .ball {
+    width: 64px;
+    height: 64px;
+    background: red;
+    border-radius: 50%;
+    margin-top: 2rem;
+    filter: blur(1px);
+    box-shadow: 0 0 20px rgba(255, 0, 0, 0.3);
+  }
+
+  /* Combined Liquid Glassmorphism & Frosted Glass effects */
+  .glassmorphism-premium {
+    background: rgba(255, 255, 255, 0.45) !important;
+    backdrop-filter: blur(20px) saturate(190%) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(190%) !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.3) !important;
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+    text-shadow: 0 1px 1px rgba(255, 255, 255, 0.15);
+  }
+
+  .dark .glassmorphism-premium {
+    background: rgba(10, 18, 30, 0.55) !important;
+    backdrop-filter: blur(20px) saturate(170%) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(170%) !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+  }
+}

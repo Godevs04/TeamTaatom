@@ -94,6 +94,22 @@ export interface ConnectPageType {
   // /connect-pages so the client can hide the Follow button without an
   // extra getMyPages round-trip.
   isOwn?: boolean;
+  creatorPayoutInfo?: {
+    country: string;
+    isInternational: boolean;
+    bankAccountNumber?: string;
+    bankIfsc?: string;
+    bankAccountName?: string;
+    upiId?: string;
+    wiseEmail?: string;
+    wiseCurrency?: string;
+    payoutMethod?: 'wise_email' | 'international_bank';
+    bankName?: string;
+    bankCountry?: string;
+    swiftCode?: string;
+    iban?: string;
+    routingNumber?: string;
+  };
   createdAt: string;
   updatedAt: string;
 }
@@ -653,7 +669,7 @@ export interface MyPayout {
   subscriberCount: number;
   // State
   status: PayoutStatus;
-  payoutMethod: 'cashfree_bank' | 'cashfree_upi' | 'wise';
+  payoutMethod: 'cashfree_bank' | 'cashfree_upi' | 'wise' | 'wise_bank';
   payoutReference: string;
   processedAt: string | null;
   failureReason: string;
@@ -756,6 +772,52 @@ export const getLanguages = async (): Promise<{ languages: GeoItem[] }> => {
   try {
     const response = await api.get('/api/v1/geo/languages');
     return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+
+export interface BuyOrderResponse {
+  orderId: string;
+  cashfreeOrderId: string;
+  paymentSessionId: string;
+  amount: number;
+  currency: string;
+  cashfreeEnvironment: 'sandbox' | 'production';
+  itemName: string;
+}
+
+export const createBuyOrder = async (
+  pageId: string,
+  body: {
+    itemId: string;
+    buyerName: string;
+    buyerPhone: string;
+    deliveryAddress: string;
+  }
+): Promise<BuyOrderResponse> => {
+  try {
+    const response = await api.post(`/api/v1/connect/page/${pageId}/buy-order`, body);
+    return response.data.data || response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+export const verifyBuyOrder = async (
+  pageId: string,
+  body: {
+    orderId?: string;
+    cashfreeOrderId?: string;
+    cashfreePaymentId?: string;
+  }
+): Promise<any> => {
+  try {
+    const response = await api.post(`/api/v1/connect/page/${pageId}/buy-verify`, body);
+    return response.data.data || response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
     throw new Error(parsedError.userMessage);

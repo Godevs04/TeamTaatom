@@ -129,7 +129,8 @@ class AudioManager {
         return;
       }
       
-      await this.currentSound.setVolumeAsync(isMuted ? 0 : volume);
+      await this.currentSound.setIsMutedAsync(isMuted).catch(() => {});
+      await this.currentSound.setVolumeAsync(isMuted ? 0 : volume).catch(() => {});
     } catch (error) {
       logger.error('Error toggling mute:', error);
       // Don't re-throw, just log the error

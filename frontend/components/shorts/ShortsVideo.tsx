@@ -1,8 +1,10 @@
-import React, { useRef, useState, useEffect, memo, useCallback } from 'react';
-import { View, StyleSheet, ActivityIndicator, Image, TouchableOpacity, Text } from 'react-native';
+import React, { useRef, useState, useEffect, memo, useCallback, useMemo } from 'react';
+import { View, StyleSheet, Image, TouchableOpacity, Text } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import Video, { VideoRef } from 'react-native-video';
+import { useIsFocused } from '@react-navigation/native';
 import logger from '../../utils/logger';
 
 interface ShortsVideoProps {
@@ -17,7 +19,15 @@ interface ShortsVideoProps {
   onReady?: () => void;
   onError?: (error: any) => void;
   onProgress?: (progress: { currentTime: number; seekableDuration: number }) => void;
+  videoRefCallback?: (ref: any) => void;
 }
+
+const BUFFER_CONFIG = {
+  minBufferMs: 2500,
+  maxBufferMs: 10000,
+  bufferForPlaybackMs: 1000,
+  bufferForPlaybackAfterRebufferMs: 2000,
+};
 
 const ShortsVideo = ({
   videoId,
@@ -31,12 +41,16 @@ const ShortsVideo = ({
   onReady,
   onError,
   onProgress,
+  videoRefCallback,
 }: ShortsVideoProps) => {
   const videoRef = useRef<VideoRef>(null);
   const [isReady, setIsReady] = useState(false);
   const [hasError, setHasError] = useState(false);
   const [showPoster, setShowPoster] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
+
+  const isFocused = useIsFocused();
+  const shouldPlay = isActive && isFocused;
 
   // DETAILED LOGGING: Track first 2 shorts
   const isFirstTwoShorts = videoId && videoId.length > 0 && Math.random() < 0.4; // Rough heuristic
@@ -65,8 +79,19 @@ const ShortsVideo = ({
     setShowPoster(true);
   }, [videoUrl, sourceVersion, videoId]);
 
+  // Lifecycle Override to strictly obey shouldPlay boolean
+  useEffect(() => {
+    if (videoRef.current) {
+      if (shouldPlay) {
+        (videoRef.current as any).playAsync?.();
+      } else {
+        (videoRef.current as any).pauseAsync?.();
+      }
+    }
+  }, [shouldPlay]);
+
   // Handle active status to control play/pause
-  const isPaused = !isActive;
+  const isPaused = !shouldPlay;
 
   const handleReadyForDisplay = useCallback(() => {
     if (!isReady) {
@@ -108,6 +133,15 @@ const ShortsVideo = ({
     }
   }, [onProgress]);
 
+  const setRef = useCallback((ref: any) => {
+    (videoRef as any).current = ref;
+    if (videoRefCallback) {
+      videoRefCallback(ref);
+    }
+  }, [videoRefCallback]);
+
+  const videoSource = useMemo(() => ({ uri: videoUrl }), [videoUrl]);
+
   return (
     <View style={styles.container}>
       {/* Thumbnail backdrop shown until video is ready — prevents black flash */}
@@ -115,11 +149,11 @@ const ShortsVideo = ({
         <Image
           source={{ uri: imageUrl }}
           style={StyleSheet.absoluteFill}
-          resizeMode="cover"
+          resizeMode="contain"
         />
       ) : showPoster ? (
         <View style={[StyleSheet.absoluteFill, styles.loaderContainer]}>
-          <ActivityIndicator size="small" color="rgba(255,255,255,0.6)" />
+          <LoadingGlobe size="small" color="rgba(255,255,255,0.6)" />
         </View>
       ) : null}
 
@@ -137,10 +171,10 @@ const ShortsVideo = ({
       {/* Video component - only rendered when shouldRender is true and no error */}
       {shouldRender && !hasError && (
         <Video
-          ref={videoRef}
-          source={{ uri: videoUrl }}
+          ref={setRef}
+          source={videoSource}
           style={StyleSheet.absoluteFill}
-          resizeMode="cover"
+          resizeMode="contain"
           repeat={true}
           paused={isPaused}
           muted={false}
@@ -148,12 +182,7 @@ const ShortsVideo = ({
           onReadyForDisplay={handleReadyForDisplay}
           onError={handleVideoError}
           onProgress={handlePlaybackStatusUpdate}
-          bufferConfig={{
-            minBufferMs: 2500,
-            maxBufferMs: 10000,
-            bufferForPlaybackMs: 1000,
-            bufferForPlaybackAfterRebufferMs: 2000,
-          }}
+          bufferConfig={BUFFER_CONFIG}
           ignoreSilentSwitch="obey"
           playInBackground={false}
           playWhenInactive={false}
@@ -164,7 +193,7 @@ const ShortsVideo = ({
       {/* Spinner visible during the loading phase */}
       {shouldRender && !isReady && !hasError && (
         <View style={[StyleSheet.absoluteFill, styles.loaderContainer, { backgroundColor: 'transparent' }]}>
-          <ActivityIndicator size="small" color="rgba(255,255,255,0.6)" />
+          <LoadingGlobe size="small" color="rgba(255,255,255,0.6)" />
         </View>
       )}
     </View>

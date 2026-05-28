@@ -18,10 +18,15 @@ import {
   Banknote,
   Globe,
   Copy,
+  ShoppingBag,
+  Truck,
+  Ban,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { getConnectPageSubscribers } from '../services/connectAdminService'
 import { getConnectPagePayouts, markPayoutPaid } from '../services/subscriptionService'
+import { getCommunityPageOrders, updateOrderStatus } from '../services/communityService'
+
 
 const CURRENCY_SYM = { INR: '₹', USD: '$', EUR: '€', GBP: '£' }
 const sym = (c) => CURRENCY_SYM[c] || c || ''
@@ -62,6 +67,22 @@ const StatusPill = ({ status }) => {
   )
 }
 
+const OrderStatusPill = ({ status }) => {
+  const map = {
+    pending: { cls: 'bg-amber-50 text-amber-700 border-amber-200', label: 'Pending' },
+    shipped: { cls: 'bg-blue-50 text-blue-700 border-blue-200', label: 'Shipped' },
+    delivered: { cls: 'bg-green-50 text-green-700 border-green-200', label: 'Delivered' },
+    cancelled: { cls: 'bg-red-50 text-red-700 border-red-200', label: 'Cancelled' },
+  }
+  const m = map[status] || map.pending
+  return (
+    <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium border rounded-full ${m.cls}`}>
+      {m.label}
+    </span>
+  )
+}
+
+
 const ConnectPageDetail = () => {
   const { pageId } = useParams()
   const navigate = useNavigate()
@@ -76,21 +97,52 @@ const ConnectPageDetail = () => {
   const [markPaidForm, setMarkPaidForm] = useState({ reference: '', notes: '', paidAt: '' })
   const [markPaidSubmitting, setMarkPaidSubmitting] = useState(false)
 
+  // Orders state (for community pages)
+  const [orders, setOrders] = useState([])
+  const [ordersLoading, setOrdersLoading] = useState(false)
+  const [orderStatusFilter, setOrderStatusFilter] = useState('all')
+
+  const loadOrders = useCallback(async () => {
+    try {
+      setOrdersLoading(true)
+      const ord = await getCommunityPageOrders(pageId)
+      setOrders(Array.isArray(ord) ? ord : [])
+    } catch (err) {
+      logger.error('Orders fetch error:', err)
+      toast.error('Failed to load orders')
+    } finally {
+      setOrdersLoading(false)
+    }
+  }, [pageId])
+
   const load = useCallback(async () => {
     try {
       setLoading(true)
       const res = await getConnectPageSubscribers(pageId)
       setData(res)
+      if (res.page?.category === 'community') {
+        try {
+          setOrdersLoading(true)
+          const ord = await getCommunityPageOrders(pageId)
+          setOrders(Array.isArray(ord) ? ord : [])
+        } catch (err) {
+          logger.error('Orders fetch error:', err)
+          toast.error('Failed to load orders')
+        } finally {
+          setOrdersLoading(false)
+        }
+      }
     } catch (err) {
       logger.error('Subscribers fetch error:', err)
       const parsed = handleError(err)
-      toast.error(parsed?.adminMessage || parsed?.message || 'Failed to load subscribers')
+      toast.error(parsed?.adminMessage || parsed?.message || 'Failed to load page details')
     } finally {
       setLoading(false)
     }
   }, [pageId])
 
   const loadPayouts = useCallback(async () => {
+    if (data?.page?.category === 'community') return
     try {
       setPayoutsLoading(true)
       const res = await getConnectPagePayouts(pageId, { page: 1, limit: 50 })
@@ -103,7 +155,8 @@ const ConnectPageDetail = () => {
     } finally {
       setPayoutsLoading(false)
     }
-  }, [pageId])
+  }, [pageId, data?.page?.category])
+
 
   useEffect(() => { load() }, [load])
   useEffect(() => { loadPayouts() }, [loadPayouts])
@@ -150,6 +203,18 @@ const ConnectPageDetail = () => {
     }
   }
 
+  const handleUpdateOrderStatus = async (orderId, newStatus) => {
+    try {
+      await updateOrderStatus(orderId, newStatus)
+      toast.success(`Order status updated to ${newStatus}`)
+      loadOrders()
+    } catch (err) {
+      const parsed = handleError(err)
+      toast.error(parsed?.adminMessage || parsed?.message || 'Failed to update order status')
+    }
+  }
+
+
   const copyToClipboard = (text, label) => {
     if (!text) return
     try {
@@ -176,8 +241,257 @@ const ConnectPageDetail = () => {
     ? allSubscriptions
     : allSubscriptions.filter(s => s.status === statusFilter)
 
+  const isCommunity = page?.category === 'community'
+
+  // Filter orders
+  const filteredOrders = orderStatusFilter === 'all'
+    ? orders
+    : orders.filter(o => o.deliveryStatus === orderStatusFilter)
+
+  if (isCommunity) {
+    const totalOrdersCount = orders.length
+    const pendingOrdersCount = orders.filter(o => o.deliveryStatus === 'pending').length
+    const shippedOrdersCount = orders.filter(o => o.deliveryStatus === 'shipped').length
+    const deliveredOrdersCount = orders.filter(o => o.deliveryStatus === 'delivered').length
+    const totalSales = orders
+      .filter(o => o.paymentStatus === 'completed' && o.deliveryStatus !== 'cancelled')
+      .reduce((sum, o) => sum + (o.price || 0), 0)
+
+    return (
+      <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              onClick={() => navigate('/community-pages')}
+              className="inline-flex items-center gap-1 px-2 py-1 text-sm text-gray-600 hover:text-gray-900"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back
+            </button>
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold text-gray-900 truncate flex items-center gap-2">
+                {page?.name || (loading ? 'Loading...' : 'Page')}
+                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">
+                  Community
+                </span>
+              </h1>
+              <p className="text-sm text-gray-500 truncate">
+                Owned by {page?.userId?.fullName || page?.userId?.username || '—'} ({page?.userId?.email || 'no email'})
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={load}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-50"
+            disabled={loading}
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+
+        {/* Stats */}
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+          <div className="bg-blue-50 rounded-xl p-4 border border-gray-100">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-gray-600">Total Orders</span>
+              <ShoppingBag className="w-4 h-4 text-blue-600" />
+            </div>
+            <div className="text-xl font-bold text-blue-600">{totalOrdersCount}</div>
+          </div>
+          <div className="bg-amber-50 rounded-xl p-4 border border-gray-100">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-gray-600">Pending</span>
+              <Clock className="w-4 h-4 text-amber-600" />
+            </div>
+            <div className="text-xl font-bold text-amber-600">{pendingOrdersCount}</div>
+          </div>
+          <div className="bg-blue-50 rounded-xl p-4 border border-gray-100">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-gray-600">Shipped</span>
+              <Truck className="w-4 h-4 text-blue-600" />
+            </div>
+            <div className="text-xl font-bold text-blue-600">{shippedOrdersCount}</div>
+          </div>
+          <div className="bg-green-50 rounded-xl p-4 border border-gray-100">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-gray-600">Delivered</span>
+              <CheckCircle className="w-4 h-4 text-green-600" />
+            </div>
+            <div className="text-xl font-bold text-green-600">{deliveredOrdersCount}</div>
+          </div>
+          <div className="bg-purple-50 rounded-xl p-4 border border-gray-100 col-span-2 lg:col-span-1">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium text-gray-600">Total Sales</span>
+              <IndianRupee className="w-4 h-4 text-purple-600" />
+            </div>
+            <div className="text-xl font-bold text-purple-600">
+              ₹{totalSales.toLocaleString('en-IN')}
+            </div>
+          </div>
+        </div>
+
+        {/* Orders Table */}
+        <Card>
+          <CardHeader>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <CardTitle>Orders</CardTitle>
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {[
+                  { value: 'all', label: 'All', count: totalOrdersCount },
+                  { value: 'pending', label: 'Pending', count: pendingOrdersCount },
+                  { value: 'shipped', label: 'Shipped', count: shippedOrdersCount },
+                  { value: 'delivered', label: 'Delivered', count: deliveredOrdersCount },
+                  { value: 'cancelled', label: 'Cancelled', count: orders.filter(o => o.deliveryStatus === 'cancelled').length },
+                ].map(f => (
+                  <button
+                    key={f.value}
+                    onClick={() => setOrderStatusFilter(f.value)}
+                    className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors whitespace-nowrap ${
+                      orderStatusFilter === f.value
+                        ? 'bg-purple-600 text-white border-purple-600'
+                        : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    {f.label} ({f.count})
+                  </button>
+                ))}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Item Name</TableHead>
+                  <TableHead className="text-right">Price</TableHead>
+                  <TableHead>Buyer</TableHead>
+                  <TableHead>Shipping Details</TableHead>
+                  <TableHead>Payment</TableHead>
+                  <TableHead>Delivery Status</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ordersLoading && filteredOrders.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                      Loading orders...
+                    </TableCell>
+                  </TableRow>
+                ) : filteredOrders.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-8 text-gray-500">
+                      {orderStatusFilter === 'all' ? 'No orders yet' : `No ${orderStatusFilter} orders`}
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredOrders.map((o) => (
+                    <TableRow key={o._id}>
+                      <TableCell className="text-xs text-gray-600">
+                        {formatDate(o.createdAt)}
+                      </TableCell>
+                      <TableCell className="font-medium text-gray-900">
+                        {o.itemName}
+                      </TableCell>
+                      <TableCell className="text-right text-sm font-semibold">
+                        ₹{(o.price || 0).toLocaleString('en-IN')}
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">
+                          <div className="font-medium text-gray-900">{o.buyerName}</div>
+                          {o.userId && (
+                            <div className="text-xs text-gray-500 mt-0.5 space-y-0.5">
+                              <div><strong>Acct:</strong> {o.userId.fullName || '—'} (@{o.userId.username || '—'})</div>
+                              {o.userId.email && <div><strong>Email:</strong> {o.userId.email}</div>}
+                            </div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-xs text-gray-700 space-y-0.5 max-w-xs">
+                          <div><strong>Phone:</strong> {o.buyerPhone}</div>
+                          <div><strong>Pay Phone:</strong> {o.payPhone}</div>
+                          <div className="flex items-start gap-1">
+                            <span className="truncate"><strong>Addr:</strong> {o.deliveryAddress}</span>
+                            <button
+                              onClick={() => copyToClipboard(o.deliveryAddress, 'Address')}
+                              className="text-gray-400 hover:text-gray-700 flex-shrink-0"
+                              title="Copy Address"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium border rounded-full ${
+                          o.paymentStatus === 'completed'
+                            ? 'bg-green-50 text-green-700 border-green-200'
+                            : o.paymentStatus === 'failed'
+                            ? 'bg-red-50 text-red-700 border-red-200'
+                            : 'bg-amber-50 text-amber-700 border-amber-200'
+                        }`}>
+                          {o.paymentStatus}
+                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <OrderStatusPill status={o.deliveryStatus} />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex items-center gap-1.5 justify-end">
+                          {o.deliveryStatus === 'pending' && (
+                            <>
+                              <button
+                                onClick={() => handleUpdateOrderStatus(o._id, 'shipped')}
+                                className="px-2 py-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded hover:bg-blue-100"
+                              >
+                                Ship
+                              </button>
+                              <button
+                                onClick={() => handleUpdateOrderStatus(o._id, 'cancelled')}
+                                className="px-2 py-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded hover:bg-red-100"
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          )}
+                          {o.deliveryStatus === 'shipped' && (
+                            <>
+                              <button
+                                onClick={() => handleUpdateOrderStatus(o._id, 'delivered')}
+                                className="px-2 py-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded hover:bg-green-100"
+                              >
+                                Deliver
+                              </button>
+                              <button
+                                onClick={() => handleUpdateOrderStatus(o._id, 'cancelled')}
+                                className="px-2 py-1 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded hover:bg-red-100"
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          )}
+                          {(o.deliveryStatus === 'delivered' || o.deliveryStatus === 'cancelled') && (
+                            <span className="text-xs text-gray-400">—</span>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3 min-w-0">
           <button

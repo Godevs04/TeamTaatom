@@ -31,6 +31,72 @@ const trackEvents = async (req, res) => {
     // Bulk insert events
     await AnalyticsEvent.insertMany(eventsToSave);
 
+    // Increment post/short views count in database
+    const Post = require('../models/Post');
+    const { deleteCache, CacheKeys } = require('../utils/cache');
+    for (const event of eventsToSave) {
+      if (event.event === 'post_view') {
+        const postId = event.properties?.post_id || event.properties?.postId;
+        if (postId) {
+          try {
+            const post = await Post.findById(postId);
+            if (post) {
+              // 8-hour cooldown verification: check if this user (userId) or session (sessionId)
+              // already viewed this post/short in the last 8 hours
+              const cooldownPeriod = 8 * 60 * 60 * 1000; // 8 hours in milliseconds
+              const cutoffTime = new Date(event.timestamp.getTime() - cooldownPeriod);
+
+              const cooldownQuery = {
+                event: 'post_view',
+                timestamp: { $gte: cutoffTime, $lt: event.timestamp },
+                $or: [
+                  { 'properties.post_id': postId },
+                  { 'properties.postId': postId }
+                ]
+              };
+
+              // Identify viewer by userId if logged in, otherwise by sessionId
+              if (event.userId) {
+                cooldownQuery.userId = event.userId;
+              } else if (event.sessionId) {
+                cooldownQuery.sessionId = event.sessionId;
+              } else {
+                cooldownQuery.sessionId = event.sessionId;
+              }
+
+              const existingView = await AnalyticsEvent.findOne(cooldownQuery);
+              let shouldIncrement = true;
+
+              if (existingView) {
+                shouldIncrement = false;
+                const identity = event.userId ? `User ${event.userId}` : `Session ${event.sessionId}`;
+                logger.info(`[VIEW TRACKING] ${identity} already viewed post/short ${postId} within the last 8 hours (existing view at ${existingView.timestamp.toISOString()}). Cooldown active, skipping view increment.`);
+              }
+
+              if (shouldIncrement) {
+                post.views = (post.views || 0) + 1;
+                await post.save();
+                logger.info(`[VIEW TRACKING] Post/short ${postId} view count incremented to ${post.views} for ${event.userId ? 'User ' + event.userId : 'Session ' + event.sessionId}.`);
+
+                try {
+                  const io = global.socketIO || req.app?.get?.('io');
+                  const nsp = io?.of?.('/app');
+                  nsp?.emitPostView?.(postId, post.views, event.userId || null);
+                } catch (socketError) {
+                  logger.debug(`[VIEW TRACKING] Failed to emit view update for ${postId}:`, socketError);
+                }
+                
+                // Invalidate post cache so fresh views count is fetched next time
+                await deleteCache(CacheKeys.post(postId)).catch(() => {});
+              }
+            }
+          } catch (err) {
+            logger.error(`[VIEW TRACKING] Error incrementing views for post ${postId}:`, err);
+          }
+        }
+      }
+    }
+
     res.json({
       success: true,
       message: 'Events tracked successfully',

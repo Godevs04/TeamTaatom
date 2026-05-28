@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   RefreshControl,
   Platform,
   Dimensions,
@@ -13,12 +12,14 @@ import {
   TextInput,
   Alert,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { FlashList } from '@shopify/flash-list';
 import { useTheme } from '../../context/ThemeContext';
 import { theme as themeConstants } from '../../constants/theme';
 import ConnectCard from '../../components/ConnectCard';
+import { BlurView } from 'expo-blur';
 import EmptyState from '../../components/EmptyState';
 import {
   getMyPages,
@@ -40,6 +41,7 @@ import PremiumScreen from '../../components/ui/PremiumScreen';
 import CloudGlassSurface from '../../components/cloud/CloudGlassSurface';
 import PremiumIconButton from '../../components/ui/PremiumIconButton';
 import PremiumSegmentedTabs from '../../components/ui/PremiumSegmentedTabs';
+import GradientText from '../../components/ui/GradientText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -538,13 +540,24 @@ export default function ConnectHubScreen() {
       activeOpacity={0.7}
     >
       <CloudGlassSurface style={styles.userCard} contentStyle={styles.userCardContent} borderRadius={18}>
-        {user.profilePic ? (
-          <Image source={{ uri: user.profilePic }} style={styles.userAvatar} />
-        ) : (
-          <View style={[styles.userAvatarPlaceholder, { backgroundColor: 'rgba(91,188,248,0.12)' }]}>
-            <Ionicons name="person" size={22} color={theme.colors.textSecondary} />
-          </View>
-        )}
+        <LinearGradient
+          colors={['#1C73B4', '#50C878']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={{
+            padding: 2,
+            borderRadius: isTablet ? 28 : 24,
+            marginRight: 12,
+          }}
+        >
+          {user.profilePic ? (
+            <Image source={{ uri: user.profilePic }} style={[styles.userAvatar, { marginRight: 0 }]} />
+          ) : (
+            <View style={[styles.userAvatarPlaceholder, { marginRight: 0, backgroundColor: isDark ? '#000000' : '#FFFFFF' }]}>
+              <Ionicons name="person" size={22} color={theme.colors.textSecondary} />
+            </View>
+          )}
+        </LinearGradient>
         <View style={styles.userInfo}>
           <Text style={[styles.userName, { color: theme.colors.text }]} numberOfLines={1}>
             {user.fullName}
@@ -615,7 +628,7 @@ export default function ConnectHubScreen() {
     if (myPagesLoading) {
       return (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       );
     }
@@ -655,7 +668,7 @@ export default function ConnectHubScreen() {
         ListFooterComponent={
           connectLoadingMore ? (
             <View style={{ paddingVertical: 16, alignItems: 'center' }}>
-              <ActivityIndicator color={theme.colors.primary} />
+              <LoadingGlobe color={theme.colors.primary} />
             </View>
           ) : null
         }
@@ -687,13 +700,24 @@ export default function ConnectHubScreen() {
         >
           {/* User Info Header */}
           <View style={styles.sheetUserHeader}>
-            {selectedUser.profilePic ? (
-              <Image source={{ uri: selectedUser.profilePic }} style={styles.sheetAvatar} />
-            ) : (
-              <View style={[styles.sheetAvatarPlaceholder, { backgroundColor: theme.colors.border }]}>
-                <Ionicons name="person" size={28} color={theme.colors.textSecondary} />
-              </View>
-            )}
+            <LinearGradient
+              colors={['#1C73B4', '#50C878']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{
+                padding: 2,
+                borderRadius: isTablet ? 30 : 26,
+                marginRight: 14,
+              }}
+            >
+              {selectedUser.profilePic ? (
+                <Image source={{ uri: selectedUser.profilePic }} style={[styles.sheetAvatar, { marginRight: 0 }]} />
+              ) : (
+                <View style={[styles.sheetAvatarPlaceholder, { marginRight: 0, backgroundColor: isDark ? '#000000' : '#FFFFFF' }]}>
+                  <Ionicons name="person" size={28} color={theme.colors.textSecondary} />
+                </View>
+              )}
+            </LinearGradient>
             <View style={styles.sheetUserInfo}>
               <Text style={[styles.sheetUserName, { color: theme.colors.text }]} numberOfLines={1}>
                 {selectedUser.fullName}
@@ -771,28 +795,32 @@ export default function ConnectHubScreen() {
         <Text style={[styles.filterTitle, { color: theme.colors.text }]}>
           Find Fellow Travelers
         </Text>
-        <Text style={[styles.filterSubtitle, { color: theme.colors.textSecondary }]}>
+        <Text style={[styles.filterSubtitle, { color: isDark ? 'rgba(56, 189, 248, 0.8)' : 'rgba(28, 115, 180, 0.8)' }]}>
           Discover travelers who speak your language
         </Text>
 
         {/* Your current location (free-form, Places autocomplete) */}
-        <Text style={[styles.filterFieldLabel, { color: theme.colors.text }]}>
+        <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>
           Your current location
         </Text>
-        <View style={[styles.filterSelect, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
-          <Ionicons name="navigate-outline" size={18} color={theme.colors.textSecondary} />
+        <View style={[styles.filterSelect, {
+          backgroundColor: isDark ? 'rgba(28, 115, 180, 0.15)' : 'rgba(28, 115, 180, 0.08)',
+          borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)'
+        }]}>
+          <Ionicons name="navigate-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
           <TextInput
-            style={[styles.filterTextInput, { color: theme.colors.text }]}
+            style={[styles.filterTextInput, { color: isDark ? '#38BDF8' : '#1C73B4' }]}
             value={userLocationInput}
             onChangeText={handleUserLocationChange}
             placeholder="Type a city…"
-            placeholderTextColor={theme.colors.textSecondary}
+            placeholderTextColor={isDark ? 'rgba(56, 189, 248, 0.6)' : 'rgba(28, 115, 180, 0.6)'}
             autoCorrect={false}
             autoCapitalize="words"
             returnKeyType="search"
+            underlineColorAndroid="transparent"
           />
           {loadingUserLocation ? (
-            <ActivityIndicator size="small" color={theme.colors.textSecondary} />
+            <LoadingGlobe size="small" color={isDark ? '#38BDF8' : '#1C73B4'} />
           ) : userLocationInput.length > 0 ? (
             <TouchableOpacity
               onPress={() => {
@@ -802,7 +830,7 @@ export default function ConnectHubScreen() {
               }}
               hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
             >
-              <Ionicons name="close-circle" size={18} color={theme.colors.textSecondary} />
+              <Ionicons name="close-circle" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
             </TouchableOpacity>
           ) : null}
         </View>
@@ -825,81 +853,100 @@ export default function ConnectHubScreen() {
         )}
 
         {/* People-from country */}
-        <Text style={[styles.filterFieldLabel, { color: theme.colors.text }]}>
+        <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>
           Which country&apos;s people would you like to connect with?
         </Text>
         <TouchableOpacity
-          style={[styles.filterSelect, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+          style={[styles.filterSelect, {
+            backgroundColor: isDark ? 'rgba(28, 115, 180, 0.15)' : 'rgba(28, 115, 180, 0.08)',
+            borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)'
+          }]}
           onPress={() => setShowCountryPicker(true)}
           activeOpacity={0.7}
         >
-          <Ionicons name="flag-outline" size={18} color={theme.colors.textSecondary} />
-          <Text style={[styles.filterSelectText, { color: selectedCountry ? theme.colors.text : theme.colors.textSecondary }]}>
+          <Ionicons name="flag-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
+          <Text style={[styles.filterSelectText, { color: selectedCountry ? (isDark ? '#38BDF8' : '#1C73B4') : (isDark ? 'rgba(56, 189, 248, 0.6)' : 'rgba(28, 115, 180, 0.6)') }]}>
             {getSelectedLabel(countries, selectedCountry, 'Select country (optional)')}
           </Text>
-          <Ionicons name="chevron-down" size={18} color={theme.colors.textSecondary} />
+          <Ionicons name="chevron-down" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
         </TouchableOpacity>
 
         {/* Where they currently are */}
-        <Text style={[styles.filterFieldLabel, { color: theme.colors.text }]}>
+        <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>
           Which country should they currently be in?
         </Text>
         <TouchableOpacity
-          style={[styles.filterSelect, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+          style={[styles.filterSelect, {
+            backgroundColor: isDark ? 'rgba(28, 115, 180, 0.15)' : 'rgba(28, 115, 180, 0.08)',
+            borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)'
+          }]}
           onPress={() => setShowCurrentCountryPicker(true)}
           activeOpacity={0.7}
         >
-          <Ionicons name="location-outline" size={18} color={theme.colors.textSecondary} />
-          <Text style={[styles.filterSelectText, { color: selectedCurrentCountry ? theme.colors.text : theme.colors.textSecondary }]}>
+          <Ionicons name="location-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
+          <Text style={[styles.filterSelectText, { color: selectedCurrentCountry ? (isDark ? '#38BDF8' : '#1C73B4') : (isDark ? 'rgba(56, 189, 248, 0.6)' : 'rgba(28, 115, 180, 0.6)') }]}>
             {getSelectedLabel(countries, selectedCurrentCountry, 'Select country (optional)')}
           </Text>
-          <Ionicons name="chevron-down" size={18} color={theme.colors.textSecondary} />
+          <Ionicons name="chevron-down" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
         </TouchableOpacity>
 
         {/* Language Picker */}
-        <Text style={[styles.filterFieldLabel, { color: theme.colors.text }]}>
+        <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>
           Language (required)
         </Text>
         <TouchableOpacity
-          style={[styles.filterSelect, { backgroundColor: theme.colors.background, borderColor: !selectedLanguage ? theme.colors.primary + '60' : theme.colors.border }]}
+          style={[styles.filterSelect, {
+            backgroundColor: isDark ? 'rgba(28, 115, 180, 0.15)' : 'rgba(28, 115, 180, 0.08)',
+            borderColor: !selectedLanguage ? (isDark ? 'rgba(56, 189, 248, 0.45)' : 'rgba(28, 115, 180, 0.4)') : (isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)')
+          }]}
           onPress={() => setShowLanguagePicker(true)}
           activeOpacity={0.7}
         >
-          <Ionicons name="language-outline" size={18} color={theme.colors.textSecondary} />
-          <Text style={[styles.filterSelectText, { color: selectedLanguage ? theme.colors.text : theme.colors.textSecondary }]}>
+          <Ionicons name="language-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
+          <Text style={[styles.filterSelectText, { color: selectedLanguage ? (isDark ? '#38BDF8' : '#1C73B4') : (isDark ? 'rgba(56, 189, 248, 0.6)' : 'rgba(28, 115, 180, 0.6)') }]}>
             {getSelectedLabel(languages, selectedLanguage, 'Select Language *')}
           </Text>
-          <Ionicons name="chevron-down" size={18} color={theme.colors.textSecondary} />
+          <Ionicons name="chevron-down" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
         </TouchableOpacity>
 
         {/* Travel Style Picker */}
         <TouchableOpacity
-          style={[styles.filterSelect, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}
+          style={[styles.filterSelect, {
+            backgroundColor: isDark ? 'rgba(28, 115, 180, 0.15)' : 'rgba(28, 115, 180, 0.08)',
+            borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)'
+          }]}
           onPress={() => setShowTravelStylePicker(true)}
           activeOpacity={0.7}
         >
-          <Ionicons name="compass-outline" size={18} color={theme.colors.textSecondary} />
-          <Text style={[styles.filterSelectText, { color: selectedTravelStyle ? theme.colors.text : theme.colors.textSecondary }]}>
+          <Ionicons name="compass-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
+          <Text style={[styles.filterSelectText, { color: selectedTravelStyle ? (isDark ? '#38BDF8' : '#1C73B4') : (isDark ? 'rgba(56, 189, 248, 0.6)' : 'rgba(28, 115, 180, 0.6)') }]}>
             {selectedTravelStyle ? TRAVEL_STYLES.find(s => s.code === selectedTravelStyle)?.name || 'Travel Style' : 'Select Travel Style (optional)'}
           </Text>
-          <Ionicons name="chevron-down" size={18} color={theme.colors.textSecondary} />
+          <Ionicons name="chevron-down" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
         </TouchableOpacity>
 
         {/* Search Button */}
         <TouchableOpacity
-          style={[styles.findButton, { backgroundColor: theme.colors.primary, opacity: !selectedLanguage || findLoading ? 0.5 : 1 }]}
+          style={{ marginTop: 4, opacity: !selectedLanguage || findLoading ? 0.5 : 1 }}
           onPress={handleFindUsers}
           disabled={!selectedLanguage || findLoading}
           activeOpacity={0.7}
         >
-          {findLoading ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          ) : (
-            <>
-              <Ionicons name="search" size={18} color="#FFFFFF" />
-              <Text style={styles.findButtonText}>Find Travelers</Text>
-            </>
-          )}
+          <LinearGradient
+            colors={['#50C878', '#1C73B4']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.findButton}
+          >
+            {findLoading ? (
+              <LoadingGlobe size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <Ionicons name="search" size={18} color="#FFFFFF" />
+                <Text style={styles.findButtonText}>Find Travelers</Text>
+              </>
+            )}
+          </LinearGradient>
         </TouchableOpacity>
       </CloudGlassSurface>
 
@@ -921,7 +968,7 @@ export default function ConnectHubScreen() {
     if (loading) {
       return (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       );
     }
@@ -941,7 +988,7 @@ export default function ConnectHubScreen() {
         ListFooterComponent={
           loadingMore ? (
             <View style={styles.footerLoader}>
-              <ActivityIndicator size="small" color={theme.colors.primary} />
+              <LoadingGlobe size="small" color={theme.colors.primary} />
             </View>
           ) : null
         }
@@ -965,42 +1012,95 @@ export default function ConnectHubScreen() {
 
   return (
     <PremiumScreen style={styles.container} edges={[]} hideBackgroundDesign={true}>
-      {/* Solid Opaque Top Bar */}
-      <View style={[styles.solidTopBar, { height: topBarHeight, paddingTop: topBarHeight - 56, backgroundColor: isDark ? '#0D1B2A' : '#FFFFFF' }]}>
+      {/* Floating Glass Top Bar */}
+      <View
+        style={[
+          styles.solidTopBar,
+          {
+            height: topBarHeight,
+            paddingTop: topBarHeight - 56,
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 100,
+            borderBottomLeftRadius: 24,
+            borderBottomRightRadius: 24,
+            overflow: 'hidden',
+            borderWidth: 1,
+            borderTopWidth: 0,
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
+            backgroundColor: isDark ? 'rgba(13, 27, 42, 0.65)' : 'rgba(255, 255, 255, 0.65)',
+          }
+        ]}
+      >
+        <BlurView
+          intensity={80}
+          tint={isDark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFillObject}
+        />
+        <LinearGradient
+          colors={isDark ? ['rgba(255, 255, 255, 0.1)', 'transparent'] : ['rgba(255, 255, 255, 0.5)', 'transparent']}
+          style={StyleSheet.absoluteFillObject}
+        />
         <View style={styles.topBarContent}>
           <PremiumIconButton
-            icon="menu"
+            icon="arrow-back"
             onPress={() => router.back()}
             accessibilityLabel="Back"
+            color={isDark ? '#38BDF8' : '#1C73B4'}
           />
-          <Text style={[styles.topBarTitle, { color: isDark ? '#FFFFFF' : '#122236' }]}>Connect</Text>
+          <GradientText text="Connect" style={styles.topBarTitle} />
           <PremiumIconButton
             icon="search"
             onPress={() => router.push('/connect/search')}
             accessibilityLabel="Search"
+            color={isDark ? '#38BDF8' : '#1C73B4'}
           />
         </View>
       </View>
-      {/* Shadow Gate */}
-      <LinearGradient
-        colors={[isDark ? 'rgba(13,27,42,0.7)' : 'rgba(0,0,0,0.08)', 'transparent']}
-        style={styles.topBarShadow}
-      />
 
-      {/* Tabs */}
-      <PremiumSegmentedTabs tabs={tabs} value={activeTab} onChange={handleTabChange} style={styles.tabBar} />
+      {/* Tabs & Tab Content wrapper to account for floating absolute top bar */}
+      <View style={{ flex: 1, paddingTop: topBarHeight }}>
+        {/* Tabs */}
+        <PremiumSegmentedTabs tabs={tabs} value={activeTab} onChange={handleTabChange} style={styles.tabBar} />
 
-      {/* Tab Content */}
-      {activeTab === 'connect' ? renderConnectTab() : activeTab === 'find' ? renderFindTab() : renderPageListTab()}
+        {/* Tab Content */}
+        {activeTab === 'connect' ? renderConnectTab() : activeTab === 'find' ? renderFindTab() : renderPageListTab()}
+      </View>
 
       {/* FAB — Create Connect Page (Connect tab only) */}
       {activeTab === 'connect' && (
         <TouchableOpacity
-          style={[styles.fab, { backgroundColor: theme.colors.primary, shadowColor: theme.colors.glowBlue }]}
+          style={{
+            position: 'absolute',
+            right: isTablet ? 32 : 20,
+            bottom: isTablet ? 32 : 20,
+            width: isTablet ? 60 : 56,
+            height: isTablet ? 60 : 56,
+            shadowColor: theme.colors.glowBlue || '#32A8FF',
+            shadowOffset: { width: 0, height: 12 },
+            shadowOpacity: 0.35,
+            shadowRadius: 18,
+            elevation: 8,
+          }}
           onPress={() => router.push('/connect/create')}
           activeOpacity={0.8}
         >
-          <Ionicons name="add" size={28} color="#FFFFFF" />
+          <LinearGradient
+            colors={['#50C878', '#1C73B4']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{
+              width: '100%',
+              height: '100%',
+              borderRadius: isTablet ? 30 : 28,
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+          >
+            <Ionicons name="add" size={28} color="#FFFFFF" />
+          </LinearGradient>
         </TouchableOpacity>
       )}
 

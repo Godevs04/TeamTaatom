@@ -8,11 +8,11 @@ import {
   ScrollView,
   Switch,
   Alert,
-  ActivityIndicator,
   Platform,
   Dimensions,
   KeyboardAvoidingView,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -96,7 +96,7 @@ export default function CreateCollectionScreen() {
   if (loading && isEditing) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top']}>
-        <ActivityIndicator size="large" color={theme.colors.primary} />
+        <LoadingGlobe size="large" color={theme.colors.primary} />
       </SafeAreaView>
     );
   }

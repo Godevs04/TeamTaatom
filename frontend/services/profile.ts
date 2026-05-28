@@ -2,6 +2,7 @@ import api from './api';
 import { UserType, FollowRequestsResponse } from '../types/user';
 import logger from '../utils/logger';
 import { parseError } from '../utils/errorCodes';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface ProfileResponse {
   profile: UserType & {
@@ -123,9 +124,35 @@ export const toggleFollow = async (userId: string): Promise<{
     const response = await api.post(`/api/v1/profile/${userId}/follow`);
     // The backend sendSuccess spreads data directly, so response.data contains all fields
     const data = response.data;
+    const isFollowing = Boolean(data?.isFollowing ?? false);
+
+    // Sync following list in AsyncStorage userData
+    try {
+      const storedUser = await AsyncStorage.getItem('userData');
+      if (storedUser) {
+        const user = JSON.parse(storedUser);
+        let followingList = Array.isArray(user.followingIds) 
+          ? [...user.followingIds] 
+          : (Array.isArray(user.following) ? [...user.following] : []);
+        if (isFollowing) {
+          if (!followingList.includes(userId)) {
+            followingList.push(userId);
+          }
+        } else {
+          followingList = followingList.filter(id => id !== userId);
+        }
+        user.followingIds = followingList;
+        user.following = followingList.length; // Keep following count updated too
+        await AsyncStorage.setItem('userData', JSON.stringify(user));
+        logger.debug('toggleFollow service: updated userData followingIds list in AsyncStorage');
+      }
+    } catch (storageError) {
+      logger.error('toggleFollow service: failed to update userData in AsyncStorage', storageError);
+    }
+
     return {
       message: data?.message || 'Success',
-      isFollowing: Boolean(data?.isFollowing ?? false),
+      isFollowing: isFollowing,
       followersCount: data?.followersCount ?? 0,
       followingCount: data?.followingCount ?? 0,
       followRequestSent: Boolean(data?.followRequestSent ?? false)
@@ -367,6 +394,72 @@ export const completeProfileOnboarding = async (): Promise<void> => {
 export const getTravelMapData = async (userId: string): Promise<TravelMapDataResponse> => {
   try {
     const response = await api.get(`/api/v1/profile/${userId}/travel-map`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+// Request route access from a user
+export const requestRouteAccess = async (userId: string): Promise<{ message: string; status: 'pending' | 'approved' }> => {
+  try {
+    const response = await api.post(`/api/v1/profile/${userId}/route-access/request`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+// Approve a route access request
+export const approveRouteAccess = async (requestId: string): Promise<{ message: string }> => {
+  try {
+    const response = await api.post(`/api/v1/profile/route-access/requests/${requestId}/approve`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+// Reject a route access request
+export const rejectRouteAccess = async (requestId: string): Promise<{ message: string }> => {
+  try {
+    const response = await api.post(`/api/v1/profile/route-access/requests/${requestId}/reject`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+// Revoke route access from a user
+export const revokeRouteAccess = async (userId: string): Promise<{ message: string }> => {
+  try {
+    const response = await api.delete(`/api/v1/profile/${userId}/route-access`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+// Get pending route access requests
+export const getRouteAccessRequests = async (): Promise<{ requests: any[] }> => {
+  try {
+    const response = await api.get('/api/v1/profile/route-access/requests');
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
+// Get list of users approved for route access
+export const getApprovedUsers = async (): Promise<{ approvedUsers: any[] }> => {
+  try {
+    const response = await api.get('/api/v1/profile/route-access/approved');
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);

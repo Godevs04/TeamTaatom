@@ -1,8 +1,10 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ImageStyle, Dimensions } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ImageStyle, Dimensions, Animated } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
+import MaskedView from '@react-native-masked-view/masked-view';
 import { cloudDesign, localeSubtitle } from '../../constants/cloudDesign';
 import { useCloudGlassTokens } from './CloudGlassSurface';
 import { optimizeCloudinaryUrl } from '../../utils/imageCache';
@@ -10,6 +12,8 @@ import { optimizeCloudinaryUrl } from '../../utils/imageCache';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 /** Explicit width — percentage width collapses inside FlatList headers */
 export const LOCALE_HERO_CARD_WIDTH = SCREEN_WIDTH - 32;
+
+const AnimatedBlurView = Animated.createAnimatedComponent(BlurView);
 
 export interface CloudLocaleCardData {
   _id?: string;
@@ -61,6 +65,34 @@ function CloudLocaleCard({
     ? { height, width: LOCALE_HERO_CARD_WIDTH, minWidth: LOCALE_HERO_CARD_WIDTH, maxWidth: LOCALE_HERO_CARD_WIDTH }
     : { height, width };
 
+  // Pulsing animation for skeleton shimmers
+  const pulseAnim = useRef(new Animated.Value(0.3)).current;
+  useEffect(() => {
+    let animation: Animated.CompositeAnimation | null = null;
+    if (distanceText === 'Calculating...' || distanceText === 'loading') {
+      animation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 0.7,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 0.3,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      animation.start();
+    }
+    return () => {
+      if (animation) {
+        animation.stop();
+      }
+    };
+  }, [distanceText, pulseAnim]);
+
   return (
     <TouchableOpacity
       activeOpacity={0.88}
@@ -69,52 +101,143 @@ function CloudLocaleCard({
         styles.card,
         isHero ? styles.hero : styles.mini,
         cardStyle,
-        cloudDesign.shadowCard,
+        {
+          borderWidth: 1.5,
+          borderColor: glass.isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.25)',
+          backgroundColor: glass.isDark ? '#0C1828' : '#FFFFFF',
+          borderRadius: 20,
+        }
       ]}
     >
-      {locale.imageUrl ? (
-        <ExpoImage
-          source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: isHero ? 800 : 220, height: isHero ? 500 : 260 }) }}
-          style={styles.image as ImageStyle}
-          contentFit="cover"
-          cachePolicy="memory-disk"
-          transition={120}
-        />
-      ) : (
-        <LinearGradient
-          colors={[cloudDesign.skyLight, cloudDesign.sky]}
-          style={styles.image}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        >
-          <Ionicons name="location" size={isHero ? 48 : 28} color="#fff" style={{ alignSelf: 'center', marginTop: isHero ? 60 : 36 }} />
-        </LinearGradient>
-      )}
+      <View style={[styles.imageWrapper, { height }]} key={String(locale._id || '')}>
+        {locale.imageUrl ? (
+          <ExpoImage
+            source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: isHero ? 800 : 220, height: isHero ? 500 : 260 }) }}
+            style={styles.image as ImageStyle}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={0}
+          />
+        ) : (
+          <LinearGradient
+            colors={[cloudDesign.skyLight, cloudDesign.sky]}
+            style={styles.image}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <Ionicons name="location" size={isHero ? 48 : 28} color="#fff" style={{ alignSelf: 'center', marginTop: isHero ? 60 : 36 }} />
+          </LinearGradient>
+        )}
+      </View>
 
       {onSavePress && (
-        <TouchableOpacity style={styles.cutout} onPress={(e) => { e?.stopPropagation?.(); onSavePress(); }} hitSlop={10}>
-          <Ionicons name={saved ? 'bookmark' : 'bookmark-outline'} size={isHero ? 20 : 14} color={saved ? '#FFD166' : cloudDesign.blueDeep} />
-        </TouchableOpacity>
+        <BlurView
+          intensity={95}
+          tint={glass.isDark ? 'dark' : 'light'}
+          style={[
+            styles.cutout,
+            {
+              backgroundColor: glass.isDark ? 'rgba(15, 20, 30, 0.45)' : 'rgba(255, 255, 255, 0.5)',
+              borderBottomColor: glass.isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.45)',
+              borderLeftColor: glass.isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.45)',
+              borderBottomWidth: 1.5,
+              borderLeftWidth: 1.5,
+            }
+          ]}
+        >
+          <TouchableOpacity
+            style={styles.cutoutInner}
+            onPress={(e) => { e?.stopPropagation?.(); onSavePress(); }}
+            hitSlop={10}
+          >
+            {saved ? (
+              <MaskedView
+                style={{ width: isHero ? 20 : 14, height: isHero ? 20 : 14 }}
+                maskElement={
+                  <Ionicons name="bookmark" size={isHero ? 20 : 14} color="#000000" />
+                }
+              >
+                <LinearGradient
+                  colors={['#1C73B4', '#50C878']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{ flex: 1 }}
+                />
+              </MaskedView>
+            ) : (
+              <Ionicons name="bookmark-outline" size={isHero ? 20 : 14} color={glass.isDark ? '#7AB3D6' : '#1C73B4'} />
+            )}
+          </TouchableOpacity>
+        </BlurView>
       )}
 
+      {distanceText ? (
+        distanceText === 'Calculating...' || distanceText === 'loading' ? (
+          <AnimatedBlurView
+            intensity={95}
+            tint={glass.isDark ? 'dark' : 'light'}
+            style={[
+              styles.distBadge,
+              {
+                opacity: pulseAnim,
+                backgroundColor: glass.isDark ? 'rgba(15, 20, 30, 0.45)' : 'rgba(255, 255, 255, 0.5)',
+                borderColor: glass.isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.4)',
+                borderWidth: 1.5,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }
+            ]}
+          >
+            <View style={{ width: 45, height: 8, backgroundColor: glass.isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0, 0, 0, 0.15)', borderRadius: 4 }} />
+          </AnimatedBlurView>
+        ) : (
+          <BlurView
+            intensity={95}
+            tint={glass.isDark ? 'dark' : 'light'}
+            style={[
+              styles.distBadge,
+              {
+                backgroundColor: glass.isDark ? 'rgba(15, 20, 30, 0.45)' : 'rgba(255, 255, 255, 0.5)',
+                borderColor: glass.isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.4)',
+                borderWidth: 1.5,
+                flexShrink: 1,
+                maxWidth: '60%',
+              }
+            ]}
+          >
+            <Ionicons name="location-sharp" size={10} color={glass.isDark ? '#7AB3D6' : '#1C73B4'} />
+            <Text style={[styles.distText, { flexShrink: 1, color: glass.textPrimary }]} numberOfLines={1} ellipsizeMode="tail">
+              {distanceText}
+            </Text>
+          </BlurView>
+        )
+      ) : null}
 
-      <View
+      <BlurView
+        intensity={95}
+        tint={glass.isDark ? 'dark' : 'light'}
         style={[
           styles.dataPanel,
           isHero && styles.dataPanelHero,
           {
-            backgroundColor: glass.isDark ? 'rgba(12, 24, 40, 0.88)' : 'rgba(255,255,255,0.94)',
-            borderTopColor: glass.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.6)',
+            backgroundColor: glass.isDark ? 'rgba(15, 20, 30, 0.4)' : 'rgba(255, 255, 255, 0.45)',
+            borderTopColor: glass.isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.45)',
+            borderTopWidth: 1.5,
+            borderBottomLeftRadius: 18.5,
+            borderBottomRightRadius: 18.5,
           },
         ]}
       >
-        <Text style={[styles.name, isHero && styles.nameHero, { color: glass.textPrimary }]} numberOfLines={1}>
-          {locale.name}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, width: '100%' }}>
+          <Ionicons name="location" size={isHero ? 14 : 10} color={glass.isDark ? '#38BDF8' : '#1C73B4'} />
+          <Text style={[styles.name, isHero && styles.nameHero, { color: glass.textPrimary, flex: 1 }]} numberOfLines={1}>
+            {locale.name}
+          </Text>
+        </View>
         <Text style={[styles.sub, { color: glass.textMuted }]} numberOfLines={1}>
           {localeSubtitle(locale)}
         </Text>
-      </View>
+      </BlurView>
     </TouchableOpacity>
   );
 }
@@ -123,7 +246,7 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: cloudDesign.radius.card,
     overflow: 'hidden',
-    backgroundColor: '#fff',
+    backgroundColor: 'transparent',
     position: 'relative',
   },
   hero: {
@@ -137,18 +260,30 @@ const styles = StyleSheet.create({
     height: '100%',
     position: 'absolute',
   },
+  imageWrapper: {
+    width: '100%',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    overflow: 'hidden',
+  },
   cutout: {
     position: 'absolute',
     top: 0,
     right: 0,
     width: 44,
     height: 44,
-    backgroundColor: '#fff',
     borderBottomLeftRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
     zIndex: 2,
-    ...cloudDesign.shadowCard,
+  },
+  cutoutInner: {
+    width: '100%',
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   distBadge: {
     position: 'absolute',
@@ -157,31 +292,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(91,188,248,0.18)',
-    borderWidth: 1,
-    borderColor: 'rgba(91,188,248,0.25)',
+    borderWidth: 1.5,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: cloudDesign.radius.pill,
+    overflow: 'hidden',
     zIndex: 2,
   },
   distText: {
     fontSize: 10,
     fontWeight: '800',
-    color: cloudDesign.blueDeep,
   },
   dataPanel: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(255,255,255,0.94)',
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.6)',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderBottomLeftRadius: cloudDesign.radius.card,
     borderBottomRightRadius: cloudDesign.radius.card,
+    overflow: 'hidden',
   },
   dataPanelHero: {
     paddingHorizontal: 14,

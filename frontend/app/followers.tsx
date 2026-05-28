@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity, Image, ActivityIndicator, StyleSheet, Alert, Platform, Dimensions } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, Image, StyleSheet, Alert, Platform, Dimensions } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
@@ -7,6 +8,7 @@ import { UserType } from '../types/user';
 import { toggleFollow } from '../services/profile';
 import api from '../services/api';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import NavBar from '../components/NavBar';
 import { theme } from '../constants/theme';
 import { parseError } from '../utils/errorCodes';
 import logger from '../utils/logger';
@@ -125,13 +127,19 @@ export default function FollowersFollowingList() {
     // Store previous state for rollback on error
     const previousState = users.find(u => u._id === targetId);
     const previousFollowing = previousState?.isFollowing ?? false;
+    const previousFollowRequestSent = previousState?.followRequestSent ?? false;
     
     // Optimistic update
-    setUsers(prev => prev.map(u =>
-      u._id === targetId
-        ? { ...u, isFollowing: !u.isFollowing, followRequestSent: false }
-        : u
-    ));
+    setUsers(prev => prev.map(u => {
+      if (u._id === targetId) {
+        if (previousFollowing || previousFollowRequestSent) {
+          return { ...u, isFollowing: false, followRequestSent: false };
+        } else {
+          return { ...u, isFollowing: true, followRequestSent: false };
+        }
+      }
+      return u;
+    }));
 
     try {
       // Call API and use the response
@@ -168,7 +176,7 @@ export default function FollowersFollowingList() {
       // Revert optimistic update on error
       setUsers(prev => prev.map(u => 
         u._id === targetId 
-          ? { ...u, isFollowing: previousFollowing } 
+          ? { ...u, isFollowing: previousFollowing, followRequestSent: previousFollowRequestSent } 
           : u
       ));
       
@@ -256,11 +264,11 @@ export default function FollowersFollowingList() {
                   isLoading && styles(theme).followButtonLoading
                 ]}
                 onPress={() => handleToggleFollow(item._id)}
-                disabled={isLoading || isRequested}
+                disabled={isLoading}
                 activeOpacity={0.8}
               >
                 {isLoading ? (
-                  <ActivityIndicator
+                  <LoadingGlobe
                     size="small"
                     color={(isFollowing || isRequested) ? theme.colors.primary : '#FFFFFF'}
                   />
@@ -284,7 +292,7 @@ export default function FollowersFollowingList() {
     if (!loadingMore) return null;
     return (
       <View style={styles(theme).footerLoader}>
-        <ActivityIndicator size="small" color={theme.colors.primary} />
+        <LoadingGlobe size="small" color={theme.colors.primary} />
       </View>
     );
   };
@@ -311,33 +319,22 @@ export default function FollowersFollowingList() {
 
   return (
     <View style={styles(theme).container}>
-      <SafeAreaView edges={['top']} style={styles(theme).safeArea}>
-        {/* Header */}
-        <View style={styles(theme).header}>
-          <TouchableOpacity
-            onPress={() => {
-              if (router.canGoBack?.()) {
-                router.back();
-              } else {
-                router.replace('/profile');
-              }
-            }}
-            style={styles(theme).backButton}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            <Ionicons name="chevron-back" size={28} color={theme.colors.text} />
-          </TouchableOpacity>
-          <Text style={styles(theme).headerTitle}>
-            {type === 'followers' ? 'Followers' : 'Following'}
-          </Text>
-          <View style={styles(theme).headerSpacer} />
-        </View>
-      </SafeAreaView>
+      <NavBar
+        title={type === 'followers' ? 'Followers' : 'Following'}
+        showBack={true}
+        onBack={() => {
+          if (router.canGoBack?.()) {
+            router.back();
+          } else {
+            router.replace('/profile');
+          }
+        }}
+      />
 
       {/* Content */}
       {loading ? (
         <View style={styles(theme).loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       ) : (
         <FlatList

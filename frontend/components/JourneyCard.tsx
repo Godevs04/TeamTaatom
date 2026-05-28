@@ -171,17 +171,20 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     gap: 3,
+    flexShrink: 1,
   },
   titleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flexShrink: 1,
   },
   title: {
     fontSize: 15,
     fontWeight: '600',
     fontFamily: isIOS ? 'System' : 'Roboto',
     flex: 1,
+    flexShrink: 1,
   },
   statusBadge: {
     flexDirection: 'row',
@@ -190,6 +193,7 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 6,
     gap: 4,
+    flexShrink: 0,
   },
   statusDot: {
     width: 5,
@@ -206,27 +210,32 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '400',
     fontFamily: isIOS ? 'System' : 'Roboto',
+    flexShrink: 1,
   },
   statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     marginTop: 2,
+    flexShrink: 1,
   },
   statItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    flexShrink: 1,
   },
   statText: {
     fontSize: 12,
     fontWeight: '500',
+    flexShrink: 1,
   },
   scoreBadge: {
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 6,
     marginLeft: 'auto',
+    flexShrink: 0,
   },
   scoreText: {
     fontSize: 11,
@@ -235,5 +244,6 @@ const styles = StyleSheet.create({
   chevronWrap: {
     marginLeft: 8,
     justifyContent: 'center',
+    flexShrink: 0,
   },
 });

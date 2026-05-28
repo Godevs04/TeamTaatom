@@ -40,6 +40,7 @@ interface PostCommentsProps {
   comments: Comment[];
   onClose: () => void;
   onCommentAdded: (newComment: Comment) => void;
+  onCommentDeleted?: (commentId: string) => void;
   commentsDisabled?: boolean;
 }
 
@@ -49,6 +50,7 @@ export default function PostComments({
   comments,
   onClose,
   onCommentAdded,
+  onCommentDeleted,
   commentsDisabled = false,
 }: PostCommentsProps) {
   const { theme } = useTheme();
@@ -224,7 +226,7 @@ export default function PostComments({
             <Text style={[styles.commentUsername, { color: theme.colors.text }]}>
               {commentUser.fullName || 'Unknown User'}
             </Text>
-            <Text style={[styles.commentTime, { color: theme.colors.textSecondary }]}>
+            <Text style={[styles.commentTime, { color: theme.colors.textPassive }]}>
               {new Date(item.createdAt).toLocaleDateString('en-US', {
                 month: 'short',
                 day: 'numeric',
@@ -237,6 +239,16 @@ export default function PostComments({
             {item.text}
           </Text>
         </View>
+        {currentUser && commentUser._id === currentUser._id && (
+          <TouchableOpacity 
+            style={styles.deleteCommentButton}
+            onPress={() => onCommentDeleted && onCommentDeleted(item._id)}
+            accessibilityLabel="Delete comment"
+            accessibilityRole="button"
+          >
+            <Ionicons name="trash-outline" size={18} color={theme.colors.error || '#FF3B30'} />
+          </TouchableOpacity>
+        )}
       </View>
     );
   };
@@ -302,8 +314,6 @@ export default function PostComments({
                   { scale: scale }
                 ],
                 opacity: opacity,
-                // Force Bottom Sheet container to lift using animated marginBottom
-                marginBottom: keyboardHeight,
               },
             ]}
           >
@@ -325,9 +335,9 @@ export default function PostComments({
 
             {/* Wrap only the Bottom Sheet CONTENT (not the sheet container) with KeyboardAvoidingView */}
             <KeyboardAvoidingView 
-              behavior="padding" 
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
               style={styles.container}
-              keyboardVerticalOffset={0}
+              keyboardVerticalOffset={Platform.OS === 'ios' ? insets.bottom + 64 : 0}
             >
               <FlatList
                 ref={flatListRef}
@@ -582,6 +592,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 12,
+  },
+  deleteCommentButton: {
+    padding: 8,
+    alignSelf: 'center',
+    marginLeft: 8,
   },
 });
 

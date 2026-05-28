@@ -1,6 +1,7 @@
 import React from 'react';
 import { StyleSheet, Text, TouchableOpacity, View, StyleProp, ViewStyle } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import { cloudDesign } from '../../constants/cloudDesign';
 
@@ -33,42 +34,51 @@ export default function CloudSegmentedControl<T extends string>({
       style={[
         styles.wrap,
         {
-          backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.45)',
-          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(91,188,248,0.12)',
+          backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.55)',
+          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.90)',
         },
-        cloudDesign.shadowCard,
+        isDark ? cloudDesign.shadowCard : styles.lightShadow,
         style,
       ]}
     >
       <BlurView intensity={isDark ? 40 : 24} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
       {segments.map((seg) => {
         const active = value === seg.key;
+        const useGradient = active;
+
         return (
           <TouchableOpacity
             key={seg.key}
             style={[
               styles.seg,
-              active &&
+              active && !useGradient &&
                 (isDark
                   ? styles.segActiveDark
                   : styles.segActiveLight),
+              useGradient && { overflow: 'hidden' }
             ]}
             onPress={() => onChange(seg.key)}
             activeOpacity={0.75}
             accessibilityRole="tab"
             accessibilityState={{ selected: active }}
           >
+            {useGradient && (
+              <LinearGradient
+                colors={['#1C73B4', '#50C878']}
+                style={StyleSheet.absoluteFillObject}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              />
+            )}
             <Text
               style={[
                 styles.label,
                 {
                   color: active
-                    ? isDark
+                    ? (useGradient
                       ? '#FFFFFF'
-                      : cloudDesign.blueDeep
-                    : isDark
-                      ? theme.colors.textSecondary
-                      : cloudDesign.textMuted,
+                      : (isDark ? '#FFFFFF' : '#121212'))
+                    : (isDark ? theme.colors.textSecondary : '#667085'),
                 },
               ]}
             >
@@ -99,17 +109,24 @@ const styles = StyleSheet.create({
   },
   segActiveLight: {
     backgroundColor: '#FFFFFF',
-    shadowColor: 'rgba(91, 188, 248, 0.2)',
+    shadowColor: 'rgba(0, 0, 0, 0.04)',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 1,
-    shadowRadius: 10,
-    elevation: 4,
+    shadowRadius: 6,
+    elevation: 2,
   },
   segActiveDark: {
-    backgroundColor: 'rgba(91, 188, 248, 0.38)',
+    backgroundColor: '#000000',
   },
   label: {
     fontSize: 11,
     fontWeight: '800',
+  },
+  lightShadow: {
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
 });

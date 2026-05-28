@@ -3,7 +3,7 @@
 import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { authLogout, authMe, authSignIn, getProfile } from "../lib/api";
+import { authLogout, authMe, authSignIn, getProfile, getGlobalSubscriptionStatus } from "../lib/api";
 import type { User } from "../types/user";
 import { STORAGE_KEYS } from "../lib/constants";
 import { PROFILE_ONBOARDING_VERSION } from "../lib/profile-onboarding-version";
@@ -11,6 +11,8 @@ import { PROFILE_ONBOARDING_VERSION } from "../lib/profile-onboarding-version";
 type AuthState = {
   user: User | null;
   isLoading: boolean;
+  isPremium: boolean;
+  isPremiumLoading: boolean;
   refresh: () => Promise<void>;
   signIn: (input: { email: string; password: string }) => Promise<void>;
   signOut: () => Promise<void>;
@@ -41,6 +43,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     staleTime: 5 * 60 * 1000,
   });
 
+  const premiumQuery = useQuery({
+    queryKey: ["auth", "premiumStatus"],
+    queryFn: getGlobalSubscriptionStatus,
+    retry: false,
+    enabled: !!authUser,
+  });
+
+  const isPremium = premiumQuery.data?.isPremium ?? false;
+  const isPremiumLoading = !!authUser && premiumQuery.isLoading;
+
   const user: User | null = React.useMemo(() => {
     if (!authUser) return null;
     const profilePic =
@@ -52,6 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = React.useCallback(async () => {
     await qc.invalidateQueries({ queryKey: ["auth", "me"] });
+    await qc.invalidateQueries({ queryKey: ["auth", "premiumStatus"] });
     if (authUser?._id) {
       await qc.invalidateQueries({ queryKey: ["profile", authUser._id] });
     }
@@ -85,24 +98,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         document.cookie = "authToken=; path=/; max-age=0; samesite=lax";
       }
       await qc.invalidateQueries({ queryKey: ["auth", "me"] });
+      await qc.invalidateQueries({ queryKey: ["auth", "premiumStatus"] });
       router.replace("/auth/login");
     }
   }, [qc, router]);
 
   const value: AuthState = {
     user,
-    isLoading: isAuthPage ? false : meQuery.isLoading,
+    isLoading: isAuthPage ? false : (meQuery.isLoading || isPremiumLoading),
+    isPremium,
+    isPremiumLoading,
     refresh,
     signIn,
     signOut,
   };
 
   React.useEffect(() => {
-    if (isAuthPage || meQuery.isLoading || !user) return;
+    if (isAuthPage || meQuery.isLoading || isPremiumLoading || !user) return;
     if (pathname?.startsWith("/onboarding")) return;
     if ((user.profileOnboardingVersion ?? 0) >= PROFILE_ONBOARDING_VERSION) return;
     router.replace("/onboarding/welcome");
-  }, [isAuthPage, meQuery.isLoading, user, pathname, router]);
+  }, [isAuthPage, meQuery.isLoading, isPremiumLoading, user, pathname, router]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

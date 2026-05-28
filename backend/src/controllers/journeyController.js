@@ -341,29 +341,46 @@ const updateLocation = async (req, res) => {
       // Calculate distance from previous point using Haversine formula
       if (journey.polyline.length > 0) {
         const prevPoint = journey.polyline[journey.polyline.length - 1];
-        const distance = calculateHaversineDistance(
-          prevPoint.lat,
-          prevPoint.lng,
-          point.lat,
-          point.lng
-        );
 
-        // Speed sanity check: reject points implying motion faster than a
-        // commercial flight (~1000 km/h). Catches GPS jumps from indoor
-        // multipath, spoofed coords, and parseFloat overflow that's still
-        // technically in-bounds but absurd vs. the previous point.
-        const dtSec = Math.max(
-          0.001,
-          (point.timestamp - prevPoint.timestamp) / 1000,
-        );
-        const speedKmh = (distance / 1000) / (dtSec / 3600);
-        if (speedKmh > MAX_REALISTIC_SPEED_KMH) {
-          skippedImpossible++;
-          continue;
+        // Check if there was a pause/resume boundary between prevPoint and the new point.
+        // We scan for any session in journey.sessions that started after prevPoint.timestamp
+        // and before or at point.timestamp.
+        const prevTime = new Date(prevPoint.timestamp).getTime();
+        const currTime = new Date(point.timestamp).getTime();
+        const hasSessionBoundary = journey.sessions && journey.sessions.some(s => {
+          const sessionStart = new Date(s.startedAt).getTime();
+          return sessionStart > prevTime && sessionStart <= currTime;
+        });
+
+        if (hasSessionBoundary) {
+          // A new session started between these points, so we do NOT count the distance
+          // traveled while paused/suspended.
+          journey.polyline.push(point);
+        } else {
+          const distance = calculateHaversineDistance(
+            prevPoint.lat,
+            prevPoint.lng,
+            point.lat,
+            point.lng
+          );
+
+          // Speed sanity check: reject points implying motion faster than a
+          // commercial flight (~1000 km/h). Catches GPS jumps from indoor
+          // multipath, spoofed coords, and parseFloat overflow that's still
+          // technically in-bounds but absurd vs. the previous point.
+          const dtSec = Math.max(
+            0.001,
+            (point.timestamp - prevPoint.timestamp) / 1000,
+          );
+          const speedKmh = (distance / 1000) / (dtSec / 3600);
+          if (speedKmh > MAX_REALISTIC_SPEED_KMH) {
+            skippedImpossible++;
+            continue;
+          }
+
+          journey.polyline.push(point);
+          journey.distanceTraveled += distance; // distance in meters
         }
-
-        journey.polyline.push(point);
-        journey.distanceTraveled += distance; // distance in meters
       } else {
         journey.polyline.push(point);
       }
@@ -409,6 +426,7 @@ const updateLocation = async (req, res) => {
 const completeJourney = async (req, res) => {
   try {
     const { journeyId } = req.params;
+    const { snapToRoads: shouldSnap } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(journeyId)) {
       return sendError(res, 'VAL_2001', 'Invalid journey ID');
@@ -445,23 +463,25 @@ const completeJourney = async (req, res) => {
     journey.completedAt = new Date();
     journey.autoEnded = false;
 
-    // Snap raw GPS polyline to actual roads for a cleaner path display.
-    // Non-blocking — falls back to raw polyline on any error.
-    if (journey.polyline.length >= 2) {
-      try {
-        journey.polyline = await snapToRoads(journey.polyline);
-      } catch (snapErr) {
-        logger.warn('Road snap error (non-blocking):', snapErr.message);
-      }
-    }
-
-    // Set endCoords to last polyline point
+    // Set endCoords to last polyline point before snapping to roads.
+    // This ensures that the final destination pin marks the exact physical end location
+    // of the user, even if the travel route line is snapped/smoothed to vehicle roads.
     if (journey.polyline.length > 0) {
       const lastPoint = journey.polyline[journey.polyline.length - 1];
       journey.endCoords = {
         lat: lastPoint.lat,
         lng: lastPoint.lng
       };
+    }
+
+    // Snap raw GPS polyline to actual roads for a cleaner path display.
+    // Non-blocking — falls back to raw polyline on any error.
+    if (journey.polyline.length >= 2 && shouldSnap !== false) {
+      try {
+        journey.polyline = await snapToRoads(journey.polyline);
+      } catch (snapErr) {
+        logger.warn('Road snap error (non-blocking):', snapErr.message);
+      }
     }
 
     await journey.save();
@@ -578,6 +598,36 @@ const addWaypoint = async (req, res) => {
   }
 };
 
+const checkRouteAccess = (owner, viewerId) => {
+  // owner is the user object of the journey owner. viewerId is the logged-in user's ID
+  const isOwner = viewerId && owner._id.toString() === viewerId.toString();
+  if (isOwner) return true;
+
+  const routeVisibility = owner.settings?.privacy?.routeVisibility || 'everyone';
+
+  if (routeVisibility === 'private') {
+    return false;
+  }
+
+  if (routeVisibility === 'approved_only') {
+    if (!viewerId) return false;
+    const approvedUsers = owner.routeAccessApprovedUsers || [];
+    return approvedUsers.some(id => id.toString() === viewerId.toString());
+  }
+
+  // If routeVisibility is 'everyone', follow standard profileVisibility rules
+  const profileVisibility = owner.settings?.privacy?.profileVisibility || 'public';
+  if (profileVisibility === 'private') {
+    return false;
+  }
+  if (profileVisibility === 'followers') {
+    const followers = owner.followers || [];
+    return viewerId && followers.some(id => id.toString() === viewerId.toString());
+  }
+
+  return true;
+};
+
 // GET /api/v1/journey/:journeyId
 const getJourneyDetail = async (req, res) => {
   try {
@@ -588,7 +638,7 @@ const getJourneyDetail = async (req, res) => {
     }
 
     let journey = await Journey.findById(journeyId)
-      .populate('user', 'fullName profilePic followers');
+      .populate('user', 'fullName profilePic followers settings routeAccessApprovedUsers');
 
     if (!journey) {
       return sendError(res, 'RES_3001', 'Journey not found');
@@ -606,7 +656,20 @@ const getJourneyDetail = async (req, res) => {
     }
 
     // Privacy check
-    const isOwner = req.user && req.user._id.toString() === journey.user._id.toString();
+    const viewerId = req.user ? req.user._id : null;
+    const isOwner = viewerId && journey.user._id.toString() === viewerId.toString();
+
+    // Check finished check: active/paused journeys are completely hidden from non-owners
+    if (!isOwner && journey.status !== 'completed') {
+      return sendError(res, 'AUTH_1001', 'You do not have permission to view active journeys');
+    }
+
+    // Check route privacy access
+    if (!isOwner && !checkRouteAccess(journey.user, viewerId)) {
+      return sendError(res, 'AUTH_1001', 'You do not have permission to view this journey');
+    }
+
+    // Check per-journey privacy
     const isFollower = req.user && journey.user.followers &&
       journey.user.followers.some(f => f.toString() === req.user._id.toString());
 
@@ -637,19 +700,17 @@ const getUserJourneys = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Invalid user ID');
     }
 
-    const targetUser = await User.findById(userId).select('followers privacy settings');
+    const targetUser = await User.findById(userId).select('followers privacy settings routeAccessApprovedUsers');
     if (!targetUser) {
       return sendError(res, 'RES_3001', 'User not found');
     }
 
     // Privacy check
-    const isOwner = req.user && req.user._id.toString() === userId;
-    const isFollower = req.user && targetUser.followers &&
-      targetUser.followers.some(f => f.toString() === req.user._id.toString());
+    const viewerId = req.user ? req.user._id : null;
+    const isOwner = viewerId && targetUser._id.toString() === userId;
 
-    const profileVisibility = targetUser.settings?.privacy?.profileVisibility || 'public';
-
-    if (!isOwner && (profileVisibility === 'followers' || profileVisibility === 'private') && !isFollower) {
+    // Check route privacy access
+    if (!isOwner && !checkRouteAccess(targetUser, viewerId)) {
       return sendSuccess(res, 200, 'Journeys retrieved (privacy filtered)', {
         journeys: [],
         pagination: { page, limit, total: 0 }
@@ -659,17 +720,21 @@ const getUserJourneys = async (req, res) => {
     // Include polyline data when requested (for map view)
     const includePolyline = req.query.includePolyline === 'true';
     const selectFields = includePolyline
-      ? 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries polyline tripScoreAwarded privacy'
+      ? 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries polyline sessions tripScoreAwarded privacy'
       : 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries tripScoreAwarded privacy';
 
-    // Get all journeys (active, paused, completed) for display
-    // For non-owners, also filter by per-journey privacy
+    // Get journeys
+    // For non-owners, also filter by completed status and per-journey privacy
     const journeyQuery = {
-      user: userId,
-      status: { $in: ['active', 'paused', 'completed'] }
+      user: userId
     };
-    if (!isOwner) {
-      // Non-owners only see public journeys, or followers-only if they are a follower
+
+    if (isOwner) {
+      journeyQuery.status = { $in: ['active', 'paused', 'completed'] };
+    } else {
+      journeyQuery.status = 'completed'; // Non-owners only see completed journeys
+      const isFollower = req.user && targetUser.followers &&
+        targetUser.followers.some(f => f.toString() === req.user._id.toString());
       if (isFollower) {
         journeyQuery.privacy = { $in: ['public', 'followers'] };
       } else {

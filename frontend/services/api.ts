@@ -6,6 +6,7 @@ import { getApiBaseUrl } from '../utils/config';
 import logger from '../utils/logger';
 import { parseError } from '../utils/errorCodes';
 import * as Sentry from '@sentry/react-native';
+import NetInfo from '@react-native-community/netinfo';
 
 // Request throttling to prevent rate limiting
 const requestQueue = new Map();
@@ -14,12 +15,66 @@ const REQUEST_DELAY = 100; // 100ms delay between requests
 // Store CSRF token in memory (updated from response headers)
 let csrfToken: string | null = null;
 
+// Token refresh variables to prevent concurrent refresh calls
+let isRefreshing = false;
+let failedQueue: Array<{
+  resolve: (token: string) => void;
+  reject: (err: any) => void;
+}> = [];
+
+// Offline queue variables to store requests that failed during offline/timeout
+let offlineQueue: Array<{
+  config: any;
+  resolve: (value: any) => void;
+  reject: (reason: any) => void;
+}> = [];
+
+let wasOffline = false;
+
+// Monitor network connection state. Upon reconnect, replay failed requests.
+NetInfo.addEventListener((state) => {
+  const isOnline = !!state.isConnected && state.isInternetReachable !== false;
+  if (isOnline && wasOffline) {
+    logger.debug('[API] Network reconnected, flushing offline queue...');
+    flushOfflineQueue();
+  }
+  wasOffline = !isOnline;
+});
+
+const flushOfflineQueue = async () => {
+  const queueToProcess = [...offlineQueue];
+  offlineQueue = [];
+  
+  for (const request of queueToProcess) {
+    try {
+      logger.debug(`[API] Replaying queued offline request: ${request.config.url}`);
+      const config = { ...request.config, _retry: false };
+      const response = await api(config);
+      request.resolve(response);
+    } catch (error) {
+      logger.error(`[API] Failed replaying queued offline request: ${request.config.url}`, error);
+      request.reject(error);
+    }
+  }
+};
+
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach((prom) => {
+    if (error) {
+      prom.reject(error);
+    } else {
+      prom.resolve(token!);
+    }
+  });
+  failedQueue = [];
+};
+
 // Create axios instance - baseURL will be updated dynamically in interceptor
 // Use getApiBaseUrl() to ensure fresh URL on every request
 const initialBaseUrl = getApiBaseUrl();
 const api = axios.create({
   baseURL: initialBaseUrl, // Get fresh URL at creation time
-  timeout: 30000,
+  timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -218,7 +273,21 @@ api.interceptors.response.use(
         return Promise.reject(error);
       }
       
+      if (isRefreshing) {
+        return new Promise((resolve, reject) => {
+          failedQueue.push({ resolve, reject });
+        })
+          .then((token) => {
+            originalRequest.headers['Authorization'] = `Bearer ${token}`;
+            return api(originalRequest);
+          })
+          .catch((err) => {
+            return Promise.reject(err);
+          });
+      }
+
       originalRequest._retry = true;
+      isRefreshing = true;
       
       // Try to refresh token (only for non-auth endpoints that need auth)
       if (!originalRequest.url?.includes('/auth/')) {
@@ -244,12 +313,20 @@ api.interceptors.response.use(
               // Ignore socket errors
             }
             
+            // Resolve queued requests with new token
+            processQueue(null, token);
+            
             // Retry original request with new token
             originalRequest.headers['Authorization'] = `Bearer ${token}`;
             originalRequest._retry = false; // Reset retry flag for the retry
+            isRefreshing = false;
             return api(originalRequest);
           }
         } catch (refreshError: any) {
+          // Reject queued requests
+          processQueue(refreshError, null);
+          isRefreshing = false;
+
           // If refresh endpoint doesn't exist (404), don't clear auth - just reject
           if (refreshError.response?.status === 404) {
             // Refresh endpoint not implemented - just reject without clearing auth
@@ -276,6 +353,7 @@ api.interceptors.response.use(
       }
       
       // For auth endpoints or if refresh failed, just reject
+      isRefreshing = false;
       return Promise.reject(error);
     }
     
@@ -367,24 +445,61 @@ api.interceptors.response.use(
       }
     }
     
-    // Handle network errors (no response) with retry logic
-    if (!error.response && error.request && !originalRequest._retry) {
-      // Network error - retry for all request types
-      originalRequest._retry = true;
-      originalRequest._retryCount = (originalRequest._retryCount || 0) + 1;
-      
-      const maxRetries = 2; // Retry network errors
-      if (originalRequest._retryCount <= maxRetries) {
+    // Handle network errors (no response) or timeouts (ECONNABORTED)
+    const isTimeout = error.code === 'ECONNABORTED' || (error.message && error.message.toLowerCase().includes('timeout'));
+    const isNetworkError = !error.response && error.request;
+
+    if ((isNetworkError || isTimeout) && originalRequest) {
+      // Check network status to see if we're offline
+      let isOffline = false;
+      try {
+        const state = await NetInfo.fetch();
+        isOffline = !state.isConnected || state.isInternetReachable === false;
+      } catch (err) {
+        logger.warn('Failed to fetch NetInfo status in error interceptor:', err);
+      }
+
+      // If offline or timeout, queue the request for replaying when network is restored
+      if (isOffline || isTimeout) {
+        logger.debug(`[API] Request failed due to offline/timeout. Queuing: ${originalRequest.url}`);
+        return new Promise((resolve, reject) => {
+          offlineQueue.push({
+            config: originalRequest,
+            resolve,
+            reject,
+          });
+        });
+      }
+
+      // Transient network issue retry logic (if online)
+      const maxRetries = 2;
+      const currentRetryCount = originalRequest._retryCount || 0;
+
+      if (currentRetryCount < maxRetries) {
+        originalRequest._retryCount = currentRetryCount + 1;
         // Exponential backoff: 1s, 2s
         const delay = Math.pow(2, originalRequest._retryCount - 1) * 1000;
-        logger.debug(`Network error, retrying in ${delay}ms (attempt ${originalRequest._retryCount}/${maxRetries})`);
+        logger.debug(`Transient network error, retrying in ${delay}ms (attempt ${originalRequest._retryCount}/${maxRetries})`);
         
         await new Promise(resolve => setTimeout(resolve, delay));
         return api(originalRequest);
       } else {
-        // After max retries, provide user-friendly error
+        // Final attempt failed
         const parsedError = parseError(error);
-        return Promise.reject(new Error(parsedError.userMessage || 'Unable to connect to the server. Please check your internet connection.'));
+        if (isTimeout) {
+          try {
+            const AlertService = require('./alertService').default;
+            AlertService.showWarning('Network Timeout', 'Network timeout, please try again.');
+          } catch (alertErr) {
+            logger.error('Failed to show AlertService warning:', alertErr);
+          }
+          parsedError.userMessage = 'Network timeout, please try again.';
+        }
+        const finalError = new Error(parsedError.userMessage || 'Unable to connect to the server. Please check your internet connection.');
+        (finalError as any).parsedError = parsedError;
+        (finalError as any).userMessage = parsedError.userMessage || 'Unable to connect to the server. Please check your internet connection.';
+        (finalError as any).code = parsedError.code;
+        return Promise.reject(finalError);
       }
     }
     

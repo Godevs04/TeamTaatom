@@ -6,18 +6,19 @@ import {
   StyleSheet,
   Alert,
   Modal,
-  ActivityIndicator,
   Share,
   Animated,
   TextInput,
   Platform,
   KeyboardAvoidingView,
 } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
-import { toggleLike, deletePost, archivePost, unarchivePost, hidePost, unhidePost, toggleComments, updatePost } from '../services/posts';
-import { getUserFromStorage } from '../services/auth';
+import { toggleLike, deletePost, archivePost, unarchivePost, hidePost, unhidePost, toggleComments, updatePost, deleteComment } from '../services/posts';
+import { toggleFollow } from '../services/profile';
+import { getUserFromStorage, getCurrentUser } from '../services/auth';
 import { useRouter } from 'expo-router';
 import CustomAlert from './CustomAlert';
 import PostComments from './post/PostComments';
@@ -85,6 +86,70 @@ const setSavedInCache = (postId: string, saved: boolean) => {
   else savedPostsCache.ids.delete(postId);
 };
 
+// Helper function to normalize IDs from various formats (string, ObjectId, Buffer)
+const normalizeId = (id: any): string | null => {
+  if (!id) return null;
+  if (typeof id === 'string') {
+    return id;
+  }
+  if (id._id) {
+    return normalizeId(id._id);
+  }
+  if (id.buffer && typeof id.buffer === 'object') {
+    try {
+      const bufferObj = id.buffer;
+      const bytes: number[] = [];
+      for (let i = 0; i < 12; i++) {
+        const byte = bufferObj[i] ?? bufferObj[String(i)];
+        if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
+          bytes.push(byte);
+        }
+      }
+      if (bytes.length === 12) {
+        const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+        if (/^[0-9a-fA-F]{24}$/.test(hex)) {
+          return hex;
+        }
+      }
+    } catch {}
+  }
+  if (typeof id === 'object' && !Array.isArray(id)) {
+    const keys = Object.keys(id);
+    if (keys.length >= 12 && keys.every(k => /^\d+$/.test(k) && parseInt(k) < 12)) {
+      try {
+        const bytes: number[] = [];
+        for (let i = 0; i < 12; i++) {
+          const byte = id[i] ?? id[String(i)];
+          if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
+            bytes.push(byte);
+          }
+        }
+        if (bytes.length === 12) {
+          const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+          if (/^[0-9a-fA-F]{24}$/.test(hex)) {
+            return hex;
+          }
+        }
+      } catch {}
+    }
+  }
+  if (id.toString && typeof id.toString === 'function') {
+    try {
+      const str = id.toString();
+      if (typeof str === 'string' && /^[0-9a-fA-F]{24}$/.test(str)) {
+        return str;
+      }
+    } catch {}
+  }
+  try {
+    const str = String(id);
+    if (/^[0-9a-fA-F]{24}$/.test(str)) {
+      return str;
+    }
+  } catch {}
+  return null;
+};
+
 interface PhotoCardProps {
   post: PostType;
   onRefresh?: () => void;
@@ -104,11 +169,12 @@ function PhotoCard({
 }: PhotoCardProps) {
   const isWeb = Platform.OS === 'web';
   const logger = createLogger('OptimizedPhotoCard');
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const { settings } = useSettings();
   const router = useRouter();
   const [isLiked, setIsLiked] = useState(post.isLiked || false);
   const [likesCount, setLikesCount] = useState(post.likesCount || 0);
+  const [isZooming, setIsZooming] = useState(false);
   
   const [comments, setComments] = useState(post.comments || []);
   const [showMenu, setShowMenu] = useState(false);
@@ -150,10 +216,50 @@ function PhotoCard({
   React.useEffect(() => {
     const loadUser = async () => {
       const user = await getUserFromStorage();
+      if (user) {
+        if (Array.isArray(user.followingIds)) {
+          user.followingIds = user.followingIds.map(f => normalizeId(f)).filter(Boolean);
+        } else if (Array.isArray(user.following)) {
+          user.followingIds = user.following.map(f => normalizeId(f)).filter(Boolean);
+        }
+      }
       setCurrentUser(user);
     };
     loadUser();
   }, []);
+
+  // Refresh currentUser when the menu modal opens to ensure we display the up-to-date follow status
+  React.useEffect(() => {
+    if (showMenu) {
+      const refreshUser = async () => {
+        try {
+          // 1. Get from AsyncStorage instantly (handles offline / local changes)
+          const cachedUser = await getUserFromStorage();
+          if (cachedUser) {
+            if (Array.isArray(cachedUser.followingIds)) {
+              cachedUser.followingIds = cachedUser.followingIds.map(f => normalizeId(f)).filter(Boolean);
+            } else if (Array.isArray(cachedUser.following)) {
+              cachedUser.followingIds = cachedUser.following.map(f => normalizeId(f)).filter(Boolean);
+            }
+            setCurrentUser(cachedUser);
+          }
+          // 2. Fetch fresh user data from server to guarantee absolute latest state
+          const freshUser = await getCurrentUser();
+          if (freshUser && freshUser !== 'network-error') {
+            if (Array.isArray(freshUser.followingIds)) {
+              freshUser.followingIds = freshUser.followingIds.map(f => normalizeId(f)).filter(Boolean);
+            } else if (Array.isArray(freshUser.following)) {
+              freshUser.followingIds = freshUser.following.map(f => normalizeId(f)).filter(Boolean);
+            }
+            setCurrentUser(freshUser);
+          }
+        } catch (error) {
+          logger.debug('Failed to refresh current user for menu:', error);
+        }
+      };
+      refreshUser();
+    }
+  }, [showMenu]);
 
   // Seed the module-level saved-posts cache the first time any card
   // mounts. Subsequent card mounts read it synchronously via the
@@ -331,9 +437,24 @@ function PhotoCard({
   const imageUri = post.imageUrl || null;
   const imageLoading = false; // expo-image manages its own loading state
 
+  // Synchronize component state when post prop fields change (fixing recycling/stale value leaks)
   React.useEffect(() => {
+    setIsLiked(post.isLiked || false);
+    setLikesCount(post.likesCount || 0);
+    setComments(post.comments || []);
+    setIsSaved(isSavedSync(post._id));
+    setCommentsDisabled(post.commentsDisabled || false);
+    setEditCaption(post.caption || '');
     setImageError(!post.imageUrl);
-  }, [post.imageUrl]);
+  }, [
+    post._id,
+    post.isLiked,
+    post.likesCount,
+    post.comments,
+    post.caption,
+    post.commentsDisabled,
+    post.imageUrl
+  ]);
 
   const handleLike = () => {
     if (!currentUser) {
@@ -483,55 +604,49 @@ function PhotoCard({
     }
   };
 
-  const handleSave = async () => {
-    // Prevent duplicate actions
-    const actionKey = `save-${post._id}`;
-    if (actionLoading.has(actionKey)) {
-      return;
-    }
-
-    setActionLoading(prev => new Set(prev).add(actionKey));
-
+  const handleSave = () => {
     // Store previous state for revert
     const previousSaveState = isSaved;
     const newSaveState = !isSaved;
 
-    try {
-      // Toggle local + module cache so any other card on screen showing
-      // this same post id flips immediately on the next render.
-      setIsSaved(newSaveState);
-      setSavedInCache(post._id, newSaveState);
+    // Toggle local + module cache immediately and synchronously
+    setIsSaved(newSaveState);
+    setSavedInCache(post._id, newSaveState);
 
-      // Persist to AsyncStorage for Saved tab
-      const stored = await AsyncStorage.getItem(SAVED_POSTS_STORAGE_KEY);
-      const arr = stored ? JSON.parse(stored) : [];
-      let next: string[] = Array.isArray(arr) ? arr : [];
-      if (newSaveState) {
-        if (!next.includes(post._id)) next.push(post._id);
-      } else {
-        next = next.filter(id => id !== post._id);
+    // Fire the AsyncStorage and event emission logic in the background
+    (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(SAVED_POSTS_STORAGE_KEY);
+        const arr = stored ? JSON.parse(stored) : [];
+        let next: string[] = Array.isArray(arr) ? arr : [];
+        if (newSaveState) {
+          if (!next.includes(post._id)) next.push(post._id);
+        } else {
+          next = next.filter(id => id !== post._id);
+        }
+        await AsyncStorage.setItem(SAVED_POSTS_STORAGE_KEY, JSON.stringify(next));
+        logger.debug(newSaveState ? 'Post saved' : 'Post unsaved', { postId: post._id });
+
+        // Emit events to notify other pages
+        savedEvents.emitChanged();
+        savedEvents.emitPostAction(post._id, newSaveState ? 'save' : 'unsave', {
+          isBookmarked: newSaveState
+        });
+      } catch (error) {
+        logger.error('Error saving post in background', error);
+        // Revert on error
+        setIsSaved(previousSaveState);
+        setSavedInCache(post._id, previousSaveState);
+        
+        // Re-emit reverted state
+        savedEvents.emitChanged();
+        savedEvents.emitPostAction(post._id, previousSaveState ? 'save' : 'unsave', {
+          isBookmarked: previousSaveState
+        });
+        
+        showCustomAlertMessage('Error', 'Failed to save post', 'error');
       }
-      await AsyncStorage.setItem(SAVED_POSTS_STORAGE_KEY, JSON.stringify(next));
-      logger.debug(newSaveState ? 'Post saved' : 'Post unsaved', { postId: post._id });
-
-      // Emit events to notify other pages
-      savedEvents.emitChanged();
-      savedEvents.emitPostAction(post._id, newSaveState ? 'save' : 'unsave', {
-        isBookmarked: newSaveState
-      });
-    } catch (error) {
-      logger.error('Error saving post', error);
-      // Revert on error
-      setIsSaved(previousSaveState);
-      setSavedInCache(post._id, previousSaveState);
-      showCustomAlertMessage('Error', 'Failed to save post', 'error');
-    } finally {
-      setActionLoading(prev => {
-        const next = new Set(prev);
-        next.delete(actionKey);
-        return next;
-      });
-    }
+    })();
   };
 
   const showCustomAlertMessage = (
@@ -561,6 +676,23 @@ function PhotoCard({
     upsertComment(newComment);
   };
 
+  const handleCommentDeleted = async (commentId: string) => {
+    const originalComments = [...comments];
+    
+    // Optimistic UI Update: immediately filter out the deleted comment
+    setComments(prev => prev.filter(c => c._id !== commentId));
+    
+    try {
+      await deleteComment(post._id, commentId);
+      logger.debug('Comment deleted successfully:', commentId);
+    } catch (error) {
+      logger.error('Failed to delete comment, rolling back:', error);
+      // Revert local state to the original list of comments
+      setComments(originalComments);
+      Alert.alert('Error', 'Failed to delete comment. Please try again.');
+    }
+  };
+
   const handleOpenComments = () => {
     if (!currentUser) {
       showCustomAlertMessage('Error', 'You must be signed in to view comments.', 'error');
@@ -575,7 +707,7 @@ function PhotoCard({
       return;
     }
 
-    if (currentUser._id !== postUser._id) {
+    if (normalizeId(currentUser._id) !== normalizeId(postUser._id)) {
       Alert.alert('Error', 'You can only delete your own posts.');
       return;
     }
@@ -783,14 +915,46 @@ function PhotoCard({
   }, []);
 
   return (
-    <View style={styles.container}>
-      <CloudGlassSurface blur={false} style={styles.glassCard} contentStyle={styles.glassCardInner} borderRadius={20}>
+    <View style={[styles.container, { shadowOpacity: isDark ? 0.04 : 0.08 }, isZooming && { zIndex: 999, overflow: 'visible' }]}>
+      <CloudGlassSurface
+        blur={false}
+        style={[
+          styles.glassCard,
+          isDark
+            ? {
+                backgroundColor: 'rgba(25, 25, 25, 0.72)',
+                borderWidth: 0,
+                borderTopWidth: 1,
+                borderLeftWidth: 1,
+                borderTopColor: 'rgba(255, 255, 255, 0.12)',
+                borderLeftColor: 'rgba(255, 255, 255, 0.12)',
+                borderBottomWidth: 0,
+                borderRightWidth: 0,
+              }
+            : {
+                backgroundColor: '#FFFFFF',
+                borderWidth: 1.5,
+                borderTopWidth: 1.5,
+                borderLeftWidth: 1.5,
+                borderBottomWidth: 1.5,
+                borderRightWidth: 1.5,
+                borderColor: theme.colors.border,
+                borderTopColor: theme.colors.border,
+                borderLeftColor: theme.colors.border,
+                borderBottomColor: theme.colors.border,
+                borderRightColor: theme.colors.border,
+              },
+          isZooming && { zIndex: 999, overflow: 'visible' }
+        ]}
+        contentStyle={[styles.glassCardInner, isZooming && { zIndex: 999, overflow: 'visible' }]}
+        borderRadius={20}
+      >
       {/* Header - Must be above image to receive touches */}
       <View pointerEvents="box-none">
         <PostHeader
           post={post}
           onMenuPress={() => setShowMenu(true)}
-          showReportButton={!!currentUser && postUser._id !== currentUser._id}
+          showReportButton={!!currentUser && normalizeId(postUser._id) !== normalizeId(currentUser._id)}
           onReportPress={() => setShowReportModal(true)}
         />
       </View>
@@ -807,6 +971,7 @@ function PhotoCard({
         pulseAnim={pulseAnim}
         isCurrentlyVisible={isCurrentlyVisible}
         onDoubleTap={handleLike}
+        onZoomStateChange={setIsZooming}
       />
 
       {/* Actions - Must be above image to receive touches */}
@@ -845,10 +1010,10 @@ function PhotoCard({
           <View style={[styles.menuContainer, { backgroundColor: theme.colors.surface }]}>
             {isMenuLoading && (
               <View style={styles.menuLoadingContainer}>
-                <ActivityIndicator size="small" color={theme.colors.primary} />
+                <LoadingGlobe size="small" color={theme.colors.primary} />
               </View>
             )}
-            {currentUser && currentUser._id === postUser._id ? (
+            {currentUser && normalizeId(currentUser._id) === normalizeId(postUser._id) ? (
               // Own post options
               <>
                 {/* Archive ↔ Unarchive — flips based on the post's current state.
@@ -997,48 +1162,88 @@ function PhotoCard({
                   <Text style={[styles.menuText, { color: theme.colors.text }]}>Report</Text>
                 </TouchableOpacity>
                 {(() => {
-                  const followingList = Array.isArray((currentUser as any)?.following) ? (currentUser as any).following : [];
+                  const followingList = Array.isArray((currentUser as any)?.followingIds)
+                    ? (currentUser as any).followingIds
+                    : (Array.isArray((currentUser as any)?.following) ? (currentUser as any).following : []);
+                  const postUserIdNormalized = normalizeId(postUser._id);
                   const isFollowingPostUser = followingList.some((f: any) => {
-                    const id = typeof f === 'string' ? f : f?._id?.toString?.();
-                    return id === postUser._id;
+                    const id = normalizeId(f);
+                    return id === postUserIdNormalized;
                   });
-                  if (!isFollowingPostUser) return null;
-                  return (
-                    <TouchableOpacity
-                      style={[styles.menuItem, { borderBottomColor: theme.colors.border }]}
-                      onPress={() => {
-                        setShowMenu(false);
-                        showCustomAlertMessage(
-                          'Unfollow User',
-                          `Are you sure you want to unfollow ${postUser.fullName || 'Unknown User'}? You won't see their posts in your feed anymore.`,
-                          'warning',
-                          () => {
-                            // No success alert - silent update for better UX
+                  if (isFollowingPostUser) {
+                    return (
+                      <TouchableOpacity
+                        style={[styles.menuItem, { borderBottomColor: theme.colors.border }]}
+                        onPress={() => {
+                          setShowMenu(false);
+                          showCustomAlertMessage(
+                            'Unfollow User',
+                            `Are you sure you want to unfollow ${postUser.fullName || 'Unknown User'}? You won't see their posts in your feed anymore.`,
+                            'warning',
+                            async () => {
+                              try {
+                                setIsMenuLoading(true);
+                                await toggleFollow(postUser._id);
+                                const updatedFollowing = followingList
+                                  .map((id: any) => normalizeId(id))
+                                  .filter((id: string | null) => id !== postUserIdNormalized);
+                                const updatedUser = { 
+                                  ...currentUser, 
+                                  followingIds: updatedFollowing,
+                                  following: updatedFollowing.length
+                                };
+                                setCurrentUser(updatedUser);
+                                await AsyncStorage.setItem('userData', JSON.stringify(updatedUser));
+                              } catch (err: any) {
+                                showCustomAlertMessage('Error', sanitizeErrorForDisplay(err, 'OptimizedPhotoCard.unfollow') || 'Failed to unfollow user', 'error');
+                              } finally {
+                                setIsMenuLoading(false);
+                              }
+                            }
+                          );
+                        }}
+                        disabled={isMenuLoading}
+                      >
+                        <View style={styles.menuIconContainer}>
+                          <Ionicons name="person-remove-outline" size={22} color={theme.colors.text} />
+                        </View>
+                        <Text style={[styles.menuText, { color: theme.colors.text }]}>Unfollow</Text>
+                      </TouchableOpacity>
+                    );
+                  } else {
+                    return (
+                      <TouchableOpacity
+                        style={[styles.menuItem, { borderBottomColor: theme.colors.border }]}
+                        onPress={async () => {
+                          setShowMenu(false);
+                          try {
+                            setIsMenuLoading(true);
+                            await toggleFollow(postUser._id);
+                            const updatedFollowing = [...followingList.map((id: any) => normalizeId(id)), postUserIdNormalized].filter(Boolean);
+                            const updatedUser = { 
+                              ...currentUser, 
+                              followingIds: updatedFollowing,
+                              following: updatedFollowing.length
+                            };
+                            setCurrentUser(updatedUser);
+                            await AsyncStorage.setItem('userData', JSON.stringify(updatedUser));
+                            showCustomAlertMessage('Success', `Following ${postUser.fullName || 'User'}!`, 'success');
+                          } catch (err: any) {
+                            showCustomAlertMessage('Error', sanitizeErrorForDisplay(err, 'OptimizedPhotoCard.follow') || 'Failed to follow user', 'error');
+                          } finally {
+                            setIsMenuLoading(false);
                           }
-                        );
-                      }}
-                      disabled={isMenuLoading}
-                    >
-                      <View style={styles.menuIconContainer}>
-                        <Ionicons name="person-remove-outline" size={22} color={theme.colors.text} />
-                      </View>
-                      <Text style={[styles.menuText, { color: theme.colors.text }]}>Unfollow</Text>
-                    </TouchableOpacity>
-                  );
+                        }}
+                        disabled={isMenuLoading}
+                      >
+                        <View style={styles.menuIconContainer}>
+                          <Ionicons name="person-add-outline" size={22} color={theme.colors.text} />
+                        </View>
+                        <Text style={[styles.menuText, { color: theme.colors.text }]}>Follow</Text>
+                      </TouchableOpacity>
+                    );
+                  }
                 })()}
-                <TouchableOpacity
-                  style={[styles.menuItem, { borderBottomWidth: 0 }]}
-                  onPress={() => {
-                    setShowMenu(false);
-                    handleShare();
-                  }}
-                  disabled={isMenuLoading}
-                >
-                  <View style={styles.menuIconContainer}>
-                    <Ionicons name="share-outline" size={22} color={theme.colors.text} />
-                  </View>
-                  <Text style={[styles.menuText, { color: theme.colors.text }]}>Share</Text>
-                </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.menuItem, { borderBottomWidth: 0 }]}
                   onPress={() => {
@@ -1131,7 +1336,7 @@ function PhotoCard({
                     disabled={isMenuLoading || !editCaption.trim()}
                   >
                     {isMenuLoading ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
+                      <LoadingGlobe size="small" color="#FFFFFF" />
                     ) : (
                       <Text style={styles.editModalButtonTextSave}>Save</Text>
                     )}
@@ -1150,6 +1355,7 @@ function PhotoCard({
         comments={comments}
         onClose={() => setShowCommentModal(false)}
         onCommentAdded={handleCommentAdded}
+        onCommentDeleted={handleCommentDeleted}
         commentsDisabled={commentsDisabled}
       />
 
@@ -1216,11 +1422,24 @@ export default memo(PhotoCard, (prevProps, nextProps) => {
 const styles = StyleSheet.create({
   container: {
     backgroundColor: 'transparent',
-    marginBottom: 14,
-    marginHorizontal: 12,
+    marginBottom: 20,
+    marginHorizontal: 16,
+    // Premium soft shadow for Airbnb/Notion vibe
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.04,
+    shadowRadius: 16,
+    elevation: 4,
   },
   glassCard: {
     overflow: 'hidden',
+    borderWidth: 0,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.12)',
+    borderLeftColor: 'rgba(255, 255, 255, 0.12)',
+    borderBottomWidth: 0,
+    borderRightWidth: 0,
   },
   glassCardInner: {
     overflow: 'hidden',

@@ -7,6 +7,7 @@ export interface Coordinate {
   longitude: number;
   timestamp: number;
   accuracy: number;
+  segmentBreak?: boolean;
 }
 
 export interface Journey {
@@ -43,6 +44,10 @@ export interface Journey {
   completedAt?: string;
   pausedAt?: string;
   lastActiveAt?: string;
+  sessions?: Array<{
+    startedAt: string;
+    stoppedAt?: string;
+  }>;
 }
 
 export interface JourneyListResponse {
@@ -147,10 +152,15 @@ export const updateJourneyLocation = async (
 /**
  * Complete a journey
  * @param journeyId Journey ID to complete
+ * @param options Completion options (e.g. snapToRoads)
  */
-export const completeJourney = async (journeyId: string): Promise<{ journey: Journey }> => {
+export const completeJourney = async (
+  journeyId: string,
+  options?: { snapToRoads?: boolean }
+): Promise<{ journey: Journey }> => {
   try {
-    const response = await api.post(`/api/v1/journey/${journeyId}/complete`);
+    const payload = options ? { snapToRoads: options.snapToRoads } : {};
+    const response = await api.post(`/api/v1/journey/${journeyId}/complete`, payload);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);

@@ -1,5 +1,6 @@
 import React, { useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated, Image, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
@@ -11,6 +12,7 @@ interface AnimatedHeaderProps {
   adjustRightComponent?: boolean;
   unseenMessageCount?: number;
   onRefresh?: () => void;
+  disableSafeArea?: boolean;
 }
 
 export default function AnimatedHeader({
@@ -20,9 +22,11 @@ export default function AnimatedHeader({
   adjustRightComponent = false,
   unseenMessageCount = 0,
   onRefresh,
+  disableSafeArea = false,
 }: AnimatedHeaderProps) {
   const router = useRouter();
   const { theme, mode } = useTheme();
+  const insets = useSafeAreaInsets();
   
   // Animation refs
   const titleAnim = useRef(new Animated.Value(0)).current;
@@ -129,7 +133,7 @@ export default function AnimatedHeader({
   const styles = getStyles(theme);
 
   return (
-    <View style={[styles.header, { backgroundColor: 'transparent' }]}>
+    <View style={[styles.header, { backgroundColor: 'transparent', paddingTop: disableSafeArea ? 0 : insets.top, position: 'relative' }]}>
       {(showSearch || showChat) && (
         <TouchableOpacity
           onPress={handleLogoPress}
@@ -179,7 +183,7 @@ export default function AnimatedHeader({
             accessibilityRole="button"
           >
             <Animated.View style={{ transform: [{ scale: searchIconAnim }] }}>
-              <Ionicons name="search" size={20} color={theme.colors.text} />
+              <Ionicons name="search" size={20} color={isDark ? '#38BDF8' : '#1C73B4'} />
             </Animated.View>
           </TouchableOpacity>
         )}
@@ -193,7 +197,7 @@ export default function AnimatedHeader({
           >
             <Animated.View style={{ transform: [{ scale: chatIconAnim }] }}>
               <View style={styles.chatIconContainer}>
-                <Ionicons name="chatbubble-ellipses-outline" size={22} color={theme.colors.text} />
+                <Ionicons name="chatbubble-ellipses-outline" size={22} color={isDark ? '#38BDF8' : '#1C73B4'} />
                 {unseenMessageCount > 0 && (
                   <View style={[
                     styles.badge,

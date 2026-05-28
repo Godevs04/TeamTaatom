@@ -1,10 +1,17 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, Pressable } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, Pressable, Platform, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import MaskedView from '@react-native-masked-view/masked-view';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { cloudDesign } from '../../constants/cloudDesign';
 import CloudSearchDock from './CloudSearchDock';
+
+const { width: screenWidth } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isAndroid = Platform.OS === 'android';
 
 interface CloudChatCommandHeaderProps {
   title: string;
@@ -24,6 +31,7 @@ export default function CloudChatCommandHeader({
   onMarkAllRead,
 }: CloudChatCommandHeaderProps) {
   const { theme, mode } = useTheme();
+  const insets = useSafeAreaInsets();
   const isDark =
     mode === 'dark' ||
     theme.colors.background === '#0B1A2B' ||
@@ -38,17 +46,23 @@ export default function CloudChatCommandHeader({
         style={[
           styles.dock,
           {
-            backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.72)',
-            borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.8)',
-          },
-          cloudDesign.shadowCard,
+            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+            paddingTop: insets.top,
+          }
         ]}
       >
-        <BlurView intensity={isDark ? 50 : 28} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
+        <BlurView intensity={isDark ? 95 : 80} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
         <View style={styles.topRow}>
           {onBack ? (
-            <TouchableOpacity onPress={onBack} style={styles.iconBtn} hitSlop={10}>
-              <Ionicons name="chevron-back" size={24} color={titleColor} />
+            <TouchableOpacity onPress={onBack} style={[styles.iconBtn, { overflow: 'hidden', borderRadius: 20 }]} hitSlop={10}>
+              <LinearGradient
+                colors={['#1C73B4', '#50C878']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFillObject}
+              />
+              <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
             </TouchableOpacity>
           ) : (
             <View style={styles.iconBtn} />
@@ -96,15 +110,23 @@ export default function CloudChatCommandHeader({
 
 const styles = StyleSheet.create({
   wrap: {
-    paddingHorizontal: 12,
-    paddingTop: 8,
-    paddingBottom: 4,
+    position: 'relative',
+    width: '100%',
+    zIndex: 100,
   },
   dock: {
-    borderRadius: 22,
-    borderWidth: 1,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    borderTopLeftRadius: 0,
+    borderTopRightRadius: 0,
+    borderBottomWidth: 1,
     overflow: 'hidden',
-    paddingBottom: 10,
+    paddingBottom: 8,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 4,
   },
   topRow: {
     flexDirection: 'row',

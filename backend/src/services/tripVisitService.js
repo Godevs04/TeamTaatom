@@ -297,10 +297,10 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
     // Extract coordinates - may be 0,0 for manual locations
     let lat = post.location.coordinates?.latitude ?? 0;
     let lng = post.location.coordinates?.longitude ?? 0;
-    const address = post.location.address || 'Unknown Location';
+    let address = post.location.address || 'Unknown Location';
     
     // Check if coordinates are valid (not 0,0)
-    const hasValidCoords = 
+    let hasValidCoords = 
       typeof lat === 'number' &&
       typeof lng === 'number' &&
       !(lat === 0 && lng === 0);
@@ -349,11 +349,31 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
         if (detectedLat !== 0 && detectedLng !== 0) {
           lat = detectedLat;
           lng = detectedLng;
+          hasValidCoords = true;
         }
       }
     } else {
       // Fallback: Try to extract from address
       country = getCountryFromLocation(address);
+    }
+
+    // Geocode if coordinates are still invalid (0,0) but address is meaningful
+    if (!hasValidCoords && hasMeaningfulAddress) {
+      try {
+        const { geocodeAddress } = require('../utils/geocoder');
+        const geocoded = await geocodeAddress(address);
+        if (geocoded) {
+          lat = geocoded.lat;
+          lng = geocoded.lng;
+          hasValidCoords = true;
+          address = geocoded.formattedAddress || address;
+          if (geocoded.city) city = geocoded.city;
+          if (geocoded.country) country = geocoded.country;
+          logger.info(`🎯 Successfully geocoded address "${address}" to (${lat}, ${lng}) during TripVisit creation`);
+        }
+      } catch (geocodeErr) {
+        logger.warn('Failed to geocode manual location on create:', geocodeErr);
+      }
     }
 
     // Dedup intentionally disabled: every uploaded photo creates its own TripVisit
@@ -571,10 +591,10 @@ const updateTripVisitFromPost = async (post, metadata = {}, existingVisitId = nu
     // Extract coordinates - may be 0,0 for manual locations
     let lat = post.location.coordinates?.latitude ?? 0;
     let lng = post.location.coordinates?.longitude ?? 0;
-    const address = post.location.address || 'Unknown Location';
+    let address = post.location.address || 'Unknown Location';
     
     // Check if coordinates are valid (not 0,0)
-    const hasValidCoords = 
+    let hasValidCoords = 
       typeof lat === 'number' &&
       typeof lng === 'number' &&
       !(lat === 0 && lng === 0);
@@ -620,11 +640,36 @@ const updateTripVisitFromPost = async (post, metadata = {}, existingVisitId = nu
         if (detectedLat !== 0 && detectedLng !== 0) {
           lat = detectedLat;
           lng = detectedLng;
+          hasValidCoords = true;
         }
       }
     } else {
       // Fallback: Try to extract from address
       country = getCountryFromLocation(address);
+    }
+
+    const hasMeaningfulAddress = 
+      post.location.address && 
+      post.location.address.trim() !== '' && 
+      post.location.address.trim() !== 'Unknown Location';
+
+    // Geocode if coordinates are still invalid (0,0) but address is meaningful
+    if (!hasValidCoords && hasMeaningfulAddress) {
+      try {
+        const { geocodeAddress } = require('../utils/geocoder');
+        const geocoded = await geocodeAddress(address);
+        if (geocoded) {
+          lat = geocoded.lat;
+          lng = geocoded.lng;
+          hasValidCoords = true;
+          address = geocoded.formattedAddress || address;
+          if (geocoded.city) city = geocoded.city;
+          if (geocoded.country) country = geocoded.country;
+          logger.info(`🎯 Successfully geocoded address "${address}" to (${lat}, ${lng}) during TripVisit update`);
+        }
+      } catch (geocodeErr) {
+        logger.warn('Failed to geocode manual location on update:', geocodeErr);
+      }
     }
     
     let continent = getContinentFromLocation(address);

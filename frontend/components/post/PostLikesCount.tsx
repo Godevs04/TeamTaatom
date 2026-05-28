@@ -1,21 +1,20 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { useTheme } from '../../context/ThemeContext';
+import { View, StyleSheet } from 'react-native';
+import GradientText from '../ui/GradientText';
 
 interface PostLikesCountProps {
   likesCount: number;
 }
 
 export default function PostLikesCount({ likesCount }: PostLikesCountProps) {
-  const { theme } = useTheme();
-
   if (likesCount <= 0) return null;
 
   return (
     <View style={styles.likesContainer}>
-      <Text style={[styles.likesText, { color: theme.colors.text }]}>
-        {likesCount} {likesCount === 1 ? 'like' : 'likes'}
-      </Text>
+      <GradientText
+        text={`${likesCount} ${likesCount === 1 ? 'like' : 'likes'}`}
+        style={styles.likesText}
+      />
     </View>
   );
 }

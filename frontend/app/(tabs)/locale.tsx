@@ -8,7 +8,6 @@ import {
   Image,
   ImageStyle,
   TouchableOpacity,
-  ActivityIndicator,
   Alert,
   RefreshControl,
   TextInput,
@@ -20,6 +19,7 @@ import {
   Animated,
   Easing,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Image as ExpoImage } from 'expo-image';
 import { BlurView } from 'expo-blur';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -32,6 +32,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { geocodeAddress, calculateDistance, invalidateDistanceCacheIfMoved, distanceCache, placesCache, roundCoord, getLocaleDistanceKm, calculateDrivingDistanceKm } from '../../utils/locationUtils';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
+import MaskedView from '@react-native-masked-view/masked-view';
 import { getCountries, getStatesByCountry, Country, State } from '../../services/location';
 import { getLocales, getLocaleById, Locale } from '../../services/locale';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -463,8 +464,27 @@ export default function LocaleScreen() {
   // debounced/applied value that all search and filter effects key off. Splitting
   // them keeps typing from triggering loadAdminLocales / applyFilters on every
   // keystroke (which previously caused a loading flash on each character).
-  const [searchInput, setSearchInput] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchLocaleInput, setSearchLocaleInput] = useState('');
+  const [searchLocaleQuery, setSearchLocaleQuery] = useState('');
+  const [searchSavedInput, setSearchSavedInput] = useState('');
+  const [searchSavedQuery, setSearchSavedQuery] = useState('');
+
+  const searchInput = activeTab === 'locale' ? searchLocaleInput : searchSavedInput;
+  const setSearchInput = useCallback((text: string) => {
+    if (activeTab === 'locale') {
+      setSearchLocaleInput(text);
+    } else {
+      setSearchSavedInput(text);
+    }
+  }, [activeTab]);
+  const searchQuery = activeTab === 'locale' ? searchLocaleQuery : searchSavedQuery;
+  const setSearchQuery = useCallback((text: string) => {
+    if (activeTab === 'locale') {
+      setSearchLocaleQuery(text);
+    } else {
+      setSearchSavedQuery(text);
+    }
+  }, [activeTab]);
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
   const [showStateDropdown, setShowStateDropdown] = useState(false);
@@ -474,7 +494,7 @@ export default function LocaleScreen() {
   const [states, setStates] = useState<State[]>([]);
   const [loadingCountries, setLoadingCountries] = useState(false);
   const [loadingStates, setLoadingStates] = useState(false);
-  const [filters, dispatchFilter] = useReducer(filterReducer, {
+  const [activeLocaleFilters, dispatchLocaleFilter] = useReducer(filterReducer, {
     country: '',
     countryCode: '',
     stateProvince: '',
@@ -482,6 +502,18 @@ export default function LocaleScreen() {
     spotTypes: [],
     searchRadius: '',
   });
+
+  const [activeSavedFilters, dispatchSavedFilter] = useReducer(filterReducer, {
+    country: '',
+    countryCode: '',
+    stateProvince: '',
+    stateCode: '',
+    spotTypes: [],
+    searchRadius: '',
+  });
+
+  const filters = activeTab === 'locale' ? activeLocaleFilters : activeSavedFilters;
+  const dispatchFilter = activeTab === 'locale' ? dispatchLocaleFilter : dispatchSavedFilter;
   
   // Responsive dimensions (inside component to ensure they're accessible)
   const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -505,6 +537,29 @@ export default function LocaleScreen() {
       scrollY.removeListener(id);
     };
   }, [scrollY]);
+
+  // Pulsing animation for skeletons
+  const skeletonAnim = useRef(new Animated.Value(0.3)).current;
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(skeletonAnim, {
+          toValue: 0.7,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(skeletonAnim, {
+          toValue: 0.3,
+          duration: 1000,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    animation.start();
+    return () => {
+      animation.stop();
+    };
+  }, [skeletonAnim]);
 
   const handleVerticalScroll = useMemo(() => Animated.event(
     [{ nativeEvent: { contentOffset: { y: scrollY } } }],
@@ -567,11 +622,11 @@ export default function LocaleScreen() {
   const bgRefreshCacheRef = useRef<Map<string, number>>(new Map());
   
   // Refs to prevent stale closure bugs in asynchronous/deferred calls like setTimeout and loadAdminLocalesRef
-  const filtersRef = useRef(filters);
-  filtersRef.current = filters;
+  const filtersRef = useRef(activeLocaleFilters);
+  filtersRef.current = activeLocaleFilters;
 
-  const searchQueryRef = useRef(searchQuery);
-  searchQueryRef.current = searchQuery;
+  const searchQueryRef = useRef(searchLocaleQuery);
+  searchQueryRef.current = searchLocaleQuery;
 
   const userLocationRef = useRef(userLocation);
   userLocationRef.current = userLocation;
@@ -1348,144 +1403,132 @@ export default function LocaleScreen() {
           isSearchingRef.current = false;
 
           // STAGE 2: Calculate driving distance ONLY for first N locales (background, non-blocking)
-          // N = ITEMS_PER_PAGE * 2 (e.g., 40 locales for 20 per page)
-          const STAGE2_LIMIT = ITEMS_PER_PAGE * 2;
+          // N = 20 (Avoid rate-limiting OSRM on initial load, matches ITEMS_PER_PAGE)
+          const STAGE2_LIMIT = 20;
           const localesToCalculate = sortedByStraightLine.slice(0, STAGE2_LIMIT);
           
-          if (localesToCalculate.length > 0 && shouldFetchAll) {
-          setCalculatingDistances(true);
-          const stage2FetchKey = lastFetchKeyRef.current;
+          if (localesToCalculate.length > 0) {
+            setCalculatingDistances(true);
+            const stage2FetchKey = lastFetchKeyRef.current;
 
-            // Process in batches to avoid rate limiting
-            const BATCH_SIZE = 5;
-            const updatedLocales = new Map<string, Locale & { distanceKm?: number | null }>();
-
-            for (let i = 0; i < localesToCalculate.length; i += BATCH_SIZE) {
-              if (!isMountedRef.current || lastFetchKeyRef.current !== stage2FetchKey) break;
-              
-              const batch = localesToCalculate.slice(i, i + BATCH_SIZE);
-            
-            const batchResults = await Promise.allSettled(
-              batch.map(async (locale) => {
-                  // Skip if already calculated
-                  if (drivingDistanceCalculatedRef.current.has(locale._id)) {
-                    return locale;
-                  }
-                  
-                let updatedLocale: Locale;
+            ;(async () => {
+              for (let i = 0; i < localesToCalculate.length; i++) {
+                if (!isMountedRef.current || lastFetchKeyRef.current !== stage2FetchKey) break;
                 
+                const locale = localesToCalculate[i];
+                
+                // Skip if already calculated
+                if (drivingDistanceCalculatedRef.current.has(locale._id)) {
+                  continue;
+                }
+                
+                try {
+                  let updatedLocale: Locale;
+                  
                   // Use coordinates from database if valid
-                if (locale.latitude && locale.longitude && 
-                    locale.latitude !== 0 && locale.longitude !== 0 &&
-                    !isNaN(locale.latitude) && !isNaN(locale.longitude) &&
-                    locale.latitude >= -90 && locale.latitude <= 90 &&
-                    locale.longitude >= -180 && locale.longitude <= 180) {
-                  updatedLocale = locale;
-                } else {
-                    // Try to fetch coordinates if missing
-                  const realCoords = await fetchRealCoords(
-                    locale.name, 
-                    locale.countryCode,
-                    googleGeocodeCacheRef.current,
-                    locale.description
-                  );
-                  
-                  if (realCoords) {
-                    updatedLocale = {
-                      ...locale,
-                      latitude: realCoords.lat,
-                      longitude: realCoords.lon,
-                    };
+                  if (locale.latitude && locale.longitude && 
+                      locale.latitude !== 0 && locale.longitude !== 0 &&
+                      !isNaN(locale.latitude) && !isNaN(locale.longitude) &&
+                      locale.latitude >= -90 && locale.latitude <= 90 &&
+                      locale.longitude >= -180 && locale.longitude <= 180) {
+                    updatedLocale = locale;
                   } else {
-                    updatedLocale = await geocodeLocale(locale);
+                    // Try to fetch coordinates if missing
+                    const realCoords = await fetchRealCoords(
+                      locale.name, 
+                      locale.countryCode,
+                      googleGeocodeCacheRef.current,
+                      locale.description
+                    );
+                    
+                    if (realCoords) {
+                      updatedLocale = {
+                        ...locale,
+                        latitude: realCoords.lat,
+                        longitude: realCoords.lon,
+                      };
+                    } else {
+                      updatedLocale = await geocodeLocale(locale);
+                    }
                   }
-                }
 
-                const userLat = currentUserLocation.latitude;
-                const userLon = currentUserLocation.longitude;
-                const localeLat = updatedLocale.latitude;
-                const localeLon = updatedLocale.longitude;
-                
+                  const userLat = currentUserLocation.latitude;
+                  const userLon = currentUserLocation.longitude;
+                  const localeLat = updatedLocale.latitude;
+                  const localeLon = updatedLocale.longitude;
+                  
                   // Validate coordinates
-                if (!localeLat || !localeLon || localeLat === 0 || localeLon === 0 ||
-                    isNaN(localeLat) || isNaN(localeLon) ||
-                    localeLat < -90 || localeLat > 90 || localeLon < -180 || localeLon > 180) {
-                  return {
-                    ...updatedLocale,
-                      distanceKm: locale.distanceKm || null,
-                  };
-                }
-                
-                if (!userLat || !userLon || isNaN(userLat) || isNaN(userLon) ||
-                    userLat < -90 || userLat > 90 || userLon < -180 || userLon > 180) {
-                  return {
-                    ...updatedLocale,
-                      distanceKm: locale.distanceKm || null,
-                  };
-                }
-                
+                  if (!localeLat || !localeLon || localeLat === 0 || localeLon === 0 ||
+                      isNaN(localeLat) || isNaN(localeLon) ||
+                      localeLat < -90 || localeLat > 90 || localeLon < -180 || localeLon > 180) {
+                    continue;
+                  }
+                  
+                  if (!userLat || !userLon || isNaN(userLat) || isNaN(userLon) ||
+                      userLat < -90 || userLat > 90 || userLon < -180 || userLon > 180) {
+                    continue;
+                  }
+                  
                   // Calculate driving distance
-                const distanceKm = await getLocaleDistanceKm(
-                  updatedLocale._id.toString(),
-                  userLat,
-                  userLon,
-                  localeLat,
-                  localeLon
-                );
+                  const distanceKm = await getLocaleDistanceKm(
+                    updatedLocale._id.toString(),
+                    userLat,
+                    userLon,
+                    localeLat,
+                    localeLon
+                  );
 
-                  drivingDistanceCalculatedRef.current.add(locale._id);
-
-                return {
-                  ...updatedLocale,
-                    distanceKm: distanceKm || locale.distanceKm || null,
-                };
-              })
-            );
-            
-              // Update distances in-place
-            batchResults.forEach((result, index) => {
-              if (result.status === 'fulfilled') {
-                  updatedLocales.set(result.value._id, result.value);
-              } else {
-                logger.error(`Failed to process locale ${batch[index]?.name}:`, result.reason);
-                  updatedLocales.set(batch[index]._id, batch[index]);
+                  if (distanceKm !== null && distanceKm !== undefined) {
+                    drivingDistanceCalculatedRef.current.add(locale._id);
+                    
+                    // Update state in-place for this locale immediately
+                    if (isMountedRef.current && lastFetchKeyRef.current === stage2FetchKey) {
+                      const finalLocale = {
+                        ...updatedLocale,
+                        distanceKm,
+                      };
+                      
+                      const updatedSorted = allLocalesSortedRef.current.map(l => 
+                        l._id === locale._id ? finalLocale : l
+                      );
+                      
+                      const reSorted = sortLocalesWithSnapshot(updatedSorted, snapshot);
+                      allLocalesSortedRef.current = reSorted;
+                      
+                      const currentVisibleCount = displayedPage * ITEMS_PER_PAGE;
+                      const visibleLocales = reSorted.slice(0, currentVisibleCount);
+                      
+                      setAllLocalesWithDistances(reSorted);
+                      setAdminLocales(visibleLocales);
+                      
+                      const filtered = currentApplyFilters(visibleLocales, false);
+                      setFilteredLocales(filtered);
+                    }
+                  }
+                } catch (err) {
+                  logger.error(`Error calculating distance for ${locale.name}:`, err);
                 }
-              });
+                
+                // Sequential request spacing to prevent rate limit (300ms)
+                if (i < localesToCalculate.length - 1) {
+                  await new Promise(resolve => setTimeout(resolve, 300));
+                }
+              }
               
-              // Small delay between batches
-              if (i + BATCH_SIZE < localesToCalculate.length) {
-              await new Promise(resolve => setTimeout(resolve, 200));
-            }
-          }
-          
-          if (!isMountedRef.current || lastFetchKeyRef.current !== stage2FetchKey) {
-            setCalculatingDistances(false);
-            isSearchingRef.current = false;
-            return;
-          }
-          
-            // Update distances in-place in the sorted array
-            const updatedSorted = allLocalesSortedRef.current.map(locale => {
-              const updated = updatedLocales.get(locale._id);
-              return updated || locale;
+              if (isMountedRef.current && lastFetchKeyRef.current === stage2FetchKey) {
+                setCalculatingDistances(false);
+                isSearchingRef.current = false;
+                if (__DEV__) {
+                  logger.debug(`✅ STAGE 2 complete: Driving distances calculated sequentially for top locales`);
+                }
+              }
+            })().catch(err => {
+              logger.error('Error in STAGE 2 loop:', err);
+              if (isMountedRef.current && lastFetchKeyRef.current === stage2FetchKey) {
+                setCalculatingDistances(false);
+                isSearchingRef.current = false;
+              }
             });
-            
-            // Re-sort ONCE with updated driving distances
-            const reSorted = sortLocalesWithSnapshot(updatedSorted, snapshot);
-            allLocalesSortedRef.current = reSorted;
-            
-            // Re-slice visible items from the top
-            const currentVisibleCount = displayedPage * ITEMS_PER_PAGE;
-            const visibleLocales = reSorted.slice(0, currentVisibleCount);
-            
-            setAllLocalesWithDistances(reSorted);
-            setAdminLocales(visibleLocales);
-            
-            setCalculatingDistances(false);
-            
-          if (__DEV__) {
-              logger.debug(`✅ STAGE 2 complete: Driving distances calculated for first ${STAGE2_LIMIT} locales`);
-          }
           }
           
           return;
@@ -2034,16 +2077,19 @@ export default function LocaleScreen() {
           )
             .then((distanceKm) => {
               if (!isMountedRef.current) return;
-              setSavedLocales((prev) => {
-                let changed = false;
-                const next = prev.map((existing) => {
-                  if (existing._id !== locale._id) return existing;
-                  if ((existing as any).distanceKm === distanceKm) return existing;
-                  changed = true;
-                  return { ...existing, distanceKm } as Locale;
+              if (distanceKm !== null && distanceKm !== undefined) {
+                drivingDistanceCalculatedRef.current.add(locale._id);
+                setSavedLocales((prev) => {
+                  let changed = false;
+                  const next = prev.map((existing) => {
+                    if (existing._id !== locale._id) return existing;
+                    if ((existing as any).distanceKm === distanceKm) return existing;
+                    changed = true;
+                    return { ...existing, distanceKm } as Locale;
+                  });
+                  return changed ? next : prev;
                 });
-                return changed ? next : prev;
-              });
+              }
             })
             .catch(() => { /* leave previous distance as-is */ });
         });
@@ -2063,16 +2109,19 @@ export default function LocaleScreen() {
   const applyFilters = useCallback((locales: Locale[], isSavedTab = false) => {
     let filtered = [...locales];
     
-    if (filters.countryCode && filters.countryCode.trim() !== '') {
+    const currentFilters = isSavedTab ? activeSavedFilters : activeLocaleFilters;
+    const currentSearchInput = isSavedTab ? searchSavedInput : searchLocaleInput;
+
+    if (currentFilters.countryCode && currentFilters.countryCode.trim() !== '') {
       filtered = filtered.filter(locale => 
-        locale.countryCode && locale.countryCode.toUpperCase() === filters.countryCode.toUpperCase()
+        locale.countryCode && locale.countryCode.toUpperCase() === currentFilters.countryCode.toUpperCase()
       );
     }
     
-    if (filters.stateCode && filters.stateCode.trim() !== '') {
+    if (currentFilters.stateCode && currentFilters.stateCode.trim() !== '') {
       filtered = filtered.filter(locale => {
-        const queryCode = filters.stateCode.trim().toUpperCase();
-        const queryProvince = (filters.stateProvince || '').trim().toLowerCase();
+        const queryCode = currentFilters.stateCode.trim().toUpperCase();
+        const queryProvince = (currentFilters.stateProvince || '').trim().toLowerCase();
         
         const locCode = (locale.stateCode || '').trim().toUpperCase();
         const locProvince = (locale.stateProvince || '').trim().toLowerCase();
@@ -2095,15 +2144,15 @@ export default function LocaleScreen() {
     
     // Filter by spot types (if multiple selected, show locales that match any)
     // Case-insensitive so "Historical spots" matches "historical spots" in DB
-    if (filters.spotTypes && filters.spotTypes.length > 0) {
-      const lowerSpotTypes = filters.spotTypes.map(t => t.toLowerCase());
+    if (currentFilters.spotTypes && currentFilters.spotTypes.length > 0) {
+      const lowerSpotTypes = currentFilters.spotTypes.map(t => t.toLowerCase());
       filtered = filtered.filter(locale =>
         locale.spotTypes && locale.spotTypes.some(type => lowerSpotTypes.includes(type.toLowerCase()))
       );
     }
     
     // Live text search (client-side on loaded locales)
-    const searchText = searchInput.trim().toLowerCase();
+    const searchText = currentSearchInput.trim().toLowerCase();
     if (searchText) {
       filtered = filtered.filter(locale =>
         locale?.name?.toLowerCase?.().includes(searchText) ||
@@ -2116,8 +2165,8 @@ export default function LocaleScreen() {
     }
     
     // Filter by search radius (if user location available)
-    if (filters.searchRadius && filters.searchRadius.trim() !== '') {
-      const radiusKm = parseFloat(filters.searchRadius.trim());
+    if (currentFilters.searchRadius && currentFilters.searchRadius.trim() !== '') {
+      const radiusKm = parseFloat(currentFilters.searchRadius.trim());
       if (!isNaN(radiusKm) && radiusKm > 0 && isFinite(radiusKm)) {
         // Check if user location is available
         if (!userLocation || !locationPermissionGranted) {
@@ -2153,7 +2202,7 @@ export default function LocaleScreen() {
           logger.debug(`Search radius filter: ${beforeCount} locales before, ${afterCount} locales after (radius: ${radiusKm}km, userLocation: ${userLocation.latitude},${userLocation.longitude})`);
         }
       } else {
-        logger.warn(`Invalid search radius value: ${filters.searchRadius}`);
+        logger.warn(`Invalid search radius value: ${currentFilters.searchRadius}`);
       }
     }
     
@@ -2162,7 +2211,7 @@ export default function LocaleScreen() {
     // Use shared sorting function for consistency
     const sorted = sortLocalesByDistance(filtered);
     return sorted;
-  }, [filters, searchInput, sortLocalesByDistance, userLocation, locationPermissionGranted, getLocaleDistance]);
+  }, [activeLocaleFilters, activeSavedFilters, searchLocaleInput, searchSavedInput, sortLocalesByDistance, userLocation, locationPermissionGranted, getLocaleDistance]);
   
   applyFiltersRef.current = applyFilters;
   
@@ -2172,7 +2221,7 @@ export default function LocaleScreen() {
       return applyFilters(savedLocales, true);
     }
     return savedLocales;
-  }, [savedLocales, filters, searchInput, activeTab, applyFilters, userLocation, locationPermissionGranted, calculatingDistances]);
+  }, [savedLocales, activeSavedFilters, searchSavedInput, activeTab, applyFilters, userLocation, locationPermissionGranted, calculatingDistances]);
 
   // Whether any user-applied filter is active (search query or filter modal selection).
   // Lifted out of renderAdminLocales so the list renderer (FlatList) can read it
@@ -2220,7 +2269,7 @@ export default function LocaleScreen() {
     if (activeTab !== 'locale') return [];
     if (sortedAdminLocales.length === 0) return [];
     return applyFilters(sortedAdminLocales, false);
-  }, [activeTab, sortedAdminLocales, applyFilters, searchInput, filters]);
+  }, [activeTab, sortedAdminLocales, applyFilters, searchLocaleInput, activeLocaleFilters]);
 
   // Update filtered locales when adminLocales change (but NOT when filters/searchQuery change - handled in loadAdminLocales)
   // Also apply client-side filters for multiple spot types and search radius which require client-side processing
@@ -2234,7 +2283,7 @@ export default function LocaleScreen() {
     } else {
       setFilteredLocales([]);
     }
-  }, [sortedAdminLocales, applyFilters, activeTab, filters.spotTypes, filters.searchRadius, filters.countryCode, filters.stateCode, searchInput, userLocation, locationPermissionGranted]);
+  }, [sortedAdminLocales, applyFilters, activeTab, activeLocaleFilters.spotTypes, activeLocaleFilters.searchRadius, activeLocaleFilters.countryCode, activeLocaleFilters.stateCode, searchLocaleInput, userLocation, locationPermissionGranted]);
 
   // Re-sort locales when user location becomes available or changes
   // This ensures sorting works even if location becomes available after locales are loaded
@@ -2635,50 +2684,100 @@ export default function LocaleScreen() {
     return savedLocales.some(l => l._id === localeId);
   };
 
+  const resolveLocaleDistance = useCallback((locale: Locale): number | null => {
+    // 1. Check shared distanceCache first for driving distance
+    if (userLocation) {
+      const userLat = roundCoord(userLocation.latitude);
+      const userLon = roundCoord(userLocation.longitude);
+      const cacheKey = `${locale._id}-${userLat}-${userLon}`;
+      if (distanceCache.has(cacheKey)) {
+        const cached = distanceCache.get(cacheKey);
+        if (cached !== undefined && cached !== null) {
+          return cached;
+        }
+      }
+    }
+
+    // 2. Fall back to locale.distanceKm
+    const localeWithDistance = locale as Locale & { distanceKm?: number | null };
+    if (localeWithDistance.distanceKm !== undefined && localeWithDistance.distanceKm !== null) {
+      return localeWithDistance.distanceKm;
+    }
+
+    // 3. Fall back to straight-line distance calculation
+    if (userLocation && locationPermissionGranted) {
+      return getLocaleDistance(locale);
+    }
+
+    return null;
+  }, [userLocation, locationPermissionGranted, getLocaleDistance]);
+
+  const checkIsDrivingDistance = useCallback((locale: Locale): boolean => {
+    if (drivingDistanceCalculatedRef.current.has(locale._id)) {
+      return true;
+    }
+    if (userLocation) {
+      const userLat = roundCoord(userLocation.latitude);
+      const userLon = roundCoord(userLocation.longitude);
+      const cacheKey = `${locale._id}-${userLat}-${userLon}`;
+      if (distanceCache.has(cacheKey)) {
+        return true;
+      }
+    }
+    return false;
+  }, [userLocation]);
+
   const formatLocaleDistance = useCallback((locale: Locale) => {
-    const d =
-      (locale as Locale & { distanceKm?: number | null }).distanceKm ??
-      (userLocation && locationPermissionGranted ? getLocaleDistance(locale) : null);
+    const d = resolveLocaleDistance(locale);
     if (d !== null && d !== undefined) {
       return d < 1 ? `${Math.round(d * 1000)} m` : `${d.toFixed(1)} km`;
     }
-    // GPS permission granted but location/distance not yet resolved → show loading state
-    if (locationPermissionGranted) return 'Calculating...';
-    // Permission denied or not asked → no distance available
+    // If coordinates are null, return 'Calculating...' (which triggers the skeleton/shimmer in UI)
+    if (userLocation === null) {
+      return 'Calculating...';
+    }
     return '-- km';
-  }, [userLocation, locationPermissionGranted, getLocaleDistance]);
+  }, [userLocation, resolveLocaleDistance]);
 
   const openLocaleDetail = useCallback((locale: Locale) => {
-    const d =
-      (locale as Locale & { distanceKm?: number | null }).distanceKm ??
-      (userLocation && locationPermissionGranted ? getLocaleDistance(locale) : null);
+    // Defensive: Coerce every field to a safe primitive so it never crashes.
+    const safeName = typeof locale?.name === 'string' ? locale.name : '';
+    const safeCountryCode = typeof locale?.countryCode === 'string' ? locale.countryCode : '';
+    const safeDescription = typeof locale?.description === 'string' ? locale.description : '';
+    const safeImageUrl = typeof locale?.imageUrl === 'string' && locale.imageUrl ? locale.imageUrl : '';
+    const localeId = String(locale?._id || '');
+
+    const d = resolveLocaleDistance(locale);
+    const isDriving = checkIsDrivingDistance(locale);
+
     try {
-      trackFeatureUsage('locale_open', { locale_id: locale._id });
+      trackFeatureUsage('locale_open', { locale_id: localeId });
       router.push({
         pathname: '/tripscore/countries/[country]/locations/[location]',
         params: {
-          country: locale.countryCode.toLowerCase(),
-          location: locale.name.toLowerCase().replace(/\s+/g, '-'),
+          country: safeCountryCode.toLowerCase(),
+          location: safeName.toLowerCase().replace(/\s+/g, '-'),
           userId: 'admin-locale',
-          localeId: String(locale._id),
-          imageUrl: locale.imageUrl || '',
+          localeId,
+          imageUrl: safeImageUrl,
           galleryUrls:
-            Array.isArray(locale.imageUrls) && locale.imageUrls.length > 0
-              ? locale.imageUrls.join('|||')
+            Array.isArray(locale?.imageUrls) && locale.imageUrls.length > 0
+              ? locale.imageUrls.filter(u => typeof u === 'string').join('|||')
               : '',
-          latitude: locale.latitude != null && locale.latitude !== 0 ? locale.latitude.toString() : '',
-          longitude: locale.longitude != null && locale.longitude !== 0 ? locale.longitude.toString() : '',
-          description: locale.description || '',
-          spotTypes: locale.spotTypes?.join(', ') || '',
-          travelInfo: locale.travelInfo || 'Drivable',
+          latitude: locale?.latitude != null && locale.latitude !== 0 ? locale.latitude.toString() : '',
+          longitude: locale?.longitude != null && locale.longitude !== 0 ? locale.longitude.toString() : '',
+          description: safeDescription,
+          spotTypes: Array.isArray(locale?.spotTypes) ? locale.spotTypes.filter(s => typeof s === 'string').join(', ') : '',
+          travelInfo: typeof locale?.travelInfo === 'string' ? locale.travelInfo : 'Drivable',
           distanceKm: d !== null && d !== undefined ? d.toString() : '',
+          isDrivingDistance: isDriving ? 'true' : 'false',
         },
       });
     } catch (error) {
       logger.error('Error navigating to locale detail:', error);
       showError('Failed to open locale details');
     }
-  }, [router, userLocation, locationPermissionGranted, getLocaleDistance, showError]);
+  }, [router, resolveLocaleDistance, checkIsDrivingDistance, showError]);
 
   const toCloudLocale = useCallback((locale: Locale): CloudLocaleCardData => ({
     _id: String(locale._id),
@@ -2841,93 +2940,98 @@ export default function LocaleScreen() {
       if (needsDrivingDistance.length > 0) {
         setCalculatingDistances(true);
         
-        // Calculate driving distance for newly revealed locales
-        const BATCH_SIZE = 5;
-        const updatedLocales = new Map<string, Locale & { distanceKm?: number | null }>();
-        
-        for (let i = 0; i < needsDrivingDistance.length; i += BATCH_SIZE) {
+        // Calculate driving distance sequentially for newly revealed locales to avoid rate limits
+        for (let i = 0; i < needsDrivingDistance.length; i++) {
           if (!isMountedRef.current) break;
           
-          const batch = needsDrivingDistance.slice(i, i + BATCH_SIZE);
+          const locale = needsDrivingDistance[i];
           
-          const batchResults = await Promise.allSettled(
-            batch.map(async (locale) => {
-              let updatedLocale: Locale;
-              
-              if (locale.latitude && locale.longitude && 
-                  locale.latitude !== 0 && locale.longitude !== 0 &&
-                  !isNaN(locale.latitude) && !isNaN(locale.longitude) &&
-                  locale.latitude >= -90 && locale.latitude <= 90 &&
-                  locale.longitude >= -180 && locale.longitude <= 180) {
-                updatedLocale = locale;
-              } else {
-                const realCoords = await fetchRealCoords(
-                  locale.name, 
-                  locale.countryCode,
-                  googleGeocodeCacheRef.current,
-                  locale.description
-                );
-                
-                if (realCoords) {
-                  updatedLocale = {
-                    ...locale,
-                    latitude: realCoords.lat,
-                    longitude: realCoords.lon,
-                  };
-                } else {
-                  updatedLocale = await geocodeLocale(locale);
-                }
-              }
-
-              const userLat = userLocation.latitude;
-              const userLon = userLocation.longitude;
-              const localeLat = updatedLocale.latitude;
-              const localeLon = updatedLocale.longitude;
-              
-              if (!localeLat || !localeLon || localeLat === 0 || localeLon === 0 ||
-                  isNaN(localeLat) || isNaN(localeLon) ||
-                  localeLat < -90 || localeLat > 90 || localeLon < -180 || localeLon > 180) {
-                return {
-                  ...updatedLocale,
-                  distanceKm: locale.distanceKm || null,
-                };
-              }
-              
-              if (!userLat || !userLon || isNaN(userLat) || isNaN(userLon) ||
-                  userLat < -90 || userLat > 90 || userLon < -180 || userLon > 180) {
-                return {
-                  ...updatedLocale,
-                  distanceKm: locale.distanceKm || null,
-                };
-              }
-              
-              const distanceKm = await getLocaleDistanceKm(
-                updatedLocale._id.toString(),
-                userLat,
-                userLon,
-                localeLat,
-                localeLon
+          try {
+            let updatedLocale: Locale;
+            
+            if (locale.latitude && locale.longitude && 
+                locale.latitude !== 0 && locale.longitude !== 0 &&
+                !isNaN(locale.latitude) && !isNaN(locale.longitude) &&
+                locale.latitude >= -90 && locale.latitude <= 90 &&
+                locale.longitude >= -180 && locale.longitude <= 180) {
+              updatedLocale = locale;
+            } else {
+              const realCoords = await fetchRealCoords(
+                locale.name, 
+                locale.countryCode,
+                googleGeocodeCacheRef.current,
+                locale.description
               );
+              
+              if (realCoords) {
+                updatedLocale = {
+                  ...locale,
+                  latitude: realCoords.lat,
+                  longitude: realCoords.lon,
+                };
+              } else {
+                updatedLocale = await geocodeLocale(locale);
+              }
+            }
 
+            const userLat = userLocation.latitude;
+            const userLon = userLocation.longitude;
+            const localeLat = updatedLocale.latitude;
+            const localeLon = updatedLocale.longitude;
+            
+            if (!localeLat || !localeLon || localeLat === 0 || localeLon === 0 ||
+                isNaN(localeLat) || isNaN(localeLon) ||
+                localeLat < -90 || localeLat > 90 || localeLon < -180 || localeLon > 180) {
+              continue;
+            }
+            
+            if (!userLat || !userLon || isNaN(userLat) || isNaN(userLon) ||
+                userLat < -90 || userLat > 90 || userLon < -180 || userLon > 180) {
+              continue;
+            }
+            
+            const distanceKm = await getLocaleDistanceKm(
+              updatedLocale._id.toString(),
+              userLat,
+              userLon,
+              localeLat,
+              localeLon
+            );
+
+            if (distanceKm !== null && distanceKm !== undefined) {
               drivingDistanceCalculatedRef.current.add(locale._id);
               
-              return {
-                ...updatedLocale,
-                distanceKm: distanceKm || locale.distanceKm || null,
-              };
-            })
-          );
-          
-          batchResults.forEach((result, index) => {
-            if (result.status === 'fulfilled') {
-              updatedLocales.set(result.value._id, result.value);
-            } else {
-              updatedLocales.set(batch[index]._id, batch[index]);
+              // Update state in-place for this locale immediately
+              if (isMountedRef.current) {
+                const finalLocale = {
+                  ...updatedLocale,
+                  distanceKm,
+                };
+                
+                const updatedSorted = allLocalesSortedRef.current.map(l => 
+                  l._id === locale._id ? finalLocale : l
+                );
+                
+                const snapshot = createLocationSnapshot();
+                const reSorted = snapshot ? sortLocalesWithSnapshot(updatedSorted, snapshot) : updatedSorted;
+                allLocalesSortedRef.current = reSorted;
+                
+                // Re-slice visible items from the top
+                const visibleLocales = reSorted.slice(0, endIndex);
+                
+                setAllLocalesWithDistances(reSorted);
+                setAdminLocales(visibleLocales);
+                
+                const filtered = applyFilters(visibleLocales, false);
+                setFilteredLocales(filtered);
+              }
             }
-          });
+          } catch (err) {
+            logger.error(`Error in Stage 3 distance calculation for ${locale.name}:`, err);
+          }
           
-          if (i + BATCH_SIZE < needsDrivingDistance.length) {
-            await new Promise(resolve => setTimeout(resolve, 200));
+          if (i < needsDrivingDistance.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 300));
           }
         }
         
@@ -2936,30 +3040,10 @@ export default function LocaleScreen() {
           return;
         }
         
-        // Update distances in-place and re-sort
-        const snapshot = createLocationSnapshot();
-        if (snapshot) {
-          const updatedSorted = allLocalesSortedRef.current.map(locale => {
-            const updated = updatedLocales.get(locale._id);
-            return updated || locale;
-          });
-          
-          const reSorted = sortLocalesWithSnapshot(updatedSorted, snapshot);
-          allLocalesSortedRef.current = reSorted;
-          
-          // Re-slice visible items from the top
-          const visibleLocales = reSorted.slice(0, endIndex);
-          
-          setAllLocalesWithDistances(reSorted);
-          setAdminLocales(visibleLocales);
-          setDisplayedPage(nextPage);
-          setHasMore(endIndex < reSorted.length);
-          setTotalPages(Math.ceil(reSorted.length / ITEMS_PER_PAGE));
-          
-          const filtered = applyFilters(visibleLocales, false);
-          setFilteredLocales(filtered);
-        }
-        
+        // Final state sync for page/hasMore
+        setDisplayedPage(nextPage);
+        setHasMore(endIndex < allLocalesSortedRef.current.length);
+        setTotalPages(Math.ceil(allLocalesSortedRef.current.length / ITEMS_PER_PAGE));
         setCalculatingDistances(false);
         
         if (__DEV__) {
@@ -3171,33 +3255,40 @@ export default function LocaleScreen() {
   // and the network/filter pipeline runs only on submit.
   const handleSearchSubmit = useCallback(() => {
     if (!isMountedRef.current) return;
-    const next = searchInput.trim();
-    setSearchQuery(next);
-    lastFetchKeyRef.current = null;
-    loadedOnceRef.current = false;
-    // Immediate client filter via localesToShow useMemo; API refetch follows searchQuery effect
-    if (sortedAdminLocales.length > 0) {
-      setFilteredLocales(applyFilters(sortedAdminLocales, false));
+    if (activeTab === 'locale') {
+      const next = searchLocaleInput.trim();
+      setSearchLocaleQuery(next);
+      lastFetchKeyRef.current = null;
+      loadedOnceRef.current = false;
+      // Immediate client filter via localesToShow useMemo; API refetch follows searchLocaleQuery effect
+      if (sortedAdminLocales.length > 0) {
+        setFilteredLocales(applyFilters(sortedAdminLocales, false));
+      }
+    } else {
+      const next = searchSavedInput.trim();
+      setSearchSavedQuery(next);
     }
-  }, [searchInput, sortedAdminLocales, applyFilters]);
+  }, [activeTab, searchLocaleInput, searchSavedInput, sortedAdminLocales, applyFilters]);
 
   // Live filter: clear committed API search as soon as the field is emptied
   useEffect(() => {
-    if (!searchInput.trim() && searchQuery.trim()) {
-      setSearchQuery('');
+    if (activeTab !== 'locale') return;
+    if (!searchLocaleInput.trim() && searchLocaleQuery.trim()) {
+      setSearchLocaleQuery('');
       lastFetchKeyRef.current = null;
       loadedOnceRef.current = false;
-      if (activeTab === 'locale' && sortedAdminLocales.length > 0) {
+      if (sortedAdminLocales.length > 0) {
         setFilteredLocales(applyFilters(sortedAdminLocales, false));
       }
       loadAdminLocalesRef.current(true);
     }
-  }, [searchInput, searchQuery, activeTab, sortedAdminLocales, applyFilters]);
+  }, [searchLocaleInput, searchLocaleQuery, activeTab, sortedAdminLocales, applyFilters]);
 
   // API search only when user commits via keyboard/search icon — not on every keystroke.
   // Client-side filter (searchInput in applyFilters) handles live typing on loaded locales.
   useEffect(() => {
-    if (!searchQuery.trim()) return;
+    if (activeTab !== 'locale') return;
+    if (!searchLocaleQuery.trim()) return;
     if (searchAbortControllerRef.current) {
       searchAbortControllerRef.current.abort();
     }
@@ -3206,7 +3297,7 @@ export default function LocaleScreen() {
       lastFetchKeyRef.current = null;
       loadAdminLocalesRef.current(true);
     }
-  }, [searchQuery]);
+  }, [searchLocaleQuery, activeTab]);
 
   const filteredCountriesForFilter = useMemo(() => {
     const q = countrySearchQuery.trim().toLowerCase();
@@ -3234,225 +3325,129 @@ export default function LocaleScreen() {
           setShowFilterModal(false);
         }}
       >
-        <SafeAreaView style={[styles.filterModalContainer, { backgroundColor: theme.colors.background }]}>
-          <StatusBar barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} />
-        
-        {/* Header */}
-        <View style={[styles.filterHeader, { borderBottomColor: theme.colors.border }]}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => {
-              setCountrySearchQuery('');
-              setStateSearchQuery('');
-              setShowFilterModal(false);
-            }}
-          >
-            <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-          <View style={styles.filterTitleContainer}>
-            <Text style={[styles.filterTitle, { color: theme.colors.text }]}>FILTER</Text>
-            {activeFilterCount > 0 && (
-              <View style={[styles.filterBadge, { backgroundColor: theme.colors.primary }]}>
-                <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
-              </View>
-            )}
-          </View>
-          {activeFilterCount > 0 && (
-            <TouchableOpacity 
-              style={styles.clearButton}
-              onPress={handleClearFilters}
-            >
-              <Text style={[styles.clearButtonText, { color: theme.colors.primary }]}>Clear</Text>
-            </TouchableOpacity>
-          )}
-          {activeFilterCount === 0 && <View style={styles.placeholder} />}
-        </View>
-
-        <ScrollView 
-          style={styles.filterContent} 
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.filterScrollContent}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={{ flex: 1 }}
         >
-          {/* Country */}
-          <View style={styles.filterSection}>
-            <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>COUNTRY</Text>
+          <SafeAreaView style={[styles.filterModalContainer, { backgroundColor: theme.colors.background }]}>
+            <StatusBar barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} />
+          
+          {/* Header */}
+          <View style={[styles.filterHeader, { borderBottomColor: theme.colors.border }]}>
             <TouchableOpacity 
-              style={[styles.dropdownField, { 
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.border,
-              }]}
-              onPress={() => setShowCountryDropdown(!showCountryDropdown)}
-            >
-              <Text style={[styles.dropdownText, { color: theme.colors.text }]}>
-                {filters.country || 'Select Country'}
-              </Text>
-              <View style={styles.dropdownIconContainer}>
-                {loadingCountries ? (
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
-                ) : (
-                  <Ionicons 
-                    name={showCountryDropdown ? "chevron-up" : "chevron-down"} 
-                    size={20} 
-                    color={theme.colors.textSecondary} 
-                  />
-                )}
-              </View>
-            </TouchableOpacity>
-            
-            {/* Country Dropdown */}
-            {showCountryDropdown && (
-              <View style={[styles.dropdownList, { 
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.border,
-              }]}>
-                <View style={[styles.countrySearchContainer, { 
-                  backgroundColor: theme.colors.surface,
-                  borderBottomColor: theme.colors.border,
-                }]}>
-                  <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} style={styles.countrySearchIcon} />
-                  <TextInput
-                    style={[styles.countrySearchInput, { color: theme.colors.text }]}
-                    placeholder="Search countries..."
-                    placeholderTextColor={theme.colors.textSecondary}
-                    value={countrySearchQuery}
-                    onChangeText={setCountrySearchQuery}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                  {countrySearchQuery.length > 0 && (
-                    <TouchableOpacity
-                      onPress={() => setCountrySearchQuery('')}
-                      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                      style={styles.countrySearchClear}
-                    >
-                      <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
-                    </TouchableOpacity>
-                  )}
-                </View>
-                <ScrollView style={styles.dropdownScrollView} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                  {filteredCountriesForFilter.length > 0 ? (
-                    filteredCountriesForFilter.map((country, index) => (
-                      <TouchableOpacity
-                        key={country.code || index}
-                        style={[styles.dropdownItem, { 
-                          backgroundColor: filters.countryCode === country.code ? theme.colors.primary + '15' : 'transparent',
-                          borderBottomColor: theme.colors.border,
-                        }]}
-                        onPress={() => {
-                          if (country && country.code) {
-                            handleCountrySelect(country).catch(err => {
-                              logger.error('Error in country selection:', err);
-                            });
-                          }
-                        }}
-                      >
-                        <Text style={[styles.dropdownItemText, { 
-                          color: filters.countryCode === country.code ? theme.colors.primary : theme.colors.text,
-                          fontWeight: filters.countryCode === country.code ? '600' : '400',
-                        }]}>
-                          {country.name}
-                        </Text>
-                        {filters.countryCode === country.code && (
-                          <Ionicons name="checkmark" size={16} color={theme.colors.primary} />
-                        )}
-                      </TouchableOpacity>
-                    ))
-                  ) : (
-                    <View style={[styles.dropdownItem, { borderBottomWidth: 0 }]}>
-                      <Text style={[styles.dropdownItemText, { color: theme.colors.textSecondary, fontStyle: 'italic' }]}>
-                        No countries match "{countrySearchQuery}"
-                      </Text>
-                    </View>
-                  )}
-                </ScrollView>
-              </View>
-            )}
-          </View>
-
-          {/* State/Province */}
-          <View style={styles.filterSection}>
-            <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>STATE/PROVINCE</Text>
-            <TouchableOpacity 
-              style={[styles.dropdownField, { 
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.border,
-                opacity: !filters.countryCode ? 0.5 : 1,
-              }]}
+              style={styles.backButton}
               onPress={() => {
-                if (!filters.countryCode) return;
-                // Load states only when opening dropdown (no loading on country select)
-                if (!showStateDropdown && states.length === 0) {
-                  loadStatesForCountry(filters.countryCode);
-                }
-                setShowStateDropdown(!showStateDropdown);
+                setCountrySearchQuery('');
+                setStateSearchQuery('');
+                setShowFilterModal(false);
               }}
-              disabled={!filters.countryCode}
             >
-              <Text style={[styles.dropdownText, { color: theme.colors.text }]}>
-                {filters.stateProvince || 'Select State/Province'}
-              </Text>
-              <View style={styles.dropdownIconContainer}>
-                {loadingStates ? (
-                  <ActivityIndicator size="small" color={theme.colors.primary} />
-                ) : (
-                  <Ionicons 
-                    name={showStateDropdown ? "chevron-up" : "chevron-down"} 
-                    size={20} 
-                    color={theme.colors.textSecondary} 
-                  />
-                )}
-              </View>
+              <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
             </TouchableOpacity>
-            
-            {/* State Dropdown */}
-            {showStateDropdown && (
-              <View style={[styles.dropdownList, { 
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.border,
-              }]}>
-                <View style={[styles.countrySearchContainer, { 
+            <View style={styles.filterTitleContainer}>
+              <Text style={[styles.filterTitle, { color: theme.colors.text }]}>FILTER</Text>
+              {activeFilterCount > 0 && (
+                <View style={[styles.filterBadge, { backgroundColor: theme.colors.primary }]}>
+                  <Text style={[styles.filterBadgeText, { color: isDark ? '#000000' : '#FFFFFF' }]}>{activeFilterCount}</Text>
+                </View>
+              )}
+            </View>
+            {activeFilterCount > 0 && (
+              <TouchableOpacity 
+                style={styles.clearButton}
+                onPress={handleClearFilters}
+              >
+                <Text style={[styles.clearButtonText, { color: theme.colors.primary }]}>Clear</Text>
+              </TouchableOpacity>
+            )}
+            {activeFilterCount === 0 && <View style={styles.placeholder} />}
+          </View>
+  
+          <ScrollView 
+            style={styles.filterContent} 
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.filterScrollContent}
+          >
+            {/* Country */}
+            <View style={styles.filterSection}>
+              <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>COUNTRY</Text>
+              <TouchableOpacity 
+                style={[styles.dropdownField, { 
                   backgroundColor: theme.colors.surface,
-                  borderBottomColor: theme.colors.border,
-                }]}>
-                  <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} style={styles.countrySearchIcon} />
-                  <TextInput
-                    style={[styles.countrySearchInput, { color: theme.colors.text }]}
-                    placeholder="Search states..."
-                    placeholderTextColor={theme.colors.textSecondary}
-                    value={stateSearchQuery}
-                    onChangeText={setStateSearchQuery}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                  {stateSearchQuery.length > 0 && (
-                    <TouchableOpacity
-                      onPress={() => setStateSearchQuery('')}
-                      hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                      style={styles.countrySearchClear}
-                    >
-                      <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
-                    </TouchableOpacity>
+                  borderColor: theme.colors.border,
+                }]}
+                onPress={() => setShowCountryDropdown(!showCountryDropdown)}
+              >
+                <Text style={[styles.dropdownText, { color: theme.colors.text }]}>
+                  {filters.country || 'Select Country'}
+                </Text>
+                <View style={styles.dropdownIconContainer}>
+                  {loadingCountries ? (
+                    <LoadingGlobe size="small" color={theme.colors.primary} />
+                  ) : (
+                    <Ionicons 
+                      name={showCountryDropdown ? "chevron-up" : "chevron-down"} 
+                      size={20} 
+                      color={theme.colors.textSecondary} 
+                    />
                   )}
                 </View>
-                {states.length > 0 ? (
+              </TouchableOpacity>
+              
+              {/* Country Dropdown */}
+              {showCountryDropdown && (
+                <View style={[styles.dropdownList, { 
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                }]}>
+                  <View style={[styles.countrySearchContainer, { 
+                    backgroundColor: theme.colors.surface,
+                    borderBottomColor: theme.colors.border,
+                  }]}>
+                    <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} style={styles.countrySearchIcon} />
+                    <TextInput
+                      style={[styles.countrySearchInput, { color: theme.colors.text }]}
+                      placeholder="Search countries..."
+                      placeholderTextColor={theme.colors.textSecondary}
+                      value={countrySearchQuery}
+                      onChangeText={setCountrySearchQuery}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    {countrySearchQuery.length > 0 && (
+                      <TouchableOpacity
+                        onPress={() => setCountrySearchQuery('')}
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                        style={styles.countrySearchClear}
+                      >
+                        <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
                   <ScrollView style={styles.dropdownScrollView} nestedScrollEnabled keyboardShouldPersistTaps="handled">
-                    {filteredStatesForFilter.length > 0 ? (
-                      filteredStatesForFilter.map((state, index) => (
+                    {filteredCountriesForFilter.length > 0 ? (
+                      filteredCountriesForFilter.map((country, index) => (
                         <TouchableOpacity
-                          key={state.code || index}
+                          key={country.code || index}
                           style={[styles.dropdownItem, { 
-                            backgroundColor: filters.stateCode === state.code ? theme.colors.primary + '15' : 'transparent',
+                            backgroundColor: filters.countryCode === country.code ? theme.colors.primary + '15' : 'transparent',
                             borderBottomColor: theme.colors.border,
                           }]}
-                          onPress={() => handleStateSelect(state)}
+                          onPress={() => {
+                            if (country && country.code) {
+                              handleCountrySelect(country).catch(err => {
+                                logger.error('Error in country selection:', err);
+                              });
+                            }
+                          }}
                         >
                           <Text style={[styles.dropdownItemText, { 
-                            color: filters.stateCode === state.code ? theme.colors.primary : theme.colors.text,
-                            fontWeight: filters.stateCode === state.code ? '600' : '400',
+                            color: filters.countryCode === country.code ? theme.colors.primary : theme.colors.text,
+                            fontWeight: filters.countryCode === country.code ? '600' : '400',
                           }]}>
-                            {state.name}
+                            {country.name}
                           </Text>
-                          {filters.stateCode === state.code && (
+                          {filters.countryCode === country.code && (
                             <Ionicons name="checkmark" size={16} color={theme.colors.primary} />
                           )}
                         </TouchableOpacity>
@@ -3460,100 +3455,206 @@ export default function LocaleScreen() {
                     ) : (
                       <View style={[styles.dropdownItem, { borderBottomWidth: 0 }]}>
                         <Text style={[styles.dropdownItemText, { color: theme.colors.textSecondary, fontStyle: 'italic' }]}>
-                          No states match "{stateSearchQuery}"
+                          No countries match "{countrySearchQuery}"
                         </Text>
                       </View>
                     )}
                   </ScrollView>
-                ) : (
-                  <View style={[styles.dropdownItem, { 
-                    backgroundColor: 'transparent',
-                    borderBottomColor: theme.colors.border,
-                  }]}>
-                    <Text style={[styles.dropdownItemText, { 
-                      color: theme.colors.textSecondary,
-                      fontStyle: 'italic',
-                    }]}>
-                      No states/provinces available
-                    </Text>
-                  </View>
-                )}
-              </View>
-            )}
-          </View>
-
-          {/* Type of Spot */}
-          <View style={styles.filterSection}>
-            <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>TYPE OF SPOT</Text>
-            {spotTypeOptions.map((spotType, index) => (
-              <TouchableOpacity
-                key={index}
-                style={styles.spotTypeOption}
-                onPress={() => toggleSpotType(spotType)}
-              >
-                <View style={[
-                  styles.checkbox,
-                  { 
-                    borderColor: theme.colors.border,
-                    backgroundColor: theme.colors.surface,
-                  },
-                  filters.spotTypes.includes(spotType) && {
-                    backgroundColor: theme.colors.primary,
-                    borderColor: theme.colors.primary,
+                </View>
+              )}
+            </View>
+  
+            {/* State/Province */}
+            <View style={styles.filterSection}>
+              <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>STATE/PROVINCE</Text>
+              <TouchableOpacity 
+                style={[styles.dropdownField, { 
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                  opacity: !filters.countryCode ? 0.5 : 1,
+                }]}
+                onPress={() => {
+                  if (!filters.countryCode) return;
+                  // Load states only when opening dropdown (no loading on country select)
+                  if (!showStateDropdown && states.length === 0) {
+                    loadStatesForCountry(filters.countryCode);
                   }
-                ]}>
-                  {filters.spotTypes.includes(spotType) && (
-                    <Ionicons name="checkmark" size={16} color="white" />
+                  setShowStateDropdown(!showStateDropdown);
+                }}
+                disabled={!filters.countryCode}
+              >
+                <Text style={[styles.dropdownText, { color: theme.colors.text }]}>
+                  {filters.stateProvince || 'Select State/Province'}
+                </Text>
+                <View style={styles.dropdownIconContainer}>
+                  {loadingStates ? (
+                    <LoadingGlobe size="small" color={theme.colors.primary} />
+                  ) : (
+                    <Ionicons 
+                      name={showStateDropdown ? "chevron-up" : "chevron-down"} 
+                      size={20} 
+                      color={theme.colors.textSecondary} 
+                    />
                   )}
                 </View>
-                <Text style={[styles.spotTypeText, { color: theme.colors.text }]}>{spotType}</Text>
               </TouchableOpacity>
-            ))}
-          </View>
-
-          {/* Search Radius */}
-          <View style={styles.filterSection}>
-            <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>SEARCH RADIUS</Text>
-            <View style={[styles.radiusContainer, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-              <TextInput
-                style={[styles.radiusInput, { color: theme.colors.text }]}
-                placeholder="Enter radius in km"
-                placeholderTextColor={theme.colors.textSecondary}
-                value={filters.searchRadius}
-                onChangeText={(text) => dispatchFilter({ type: 'SET_SEARCH_RADIUS', payload: text })}
-                keyboardType="numeric"
-              />
-              <Text style={[styles.radiusUnit, { color: theme.colors.textSecondary }]}>km</Text>
+              
+              {/* State Dropdown */}
+              {showStateDropdown && (
+                <View style={[styles.dropdownList, { 
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                }]}>
+                  <View style={[styles.countrySearchContainer, { 
+                    backgroundColor: theme.colors.surface,
+                    borderBottomColor: theme.colors.border,
+                  }]}>
+                    <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} style={styles.countrySearchIcon} />
+                    <TextInput
+                      style={[styles.countrySearchInput, { color: theme.colors.text }]}
+                      placeholder="Search states..."
+                      placeholderTextColor={theme.colors.textSecondary}
+                      value={stateSearchQuery}
+                      onChangeText={setStateSearchQuery}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    {stateSearchQuery.length > 0 && (
+                      <TouchableOpacity
+                        onPress={() => setStateSearchQuery('')}
+                        hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                        style={styles.countrySearchClear}
+                      >
+                        <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  {states.length > 0 ? (
+                    <ScrollView style={styles.dropdownScrollView} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                      {filteredStatesForFilter.length > 0 ? (
+                        filteredStatesForFilter.map((state, index) => (
+                          <TouchableOpacity
+                            key={state.code || index}
+                            style={[styles.dropdownItem, { 
+                              backgroundColor: filters.stateCode === state.code ? theme.colors.primary + '15' : 'transparent',
+                              borderBottomColor: theme.colors.border,
+                            }]}
+                            onPress={() => handleStateSelect(state)}
+                          >
+                            <Text style={[styles.dropdownItemText, { 
+                              color: filters.stateCode === state.code ? theme.colors.primary : theme.colors.text,
+                              fontWeight: filters.stateCode === state.code ? '600' : '400',
+                            }]}>
+                              {state.name}
+                            </Text>
+                            {filters.stateCode === state.code && (
+                              <Ionicons name="checkmark" size={16} color={theme.colors.primary} />
+                            )}
+                          </TouchableOpacity>
+                        ))
+                      ) : (
+                        <View style={[styles.dropdownItem, { borderBottomWidth: 0 }]}>
+                          <Text style={[styles.dropdownItemText, { color: theme.colors.textSecondary, fontStyle: 'italic' }]}>
+                            No states match "{stateSearchQuery}"
+                          </Text>
+                        </View>
+                      )}
+                    </ScrollView>
+                  ) : (
+                    <View style={[styles.dropdownItem, { 
+                      backgroundColor: 'transparent',
+                      borderBottomColor: theme.colors.border,
+                    }]}>
+                      <Text style={[styles.dropdownItemText, { 
+                        color: theme.colors.textSecondary,
+                        fontStyle: 'italic',
+                      }]}>
+                        No states/provinces available
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
+  
+            {/* Type of Spot */}
+            <View style={styles.filterSection}>
+              <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>TYPE OF SPOT</Text>
+              {spotTypeOptions.map((spotType, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={styles.spotTypeOption}
+                  onPress={() => toggleSpotType(spotType)}
+                >
+                  <View style={[
+                    styles.checkbox,
+                    { 
+                      borderColor: theme.colors.border,
+                      backgroundColor: theme.colors.surface,
+                    },
+                    filters.spotTypes.includes(spotType) && {
+                      backgroundColor: theme.colors.primary,
+                      borderColor: theme.colors.primary,
+                    }
+                  ]}>
+                    {filters.spotTypes.includes(spotType) && (
+                      <Ionicons name="checkmark" size={16} color={isDark ? '#000000' : '#FFFFFF'} />
+                    )}
+                  </View>
+                  <Text style={[styles.spotTypeText, { color: theme.colors.text }]}>{spotType}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+  
+            {/* Search Radius */}
+            <View style={styles.filterSection}>
+              <Text style={[styles.filterSectionTitle, { color: theme.colors.text }]}>SEARCH RADIUS</Text>
+              <View style={[styles.radiusContainer, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+                <TextInput
+                  style={[styles.radiusInput, { color: theme.colors.text }]}
+                  placeholder="Enter radius in km"
+                  placeholderTextColor={theme.colors.textSecondary}
+                  value={filters.searchRadius}
+                  onChangeText={(text) => dispatchFilter({ type: 'SET_SEARCH_RADIUS', payload: text })}
+                  keyboardType="numeric"
+                />
+                <Text style={[styles.radiusUnit, { color: theme.colors.textSecondary }]}>km</Text>
+              </View>
+            </View>
+          </ScrollView>
+  
+          {/* Search Button */}
+          <View style={[styles.filterFooter, { backgroundColor: theme.colors.background, borderTopColor: theme.colors.border }]}>
+            <View style={styles.filterFooterButtons}>
+              <TouchableOpacity 
+                style={[styles.resetButton, { 
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                }]} 
+                onPress={handleClearFilters}
+              >
+                <Ionicons name="refresh-outline" size={18} color={theme.colors.text} />
+                <Text style={[styles.resetButtonText, { color: theme.colors.text }]}>Reset</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.searchButton, { backgroundColor: theme.colors.primary }]} 
+                onPress={handleSearch}
+              >
+                <Ionicons 
+                  name="search" 
+                  size={18} 
+                  color={isDark ? '#000000' : '#FFFFFF'} 
+                  style={{ marginRight: 6 }} 
+                />
+                <Text style={[styles.searchButtonText, { color: isDark ? '#000000' : '#FFFFFF' }]}>
+                  {activeFilterCount > 0 ? `Search (${activeFilterCount})` : 'Search'}
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
-        </ScrollView>
-
-        {/* Search Button */}
-        <View style={[styles.filterFooter, { backgroundColor: theme.colors.background, borderTopColor: theme.colors.border }]}>
-          <View style={styles.filterFooterButtons}>
-            <TouchableOpacity 
-              style={[styles.resetButton, { 
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.border,
-              }]} 
-              onPress={handleClearFilters}
-            >
-              <Ionicons name="refresh-outline" size={18} color={theme.colors.text} />
-              <Text style={[styles.resetButtonText, { color: theme.colors.text }]}>Reset</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.searchButton, { backgroundColor: theme.colors.primary }]} 
-              onPress={handleSearch}
-            >
-              <Ionicons name="search" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
-              <Text style={styles.searchButtonText}>
-                {activeFilterCount > 0 ? `Search (${activeFilterCount})` : 'Search'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </SafeAreaView>
-    </Modal>
+          </SafeAreaView>
+        </KeyboardAvoidingView>
+      </Modal>
     );
   };
 
@@ -3562,14 +3663,9 @@ export default function LocaleScreen() {
   // List Rendering Performance: Memoize render functions
   const renderAdminLocaleCard = useCallback(({ locale, index }: { locale: Locale; index: number }) => {
     // Use distanceKm from locale object (always available if coordinates exist)
-    const d = (locale as Locale & { distanceKm?: number | null }).distanceKm ?? 
-              (userLocation && locationPermissionGranted ? getLocaleDistance(locale) : null);
+    const d = resolveLocaleDistance(locale);
     // Fix distance display formatting - ensure correct units
-    const distanceText = d !== null && d !== undefined
-      ? d < 1
-        ? `${Math.round(d * 1000)} m`
-        : `${d.toFixed(1)} km`
-      : locationPermissionGranted ? 'Calculating...' : '-- km';
+    const distanceText = formatLocaleDistance(locale);
     
     // Debug: Log distance calculation
     if (__DEV__) {
@@ -3594,56 +3690,29 @@ export default function LocaleScreen() {
             marginBottom: 0,
           }
         ]}
-        onPress={() => {
-          // Navigate to locale detail - Legacy flow
-          try {
-            trackFeatureUsage('locale_open', { locale_id: locale._id });
-            router.push({
-              pathname: '/tripscore/countries/[country]/locations/[location]',
-              params: {
-                country: locale.countryCode.toLowerCase(),
-                location: locale.name.toLowerCase().replace(/\s+/g, '-'),
-                userId: 'admin-locale',
-                localeId: String(locale._id),
-                imageUrl: locale.imageUrl || '',
-                galleryUrls:
-                  Array.isArray(locale.imageUrls) && locale.imageUrls.length > 0
-                    ? locale.imageUrls.join('|||')
-                    : '',
-                latitude: (locale.latitude != null && locale.latitude !== 0) ? locale.latitude.toString() : '',
-                longitude: (locale.longitude != null && locale.longitude !== 0) ? locale.longitude.toString() : '',
-                description: locale.description || '',
-                spotTypes: locale.spotTypes?.join(', ') || '',
-                travelInfo: locale.travelInfo || 'Drivable',
-                distanceKm: d !== null && d !== undefined ? d.toString() : '',
-              }
-            });
-          } catch (error) {
-            logger.error('Error navigating to locale detail:', error);
-            showError('Failed to open locale details');
-          }
-        }}
+        onPress={() => openLocaleDetail(locale)}
         accessibilityLabel={`${locale.name}, ${locale.countryCode}`}
         accessibilityRole="button"
         accessibilityHint="Opens locale details"
       >
         {locale.imageUrl ? (
           <Animated.View
+            key={String(locale._id)}
             style={{
               width: '100%',
-              height: CARD_HEIGHT + 48,
+              height: CARD_HEIGHT + 64,
               position: 'absolute',
-              top: -24,
+              top: -32,
               left: 0,
-              transform: [{ translateY }],
+              transform: [{ translateY }, { scale: 1.05 }],
             }}
           >
             <ExpoImage
-              source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: 600, height: 450 }) }}
+              source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: 400, height: 300 }) }}
               style={{ width: '100%', height: '100%' }}
               contentFit="cover"
               cachePolicy="memory-disk"
-              transition={120}
+              transition={0}
             />
           </Animated.View>
         ) : (
@@ -3712,13 +3781,35 @@ export default function LocaleScreen() {
                 {locale.countryCode}
               </Text>
             </View>
-
-
+            {distanceText === 'Calculating...' ? (
+              <Animated.View
+                style={[
+                  styles.distanceBadge,
+                  {
+                    opacity: skeletonAnim,
+                    width: 70,
+                    height: 20,
+                    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }
+                ]}
+              >
+                <View style={{ width: 45, height: 8, backgroundColor: 'rgba(255,255,255,0.4)', borderRadius: 4 }} />
+              </Animated.View>
+            ) : distanceText && distanceText !== '-- km' ? (
+              <View style={[styles.distanceBadge, { flexShrink: 1 }]}>
+                <Ionicons name="location-outline" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
+                <Text style={[styles.distanceText, { flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
+                  {distanceText}
+                </Text>
+              </View>
+            ) : null}
           </BlurView>
         </View>
       </TouchableOpacity>
     );
-  }, [router, theme, userLocation, locationPermissionGranted, getLocaleDistance, CARD_WIDTH, CARD_HEIGHT, scrollY, screenHeight]);
+  }, [openLocaleDetail, resolveLocaleDistance, formatLocaleDistance, userLocation, CARD_WIDTH, CARD_HEIGHT, scrollY, screenHeight]);
 
   const renderAdminLocales = () => {
     // Always use filteredLocales when filters are active, even if empty
@@ -3735,7 +3826,7 @@ export default function LocaleScreen() {
       return (
         <View style={styles.adminLocalesSection}>
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Featured Locales</Text>
-          <ActivityIndicator size="small" color={theme.colors.primary} style={{ marginVertical: 20 }} />
+          <LoadingGlobe size="small" color={theme.colors.primary} style={{ marginVertical: 20 }} />
         </View>
       );
     }
@@ -3776,14 +3867,19 @@ export default function LocaleScreen() {
               onPress={handleLoadMore}
               activeOpacity={0.7}
             >
-              <Text style={[styles.loadMoreText, { color: '#FFFFFF' }]}>Load More</Text>
-              <Ionicons name="chevron-down" size={20} color="#FFFFFF" style={{ marginLeft: 8 }} />
+              <Text style={[styles.loadMoreText, { color: isDark ? '#000000' : '#FFFFFF' }]}>Load More</Text>
+              <Ionicons 
+                name="chevron-down" 
+                size={20} 
+                color={isDark ? '#000000' : '#FFFFFF'} 
+                style={{ marginLeft: 8 }} 
+              />
             </TouchableOpacity>
           </View>
         )}
         {loadingMore && (
           <View style={styles.loadMoreContainer}>
-            <ActivityIndicator size="small" color={theme.colors.primary} />
+            <LoadingGlobe size="small" color={theme.colors.primary} />
             <Text style={[styles.loadMoreText, { color: theme.colors.textSecondary, marginLeft: 8 }]}>
               Loading more locales...
             </Text>
@@ -3828,14 +3924,9 @@ export default function LocaleScreen() {
     const safeImageUrl = typeof locale?.imageUrl === 'string' && locale.imageUrl ? locale.imageUrl : '';
 
     // Use distanceKm from locale object (always available if coordinates exist)
-    const d = (locale as Locale & { distanceKm?: number | null }).distanceKm ??
-              (userLocation && locationPermissionGranted ? getLocaleDistance(locale) : null);
+    const d = resolveLocaleDistance(locale);
     // Fix distance display formatting - ensure correct units
-    const distanceText = d !== null && d !== undefined
-      ? d < 1
-        ? `${Math.round(d * 1000)} m`
-        : `${d.toFixed(1)} km`
-      : locationPermissionGranted ? 'Calculating...' : '-- km';
+    const distanceText = formatLocaleDistance(locale);
 
     return (
       <TouchableOpacity
@@ -3844,46 +3935,18 @@ export default function LocaleScreen() {
           styles.wideCard,
           { marginBottom: 16 }
         ]}
-        onPress={() => {
-          // Navigate to locale detail - Legacy flow
-          try {
-            trackFeatureUsage('locale_open', { locale_id: locale._id });
-            router.push({
-              pathname: '/tripscore/countries/[country]/locations/[location]',
-              params: {
-                country: safeCountryCode.toLowerCase(),
-                location: safeName.toLowerCase().replace(/\s+/g, '-'),
-                userId: 'admin-locale',
-                localeId: String(locale._id || ''),
-                imageUrl: safeImageUrl,
-                galleryUrls:
-                  Array.isArray(locale.imageUrls) && locale.imageUrls.length > 0
-                    ? locale.imageUrls.filter(u => typeof u === 'string').join('|||')
-                    : '',
-                latitude: (locale.latitude != null && locale.latitude !== 0) ? locale.latitude.toString() : '',
-                longitude: (locale.longitude != null && locale.longitude !== 0) ? locale.longitude.toString() : '',
-                description: safeDescription,
-                spotTypes: Array.isArray(locale.spotTypes) ? locale.spotTypes.filter(s => typeof s === 'string').join(', ') : '',
-                travelInfo: typeof locale.travelInfo === 'string' ? locale.travelInfo : 'Drivable',
-                distanceKm: d !== null && d !== undefined ? d.toString() : '',
-              }
-            });
-          } catch (error) {
-            logger.error('Error navigating to locale detail:', error);
-            showError('Failed to open locale details');
-          }
-        }}
+        onPress={() => openLocaleDetail(locale)}
         accessibilityLabel={`${safeName}, ${safeCountryCode}`}
         accessibilityRole="button"
         accessibilityHint="Opens locale details"
       >
         {safeImageUrl ? (
           <ExpoImage
-            source={{ uri: optimizeCloudinaryUrl(safeImageUrl, { width: 400, height: 300 }) }}
+            source={{ uri: optimizeCloudinaryUrl(safeImageUrl, { width: 300, height: 200 }) }}
             style={styles.cardImage as ImageStyle}
             contentFit="cover"
             cachePolicy="memory-disk"
-            transition={120}
+            transition={0}
           />
         ) : (
           <LinearGradient
@@ -3904,6 +3967,7 @@ export default function LocaleScreen() {
         />
         <View style={styles.cardContent}>
           <View style={styles.cardTitleRow}>
+            <Ionicons name="location" size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
             <Text style={styles.cardTitle}>{safeName}</Text>
           </View>
           <Text style={[styles.cardSubtitle, { color: '#FFFFFF' }]}>
@@ -3915,6 +3979,30 @@ export default function LocaleScreen() {
             </Text>
           ) : null}
         </View>
+        {distanceText === 'Calculating...' ? (
+          <Animated.View
+            style={[
+              styles.distanceBadgeAbsolute,
+              {
+                opacity: skeletonAnim,
+                width: 70,
+                height: 22,
+                backgroundColor: 'rgba(255, 255, 255, 0.25)',
+                justifyContent: 'center',
+                alignItems: 'center',
+              }
+            ]}
+          >
+            <View style={{ width: 45, height: 8, backgroundColor: 'rgba(255,255,255,0.4)', borderRadius: 4 }} />
+          </Animated.View>
+        ) : distanceText && distanceText !== '-- km' ? (
+          <View style={[styles.distanceBadgeAbsolute, { flexShrink: 1 }]}>
+            <Ionicons name="location-outline" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
+            <Text style={[styles.distanceText, { flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
+              {distanceText}
+            </Text>
+          </View>
+        ) : null}
 
         <TouchableOpacity
           style={styles.saveButton}
@@ -3925,15 +4013,23 @@ export default function LocaleScreen() {
           accessibilityLabel={`Remove ${safeName} from saved`}
           accessibilityRole="button"
         >
-          <Ionicons
-            name="bookmark"
-            size={20}
-            color="#FFD700"
-          />
+          <MaskedView
+            style={{ width: 20, height: 20 }}
+            maskElement={
+              <Ionicons name="bookmark" size={20} color="#000000" />
+            }
+          >
+            <LinearGradient
+              colors={['#1C73B4', '#50C878']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{ flex: 1 }}
+            />
+          </MaskedView>
         </TouchableOpacity>
       </TouchableOpacity>
     );
-  }, [router, theme, unsaveLocale, userLocation, locationPermissionGranted, getLocaleDistance]);
+  }, [openLocaleDetail, resolveLocaleDistance, formatLocaleDistance, unsaveLocale]);
 
   const renderEmptySavedState = () => (
     <View style={styles.emptyContainer}>
@@ -3951,7 +4047,7 @@ export default function LocaleScreen() {
       <SafeAreaView style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
         <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#4A90E2" />
+          <LoadingGlobe size="large" color="#4A90E2" />
         </View>
       </SafeAreaView>
     );
@@ -3971,7 +4067,7 @@ export default function LocaleScreen() {
       <LinearGradient
         colors={
           mode === 'dark'
-            ? ['#06121F', '#102236', '#07111C']
+            ? ['#000000', '#000000', '#000000']
             : (theme.colors.screenGradient as [string, string, ...string[]])
         }
         style={StyleSheet.absoluteFillObject}
@@ -3989,20 +4085,37 @@ export default function LocaleScreen() {
         />
       
       <View
-        style={[
-          styles.headerPanel,
-          {
-            backgroundColor: isDark ? '#0B1A2B' : '#FFFFFF',
-            paddingTop: insets.top,
-            shadowColor: '#000000',
-            shadowOffset: { width: 0, height: 6 },
-            shadowOpacity: 0.15,
-            shadowRadius: 12,
-            elevation: 6,
-          }
-        ]}
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          zIndex: 10,
+          paddingTop: insets.top,
+          borderBottomWidth: 1,
+          borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+          backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)',
+          borderBottomLeftRadius: 24,
+          borderBottomRightRadius: 24,
+          shadowColor: '#000000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: isDark ? 0.3 : 0.1,
+          shadowRadius: 10,
+          elevation: 4,
+          overflow: 'hidden',
+          ...(isWebLocal && {
+            maxWidth: isTabletLocal ? 1200 : 1000,
+            alignSelf: 'center',
+            width: '100%',
+          } as any),
+        }}
         onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
       >
+        <BlurView
+          intensity={95}
+          tint={isDark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFillObject}
+        />
         <View style={styles.topNavigation}>
           <CloudSegmentedControl
             segments={[
@@ -4060,7 +4173,7 @@ export default function LocaleScreen() {
             </View>
           ) : loadingLocales && localesToShow.length === 0 ? (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-              <ActivityIndicator size="small" color={theme.colors.primary} />
+              <LoadingGlobe size="small" color={theme.colors.primary} />
             </View>
           ) : (
             <View style={{ flex: 1, position: 'relative' }}>
@@ -4070,7 +4183,7 @@ export default function LocaleScreen() {
                 renderItem={renderAdminLocaleItem}
                 keyExtractor={localeKeyExtractor}
                 showsVerticalScrollIndicator={true}
-                onScroll={handleVerticalScroll}
+                 onScroll={handleVerticalScroll}
                 scrollEventThrottle={16}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
@@ -4100,14 +4213,19 @@ export default function LocaleScreen() {
                             onPress={handleLoadMore}
                             activeOpacity={0.7}
                           >
-                            <Text style={[styles.loadMoreText, { color: '#FFFFFF' }]}>Load More</Text>
-                            <Ionicons name="chevron-down" size={20} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                            <Text style={[styles.loadMoreText, { color: isDark ? '#000000' : '#FFFFFF' }]}>Load More</Text>
+                            <Ionicons 
+                              name="chevron-down" 
+                              size={20} 
+                              color={isDark ? '#000000' : '#FFFFFF'} 
+                              style={{ marginLeft: 8 }} 
+                            />
                           </TouchableOpacity>
                         </View>
                       )}
                       {loadingMore && (
                         <View style={styles.loadMoreContainer}>
-                          <ActivityIndicator size="small" color={theme.colors.primary} />
+                          <LoadingGlobe size="small" color={theme.colors.primary} />
                           <Text style={[styles.loadMoreText, { color: theme.colors.textSecondary, marginLeft: 8 }]}>
                             Loading more locales...
                           </Text>
@@ -4120,8 +4238,8 @@ export default function LocaleScreen() {
                   <RefreshControl
                     refreshing={refreshing}
                     onRefresh={handleRefresh}
-                    colors={['#5BBCF8']}
-                    tintColor="#5BBCF8"
+                    colors={[isDark ? '#FFFFFF' : '#121212']}
+                    tintColor={isDark ? '#FFFFFF' : '#121212'}
                   />
                 }
                 style={{ flex: 1 }}
@@ -4133,35 +4251,26 @@ export default function LocaleScreen() {
 
       <View style={[styles.listSlot, activeTab === 'saved' ? null : styles.hidden]} pointerEvents={activeTab === 'saved' ? 'auto' : 'none'}>
         <FlatList
-          data={[]}
-          renderItem={() => null}
-          keyExtractor={() => 'saved-featured'}
+          data={filteredSavedLocales}
+          renderItem={({ item, index }) => renderSavedLocaleCard({ locale: item, index })}
+          keyExtractor={(item, index) => String(item?._id ?? `saved-${index}`)}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          ListHeaderComponentStyle={{ width: screenWidth }}
+          ItemSeparatorComponent={() => <View style={{ height: 20 }} />}
           ListHeaderComponent={
             filteredSavedLocales.length > 0 ? (
-              <CloudLocaleFeed
-                featuredTitle="Saved Locales 🔖"
-                showNearest={Boolean(userLocation && locationPermissionGranted)}
-                locales={filteredSavedLocales.map(toCloudLocale)}
-                getDistanceText={(l) => {
-                  const full = filteredSavedLocales.find((x) => String(x._id) === l._id);
-                  return full ? formatLocaleDistance(full) : '-- km';
-                }}
-                onLocalePress={(l) => {
-                  const full = filteredSavedLocales.find((x) => String(x._id) === l._id);
-                  if (full) openLocaleDetail(full);
-                }}
-                onSavePress={(l) => {
-                  if (l._id) unsaveLocale(l._id);
-                }}
-                isSaved={() => true}
-              />
+              <Text
+                style={[
+                  styles.sectionTitle,
+                  { color: theme.colors.text, marginBottom: 16, paddingHorizontal: 4, marginTop: 12 },
+                ]}
+              >
+                Saved Locales 🔖
+              </Text>
             ) : null
           }
           ListEmptyComponent={
-            filteredSavedLocales.length > 0 ? null : savedLocales.length === 0
+            savedLocales.length === 0
               ? renderEmptySavedState()
               : filteredSavedLocales.length === 0
                 ? (
@@ -4175,13 +4284,16 @@ export default function LocaleScreen() {
                         style={[styles.clearFiltersButton, { backgroundColor: theme.colors.primary }]}
                         onPress={handleClearFilters}
                       >
-                        <Text style={styles.clearFiltersButtonText}>Clear Filters</Text>
+                        <Text style={[styles.clearFiltersButtonText, { color: isDark ? '#000000' : '#FFFFFF' }]}>Clear Filters</Text>
                       </TouchableOpacity>
                     </View>
                   )
                 : null
           }
-          onScroll={handleScroll}
+          onScroll={(e) => {
+            if (e.target !== e.currentTarget) return;
+            handleScroll(e);
+          }}
           scrollEventThrottle={16}
           refreshControl={
             <RefreshControl
@@ -4199,11 +4311,12 @@ export default function LocaleScreen() {
               }}
             />
           }
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={[
-            styles.listContainer,
-            { width: screenWidth, paddingHorizontal: 20, paddingTop: headerHeight > 0 ? headerHeight + 20 : 20, paddingBottom: isTabletLocal ? 80 : 100 },
-          ]}
+          showsVerticalScrollIndicator={true}
+          contentContainerStyle={{
+            paddingHorizontal: isTabletLocal ? 24 : 16,
+            paddingTop: headerHeight > 0 ? headerHeight + 12 : 12,
+            paddingBottom: Platform.OS === 'ios' ? 120 : 140,
+          }}
         />
       </View>
 

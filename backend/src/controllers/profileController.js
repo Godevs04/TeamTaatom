@@ -381,6 +381,23 @@ const getProfile = async (req, res) => {
       profilePicUrl = await resolveProfilePic(user);
     }
 
+    // Check route access request status
+    let routeAccessStatus = 'none';
+    const currentUserId = req.user ? req.user._id.toString() : null;
+    if (currentUserId && !isOwnProfile) {
+      const isApproved = user.routeAccessApprovedUsers && 
+        user.routeAccessApprovedUsers.some(uid => uid.toString() === currentUserId);
+      
+      const isPending = user.routeAccessRequests && 
+        user.routeAccessRequests.some(r => r.user.toString() === currentUserId && r.status === 'pending');
+        
+      if (isApproved) {
+        routeAccessStatus = 'approved';
+      } else if (isPending) {
+        routeAccessStatus = 'pending';
+      }
+    }
+
     const profile = {
       ...user,
       profilePic: profilePicUrl, // Dynamically generated URL
@@ -397,6 +414,8 @@ const getProfile = async (req, res) => {
       followRequestSent,
       profileVisibility,
       hasReceivedFollowRequest,
+      routeAccessStatus,
+      routeVisibility: user.settings?.privacy?.routeVisibility || 'everyone',
       // Only include email if user has enabled showEmail setting
       email: user.settings?.privacy?.showEmail ? user.email : undefined,
       // Include bio for all users
@@ -652,6 +671,13 @@ const toggleFollow = async (req, res) => {
 
       await Promise.all([currentUser.save(), targetUser.save()]);
 
+      // Invalidate cache
+      await Promise.all([
+        deleteCache(CacheKeys.user(targetIdStr)),
+        deleteCache(CacheKeys.user(currentUserId.toString())),
+        deleteCacheByPattern('search:*')
+      ]).catch(err => logger.warn('Failed to delete follow cache:', err));
+
       notifyFollowUpdated();
 
       return sendSuccess(res, 200, 'User unfollowed', {
@@ -675,7 +701,31 @@ const toggleFollow = async (req, res) => {
         );
         
         if (existingSentRequest || existingReceivedRequest) {
-          return sendError(res, 'BIZ_7002', 'Follow request already pending');
+          // Cancel/Recall follow request
+          currentUser.sentFollowRequests = currentUser.sentFollowRequests.filter(
+            req => req.user.toString() !== id
+          );
+          targetUser.followRequests = targetUser.followRequests.filter(
+            req => req.user.toString() !== currentUserId.toString()
+          );
+
+          await Promise.all([currentUser.save(), targetUser.save()]);
+
+          // Invalidate cache
+          await Promise.all([
+            deleteCache(CacheKeys.user(targetIdStr)),
+            deleteCache(CacheKeys.user(currentUserId.toString())),
+            deleteCacheByPattern('search:*')
+          ]).catch(err => logger.warn('Failed to delete follow cache:', err));
+
+          notifyFollowUpdated();
+
+          return sendSuccess(res, 200, 'Follow request cancelled', {
+            isFollowing: false,
+            followersCount: targetUser.followers.filter(followerId => followerId.toString() !== id.toString()).length,
+            followingCount: currentUser.following.filter(followingId => followingId.toString() !== currentUserId.toString()).length,
+            followRequestSent: false
+          });
         }
 
         // Send follow request
@@ -703,6 +753,13 @@ const toggleFollow = async (req, res) => {
         targetUser.followRequests.push(followRequest);
 
         await Promise.all([currentUser.save(), targetUser.save()]);
+
+        // Invalidate cache
+        await Promise.all([
+          deleteCache(CacheKeys.user(targetIdStr)),
+          deleteCache(CacheKeys.user(currentUserId.toString())),
+          deleteCacheByPattern('search:*')
+        ]).catch(err => logger.warn('Failed to delete follow cache:', err));
 
         // Send notification to target user
         const io = getIO();
@@ -760,6 +817,13 @@ const toggleFollow = async (req, res) => {
         targetUser.followers.push(currentUserId);
 
         await Promise.all([currentUser.save(), targetUser.save()]);
+
+        // Invalidate cache
+        await Promise.all([
+          deleteCache(CacheKeys.user(targetIdStr)),
+          deleteCache(CacheKeys.user(currentUserId.toString())),
+          deleteCacheByPattern('search:*')
+        ]).catch(err => logger.warn('Failed to delete follow cache:', err));
 
         // Create activity (respect user's privacy settings)
         const user = await User.findById(currentUserId).select('settings.privacy.shareActivity').lean();
@@ -1446,22 +1510,29 @@ const approveFollowRequest = async (req, res) => {
       }
     }
 
-        // Send notification to requester
-        const io = getIO();
-        if (io && requester.expoPushToken && requester.settings?.notifications?.followApprovalNotifications) {
-          const nsp = io.of('/app');
-          nsp.emit('notification', {
-            userId: requesterId.toString(),
-            type: 'follow_approved',
-            title: 'Follow Request Approved',
-            message: `${user.fullName} approved your follow request`,
-            data: {
-              approvedBy: currentUserId.toString(),
-              approvedByName: user.fullName,
-              approvedByProfilePic: user.profilePic
-            }
-          });
+    // Invalidate cache
+    await Promise.all([
+      deleteCache(CacheKeys.user(currentUserId.toString())),
+      deleteCache(CacheKeys.user(requesterId.toString())),
+      deleteCacheByPattern('search:*')
+    ]).catch(err => logger.warn('Failed to delete approve follow request cache:', err));
+
+    // Send notification to requester
+    const io = getIO();
+    if (io && requester.expoPushToken && requester.settings?.notifications?.followApprovalNotifications) {
+      const nsp = io.of('/app');
+      nsp.emit('notification', {
+        userId: requesterId.toString(),
+        type: 'follow_approved',
+        title: 'Follow Request Approved',
+        message: `${user.fullName} approved your follow request`,
+        data: {
+          approvedBy: currentUserId.toString(),
+          approvedByName: user.fullName,
+          approvedByProfilePic: user.profilePic
         }
+      });
+    }
 
         // Create notification in database
         try {
@@ -1550,6 +1621,13 @@ const rejectFollowRequest = async (req, res) => {
     }
 
     await Promise.all([user.save(), requester.save()]);
+
+    // Invalidate cache
+    await Promise.all([
+      deleteCache(CacheKeys.user(currentUserId.toString())),
+      deleteCache(CacheKeys.user(requesterId.toString())),
+      deleteCacheByPattern('search:*')
+    ]).catch(err => logger.warn('Failed to delete reject follow request cache:', err));
 
     // Mark the follow_request notification as read and change type so it persists correctly after reload
     try {
@@ -2147,11 +2225,11 @@ const getTripScoreLocations = async (req, res) => {
         if (p.imageUrl) return p.imageUrl;
         if (p.images && p.images.length > 0) return p.images[0];
       } else {
+        // For shorts: resolve the image thumbnail, not the video
+        if (p.storageKeys && p.storageKeys.length > 1) return await generateSignedUrl(p.storageKeys[1], 'IMAGE');
+        if (p.thumbnailUrl) return p.thumbnailUrl;
         if (p.imageUrl) return p.imageUrl;
         if (p.images && p.images.length > 0) return p.images[0];
-        if (p.storageKey) return await generateSignedUrl(p.storageKey, 'VIDEO');
-        if (p.storageKeys && p.storageKeys.length > 0) return await generateSignedUrl(p.storageKeys[0], 'VIDEO');
-        if (p.videoUrl) return p.videoUrl;
       }
       return null;
     };
@@ -2328,13 +2406,23 @@ const getTravelMapData = async (req, res) => {
         let photo = null;
         let needsSignedUrl = null;
         if (postDoc) {
-          const hasStorageKey = postDoc.storageKey || (postDoc.storageKeys && postDoc.storageKeys.length > 0);
-          if (hasStorageKey) {
-            needsSignedUrl = (postDoc.storageKeys && postDoc.storageKeys.length > 0) ? postDoc.storageKeys[0] : postDoc.storageKey;
-          } else if (postDoc.thumbnailUrl) {
-            photo = postDoc.thumbnailUrl;
-          } else if (postDoc.imageUrl) {
-            photo = postDoc.imageUrl;
+          const isShort = postDoc.type === 'short' || contentType === 'short';
+          if (isShort) {
+            if (postDoc.storageKeys && postDoc.storageKeys.length > 1) {
+              needsSignedUrl = postDoc.storageKeys[1];
+            } else if (postDoc.thumbnailUrl) {
+              photo = postDoc.thumbnailUrl;
+            } else if (postDoc.imageUrl) {
+              photo = postDoc.imageUrl;
+            }
+          } else {
+            // Photo
+            const hasStorageKey = postDoc.storageKey || (postDoc.storageKeys && postDoc.storageKeys.length > 0);
+            if (hasStorageKey) {
+              needsSignedUrl = (postDoc.storageKeys && postDoc.storageKeys.length > 0) ? postDoc.storageKeys[0] : postDoc.storageKey;
+            } else if (postDoc.imageUrl) {
+              photo = postDoc.imageUrl;
+            }
           }
         }
 
@@ -2771,6 +2859,13 @@ const toggleBlockUser = async (req, res) => {
       currentUser.blockedUsers.pull(id);
       await currentUser.save();
 
+      // Invalidate cache
+      await Promise.all([
+        deleteCache(CacheKeys.user(id.toString())),
+        deleteCache(CacheKeys.user(currentUserId.toString())),
+        deleteCacheByPattern('search:*')
+      ]).catch(err => logger.warn('Failed to delete unblock cache:', err));
+
       return sendSuccess(res, 200, 'User unblocked successfully', { isBlocked: false });
     } else {
       // Block user
@@ -2800,6 +2895,13 @@ const toggleBlockUser = async (req, res) => {
       );
 
       await Promise.all([currentUser.save(), targetUser.save()]);
+
+      // Invalidate cache
+      await Promise.all([
+        deleteCache(CacheKeys.user(id.toString())),
+        deleteCache(CacheKeys.user(currentUserId.toString())),
+        deleteCacheByPattern('search:*')
+      ]).catch(err => logger.warn('Failed to delete block cache:', err));
 
       return sendSuccess(res, 200, 'User blocked successfully', { isBlocked: true });
     }
@@ -3028,6 +3130,361 @@ const completeProfileOnboarding = async (req, res) => {
   }
 };
 
+// @desc    Request route access from a user
+// @route   POST /profile/:id/route-access/request
+// @access  Private
+const requestRouteAccess = async (req, res) => {
+  try {
+    const { id } = req.params; // The target user we want access to
+    const currentUserId = req.user._id;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return sendError(res, 'VAL_2001', 'Invalid target user ID');
+    }
+
+    if (id.toString() === currentUserId.toString()) {
+      return sendError(res, 'BIZ_7001', 'You cannot request route access from yourself');
+    }
+
+    const targetUser = await User.findById(id);
+    if (!targetUser) {
+      return sendError(res, 'RES_3001', 'User not found');
+    }
+
+    // Check if viewer already has access
+    const alreadyApproved = targetUser.routeAccessApprovedUsers && 
+      targetUser.routeAccessApprovedUsers.some(uid => uid.toString() === currentUserId.toString());
+    if (alreadyApproved) {
+      return sendSuccess(res, 200, 'Already approved for route access', { status: 'approved' });
+    }
+
+    // Check if viewer has a pending request
+    const existingRequest = targetUser.routeAccessRequests && 
+      targetUser.routeAccessRequests.find(r => r.user.toString() === currentUserId.toString());
+
+    if (existingRequest) {
+      if (existingRequest.status === 'pending') {
+        return sendSuccess(res, 200, 'Route access request is already pending', { status: 'pending' });
+      } else {
+        // Allow re-requesting if previously rejected
+        existingRequest.status = 'pending';
+        existingRequest.requestedAt = new Date();
+      }
+    } else {
+      // Create new request
+      if (!targetUser.routeAccessRequests) {
+        targetUser.routeAccessRequests = [];
+      }
+      targetUser.routeAccessRequests.push({
+        user: currentUserId,
+        status: 'pending',
+        requestedAt: new Date()
+      });
+    }
+
+    await targetUser.save();
+
+    // Send push notification & socket notification
+    const io = getIO();
+    if (io && targetUser.expoPushToken && targetUser.settings?.notifications?.pushNotifications) {
+      const nsp = io.of('/app');
+      nsp.emit('notification', {
+        userId: targetUser._id.toString(),
+        type: 'route_access_request',
+        title: 'Route Access Request',
+        message: `${req.user.fullName} requested access to view your traveling routes`,
+        data: {
+          requestedBy: currentUserId.toString(),
+          requestedByName: req.user.fullName,
+          requestedByProfilePic: req.user.profilePic
+        }
+      });
+    }
+
+    try {
+      await Notification.createNotification({
+        type: 'route_access_request',
+        fromUser: currentUserId,
+        toUser: targetUser._id,
+        metadata: {
+          requestedByName: req.user.fullName,
+          requestedByProfilePic: req.user.profilePic
+        }
+      });
+
+      await sendNotificationToUser({
+        userId: targetUser._id.toString(),
+        title: 'Route Access Request',
+        body: `${req.user.fullName} requested access to view your traveling routes`,
+        data: {
+          type: 'route_access_request',
+          fromUserId: currentUserId.toString(),
+          entityId: currentUserId.toString(),
+          senderId: currentUserId.toString()
+        }
+      }).catch(err => logger.error('Error sending push notification for route access request:', err));
+    } catch (notifErr) {
+      logger.error('Error creating route access request notification:', notifErr);
+    }
+
+    // Invalidate profile cache
+    await deleteCache(CacheKeys.user(id.toString())).catch(() => {});
+
+    return sendSuccess(res, 200, 'Route access requested successfully', { status: 'pending' });
+  } catch (error) {
+    logger.error('Request route access error:', error);
+    return sendError(res, 'SRV_6001', 'Error requesting route access');
+  }
+};
+
+// @desc    Approve route access request
+// @route   POST /profile/route-access/requests/:requestId/approve
+// @access  Private
+const approveRouteAccess = async (req, res) => {
+  try {
+    const { requestId } = req.params; // Note: requestId is requester user ID
+    const currentUserId = req.user._id;
+
+    const user = await User.findById(currentUserId);
+    if (!user) {
+      return sendError(res, 'RES_3001', 'Current user not found');
+    }
+
+    // Find route access request
+    const request = user.routeAccessRequests && user.routeAccessRequests.find(
+      r => r.user.toString() === requestId && r.status === 'pending'
+    );
+
+    if (!request) {
+      return sendError(res, 'RES_3001', 'Route access request not found or already processed');
+    }
+
+    const requesterId = request.user;
+    const requester = await User.findById(requesterId);
+    if (!requester) {
+      return sendError(res, 'RES_3001', 'The user who requested access no longer exists');
+    }
+
+    // Add requester to routeAccessApprovedUsers
+    if (!user.routeAccessApprovedUsers) {
+      user.routeAccessApprovedUsers = [];
+    }
+    if (!user.routeAccessApprovedUsers.some(uid => uid.toString() === requesterId.toString())) {
+      user.routeAccessApprovedUsers.push(requesterId);
+    }
+
+    request.status = 'approved';
+
+    await user.save();
+
+    // Invalidate cache
+    await deleteCache(CacheKeys.user(currentUserId.toString())).catch(() => {});
+    await deleteCache(CacheKeys.user(requesterId.toString())).catch(() => {});
+
+    // Send notifications
+    const io = getIO();
+    if (io && requester.expoPushToken && requester.settings?.notifications?.pushNotifications) {
+      const nsp = io.of('/app');
+      nsp.emit('notification', {
+        userId: requesterId.toString(),
+        type: 'route_access_approved',
+        title: 'Route Access Approved',
+        message: `${user.fullName} approved your request to view their traveling routes`,
+        data: {
+          approvedBy: currentUserId.toString(),
+          approvedByName: user.fullName,
+          approvedByProfilePic: user.profilePic
+        }
+      });
+    }
+
+    try {
+      await Notification.createNotification({
+        type: 'route_access_approved',
+        fromUser: currentUserId,
+        toUser: requesterId,
+        metadata: {
+          approvedByName: user.fullName,
+          approvedByProfilePic: user.profilePic
+        }
+      });
+
+      await sendNotificationToUser({
+        userId: requesterId.toString(),
+        title: 'Route Access Approved',
+        body: `${user.fullName} approved your request to view their traveling routes`,
+        data: {
+          type: 'route_access_approved',
+          fromUserId: currentUserId.toString(),
+          entityId: currentUserId.toString(),
+          senderId: currentUserId.toString()
+        }
+      }).catch(err => logger.error('Error sending push notification for route access approval:', err));
+    } catch (notifErr) {
+      logger.error('Error creating route access approval notification:', notifErr);
+    }
+
+    // Update notifications as read/accepted
+    try {
+      await Notification.updateMany(
+        { toUser: currentUserId, fromUser: requesterId, type: 'route_access_request' },
+        { $set: { isRead: true, type: 'route_access_accepted' } }
+      );
+    } catch (notifReadError) {
+      logger.error('Error marking route access request notification read:', notifReadError);
+    }
+
+    return sendSuccess(res, 200, 'Route access request approved successfully');
+  } catch (error) {
+    logger.error('Approve route access error:', error);
+    return sendError(res, 'SRV_6001', 'Error approving route access');
+  }
+};
+
+// @desc    Reject route access request
+// @route   POST /profile/route-access/requests/:requestId/reject
+// @access  Private
+const rejectRouteAccess = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const currentUserId = req.user._id;
+
+    const user = await User.findById(currentUserId);
+    if (!user) {
+      return sendError(res, 'RES_3001', 'Current user not found');
+    }
+
+    // Find route access request
+    const request = user.routeAccessRequests && user.routeAccessRequests.find(
+      r => r.user.toString() === requestId && r.status === 'pending'
+    );
+
+    if (!request) {
+      return sendError(res, 'RES_3001', 'Route access request not found or already processed');
+    }
+
+    request.status = 'rejected';
+    await user.save();
+
+    // Invalidate cache
+    await deleteCache(CacheKeys.user(currentUserId.toString())).catch(() => {});
+    await deleteCache(CacheKeys.user(requestId)).catch(() => {});
+
+    // Update notifications as read/rejected
+    try {
+      await Notification.updateMany(
+        { toUser: currentUserId, fromUser: requestId, type: 'route_access_request' },
+        { $set: { isRead: true, type: 'route_access_rejected' } }
+      );
+    } catch (notifReadError) {
+      logger.error('Error marking route access request notification read:', notifReadError);
+    }
+
+    return sendSuccess(res, 200, 'Route access request rejected successfully');
+  } catch (error) {
+    logger.error('Reject route access error:', error);
+    return sendError(res, 'SRV_6001', 'Error rejecting route access');
+  }
+};
+
+// @desc    Revoke route access from a user
+// @route   DELETE /profile/:id/route-access
+// @access  Private
+const revokeRouteAccess = async (req, res) => {
+  try {
+    const { id } = req.params; // User ID to revoke access from
+    const currentUserId = req.user._id;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return sendError(res, 'VAL_2001', 'Invalid target user ID');
+    }
+
+    const user = await User.findById(currentUserId);
+    if (!user) {
+      return sendError(res, 'RES_3001', 'Current user not found');
+    }
+
+    // Remove user from approved list
+    if (user.routeAccessApprovedUsers) {
+      user.routeAccessApprovedUsers = user.routeAccessApprovedUsers.filter(
+        uid => uid.toString() !== id.toString()
+      );
+    }
+
+    // Update request list
+    if (user.routeAccessRequests) {
+      user.routeAccessRequests = user.routeAccessRequests.filter(
+        r => r.user.toString() !== id.toString()
+      );
+    }
+
+    await user.save();
+
+    // Invalidate cache
+    await deleteCache(CacheKeys.user(currentUserId.toString())).catch(() => {});
+    await deleteCache(CacheKeys.user(id.toString())).catch(() => {});
+
+    return sendSuccess(res, 200, 'Route access revoked successfully');
+  } catch (error) {
+    logger.error('Revoke route access error:', error);
+    return sendError(res, 'SRV_6001', 'Error revoking route access');
+  }
+};
+
+// @desc    Get pending route access requests
+// @route   GET /profile/route-access/requests
+// @access  Private
+const getRouteAccessRequests = async (req, res) => {
+  try {
+    const currentUserId = req.user._id;
+    const user = await User.findById(currentUserId)
+      .populate('routeAccessRequests.user', 'fullName username profilePic email')
+      .select('routeAccessRequests');
+
+    if (!user) {
+      return sendError(res, 'RES_3001', 'User not found');
+    }
+
+    const pendingRequests = (user.routeAccessRequests || [])
+      .filter(r => r.status === 'pending' && r.user)
+      .map(r => ({
+        _id: r._id,
+        user: r.user,
+        requestedAt: r.requestedAt
+      }));
+
+    return sendSuccess(res, 200, 'Route access requests fetched successfully', {
+      requests: pendingRequests
+    });
+  } catch (error) {
+    logger.error('Get route access requests error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching route access requests');
+  }
+};
+
+// @desc    Get list of users approved for route access
+// @route   GET /profile/route-access/approved
+// @access  Private
+const getApprovedUsers = async (req, res) => {
+  try {
+    const currentUserId = req.user._id;
+    const user = await User.findById(currentUserId)
+      .populate('routeAccessApprovedUsers', 'fullName username profilePic email')
+      .select('routeAccessApprovedUsers');
+
+    if (!user) {
+      return sendError(res, 'RES_3001', 'User not found');
+    }
+
+    return sendSuccess(res, 200, 'Approved users fetched successfully', {
+      approvedUsers: user.routeAccessApprovedUsers || []
+    });
+  } catch (error) {
+    logger.error('Get approved users error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching approved users');
+  }
+};
+
 module.exports = {
   getProfile,
   updateProfile,
@@ -3047,5 +3504,11 @@ module.exports = {
   getBlockStatus,
   getSuggestedUsers,
   saveInterests,
-  completeProfileOnboarding
+  completeProfileOnboarding,
+  requestRouteAccess,
+  approveRouteAccess,
+  rejectRouteAccess,
+  revokeRouteAccess,
+  getRouteAccessRequests,
+  getApprovedUsers
 };

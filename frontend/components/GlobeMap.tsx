@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
-import { View, Modal, StyleSheet, Text, TouchableOpacity, Dimensions, Platform, Linking, ActivityIndicator } from 'react-native';
+import { View, Modal, StyleSheet, Text, TouchableOpacity, Dimensions, Platform, Linking } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { WebView } from 'react-native-webview';
 import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
@@ -140,7 +141,7 @@ export default function GlobeMap({ locations, title = 'Travel Globe', visible, o
             onLoadEnd={() => setLoading(false)}
             onMessage={onWebViewMessage}
             startInLoadingState
-            renderLoading={() => <ActivityIndicator style={{ flex: 1 }} size="large" color="#FF3040" />}
+            renderLoading={() => <LoadingGlobe style={{ flex: 1 }} size="large" color="#FF3040" />}
           />
         )}
       </View>

@@ -572,6 +572,8 @@ export default function SignUpScreen() {
                     error={errors.username}
                     touched={touched.username}
                     autoCapitalize="none"
+                    autoCorrect={false}
+                    spellCheck={false}
                     alwaysShowError
                     success={usernameAvailable ? 'Username is available!' : undefined}
                   />
@@ -887,7 +889,7 @@ const styles = StyleSheet.create({
     } as any),
   },
   signUpButtonText: {
-    color: '#FFFFFF',
+    color: '#000000',
     fontSize: isTablet ? theme.typography.body.fontSize + 3 : theme.typography.body.fontSize + 1,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',

@@ -4,8 +4,8 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  ActivityIndicator,
 } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { searchHashtags, getTrendingHashtags, Hashtag } from '../services/hashtags';
@@ -162,7 +162,7 @@ export const HashtagSuggest: React.FC<HashtagSuggestProps> = ({
     <View style={[styles.container, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="small" color={theme.colors.primary} />
+          <LoadingGlobe size="small" color={theme.colors.primary} />
         </View>
       ) : (
         <>

@@ -5,11 +5,12 @@ import {
   TextInput,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   Platform,
   Dimensions,
   Keyboard,
+  KeyboardAvoidingView,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -143,83 +144,88 @@ export default function ConnectSearchScreen() {
       style={[styles.container, { backgroundColor: theme.colors.background }]}
       edges={['top']}
     >
-      {/* Search Header */}
-      <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="arrow-back" size={isTablet ? 28 : 24} color={theme.colors.text} />
-        </TouchableOpacity>
-        <View style={[styles.searchInputContainer, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
-          <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
-          <TextInput
-            ref={searchInputRef}
-            style={[styles.searchInput, { color: theme.colors.text }]}
-            placeholder="Search Connect pages..."
-            placeholderTextColor={theme.colors.textSecondary}
-            value={query}
-            onChangeText={handleQueryChange}
-            autoFocus
-            returnKeyType="search"
-            onSubmitEditing={() => {
-              Keyboard.dismiss();
-              performSearch(query, 1);
-            }}
-          />
-          {query.length > 0 && (
-            <TouchableOpacity
-              onPress={() => {
-                setQuery('');
-                setResults([]);
-                setSearched(false);
-                searchInputRef.current?.focus();
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={{ flex: 1 }}
+      >
+        {/* Search Header */}
+        <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.back()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="arrow-back" size={isTablet ? 28 : 24} color={theme.colors.text} />
+          </TouchableOpacity>
+          <View style={[styles.searchInputContainer, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+            <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
+            <TextInput
+              ref={searchInputRef}
+              style={[styles.searchInput, { color: theme.colors.text }]}
+              placeholder="Search Connect pages..."
+              placeholderTextColor={theme.colors.textSecondary}
+              value={query}
+              onChangeText={handleQueryChange}
+              autoFocus
+              returnKeyType="search"
+              onSubmitEditing={() => {
+                Keyboard.dismiss();
+                performSearch(query, 1);
               }}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Ionicons name="close-circle" size={18} color={theme.colors.textSecondary} />
-            </TouchableOpacity>
-          )}
+            />
+            {query.length > 0 && (
+              <TouchableOpacity
+                onPress={() => {
+                  setQuery('');
+                  setResults([]);
+                  setSearched(false);
+                  searchInputRef.current?.focus();
+                }}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close-circle" size={18} color={theme.colors.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
-      </View>
 
-      {/* Results */}
-      {loading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
-        </View>
-      ) : searched && results.length === 0 ? (
-        <EmptyState
-          icon="search-outline"
-          title="No pages found"
-          description={`No Connect pages match "${query}". Try a different search term.`}
-        />
-      ) : results.length > 0 ? (
-        <FlashList
-          data={results}
-          renderItem={renderItem}
-          keyExtractor={item => item._id}
-          contentContainerStyle={styles.listContent as any}
-          onEndReached={handleLoadMore}
-          onEndReachedThreshold={0.5}
-          ListFooterComponent={
-            loadingMore ? (
-              <View style={styles.footerLoader}>
-                <ActivityIndicator size="small" color={theme.colors.primary} />
-              </View>
-            ) : null
-          }
-        />
-      ) : (
-        <View style={styles.hintContainer}>
-          <Ionicons name="search-outline" size={48} color={theme.colors.textSecondary + '40'} />
-          <Text style={[styles.hintText, { color: theme.colors.textSecondary }]}>
-            Search for Connect pages by name
-          </Text>
-        </View>
-      )}
+        {/* Results */}
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <LoadingGlobe size="large" color={theme.colors.primary} />
+          </View>
+        ) : searched && results.length === 0 ? (
+          <EmptyState
+            icon="search-outline"
+            title="No pages found"
+            description={`No Connect pages match "${query}". Try a different search term.`}
+          />
+        ) : results.length > 0 ? (
+          <FlashList
+            data={results}
+            renderItem={renderItem}
+            keyExtractor={item => item._id}
+            contentContainerStyle={styles.listContent as any}
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.5}
+            ListFooterComponent={
+              loadingMore ? (
+                <View style={styles.footerLoader}>
+                  <LoadingGlobe size="small" color={theme.colors.primary} />
+                </View>
+              ) : null
+            }
+          />
+        ) : (
+          <View style={styles.hintContainer}>
+            <Ionicons name="search-outline" size={48} color={theme.colors.textSecondary + '40'} />
+            <Text style={[styles.hintText, { color: theme.colors.textSecondary }]}>
+              Search for Connect pages by name
+            </Text>
+          </View>
+        )}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

@@ -41,7 +41,7 @@ const markPayoutPaid = async (req, res) => {
     payout.processedBy = req.superAdmin?._id || null;
     payout.processedAt = paidAt;
     payout.failureReason = '';
-    if (payout.payoutMethod === 'wise') {
+    if (payout.payoutMethod === 'wise' || payout.payoutMethod === 'wise_bank') {
       payout.wiseTransferId = reference.slice(0, 100);
     }
     await payout.save();
@@ -137,7 +137,13 @@ const getMyPayouts = async (req, res) => {
         failureReason: p.failureReason || '',
         createdAt: p.createdAt,
       })),
-      summary: summary[0] || { totalEarned: 0, totalPending: 0, payoutCount: 0 },
+      summary: summary[0]
+        ? {
+            totalEarned: Math.round(summary[0].totalEarned * 100) / 100,
+            totalPending: Math.round(summary[0].totalPending * 100) / 100,
+            payoutCount: summary[0].payoutCount,
+          }
+        : { totalEarned: 0, totalPending: 0, payoutCount: 0 },
       pagination: {
         page: pageNum,
         limit,

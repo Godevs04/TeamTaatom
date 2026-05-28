@@ -109,6 +109,25 @@ const userSchema = new mongoose.Schema({
       default: Date.now
     }
   }],
+  routeAccessApprovedUsers: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  routeAccessRequests: [{
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending'
+    },
+    requestedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
   totalLikes: {
     type: Number,
     default: 0
@@ -201,6 +220,11 @@ const userSchema = new mongoose.Schema({
       shareActivity: {
         type: Boolean,
         default: true
+      },
+      routeVisibility: {
+        type: String,
+        enum: ['everyone', 'approved_only', 'private'],
+        default: 'everyone'
       }
     },
     notifications: {
@@ -348,6 +372,7 @@ userSchema.methods.getPublicProfile = function() {
     profilePic: this.profilePic,
     followers: this.followers.length,
     following: this.following.length,
+    followingIds: this.following ? this.following.map(f => (f && (f._id || f)).toString()).filter(Boolean) : [],
     totalLikes: this.totalLikes,
     isVerified: this.isVerified,
     createdAt: this.createdAt,

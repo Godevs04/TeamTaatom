@@ -6,11 +6,11 @@ import {
   SectionList,
   TouchableOpacity,
   Image,
-  ActivityIndicator,
   RefreshControl,
   Dimensions,
   Platform,
 } from 'react-native';
+import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
@@ -167,7 +167,16 @@ export default function NotificationsScreen() {
   }, [loadNotifications, loadingMore, hasMore, page]);
 
   useEffect(() => {
-    loadNotifications();
+    const init = async () => {
+      await loadNotifications();
+      try {
+        await markAllNotificationsAsRead();
+        setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+      } catch (err) {
+        logger.error('Failed to auto-clear notifications on mount:', err);
+      }
+    };
+    init();
   }, [loadNotifications]);
 
   // Real-time: prepend new notifications as they arrive via socket
@@ -660,7 +669,7 @@ export default function NotificationsScreen() {
         styles.footerLoader,
         { backgroundColor: mode === 'dark' ? '#000000' : '#F8F9FA' }
       ]}>
-        <ActivityIndicator size="small" color="#007AFF" />
+        <LoadingGlobe size="small" color="#007AFF" />
       </View>
     );
   };
@@ -676,7 +685,7 @@ export default function NotificationsScreen() {
           styles.loadingContainer,
           { backgroundColor: mode === 'dark' ? '#000000' : '#F8F9FA' }
         ]}>
-          <ActivityIndicator size="large" color="#007AFF" />
+          <LoadingGlobe size="large" color="#007AFF" />
         </View>
       </View>
     );
@@ -866,7 +875,7 @@ const styles = StyleSheet.create({
   notificationContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: isTablet ? theme.spacing.md : 12,
+    paddingVertical: 8,
     paddingHorizontal: isTablet ? theme.spacing.lg : 16,
   },
   notificationLeft: {
@@ -876,15 +885,15 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   avatar: {
-    width: isTablet ? 60 : 48,
-    height: isTablet ? 60 : 48,
-    borderRadius: isTablet ? 30 : 24,
+    width: isTablet ? 60 : 40,
+    height: isTablet ? 60 : 40,
+    borderRadius: isTablet ? 30 : 20,
     borderWidth: 2,
   },
   avatarPlaceholder: {
-    width: isTablet ? 60 : 48,
-    height: isTablet ? 60 : 48,
-    borderRadius: isTablet ? 30 : 24,
+    width: isTablet ? 60 : 40,
+    height: isTablet ? 60 : 40,
+    borderRadius: isTablet ? 30 : 20,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,

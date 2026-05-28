@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   RefreshControl,
   Image,
   Platform,
@@ -13,6 +12,7 @@ import {
   TextInput,
   KeyboardAvoidingView,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
@@ -290,7 +290,7 @@ export default function ManagePostsScreen() {
 
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       ) : (
         <ScrollView
@@ -365,7 +365,7 @@ export default function ManagePostsScreen() {
                     disabled={processingIds.has(post._id)}
                   >
                     {processingIds.has(post._id) ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
+                      <LoadingGlobe size="small" color="#FFFFFF" />
                     ) : (
                       <>
                         <Ionicons name="return-up-back" size={18} color="#FFFFFF" />
@@ -384,7 +384,7 @@ export default function ManagePostsScreen() {
                   disabled={loadingMore}
                 >
                   {loadingMore ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
+                    <LoadingGlobe size="small" color="#FFFFFF" />
                   ) : (
                     <Text style={styles.loadMoreText}>Load More</Text>
                   )}

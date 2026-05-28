@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Image, Alert, Dimensions, Keyboard, Linking } from 'react-native';
+import { View, Text, TextInput, FlatList, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform, Image, Alert, Dimensions, Keyboard, Linking } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Image as ExpoImage } from 'expo-image';
 import * as Notifications from 'expo-notifications';
 import { useTheme } from '../../context/ThemeContext';
@@ -24,6 +25,7 @@ import { getPostById } from '../../services/posts';
 import ChatAttachmentPicker from '../../components/chat/ChatAttachmentPicker';
 import ChatAttachmentPreview from '../../components/chat/ChatAttachmentPreview';
 import MessageAttachment from '../../components/chat/MessageAttachment';
+import ChatMediaViewer from '../../components/chat/ChatMediaViewer';
 import {
   CloudSkyBackground,
   CloudChatCommandHeader,
@@ -425,7 +427,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
     // Show loading or fallback icon
     if (isLoading) {
       return (
-        <ActivityIndicator 
+        <LoadingGlobe 
           size="small" 
           color={isOwn ? 'rgba(255,255,255,0.7)' : theme.colors.primary} 
         />
@@ -1872,7 +1874,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
               const BubbleWrapper = ({ children }: { children: React.ReactNode }) =>
                 isOwn ? (
                   <LinearGradient
-                    colors={cloudDesign.buttonGradient}
+                    colors={['#1C73B4', '#50C878']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={[bubbleStyles.bubbleOut, { maxWidth: CHAT_BUBBLE_MAX_WIDTH }]}
@@ -2018,7 +2020,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
                       marginTop: 2,
                       gap: 3,
                     }}>
-                      <Text style={isOwn ? bubbleStyles.timeOut : bubbleStyles.textIn}>
+                      <Text style={isOwn ? bubbleStyles.timeOut : bubbleStyles.timeIn}>
                         {item.timestamp ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                       </Text>
                       {isOwn && (
@@ -2156,6 +2158,7 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
         )}
       </View>
     )}
+    <ChatMediaViewer isGlobal />
     </>
   );
 }
@@ -2696,6 +2699,14 @@ export default function ChatModal() {
         // chat list, a further swipe-back pops /chat to wherever they came from.
         externalEntryRef.current = false;
         chatIdModeRef.current = false;
+        
+        // Clear query parameters from URL so that subsequent back navigation works correctly
+        try {
+          router.replace('/chat');
+        } catch (err) {
+          logger.error('Failed to clear chat params on swipe back:', err);
+        }
+        
         // Detach immediately so a rapid second iOS swipe-back actually pops
         // the chat list. Without this, the old listener stays attached until
         // the next render's cleanup runs — long enough for users on iOS to
@@ -3114,6 +3125,13 @@ export default function ChatModal() {
         setActiveChat(null);
         setActiveMessages([]);
         refreshChatList();
+        
+        // Clear query parameters from URL so that subsequent back navigation works correctly
+        try {
+          router.replace('/chat');
+        } catch (err) {
+          logger.error('Failed to clear chat params on close:', err);
+        }
       }}
       messages={activeMessages} 
       onSendMessage={handleNewMessage} 
@@ -3210,7 +3228,7 @@ export default function ChatModal() {
     />;
   }
   if (chatLoading || loading) {
-    return <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator color={theme.colors.primary} size="large" /></SafeAreaView>;
+    return <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}><LoadingGlobe color={theme.colors.primary} size="large" /></SafeAreaView>;
   }
   
   // Show error alert as part of chat interface
@@ -4079,9 +4097,14 @@ export default function ChatModal() {
                           : other ? String(other.fullName || other._id || other) : '[No other user found]'}
                       </Text>
                       {(item as any).type === 'connect_page' && (
-                        <View style={styles.connectBadge}>
-                          <Text style={[styles.connectBadgeText, { color: theme.colors.primary }]}>Connect</Text>
-                        </View>
+                        <LinearGradient
+                          colors={['#1C73B4', '#50C878']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={[styles.connectBadge, { borderWidth: 0 }]}
+                        >
+                          <Text style={[styles.connectBadgeText, { color: '#FFFFFF' }]}>Connect</Text>
+                        </LinearGradient>
                       )}
                     </View>
                     <Text style={[styles.chatTime, unreadCount > 0 && { color: theme.colors.primary }]}>
@@ -4220,7 +4243,7 @@ export default function ChatModal() {
           
           <View style={{ flex: 1, paddingHorizontal: 16 }}>
             {loading ? (
-              <ActivityIndicator color={theme.colors.primary} style={{ marginTop: 32 }} />
+              <LoadingGlobe color={theme.colors.primary} style={{ marginTop: 32 }} />
             ) : (
               <FlatList
                 data={search.trim() ? users.filter(u => u.fullName.toLowerCase().includes(search.trim().toLowerCase())) : users}
@@ -4251,6 +4274,7 @@ export default function ChatModal() {
         </SafeAreaView>
       )}
     </SafeAreaView>
+    <ChatMediaViewer isGlobal />
     </>
   );
 }

@@ -7,6 +7,10 @@ export function useScrollToHideNav() {
   const scrollThreshold = 50; // Minimum scroll distance to trigger hide/show
 
   const handleScroll = useCallback((event: any) => {
+    // Ignore horizontal or nested scroll events bubbling up
+    if (event.target !== event.currentTarget) {
+      return;
+    }
     const currentScrollY = event.nativeEvent.contentOffset.y;
     const scrollDifference = currentScrollY - lastScrollY.current;
 

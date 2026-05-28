@@ -30,7 +30,7 @@ export default function ScrollEdgeFades({
   edgeColors = 'screen',
   style,
   hideTop = false,
-  hideBottom = false,
+  hideBottom = true,
 }: Props) {
   const topBottomScreen = isDark
     ? (['rgba(6,18,31,0)', 'rgba(6,18,31,0.45)', 'rgba(6,18,31,0.82)'] as const)

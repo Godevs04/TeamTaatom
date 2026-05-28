@@ -43,7 +43,6 @@ export function useCloudGlassCardTokens() {
   };
 }
 
-/** Post-screen glass card — rgba fill + blur(20) + inset highlight; iOS & Android */
 export default function CloudGlassCard({
   children,
   style,
@@ -52,28 +51,38 @@ export default function CloudGlassCard({
   blur = true,
 }: CloudGlassCardProps) {
   const glass = useCloudGlassCardTokens();
+  const isDark = glass.isDark;
+
+  const cardStyle = isDark
+    ? {
+        borderRadius,
+        backgroundColor: 'rgba(20, 24, 30, 0.45)',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.12)',
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.22,
+        shadowRadius: 24,
+        elevation: Platform.OS === 'android' ? 0 : 4,
+      }
+    : {
+        borderRadius,
+        backgroundColor: 'rgba(255, 255, 255, 0.35)',
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.45)',
+        shadowColor: '#1A365D',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.05,
+        shadowRadius: 24,
+        elevation: Platform.OS === 'android' ? 0 : 2,
+      };
 
   return (
-    <View
-      style={[
-        styles.card,
-        {
-          borderRadius,
-          borderColor: glass.border,
-          backgroundColor: glass.fill,
-          shadowColor: glass.shadowColor,
-          shadowOpacity: glass.shadowOpacity as number,
-          shadowOffset: cloudDesign.postGlass.shadowOffset,
-          shadowRadius: cloudDesign.postGlass.shadowRadius,
-          elevation: cloudDesign.postGlass.elevation,
-        },
-        style,
-      ]}
-    >
+    <View style={[styles.card, cardStyle, style]}>
       {blur ? (
         <BlurView
-          intensity={glass.blurIntensity}
-          tint={glass.isDark ? 'dark' : 'light'}
+          intensity={65}
+          tint={isDark ? 'dark' : 'light'}
           style={StyleSheet.absoluteFillObject}
           {...(Platform.OS === 'android'
             ? { experimentalBlurMethod: 'dimezisBlurView' as const }
@@ -81,8 +90,14 @@ export default function CloudGlassCard({
         />
       ) : null}
       <LinearGradient
-        colors={[glass.insetTop, 'transparent']}
-        style={[styles.insetHighlight, { borderTopLeftRadius: borderRadius, borderTopRightRadius: borderRadius }]}
+        colors={
+          isDark
+            ? ['rgba(255, 255, 255, 0.18)', 'rgba(255, 255, 255, 0.02)']
+            : ['rgba(255, 255, 255, 0.65)', 'rgba(255, 255, 255, 0.1)']
+        }
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0.4, y: 0.4 }}
+        style={StyleSheet.absoluteFillObject}
         pointerEvents="none"
       />
       <View style={[styles.content, contentStyle]}>{children}</View>

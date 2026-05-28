@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   SafeAreaView,
   Image,
   Alert,
@@ -15,17 +14,21 @@ import {
   NativeScrollEvent,
   StatusBar,
 } from 'react-native';
+import MaskedView from '@react-native-masked-view/masked-view';
+import LoadingGlobe from '../../../../../components/LoadingGlobe';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../../../../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import api from '../../../../../services/api';
-import { calculateDistance, geocodeAddress, calculateDrivingDistanceKm, roundCoord } from '../../../../../utils/locationUtils';
+import { calculateDistance, geocodeAddress, calculateDrivingDistanceKm, roundCoord, distanceCache } from '../../../../../utils/locationUtils';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Locale, getLocaleById, getLocales } from '../../../../../services/locale';
 import { savedEvents } from '../../../../../utils/savedEvents';
 import logger from '../../../../../utils/logger';
+import { fetchDirectionsRoute } from '../../../../../services/directions';
 
 interface LocationDetail {
   name: string;
@@ -144,9 +147,9 @@ export default function LocationDetailScreen() {
   const isAndroidLocal = Platform.OS === 'android';
   const isWebLocal = Platform.OS === 'web';
 
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const router = useRouter();
-  const { country, location, userId, imageUrl, latitude, longitude, description, spotTypes, travelInfo, localeId, galleryUrls: galleryUrlsParam, distanceKm: distanceKmParam } = useLocalSearchParams();
+  const { country, location, userId, imageUrl, latitude, longitude, description, spotTypes, travelInfo, localeId, galleryUrls: galleryUrlsParam, distanceKm: distanceKmParam, isDrivingDistance } = useLocalSearchParams();
 
   // Check if coming from locale flow (general) or tripscore flow or admin locale
   const countryParam = Array.isArray(country) ? country[0] : country;
@@ -164,7 +167,8 @@ export default function LocationDetailScreen() {
   const hasPreSeededDistanceRef = useRef(false);
   const [distance, setDistance] = useState<number | null>(() => {
     const paramVal = Array.isArray(distanceKmParam) ? distanceKmParam[0] : distanceKmParam;
-    if (paramVal && paramVal !== '') {
+    const isDrivingStr = Array.isArray(isDrivingDistance) ? isDrivingDistance[0] : isDrivingDistance;
+    if (paramVal && paramVal !== '' && isDrivingStr === 'true') {
       const parsed = parseFloat(paramVal as string);
       if (!isNaN(parsed)) {
         hasPreSeededDistanceRef.current = true;
@@ -193,7 +197,8 @@ export default function LocationDetailScreen() {
   useEffect(() => {
     if (!isMountedRef.current) return;
     const paramVal = Array.isArray(distanceKmParam) ? distanceKmParam[0] : distanceKmParam;
-    if (paramVal && paramVal !== '') {
+    const isDrivingStr = Array.isArray(isDrivingDistance) ? isDrivingDistance[0] : isDrivingDistance;
+    if (paramVal && paramVal !== '' && isDrivingStr === 'true') {
       const parsed = parseFloat(paramVal as string);
       if (!isNaN(parsed) && !hasPreSeededDistanceRef.current) {
         logger.debug('Syncing pre-seeded distance from param:', parsed);
@@ -201,7 +206,7 @@ export default function LocationDetailScreen() {
         setDistance(parsed);
       }
     }
-  }, [distanceKmParam]);
+  }, [distanceKmParam, isDrivingDistance]);
 
   // Navigation & Lifecycle Safety: Setup and cleanup
   useEffect(() => {
@@ -449,14 +454,68 @@ export default function LocationDetailScreen() {
           }
           return;
         }
+
+        // Check shared distanceCache first!
+        const roundedUserLat = roundCoord(currentLat);
+        const roundedUserLon = roundCoord(currentLng);
+        const cleanLocaleId = String((Array.isArray(localeId) ? localeId[0] : localeId) || '');
+        const sharedCacheKey = cleanLocaleId ? `${cleanLocaleId}-${roundedUserLat}-${roundedUserLon}` : null;
+        if (sharedCacheKey && distanceCache.has(sharedCacheKey)) {
+          const cached = distanceCache.get(sharedCacheKey);
+          if (cached !== undefined && cached !== null) {
+            logger.debug('Using shared cache distance on detail page:', cached);
+            if (isMountedRef.current) {
+              setDistance(cached);
+            }
+            return;
+          }
+        }
         
-        // Calculate straight-line distance using the Haversine formula
-        const calculatedDistance = calculateDistance(
-          currentLat,
-          currentLng,
-          targetLat,
-          targetLng
-        );
+        // First try to fetch routing distance using Google Directions API
+        let calculatedDistance = null;
+        try {
+          const route = await fetchDirectionsRoute(
+            { latitude: currentLat, longitude: currentLng },
+            { latitude: targetLat, longitude: targetLng }
+          );
+          if (route && route.distanceValue !== undefined) {
+            calculatedDistance = route.distanceValue / 1000; // convert to km
+          } else if (route && route.distanceText) {
+            // fallback: parse distanceText if distanceValue is missing (e.g. "12.3 km")
+            const match = route.distanceText.match(/([\d.]+)\s*(km|m)/i);
+            if (match) {
+              const val = parseFloat(match[1]);
+              const unit = match[2].toLowerCase();
+              calculatedDistance = unit === 'm' ? val / 1000 : val;
+            }
+          }
+        } catch (routeError) {
+          logger.warn('Failed to fetch directions route, falling back to OSRM:', routeError);
+        }
+
+        // Fallback to OSRM driving distance if Google Directions fails
+        if (calculatedDistance === null || isNaN(calculatedDistance) || calculatedDistance < 0) {
+          try {
+            calculatedDistance = await calculateDrivingDistanceKm(
+              currentLat,
+              currentLng,
+              targetLat,
+              targetLng
+            );
+          } catch (osrmError) {
+            logger.warn('Failed to calculate OSRM driving distance:', osrmError);
+          }
+        }
+
+        // Fallback to straight-line distance (Haversine) if both routing/OSRM fail
+        if (calculatedDistance === null || isNaN(calculatedDistance) || calculatedDistance < 0) {
+          calculatedDistance = calculateDistance(
+            currentLat,
+            currentLng,
+            targetLat,
+            targetLng
+          );
+        }
         
         // Distance Calculation Guards: Validate calculated distance
         if (calculatedDistance === null || isNaN(calculatedDistance) || calculatedDistance < 0) {
@@ -467,10 +526,15 @@ export default function LocationDetailScreen() {
           return;
         }
         
-        // Cache the calculated distance
+        // Cache the calculated distance locally
         distanceCacheRef.current.set(cacheKey, calculatedDistance);
+
+        // Cache in the shared distanceCache as well!
+        if (sharedCacheKey && calculatedDistance !== null && !isNaN(calculatedDistance)) {
+          distanceCache.set(sharedCacheKey, calculatedDistance);
+        }
         
-        logger.debug('Straight-line distance calculated successfully:', { distance: calculatedDistance, unit: 'km' });
+        logger.debug('Distance calculated successfully (routing/fallback):', { distance: calculatedDistance, unit: 'km' });
         if (isMountedRef.current) {
           setDistance(calculatedDistance);
         }
@@ -1021,7 +1085,7 @@ export default function LocationDetailScreen() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       </SafeAreaView>
     );
@@ -1073,12 +1137,30 @@ export default function LocationDetailScreen() {
               activeOpacity={0.7}
             >
               {bookmarkLoading ? (
-                <ActivityIndicator size="small" color={isBookmarked ? '#FFD700' : theme.colors.textSecondary} />
+                <LoadingGlobe size="small" color={isBookmarked ? '#1C73B4' : theme.colors.textSecondary} />
+              ) : isBookmarked ? (
+                <MaskedView
+                  style={{ width: isTabletLocal ? 28 : 24, height: isTabletLocal ? 28 : 24 }}
+                  maskElement={
+                    <Ionicons
+                      name="bookmark"
+                      size={isTabletLocal ? 28 : 24}
+                      color="#000000"
+                    />
+                  }
+                >
+                  <LinearGradient
+                    colors={['#1C73B4', '#50C878']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{ flex: 1 }}
+                  />
+                </MaskedView>
               ) : (
                 <Ionicons
-                  name={isBookmarked ? 'bookmark' : 'bookmark-outline'}
+                  name="bookmark-outline"
                   size={isTabletLocal ? 28 : 24}
-                  color={isBookmarked ? '#FFD700' : theme.colors.textSecondary}
+                  color={theme.colors.textSecondary}
                 />
               )}
             </TouchableOpacity>
@@ -1197,7 +1279,11 @@ export default function LocationDetailScreen() {
 
             {/* Quick Info Cards */}
             <View style={styles.quickInfoContainer}>
-              <View style={[styles.quickInfoCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}>
+              <BlurView
+                intensity={65}
+                tint={isDark ? 'dark' : 'light'}
+                style={[styles.quickInfoCard, { overflow: 'hidden', backgroundColor: isDark ? 'rgba(10, 18, 32, 0.45)' : 'rgba(255, 255, 255, 0.45)', borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
+              >
                 <View style={styles.quickInfoHeader}>
                   <Ionicons name="navigate" size={18} color={theme.colors.primary} />
                   <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Distance</Text>
@@ -1212,15 +1298,21 @@ export default function LocationDetailScreen() {
                   adjustsFontSizeToFit
                 >
                   {distance !== null && distance !== undefined
-                    ? `Approximately ${Math.round(distance)} km`
+                    ? distance < 1
+                      ? `${Math.round(distance * 1000)} m`
+                      : `${distance.toFixed(1)} km`
                     : 'Calculating...'}
                 </Text>
                 <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>
                   from your location
                 </Text>
-              </View>
+              </BlurView>
 
-              <View style={[styles.quickInfoCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}>
+              <BlurView
+                intensity={65}
+                tint={isDark ? 'dark' : 'light'}
+                style={[styles.quickInfoCard, { overflow: 'hidden', backgroundColor: isDark ? 'rgba(10, 18, 32, 0.45)' : 'rgba(255, 255, 255, 0.45)', borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
+              >
                 <View style={styles.quickInfoHeader}>
                   <Ionicons name="leaf" size={18} color="#4CAF50" />
                   <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Spot Type</Text>
@@ -1232,13 +1324,17 @@ export default function LocationDetailScreen() {
                   }
                 </Text>
                 <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>outdoor destination</Text>
-              </View>
+              </BlurView>
             </View>
 
             {/* Travel Info and Explore on Map - Two Box Model */}
             <View style={styles.quickInfoContainer}>
                 {/* Left Box - Travel Info */}
-                <View style={[styles.quickInfoCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}>
+                <BlurView
+                  intensity={65}
+                  tint={isDark ? 'dark' : 'light'}
+                  style={[styles.quickInfoCard, { overflow: 'hidden', backgroundColor: isDark ? 'rgba(10, 18, 32, 0.45)' : 'rgba(255, 255, 255, 0.45)', borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
+                >
                   <View style={styles.quickInfoHeader}>
                     <Ionicons name="car" size={18} color={theme.colors.primary} />
                     <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Travel Info</Text>
@@ -1250,11 +1346,11 @@ export default function LocationDetailScreen() {
                     }
                   </Text>
                   <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>FROM YOU</Text>
-                </View>
+                </BlurView>
 
                 {/* Right Box - Explore on Map */}
                 <TouchableOpacity
-                  style={[styles.quickInfoCard, styles.clickableCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
+                  style={[styles.quickInfoCard, styles.clickableCard, { overflow: 'hidden', padding: 0, borderWidth: 0, backgroundColor: 'transparent' }]}
                   activeOpacity={0.7}
                   disabled={navigatingToMap}
                   onPress={async () => {
@@ -1456,21 +1552,27 @@ export default function LocationDetailScreen() {
                     }
                   }}
                 >
-                  <View style={styles.quickInfoHeader}>
-                    <View style={styles.headerLeft}>
-                      <Ionicons name="globe-outline" size={18} color="#4CAF50" />
-                      <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Explore on Map</Text>
+                  <BlurView
+                    intensity={65}
+                    tint={isDark ? 'dark' : 'light'}
+                    style={{ flex: 1, padding: 16, width: '100%', height: '100%', justifyContent: 'space-between', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)', borderRadius: 16, overflow: 'hidden', backgroundColor: isDark ? 'rgba(10, 18, 32, 0.45)' : 'rgba(255, 255, 255, 0.45)' }}
+                  >
+                    <View style={styles.quickInfoHeader}>
+                      <View style={styles.headerLeft}>
+                        <Ionicons name="globe-outline" size={18} color="#4CAF50" />
+                        <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Explore on Map</Text>
+                      </View>
+                      <View style={styles.clickableIndicator}>
+                        {navigatingToMap ? (
+                          <LoadingGlobe size="small" color="#4CAF50" />
+                        ) : (
+                          <Ionicons name="chevron-forward" size={16} color="#4CAF50" />
+                        )}
+                      </View>
                     </View>
-                    <View style={styles.clickableIndicator}>
-                      {navigatingToMap ? (
-                        <ActivityIndicator size="small" color="#4CAF50" />
-                      ) : (
-                        <Ionicons name="chevron-forward" size={16} color="#4CAF50" />
-                      )}
-                    </View>
-                  </View>
-                  <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>{navigatingToMap ? 'Opening…' : 'Navigate'}</Text>
-                  <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>View {data.name} location</Text>
+                    <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>{navigatingToMap ? 'Opening…' : 'Navigate'}</Text>
+                    <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>View {data.name} location</Text>
+                  </BlurView>
                 </TouchableOpacity>
               </View>
 
@@ -1526,15 +1628,20 @@ export default function LocationDetailScreen() {
 
             {/* Detailed Info Section */}
             <View style={styles.detailedInfoContainer}>
-              <View style={[styles.detailedCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}>
+              <LinearGradient
+                colors={['#1C73B4', '#50C878']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[styles.detailedCard, { borderRadius: 16, overflow: 'hidden' }]}
+              >
                 <View style={styles.cardHeader}>
-                  <Ionicons name="information-circle" size={20} color={theme.colors.primary} />
-                  <Text style={[styles.cardTitle, { color: theme.colors.text }]}>About This Place</Text>
+                  <Ionicons name="information-circle" size={20} color="#000000" />
+                  <Text style={[styles.cardTitle, { color: '#000000', fontWeight: 'bold' }]}>About This Place</Text>
                 </View>
-                <Text style={[styles.descriptionText, { color: theme.colors.text }]}>
+                <Text style={[styles.descriptionText, { color: '#000000', fontWeight: '500' }]}>
                   {data.description}
                 </Text>
-              </View>
+              </LinearGradient>
             </View>
           </>
         )}

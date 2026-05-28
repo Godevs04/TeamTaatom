@@ -3,6 +3,7 @@ export interface Coordinate {
   longitude: number;
   timestamp: number;
   accuracy: number;
+  segmentBreak?: boolean;
 }
 
 export interface Journey {
@@ -39,6 +40,10 @@ export interface Journey {
   completedAt?: string;
   pausedAt?: string;
   lastActiveAt?: string;
+  sessions?: Array<{
+    startedAt: string;
+    stoppedAt?: string;
+  }>;
 }
 
 export interface JourneyState {

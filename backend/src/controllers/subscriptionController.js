@@ -215,9 +215,6 @@ const createSubscription = async (req, res) => {
     if (!page.subscriptionPrice || page.subscriptionPrice < 100) {
       return sendError(res, 'BUSINESS_INVALID_OPERATION', 'This page has not set a subscription price');
     }
-    if (page.subscriptionApproval?.status !== 'approved') {
-      return sendError(res, 'BUSINESS_INVALID_OPERATION', 'Subscription pricing is pending admin approval');
-    }
 
     // Cashfree subscriptions only support INR. Reject upfront with a clear,
     // user-facing error rather than letting the gateway return an opaque failure.
@@ -619,21 +616,24 @@ const getPageSubscribers = async (req, res) => {
 
 const handleWebhook = async (req, res) => {
   try {
-    // Verify webhook signature. Both headers MUST be present and the
-    // signature MUST validate, otherwise we reject. Previously this gate
-    // was `if (timestamp && signature) { … verify }` which silently let
-    // through any request that omitted either header — an attacker could
-    // POST `{ type: 'SUBSCRIPTION_ACTIVE', data: { subscription: { ... } } }`
-    // without headers and force subscription-state changes.
-    const timestamp = req.headers['x-webhook-timestamp'];
-    const signature = req.headers['x-webhook-signature'];
-    const rawBody = req.rawBody;
+    let timestamp = '';
+    let signature = '';
+    let rawBody = '';
+
+    try {
+      timestamp = req?.headers?.['x-webhook-timestamp'] || '';
+      signature = req?.headers?.['x-webhook-signature'] || '';
+      rawBody = req?.rawBody || '';
+    } catch (parseErr) {
+      logger.error('Error parsing request headers or rawBody in webhook:', parseErr);
+      return res.status(400).json({ error: 'Parsing failed' });
+    }
 
     if (!timestamp || !signature) {
       logger.warn('Cashfree webhook rejected: missing timestamp/signature headers', {
         hasTimestamp: !!timestamp,
         hasSignature: !!signature,
-        ip: req.ip
+        ip: req?.ip
       });
       return res.status(400).json({ error: 'Missing signature' });
     }
@@ -641,22 +641,39 @@ const handleWebhook = async (req, res) => {
       // rawBody is captured by the express.json verify hook (see app.js).
       // If it's missing, parsing changed the byte stream and verification
       // can't succeed — fail closed rather than try to re-stringify.
-      logger.warn('Cashfree webhook rejected: rawBody unavailable', { ip: req.ip });
+      logger.warn('Cashfree webhook rejected: rawBody unavailable', { ip: req?.ip });
       return res.status(400).json({ error: 'Bad request' });
     }
-    const isValid = cashfreeService.verifyWebhookSignature(rawBody, timestamp, signature);
+
+    let isValid = false;
+    try {
+      isValid = cashfreeService.verifyWebhookSignature(rawBody, timestamp, signature);
+    } catch (verifyErr) {
+      logger.error('Error verifying webhook signature:', verifyErr);
+      return res.status(400).json({ error: 'Signature verification error' });
+    }
+
     if (!isValid) {
-      logger.warn('Invalid Cashfree webhook signature', { ip: req.ip });
+      logger.warn('Invalid Cashfree webhook signature', { ip: req?.ip });
       return res.status(400).json({ error: 'Invalid signature' });
     }
 
-    const event = req.body;
-    const eventType = event.type || event.event;
-    const data = event.data || event;
+    let event = {};
+    let eventType = '';
+    let data = {};
+
+    try {
+      event = req?.body || {};
+      eventType = event?.type || event?.event || '';
+      data = event?.data || event || {};
+    } catch (bodyErr) {
+      logger.error('Error parsing event body properties:', bodyErr);
+      return res.status(400).json({ error: 'Body parsing error' });
+    }
 
     logger.info(`Cashfree webhook received: ${eventType}`, { subscriptionId: data?.subscription?.subscription_id });
 
-    const cashfreeSubId = data?.subscription?.subscription_id || data?.subscription_id;
+    const cashfreeSubId = data?.subscription?.subscription_id || data?.subscription_id || '';
     if (!cashfreeSubId) {
       logger.warn('Webhook missing subscription_id');
       return res.status(200).json({ received: true });
@@ -671,7 +688,7 @@ const handleWebhook = async (req, res) => {
     switch (eventType) {
       case 'SUBSCRIPTION_STATUS_CHANGE':
       case 'SUBSCRIPTION_ACTIVE': {
-        const newStatus = data?.subscription?.subscription_status?.toLowerCase();
+        const newStatus = data?.subscription?.subscription_status?.toLowerCase() || '';
         if (newStatus === 'active') {
           const now = new Date();
           subscription.status = 'active';
@@ -713,7 +730,7 @@ const handleWebhook = async (req, res) => {
       }
 
       case 'SUBSCRIPTION_PAYMENT_SUCCESS': {
-        const payment = data?.payment || data;
+        const payment = data?.payment || data || {};
         subscription.payments.push({
           cashfreePaymentId: payment?.cf_payment_id || payment?.payment_id,
           amount: payment?.payment_amount || subscription.amount,
@@ -730,7 +747,7 @@ const handleWebhook = async (req, res) => {
       }
 
       case 'SUBSCRIPTION_PAYMENT_FAILURE': {
-        const failedPayment = data?.payment || data;
+        const failedPayment = data?.payment || data || {};
         subscription.payments.push({
           cashfreePaymentId: failedPayment?.cf_payment_id || failedPayment?.payment_id,
           amount: failedPayment?.payment_amount || subscription.amount,
@@ -756,7 +773,7 @@ const handleWebhook = async (req, res) => {
       case 'SUBSCRIPTION_PAYMENT_REFUND':
       case 'SUBSCRIPTION_REFUND':
       case 'PAYMENT_REFUND': {
-        const refund = data?.refund || data?.payment || data;
+        const refund = data?.refund || data?.payment || data || {};
         const refundedPaymentId = refund?.cf_payment_id || refund?.payment_id;
         const refundId = refund?.cf_refund_id || refund?.refund_id || null;
         const refundAmount = Number(refund?.refund_amount ?? refund?.payment_amount ?? subscription.amount) || 0;
@@ -965,6 +982,34 @@ const devManualCancel = async (req, res) => {
   }
 };
 
+const getGlobalSubscriptionStatus = async (req, res) => {
+  try {
+    const userId = req.user._id;
+    // Check if the user has any active subscriptions (status === 'active')
+    const activeSubscription = await Subscription.findOne({
+      userId,
+      status: 'active',
+    }).lean();
+
+    const isPremium = !!activeSubscription;
+
+    return sendSuccess(res, 200, 'Global subscription status retrieved successfully', {
+      isPremium,
+      subscription: activeSubscription ? {
+        _id: activeSubscription._id,
+        connectPageId: activeSubscription.connectPageId,
+        status: activeSubscription.status,
+        amount: activeSubscription.amount,
+        activatedAt: activeSubscription.activatedAt,
+        currentPeriodEnd: activeSubscription.currentPeriodEnd,
+      } : null,
+    });
+  } catch (error) {
+    logger.error('Error in getGlobalSubscriptionStatus:', error);
+    return sendError(res, 'SERVER_ERROR', 'Failed to retrieve global subscription status');
+  }
+};
+
 module.exports = {
   createSubscription,
   subscriptionReturnRedirect,
@@ -974,6 +1019,7 @@ module.exports = {
   getPageSubscribers,
   handleWebhook,
   getPayoutPreview,
+  getGlobalSubscriptionStatus,
   // Exported for the stale-init poll job, so it uses the same idempotent
   // (ownerNotifiedAt-gated) notification path as the webhook handler.
   notifyOwnerOfSubscription,

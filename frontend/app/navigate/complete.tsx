@@ -7,10 +7,10 @@ import {
   ScrollView,
   Share,
   SafeAreaView,
-  ActivityIndicator,
   Dimensions,
   Platform,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
@@ -23,6 +23,7 @@ import PolylineRenderer from '../../components/PolylineRenderer';
 import GlassMapPanel from '../../components/GlassMapPanel';
 import PremiumMapMarker from '../../components/PremiumMapMarker';
 import { useMapStyle } from '../../hooks/useMapStyle';
+import NavBar from '../../components/NavBar';
 
 const GROWTH_GREEN = '#22C55E';
 const ACTION_BLUE = '#3B82F6';
@@ -113,11 +114,11 @@ export default function CompleteScreen() {
 
   if (!journey) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
         <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={GROWTH_GREEN} />
+          <LoadingGlobe size="large" color={GROWTH_GREEN} />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -130,11 +131,9 @@ export default function CompleteScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {/* Header */}
-      <View style={[styles.header, { borderBottomColor: theme.colors.border }]}>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Journey Complete!</Text>
-      </View>
+      <NavBar title="Journey Complete!" showBack={false} />
 
       <ScrollView style={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         {/* Map View */}
@@ -143,10 +142,45 @@ export default function CompleteScreen() {
             const WV_KEY = getGoogleMapsApiKeyForWebView();
             if (!WV_KEY) return <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}><Ionicons name="map-outline" size={48} color="#9CA3AF" /></View>;
             const polyCoords = JSON.stringify(polyline.filter(p => p.latitude && p.longitude).map(p => ({ lat: p.latitude, lng: p.longitude })));
-            const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>html,body,#map{height:100%;margin:0;padding:0}</style>
-<script>function initMap(){var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${initialRegion.latitude},lng:${initialRegion.longitude}},zoom:13,mapTypeId:'roadmap',styles:${JSON.stringify(mapStyle.customMapStyle)},gestureHandling:'none',zoomControl:false,disableDefaultUI:true});
-var path=${polyCoords};if(path.length>1){new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});var bounds=new google.maps.LatLngBounds();path.forEach(function(p){bounds.extend(p);});map.fitBounds(bounds,40);}
-}</script></head><body><div id="map"></div>
+            const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>
+html,body,#map{height:100%;margin:0;padding:0}
+</style>
+<script>
+function initMap(){
+  var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${initialRegion.latitude},lng:${initialRegion.longitude}},zoom:13,mapTypeId:'roadmap',styles:${JSON.stringify(mapStyle.customMapStyle)},gestureHandling:'none',zoomControl:false,disableDefaultUI:true});
+  var path=${polyCoords};
+  if(path.length>1){
+    new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});
+    new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});
+    
+    // Start marker
+    new google.maps.Marker({
+      position:path[0],
+      map:map,
+      title:'Start',
+      icon:{
+        url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#10B981" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="13" font-weight="800" font-family="Arial" fill="white">S</text></svg>'),
+        scaledSize:new google.maps.Size(30,30),
+        anchor:new google.maps.Point(15,15)
+      }
+    });
+    
+    // End marker
+    new google.maps.Marker({
+      position:path[path.length-1],
+      map:map,
+      title:'End',
+      icon:{
+        url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#EF4444" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="13" font-weight="800" font-family="Arial" fill="white">E</text></svg>'),
+        scaledSize:new google.maps.Size(30,30),
+        anchor:new google.maps.Point(15,15)
+      }
+    });
+    
+    var bounds=new google.maps.LatLngBounds();path.forEach(function(p){bounds.extend(p);});map.fitBounds(bounds,40);
+  }
+}
+</script></head><body><div id="map"></div>
 <script async defer src="https://maps.googleapis.com/maps/api/js?key=${WV_KEY}&language=en&callback=initMap"></script></body></html>`;
             return (
               <WebView
@@ -288,7 +322,7 @@ var path=${polyCoords};if(path.length>1){new google.maps.Polyline({path:path,geo
             disabled={isSharing}
           >
             {isSharing ? (
-              <ActivityIndicator size="small" color={ACTION_BLUE} />
+              <LoadingGlobe size="small" color={ACTION_BLUE} />
             ) : (
               <>
                 <Ionicons name="share-social" size={20} color={ACTION_BLUE} />
@@ -306,7 +340,7 @@ var path=${polyCoords};if(path.length>1){new google.maps.Polyline({path:path,geo
           </TouchableOpacity>
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 

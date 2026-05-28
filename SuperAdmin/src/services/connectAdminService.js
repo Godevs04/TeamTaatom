@@ -27,3 +27,29 @@ export const getConnectPageSubscribers = async (pageId) => {
     throw error
   }
 }
+
+// Fetch all orders with optional filters (page, limit, paymentStatus, deliveryStatus, search)
+export const getOrders = async ({ page = 1, limit = 20, paymentStatus = 'all', deliveryStatus = 'all', search = '' } = {}) => {
+  try {
+    const params = { page, limit }
+    if (paymentStatus && paymentStatus !== 'all') params.paymentStatus = paymentStatus
+    if (deliveryStatus && deliveryStatus !== 'all') params.deliveryStatus = deliveryStatus
+    if (search) params.search = search
+    const response = await api.get(`${BASE}/orders`, { params })
+    return response.data?.data || response.data
+  } catch (error) {
+    logger.error('Failed to fetch orders:', error)
+    throw error
+  }
+}
+
+// Update delivery status of an order (pending, shipped, delivered, cancelled)
+export const updateOrderStatus = async (orderId, deliveryStatus) => {
+  try {
+    const response = await api.put(`${BASE}/orders/${orderId}/status`, { deliveryStatus })
+    return response.data?.data || response.data
+  } catch (error) {
+    logger.error('Failed to update order status:', error)
+    throw error
+  }
+}

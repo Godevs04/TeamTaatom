@@ -3,16 +3,17 @@ import {
   View,
   Text,
   StyleSheet,
-  ActivityIndicator,
   Image,
   RefreshControl,
   TouchableOpacity,
   StatusBar,
   ScrollView,
   Platform,
-  Dimensions
+  Dimensions,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { FlashList, FlashListRef } from '@shopify/flash-list';
+const AnyFlashList = FlashList as any;
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
@@ -22,11 +23,14 @@ import { PostType } from '../../types/post';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { Audio } from 'expo-av';
 import { Image as ExpoImage } from 'expo-image';
 import AnimatedHeader from '../../components/AnimatedHeader';
 import EmptyState from '../../components/EmptyState';
+import FeedEmptyState from '../../components/ui/EmptyState';
 import { PostSkeleton } from '../../components/LoadingSkeleton';
-import { trackScreenView, trackPostView, trackEngagement, trackFeatureUsage } from '../../services/analytics';
+import { PostCardSkeleton } from '../../components/ui/Skeleton';
+import { trackScreenView, trackEngagement, trackFeatureUsage } from '../../services/analytics';
 import api from '../../services/api';
 import { socketService } from '../../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -39,11 +43,13 @@ import { audioManager } from '../../utils/audioManager';
 import { savedEvents } from '../../utils/savedEvents';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { CloudSkyBackground, CloudSegmentedControl } from '../../components/cloud';
 import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 import { NativeAdCard } from '../../components/ads/NativeAdCard';
-import { useAdCap, recordGoogleAdImpression } from '../../services/adCap';
+import { useAdCap, recordGoogleAdImpression, logContentView, injectAds } from '../../services/adCap';
 import { flushPendingLikes } from '../../utils/likePersistence';
+import { realtimePostsService } from '../../services/realtimePosts';
 import type { FeedMode } from '../../services/posts';
 
 /** Feed list item: either a post or a native ad placeholder (inserted every ADS_AFTER_EVERY posts). */
@@ -54,6 +60,8 @@ function isAdItem(item: FeedItem): item is { type: 'ad'; adIndex: number } {
 }
 
 const ADS_AFTER_EVERY = 6;
+const POST_VIEW_DWELL_MS = 1000;
+const HOME_AD_START_DELAY_MS = __DEV__ ? 1000 : 30000;
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -181,12 +189,145 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
   return 'Roboto';
 };
 
+interface FeedListItemProps {
+  item: FeedItem;
+  isCurrentlyVisible: boolean;
+  onRefresh: () => void;
+  onAdLoadFailed: (adIndex: number) => void;
+}
+
+const FeedListItem = React.memo(
+  ({ item, isCurrentlyVisible, onRefresh, onAdLoadFailed }: FeedListItemProps) => {
+    if (isAdItem(item)) {
+      return (
+        <NativeAdCard
+          adIndex={item.adIndex}
+          onImpression={recordGoogleAdImpression}
+          onLoadFailed={() => onAdLoadFailed(item.adIndex)}
+        />
+      );
+    }
+    return (
+      <OptimizedPhotoCard
+        post={item}
+        onRefresh={onRefresh}
+        isCurrentlyVisible={isCurrentlyVisible}
+      />
+    );
+  },
+  (prevProps, nextProps) => {
+    if (prevProps.isCurrentlyVisible !== nextProps.isCurrentlyVisible) {
+      return false;
+    }
+    if (prevProps.onRefresh !== nextProps.onRefresh) {
+      return false;
+    }
+    if (prevProps.onAdLoadFailed !== nextProps.onAdLoadFailed) {
+      return false;
+    }
+    
+    const prevItem = prevProps.item;
+    const nextItem = nextProps.item;
+    
+    const prevIsAd = isAdItem(prevItem);
+    const nextIsAd = isAdItem(nextItem);
+    
+    if (prevIsAd !== nextIsAd) {
+      return false;
+    }
+    
+    if (prevIsAd && nextIsAd) {
+      return (prevItem as { adIndex: number }).adIndex === (nextItem as { adIndex: number }).adIndex;
+    }
+    
+    const pPost = prevItem as PostType;
+    const nPost = nextItem as PostType;
+    
+    return (
+      pPost._id === nPost._id &&
+      pPost.isLiked === nPost.isLiked &&
+      pPost.likesCount === nPost.likesCount &&
+      pPost.commentsCount === nPost.commentsCount &&
+      pPost.viewsCount === nPost.viewsCount &&
+      pPost.imageUrl === nPost.imageUrl &&
+      pPost.caption === nPost.caption &&
+      pPost.user?.fullName === nPost.user?.fullName &&
+      pPost.user?.profilePic === nPost.user?.profilePic
+    );
+  }
+);
+
 export default function HomeScreen() {
   const { handleScroll } = useScrollToHideNav();
   const insets = useSafeAreaInsets();
-  const topBarHeight = 56 + 63 + insets.top;
+  const [headerHeight, setHeaderHeight] = useState(56 + 63 + insets.top);
   const bottomBarHeight = isWeb ? 70 : (Platform.OS === 'ios' ? (insets.bottom > 0 ? 56 + insets.bottom : 64) : 68);
-  const [posts, setPosts] = useState<PostType[]>([]);
+  const [posts, setRawPosts] = useState<PostType[]>([]);
+  const setPosts = useCallback((value: React.SetStateAction<PostType[]>) => {
+    setRawPosts((prev) => {
+      const resolved = typeof value === 'function' ? (value as any)(prev) : value;
+      const seen = new Set<string>();
+      return resolved.filter((p: PostType) => {
+        if (!p || !p._id) return false;
+        if (seen.has(p._id)) return false;
+        seen.add(p._id);
+        return true;
+      });
+    });
+  }, []);
+
+  const postsRef = useRef(posts);
+  useEffect(() => {
+    postsRef.current = posts;
+  }, [posts]);
+
+  useEffect(() => {
+    const unsubscribeViews = realtimePostsService.subscribeToViews(({ postId, viewsCount }) => {
+      setPosts(prev => prev.map(post => (
+        post._id === postId
+          ? { ...post, viewsCount, views: viewsCount } as any
+          : post
+      )));
+    });
+
+    const unsubscribeLikes = realtimePostsService.subscribeToLikes(({ postId, isLiked, likesCount }) => {
+      // 1. Sync local likedPostIdsRef Set
+      const set = likedPostIdsRef.current;
+      if (isLiked) set.add(postId);
+      else set.delete(postId);
+      AsyncStorage.setItem(LIKED_POSTS_STORAGE_KEY, JSON.stringify([...set])).catch(() => {});
+
+      // 2. Update posts state
+      setPosts(prev => prev.map(post => {
+        if (post._id === postId) {
+          if (post.isLiked === isLiked && post.likesCount === likesCount) {
+            return post;
+          }
+          return { ...post, isLiked, likesCount } as any;
+        }
+        return post;
+      }));
+
+      // 3. Update tab caches (feedCacheRef.current)
+      const modes: FeedMode[] = ['recents', 'friends', 'popular'];
+      modes.forEach(mode => {
+        const cache = feedCacheRef.current[mode];
+        if (cache && cache.posts) {
+          cache.posts = cache.posts.map(post => {
+            if (post._id === postId) {
+              return { ...post, isLiked, likesCount } as any;
+            }
+            return post;
+          });
+        }
+      });
+    });
+
+    return () => {
+      unsubscribeViews();
+      unsubscribeLikes();
+    };
+  }, [setPosts]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [page, setPage] = useState(1);
@@ -207,6 +348,13 @@ export default function HomeScreen() {
   const visibleIndexRef = useRef<number | null>(null);
   const visiblePostIdRef = useRef<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [failedAdIndices, setFailedAdIndices] = useState<number[]>([]);
+  const handleAdLoadFailed = useCallback((adIndex: number) => {
+    setFailedAdIndices(prev => {
+      if (prev.includes(adIndex)) return prev;
+      return [...prev, adIndex];
+    });
+  }, []);
   const isFetchingRef = useRef(false);
   const hasInitializedRef = useRef(false);
   const lastErrorTimeRef = useRef(0);
@@ -225,7 +373,8 @@ export default function HomeScreen() {
   // View tracking de-duplication: track last viewed post ID and timestamp
   const lastViewedPostIdRef = useRef<string | null>(null);
   const lastViewTimeRef = useRef<number>(0);
-  const VIEW_DEBOUNCE_MS = 2000; // Prevent duplicate view events within 2 seconds
+  const VIEW_DEBOUNCE_MS = POST_VIEW_DWELL_MS; // Prevent duplicate view events within 1 second
+  const viewTimerRef = useRef<NodeJS.Timeout | null>(null);
   
   // Track visible index for conditional image rendering
   const [visibleIndex, setVisibleIndex] = useState<number | null>(null);
@@ -234,16 +383,28 @@ export default function HomeScreen() {
   // Track currently visible post ID for music playback control
   const [visiblePostId, setVisiblePostId] = useState<string | null>(null);
 
-  // Frequency control: only show native ads after user has scrolled past 5 posts and session > 30s (retention-friendly).
+  // Strike 20: Force Initial Viewability on mount and load completion
+  useEffect(() => {
+    if (posts && posts.length > 0) {
+      const hasCurrent = posts.some(p => p._id === visiblePostId);
+      if (!visiblePostId || !hasCurrent) {
+        setVisiblePostId(posts[0]._id);
+      }
+    } else {
+      setVisiblePostId(null);
+    }
+  }, [posts, visiblePostId]);
+
+  // Frequency control: only show native ads after user has scrolled past 5 posts and session > 30s (1s in dev).
   const [hasScrolledPastFifthPost, setHasScrolledPastFifthPost] = useState(false);
   const [adsAllowedAfter30s, setAdsAllowedAfter30s] = useState(false);
-  // Persistent 3-per-8h Google AdMob cap, shared with the shorts feed. Once
+  // Persistent 5-per-8h Google AdMob cap, shared with the shorts feed. Once
   // capped, no ad slots are inserted into the feed (per spec: posts/reels show
   // no ads after the cap is reached).
   const adCap = useAdCap();
   const hasSetScrollThresholdRef = useRef(false);
   useEffect(() => {
-    const t = setTimeout(() => setAdsAllowedAfter30s(true), 30000);
+    const t = setTimeout(() => setAdsAllowedAfter30s(true), HOME_AD_START_DELAY_MS);
     return () => clearTimeout(t);
   }, []);
 
@@ -308,6 +469,11 @@ export default function HomeScreen() {
         return;
       }
       fetchingTabsRef.current.add(requestFeedMode);
+    }
+
+    const showSkeleton = pageNum === 1 && postsRef.current.length === 0;
+    if (showSkeleton) {
+      setLoading(true);
     }
 
     isFetchingRef.current = true;
@@ -523,6 +689,9 @@ export default function HomeScreen() {
         isPaginatingRef.current = false;
       } else {
         fetchingTabsRef.current.delete(requestFeedMode);
+      }
+      if (showSkeleton && feedModeRef.current === requestFeedMode) {
+        setLoading(false);
       }
     }
   }, [isOnline, feedMode, mergeLikedIntoPosts, params.postId]);
@@ -837,6 +1006,22 @@ export default function HomeScreen() {
         setVisiblePostId(savedVisiblePostIdRef.current);
       }
 
+      // Lift any audio freeze
+      audioManager.unfreeze();
+
+      // CRITICAL: Re-assert global audio session mode on focus to prevent OS swallowing it.
+      Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+        interruptionModeIOS: 0, // MIX_WITH_OTHERS
+        interruptionModeAndroid: 1, // DO_NOT_MIX
+      }).catch(err => {
+        logger.error('Error setting audio mode for home:', err);
+      });
+
       // 3. Background refresh data on focus
       if (hasInitializedRef.current && !isFetchingRef.current) {
         logger.debug('[Home] Screen focused: triggering background refresh of page 1');
@@ -853,6 +1038,11 @@ export default function HomeScreen() {
 
       return () => {
         clearInterval(interval);
+        // Clear active view timer when leaving home page
+        if (viewTimerRef.current) {
+          clearTimeout(viewTimerRef.current);
+          viewTimerRef.current = null;
+        }
         // Save current visible index and post ID to restore on return
         savedVisibleIndexRef.current = visibleIndexRef.current;
         savedVisiblePostIdRef.current = visiblePostIdRef.current;
@@ -863,6 +1053,7 @@ export default function HomeScreen() {
         lastViewedPostIdRef.current = null;
         lastViewTimeRef.current = 0;
         logger.debug('[Home] Stopping all audio - leaving home page');
+        audioManager.freeze(3000);
         audioManager.stopAll().catch((error) => {
           logger.error('[Home] Error stopping audio:', error);
         });
@@ -959,9 +1150,17 @@ export default function HomeScreen() {
   }, [isOnline, fetchUnseenMessageCount]);
 
   const handleRefresh = useCallback(async () => {
+    // Request guard: prevent refresh if offline
+    if (!isOnline) {
+      logger.debug('Refresh blocked: offline');
+      setRefreshing(false);
+      return;
+    }
+
     // Request guard: prevent refresh if a same-tab refresh or pagination is in flight.
     if (fetchingTabsRef.current.has(feedMode) || isPaginatingRef.current) {
       logger.debug('Refresh blocked: already in progress');
+      setRefreshing(false);
       return;
     }
     
@@ -972,7 +1171,7 @@ export default function HomeScreen() {
     triggerRefreshHaptic();
     
     // Animated scroll to top for visual feedback (scrolls the old list).
-    if (flatListRef.current && posts.length > 0) {
+    if (flatListRef.current && postsRef.current.length > 0) {
       try {
         flatListRef.current.scrollToOffset({ offset: 0, animated: true });
       } catch (error) {
@@ -1000,7 +1199,7 @@ export default function HomeScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [fetchPosts, fetchUnseenMessageCount, posts.length, feedMode]);
+  }, [fetchPosts, fetchUnseenMessageCount, feedMode, isOnline]);
 
   const handleFeedTabPress = useCallback((mode: FeedMode) => {
     if (mode === feedMode) return;
@@ -1050,7 +1249,7 @@ export default function HomeScreen() {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: mode === 'dark' ? '#06121F' : '#EDF7FF',
+      backgroundColor: mode === 'dark' ? '#000000' : '#FFFFFF',
       ...(isWeb && {
         maxWidth: isTablet ? 800 : 600,
         alignSelf: 'center',
@@ -1070,14 +1269,18 @@ export default function HomeScreen() {
       right: 0,
       paddingTop: insets.top,
       zIndex: 1000,
-      backgroundColor: mode === 'dark' ? '#06121F' : '#EDF7FF',
-      // Shadow Mechanics
+      borderBottomWidth: 1,
+      borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+      backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)',
+      borderBottomLeftRadius: 24,
+      borderBottomRightRadius: 24,
       shadowColor: '#000000',
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.15,
-      shadowRadius: 3,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: isDark ? 0.3 : 0.1,
+      shadowRadius: 10,
       elevation: 4,
-      overflow: 'visible',
+      overflow: 'hidden',
+      paddingBottom: 6,
       ...(isWeb && {
         maxWidth: isTablet ? 800 : 600,
         alignSelf: 'center',
@@ -1126,7 +1329,7 @@ export default function HomeScreen() {
     emptyDescription: {
       fontSize: isTablet ? theme.typography.body.fontSize + 2 : theme.typography.body.fontSize,
       fontFamily: getFontFamily('400'),
-      color: theme.colors.textSecondary,
+      color: theme.colors.textPassive,
       textAlign: 'center',
       lineHeight: isTablet ? 26 : 22,
       maxWidth: isTablet ? 400 : 280,
@@ -1141,11 +1344,11 @@ export default function HomeScreen() {
       flex: 1,
       position: 'relative',
     },
-    feedTabsContainer: {
-      marginHorizontal: isTablet ? theme.spacing.lg : theme.spacing.md,
-      marginTop: theme.spacing.sm,
-      marginBottom: theme.spacing.md,
-    },
+  feedTabsContainer: {
+    marginHorizontal: isTablet ? theme.spacing.lg : theme.spacing.md,
+    marginTop: theme.spacing.xs,
+    marginBottom: theme.spacing.md,
+  },
     postsList: {
       paddingHorizontal: 0,
       // Add padding for tab bar (88px mobile, 70px web) + extra spacing
@@ -1173,35 +1376,26 @@ export default function HomeScreen() {
     },
   });
 
-  // Interleave native ad slots every ADS_AFTER_EVERY posts. Frequency control:
-  //   1. UX gates: scroll past 5 + session > 30s.
-  //   2. Hard cap: max remainingSlots Google ads in the current 8h window (shared with shorts).
-  // Once the cap is reached, no ad slots are inserted at all.
+  // Interleave native ad slots through the shared ad/view engine.
+  // This honors the 30s/1s startup window, ignored bootstrap views, and global 5-per-8h cap.
   const feedData = useMemo((): FeedItem[] => {
     if (isWeb || posts.length === 0) return posts as FeedItem[];
     const showAds = hasScrolledPastFifthPost && adsAllowedAfter30s && !adCap.isCapped;
     if (!showAds) return posts as FeedItem[];
-    const maxAdsInFeed = adCap.remainingSlots;
-    if (maxAdsInFeed <= 0) return posts as FeedItem[];
-    const result: FeedItem[] = [];
-    let adIndex = 0;
-    posts.forEach((post, i) => {
-      result.push(post);
-      if (
-        (i + 1) % ADS_AFTER_EVERY === 0 &&
-        i < posts.length - 1 &&
-        adIndex < maxAdsInFeed
-      ) {
-        result.push({ type: 'ad', adIndex: adIndex++ });
+    const rawFeed = injectAds(posts, adCap) as FeedItem[];
+    return rawFeed.filter(item => {
+      if (isAdItem(item)) {
+        return !failedAdIndices.includes(item.adIndex);
       }
+      return true;
     });
-    return result;
-  }, [posts, hasScrolledPastFifthPost, adsAllowedAfter30s, adCap.isCapped, adCap.remainingSlots]);
+  }, [posts, hasScrolledPastFifthPost, adsAllowedAfter30s, adCap, failedAdIndices]);
 
   const renderTopHeader = () => (
     <AnimatedHeader
       unseenMessageCount={unseenMessageCount}
       onRefresh={handleRefresh}
+      disableSafeArea={true}
     />
   );
 
@@ -1218,7 +1412,7 @@ export default function HomeScreen() {
   // MUST be defined before conditional returns to follow Rules of Hooks
   const keyExtractor = useCallback((item: FeedItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;
-    return item._id;
+    return item._id?.toString() || '';
   }, []);
   
   // Track viewable items for conditional image rendering and analytics
@@ -1233,30 +1427,62 @@ export default function HomeScreen() {
         if (!hasScrolledRef.current && newVisibleIndex > 0) {
           hasScrolledRef.current = true;
         }
-        if (!hasSetScrollThresholdRef.current && newVisibleIndex >= 5) {
+        const threshold = __DEV__ ? 1 : 5;
+        if (!hasSetScrollThresholdRef.current && newVisibleIndex >= threshold) {
           hasSetScrollThresholdRef.current = true;
           setHasScrolledPastFifthPost(true);
         }
         if (item && !isAdItem(item)) {
           const postId = item._id;
           setVisiblePostId(postId);
-          const now = Date.now();
-          if (
-            lastViewedPostIdRef.current !== postId ||
-            (now - lastViewTimeRef.current) > VIEW_DEBOUNCE_MS
-          ) {
-            trackPostView(postId, { type: 'photo', source: 'home_feed' });
-            lastViewedPostIdRef.current = postId;
-            lastViewTimeRef.current = now;
+          
+          // Clear any active timer for a previous post
+          if (viewTimerRef.current) {
+            clearTimeout(viewTimerRef.current);
+            viewTimerRef.current = null;
           }
+
+          // Start a 1-second timer. User must stay on this post for 1s to count as a view.
+          viewTimerRef.current = setTimeout(async () => {
+            if (currentUser?._id && item.user?._id === currentUser._id) {
+              viewTimerRef.current = null;
+              return;
+            }
+            const result = await logContentView(postId, 'post', { type: 'photo', source: 'home_feed' });
+            if (result.incremented) {
+              const existing = postsRef.current.find(post => post._id === postId);
+              const emittedViewsCount = existing
+                ? (((existing as any).viewsCount ?? (existing as any).views ?? 0) + 1)
+                : null;
+              setPosts(prev => prev.map(post => {
+                if (post._id !== postId) return post;
+                const nextViews = emittedViewsCount ?? (((post as any).viewsCount ?? (post as any).views ?? 0) + 1);
+                return { ...post, viewsCount: nextViews, views: nextViews } as any;
+              }));
+              if (emittedViewsCount !== null) {
+                realtimePostsService.emitLocalView(postId, emittedViewsCount, currentUser?._id);
+              }
+            }
+            viewTimerRef.current = null;
+          }, POST_VIEW_DWELL_MS);
         } else {
+          // Clear any active timer if visible item is an ad or empty
+          if (viewTimerRef.current) {
+            clearTimeout(viewTimerRef.current);
+            viewTimerRef.current = null;
+          }
           setVisiblePostId(null);
         }
       }
     } else {
+      // Clear timer if no viewable items
+      if (viewTimerRef.current) {
+        clearTimeout(viewTimerRef.current);
+        viewTimerRef.current = null;
+      }
       setVisiblePostId(null);
     }
-  }, []);
+  }, [currentUser?._id, setPosts]);
 
   const viewabilityConfig = useRef({
     itemVisiblePercentThreshold: 50, // Item is considered visible when 50% is on screen
@@ -1266,18 +1492,15 @@ export default function HomeScreen() {
   visiblePostIdRef.current = visiblePostId;
 
   const renderItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => {
-    if (isAdItem(item)) {
-      return <NativeAdCard adIndex={item.adIndex} onImpression={recordGoogleAdImpression} />;
-    }
     return (
-      <OptimizedPhotoCard
-        post={item}
+      <FeedListItem
+        item={item}
+        isCurrentlyVisible={!isAdItem(item) && visiblePostIdRef.current === item._id}
         onRefresh={handleRefresh}
-        isCurrentlyVisible={visiblePostIdRef.current === item._id}
-        key={item._id}
+        onAdLoadFailed={handleAdLoadFailed}
       />
     );
-  }, [handleRefresh]);
+  }, [handleRefresh, handleAdLoadFailed]);
 
   const screenBg = (
     <>
@@ -1285,7 +1508,7 @@ export default function HomeScreen() {
       <LinearGradient
         colors={
           mode === 'dark'
-            ? ['#06121F', '#102236', '#07111C']
+            ? ['#000000', '#000000', '#000000']
             : (theme.colors.screenGradient as [string, string, ...string[]])
         }
         style={StyleSheet.absoluteFillObject}
@@ -1304,65 +1527,32 @@ export default function HomeScreen() {
             backgroundColor="transparent"
             translucent
           />
-          <View style={[styles.topBarContainer, { position: 'relative', shadowOpacity: 0, elevation: 0 }]}>
-            <LinearGradient
-              colors={
-                mode === 'dark'
-                  ? ['#06121F', '#102236']
-                  : ['#A8DAFC', '#C8E8FF']
-              }
+          <View style={[styles.topBarContainer, { position: 'relative' }]}>
+            <BlurView
+              intensity={95}
+              tint={isDark ? 'dark' : 'light'}
               style={StyleSheet.absoluteFillObject}
             />
             {renderTopHeader()}
             {renderFeedTabs()}
           </View>
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-          </View>
+          <ScrollView
+            style={styles.postsContainer}
+            contentContainerStyle={{
+              paddingTop: 10,
+              paddingBottom: bottomBarHeight + 20,
+            }}
+            showsVerticalScrollIndicator={false}
+          >
+            <PostCardSkeleton />
+            <PostCardSkeleton />
+            <PostCardSkeleton />
+          </ScrollView>
         </View>
       </View>
     );
   }
 
-  if (posts.length === 0) {
-    return (
-      <View style={styles.container}>
-        {screenBg}
-        <View style={styles.safeArea}>
-          <StatusBar 
-            barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
-            backgroundColor="transparent"
-            translucent
-          />
-          <View style={[styles.topBarContainer, { position: 'relative', shadowOpacity: 0, elevation: 0 }]}>
-            <LinearGradient
-              colors={
-                mode === 'dark'
-                  ? ['#06121F', '#102236']
-                  : ['#A8DAFC', '#C8E8FF']
-              }
-              style={StyleSheet.absoluteFillObject}
-            />
-            {renderTopHeader()}
-            {renderFeedTabs()}
-          </View>
-          <EmptyState
-            icon={loadError ? 'cloud-offline-outline' : 'camera-outline'}
-            title={loadError || 'No Content Yet'}
-            description={
-              loadError
-                ? 'Unable to reach the server. Check your connection and pull down to refresh.'
-                : 'No content yet. Explore other users or share your first photo!'
-            }
-            actionLabel={loadError ? 'Retry' : 'Explore Users'}
-            onAction={() => (loadError ? handleRefresh() : router.push('/search'))}
-            secondaryActionLabel={loadError ? undefined : 'Create Post'}
-            onSecondaryAction={loadError ? undefined : () => router.push('/(tabs)/post')}
-          />
-        </View>
-      </View>
-    );
-  }
 
   return (
     <ErrorBoundary level="route">
@@ -1377,22 +1567,25 @@ export default function HomeScreen() {
         {/* Scrollable feed container (zIndex: 1) */}
         <View style={[styles.feedClip, { zIndex: 1 }]}>
           <View style={StyleSheet.absoluteFillObject}>
-            <FlashList
+            <AnyFlashList
               key={feedMode}
               ref={flatListRef}
               data={feedData}
               keyExtractor={keyExtractor}
               renderItem={renderItem}
+              extraData={visiblePostId}
+              estimatedItemSize={580}
               style={styles.postsContainer}
               contentContainerStyle={[
                 styles.postsList,
                 {
-                  paddingTop: topBarHeight,
+                  paddingTop: headerHeight,
                   paddingBottom: bottomBarHeight + 20,
                 }
               ]}
               showsVerticalScrollIndicator={false}
               onScroll={(e) => {
+                if (e.target !== e.currentTarget) return;
                 homeScrollOffsetRef.current = e.nativeEvent.contentOffset.y;
                 handleScroll(e);
               }}
@@ -1404,7 +1597,7 @@ export default function HomeScreen() {
                   colors={[theme.colors.primary]}
                   tintColor={theme.colors.primary}
                   progressBackgroundColor={theme.colors.surface}
-                  progressViewOffset={topBarHeight}
+                  progressViewOffset={headerHeight}
                 />
               }
               onEndReached={handleLoadMore}
@@ -1418,15 +1611,30 @@ export default function HomeScreen() {
                     </View>
                 ) : null
               }
+              ListEmptyComponent={
+                !loading ? (
+                  <FeedEmptyState
+                    icon={loadError ? 'cloud-offline-outline' : 'camera-outline'}
+                    title={loadError || 'No Content Yet'}
+                    description={
+                      loadError
+                        ? 'Unable to reach the server. Check your connection.'
+                        : 'No content yet. Explore other users or share your first photo!'
+                    }
+                    actionLabel={loadError ? 'Retry' : 'Refresh'}
+                    onAction={handleRefresh}
+                  />
+                ) : null
+              }
               ListFooterComponent={
                 hasMore ? (
                   <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
-                    <ActivityIndicator color={theme.colors.primary} />
+                    <LoadingGlobe color={theme.colors.primary} />
                   </View>
                 ) : posts.length > 0 ? (
                   <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
                     <Text style={{
-                      color: theme.colors.textSecondary,
+                      color: theme.colors.textPassive,
                       fontSize: theme.typography.small.fontSize,
                     }}>
                       You're all caught up!
@@ -1434,7 +1642,6 @@ export default function HomeScreen() {
                   </View>
                 ) : null
               }
-              extraData={visiblePostId}
               onViewableItemsChanged={onViewableItemsChanged}
               viewabilityConfig={viewabilityConfig}
               drawDistance={screenHeight}
@@ -1444,13 +1651,13 @@ export default function HomeScreen() {
         </View>
 
         {/* Absolute Top Bar (zIndex: 1000) */}
-        <View style={styles.topBarContainer}>
-          <LinearGradient
-            colors={
-              mode === 'dark'
-                ? ['#06121F', '#102236']
-                : ['#A8DAFC', '#C8E8FF']
-            }
+        <View
+          style={styles.topBarContainer}
+          onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
+        >
+          <BlurView
+            intensity={95}
+            tint={isDark ? 'dark' : 'light'}
             style={StyleSheet.absoluteFillObject}
           />
           {renderTopHeader()}

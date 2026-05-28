@@ -7,7 +7,7 @@
 // Note: EXPO_PUBLIC_ prefix is required for client-side access in Expo/React Native
 
 import * as Location from 'expo-location';
-import { Platform, Linking } from 'react-native';
+import { Platform, Linking, Alert } from 'react-native';
 import logger from './logger';
 
 // Import platform-specific Google Maps API key getter
@@ -446,11 +446,43 @@ export const getLocationDetails = async (latitude: number, longitude: number): P
  * Get current device location using Expo Location
  */
 export const getCurrentLocation = async () => {
-  const { status } = await Location.requestForegroundPermissionsAsync();
-  if (status !== 'granted') {
-    throw new Error('Location permission denied');
+  try {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert(
+        'Location Permission Denied',
+        'Taatom needs location permissions to show your position on the map. Defaulting to Bangalore, India.',
+        [{ text: 'OK' }]
+      );
+      return {
+        coords: {
+          latitude: 12.9716,
+          longitude: 77.5946,
+          altitude: null,
+          accuracy: 100,
+          altitudeAccuracy: null,
+          heading: null,
+          speed: null,
+        },
+        timestamp: Date.now(),
+      } as Location.LocationObject;
+    }
+    return await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+  } catch (error) {
+    logger.error('Failed to get current location:', error);
+    return {
+      coords: {
+        latitude: 12.9716,
+        longitude: 77.5946,
+        altitude: null,
+        accuracy: 100,
+        altitudeAccuracy: null,
+        heading: null,
+        speed: null,
+      },
+      timestamp: Date.now(),
+    } as Location.LocationObject;
   }
-  return Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
 };
 
 /**
@@ -581,12 +613,18 @@ export const roundCoord = (num: number): number => {
  * @returns Distance in kilometers, or null if invalid coordinates
  */
 export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number): number | null => {
+  // Coerce inputs to numbers to handle potential string/undefined types defensively
+  const nLat1 = Number(lat1);
+  const nLon1 = Number(lon1);
+  const nLat2 = Number(lat2);
+  const nLon2 = Number(lon2);
+
   // Validate inputs
   if (
     lat1 == null || lon1 == null || lat2 == null || lon2 == null ||
-    isNaN(lat1) || isNaN(lon1) || isNaN(lat2) || isNaN(lon2) ||
-    lat1 < -90 || lat1 > 90 || lat2 < -90 || lat2 > 90 ||
-    lon1 < -180 || lon1 > 180 || lon2 < -180 || lon2 > 180
+    isNaN(nLat1) || isNaN(nLon1) || isNaN(nLat2) || isNaN(nLon2) ||
+    nLat1 < -90 || nLat1 > 90 || nLat2 < -90 || nLat2 > 90 ||
+    nLon1 < -180 || nLon1 > 180 || nLon2 < -180 || nLon2 > 180
   ) {
     if (__DEV__) {
       console.log('DISTANCE_ERROR: Invalid coordinates', { lat1, lon1, lat2, lon2 });
@@ -595,17 +633,17 @@ export const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2
   }
 
   const R = 6371; // Earth's radius in kilometers
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const dLat = ((nLat2 - nLat1) * Math.PI) / 180;
+  const dLon = ((nLon2 - nLon1) * Math.PI) / 180;
 
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+    Math.cos((nLat1 * Math.PI) / 180) * Math.cos((nLat2 * Math.PI) / 180) *
     Math.sin(dLon / 2) * Math.sin(dLon / 2);
 
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   const d = R * c;
-  return d; // Distance in kilometers
+  return isNaN(d) ? null : d; // Distance in kilometers
 };
 
 /**
@@ -665,7 +703,7 @@ const calculateDrivingDistanceWithGoogleMaps = async (
       
       if (data.status === 'OK' && data.rows && data.rows[0] && data.rows[0].elements && data.rows[0].elements[0]) {
         const element = data.rows[0].elements[0];
-        if (element.status === 'OK' && element.distance) {
+        if (element.status === 'OK' && element.distance && typeof element.distance.value === 'number' && !isNaN(element.distance.value)) {
           // Distance is in meters, convert to kilometers
           const distanceKm = element.distance.value / 1000;
           
@@ -773,13 +811,8 @@ export const calculateDrivingDistanceKm = async (
       
       // Handle 429 rate limit errors
       if (response.status === 429) {
-        logger.warn('OSRM rate limit hit (429), using straight-line distance');
-        const fallback = calculateDistance(userLat, userLon, localeLat, localeLon);
-        if (fallback !== null) {
-          // Cache the fallback to avoid repeated API calls
-          distanceCache.set(cacheKey, fallback);
-        }
-        return fallback;
+        logger.warn('OSRM rate limit hit (429), returning null to retry later');
+        return null;
       }
       
       if (!response.ok) {
@@ -788,7 +821,7 @@ export const calculateDrivingDistanceKm = async (
       
       const data = await response.json();
       
-      if (data.code === 'Ok' && data.routes && data.routes[0] && data.routes[0].distance) {
+      if (data.code === 'Ok' && data.routes && data.routes[0] && typeof data.routes[0].distance === 'number' && !isNaN(data.routes[0].distance)) {
         // Distance is in meters, convert to kilometers
         const distanceKm = data.routes[0].distance / 1000;
         
@@ -802,41 +835,28 @@ export const calculateDrivingDistanceKm = async (
         return distanceKm;
       } else {
         if (__DEV__) {
-          logger.debug(`⚠️ OSRM API returned code: ${data.code}, using straight-line distance`);
+          logger.debug(`⚠️ OSRM API returned code: ${data.code}, returning null`);
         }
-        // Fallback to straight-line distance
-        const fallback = calculateDistance(userLat, userLon, localeLat, localeLon);
-        if (fallback !== null) {
-          distanceCache.set(cacheKey, fallback);
-        }
-        return fallback;
+        return null;
       }
     } catch (fetchError: any) {
       clearTimeout(timeoutId);
       
       // Handle abort (timeout) or network errors
       if (fetchError.name === 'AbortError') {
-        logger.warn('OSRM request timeout, using straight-line distance');
-      } else if (fetchError.message?.includes('429')) {
-        logger.warn('OSRM rate limit error, using straight-line distance');
+        logger.warn('OSRM request timeout, returning null');
+      } else if (fetchError.message?.includes('429') || String(fetchError).includes('429')) {
+        logger.warn('OSRM rate limit error, returning null');
       } else {
-        logger.warn(`OSRM API error: ${fetchError?.message || fetchError}, using straight-line distance`);
+        logger.warn(`OSRM API error: ${fetchError?.message || fetchError}, returning null`);
       }
-      
-      // Fallback to straight-line distance
-      const fallback = calculateDistance(userLat, userLon, localeLat, localeLon);
-      if (fallback !== null) {
-        distanceCache.set(cacheKey, fallback);
-      }
-      return fallback;
+      return null;
     }
   } catch (error: any) {
     if (__DEV__) {
       logger.error(`❌ OSRM API error:`, error?.message || error);
-      logger.debug(`⚠️ Falling back to straight-line distance`);
     }
-    // Fallback to straight-line distance
-    return calculateDistance(userLat, userLon, localeLat, localeLon);
+    return null;
   }
 };
 
@@ -857,10 +877,16 @@ export const getLocaleDistanceKm = async (
   localeLat: number | undefined,
   localeLon: number | undefined
 ): Promise<number | null> => {
+  const nUserLat = Number(userLat);
+  const nUserLon = Number(userLon);
+  const nLocaleLat = localeLat !== undefined ? Number(localeLat) : NaN;
+  const nLocaleLon = localeLon !== undefined ? Number(localeLon) : NaN;
+
   // Validate locale coordinates from database
-  if (!localeLat || !localeLon || localeLat === 0 || localeLon === 0 || 
-      isNaN(localeLat) || isNaN(localeLon) ||
-      localeLat < -90 || localeLat > 90 || localeLon < -180 || localeLon > 180) {
+  if (localeLat == null || localeLon == null || 
+      nLocaleLat === 0 || nLocaleLon === 0 || 
+      isNaN(nLocaleLat) || isNaN(nLocaleLon) ||
+      nLocaleLat < -90 || nLocaleLat > 90 || nLocaleLon < -180 || nLocaleLon > 180) {
     if (__DEV__) {
       logger.warn(`Invalid locale coordinates for ${localeId}:`, { localeLat, localeLon });
     }
@@ -868,8 +894,9 @@ export const getLocaleDistanceKm = async (
   }
 
   // Validate user coordinates
-  if (!userLat || !userLon || isNaN(userLat) || isNaN(userLon) ||
-      userLat < -90 || userLat > 90 || userLon < -180 || userLon > 180) {
+  if (userLat == null || userLon == null || 
+      isNaN(nUserLat) || isNaN(nUserLon) ||
+      nUserLat < -90 || nUserLat > 90 || userLon < -180 || userLon > 180) {
     if (__DEV__) {
       logger.warn(`Invalid user coordinates for ${localeId}:`, { userLat, userLon });
     }

@@ -1,16 +1,16 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
-  TouchableOpacity, 
-  Alert, 
-  ActivityIndicator,
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
   Switch,
   Platform,
-  Dimensions
+  Dimensions,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
@@ -23,6 +23,7 @@ import { createLogger } from '../../utils/logger';
 import { getProfile } from '../../services/profile';
 import { theme } from '../../constants/theme';
 import { showConsentForm } from '../../services/admob';
+import AlertService from '../../services/alertService';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -42,7 +43,7 @@ const logger = createLogger('PrivacySettings');
 
 export default function PrivacySettingsScreen() {
   // Settings State Single Source of Truth: Use SettingsContext
-  const { settings, loading: settingsLoading, updateSetting, refreshSettings } = useSettings();
+  const { settings, loading: settingsLoading, updateSetting, updateAllSettings, refreshSettings } = useSettings();
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({
     title: '',
@@ -126,8 +127,9 @@ export default function PrivacySettingsScreen() {
     }
   }, [settings, updateSetting, showSuccess]);
 
-  // Cross-Module Consistency: Refresh profile after privacy settings update
-  const updateProfileVisibilitySettings = useCallback(async (profileVisibility: string, requireFollowApproval: boolean, allowFollowRequests: boolean) => {
+  // [BUG-060] Privacy: User Data Visibility Toggle
+  // Triggers API patch, updates local state optimistically, and provides AlertService feedback
+  const handleToggleVisibility = useCallback(async (profileVisibility: 'public' | 'followers' | 'private', requireFollowApproval: boolean, allowFollowRequests: boolean) => {
     if (!settings) return;
     
     const key = 'profileVisibility';
@@ -139,37 +141,39 @@ export default function PrivacySettingsScreen() {
     updatingKeysRef.current.add(key);
     
     try {
-      // Update all three related settings
-      await Promise.all([
-        updateSetting('privacy', 'profileVisibility', profileVisibility),
-        updateSetting('privacy', 'requireFollowApproval', requireFollowApproval),
-        updateSetting('privacy', 'allowFollowRequests', allowFollowRequests)
-      ]);
+      // Optimistic update of multiple related settings at once to prevent race condition
+      await updateAllSettings({
+        privacy: {
+          ...settings.privacy,
+          profileVisibility,
+          requireFollowApproval,
+          allowFollowRequests
+        }
+      });
       
       if (isMountedRef.current) {
-        showSuccess('Profile visibility updated successfully');
+        // Show success message using AlertService
+        AlertService.showSuccess('Visibility Updated', `Your account visibility has been set to ${profileVisibility}.`);
         
         // Cross-Module Consistency: Refresh profile to reflect privacy changes
         try {
           const user = await getUserFromStorage();
           if (user?._id) {
             await getProfile(user._id);
-            // Profile will refresh on next focus (handled in profile.tsx useFocusEffect)
           }
         } catch (profileError) {
           logger.warn('Failed to refresh profile after privacy update', profileError);
-          // Non-critical - profile will refresh on next navigation
         }
       }
     } catch (error: any) {
       if (isMountedRef.current) {
         logger.error('Failed to update profile visibility', error);
-        showError(error.message || 'Failed to update profile visibility');
+        AlertService.showError('Update Failed', error.message || 'Failed to update profile visibility');
       }
     } finally {
       updatingKeysRef.current.delete(key);
     }
-  }, [settings, updateSetting, showSuccess, showError]);
+  }, [settings, updateAllSettings]);
 
   const handleProfileVisibilityChange = () => {
     const options: CustomOption[] = [
@@ -178,7 +182,7 @@ export default function PrivacySettingsScreen() {
         icon: 'globe-outline',
         onPress: () => {
           setCustomOptionsVisible(false);
-          updateProfileVisibilitySettings('public', false, true);
+          handleToggleVisibility('public', false, true);
         }
       },
       {
@@ -186,7 +190,7 @@ export default function PrivacySettingsScreen() {
         icon: 'people-outline',
         onPress: () => {
           setCustomOptionsVisible(false);
-          updateProfileVisibilitySettings('followers', false, true);
+          handleToggleVisibility('followers', false, true);
         }
       },
       {
@@ -194,7 +198,7 @@ export default function PrivacySettingsScreen() {
         icon: 'shield-checkmark-outline',
         onPress: () => {
           setCustomOptionsVisible(false);
-          updateProfileVisibilitySettings('private', true, true);
+          handleToggleVisibility('private', true, true);
         }
       }
     ];
@@ -243,6 +247,42 @@ export default function PrivacySettingsScreen() {
     setCustomOptionsVisible(true);
   };
 
+  const handleRouteVisibilityChange = () => {
+    const options: CustomOption[] = [
+      {
+        text: 'Everyone',
+        icon: 'globe-outline',
+        onPress: () => {
+          setCustomOptionsVisible(false);
+          handleUpdateSetting('routeVisibility', 'everyone');
+        }
+      },
+      {
+        text: 'Approved Users Only',
+        icon: 'people-outline',
+        onPress: () => {
+          setCustomOptionsVisible(false);
+          handleUpdateSetting('routeVisibility', 'approved_only');
+        }
+      },
+      {
+        text: 'Private (Owner Only)',
+        icon: 'lock-closed-outline',
+        onPress: () => {
+          setCustomOptionsVisible(false);
+          handleUpdateSetting('routeVisibility', 'private');
+        }
+      }
+    ];
+
+    setCustomOptionsConfig({
+      title: 'Route Visibility',
+      message: 'Control who can view your completed traveling routes',
+      options
+    });
+    setCustomOptionsVisible(true);
+  };
+
   // Screen Load Performance: Memoize loading state
   const isLoading = useMemo(() => settingsLoading || !settings, [settingsLoading, settings]);
 
@@ -251,7 +291,7 @@ export default function PrivacySettingsScreen() {
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
         <NavBar title="Privacy & Security" />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       </View>
     );
@@ -326,8 +366,8 @@ export default function PrivacySettingsScreen() {
               value={settings?.privacy?.showEmail || false}
               onValueChange={(value) => handleUpdateSetting('showEmail', value)}
               disabled={updatingKeysRef.current.has('showEmail')}
-              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
-              thumbColor={settings?.privacy?.showEmail ? theme.colors.primary : theme.colors.textSecondary}
+              trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
+              thumbColor="#FFFFFF"
             />
           </View>
 
@@ -347,10 +387,40 @@ export default function PrivacySettingsScreen() {
               value={settings?.privacy?.showLocation !== false}
               onValueChange={(value) => handleUpdateSetting('showLocation', value)}
               disabled={updatingKeysRef.current.has('showLocation')}
-              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
-              thumbColor={settings?.privacy?.showLocation !== false ? theme.colors.primary : theme.colors.textSecondary}
+              trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
+              thumbColor="#FFFFFF"
             />
           </View>
+
+          <TouchableOpacity 
+            style={styles.settingItem}
+            onPress={handleRouteVisibilityChange}
+            disabled={updatingKeysRef.current.has('routeVisibility')}
+          >
+            <View style={styles.settingContent}>
+              <Ionicons name="map-outline" size={20} color={theme.colors.text} />
+              <View style={styles.settingText}>
+                <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
+                  Route Visibility
+                </Text>
+                <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}>
+                  Control who can see your travel routes
+                </Text>
+              </View>
+            </View>
+            <View style={styles.settingRight}>
+              <Text style={[styles.settingValue, { color: theme.colors.textSecondary }]}>
+                {(() => {
+                  const visibility = settings?.privacy?.routeVisibility;
+                  if (visibility === 'everyone') return 'Everyone';
+                  if (visibility === 'approved_only') return 'Approved Only';
+                  if (visibility === 'private') return 'Private (Owner Only)';
+                  return 'Everyone';
+                })()}
+              </Text>
+              <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+            </View>
+          </TouchableOpacity>
 
         </View>
 
@@ -401,8 +471,8 @@ export default function PrivacySettingsScreen() {
               value={settings?.privacy?.shareActivity !== false}
               onValueChange={(value) => handleUpdateSetting('shareActivity', value)}
               disabled={updatingKeysRef.current.has('shareActivity')}
-              trackColor={{ false: theme.colors.border, true: theme.colors.primary + '40' }}
-              thumbColor={settings?.privacy?.shareActivity !== false ? theme.colors.primary : theme.colors.textSecondary}
+              trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
+              thumbColor="#FFFFFF"
             />
           </View>
         </View>
@@ -474,10 +544,10 @@ export default function PrivacySettingsScreen() {
           )}
         </View>
 
-        {/* Follow Requests */}
+        {/* Requests & Approvals */}
         <View style={[styles.section, { backgroundColor: theme.colors.surface }]}>
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-            Follow Requests
+            Requests & Approvals
           </Text>
 
           <TouchableOpacity 
@@ -494,6 +564,26 @@ export default function PrivacySettingsScreen() {
                 </Text>
                 <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}>
                   View and manage pending follow requests
+                </Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.settingItem}
+            onPress={() => {
+              router.push('/settings/route-access-requests');
+            }}
+          >
+            <View style={styles.settingContent}>
+              <Ionicons name="git-pull-request-outline" size={20} color={theme.colors.text} />
+              <View style={styles.settingText}>
+                <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
+                  Manage Route Access Requests
+                </Text>
+                <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}>
+                  Approve or decline requests to view your routes
                 </Text>
               </View>
             </View>
@@ -586,7 +676,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: isTablet ? theme.spacing.md : 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,0,0,0.1)',
+    borderBottomColor: 'rgba(28, 115, 180, 0.15)',
   },
   settingContent: {
     flexDirection: 'row',

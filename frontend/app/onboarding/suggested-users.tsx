@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, ActivityIndicator, Platform, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Image, Platform, Dimensions } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -237,7 +238,7 @@ export default function SuggestedUsersOnboarding() {
             style={styles.gradient}
           >
             {isCompleting ? (
-              <ActivityIndicator color="#FFFFFF" />
+              <LoadingGlobe color="#FFFFFF" />
             ) : (
               <>
                 <Text style={styles.continueButtonText}>Complete Setup</Text>

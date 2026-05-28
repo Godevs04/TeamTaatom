@@ -182,3 +182,18 @@ export async function connectUpdateSubscriptionContent(pageId: string, content: 
   const d = res.data as { subscriptionContent?: ContentBlock[] };
   return d.subscriptionContent ?? content;
 }
+
+export async function connectBuyItem(
+  pageId: string,
+  body: {
+    itemId: string;
+    buyerName: string;
+    buyerPhone: string;
+    payPhone: string;
+    deliveryAddress: string;
+  }
+) {
+  const res = await api.post(`/connect/page/${pageId}/buy`, body);
+  return res.data;
+}
+

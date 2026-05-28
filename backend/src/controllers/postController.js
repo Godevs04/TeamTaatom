@@ -17,6 +17,98 @@ const { sendError, sendSuccess } = require('../utils/errorCodes');
 const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } = require('../utils/cache');
 const { cascadeDeletePost } = require('../utils/cascadeDelete');
 const { sendNotificationToUser } = require('../utils/sendNotification');
+const { startTranscodeWorker } = require('../services/videoTranscode');
+
+// Start MongoDB-backed transcoding worker
+startTranscodeWorker();
+
+const getVideoUrlForShort = (short, req) => {
+  if (short && short.storageKey && short.storageKey.endsWith('index.m3u8')) {
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    return `${baseUrl}/api/v1/shorts?hls=master&postId=${short._id}&ext=.m3u8`;
+  }
+  return null;
+};
+
+const handleHLSProxy = async (req, res) => {
+  const { hls, postId, file } = req.query;
+  
+  if (!postId || !mongoose.Types.ObjectId.isValid(postId)) {
+    return res.status(400).json({ error: 'Invalid or missing postId' });
+  }
+
+  // Fetch the post to verify it exists and is active
+  const post = await Post.findById(postId).lean();
+  if (!post || post.type !== 'short') {
+    return res.status(404).json({ error: 'Short not found' });
+  }
+
+  if (post.status !== 'active') {
+    return res.status(403).json({ error: 'Video is still processing or failed' });
+  }
+
+  const { GetObjectCommand } = require('@aws-sdk/client-s3');
+  const { s3Client, BUCKET_NAME } = require('../services/storage');
+
+  if (hls === 'master') {
+    const s3Key = `shorts/hls/${postId}/index.m3u8`;
+    try {
+      const s3Response = await s3Client.send(new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: s3Key
+      }));
+
+      const streamToString = (stream) =>
+        new Promise((resolve, reject) => {
+          const chunks = [];
+          stream.on("data", (chunk) => chunks.push(chunk));
+          stream.on("error", reject);
+          stream.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
+        });
+
+      const m3u8Content = await streamToString(s3Response.Body);
+      
+      // Replace relative segments with absolute proxy endpoint URLs
+      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const lines = m3u8Content.split('\n');
+      const mappedLines = lines.map(line => {
+        const trimmed = line.trim();
+        if (trimmed.endsWith('.ts') && !trimmed.startsWith('http')) {
+          return `${baseUrl}/api/v1/shorts?hls=segment&postId=${postId}&file=${trimmed}`;
+        }
+        return line;
+      });
+
+      res.setHeader('Content-Type', 'application/x-mpegURL');
+      res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache playlist for 1 hour
+      return res.status(200).send(mappedLines.join('\n'));
+    } catch (err) {
+      logger.error(`[HLS Proxy] Master playlist error for post ${postId}:`, err);
+      return res.status(404).json({ error: 'Master playlist not found' });
+    }
+  } else if (hls === 'segment') {
+    if (!file || !file.endsWith('.ts')) {
+      return res.status(400).json({ error: 'Invalid or missing file parameter' });
+    }
+
+    const s3Key = `shorts/hls/${postId}/${file}`;
+    try {
+      const s3Response = await s3Client.send(new GetObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: s3Key
+      }));
+
+      res.setHeader('Content-Type', 'video/MP2T');
+      res.setHeader('Cache-Control', 'public, max-age=86400'); // Cache segment for 24 hours
+      s3Response.Body.pipe(res);
+    } catch (err) {
+      logger.error(`[HLS Proxy] Segment error for post ${postId}, file ${file}:`, err);
+      return res.status(404).json({ error: 'Segment not found' });
+    }
+  } else {
+    return res.status(400).json({ error: 'Invalid hls parameter' });
+  }
+};
 
 /**
  * Get user IDs whose posts the viewer is allowed to see in the feed.
@@ -197,7 +289,7 @@ const getPosts = async (req, res) => {
           $addFields: {
             comments: {
               $map: {
-                input: '$comments',
+                input: { $ifNull: ['$comments', []] },
                 as: 'comment',
                 in: {
                   $mergeObjects: [
@@ -449,76 +541,9 @@ const getPostById = async (req, res) => {
     const cacheKey = CacheKeys.post(id);
 
     // FIRST: Handle view increment (this must happen regardless of cache)
-    // We need to check if we should increment BEFORE fetching from cache
-    // So we'll fetch the post owner info first to determine if increment is needed
-    let shouldIncrementViews = false;
-    let postOwnerId = null;
-    
-    // Quick check to get post owner for view increment decision
-    try {
-      const postOwnerCheck = await Post.findById(id).select('user').lean();
-      if (postOwnerCheck) {
-        postOwnerId = postOwnerCheck.user?.toString();
-        
-        // Check if user is viewing someone else's post
-        if (userId) {
-          if (postOwnerId && postOwnerId !== userId) {
-            shouldIncrementViews = true;
-            const msg = `[VIEW TRACKING] Post ${id} - User ${userId} viewing another user's post (owner: ${postOwnerId}), will increment views`;
-            logger.info(msg);
-            logger.debug(msg);
-          } else {
-            const msg = `[VIEW TRACKING] Post ${id} - User ${userId} viewing own post (owner: ${postOwnerId}), skipping view increment`;
-            logger.info(msg);
-            logger.debug(msg);
-          }
-        } else {
-          // Anonymous user - allow view increment
-          shouldIncrementViews = true;
-          const msg = `[VIEW TRACKING] Post ${id} - Anonymous user viewing post, will increment views`;
-          logger.info(msg);
-          logger.debug(msg);
-        }
-      }
-    } catch (err) {
-      logger.error(`[VIEW TRACKING] Error checking post owner for ${id}:`, err);
-    }
-
-    // Increment views BEFORE fetching from cache (if needed)
+    // Disabled in getPostById to support the client-side "2-Second Rule" and prevent double-counting.
+    // View increments now happen exclusively via the POST /analytics/events ('post_view' event) pathway.
     let incrementedViews = null;
-    if (shouldIncrementViews) {
-      try {
-        const incrementMsg = `[VIEW TRACKING] Post ${id} - Incrementing views, userId: ${userId || 'anonymous'}, postOwnerId: ${postOwnerId}`;
-        logger.info(incrementMsg);
-        logger.debug(incrementMsg);
-        
-        const updateResult = await Post.findOneAndUpdate(
-          { _id: id },
-          { $inc: { views: 1 } },
-          { new: true, projection: { views: 1 }, lean: true }
-        );
-        
-        if (updateResult && updateResult.views !== undefined && updateResult.views !== null) {
-          incrementedViews = updateResult.views;
-          const successMsg = `[VIEW TRACKING] Post ${id} views incremented to ${incrementedViews}`;
-          logger.info(successMsg);
-          logger.debug(successMsg);
-          
-          // Invalidate cache so fresh data is fetched
-          await deleteCache(cacheKey).catch(() => {});
-        } else {
-          // Fallback: fetch updated views
-          const postDoc = await Post.findById(id).select('views').lean();
-          if (postDoc && postDoc.views !== undefined) {
-            incrementedViews = postDoc.views;
-            logger.info(`[VIEW TRACKING] Post ${id} views fetched after increment: ${incrementedViews}`);
-            await deleteCache(cacheKey).catch(() => {});
-          }
-        }
-      } catch (err) {
-        logger.error(`[VIEW TRACKING] Error incrementing post views for post ${id}:`, err);
-      }
-    }
 
     // NOW: Use cache wrapper with aggregation pipeline to avoid N+1 queries
     const post = await cacheWrapper(cacheKey, async () => {
@@ -596,7 +621,7 @@ const getPostById = async (req, res) => {
           $addFields: {
             comments: {
               $map: {
-                input: '$comments',
+                input: { $ifNull: ['$comments', []] },
                 as: 'comment',
                 in: {
                   $mergeObjects: [
@@ -668,10 +693,10 @@ const getPostById = async (req, res) => {
       const isFollower = viewerObjId ? authorFollowers.includes(viewerObjId.toString()) : false;
 
       if (visibility === 'followers' && !isFollower) {
-        return sendError(res, 'AUTH_1003', 'This post is not available');
+        return sendError(res, 'AUTH_1006', 'This post is not available');
       }
       if (visibility === 'private' && !isFollower) {
-        return sendError(res, 'AUTH_1003', 'This post is not available');
+        return sendError(res, 'AUTH_1006', 'This post is not available');
       }
     }
 
@@ -773,7 +798,21 @@ const getPostById = async (req, res) => {
 
     // CRITICAL: Generate fresh signed URL for video if post is a short (videos expire after 15 minutes)
     if (post.type === 'short') {
-      if (post.storageKey) {
+      const hlsProxyUrl = getVideoUrlForShort(post, req);
+      if (hlsProxyUrl) {
+        post.videoUrl = hlsProxyUrl;
+        const thumbKey = (post.storageKeys || []).find(k => k && (k.endsWith('.jpg') || k.endsWith('.jpeg') || k.endsWith('.png')));
+        if (thumbKey) {
+          try {
+            const freshImageUrl = await generateSignedUrl(thumbKey, 'IMAGE');
+            if (freshImageUrl) {
+              post.imageUrl = freshImageUrl;
+            }
+          } catch (error) {
+            logger.warn(`Failed to generate signed URL for HLS short thumbnail ${post._id}:`, error.message);
+          }
+        }
+      } else if (post.storageKey) {
         try {
           const freshVideoUrl = await generateSignedUrl(post.storageKey, 'VIDEO');
           post.videoUrl = freshVideoUrl;
@@ -824,7 +863,7 @@ const getPostById = async (req, res) => {
       }
     }
 
-    postOwnerId = post.user?._id?.toString();
+    const postOwnerId = post.user?._id?.toString();
     const hideLocation = postOwnerId !== userId && post.user?.settings?.privacy?.showLocation === false;
     const postWithDetails = {
       ...post,
@@ -1000,7 +1039,7 @@ const createPost = async (req, res) => {
       tags: allHashtags,
       mentions: mentionUserIds,
       type: 'photo',
-      aspectRatio: aspectRatio === '16:9' ? '16:9' : aspectRatio === 'full' ? 'full' : '1:1',
+      aspectRatio: ['16:9', 'full', '1.91:1', '1:1'].includes(aspectRatio) ? aspectRatio : '1:1',
       filter: ['vivid', 'warm', 'cool', 'bw'].includes(filter) ? filter : 'original',
       location: {
         address: address || 'Unknown Location',
@@ -1257,13 +1296,11 @@ const getUserShorts = async (req, res) => {
       return sendError(res, 'VAL_2002', 'Invalid user ID format');
     }
     
-    const page = parseInt(req.query.page) || 1;
+const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.page)) ? req.query.page : null);
     const limit = parseInt(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
 
     // Defensive guard: ensure limit is reasonable
     const safeLimit = Math.min(Math.max(limit, 1), 50); // Cap at 50
-    const safeSkip = Math.max(skip, 0);
 
     // Check if user exists and get privacy settings
     const user = await User.findById(userId).select('fullName profilePic settings.privacy.profileVisibility followers following');
@@ -1288,8 +1325,8 @@ const getUserShorts = async (req, res) => {
         return sendSuccess(res, 200, 'Shorts fetched successfully', {
           shorts: [],
           totalShorts: 0,
-          currentPage: page,
-          totalPages: 0
+          nextCursor: null,
+          hasNextPage: false
         });
       }
     }
@@ -1308,8 +1345,8 @@ const getUserShorts = async (req, res) => {
         return sendSuccess(res, 200, 'Shorts fetched successfully', {
           shorts: [],
           totalShorts: 0,
-          currentPage: page,
-          totalPages: 0
+          nextCursor: null,
+          hasNextPage: false
         });
       }
     }
@@ -1318,23 +1355,49 @@ const getUserShorts = async (req, res) => {
     const userIdObj = new mongoose.Types.ObjectId(userId);
     const currentUserId = req.user ? new mongoose.Types.ObjectId(req.user._id) : null;
     
+    let cursorFilter = {};
+    if (cursor) {
+      try {
+        const decoded = Buffer.from(cursor, 'base64').toString('ascii');
+        const [createdAtStr, idStr] = decoded.split(',');
+        if (createdAtStr && idStr && mongoose.Types.ObjectId.isValid(idStr)) {
+          const cursorDate = new Date(parseInt(createdAtStr));
+          const cursorId = new mongoose.Types.ObjectId(idStr);
+          cursorFilter = {
+            $or: [
+              { createdAt: { $lt: cursorDate } },
+              { createdAt: cursorDate, _id: { $lt: cursorId } }
+            ]
+          };
+        }
+      } catch (err) {
+        logger.warn('Failed to parse cursor, using empty filter:', err);
+      }
+    }
+
+    const matchQuery = {
+      user: userIdObj,
+      isActive: true,
+      // Same rule as getUserPosts: hidden / archived shorts must not appear
+      // on the profile for anyone, including the owner. They live in
+      // Settings → Manage Posts.
+      isHidden: { $ne: true },
+      isArchived: { $ne: true },
+      type: 'short',
+      $and: [
+        { $or: [{ status: 'active' }, { status: { $exists: false } }] }
+      ]
+    };
+    if (cursorFilter.$or) {
+      matchQuery.$and.push({ $or: cursorFilter.$or });
+    }
+
     const shorts = await Post.aggregate([
       {
-        $match: {
-          user: userIdObj,
-          isActive: true,
-          // Same rule as getUserPosts: hidden / archived shorts must not appear
-          // on the profile for anyone, including the owner. They live in
-          // Settings → Manage Posts.
-          isHidden: { $ne: true },
-          isArchived: { $ne: true },
-          type: 'short',
-          $or: [{ status: 'active' }, { status: { $exists: false } }]
-        }
+        $match: matchQuery
       },
-      { $sort: { createdAt: -1 } },
-      { $skip: safeSkip },
-      { $limit: safeLimit },
+      { $sort: { createdAt: -1, _id: -1 } },
+      { $limit: safeLimit + 1 },
       {
         $lookup: {
           from: 'users',
@@ -1366,10 +1429,39 @@ const getUserShorts = async (req, res) => {
         }
       },
       {
+        $lookup: {
+          from: 'songs',
+          localField: 'song.songId',
+          foreignField: '_id',
+          as: 'songData',
+          pipeline: [
+            { 
+              $project: { 
+                title: 1, 
+                artist: 1, 
+                duration: 1, 
+                cloudinaryUrl: 1, 
+                s3Url: 1, 
+                thumbnailUrl: 1, 
+                storageKey: 1,
+                cloudinaryKey: 1,
+                s3Key: 1,
+                _id: 1 
+              } 
+            },
+            {
+              $addFields: {
+                s3Url: { $ifNull: ['$cloudinaryUrl', '$s3Url'] } // Use cloudinaryUrl if available, fallback to s3Url
+              }
+            }
+          ]
+        }
+      },
+      {
         $addFields: {
           comments: {
             $map: {
-              input: '$comments',
+              input: { $ifNull: ['$comments', []] },
               as: 'comment',
               in: {
                 $mergeObjects: [
@@ -1391,6 +1483,18 @@ const getUserShorts = async (req, res) => {
               }
             }
           },
+          song: {
+            $cond: {
+              if: { $and: [{ $ne: ['$song.songId', null] }, { $gt: [{ $size: '$songData' }, 0] }] },
+              then: {
+                songId: { $arrayElemAt: ['$songData', 0] },
+                startTime: '$song.startTime',
+                endTime: '$song.endTime',
+                volume: '$song.volume'
+              },
+              else: null
+            }
+          },
           likesCount: { $size: { $ifNull: ['$likes', []] } },
           commentsCount: { $size: { $ifNull: ['$comments', []] } },
           viewsCount: { $ifNull: ['$views', 0] },
@@ -1401,6 +1505,7 @@ const getUserShorts = async (req, res) => {
       {
         $project: {
           commentUsers: 0,
+          songData: 0,
           'user.followers': 0 // Remove followers array from response
           // Note: All other fields are included by default (storageKey, storageKeys, videoUrl, imageUrl, thumbnailUrl, etc.)
         }
@@ -1411,6 +1516,22 @@ const getUserShorts = async (req, res) => {
     const shortsWithProfilePics = await Promise.all(shorts.map(async (short) => {
       if (short.user) {
         short.user.profilePic = await resolveProfilePic(short.user);
+      }
+
+      // Generate signed URL for song if present (same logic as getShorts)
+      if (short.song?.songId) {
+        const storageKey = short.song.songId.storageKey || short.song.songId.cloudinaryKey || short.song.songId.s3Key;
+        if (storageKey) {
+          try {
+            const songUrl = await generateSignedUrl(storageKey, 'AUDIO');
+            short.song.songId.s3Url = songUrl;
+            short.song.songId.cloudinaryUrl = songUrl;
+          } catch (error) {
+            logger.warn(`Failed to generate song URL for short ${short._id}:`, error.message);
+            short.song.songId.s3Url = null;
+            short.song.songId.cloudinaryUrl = null;
+          }
+        }
       }
 
       // Generate signed URLs for short video and thumbnail
@@ -1429,8 +1550,21 @@ const getUserShorts = async (req, res) => {
         hasThumbnailUrl: !!short.thumbnailUrl
       });
       
-      // Priority 1: Check storageKeys array first (most reliable - contains both video and thumbnail)
-      if (short.storageKeys && short.storageKeys.length > 0) {
+      const hlsProxyUrl = getVideoUrlForShort(short, req);
+      if (hlsProxyUrl) {
+        videoUrl = hlsProxyUrl;
+        const thumbKey = (short.storageKeys || []).find(k => k && (k.endsWith('.jpg') || k.endsWith('.jpeg') || k.endsWith('.png')));
+        if (thumbKey) {
+          try {
+            const freshImageUrl = await generateSignedUrl(thumbKey, 'IMAGE');
+            if (freshImageUrl) {
+              imageUrl = freshImageUrl;
+            }
+          } catch (error) {
+            logger.warn(`Failed to generate signed URL for HLS short thumbnail ${short._id}:`, error.message);
+          }
+        }
+      } else if (short.storageKeys && short.storageKeys.length > 0) {
         try {
           // First key is always the video
           videoUrl = await generateSignedUrl(short.storageKeys[0], 'VIDEO');
@@ -1725,12 +1859,25 @@ const getUserShorts = async (req, res) => {
         };
       });
 
+    const hasNextPage = validShorts.length > safeLimit;
+    const responseShorts = hasNextPage ? validShorts.slice(0, safeLimit) : validShorts;
+
+    let nextCursor = null;
+    if (responseShorts.length > 0) {
+      const lastItem = responseShorts[responseShorts.length - 1];
+      const lastCreatedAtMs = new Date(lastItem.createdAt).getTime();
+      const lastId = lastItem._id.toString();
+      nextCursor = Buffer.from(`${lastCreatedAtMs},${lastId}`).toString('base64');
+    }
+
     const totalShorts = await Post.countDocuments({ user: userIdObj, isActive: true, type: 'short' });
 
     return sendSuccess(res, 200, 'User shorts fetched successfully', {
-      shorts: validShorts,
+      shorts: responseShorts,
       user: user,
-      totalShorts
+      totalShorts,
+      nextCursor,
+      hasNextPage
     });
 
   } catch (error) {
@@ -1885,7 +2032,7 @@ const getUserPosts = async (req, res) => {
           $addFields: {
             comments: {
               $map: {
-                input: '$comments',
+                input: { $ifNull: ['$comments', []] },
                 as: 'comment',
                 in: {
                   $mergeObjects: [
@@ -1994,6 +2141,22 @@ const getUserPosts = async (req, res) => {
         }
       }
 
+      // Generate signed URL for song if present
+      if (post.song?.songId) {
+        const storageKey = post.song.songId.storageKey || post.song.songId.cloudinaryKey || post.song.songId.s3Key;
+        if (storageKey) {
+          try {
+            const songUrl = await generateSignedUrl(storageKey, 'AUDIO');
+            post.song.songId.s3Url = songUrl;
+            post.song.songId.cloudinaryUrl = songUrl;
+          } catch (error) {
+            logger.warn(`Failed to generate song URL for post ${post._id}:`, error.message);
+            post.song.songId.s3Url = null;
+            post.song.songId.cloudinaryUrl = null;
+          }
+        }
+      }
+
       return post;
     }));
 
@@ -2047,137 +2210,166 @@ const toggleLike = async (req, res) => {
     // Check current like status BEFORE update
     const currentlyLiked = post.likes.some(like => like.toString() === req.user._id.toString());
     
-    // Determine the update operation and final state
-    const update = currentlyLiked
-      ? { $pull: { likes: req.user._id } }  // Remove like
-      : { $addToSet: { likes: req.user._id } };  // Add like
-    
-    // After update, the state will be opposite of current state
-    const isLiked = !currentlyLiked;
-    
-    // Update and get the updated post to get correct likes count
-    const updatedPost = await Post.findByIdAndUpdate(req.params.id, update, { new: true });
-    const updatedLikesCount = updatedPost ? updatedPost.likes.length : post.likes.length;
-    
-    // Verify the final state matches what we expect (use actual database state)
-    const finalIsLiked = updatedPost ? updatedPost.likes.some(like => like.toString() === req.user._id.toString()) : isLiked;
+    let updatedPost;
+    let operationExecuted = false;
 
-    // Handle activity creation/deletion to prevent duplicates
-    // Check if activity already exists for this user, post, and type
-    const existingActivity = await Activity.findOne({
-      user: req.user._id,
-      type: 'post_liked',
-      post: req.params.id
-    });
+    if (currentlyLiked) {
+      // We want to UNLIKE. Only match if user is currently in likes.
+      updatedPost = await Post.findOneAndUpdate(
+        { _id: req.params.id, likes: req.user._id },
+        { $pull: { likes: req.user._id } },
+        { new: true }
+      );
+      if (updatedPost) {
+        operationExecuted = true;
+      }
+    } else {
+      // We want to LIKE. Only match if user is NOT currently in likes.
+      updatedPost = await Post.findOneAndUpdate(
+        { _id: req.params.id, likes: { $ne: req.user._id } },
+        { $addToSet: { likes: req.user._id } },
+        { new: true }
+      );
+      if (updatedPost) {
+        operationExecuted = true;
+      }
+    }
 
-    if (finalIsLiked) {
-      // User liked the post
-      const user = await User.findById(req.user._id).select('settings.privacy.shareActivity').lean();
-      const shareActivity = user?.settings?.privacy?.shareActivity !== false; // Default to true if not set
-      
-      if (existingActivity) {
-        // Activity already exists, just update the timestamp to reflect the latest like
-        existingActivity.createdAt = new Date();
-        existingActivity.isPublic = shareActivity;
-        await existingActivity.save().catch(err => logger.error('Error updating activity:', err));
+    let finalIsLiked;
+    let updatedLikesCount;
+
+    if (operationExecuted) {
+      finalIsLiked = !currentlyLiked;
+      updatedLikesCount = updatedPost.likes.length;
+    } else {
+      // Duplicate concurrent request, state was already updated.
+      // Fetch fresh post to return accurate status to client.
+      const freshPost = await Post.findById(req.params.id).lean();
+      if (!freshPost) {
+        return sendError(res, 'RES_3001', 'Post does not exist');
+      }
+      finalIsLiked = freshPost.likes.some(like => like.toString() === req.user._id.toString());
+      updatedLikesCount = freshPost.likes.length;
+    }
+
+    if (operationExecuted) {
+      // Handle activity creation/deletion to prevent duplicates
+      // Check if activity already exists for this user, post, and type
+      const existingActivity = await Activity.findOne({
+        user: req.user._id,
+        type: 'post_liked',
+        post: req.params.id
+      });
+
+      if (finalIsLiked) {
+        // User liked the post
+        const user = await User.findById(req.user._id).select('settings.privacy.shareActivity').lean();
+        const shareActivity = user?.settings?.privacy?.shareActivity !== false; // Default to true if not set
+        
+        if (existingActivity) {
+          // Activity already exists, just update the timestamp to reflect the latest like
+          existingActivity.createdAt = new Date();
+          existingActivity.isPublic = shareActivity;
+          await existingActivity.save().catch(err => logger.error('Error updating activity:', err));
+        } else {
+          // Create new activity only if it doesn't exist
+          Activity.createActivity({
+            user: req.user._id,
+            type: 'post_liked',
+            post: req.params.id,
+            targetUser: post.user,
+            isPublic: shareActivity
+          }).catch(err => logger.error('Error creating activity:', err));
+        }
       } else {
-        // Create new activity only if it doesn't exist
-        Activity.createActivity({
-          user: req.user._id,
-          type: 'post_liked',
-          post: req.params.id,
-          targetUser: post.user,
-          isPublic: shareActivity
-        }).catch(err => logger.error('Error creating activity:', err));
+        // User unliked the post - remove the activity if it exists
+        if (existingActivity) {
+          await Activity.deleteOne({ _id: existingActivity._id }).catch(err => logger.error('Error deleting activity:', err));
+        }
       }
-    } else {
-      // User unliked the post - remove the activity if it exists
-      if (existingActivity) {
-        await Activity.deleteOne({ _id: existingActivity._id }).catch(err => logger.error('Error deleting activity:', err));
-      }
-    }
 
-    // Invalidate cache
-    await deleteCache(CacheKeys.post(req.params.id));
-    await deleteCacheByPattern('posts:*');
-    await deleteCache(CacheKeys.userPosts(post.user.toString(), 1, 20));
+      // Invalidate cache
+      await deleteCache(CacheKeys.post(req.params.id));
+      await deleteCacheByPattern('posts:*');
+      await deleteCache(CacheKeys.userPosts(post.user.toString(), 1, 20));
 
-    // Update user's total likes if this is their post - use final verified state
-    if (finalIsLiked) {
-      await User.findByIdAndUpdate(post.user, { $inc: { totalLikes: 1 } });
-      
-      // Create notification for like (only if it's not the user's own post)
-      if (post.user._id.toString() !== req.user._id.toString()) {
-        try {
-          logger.debug('🔔 Creating like notification:', {
-            fromUser: req.user._id,
-            toUser: post.user._id,
-            post: post._id
-          });
-          
-          const notification = await Notification.createNotification({
-            type: 'like',
-            fromUser: req.user._id,
-            toUser: post.user._id,
-            post: post._id
-          });
-          
-          logger.debug('Like notification created successfully:', notification._id);
-
-          // Send push notification
-          await sendNotificationToUser({
-            userId: post.user._id.toString(),
-            title: 'New Like',
-            body: `${req.user.fullName} liked your post`,
-            data: {
-              type: 'like',
-              postId: post._id.toString(), // Frontend expects postId
-              entityId: post._id.toString(), // Keep for backward compatibility
-              fromUserId: req.user._id.toString(), // Frontend expects fromUserId
-              senderId: req.user._id.toString() // Keep for backward compatibility
-            }
-          }).catch(err => logger.error('Error sending push notification for like:', err));
-
-          // Emit real-time notification to recipient only
-          const io = getIO();
-          if (io) {
-            const nsp = io.of('/app');
-            nsp.to(`user:${post.user._id}`).emit('notification', {
-              type: 'like',
-              fromUser: {
-                _id: req.user._id,
-                fullName: req.user.fullName,
-                profilePic: req.user.profilePic
-              },
-              post: {
-                _id: post._id,
-                imageUrl: post.imageUrl
-              },
-              createdAt: new Date()
+      // Update user's total likes if this is their post - use final verified state
+      if (finalIsLiked) {
+        await User.findByIdAndUpdate(post.user, { $inc: { totalLikes: 1 } });
+        
+        // Create notification for like (only if it's not the user's own post)
+        if (post.user.toString() !== req.user._id.toString()) {
+          try {
+            logger.debug('🔔 Creating like notification:', {
+              fromUser: req.user._id,
+              toUser: post.user,
+              post: post._id
             });
-          }
-        } catch (notificationError) {
-          logger.error('Error creating like notification:', notificationError);
-        }
-      }
-    } else {
-      await User.findByIdAndUpdate(post.user, { $inc: { totalLikes: -1 } });
-    }
+            
+            const notification = await Notification.createNotification({
+              type: 'like',
+              fromUser: req.user._id,
+              toUser: post.user,
+              post: post._id
+            });
+            
+            logger.debug('Like notification created successfully:', notification._id);
 
-    // Emit real-time post like update to all connected users
-    try {
-      const io = getIO();
-      if (io) {
-        const nsp = io.of('/app');
-        // Emit the new real-time post like update with correct final state
-        nsp.emitPostLike(post._id.toString(), finalIsLiked, updatedLikesCount, req.user._id.toString());
-        // Also emit the legacy notification event (only for likes, not unlikes)
-        if (finalIsLiked) {
-          nsp.emitEvent('post:liked', [post.user.toString()], { postId: post._id });
+            // Send push notification
+            await sendNotificationToUser({
+              userId: post.user.toString(),
+              title: 'New Like',
+              body: `${req.user.fullName} liked your post`,
+              data: {
+                type: 'like',
+                postId: post._id.toString(), // Frontend expects postId
+                entityId: post._id.toString(), // Keep for backward compatibility
+                fromUserId: req.user._id.toString(), // Frontend expects fromUserId
+                senderId: req.user._id.toString() // Keep for backward compatibility
+              }
+            }).catch(err => logger.error('Error sending push notification for like:', err));
+
+            // Emit real-time notification to recipient only
+            const io = getIO();
+            if (io) {
+              const nsp = io.of('/app');
+              nsp.to(`user:${post.user}`).emit('notification', {
+                type: 'like',
+                fromUser: {
+                  _id: req.user._id,
+                  fullName: req.user.fullName,
+                  profilePic: req.user.profilePic
+                },
+                post: {
+                  _id: post._id,
+                  imageUrl: post.imageUrl
+                },
+                createdAt: new Date()
+              });
+            }
+          } catch (notificationError) {
+            logger.error('Error creating like notification:', notificationError);
+          }
         }
+      } else {
+        await User.findByIdAndUpdate(post.user, { $inc: { totalLikes: -1 } });
       }
-    } catch (socketError) {
-      logger.error('Socket error:', socketError);
+
+      // Emit real-time post like update to all connected users
+      try {
+        const io = getIO();
+        if (io) {
+          const nsp = io.of('/app');
+          // Emit the new real-time post like update with correct final state
+          nsp.emitPostLike(post._id.toString(), finalIsLiked, updatedLikesCount, req.user._id.toString());
+          // Also emit the legacy notification event (only for likes, not unlikes)
+          if (finalIsLiked) {
+            nsp.emitEvent('post:liked', [post.user.toString()], { postId: post._id });
+          }
+        }
+      } catch (socketError) {
+        logger.error('Socket error:', socketError);
+      }
     }
 
     return sendSuccess(res, 200, finalIsLiked ? 'Post liked' : 'Post unliked', {
@@ -2827,10 +3019,18 @@ const updatePost = async (req, res) => {
 // @route   GET /shorts
 // @access  Public
 const getShorts = async (req, res) => {
+  if (req.query.hls) {
+    try {
+      return await handleHLSProxy(req, res);
+    } catch (err) {
+      logger.error('HLS Proxy error:', err);
+      return res.status(500).json({ error: 'Internal HLS proxy error' });
+    }
+  }
+
   try {
-    const page = parseInt(req.query.page) || 1;
+    const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.page)) ? req.query.page : null);
     const limit = parseInt(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
 
     // Defensive guard: ensure limit is reasonable
     const safeLimit = Math.min(Math.max(limit, 1), 50); // Cap at 50
@@ -2844,21 +3044,46 @@ const getShorts = async (req, res) => {
       ? allowedAuthorIds.filter(id => !blockedIds.includes(id.toString()))
       : allowedAuthorIds;
 
-    const shortsMatch = {
+    let cursorFilter = {};
+    if (cursor) {
+      try {
+        const decoded = Buffer.from(cursor, 'base64').toString('ascii');
+        const [createdAtStr, idStr] = decoded.split(',');
+        if (createdAtStr && idStr && mongoose.Types.ObjectId.isValid(idStr)) {
+          const cursorDate = new Date(parseInt(createdAtStr));
+          const cursorId = new mongoose.Types.ObjectId(idStr);
+          cursorFilter = {
+            $or: [
+              { createdAt: { $lt: cursorDate } },
+              { createdAt: cursorDate, _id: { $lt: cursorId } }
+            ]
+          };
+        }
+      } catch (err) {
+        logger.warn('Failed to parse cursor, using empty filter:', err);
+      }
+    }
+
+    const matchQuery = {
       isActive: true,
       type: 'short',
-      $or: [{ status: 'active' }, { status: { $exists: false } }]
+      $and: [
+        { $or: [{ status: 'active' }, { status: { $exists: false } }] }
+      ]
     };
     if (allowedFiltered.length > 0) {
-      shortsMatch.user = { $in: allowedFiltered };
+      matchQuery.user = { $in: allowedFiltered };
     } else {
-      shortsMatch.user = { $in: [new mongoose.Types.ObjectId()] };
+      matchQuery.user = { $in: [new mongoose.Types.ObjectId()] };
     }
+    if (cursorFilter.$or) {
+      matchQuery.$and.push({ $or: cursorFilter.$or });
+    }
+
     const shorts = await Post.aggregate([
-      { $match: shortsMatch },
-      { $sort: { createdAt: -1 } },
-      { $skip: skip },
-      { $limit: limit },
+      { $match: matchQuery },
+      { $sort: { createdAt: -1, _id: -1 } },
+      { $limit: safeLimit + 1 },
       {
         $lookup: {
           from: 'users',
@@ -2925,7 +3150,7 @@ const getShorts = async (req, res) => {
         $addFields: {
           comments: {
             $map: {
-              input: '$comments',
+              input: { $ifNull: ['$comments', []] },
               as: 'comment',
               in: {
                 $mergeObjects: [
@@ -3046,8 +3271,21 @@ const getShorts = async (req, res) => {
       let videoUrl = short.videoUrl || null; // Start with stored URL as fallback
       let imageUrl = short.imageUrl || null; // Start with stored URL as fallback
       
-      // Priority 1: Generate fresh signed URL from storageKey (best practice)
-      if (short.storageKey) {
+      const hlsProxyUrl = getVideoUrlForShort(short, req);
+      if (hlsProxyUrl) {
+        videoUrl = hlsProxyUrl;
+        const thumbKey = (short.storageKeys || []).find(k => k && (k.endsWith('.jpg') || k.endsWith('.jpeg') || k.endsWith('.png')));
+        if (thumbKey) {
+          try {
+            const freshImageUrl = await generateSignedUrl(thumbKey, 'IMAGE');
+            if (freshImageUrl) {
+              imageUrl = freshImageUrl;
+            }
+          } catch (error) {
+            logger.warn(`Failed to generate signed URL for HLS short thumbnail ${short._id}:`, error.message);
+          }
+        }
+      } else if (short.storageKey) {
         try {
           const freshVideoUrl = await generateSignedUrl(short.storageKey, 'VIDEO');
           if (freshVideoUrl) {
@@ -3140,19 +3378,22 @@ const getShorts = async (req, res) => {
     // Filter out null entries (shorts without media)
     const validShorts = shortsWithLikeStatus.filter(short => short !== null);
 
-    const totalShorts = await Post.countDocuments({ isActive: true, type: 'short' });
-    const totalPages = Math.ceil(totalShorts / safeLimit);
-    const hasNextPage = page < totalPages;
-    const hasPrevPage = page > 1;
+    const hasNextPage = validShorts.length > safeLimit;
+    const responseShorts = hasNextPage ? validShorts.slice(0, safeLimit) : validShorts;
+
+    let nextCursor = null;
+    if (responseShorts.length > 0) {
+      const lastItem = responseShorts[responseShorts.length - 1];
+      const lastCreatedAtMs = new Date(lastItem.createdAt).getTime();
+      const lastId = lastItem._id.toString();
+      nextCursor = Buffer.from(`${lastCreatedAtMs},${lastId}`).toString('base64');
+    }
 
     res.status(200).json({
-      shorts: validShorts,
+      shorts: responseShorts,
       pagination: {
-        currentPage: page,
-        totalPages,
-        totalShorts,
+        nextCursor,
         hasNextPage,
-        hasPrevPage,
         limit: safeLimit
       }
     });
@@ -3236,65 +3477,32 @@ const createShort = async (req, res) => {
       finalCopyrightAcceptedAt = new Date();
     }
 
-    // PERMANENT FIX FOR ANDROID HEAP-OOM CRASHES ON SHORTS PLAYBACK:
-    // Re-encode incoming videos to H.264 720p / AAC before uploading to
-    // storage. iPhones default to recording HEVC (H.265); HEVC decoders
-    // allocate 3-4× more native heap than H.264 and aren't present on every
-    // Android device — those two facts together produced the
-    // "GC tried cleanup, allocating 240 bytes failed" crash reports.
-    // Transcoding fails open: any error returns the original buffer
-    // unchanged, so a missing/broken ffmpeg never blocks an upload.
-    const { transcodeIfNeeded } = require('../services/videoTranscode');
-    let workingBuffer = videoFile.buffer;
-    let workingMimetype = videoFile.mimetype;
-    let workingExtension = videoFile.originalname.split('.').pop() || 'mp4';
-    try {
-      const transcodeResult = await transcodeIfNeeded(workingBuffer, workingMimetype);
-      workingBuffer = transcodeResult.buffer;
-      workingMimetype = transcodeResult.mimetype;
-      if (transcodeResult.transcoded) {
-        workingExtension = 'mp4'; // we always emit H.264 in an .mp4 container
-      }
-    } catch (e) {
-      // transcodeIfNeeded itself doesn't throw, but defend in depth so a
-      // bug here can't break uploads.
-      logger.error('Unexpected transcode error — passthrough', e);
-    }
+    const shortId = new mongoose.Types.ObjectId();
+    const rawExtension = videoFile.originalname.split('.').pop() || 'mp4';
+    videoStorageKey = `shorts/raw/${shortId}.${rawExtension}`;
 
-    // Upload (transcoded or original) video to Sevalla Object Storage
-    videoStorageKey = buildMediaKey({
-      type: 'short',
-      userId: req.user._id.toString(),
-      filename: videoFile.originalname,
-      extension: workingExtension
-    });
-
-    // Log file size for monitoring large uploads
-    const fileSizeMB = (workingBuffer.length / (1024 * 1024)).toFixed(2);
-    logger.info('Starting video upload:', {
+    // Upload raw video buffer directly to S3
+    const fileSizeMB = (videoFile.buffer.length / (1024 * 1024)).toFixed(2);
+    logger.info('Starting raw video upload to S3:', {
       key: videoStorageKey,
       size: `${fileSizeMB}MB`,
-      mimetype: workingMimetype,
+      mimetype: videoFile.mimetype,
       userId: req.user._id.toString(),
-      originalSizeMB: (videoFile.buffer.length / (1024 * 1024)).toFixed(2),
     });
 
     try {
-      // uploadObject automatically uses multipart upload for files > 100MB
       const uploadStartTime = Date.now();
-      videoUploadResult = await uploadObject(workingBuffer, videoStorageKey, workingMimetype);
+      videoUploadResult = await uploadObject(videoFile.buffer, videoStorageKey, videoFile.mimetype);
       const uploadDuration = ((Date.now() - uploadStartTime) / 1000).toFixed(2);
       
-      logger.info('Video upload completed:', {
+      logger.info('Raw video upload completed:', {
         key: videoStorageKey,
         size: `${fileSizeMB}MB`,
-        duration: `${uploadDuration}s`,
-        uploadSpeed: `${(parseFloat(fileSizeMB) / parseFloat(uploadDuration)).toFixed(2)}MB/s`
+        duration: `${uploadDuration}s`
       });
       
-      // Defensive: validate upload result has URL
       if (!videoUploadResult || !videoUploadResult.url) {
-        logger.error('Video upload succeeded but no URL returned');
+        logger.error('Raw video upload succeeded but no URL returned');
         return sendError(res, 'FILE_4005', 'Video upload completed but URL is missing. Please try again.');
       }
     } catch (uploadErr) {
@@ -3304,23 +3512,8 @@ const createShort = async (req, res) => {
         size: `${fileSizeMB}MB`,
         stack: uploadErr.stack
       });
-      
-      // Provide more specific error messages for large files
-      let errorMessage = uploadErr.message || 'Video upload failed. Please try again.';
-      if (uploadErr.message?.includes('timeout') || uploadErr.message?.includes('ETIMEDOUT')) {
-        errorMessage = 'Upload timeout. The file may be too large or network is too slow. Please try again with a better connection.';
-      } else if (uploadErr.message?.includes('ECONNRESET') || uploadErr.message?.includes('socket')) {
-        errorMessage = 'Connection lost during upload. Please check your internet connection and try again.';
-      } else if (uploadErr.message?.includes('413') || uploadErr.message?.includes('too large')) {
-        errorMessage = 'File is too large. Please try a smaller file or compress the video.';
-      }
-      
-      return sendError(res, 'FILE_4004', errorMessage);
+      return sendError(res, 'FILE_4004', 'Video upload failed. Please try again.');
     }
-
-    // Note: Video duration validation would require video processing library
-    // For now, we'll skip duration validation during upload
-    // Duration can be validated client-side or via a background job
 
     // Parse tags if provided
     let parsedTags = [];
@@ -3354,12 +3547,7 @@ const createShort = async (req, res) => {
         thumbnailUrl = thumbResult.url;
       } catch (imgErr) {
         logger.error('Thumbnail image upload failed:', imgErr);
-        // Use video URL as fallback thumbnail
-        thumbnailUrl = videoUploadResult.url;
       }
-    } else {
-      // Use video URL as thumbnail if no custom thumbnail provided
-      thumbnailUrl = videoUploadResult.url;
     }
     
     // CRITICAL: Normalize audioSource early for consistent comparison
@@ -3385,15 +3573,16 @@ const createShort = async (req, res) => {
     
     // Build base post object
     const postData = {
+      _id: shortId,
       user: req.user._id,
       caption,
-      imageUrl: thumbnailUrl || '', // Backward compatibility - thumbnail stored here too
-      thumbnailUrl: thumbnailUrl || '', // New field for clarity - thumbnail for shorts
-      videoUrl: videoUploadResult.url, // Video URL goes here
-      storageKey: videoStorageKey, // Primary storage key for video
-      storageKeys: storageKeys, // CRITICAL: Array with video and thumbnail keys [video, thumbnail]
+      imageUrl: thumbnailUrl || '', // Backward compatibility
+      thumbnailUrl: thumbnailUrl || '', // New field for clarity
+      videoUrl: '', // Will be updated by background worker
+      storageKey: '', // Will be updated by background worker
+      storageKeys: storageKeys, // CRITICAL: Initially holds raw video key & custom thumbnail key
       cloudinaryPublicId: videoStorageKey, // Backward compatibility
-      cloudinaryPublicIds: storageKeys, // Backward compatibility: use storageKeys as cloudinaryPublicIds
+      cloudinaryPublicIds: storageKeys, // Backward compatibility
       tags: allHashtags,
       type: 'short',
       location: {
@@ -3410,7 +3599,7 @@ const createShort = async (req, res) => {
       audioSource: audioSource || null,
       copyrightAccepted: finalCopyrightAccepted,
       copyrightAcceptedAt: finalCopyrightAcceptedAt ? new Date(finalCopyrightAcceptedAt) : null,
-      status: 'active'
+      status: 'processing'
     };
     
     // CRITICAL: Only include song field if we actually want to save it
@@ -3433,6 +3622,16 @@ const createShort = async (req, res) => {
     const short = new Post(postData);
 
     await short.save();
+
+    // Create TranscodeJob
+    const TranscodeJob = mongoose.model('TranscodeJob');
+    const job = new TranscodeJob({
+      post: short._id,
+      rawStorageKey: videoStorageKey,
+      status: 'pending'
+    });
+    await job.save();
+    logger.info(`Enqueued background transcoding job for post ${short._id}`);
     
     // Log saved short data for debugging - use logger.info for visibility
     logger.info('createShort - Short saved successfully:', {
@@ -3541,7 +3740,7 @@ const createShort = async (req, res) => {
       nsp.emitEvent('short:created', audience, { shortId: short._id });
     }
 
-    return sendSuccess(res, 201, 'Short created successfully', {
+    return sendSuccess(res, 202, 'Short uploaded successfully and is being processed', {
       short: {
         ...short.toObject(),
         isLiked: false,

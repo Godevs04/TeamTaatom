@@ -5,11 +5,11 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  ActivityIndicator,
   RefreshControl,
   Platform,
-  Dimensions
+  Dimensions,
 } from 'react-native';
+import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
@@ -226,7 +226,7 @@ export default function AccountActivityScreen() {
 
       {loading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       ) : (
         <ScrollView
@@ -370,7 +370,7 @@ export default function AccountActivityScreen() {
                         disabled={loggingOut === session.sessionId}
                       >
                         {loggingOut === session.sessionId ? (
-                          <ActivityIndicator size="small" color={theme.colors.error} />
+                          <LoadingGlobe size="small" color={theme.colors.error} />
                         ) : (
                           <Text style={[styles.logoutButtonText, { color: theme.colors.error }]}>
                             Logout
