@@ -269,15 +269,15 @@ const ShortsProgressBar = ({
         setIsPressing(false);
       }}
     >
-      <View style={[styles.progressBarBackground, isPressing && { height: 6 }]} />
+      <View style={[styles.progressBarBackground, isPressing && { height: 8 }]} />
       <LinearGradient
-        colors={['#F58529', '#DD2A7B', '#8134AF']} // beautiful Instagram sunset gradient
+        colors={['#50C878', '#1C73B4']} // beautiful premium green-blue gradient
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}
         style={[
           styles.progressBarFill,
           { width: `${progress * 100}%` },
-          isPressing && { height: 6 },
+          isPressing && { height: 8 },
         ]}
       />
     </View>
@@ -4071,10 +4071,10 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    height: 3,
+    height: 5,
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
   },
   progressBarFill: {
-    height: 3,
+    height: 5,
   },
 });
