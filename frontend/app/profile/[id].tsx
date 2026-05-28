@@ -879,7 +879,7 @@ export default function UserProfileScreen() {
                     icon="map-outline"
                     title="Journeys"
                     subtitle="View completed journeys and history"
-                    onPress={() => router.push(`/journeys?userId=${id}`)}
+                    onPress={() => router.push(`/journeys?userId=${id}&userName=${encodeURIComponent(profile?.fullName || profile?.username || '')}`)}
                     showDivider={false}
                     iconTint={profileTheme.accent}
                   />
@@ -898,7 +898,7 @@ export default function UserProfileScreen() {
                       icon="map-outline"
                       title="Journeys"
                       subtitle="View completed journeys and history"
-                      onPress={() => router.push(`/journeys?userId=${id}`)}
+                      onPress={() => router.push(`/journeys?userId=${id}&userName=${encodeURIComponent(profile?.fullName || profile?.username || '')}`)}
                       showDivider={false}
                       iconTint={profileTheme.accent}
                     />
@@ -935,7 +935,7 @@ export default function UserProfileScreen() {
                     icon="map-outline"
                     title="Journeys"
                     subtitle="View completed journeys and history"
-                    onPress={() => router.push(`/journeys?userId=${id}`)}
+                    onPress={() => router.push(`/journeys?userId=${id}&userName=${encodeURIComponent(profile?.fullName || profile?.username || '')}`)}
                     showDivider={false}
                     iconTint={profileTheme.accent}
                   />

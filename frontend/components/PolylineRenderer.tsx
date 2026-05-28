@@ -102,6 +102,11 @@ export function simplifyPolyline<T extends { latitude: number; longitude: number
   const simplified: T[] = [coords[0]];
 
   for (let i = 1; i < coords.length; i++) {
+    if ((coords[i] as any).segmentBreak) {
+      simplified.push(coords[i]);
+      continue;
+    }
+
     const lastKept = simplified[simplified.length - 1];
     const distance = calculateCoordinateDistance(
       lastKept.latitude,
@@ -134,6 +139,11 @@ export function deduplicateCoords<T extends { latitude: number; longitude: numbe
   const deduplicated: T[] = [coords[0]];
 
   for (let i = 1; i < coords.length; i++) {
+    if ((coords[i] as any).segmentBreak) {
+      deduplicated.push(coords[i]);
+      continue;
+    }
+
     const lastKept = deduplicated[deduplicated.length - 1];
     const distance = calculateCoordinateDistance(
       lastKept.latitude,
@@ -151,7 +161,7 @@ export function deduplicateCoords<T extends { latitude: number; longitude: numbe
 }
 
 interface PolylineRendererProps {
-  coordinates: Array<{ latitude: number; longitude: number; timestamp?: number }>;
+  coordinates: Array<{ latitude: number; longitude: number; timestamp?: number; segmentBreak?: boolean }>;
   color?: string;
   glowColor?: string;
   strokeWidth?: number;
@@ -200,7 +210,12 @@ export default function PolylineRenderer({
 
   // 4. Apply Kalman filter if requested
   if (applyKalman && processedCoords.length > 1) {
-    processedCoords = kalmanFilter(processedCoords);
+    const segmentBreaks = processedCoords.map((coord) => coord.segmentBreak);
+    processedCoords = kalmanFilter(processedCoords).map((coord, index) => ({
+      ...coord,
+      timestamp: processedCoords[index]?.timestamp,
+      segmentBreak: segmentBreaks[index],
+    }));
   }
 
   // Skip rendering if we don't have enough points left
@@ -216,8 +231,8 @@ export default function PolylineRenderer({
   }
 
   // 5. Split coordinates into segments based on a time gap of > 60 seconds (indicating a pause/break)
-  const segments: Array<Array<{ latitude: number; longitude: number; timestamp?: number }>> = [];
-  let currentSegment: Array<{ latitude: number; longitude: number; timestamp?: number }> = [];
+  const segments: Array<Array<{ latitude: number; longitude: number; timestamp?: number; segmentBreak?: boolean }>> = [];
+  let currentSegment: Array<{ latitude: number; longitude: number; timestamp?: number; segmentBreak?: boolean }> = [];
 
   for (let i = 0; i < processedCoords.length; i++) {
     const coord = processedCoords[i];
@@ -229,7 +244,7 @@ export default function PolylineRenderer({
         ? (coord.timestamp - prevCoord.timestamp) / 1000
         : 0;
 
-      if (timeDiff > 60) { // 60 seconds gap
+      if (coord.segmentBreak || timeDiff > 60) { // 60 seconds gap or explicit pause/resume break
         segments.push(currentSegment);
         currentSegment = [coord];
       } else {
@@ -297,7 +312,7 @@ export default function PolylineRenderer({
  * @returns JavaScript code string to inject into WebView initMap function
  */
 export function generatePolylineJS(
-  coordinates: Array<{ latitude: number; longitude: number; timestamp?: number }>,
+  coordinates: Array<{ latitude: number; longitude: number; timestamp?: number; segmentBreak?: boolean }>,
   color: string = '#22C55E',
   strokeWidth: number = 4,
   simplifyDistance: number = 5
@@ -319,8 +334,8 @@ export function generatePolylineJS(
   if (simplified.length < 2) return '';
 
   // Split into segments based on 60 seconds timestamp gap
-  const segments: Array<Array<{ latitude: number; longitude: number; timestamp?: number }>> = [];
-  let currentSegment: Array<{ latitude: number; longitude: number; timestamp?: number }> = [];
+  const segments: Array<Array<{ latitude: number; longitude: number; timestamp?: number; segmentBreak?: boolean }>> = [];
+  let currentSegment: Array<{ latitude: number; longitude: number; timestamp?: number; segmentBreak?: boolean }> = [];
 
   for (let i = 0; i < simplified.length; i++) {
     const coord = simplified[i];
@@ -332,7 +347,7 @@ export function generatePolylineJS(
         ? (coord.timestamp - prevCoord.timestamp) / 1000
         : 0;
 
-      if (timeDiff > 60) {
+      if (coord.segmentBreak || timeDiff > 60) {
         segments.push(currentSegment);
         currentSegment = [coord];
       } else {

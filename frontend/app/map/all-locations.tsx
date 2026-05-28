@@ -71,6 +71,7 @@ interface JourneyPolyline {
   _id: string;
   title: string;
   polyline: Array<{ lat: number; lng: number; timestamp?: string }>;
+  sessions?: Array<{ startedAt: string; stoppedAt?: string }>;
   startCoords: { lat: number; lng: number };
   endCoords: { lat: number; lng: number };
   distanceTraveled: number;
@@ -80,6 +81,30 @@ interface JourneyPolyline {
   // Resolved city names (set on frontend after reverse geocoding)
   startCity?: string;
   endCity?: string;
+}
+
+function getJourneyPolylineCoords(journey: JourneyPolyline) {
+  const sessionStarts = (journey.sessions || [])
+    .slice(1)
+    .map((session) => new Date(session.startedAt).getTime())
+    .filter((time) => Number.isFinite(time))
+    .sort((a, b) => a - b);
+
+  return (journey.polyline || []).map((point, index, points) => {
+    const timestamp = point.timestamp ? new Date(point.timestamp).getTime() : undefined;
+    const prevTimestamp = index > 0 && points[index - 1].timestamp
+      ? new Date(points[index - 1].timestamp!).getTime()
+      : undefined;
+    const segmentBreak = !!timestamp && !!prevTimestamp &&
+      sessionStarts.some((start) => start > prevTimestamp && start <= timestamp);
+
+    return {
+      latitude: point.lat,
+      longitude: point.lng,
+      timestamp,
+      segmentBreak,
+    };
+  });
 }
 
 interface OptimizedMarkerProps {
@@ -1303,7 +1328,7 @@ function initMap(){
         {/* Journey polylines + start/end markers — hidden when filter is 'posts' */}
         {(mapFilter === 'journeys' || mapFilter === 'both') && journeys.map((j) => {
           if (!j.polyline || j.polyline.length < 2) return null;
-          const coords = j.polyline.map((p) => ({ latitude: p.lat, longitude: p.lng }));
+          const coords = getJourneyPolylineCoords(j);
           return (
             <React.Fragment key={`journey-${j._id}`}>
               <PolylineRenderer
@@ -1312,7 +1337,7 @@ function initMap(){
                 glowColor={mapStyle.routeGlowColor}
                 strokeWidth={4}
                 simplifyDistance={10}
-                applyKalman={true}
+                applyKalman={false}
               />
               {/* Start marker */}
               {j.startCoords?.lat && j.startCoords?.lng && (
@@ -1518,7 +1543,7 @@ function initMap(){
           </View>
           <TouchableOpacity
             style={styles.headerActionBtn}
-            onPress={() => router.push(`/journeys?userId=${userId}`)}
+            onPress={() => router.push(`/journeys?userId=${userId}&userName=${encodeURIComponent(displayName || '')}`)}
           >
             <Ionicons name="list" size={22} color={theme.colors.text} />
           </TouchableOpacity>

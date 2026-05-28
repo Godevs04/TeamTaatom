@@ -13,17 +13,30 @@ import { useTheme } from '../context/ThemeContext';
 import NavBar from '../components/NavBar';
 import JourneyCard from '../components/JourneyCard';
 import { getUserJourneys } from '../services/journey';
+import { getUserFromStorage } from '../services/auth';
+import { getProfile } from '../services/profile';
 import { ErrorBoundary } from '../utils/errorBoundary';
 
 const GROWTH_GREEN = '#22C55E';
+
+function safeDecodeParam(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
 
 function JourneysListInner() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme } = useTheme();
   const userId = typeof params.userId === 'string' ? params.userId : Array.isArray(params.userId) ? params.userId[0] : '';
+  const userNameParam = typeof params.userName === 'string' ? params.userName : Array.isArray(params.userName) ? params.userName[0] : '';
+  const decodedUserName = userNameParam ? safeDecodeParam(userNameParam).trim() : '';
 
   const [journeys, setJourneys] = useState<any[]>([]);
+  const [headerTitle, setHeaderTitle] = useState(decodedUserName ? `${decodedUserName}'s Journeys` : 'My Journeys');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [page, setPage] = useState(1);
@@ -58,6 +71,46 @@ function JourneysListInner() {
   }, [userId]);
 
   const hasInitiallyLoaded = React.useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const resolveHeaderTitle = async () => {
+      if (!userId) {
+        if (!cancelled) setHeaderTitle('My Journeys');
+        return;
+      }
+
+      if (decodedUserName) {
+        if (!cancelled) setHeaderTitle(`${decodedUserName}'s Journeys`);
+      }
+
+      try {
+        const currentUser = await getUserFromStorage();
+        if (cancelled) return;
+
+        const currentUserId = currentUser?._id || (currentUser as any)?.id;
+        if (!currentUser || currentUserId === userId) {
+          setHeaderTitle('My Journeys');
+          return;
+        }
+
+        if (decodedUserName) return;
+
+        const profileResponse = await getProfile(userId);
+        if (cancelled) return;
+        const name = profileResponse.profile?.fullName || profileResponse.profile?.username;
+        setHeaderTitle(name ? `${name}'s Journeys` : 'Journeys');
+      } catch {
+        if (!cancelled && !decodedUserName) {
+          setHeaderTitle('Journeys');
+        }
+      }
+    };
+
+    resolveHeaderTitle();
+    return () => { cancelled = true; };
+  }, [userId, decodedUserName]);
 
   useEffect(() => {
     loadJourneys(1);
@@ -102,7 +155,7 @@ function JourneysListInner() {
   if (loading) {
     return (
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <NavBar title="My Journeys" showBack onBack={() => router.back()} />
+        <NavBar title={headerTitle} showBack onBack={() => router.back()} />
         <View style={styles.loadingContainer}>
           <LoadingGlobe size="large" color={GROWTH_GREEN} />
         </View>
@@ -112,7 +165,7 @@ function JourneysListInner() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <NavBar title="My Journeys" showBack onBack={() => router.back()} />
+      <NavBar title={headerTitle} showBack onBack={() => router.back()} />
 
       <FlatList
         data={journeys}

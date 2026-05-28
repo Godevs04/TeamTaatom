@@ -31,6 +31,65 @@ const logger = {
   warn: (...args: any[]) => console.warn(...args),
 };
 
+const toMs = (value?: string | number | Date | null): number | null => {
+  if (!value) return null;
+  const ms = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : null;
+};
+
+const getJourneyActiveDuration = (journey?: Journey | null, now = Date.now()): number => {
+  if (!journey) return 0;
+  const sessions = Array.isArray((journey as any).sessions) ? (journey as any).sessions : [];
+  if (sessions.length > 0) {
+    const totalMs = sessions.reduce((sum: number, session: any) => {
+      const startedAt = toMs(session?.startedAt);
+      if (!startedAt) return sum;
+      const stoppedAt = toMs(session?.stoppedAt);
+      const end = stoppedAt ?? (journey.status === 'active' ? now : startedAt);
+      return sum + Math.max(0, end - startedAt);
+    }, 0);
+    return Math.floor(totalMs / 1000);
+  }
+
+  if (typeof journey.duration === 'number' && Number.isFinite(journey.duration)) {
+    return Math.max(0, Math.floor(journey.duration));
+  }
+
+  const startedAt = toMs(journey.startedAt || journey.startTime);
+  if (!startedAt) return 0;
+  const end = journey.status === 'paused'
+    ? (toMs(journey.pausedAt || journey.pausedTime) ?? now)
+    : now;
+  return Math.floor(Math.max(0, end - startedAt) / 1000);
+};
+
+const normalizeJourneyPolyline = (journey?: Journey | null): Coordinate[] => {
+  const rawPolyline = Array.isArray(journey?.polyline) ? journey!.polyline : [];
+  const sessions = Array.isArray((journey as any)?.sessions) ? (journey as any).sessions : [];
+  const sessionStarts = sessions
+    .slice(1)
+    .map((session: any) => toMs(session?.startedAt))
+    .filter((ms: number | null): ms is number => typeof ms === 'number')
+    .sort((a: number, b: number) => a - b);
+
+  return rawPolyline.map((p: any, index: number) => {
+    const timestamp = typeof p.timestamp === 'string' ? new Date(p.timestamp).getTime() : (p.timestamp || 0);
+    const prevRaw = index > 0 ? rawPolyline[index - 1] as any : null;
+    const prevTimestamp = prevRaw
+      ? (typeof prevRaw.timestamp === 'string' ? new Date(prevRaw.timestamp).getTime() : (prevRaw.timestamp || 0))
+      : null;
+    const segmentBreak = !!prevTimestamp && sessionStarts.some((start) => start > prevTimestamp && start <= timestamp);
+
+    return {
+      latitude: p.latitude ?? p.lat,
+      longitude: p.longitude ?? p.lng,
+      timestamp,
+      accuracy: p.accuracy ?? 0,
+      segmentBreak,
+    };
+  });
+};
+
 const BATCH_SEND_INTERVAL = 30000; // Send coordinates every 30 seconds
 const MIN_LOCATION_DISTANCE = 5; // Minimum 5 meters between tracked points (denser paths)
 // AsyncStorage prefix for the unsent-coords queue. Each in-memory push to
@@ -187,6 +246,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   const batchSendTimerRef = useRef<NodeJS.Timeout | null>(null);
   const appStateRef = useRef(AppState.currentState);
   const startTimeRef = useRef<number | null>(null);
+  const pendingSegmentBreakRef = useRef(false);
   // Tracks whether this hook instance is still mounted. Async paths (API
   // awaits, location callbacks fired after subscription removal on some
   // Android OEMs, late timer ticks) check this before calling setState so
@@ -278,6 +338,13 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           }
         } else {
           lastCoordinateRef.current = coord;
+          if (pendingSegmentBreakRef.current) {
+            const segmentStart = { ...coord, segmentBreak: true };
+            setPolyline((prev) => [...prev, segmentStart]);
+            batchCoordinatesRef.current.push(segmentStart);
+            persistPendingCoords();
+            pendingSegmentBreakRef.current = false;
+          }
         }
       }
     );
@@ -314,24 +381,24 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
               const cached = JSON.parse(cachedStateRaw);
               if (cached && cached.journey && cached.journey._id === storedJourneyId) {
                 setJourney(cached.journey);
-                const normalizedPolyline: Coordinate[] = (cached.polyline || []).map((p: any) => ({
-                  latitude: p.latitude ?? p.lat,
-                  longitude: p.longitude ?? p.lng,
-                  timestamp: typeof p.timestamp === 'string' ? new Date(p.timestamp).getTime() : (p.timestamp || 0),
-                  accuracy: p.accuracy ?? 0,
-                }));
+                const normalizedPolyline: Coordinate[] = normalizeJourneyPolyline({
+                  ...cached.journey,
+                  polyline: cached.polyline || cached.journey.polyline || [],
+                });
                 setPolyline(normalizedPolyline);
                 setDistance(cached.distance || 0);
-                setDuration(cached.duration || 0);
-                setIsPaused(cached.journey.status === 'paused');
+                const cachedIsPaused = cached.journey.status === 'paused';
+                const activeDuration = getJourneyActiveDuration(cached.journey);
+                const cachedDuration = activeDuration || cached.duration || 0;
+                setDuration(cachedDuration);
+                setIsPaused(cachedIsPaused);
                 if (normalizedPolyline.length > 0) {
                   lastCoordinateRef.current = normalizedPolyline[normalizedPolyline.length - 1];
                 }
-                if (cached.journey.status !== 'paused' && cached.timestamp) {
-                  const startedAtMs = new Date(cached.journey.startedAt).getTime();
-                  startTimeRef.current = startedAtMs;
-                  const elapsed = Math.floor((Date.now() - startedAtMs) / 1000);
-                  setDuration(Math.max(0, elapsed));
+                if (!cachedIsPaused && cached.timestamp) {
+                  startTimeRef.current = Date.now() - cachedDuration * 1000;
+                } else if (cachedIsPaused) {
+                  startTimeRef.current = null;
                 }
                 logger.debug('[Journey] Rehydrated state from AsyncStorage:', cached.journey._id);
               }
@@ -349,25 +416,17 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
               // Coordinate type (and calculateCoordinateDistance) expects
               // {latitude, longitude}. Normalize on restore so the
               // watcher's distance calculation doesn't receive undefined.
-              const normalizedPolyline: Coordinate[] = (fetchedJourney.polyline || []).map((p: any) => ({
-                latitude: p.latitude ?? p.lat,
-                longitude: p.longitude ?? p.lng,
-                timestamp: typeof p.timestamp === 'string' ? new Date(p.timestamp).getTime() : (p.timestamp || 0),
-                accuracy: p.accuracy ?? 0,
-              }));
+              const normalizedPolyline: Coordinate[] = normalizeJourneyPolyline(fetchedJourney);
               setPolyline(normalizedPolyline);
               setDistance(fetchedJourney.distanceTraveled || 0);
               // Set startTimeRef so the duration useEffect can spin up its
               // 1s ticker. Before this fix, the ref stayed null on screens
               // that mounted mid-journey (e.g. tracking.tsx after a
               // router.replace) so the duration never advanced live.
-              if (fetchedJourney.startedAt) {
-                const startedAtMs = new Date(fetchedJourney.startedAt).getTime();
-                startTimeRef.current = startedAtMs;
-                const elapsed = Math.floor((Date.now() - startedAtMs) / 1000);
-                setDuration(Math.max(0, elapsed));
-              }
               const isPausedJourney = fetchedJourney.status === 'paused';
+              const activeDuration = getJourneyActiveDuration(fetchedJourney);
+              startTimeRef.current = isPausedJourney ? null : Date.now() - activeDuration * 1000;
+              setDuration(activeDuration);
               setIsPaused(isPausedJourney);
 
               // Seed lastCoordinateRef from the tail of the restored polyline
@@ -480,6 +539,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           journeyIdRef.current = null;
           startTimeRef.current = null;
           lastCoordinateRef.current = null;
+          pendingSegmentBreakRef.current = false;
           batchCoordinatesRef.current = [];
           setIsTracking(false);
           setIsPaused(false);
@@ -852,6 +912,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           accuracy: location.coords.accuracy || 0,
         };
         lastCoordinateRef.current = initialCoord;
+        pendingSegmentBreakRef.current = false;
         setPolyline([initialCoord]);
         setAccuracy(location.coords.accuracy);
         setCurrentCoordinate(initialCoord);
@@ -926,8 +987,11 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
       // Call API to pause
       const { journey: pausedJourney } = await pauseJourney(journeyIdRef.current);
+      const pausedDuration = getJourneyActiveDuration(pausedJourney);
       setJourney(pausedJourney);
       setIsPaused(true);
+      startTimeRef.current = null;
+      setDuration(pausedDuration);
 
       logger.debug('[Journey] Paused journey:', journeyIdRef.current);
       suppressNextSyncRef.current = true;
@@ -958,12 +1022,15 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
       // Call API
       const { journey: resumedJourney } = await resumeJourney(journeyIdRef.current);
+      const resumedDuration = getJourneyActiveDuration(resumedJourney);
       setJourney(resumedJourney);
       setIsPaused(false);
 
       // Reset duration timer
-      startTimeRef.current = Date.now() - resumedJourney.duration * 1000;
+      startTimeRef.current = Date.now() - resumedDuration * 1000;
+      setDuration(resumedDuration);
       lastCoordinateRef.current = null; // Clear to guarantee first location fix starts a new segment
+      pendingSegmentBreakRef.current = true;
 
       // Restart location watcher via the centralized helper.
       await startLocationWatcher();
@@ -1033,6 +1100,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         locationWatcherRef.current = null;
       }
       lastCoordinateRef.current = null; // Clear on stop
+      pendingSegmentBreakRef.current = false;
 
       // Stop background updates and absorb anything the bg task captured
       // since the last drain so the final batch includes them.
@@ -1090,6 +1158,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       journeyIdRef.current = null;
       startTimeRef.current = null;
       lastCoordinateRef.current = null;
+      pendingSegmentBreakRef.current = false;
       batchCoordinatesRef.current = [];
       // Notify other live instances of useJourneyTracking (root layout's
       // JourneyStatusBar etc.) so they wipe their own copies of the journey
@@ -1140,6 +1209,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       journeyIdRef.current = null;
       startTimeRef.current = null;
       lastCoordinateRef.current = null;
+      pendingSegmentBreakRef.current = false;
       batchCoordinatesRef.current = [];
       setIsTracking(false);
       setIsPaused(false);
