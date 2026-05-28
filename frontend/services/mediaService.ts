@@ -43,18 +43,18 @@ export const prepareImageForUpload = async (
 
     const sizeInMB = fileSize / (1024 * 1024);
     const actions: ImageManipulator.Action[] = [];
-    let compressValue = 0.9; // Default high quality
-    let targetWidth = 1200;
+    let compressValue = 0.95; // Default high quality (increased to prevent quality drop)
+    let targetWidth = 2048; // Increased from 1200 to 2048 (2K) to prevent blurriness
 
     // Read the dynamic network latency status
     if (isHighLatency) {
       logger.debug('High latency connection detected. Aggressively scaling and compressing for upload.');
-      targetWidth = 800;
-      compressValue = 0.6;
+      targetWidth = 1080;
+      compressValue = 0.8;
     } else if (sizeInMB > 2) {
       logger.debug(`Image exceeds 2MB (${sizeInMB.toFixed(2)}MB). Scaling and compressing...`);
-      targetWidth = 1200;
-      compressValue = 0.8;
+      targetWidth = 2048; // 2K resolution
+      compressValue = 0.95; // 95% quality compression
     } else {
       logger.debug(`Image size is ${sizeInMB.toFixed(2)}MB. Stripping EXIF metadata...`);
     }

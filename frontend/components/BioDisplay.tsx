@@ -9,7 +9,7 @@ interface BioDisplayProps {
   leftAlign?: boolean;
 }
 
-export default function BioDisplay({ bio, maxLines = 2, fontSize, leftAlign = false }: BioDisplayProps) {
+export default function BioDisplay({ bio, maxLines = 3, fontSize, leftAlign = false }: BioDisplayProps) {
   const { theme } = useTheme();
   const [showFullBio, setShowFullBio] = useState(false);
 

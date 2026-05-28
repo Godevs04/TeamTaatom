@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleProp, StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
+import { LinearGradient } from 'expo-linear-gradient';
 
 export interface PremiumSegmentTab<T extends string> {
   key: T;
@@ -74,7 +75,12 @@ export default function PremiumSegmentedTabs<T extends string>({
                 {tab.label}
               </Text>
               {active ? (
-                <View style={styles.underline} />
+                <LinearGradient
+                  colors={['#1C73B4', '#50C878']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.underline}
+                />
               ) : null}
             </TouchableOpacity>
           );
@@ -113,7 +119,6 @@ const styles = StyleSheet.create({
     left: 8,
     right: 8,
     height: 3,
-    backgroundColor: '#50C878', // Emerald Green 3px solid underline
     borderRadius: 1.5,
   },
 });

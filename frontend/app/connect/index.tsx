@@ -19,6 +19,7 @@ import { FlashList } from '@shopify/flash-list';
 import { useTheme } from '../../context/ThemeContext';
 import { theme as themeConstants } from '../../constants/theme';
 import ConnectCard from '../../components/ConnectCard';
+import { BlurView } from 'expo-blur';
 import EmptyState from '../../components/EmptyState';
 import {
   getMyPages,
@@ -40,6 +41,7 @@ import PremiumScreen from '../../components/ui/PremiumScreen';
 import CloudGlassSurface from '../../components/cloud/CloudGlassSurface';
 import PremiumIconButton from '../../components/ui/PremiumIconButton';
 import PremiumSegmentedTabs from '../../components/ui/PremiumSegmentedTabs';
+import GradientText from '../../components/ui/GradientText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -987,8 +989,37 @@ export default function ConnectHubScreen() {
 
   return (
     <PremiumScreen style={styles.container} edges={[]} hideBackgroundDesign={true}>
-      {/* Solid Opaque Top Bar */}
-      <View style={[styles.solidTopBar, { height: topBarHeight, paddingTop: topBarHeight - 56, backgroundColor: isDark ? '#0D1B2A' : '#FFFFFF' }]}>
+      {/* Floating Glass Top Bar */}
+      <View
+        style={[
+          styles.solidTopBar,
+          {
+            height: topBarHeight,
+            paddingTop: topBarHeight - 56,
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 100,
+            borderBottomLeftRadius: 24,
+            borderBottomRightRadius: 24,
+            overflow: 'hidden',
+            borderWidth: 1,
+            borderTopWidth: 0,
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
+            backgroundColor: isDark ? 'rgba(13, 27, 42, 0.65)' : 'rgba(255, 255, 255, 0.65)',
+          }
+        ]}
+      >
+        <BlurView
+          intensity={80}
+          tint={isDark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFillObject}
+        />
+        <LinearGradient
+          colors={isDark ? ['rgba(255, 255, 255, 0.1)', 'transparent'] : ['rgba(255, 255, 255, 0.5)', 'transparent']}
+          style={StyleSheet.absoluteFillObject}
+        />
         <View style={styles.topBarContent}>
           <PremiumIconButton
             icon="arrow-back"
@@ -996,7 +1027,7 @@ export default function ConnectHubScreen() {
             accessibilityLabel="Back"
             color={isDark ? '#38BDF8' : '#1C73B4'}
           />
-          <Text style={[styles.topBarTitle, { color: isDark ? '#FFFFFF' : '#122236' }]}>Connect</Text>
+          <GradientText text="Connect" style={styles.topBarTitle} />
           <PremiumIconButton
             icon="search"
             onPress={() => router.push('/connect/search')}
@@ -1005,17 +1036,15 @@ export default function ConnectHubScreen() {
           />
         </View>
       </View>
-      {/* Shadow Gate */}
-      <LinearGradient
-        colors={[isDark ? 'rgba(13,27,42,0.7)' : 'rgba(0,0,0,0.08)', 'transparent']}
-        style={styles.topBarShadow}
-      />
 
-      {/* Tabs */}
-      <PremiumSegmentedTabs tabs={tabs} value={activeTab} onChange={handleTabChange} style={styles.tabBar} />
+      {/* Tabs & Tab Content wrapper to account for floating absolute top bar */}
+      <View style={{ flex: 1, paddingTop: topBarHeight }}>
+        {/* Tabs */}
+        <PremiumSegmentedTabs tabs={tabs} value={activeTab} onChange={handleTabChange} style={styles.tabBar} />
 
-      {/* Tab Content */}
-      {activeTab === 'connect' ? renderConnectTab() : activeTab === 'find' ? renderFindTab() : renderPageListTab()}
+        {/* Tab Content */}
+        {activeTab === 'connect' ? renderConnectTab() : activeTab === 'find' ? renderFindTab() : renderPageListTab()}
+      </View>
 
       {/* FAB — Create Connect Page (Connect tab only) */}
       {activeTab === 'connect' && (

@@ -12,7 +12,8 @@ interface PostLocationProps {
 }
 
 export default function PostLocation({ post }: PostLocationProps) {
-  const { theme } = useTheme();
+  const { theme, mode } = useTheme();
+  const isDark = mode === 'dark' || theme.colors.background === '#0B1A2B' || theme.colors.background === '#000000';
   const router = useRouter();
   const [isGeocoding, setIsGeocoding] = useState(false);
 
@@ -93,6 +94,8 @@ export default function PostLocation({ post }: PostLocationProps) {
     }
   };
 
+  const subtitleBlue = isDark ? '#38BDF8' : '#1C73B4';
+
   return (
     <TouchableOpacity
       style={styles.locationContainer}
@@ -100,8 +103,8 @@ export default function PostLocation({ post }: PostLocationProps) {
       disabled={isGeocoding}
     >
       <View style={styles.locationContent}>
-        <Ionicons name="location-outline" size={12} color={theme.colors.textPassive} />
-        <Text style={[styles.locationText, { color: theme.colors.textPassive }]}>
+        <Ionicons name="location-outline" size={12} color={subtitleBlue} />
+        <Text style={[styles.locationText, { color: subtitleBlue }]}>
           {post.location.address}
         </Text>
       </View>

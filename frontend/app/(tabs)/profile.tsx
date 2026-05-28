@@ -18,6 +18,7 @@ import {
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import MaskedView from '@react-native-masked-view/masked-view';
 import { BlurView } from 'expo-blur';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useLocalSearchParams } from 'expo-router';
@@ -1272,19 +1273,31 @@ export default function ProfileScreen() {
         {
           paddingTop: insets.top,
           height: 56 + insets.top,
-          backgroundColor: isDark ? 'rgba(0, 0, 0, 0.7)' : 'rgba(255, 255, 255, 0.8)',
-          borderTopWidth: 0,
+          backgroundColor: 'transparent',
           borderBottomWidth: 1,
-          borderBottomColor: theme.colors.border,
-          shadowOpacity: isDark ? 0.3 : 0.04,
-          shadowRadius: 8,
-          elevation: 6,
+          borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.35)',
+          borderTopWidth: 1,
+          borderTopColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.45)',
+          borderBottomLeftRadius: 0,
+          borderBottomRightRadius: 0,
+          
+          // Soft ambient blue glow
+          shadowColor: isDark ? '#38BDF8' : '#1C73B4',
+          shadowOffset: { width: 0, height: 6 },
+          shadowOpacity: isDark ? 0.04 : 0.06,
+          shadowRadius: 20,
+          elevation: 2,
         }
       ]}>
         <BlurView
-          intensity={80}
+          intensity={95}
           tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
+          style={[
+            StyleSheet.absoluteFillObject,
+            {
+              backgroundColor: isDark ? 'rgba(15, 22, 35, 0.82)' : 'rgba(250, 252, 255, 0.85)',
+            }
+          ]}
         />
         <View style={styles.header}>
           <TouchableOpacity
@@ -1312,11 +1325,32 @@ export default function ProfileScreen() {
               accessibilityLabel={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
               accessibilityRole="button"
             >
-              <Ionicons
-                name={unreadCount > 0 ? 'notifications' : 'notifications-outline'}
-                size={22}
-                color={isDark ? '#38BDF8' : '#1C73B4'}
-              />
+              {unreadCount > 0 ? (
+                <MaskedView
+                  style={{ width: 22, height: 22 }}
+                  maskElement={
+                    <Ionicons
+                      name="notifications"
+                      size={22}
+                      color="#000000"
+                      style={{ backgroundColor: 'transparent' }}
+                    />
+                  }
+                >
+                  <LinearGradient
+                    colors={['#1C73B4', '#50C878']}
+                    style={{ flex: 1 }}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                  />
+                </MaskedView>
+              ) : (
+                <Ionicons
+                  name="notifications-outline"
+                  size={22}
+                  color={isDark ? '#38BDF8' : '#1C73B4'}
+                />
+              )}
               {unreadCount > 0 && (
                 <View style={[styles.headerNotificationBadge, { backgroundColor: theme.colors.error, borderColor: isDark ? '#0A1624' : '#C4E5FF' }]}>
                   <Text style={[styles.headerBadgeText, { color: '#FFFFFF' }]}>
@@ -1355,6 +1389,7 @@ export default function ProfileScreen() {
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
         onScroll={(event) => {
+          if (event.target !== event.currentTarget) return;
           handleScroll(event);
           // Store scroll position for restoration
           scrollPositionRef.current = event.nativeEvent.contentOffset.y;
@@ -1452,7 +1487,7 @@ export default function ProfileScreen() {
                   >
                     {activeTab === tab && (
                       <LinearGradient
-                        colors={isDark ? ['#1C73B4', '#50C878'] : ['#1C73B4', '#1C73B4']}
+                        colors={['#1C73B4', '#50C878']}
                         style={StyleSheet.absoluteFillObject}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 0 }}
@@ -1544,7 +1579,13 @@ export default function ProfileScreen() {
                         )}
                         {isSelected && (
                           <View style={[styles.selectionOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.4)' }]}>
-                            <View style={[styles.checkmarkCircle, { backgroundColor: theme.colors.primary }]}>
+                            <View style={styles.checkmarkCircle}>
+                              <LinearGradient
+                                colors={['#1C73B4', '#50C878']}
+                                style={StyleSheet.absoluteFillObject}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                              />
                               <Ionicons name="checkmark" size={16} color="#FFFFFF" />
                             </View>
                           </View>
@@ -1646,7 +1687,13 @@ export default function ProfileScreen() {
                           </View>
                           {isSelected && (
                             <View style={[styles.selectionOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.4)' }]}>
-                              <View style={[styles.checkmarkCircle, { backgroundColor: theme.colors.primary }]}>
+                              <View style={styles.checkmarkCircle}>
+                                <LinearGradient
+                                  colors={['#1C73B4', '#50C878']}
+                                  style={StyleSheet.absoluteFillObject}
+                                  start={{ x: 0, y: 0 }}
+                                  end={{ x: 1, y: 1 }}
+                                />
                                 <Ionicons name="checkmark" size={16} color="#FFFFFF" />
                               </View>
                             </View>
@@ -1684,7 +1731,13 @@ export default function ProfileScreen() {
                         </View>
                         {isSelected && (
                           <View style={[styles.selectionOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.4)' }]}>
-                            <View style={[styles.checkmarkCircle, { backgroundColor: theme.colors.primary }]}>
+                            <View style={styles.checkmarkCircle}>
+                              <LinearGradient
+                                colors={['#1C73B4', '#50C878']}
+                                style={StyleSheet.absoluteFillObject}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                              />
                               <Ionicons name="checkmark" size={16} color="#FFFFFF" />
                             </View>
                           </View>
@@ -1721,16 +1774,25 @@ export default function ProfileScreen() {
                     key={subTab}
                     style={[
                       styles.savedSubTab,
-                      activeSavedSubTab === subTab && [styles.savedSubTabActive, { backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : '#FFFFFF' }]
+                      activeSavedSubTab === subTab && { overflow: 'hidden' }
                     ]}
                     onPress={() => setActiveSavedSubTab(subTab)}
                   >
+                    {activeSavedSubTab === subTab && (
+                      <LinearGradient
+                        colors={['#1C73B4', '#50C878']}
+                        style={StyleSheet.absoluteFillObject}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                      />
+                    )}
                     <Text
                       style={[
                         styles.savedSubTabText,
                         {
-                          color: activeSavedSubTab === subTab ? (isDark ? '#FFFFFF' : theme.colors.primary) : profileTheme.textSecondary,
-                          fontWeight: activeSavedSubTab === subTab ? '700' : '500'
+                          color: activeSavedSubTab === subTab ? '#FFFFFF' : profileTheme.textSecondary,
+                          fontWeight: activeSavedSubTab === subTab ? '700' : '500',
+                          zIndex: 1,
                         }
                       ]}
                     >
@@ -1970,9 +2032,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 1000,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-    overflow: 'hidden',
     ...(isWeb && {
       maxWidth: isTablet ? 1200 : 1000,
       alignSelf: 'center',
@@ -2045,19 +2104,19 @@ const styles = StyleSheet.create({
   },
   headerNotificationBadge: {
     position: 'absolute',
-    top: -6,
-    right: -10,
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    paddingHorizontal: 6,
+    top: -4,
+    right: -6,
+    borderRadius: 7.5,
+    minWidth: 15,
+    height: 15,
+    paddingHorizontal: 3,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
+    borderWidth: 1.5,
     zIndex: 10,
   },
   headerBadgeText: {
-    fontSize: 11,
+    fontSize: 8,
     fontWeight: '700',
     textAlign: 'center',
     includeFontPadding: false,
@@ -2299,7 +2358,7 @@ const styles = StyleSheet.create({
   // Unified Profile Content Card - elegant, soft shadow
   unifiedCard: {
     marginHorizontal: 0,
-    marginTop: isTablet ? 14 : 12,
+    marginTop: -16,
     marginBottom: isTablet ? theme.spacing.md : 12,
     borderRadius: 28,
     overflow: 'hidden',

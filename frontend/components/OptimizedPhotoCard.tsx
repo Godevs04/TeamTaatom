@@ -174,6 +174,7 @@ function PhotoCard({
   const router = useRouter();
   const [isLiked, setIsLiked] = useState(post.isLiked || false);
   const [likesCount, setLikesCount] = useState(post.likesCount || 0);
+  const [isZooming, setIsZooming] = useState(false);
   
   const [comments, setComments] = useState(post.comments || []);
   const [showMenu, setShowMenu] = useState(false);
@@ -436,9 +437,24 @@ function PhotoCard({
   const imageUri = post.imageUrl || null;
   const imageLoading = false; // expo-image manages its own loading state
 
+  // Synchronize component state when post prop fields change (fixing recycling/stale value leaks)
   React.useEffect(() => {
+    setIsLiked(post.isLiked || false);
+    setLikesCount(post.likesCount || 0);
+    setComments(post.comments || []);
+    setIsSaved(isSavedSync(post._id));
+    setCommentsDisabled(post.commentsDisabled || false);
+    setEditCaption(post.caption || '');
     setImageError(!post.imageUrl);
-  }, [post.imageUrl]);
+  }, [
+    post._id,
+    post.isLiked,
+    post.likesCount,
+    post.comments,
+    post.caption,
+    post.commentsDisabled,
+    post.imageUrl
+  ]);
 
   const handleLike = () => {
     if (!currentUser) {
@@ -899,7 +915,7 @@ function PhotoCard({
   }, []);
 
   return (
-    <View style={[styles.container, { shadowOpacity: isDark ? 0.04 : 0.08 }]}>
+    <View style={[styles.container, { shadowOpacity: isDark ? 0.04 : 0.08 }, isZooming && { zIndex: 999, overflow: 'visible' }]}>
       <CloudGlassSurface
         blur={false}
         style={[
@@ -927,9 +943,10 @@ function PhotoCard({
                 borderLeftColor: theme.colors.border,
                 borderBottomColor: theme.colors.border,
                 borderRightColor: theme.colors.border,
-              }
+              },
+          isZooming && { zIndex: 999, overflow: 'visible' }
         ]}
-        contentStyle={styles.glassCardInner}
+        contentStyle={[styles.glassCardInner, isZooming && { zIndex: 999, overflow: 'visible' }]}
         borderRadius={20}
       >
       {/* Header - Must be above image to receive touches */}
@@ -954,6 +971,7 @@ function PhotoCard({
         pulseAnim={pulseAnim}
         isCurrentlyVisible={isCurrentlyVisible}
         onDoubleTap={handleLike}
+        onZoomStateChange={setIsZooming}
       />
 
       {/* Actions - Must be above image to receive touches */}

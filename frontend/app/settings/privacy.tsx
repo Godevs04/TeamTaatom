@@ -247,6 +247,42 @@ export default function PrivacySettingsScreen() {
     setCustomOptionsVisible(true);
   };
 
+  const handleRouteVisibilityChange = () => {
+    const options: CustomOption[] = [
+      {
+        text: 'Everyone',
+        icon: 'globe-outline',
+        onPress: () => {
+          setCustomOptionsVisible(false);
+          handleUpdateSetting('routeVisibility', 'everyone');
+        }
+      },
+      {
+        text: 'Approved Users Only',
+        icon: 'people-outline',
+        onPress: () => {
+          setCustomOptionsVisible(false);
+          handleUpdateSetting('routeVisibility', 'approved_only');
+        }
+      },
+      {
+        text: 'Private (Owner Only)',
+        icon: 'lock-closed-outline',
+        onPress: () => {
+          setCustomOptionsVisible(false);
+          handleUpdateSetting('routeVisibility', 'private');
+        }
+      }
+    ];
+
+    setCustomOptionsConfig({
+      title: 'Route Visibility',
+      message: 'Control who can view your completed traveling routes',
+      options
+    });
+    setCustomOptionsVisible(true);
+  };
+
   // Screen Load Performance: Memoize loading state
   const isLoading = useMemo(() => settingsLoading || !settings, [settingsLoading, settings]);
 
@@ -355,6 +391,36 @@ export default function PrivacySettingsScreen() {
               thumbColor="#FFFFFF"
             />
           </View>
+
+          <TouchableOpacity 
+            style={styles.settingItem}
+            onPress={handleRouteVisibilityChange}
+            disabled={updatingKeysRef.current.has('routeVisibility')}
+          >
+            <View style={styles.settingContent}>
+              <Ionicons name="map-outline" size={20} color={theme.colors.text} />
+              <View style={styles.settingText}>
+                <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
+                  Route Visibility
+                </Text>
+                <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}>
+                  Control who can see your travel routes
+                </Text>
+              </View>
+            </View>
+            <View style={styles.settingRight}>
+              <Text style={[styles.settingValue, { color: theme.colors.textSecondary }]}>
+                {(() => {
+                  const visibility = settings?.privacy?.routeVisibility;
+                  if (visibility === 'everyone') return 'Everyone';
+                  if (visibility === 'approved_only') return 'Approved Only';
+                  if (visibility === 'private') return 'Private (Owner Only)';
+                  return 'Everyone';
+                })()}
+              </Text>
+              <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+            </View>
+          </TouchableOpacity>
 
         </View>
 
@@ -478,10 +544,10 @@ export default function PrivacySettingsScreen() {
           )}
         </View>
 
-        {/* Follow Requests */}
+        {/* Requests & Approvals */}
         <View style={[styles.section, { backgroundColor: theme.colors.surface }]}>
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
-            Follow Requests
+            Requests & Approvals
           </Text>
 
           <TouchableOpacity 
@@ -498,6 +564,26 @@ export default function PrivacySettingsScreen() {
                 </Text>
                 <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}>
                   View and manage pending follow requests
+                </Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.settingItem}
+            onPress={() => {
+              router.push('/settings/route-access-requests');
+            }}
+          >
+            <View style={styles.settingContent}>
+              <Ionicons name="git-pull-request-outline" size={20} color={theme.colors.text} />
+              <View style={styles.settingText}>
+                <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
+                  Manage Route Access Requests
+                </Text>
+                <Text style={[styles.settingDescription, { color: theme.colors.textSecondary }]}>
+                  Approve or decline requests to view your routes
                 </Text>
               </View>
             </View>

@@ -15,7 +15,7 @@ export interface PostType {
   cloudinaryPublicIds?: string[]; // Multiple public IDs
   tags?: string[];
   type?: 'photo' | 'short';
-  aspectRatio?: '1:1' | '16:9' | 'full';
+  aspectRatio?: '1:1' | '16:9' | 'full' | '1.91:1';
   filter?: 'original' | 'vivid' | 'warm' | 'cool' | 'bw';
   location?: {
     address: string;

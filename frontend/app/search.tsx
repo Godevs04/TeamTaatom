@@ -427,78 +427,7 @@ export default function SearchScreen() {
         </View>
       </View>
 
-      {/* Tab Navigation */}
-      <View style={[styles.tabContainer, { borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity
-          style={[
-            styles.tab,
-            activeTab === 'users' && { borderBottomColor: theme.colors.primary }
-          ]}
-          onPress={() => setActiveTab('users')}
-        >
-          <Text style={[
-            styles.tabText,
-            { color: activeTab === 'users' ? theme.colors.primary : theme.colors.textSecondary }
-          ]}>
-            Users
-          </Text>
-        </TouchableOpacity>
-        {/* Posts tab - commented out, can be re-enabled later */}
-        {/* <TouchableOpacity
-          style={[
-            styles.tab,
-            activeTab === 'posts' && { borderBottomColor: theme.colors.primary }
-          ]}
-          onPress={() => setActiveTab('posts')}
-        >
-          <Text style={[
-            styles.tabText,
-            { color: activeTab === 'posts' ? theme.colors.primary : theme.colors.textSecondary }
-          ]}>
-            Posts
-          </Text>
-        </TouchableOpacity> */}
-        {/* Hashtags tab - commented out, can be re-enabled later */}
-        {/* <TouchableOpacity
-          style={[
-            styles.tab,
-            activeTab === 'hashtags' && { borderBottomColor: theme.colors.primary }
-          ]}
-          onPress={() => setActiveTab('hashtags')}
-        >
-          <Text style={[
-            styles.tabText,
-            { color: activeTab === 'hashtags' ? theme.colors.primary : theme.colors.textSecondary }
-          ]}>
-            Hashtags
-          </Text>
-        </TouchableOpacity> */}
-        {/* Advanced filters button - commented out (only used for posts) */}
-        {/* {activeTab === 'posts' && (
-          <TouchableOpacity
-            style={[
-              styles.filterButton,
-              (advancedFilters.hashtag || advancedFilters.location || advancedFilters.startDate || advancedFilters.endDate || advancedFilters.type) && {
-                backgroundColor: theme.colors.primary + '20',
-              }
-            ]}
-            onPress={() => setShowAdvancedFilters(true)}
-          >
-            <Ionicons 
-              name="options-outline" 
-              size={20} 
-              color={
-                (advancedFilters.hashtag || advancedFilters.location || advancedFilters.startDate || advancedFilters.endDate || advancedFilters.type)
-                  ? theme.colors.primary
-                  : theme.colors.textSecondary
-              } 
-            />
-            {(advancedFilters.hashtag || advancedFilters.location || advancedFilters.startDate || advancedFilters.endDate || advancedFilters.type) && (
-              <View style={[styles.filterBadge, { backgroundColor: theme.colors.primary }]} />
-            )}
-          </TouchableOpacity>
-        )} */}
-      </View>
+
 
       {/* Search History or Results */}
       {loading ? (

@@ -27,10 +27,10 @@ interface OptionsState {
 
 interface AlertContextType {
   showAlert: (title: string, message: string) => void;
-  showSuccess: (message: string, title?: string) => void;
-  showError: (message: string, title?: string) => void;
-  showWarning: (message: string, title?: string) => void;
-  showInfo: (message: string, title?: string) => void;
+  showSuccess: (message: string, title?: string, onConfirm?: () => void) => void;
+  showError: (message: string, title?: string, onConfirm?: () => void) => void;
+  showWarning: (message: string, title?: string, onConfirm?: () => void) => void;
+  showInfo: (message: string, title?: string, onConfirm?: () => void) => void;
   showConfirm: (
     message: string,
     onConfirm: () => void,
@@ -115,25 +115,45 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     showAlert: (title: string, message: string) => {
       showAlert({ title, message, type: 'info' });
     },
-    showSuccess: (message: string, title?: string) => {
+    showSuccess: (message: string, title?: string, onConfirm?: () => void) => {
       // Success messages are typically user-friendly, but sanitize just in case
       const sanitizedMessage = sanitizeErrorMessage(message, 'AlertContext.showSuccess');
-      showAlert({ title: title || 'Success', message: sanitizedMessage, type: 'success' });
+      showAlert({
+        title: title || 'Success',
+        message: sanitizedMessage,
+        type: 'success',
+        onConfirm: onConfirm ? () => { onConfirm(); hideAlert(); } : hideAlert,
+      });
     },
-    showError: (message: string, title?: string) => {
+    showError: (message: string, title?: string, onConfirm?: () => void) => {
       // Sanitize error messages to hide technical details in production
       const sanitizedMessage = sanitizeErrorForDisplay(message, 'AlertContext.showError');
-      showAlert({ title: title || 'Error', message: sanitizedMessage, type: 'error' });
+      showAlert({
+        title: title || 'Error',
+        message: sanitizedMessage,
+        type: 'error',
+        onConfirm: onConfirm ? () => { onConfirm(); hideAlert(); } : hideAlert,
+      });
     },
-    showWarning: (message: string, title?: string) => {
+    showWarning: (message: string, title?: string, onConfirm?: () => void) => {
       // Warning messages are typically user-friendly, but sanitize just in case
       const sanitizedMessage = sanitizeErrorMessage(message, 'AlertContext.showWarning');
-      showAlert({ title: title || 'Warning', message: sanitizedMessage, type: 'warning' });
+      showAlert({
+        title: title || 'Warning',
+        message: sanitizedMessage,
+        type: 'warning',
+        onConfirm: onConfirm ? () => { onConfirm(); hideAlert(); } : hideAlert,
+      });
     },
-    showInfo: (message: string, title?: string) => {
+    showInfo: (message: string, title?: string, onConfirm?: () => void) => {
       // Info messages are typically user-friendly, but sanitize just in case
       const sanitizedMessage = sanitizeErrorMessage(message, 'AlertContext.showInfo');
-      showAlert({ title: title || 'Info', message: sanitizedMessage, type: 'info' });
+      showAlert({
+        title: title || 'Info',
+        message: sanitizedMessage,
+        type: 'info',
+        onConfirm: onConfirm ? () => { onConfirm(); hideAlert(); } : hideAlert,
+      });
     },
     showConfirm: (
       message: string,

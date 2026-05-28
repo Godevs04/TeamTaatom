@@ -82,17 +82,7 @@ export default function PostCaption({ post }: PostCaptionProps) {
         </TouchableOpacity>
       )}
       
-      {/* Multiple images hint */}
-      {post.images && post.images.length > 1 && (
-        <View style={[styles.multipleImagesHint, { backgroundColor: theme.colors.background + '60' }]}>
-          <View style={[styles.hintIconContainer, { backgroundColor: theme.colors.primary + '15' }]}>
-            <Ionicons name="swap-horizontal" size={12} color={theme.colors.primary} />
-          </View>
-          <Text style={[styles.hintText, { color: theme.colors.textPassive }]}>
-            Swipe to see {post.images.length} photos
-          </Text>
-        </View>
-      )}
+
     </View>
   );
 }

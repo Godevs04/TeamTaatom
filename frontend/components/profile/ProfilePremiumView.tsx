@@ -107,21 +107,28 @@ export default function ProfilePremiumView({
         {/* Phase 2: Top Row (Avatar & Telemetry Stats) */}
         <View style={styles.topRow}>
           {/* Left Column (Avatar) */}
-          <View style={[
-            styles.avatarContainer,
-            {
-              backgroundColor: isDark ? '#080F19' : '#F0F5FA',
-            }
-          ]}>
-            <Image
-              source={
-                profilePic
-                  ? { uri: optimizeCloudinaryUrl(profilePic, { width: 150, height: 150 }) }
-                  : require('../../assets/avatars/male_avatar.png')
+          <LinearGradient
+            colors={['#1C73B4', '#50C878']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.avatarGradientWrapper}
+          >
+            <View style={[
+              styles.avatarContainer,
+              {
+                backgroundColor: isDark ? '#080F19' : '#F0F5FA',
               }
-              style={styles.avatarImage as ImageStyle}
-            />
-          </View>
+            ]}>
+              <Image
+                source={
+                  profilePic
+                    ? { uri: optimizeCloudinaryUrl(profilePic, { width: 150, height: 150 }) }
+                    : require('../../assets/avatars/male_avatar.png')
+                }
+                style={styles.avatarImage as ImageStyle}
+              />
+            </View>
+          </LinearGradient>
 
           {/* Right Column (Telemetry Stats) */}
           <View style={styles.statsContainer}>
@@ -177,9 +184,7 @@ export default function ProfilePremiumView({
             </>
           )}
           {bio ? (
-            <Text style={[styles.bioText, { color: textSecondary, fontSize: 15, fontWeight: '400', marginTop: 8 }]}>
-              {bio}
-            </Text>
+            <BioDisplay bio={bio} maxLines={3} fontSize={15} leftAlign={true} />
           ) : null}
         </View>
 
@@ -202,7 +207,7 @@ export default function ProfilePremiumView({
       </View>
 
       {/* Standalone Connect Button directly below the globe */}
-      <View style={{ alignItems: 'center', marginBottom: 24, marginTop: -10 }}>
+      <View style={{ alignItems: 'center', marginBottom: 24, marginTop: 15 }}>
         <Pressable
           style={({ pressed }) => [
             styles.connectButtonPill,
@@ -282,12 +287,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: '100%',
   },
+  avatarGradientWrapper: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    padding: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   avatarContainer: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    borderWidth: 2,
-    borderColor: '#1C73B4',
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     overflow: 'hidden',
     shadowOpacity: 0,
     elevation: 0,
@@ -295,7 +306,7 @@ const styles = StyleSheet.create({
   avatarImage: {
     width: '100%',
     height: '100%',
-    borderRadius: 36,
+    borderRadius: 35,
   },
   statsContainer: {
     flex: 1,
@@ -367,10 +378,10 @@ const styles = StyleSheet.create({
   globeWrapper: {
     position: 'relative',
     width: '100%',
-    height: 200,
+    height: 160,
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 4,
+    marginVertical: 0,
   },
   globeContainer: {
     width: 160,

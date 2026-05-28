@@ -33,13 +33,14 @@ export const midnightGlassMapStyle = [
 
 export const calmMorningMapStyle = [
   // Soft light oceans
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#D4E4F7' }] },
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#7EAADB' }] },
   { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#4A7BB0' }] },
   { featureType: 'water', elementType: 'labels.text.stroke', stylers: [{ color: '#F8FAFC' }, { weight: 2 }] },
 
   // Landmasses - clean light gray/white
   { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#F1F5F9' }] },
-  { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#F8FAFC' }] },
+  { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#D2F1D2' }] },
+  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#A3D9A5' }] },
 
   // Country Borders - minimal and clean
   { featureType: 'administrative.country', elementType: 'geometry.stroke', stylers: [{ color: '#E2E8F0' }, { weight: 0.8 }] },

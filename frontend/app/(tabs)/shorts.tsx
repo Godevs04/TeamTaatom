@@ -23,6 +23,7 @@ import { Video, ResizeMode, AVPlaybackStatus, Audio } from 'expo-av';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import MaskedView from '@react-native-masked-view/masked-view';
 import { useTheme } from '../../context/ThemeContext';
 import { getShorts, getUserShorts, toggleLike, addComment, getPostById, deleteShort } from '../../services/posts';
 import { toggleFollow } from '../../services/profile';
@@ -75,7 +76,7 @@ const logger = createLogger('ShortsScreen');
 
 // Tab bar height from (tabs)/_layout - content must sit above it
 const TAB_BAR_HEIGHT = isWeb ? 70 : 88;
-const SHORTS_ITEM_HEIGHT = SCREEN_HEIGHT - TAB_BAR_HEIGHT;
+const SHORTS_ITEM_HEIGHT = SCREEN_HEIGHT;
 
 const LIKED_SHORTS_STORAGE_KEY = 'taatom_shorts_liked_ids';
 
@@ -208,6 +209,24 @@ interface LocalShortsActionRailProps {
   isScopedView?: boolean;
 }
 
+function GradientIcon({ name, size }: { name: any; size: number }) {
+  return (
+    <MaskedView
+      style={{ width: size, height: size }}
+      maskElement={
+        <Ionicons name={name} size={size} color="#000000" />
+      }
+    >
+      <LinearGradient
+        colors={['#1C73B4', '#50C878']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={{ flex: 1 }}
+      />
+    </MaskedView>
+  );
+}
+
 const LocalShortsActionRail = React.memo(({
   shortId,
   short,
@@ -230,6 +249,7 @@ const LocalShortsActionRail = React.memo(({
 }: LocalShortsActionRailProps) => {
   const [localIsLiked, setLocalIsLiked] = useState(initialIsLiked);
   const [localLikesCount, setLocalLikesCount] = useState(initialLikesCount);
+  const { showOptions, showSuccess } = useAlert();
 
   useEffect(() => {
     setLocalIsLiked(initialIsLiked);
@@ -273,13 +293,35 @@ const LocalShortsActionRail = React.memo(({
     onCommentPress(shortId);
   }, [onCommentPress, shortId]);
 
-  const handleSavePressLocal = useCallback(() => {
-    onSavePress(shortId);
-  }, [onSavePress, shortId]);
-
   const handleSharePressLocal = useCallback(() => {
     onSharePress(short);
   }, [onSharePress, short]);
+
+  const handleOptionsPress = useCallback(() => {
+    showOptions(
+      'Reel Options',
+      [
+        {
+          text: isSaved ? 'Remove from Saved' : 'Save Reel',
+          onPress: () => onSavePress(shortId),
+        },
+        {
+          text: 'Share Reel',
+          onPress: handleSharePressLocal,
+        },
+        {
+          text: 'Report Reel',
+          onPress: () => {
+            showSuccess('Thank you for reporting. We will review this content shortly.', 'Report Submitted');
+          },
+          style: 'destructive',
+        },
+      ],
+      undefined,
+      true,
+      'Cancel'
+    );
+  }, [showOptions, showSuccess, isSaved, shortId, onSavePress, handleSharePressLocal]);
 
   const profileSource = useMemo(
     () => profilePic ? { uri: profilePic } : require('../../assets/avatars/male_avatar.png'),
@@ -287,90 +329,106 @@ const LocalShortsActionRail = React.memo(({
   );
 
   return (
-    <View style={[styles.rightActions, isScopedView && { bottom: Platform.OS === 'ios' ? 20 : 16 }]} pointerEvents="box-none">
-      <TouchableOpacity
-        style={styles.profileButton}
-        onPress={handleProfilePressLocal}
-        accessibilityLabel={`View ${username || 'user'}'s profile`}
-        accessibilityRole="button"
-      >
-        <ExpoImage
-          source={profileSource}
-          style={styles.profileImage as ImageStyle}
-          cachePolicy="memory-disk"
-          placeholder={require('../../assets/avatars/male_avatar.png')}
-          contentFit="cover"
-          transition={200}
-          onError={(e: any) => logger.warn('[shorts profile avatar] load failed', {
-            userId,
-            url: profilePic?.substring(0, 120),
-            error: e?.error || e?.nativeEvent?.error || String(e),
-          })}
-        />
-        {currentUserLoaded && !isOwn && (
-          <View style={[styles.followButton, isFollowing && styles.followingButton]}>
-            <Ionicons
-              name={isFollowing ? "checkmark" : "add"}
-              size={12}
-              color="white"
-            />
+    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+      {/* Vertical actions rail (moved higher, containing Profile, Like, Comment, Share) */}
+      <View style={[styles.rightActions, isScopedView && { bottom: Platform.OS === 'ios' ? 94 : 88 }]} pointerEvents="box-none">
+        <TouchableOpacity
+          style={styles.profileButton}
+          onPress={handleProfilePressLocal}
+          activeOpacity={0.8}
+          accessibilityLabel={`View ${username || 'user'}'s profile`}
+          accessibilityRole="button"
+        >
+          <View style={styles.actionsAvatarContainer}>
+            <LinearGradient
+              colors={['#1C73B4', '#50C878']}
+              style={styles.actionsGradientBorder}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            >
+              <ExpoImage
+                source={profileSource}
+                style={styles.actionsProfileImage as ImageStyle}
+                cachePolicy="memory-disk"
+                placeholder={require('../../assets/avatars/male_avatar.png')}
+                contentFit="cover"
+                transition={200}
+                onError={(e: any) => logger.warn('[shorts profile avatar] load failed', {
+                  userId,
+                  url: profilePic?.substring(0, 120),
+                  error: e?.error || e?.nativeEvent?.error || String(e),
+                })}
+              />
+            </LinearGradient>
+            {currentUserLoaded && !isOwn && (
+              <View style={[styles.followButton, isFollowing && styles.followingButton]}>
+                <Ionicons
+                  name={isFollowing ? "checkmark" : "add"}
+                  size={12}
+                  color="white"
+                />
+              </View>
+            )}
           </View>
-        )}
-      </TouchableOpacity>
+        </TouchableOpacity>
 
-      <Pressable
-        style={styles.actionButton}
-        onPress={handleLikePressLocal}
-        accessibilityLabel={localIsLiked ? `Unlike, ${localLikesCount} likes` : `Like, ${localLikesCount} likes`}
-        accessibilityRole="button"
-      >
-        <View style={[styles.actionIconContainer, localIsLiked && styles.likedContainer]}>
-          <Ionicons
-            name={localIsLiked ? "heart" : "heart-outline"}
-            size={28}
-            color={localIsLiked ? "#FF3040" : "white"}
-          />
-        </View>
-        <Text style={styles.actionText}>{localLikesCount}</Text>
-      </Pressable>
+        <Pressable
+          style={styles.actionButton}
+          onPress={handleLikePressLocal}
+          accessibilityLabel={localIsLiked ? `Unlike, ${localLikesCount} likes` : `Like, ${localLikesCount} likes`}
+          accessibilityRole="button"
+        >
+          <View style={[styles.actionIconContainer, localIsLiked && styles.likedContainer]}>
+            {localIsLiked ? (
+              <GradientIcon name="heart" size={28} />
+            ) : (
+              <Ionicons
+                name="heart-outline"
+                size={28}
+                color="white"
+              />
+            )}
+          </View>
+          <Text style={styles.actionText}>{localLikesCount}</Text>
+        </Pressable>
 
-      <Pressable
-        style={styles.actionButton}
-        onPress={handleCommentPressLocal}
-        accessibilityLabel={`Comment, ${commentsCount || 0} comments`}
-        accessibilityRole="button"
-      >
-        <View style={styles.actionIconContainer}>
-          <Ionicons name="chatbubble-outline" size={28} color="white" />
-        </View>
-        <Text style={styles.actionText}>{commentsCount || 0}</Text>
-      </Pressable>
+        <Pressable
+          style={styles.actionButton}
+          onPress={handleCommentPressLocal}
+          accessibilityLabel={`Comment, ${commentsCount || 0} comments`}
+          accessibilityRole="button"
+        >
+          <View style={styles.actionIconContainer}>
+            <GradientIcon name="chatbubble-outline" size={28} />
+          </View>
+          <Text style={styles.actionText}>{commentsCount || 0}</Text>
+        </Pressable>
 
-      <Pressable
-        style={styles.actionButton}
-        onPress={handleSharePressLocal}
-        accessibilityLabel="Share"
-        accessibilityRole="button"
-      >
-        <View style={styles.actionIconContainer}>
-          <Ionicons name="paper-plane-outline" size={28} color="white" />
-        </View>
-      </Pressable>
+        <Pressable
+          style={styles.actionButton}
+          onPress={handleSharePressLocal}
+          accessibilityLabel="Share"
+          accessibilityRole="button"
+        >
+          <View style={styles.actionIconContainer}>
+            <GradientIcon name="paper-plane-outline" size={28} />
+          </View>
+        </Pressable>
+      </View>
 
-      <Pressable
-        style={styles.actionButton}
-        onPress={handleSavePressLocal}
-        accessibilityLabel={isSaved ? 'Remove from saved' : 'Save'}
-        accessibilityRole="button"
-      >
-        <View style={styles.actionIconContainer}>
-          <Ionicons
-            name={isSaved ? "bookmark" : "bookmark-outline"}
-            size={28}
-            color={isSaved ? "#FFD700" : "white"}
-          />
-        </View>
-      </Pressable>
+      {/* Options Button (Three dots - placed next to the username row at the bottom) */}
+      <View style={[styles.optionsActionContainer, isScopedView && { bottom: Platform.OS === 'ios' ? 20 : 16 }]} pointerEvents="box-none">
+        <Pressable
+          style={styles.actionButton}
+          onPress={handleOptionsPress}
+          accessibilityLabel="More options"
+          accessibilityRole="button"
+        >
+          <View style={styles.actionIconContainer}>
+            <GradientIcon name="ellipsis-horizontal" size={28} />
+          </View>
+        </Pressable>
+      </View>
     </View>
   );
 });
@@ -409,14 +467,50 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [expandedCaptions, setExpandedCaptions] = useState<{ [key: string]: boolean }>({});
 
   useEffect(() => {
-    const unsubscribe = realtimePostsService.subscribeToViews(({ postId, viewsCount }) => {
+    const unsubscribeViews = realtimePostsService.subscribeToViews(({ postId, viewsCount }) => {
       setShorts(prev => prev.map(short => (
         short._id === postId
           ? { ...short, viewsCount, views: viewsCount } as any
           : short
       )));
     });
-    return unsubscribe;
+
+    const unsubscribeLikes = realtimePostsService.subscribeToLikes(({ postId, isLiked, likesCount }) => {
+      // Find if we have the short in the state array
+      const currentShort = shortsRef.current.find(s => s && s._id === postId);
+      if (currentShort) {
+        // Prevent processing if it's already in the same state
+        const currentIsLiked = likedShortIdsRef.current.has(postId);
+        if (currentIsLiked === isLiked && currentShort.likesCount === likesCount) {
+          return;
+        }
+
+        // Sync with local liked ids Set
+        const finalSet = new Set(likedShortIdsRef.current);
+        if (isLiked) {
+          finalSet.add(postId);
+        } else {
+          finalSet.delete(postId);
+        }
+        likedShortIdsRef.current = finalSet;
+        AsyncStorage.setItem(LIKED_SHORTS_STORAGE_KEY, JSON.stringify([...finalSet])).catch(() => {});
+
+        // Emit changes to ActionRail
+        emitLikeRailState(postId, isLiked);
+
+        // Update state array
+        setShorts(prev => prev.map(short => (
+          short._id === postId
+            ? { ...short, isLiked, likesCount } as any
+            : short
+        )));
+      }
+    });
+
+    return () => {
+      unsubscribeViews();
+      unsubscribeLikes();
+    };
   }, []);
 
   // Per-short source-URL "version". Bumped when onError refetches a fresh
@@ -454,6 +548,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // single failure stops further ad insertion until next app launch (per
   // CLAUDE.md "stability first" — better to lose ads than show black slots).
   const [shortsAdsBroken, setShortsAdsBroken] = useState(false);
+  const [failedAdIndices, setFailedAdIndices] = useState<number[]>([]);
   const consecutiveAdFailuresRef = useRef(0);
 
   const flatListRef = useRef<FlatList>(null);
@@ -594,7 +689,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const video = videoRefs.current[activeId];
     if (!video) return;
     const activeItem = shortsRef.current?.find((it: any) => it && !isAdItem(it) && it._id === activeId) as PostType | undefined;
-    if (!activeItem || !activeItem.song?.songId?._id) return;
+    if (!activeItem || !(activeItem.song?.songId?._id || activeItem.song?.songId)) return;
     const startSec = activeItem.song?.startTime || 0;
     const endSec = activeItem.song?.endTime;
     const segmentMs = endSec && endSec > startSec ? (endSec - startSec) * 1000 : 60000;
@@ -1549,7 +1644,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       
       // Find the current short to check for music
       const currentShort = shorts.find(s => s._id === videoId);
-      const hasMusic = !!(currentShort?.song?.songId?._id);
+       const hasMusic = !!(currentShort?.song?.songId?._id || currentShort?.song?.songId);
 
       // If starting playback, pause all other videos first
       if (newPlayState) {
@@ -2175,11 +2270,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     shorts.forEach((reel, i) => {
       result.push(reel);
       if (adCount < maxSlots && (i + 1) % SHORTS_ADS_AFTER_EVERY === 0 && i < shorts.length - 1) {
-        result.push({ type: 'ad', adIndex: adCount++ });
+        const currentAdIndex = adCount++;
+        if (!failedAdIndices.includes(currentAdIndex)) {
+          result.push({ type: 'ad', adIndex: currentAdIndex });
+        }
       }
     });
     return result;
-  }, [shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots]);
+  }, [shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots, failedAdIndices]);
 
   // Deep link: scroll to specific short when effectiveShortId is set (URL or props). dataIndex accounts for ad slots when showShortsAds.
   useEffect(() => {
@@ -2248,7 +2346,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       activeVideoIdRef.current = currentShortId;
       currentVideo.getStatusAsync().then((status) => {
         if (status.isLoaded) {
-          const hasMusic = !!((visibleItem as PostType)?.song?.songId?._id);
+          const hasMusic = !!((visibleItem as PostType)?.song?.songId?._id || (visibleItem as PostType)?.song?.songId);
           if (hasMusic) {
             currentVideo.setIsMutedAsync(true).catch(() => {});
             currentVideo.setVolumeAsync(0.0).catch(() => {});
@@ -2272,7 +2370,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         }
       }).catch((error) => {
         logger.error(`Failed to get status for video ${currentShortId}:`, error);
-        const hasMusic = !!((visibleItem as PostType)?.song?.songId?._id);
+        const hasMusic = !!((visibleItem as PostType)?.song?.songId?._id || (visibleItem as PostType)?.song?.songId);
         currentVideo.setIsMutedAsync(hasMusic).catch(() => {});
         currentVideo.setVolumeAsync(hasMusic ? 0.0 : 1.0).catch(() => {});
         currentVideo.playAsync().catch(() => {});
@@ -2380,12 +2478,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             }}
             onLoadFailed={() => {
               consecutiveAdFailuresRef.current += 1;
+              setFailedAdIndices(prev => {
+                if (prev.includes(item.adIndex)) return prev;
+                return [...prev, item.adIndex];
+              });
               if (__DEV__) {
                 console.warn(
-                  `[AdMob] [DEV] Shorts ad slot failed to load (consecutive failures: ${consecutiveAdFailuresRef.current}). ` +
-                  `Bypassing circuit breaker in development to allow retries.`
+                  `[AdMob] [DEV] Shorts ad slot failed to load (consecutive failures: ${consecutiveAdFailuresRef.current}).`
                 );
-                return;
               }
               if (consecutiveAdFailuresRef.current >= 3) {
                 logger.warn(`[AdMob] 3 consecutive ad load failures. Wiping ad slots for session.`);
@@ -2529,35 +2629,35 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 shouldPlay={index === currentVisibleIndex && isVideoPlaying}
                 isLooping
                 progressUpdateIntervalMillis={100}
-                isMuted={index !== currentVisibleIndex || !!(item.song?.songId?._id)}
-                volume={(() => {
-                  const hasMusic = !!(item.song?.songId?._id);
-                  return hasMusic ? 0.0 : 1.0;
-                })()}
-                onLoadStart={() => {
-                  logger.debug(`Video ${item._id} load started, index: ${index}, currentVisible: ${currentVisibleIndex}`);
-                  if (index < 2) {
-                    logger.info(`[RENDER_VIDEO] onLoadStart for short at index ${index}:`, {
-                      shortId: item._id,
-                      timestamp: new Date().toISOString()
-                    });
-                  }
-                  if (index === currentVisibleIndex) {
-                    const video = videoRefs.current[item._id];
-                    if (video) {
-                      // If music exists (by songId), ensure video is muted so only SongPlayer audio plays
-                      const hasMusic = !!(item.song?.songId?._id);
-                      if (hasMusic) {
-                        video.setIsMutedAsync(true).catch(() => {
-                          // Silently handle mute errors
-                        });
-                        video.setVolumeAsync(0.0).catch(() => {
-                          // Silently handle volume errors
-                        });
-                      }
-                    }
-                  }
-                }}
+                 isMuted={index !== currentVisibleIndex || !!(item.song?.songId?._id || item.song?.songId)}
+                 volume={(() => {
+                   const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
+                   return hasMusic ? 0.0 : 1.0;
+                 })()}
+                 onLoadStart={() => {
+                   logger.debug(`Video ${item._id} load started, index: ${index}, currentVisible: ${currentVisibleIndex}`);
+                   if (index < 2) {
+                     logger.info(`[RENDER_VIDEO] onLoadStart for short at index ${index}:`, {
+                       shortId: item._id,
+                       timestamp: new Date().toISOString()
+                     });
+                   }
+                   if (index === currentVisibleIndex) {
+                     const video = videoRefs.current[item._id];
+                     if (video) {
+                       // If music exists (by songId), ensure video is muted so only SongPlayer audio plays
+                       const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
+                       if (hasMusic) {
+                         video.setIsMutedAsync(true).catch(() => {
+                           // Silently handle mute errors
+                         });
+                         video.setVolumeAsync(0.0).catch(() => {
+                           // Silently handle volume errors
+                         });
+                       }
+                     }
+                   }
+                 }}
                 onReadyForDisplay={() => {
                   logger.debug(`Video ${item._id} ready for display`);
                 }}
@@ -2621,7 +2721,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     const isNowPlaying = status.isPlaying;
                     
                     // CRITICAL: If music exists, ensure video stays muted
-                    const hasMusic = !!(item.song?.songId?._id);
+                    const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
                     if (hasMusic && index === currentVisibleIndex) {
                       const video = videoRefs.current[item._id];
                       if (video && !status.isMuted) {
@@ -2664,7 +2764,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                       const curPos = status.positionMillis;
                       // A backwards jump of >500ms while playing = the video looped
                       if (lastPos > 500 && curPos < lastPos - 500) {
-                        const hasMusic = !!(item.song?.songId?._id);
+                        const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
                         if (hasMusic && currentPlayerRef.current) {
                           const startSec = item.song?.startTime || 0;
                           const endSec = item.song?.endTime;
@@ -2719,7 +2819,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                         video.getStatusAsync().then((currentStatus) => {
                           if (currentStatus.isLoaded) {
                             // If music exists (by songId), ensure video is muted
-                            const hasMusic = !!(item.song?.songId?._id);
+                            const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
                             if (hasMusic) {
                               video.setIsMutedAsync(true).catch(() => {});
                               video.setVolumeAsync(0.0).catch(() => {});
@@ -2949,9 +3049,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     );
                   })()}
                   
-                  {item.caption && (() => {
+                  {item.caption ? (() => {
                     const isExpanded = !!expandedCaptions[item._id];
                     const canExpand = item.caption.length > 80;
+                    const showTags = !canExpand || isExpanded;
                     return (
                       <TouchableOpacity 
                         activeOpacity={0.9}
@@ -2975,18 +3076,40 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                             <Text style={styles.moreText}>  less</Text>
                           )}
                         </Text>
+                        
+                        {showTags && item.tags && item.tags.length > 0 && (
+                          <View style={styles.tagsContainer}>
+                            {item.tags.slice(0, 3).map((tag, tagIndex) => (
+                              <LinearGradient
+                                key={tagIndex}
+                                colors={['#1C73B4', '#50C878']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 0 }}
+                                style={styles.tagBadgeGradient}
+                              >
+                                <Text style={styles.tagTextGradient}>#{tag}</Text>
+                              </LinearGradient>
+                            ))}
+                          </View>
+                        )}
                       </TouchableOpacity>
                     );
-                  })()}
-                  
-                  {item.tags && item.tags.length > 0 && (
-                    <View style={styles.tagsContainer}>
-                      {item.tags.slice(0, 3).map((tag, tagIndex) => (
-                        <View key={tagIndex} style={styles.tagBadge}>
-                          <Text style={styles.tag}>#{tag}</Text>
-                        </View>
-                      ))}
-                    </View>
+                  })() : (
+                    item.tags && item.tags.length > 0 && (
+                      <View style={styles.tagsContainer}>
+                        {item.tags.slice(0, 3).map((tag, tagIndex) => (
+                          <LinearGradient
+                            key={tagIndex}
+                            colors={['#1C73B4', '#50C878']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 0 }}
+                            style={styles.tagBadgeGradient}
+                          >
+                            <Text style={styles.tagTextGradient}>#{tag}</Text>
+                          </LinearGradient>
+                        ))}
+                      </View>
+                    )
                   )}
                 </View>
               </TouchableOpacity>
@@ -2995,7 +3118,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               {/* CRITICAL: Only render SongPlayer if song exists with valid s3Url */}
               {/* Render SongPlayer whenever a populated song object exists — even if the URL is missing.
                  SongPlayer will fetch a fresh URL via getSongById if s3Url/cloudinaryUrl are null. */}
-              {!!(item.song?.songId && item.song.songId._id) && (
+              {!!(item.song?.songId && (item.song.songId._id || typeof item.song.songId === 'string')) && (
                   <View style={styles.hiddenSongPlayer} pointerEvents="none">
                     <SongPlayer
                       post={item}
@@ -3096,24 +3219,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     minimumViewTime: 50, // Reduced from 100ms — faster visibility detection after snap
   }).current;
 
-  if (loading) {
-    return (
-      <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-        <View style={styles.loadingContainer}>
-          <View style={styles.loadingContent}>
-            <LoadingGlobe size="large" color="#FF3040" style={styles.loadingSpinner} />
-            <Text style={styles.loadingTitle}>Loading Shorts</Text>
-            <Text style={styles.loadingSubtitle}>
-              {effectiveUserId ? 'Loading this user’s shorts…' : 'Discover amazing content'}
-            </Text>
-          </View>
-        </View>
-      </View>
-    );
-  }
-
-  if (shorts.length === 0) {
+  if (!loading && shorts.length === 0) {
     return (
       <View style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
@@ -3166,7 +3272,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       {/* Premium Top Bar Overlay */}
       {(() => {
         const currentShort = shorts[currentVisibleIndex] as PostType | undefined;
-        const hasSong = !!(currentShort?.song?.songId && currentShort.song.songId._id);
+        const hasSong = !!(currentShort?.song?.songId && (currentShort.song.songId._id || typeof currentShort.song.songId === 'string'));
         const isMuted = currentShort ? mutedShorts.has(currentShort._id) : false;
         
         return (
@@ -3520,8 +3626,13 @@ const styles = StyleSheet.create({
   rightActions: {
     position: 'absolute',
     right: isTablet ? theme.spacing.lg : 12,
-    // SHORTS_ITEM_HEIGHT already excludes TAB_BAR_HEIGHT, so position
-    // relative to the content area bottom, not the screen bottom
+    bottom: Platform.OS === 'ios' ? (isWeb ? 90 : 170) : (isWeb ? 80 : 160),
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  optionsActionContainer: {
+    position: 'absolute',
+    right: isTablet ? theme.spacing.lg : 12,
     bottom: Platform.OS === 'ios' ? (isWeb ? 16 : 96) : (isWeb ? 12 : 86),
     alignItems: 'center',
     zIndex: 5,
@@ -3529,6 +3640,27 @@ const styles = StyleSheet.create({
   profileButton: {
     marginBottom: isTablet ? theme.spacing.xl : 20,
     position: 'relative',
+  },
+  actionsAvatarContainer: {
+    width: isTablet ? 60 : 50,
+    height: isTablet ? 60 : 50,
+    position: 'relative',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  actionsGradientBorder: {
+    width: isTablet ? 58 : 48,
+    height: isTablet ? 58 : 48,
+    borderRadius: isTablet ? 29 : 24,
+    padding: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  actionsProfileImage: {
+    width: isTablet ? 52 : 42,
+    height: isTablet ? 52 : 42,
+    borderRadius: isTablet ? 26 : 21,
+    backgroundColor: '#333',
   },
   profileImage: {
     width: isTablet ? 60 : 50,
@@ -3560,16 +3692,19 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   actionIconContainer: {
-    width: isTablet ? 60 : 50,
-    height: isTablet ? 60 : 50,
-    borderRadius: isTablet ? 30 : 25,
-    backgroundColor: 'rgba(0,0,0,0.3)',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
     marginBottom: isTablet ? 6 : 4,
   },
   likedContainer: {
-    backgroundColor: 'rgba(255, 48, 64, 0.2)',
+    borderColor: 'rgba(80, 200, 120, 0.25)',
+    backgroundColor: 'rgba(28, 115, 180, 0.08)',
   },
   actionText: {
     color: 'white',
@@ -3705,6 +3840,21 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.6)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
+  },
+  tagBadgeGradient: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: 6,
+    marginBottom: 4,
+  },
+  tagTextGradient: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 1.5,
   },
   songPlayerWrapper: {
     marginTop: 14,

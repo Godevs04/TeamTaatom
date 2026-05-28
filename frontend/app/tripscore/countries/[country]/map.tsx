@@ -553,29 +553,31 @@ export default function CountryMapScreen() {
             });
             
             // Custom OverlayView class
-            function PhotoOverlay(pos, el) {
-              this.position = pos;
-              this.div = el;
-              this.setMap(map);
+            class PhotoOverlay extends google.maps.OverlayView {
+              constructor(pos, el) {
+                super();
+                this.position = pos;
+                this.div = el;
+                this.setMap(map);
+              }
+              onAdd() {
+                this.getPanes().overlayMouseTarget.appendChild(this.div);
+              }
+              draw() {
+                var pt = this.getProjection().fromLatLngToDivPixel(this.position);
+                if (pt) {
+                  this.div.style.left = pt.x + 'px';
+                  this.div.style.top = pt.y + 'px';
+                  this.div.style.position = 'absolute';
+                  this.div.style.transform = 'translate(-50%, -50%)';
+                }
+              }
+              onRemove() {
+                if (this.div && this.div.parentNode) {
+                  this.div.parentNode.removeChild(this.div);
+                }
+              }
             }
-            PhotoOverlay.prototype = new google.maps.OverlayView();
-            PhotoOverlay.prototype.onAdd = function() {
-              this.getPanes().overlayMouseTarget.appendChild(this.div);
-            };
-            PhotoOverlay.prototype.draw = function() {
-              var pt = this.getProjection().fromLatLngToDivPixel(this.position);
-              if (pt) {
-                this.div.style.left = pt.x + 'px';
-                this.div.style.top = pt.y + 'px';
-                this.div.style.position = 'absolute';
-                this.div.style.transform = 'translate(-50%, -50%)';
-              }
-            };
-            PhotoOverlay.prototype.onRemove = function() {
-              if (this.div && this.div.parentNode) {
-                this.div.parentNode.removeChild(this.div);
-              }
-            };
 
             ${markers}
             

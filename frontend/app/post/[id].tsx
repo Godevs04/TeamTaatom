@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { getPostById, toggleLike } from '../../services/posts';
+import { realtimePostsService } from '../../services/realtimePosts';
 import { trackPostView } from '../../services/analytics';
 import PostHeader from '../../components/post/PostHeader';
 import PostActions from '../../components/post/PostActions';
@@ -55,6 +56,28 @@ export default function PostDetail() {
     fetchPost();
   }, [id]);
 
+  // Listen for WebSocket real-time updates for like state
+  useEffect(() => {
+    if (!id) return;
+    const unsubscribe = realtimePostsService.subscribeToLikes(({ postId, isLiked: nextIsLiked, likesCount }) => {
+      if (postId === id) {
+        setIsLiked(nextIsLiked);
+        setPost(prev => {
+          if (!prev) return prev;
+          if (prev.isLiked === nextIsLiked && prev.likesCount === likesCount) {
+            return prev;
+          }
+          return {
+            ...prev,
+            isLiked: nextIsLiked,
+            likesCount
+          };
+        });
+      }
+    });
+    return unsubscribe;
+  }, [id]);
+
   // View tracking: send view event after 2 seconds (2-second rule)
   useEffect(() => {
     if (!post?._id) return;
@@ -98,23 +121,16 @@ export default function PostDetail() {
     }
   }, [post]);
 
-  if (loading) {
+  if (loading || !post) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]}>
-        <View style={styles.loadingContainer}>
-          <LoadingGlobe size="large" color={isDark ? '#fff' : '#000'} />
-        </View>
-      </SafeAreaView>
-    );
-  }
-
-  if (!post) {
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: isDark ? '#000' : '#fff' }]}>
-        <View style={styles.header}>
+        <View style={[styles.header, { borderBottomWidth: 0 }]}>
           <TouchableOpacity onPress={() => router.back()}>
             <Ionicons name="arrow-back" size={24} color={isDark ? '#fff' : '#000'} />
           </TouchableOpacity>
+        </View>
+        <View style={styles.loadingContainer}>
+          <LoadingGlobe size="large" color={isDark ? '#fff' : '#000'} />
         </View>
       </SafeAreaView>
     );

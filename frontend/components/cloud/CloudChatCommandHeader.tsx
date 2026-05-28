@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
+import MaskedView from '@react-native-masked-view/masked-view';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import { cloudDesign } from '../../constants/cloudDesign';
 import CloudSearchDock from './CloudSearchDock';
@@ -47,8 +49,14 @@ export default function CloudChatCommandHeader({
         <BlurView intensity={isDark ? 50 : 28} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
         <View style={styles.topRow}>
           {onBack ? (
-            <TouchableOpacity onPress={onBack} style={styles.iconBtn} hitSlop={10}>
-              <Ionicons name="chevron-back" size={24} color={titleColor} />
+            <TouchableOpacity onPress={onBack} style={[styles.iconBtn, { overflow: 'hidden', borderRadius: 20 }]} hitSlop={10}>
+              <LinearGradient
+                colors={['#1C73B4', '#50C878']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFillObject}
+              />
+              <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
             </TouchableOpacity>
           ) : (
             <View style={styles.iconBtn} />

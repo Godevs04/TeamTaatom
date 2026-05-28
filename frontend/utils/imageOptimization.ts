@@ -140,15 +140,17 @@ export interface UserCropTransform {
  */
 export const processImageToAspect = async (
   imageUri: string,
-  aspect: '1:1' | '16:9' | 'full',
+  aspect: '1:1' | '1.91:1' | '16:9' | 'full',
   transform?: UserCropTransform
 ): Promise<string> => {
   if (aspect === 'full') return imageUri;
 
-  // 16:9 here is portrait (1080 wide × 1920 tall) per product spec.
-  const target = aspect === '1:1'
-    ? { w: 1080, h: 1080 }
-    : { w: 1080, h: 1920 };
+  let target = { w: 1080, h: 1080 };
+  if (aspect === '1.91:1') {
+    target = { w: 1080, h: 566 };
+  } else if (aspect === '16:9') {
+    target = { w: 1080, h: 1920 };
+  }
 
   const src = await ImageManipulator.manipulateAsync(imageUri, [], {
     format: ImageManipulator.SaveFormat.JPEG,

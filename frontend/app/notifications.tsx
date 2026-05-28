@@ -167,7 +167,16 @@ export default function NotificationsScreen() {
   }, [loadNotifications, loadingMore, hasMore, page]);
 
   useEffect(() => {
-    loadNotifications();
+    const init = async () => {
+      await loadNotifications();
+      try {
+        await markAllNotificationsAsRead();
+        setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+      } catch (err) {
+        logger.error('Failed to auto-clear notifications on mount:', err);
+      }
+    };
+    init();
   }, [loadNotifications]);
 
   // Real-time: prepend new notifications as they arrive via socket
@@ -866,7 +875,7 @@ const styles = StyleSheet.create({
   notificationContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: isTablet ? theme.spacing.md : 12,
+    paddingVertical: 8,
     paddingHorizontal: isTablet ? theme.spacing.lg : 16,
   },
   notificationLeft: {
@@ -876,15 +885,15 @@ const styles = StyleSheet.create({
     position: 'relative',
   },
   avatar: {
-    width: isTablet ? 60 : 48,
-    height: isTablet ? 60 : 48,
-    borderRadius: isTablet ? 30 : 24,
+    width: isTablet ? 60 : 40,
+    height: isTablet ? 60 : 40,
+    borderRadius: isTablet ? 30 : 20,
     borderWidth: 2,
   },
   avatarPlaceholder: {
-    width: isTablet ? 60 : 48,
-    height: isTablet ? 60 : 48,
-    borderRadius: isTablet ? 30 : 24,
+    width: isTablet ? 60 : 40,
+    height: isTablet ? 60 : 40,
+    borderRadius: isTablet ? 30 : 20,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,

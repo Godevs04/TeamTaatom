@@ -20,9 +20,9 @@ export const colors = {
 
   // Surfaces (dark)
   background: '#000000',
-  surface: '#000000',
-  surfaceSecondary: 'rgba(0, 0, 0, 0.75)',
-  surfaceTertiary: 'rgba(0, 0, 0, 0.85)',
+  surface: '#0A1220', // Slate Dark Navy
+  surfaceSecondary: 'rgba(255, 255, 255, 0.06)',
+  surfaceTertiary: 'rgba(255, 255, 255, 0.10)',
   glassBorderHighlight: 'rgba(28, 115, 180, 0.15)',
   glassBorderShadow: 'rgba(28, 115, 180, 0.05)',
 
@@ -35,10 +35,10 @@ export const colors = {
 
   // Content
   text: '#FFFFFF',
-  textSecondary: '#38BDF8',
-  textMuted: '#38BDF8',
-  textPassive: '#38BDF8',
-  iconPassive: '#38BDF8',
+  textSecondary: '#8E9AA8', // Slate Gray
+  textMuted: '#6C7A89',
+  textPassive: '#4A5568',
+  iconPassive: '#4A5568',
 
   // Lines / hairlines
   border: 'rgba(28, 115, 180, 0.15)',
@@ -64,8 +64,8 @@ export const colors = {
 
   // Premium glass theme tokens
   screenGradient: ['#000000', '#000000'],
-  glassSurface: 'rgba(0, 0, 0, 0.75)',
-  glassStrong: 'rgba(0, 0, 0, 0.85)',
+  glassSurface: 'rgba(10, 18, 32, 0.75)',
+  glassStrong: 'rgba(10, 18, 32, 0.85)',
   glassBorder: 'rgba(28, 115, 180, 0.15)',
   glowBlue: 'rgba(28, 115, 180, 0.15)',
   innerHighlight: 'rgba(28, 115, 180, 0.15)',

@@ -194,13 +194,13 @@ function AllLocationsMapInner() {
   const insets = useSafeAreaInsets();
   const { theme, mode, isDark } = useTheme();
   const mapStyle = useMapStyle();
-  const { showAlert } = useAlert();
+  const { showAlert, showError, showDestructiveConfirm } = useAlert();
 
   const recenterOnUser = async () => {
     try {
       const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission Denied', 'Location permission is required to center on your location.');
+        showError('Location permission is required to center on your location.', 'Permission Denied');
         return;
       }
       const loc = await ExpoLocation.getCurrentPositionAsync({
@@ -574,24 +574,23 @@ function AllLocationsMapInner() {
   };
 
   const handleStopJourney = () => {
-    Alert.alert('End Journey?', 'This will complete your current journey.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'End Journey',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            setJourneyActionLoading(true);
-            await stopJourneyRecording();
-            router.push('/navigate/complete');
-          } catch (err: any) {
-            showAlert('Failed to end journey', err?.message || 'Unknown error');
-          } finally {
-            setJourneyActionLoading(false);
-          }
-        },
+    showDestructiveConfirm(
+      'This will complete your current journey.',
+      async () => {
+        try {
+          setJourneyActionLoading(true);
+          await stopJourneyRecording();
+          router.push('/navigate/complete');
+        } catch (err: any) {
+          showError(err?.message || 'Unknown error', 'Failed to end journey');
+        } finally {
+          setJourneyActionLoading(false);
+        }
       },
-    ]);
+      'End Journey?',
+      'End Journey',
+      'Cancel'
+    );
   };
 
   const openJourneyCapture = (type: 'photo' | 'short') => {
@@ -1076,19 +1075,31 @@ function initMap(){
   }
 
   // Custom OverlayView class
-  function PhotoOverlay(pos,el){this.position=pos;this.div=el;this.setMap(map);}
-  PhotoOverlay.prototype=new google.maps.OverlayView();
-  PhotoOverlay.prototype.onAdd=function(){this.getPanes().overlayMouseTarget.appendChild(this.div);};
-  PhotoOverlay.prototype.draw=function(){
-    var pt=this.getProjection().fromLatLngToDivPixel(this.position);
-    if(pt){
-      this.div.style.left=pt.x+'px';
-      this.div.style.top=pt.y+'px';
-      this.div.style.position='absolute';
-      this.div.style.transform='translate(-50%,-50%)';
+  class PhotoOverlay extends google.maps.OverlayView {
+    constructor(pos, el) {
+      super();
+      this.position = pos;
+      this.div = el;
+      this.setMap(map);
     }
-  };
-  PhotoOverlay.prototype.onRemove=function(){if(this.div&&this.div.parentNode)this.div.parentNode.removeChild(this.div);};
+    onAdd() {
+      this.getPanes().overlayMouseTarget.appendChild(this.div);
+    }
+    draw() {
+      var pt = this.getProjection().fromLatLngToDivPixel(this.position);
+      if (pt) {
+        this.div.style.left = pt.x + 'px';
+        this.div.style.top = pt.y + 'px';
+        this.div.style.position = 'absolute';
+        this.div.style.transform = 'translate(-50%,-50%)';
+      }
+    }
+    onRemove() {
+      if (this.div && this.div.parentNode) {
+        this.div.parentNode.removeChild(this.div);
+      }
+    }
+  }
 
   function renderClusters(){
     // Remove existing overlays

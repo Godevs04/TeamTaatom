@@ -1,6 +1,8 @@
 import React from 'react';
 import { View, StyleSheet, TouchableOpacity, Text, ViewProps } from 'react-native';
 import { BlurView } from 'expo-blur';
+import MaskedView from '@react-native-masked-view/masked-view';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -46,7 +48,13 @@ export const GlassNavBar = ({ title, showBack = true, rightComponent, style, ...
       <View style={styles.content}>
         {showBack ? (
           <TouchableOpacity onPress={() => router.back()} style={styles.leftBtn}>
-            <Ionicons name="chevron-back-outline" size={24} color={isDark ? '#38BDF8' : '#1C73B4'} />
+            <LinearGradient
+              colors={['#1C73B4', '#50C878']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFillObject}
+            />
+            <Ionicons name="chevron-back-outline" size={24} color="#FFFFFF" />
           </TouchableOpacity>
         ) : <View style={styles.leftBtn} />}
         

@@ -17,6 +17,7 @@ import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import logger from '../../utils/logger';
+import { realtimePostsService } from '../../services/realtimePosts';
 
 // Platform-specific constants
 const { width: screenWidth } = Dimensions.get('window');
@@ -60,6 +61,17 @@ export default function UserPostsScreen() {
   useEffect(() => {
     fetchUserPosts();
   }, [fetchUserPosts]);
+
+  useEffect(() => {
+    const unsubscribe = realtimePostsService.subscribeToLikes(({ postId, isLiked, likesCount }) => {
+      setPosts(prev => prev.map(post => (
+        post._id === postId
+          ? { ...post, isLiked, likesCount } as any
+          : post
+      )));
+    });
+    return unsubscribe;
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -216,6 +228,7 @@ export default function UserPostsScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 20 }}
           onScroll={(e) => {
+            if (e.target !== e.currentTarget) return;
             scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
           }}
           scrollEventThrottle={16}

@@ -27,10 +27,10 @@ export const lightColors = {
 
   // Content
   text: '#000000',
-  textSecondary: '#1C73B4',
-  textMuted: '#1C73B4',
-  textPassive: '#1C73B4',
-  iconPassive: '#1C73B4',
+  textSecondary: '#64748B', // Slate Gray Light
+  textMuted: '#94A3B8',
+  textPassive: '#CBD5E1',
+  iconPassive: '#CBD5E1',
 
   // Lines / hairlines
   border: 'rgba(28, 115, 180, 0.15)',

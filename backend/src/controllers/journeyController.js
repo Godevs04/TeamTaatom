@@ -598,6 +598,36 @@ const addWaypoint = async (req, res) => {
   }
 };
 
+const checkRouteAccess = (owner, viewerId) => {
+  // owner is the user object of the journey owner. viewerId is the logged-in user's ID
+  const isOwner = viewerId && owner._id.toString() === viewerId.toString();
+  if (isOwner) return true;
+
+  const routeVisibility = owner.settings?.privacy?.routeVisibility || 'everyone';
+
+  if (routeVisibility === 'private') {
+    return false;
+  }
+
+  if (routeVisibility === 'approved_only') {
+    if (!viewerId) return false;
+    const approvedUsers = owner.routeAccessApprovedUsers || [];
+    return approvedUsers.some(id => id.toString() === viewerId.toString());
+  }
+
+  // If routeVisibility is 'everyone', follow standard profileVisibility rules
+  const profileVisibility = owner.settings?.privacy?.profileVisibility || 'public';
+  if (profileVisibility === 'private') {
+    return false;
+  }
+  if (profileVisibility === 'followers') {
+    const followers = owner.followers || [];
+    return viewerId && followers.some(id => id.toString() === viewerId.toString());
+  }
+
+  return true;
+};
+
 // GET /api/v1/journey/:journeyId
 const getJourneyDetail = async (req, res) => {
   try {
@@ -608,7 +638,7 @@ const getJourneyDetail = async (req, res) => {
     }
 
     let journey = await Journey.findById(journeyId)
-      .populate('user', 'fullName profilePic followers');
+      .populate('user', 'fullName profilePic followers settings routeAccessApprovedUsers');
 
     if (!journey) {
       return sendError(res, 'RES_3001', 'Journey not found');
@@ -626,7 +656,20 @@ const getJourneyDetail = async (req, res) => {
     }
 
     // Privacy check
-    const isOwner = req.user && req.user._id.toString() === journey.user._id.toString();
+    const viewerId = req.user ? req.user._id : null;
+    const isOwner = viewerId && journey.user._id.toString() === viewerId.toString();
+
+    // Check finished check: active/paused journeys are completely hidden from non-owners
+    if (!isOwner && journey.status !== 'completed') {
+      return sendError(res, 'AUTH_1001', 'You do not have permission to view active journeys');
+    }
+
+    // Check route privacy access
+    if (!isOwner && !checkRouteAccess(journey.user, viewerId)) {
+      return sendError(res, 'AUTH_1001', 'You do not have permission to view this journey');
+    }
+
+    // Check per-journey privacy
     const isFollower = req.user && journey.user.followers &&
       journey.user.followers.some(f => f.toString() === req.user._id.toString());
 
@@ -657,19 +700,17 @@ const getUserJourneys = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Invalid user ID');
     }
 
-    const targetUser = await User.findById(userId).select('followers privacy settings');
+    const targetUser = await User.findById(userId).select('followers privacy settings routeAccessApprovedUsers');
     if (!targetUser) {
       return sendError(res, 'RES_3001', 'User not found');
     }
 
     // Privacy check
-    const isOwner = req.user && req.user._id.toString() === userId;
-    const isFollower = req.user && targetUser.followers &&
-      targetUser.followers.some(f => f.toString() === req.user._id.toString());
+    const viewerId = req.user ? req.user._id : null;
+    const isOwner = viewerId && targetUser._id.toString() === userId;
 
-    const profileVisibility = targetUser.settings?.privacy?.profileVisibility || 'public';
-
-    if (!isOwner && (profileVisibility === 'followers' || profileVisibility === 'private') && !isFollower) {
+    // Check route privacy access
+    if (!isOwner && !checkRouteAccess(targetUser, viewerId)) {
       return sendSuccess(res, 200, 'Journeys retrieved (privacy filtered)', {
         journeys: [],
         pagination: { page, limit, total: 0 }
@@ -682,14 +723,18 @@ const getUserJourneys = async (req, res) => {
       ? 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries polyline tripScoreAwarded privacy'
       : 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries tripScoreAwarded privacy';
 
-    // Get all journeys (active, paused, completed) for display
-    // For non-owners, also filter by per-journey privacy
+    // Get journeys
+    // For non-owners, also filter by completed status and per-journey privacy
     const journeyQuery = {
-      user: userId,
-      status: { $in: ['active', 'paused', 'completed'] }
+      user: userId
     };
-    if (!isOwner) {
-      // Non-owners only see public journeys, or followers-only if they are a follower
+
+    if (isOwner) {
+      journeyQuery.status = { $in: ['active', 'paused', 'completed'] };
+    } else {
+      journeyQuery.status = 'completed'; // Non-owners only see completed journeys
+      const isFollower = req.user && targetUser.followers &&
+        targetUser.followers.some(f => f.toString() === req.user._id.toString());
       if (isFollower) {
         journeyQuery.privacy = { $in: ['public', 'followers'] };
       } else {

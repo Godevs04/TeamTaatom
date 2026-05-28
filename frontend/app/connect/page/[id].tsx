@@ -776,12 +776,31 @@ export default function ConnectPageDetailScreen() {
         style={[styles.container, { backgroundColor: theme.colors.background }]}
         edges={['top']}
       >
-        <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()} activeOpacity={0.7}>
-            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Connect Page</Text>
-          <View style={styles.headerRight} />
+        <View
+          style={[
+            styles.headerContainer,
+            {
+              backgroundColor: isDark ? 'rgba(13, 27, 42, 0.65)' : 'rgba(255, 255, 255, 0.65)',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
+            }
+          ]}
+        >
+          <BlurView
+            intensity={80}
+            tint={isDark ? 'dark' : 'light'}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <LinearGradient
+            colors={isDark ? ['rgba(255, 255, 255, 0.1)', 'transparent'] : ['rgba(255, 255, 255, 0.5)', 'transparent']}
+            style={StyleSheet.absoluteFillObject}
+          />
+          <View style={styles.headerInner}>
+            <TouchableOpacity style={styles.backButton} onPress={() => router.back()} activeOpacity={0.7}>
+              <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+            </TouchableOpacity>
+            <GradientText text="Connect Page" style={styles.headerTitle} />
+            <View style={styles.headerRight} />
+          </View>
         </View>
         <View style={styles.loadingContainer}>
           <Text style={[styles.errorText, { color: theme.colors.textSecondary }]}>
@@ -800,44 +819,63 @@ export default function ConnectPageDetailScreen() {
       style={[styles.container, { backgroundColor: theme.colors.background }]}
       edges={['top']}
     >
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="arrow-back" size={isTablet ? 28 : 24} color={theme.colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]} numberOfLines={1}>
-          {page.name}
-        </Text>
-        {isOwner ? (
+      {/* Floating Glass Header */}
+      <View
+        style={[
+          styles.headerContainer,
+          {
+            backgroundColor: isDark ? 'rgba(13, 27, 42, 0.65)' : 'rgba(255, 255, 255, 0.65)',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
+          }
+        ]}
+      >
+        <BlurView
+          intensity={80}
+          tint={isDark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFillObject}
+        />
+        <LinearGradient
+          colors={isDark ? ['rgba(255, 255, 255, 0.1)', 'transparent'] : ['rgba(255, 255, 255, 0.5)', 'transparent']}
+          style={StyleSheet.absoluteFillObject}
+        />
+        <View style={styles.headerInner}>
           <TouchableOpacity
-            style={styles.headerRight}
-            onPress={() => {
-              Alert.alert(
-                'Page Options',
-                undefined,
-                [
-                  { text: 'Cancel', style: 'cancel' },
-                  {
-                    text: 'Delete Page',
-                    style: 'destructive',
-                    onPress: handleDeletePage,
-                  },
-                ]
-              );
-            }}
+            style={styles.backButton}
+            onPress={() => router.back()}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.7}
           >
-            <Ionicons name="ellipsis-horizontal" size={isTablet ? 26 : 22} color={theme.colors.text} />
+            <Ionicons name="arrow-back" size={isTablet ? 28 : 24} color={theme.colors.text} />
           </TouchableOpacity>
-        ) : (
-          <View style={styles.headerRight} />
-        )}
+          <Text style={[styles.headerTitle, { color: theme.colors.text }]} numberOfLines={1}>
+            {page.name}
+          </Text>
+          {isOwner ? (
+            <TouchableOpacity
+              style={styles.headerRight}
+              onPress={() => {
+                Alert.alert(
+                  'Page Options',
+                  undefined,
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    {
+                      text: 'Delete Page',
+                      style: 'destructive',
+                      onPress: handleDeletePage,
+                    },
+                  ]
+                );
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="ellipsis-horizontal" size={isTablet ? 26 : 22} color={theme.colors.text} />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.headerRight} />
+          )}
+        </View>
       </View>
 
       <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -1000,114 +1038,30 @@ export default function ConnectPageDetailScreen() {
           )}
         </View>
 
-        {/* Website Section — stacked content blocks (builder) */}
+        {/* Website Section */}
         {page.features?.website && (
-          <View style={[styles.section, { backgroundColor: page.websiteBackground || theme.colors.surface, marginTop: isTablet ? 14 : 12 }]}>
-            <View style={styles.sectionHeader}>
+          <TouchableOpacity
+            style={[styles.section, { backgroundColor: theme.colors.surface, paddingBottom: isTablet ? themeConstants.spacing.md : 12 }, { marginTop: isTablet ? 14 : 12 }]}
+            onPress={() => router.push(`/connect/preview?pageId=${id}&section=website&pageName=${encodeURIComponent(page.name)}`)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.sectionHeader, { marginBottom: 0 }]}>
               <View style={styles.sectionTitleRow}>
                 <View style={[styles.sectionIconWrap, { backgroundColor: theme.colors.primary + '12' }]}>
                   <Ionicons name="globe-outline" size={18} color={theme.colors.primary} />
                 </View>
-                <Text style={[styles.sectionTitle, { color: page.websiteTextColor || theme.colors.text }]}>Website</Text>
-              </View>
-            </View>
-            <View style={styles.sectionContent}>
-              {page.websiteContent && page.websiteContent.length > 0 ? (
-                <Pressable
-                  onPress={() => router.push(`/connect/preview?pageId=${id}&section=website&pageName=${encodeURIComponent(page.name)}`)}
-                  style={{ position: 'relative' }}
-                >
-                  {packBlocksIntoRows(
-                    page.websiteContent
-                      .slice()
-                      .sort((a, b) => a.order - b.order)
-                      .slice(0, isOwner ? undefined : 2)
-                  ).map((row, ri) => (
-                    (() => {
-                      const isSingle = row.length === 1 && row[0].blocks.length === 1;
-                      return isSingle ? (
-                        <React.Fragment key={`wrow-${ri}`}>{renderContentBlock(row[0].blocks[0], ri, page.websiteTextColor, false, false, true)}</React.Fragment>
-                      ) : (
-                        <View key={`wrow-${ri}`} style={{ flexDirection: 'row', gap: 3, marginVertical: 1, alignItems: 'flex-start' }}>
-                          {row.map((cell, ci) => {
-                            const isStackedCell = cell.blocks.length > 1;
-                            const va = cell.blocks[0]?.verticalAlign;
-                            const alignSelf = va === 'center' ? 'center' as const : va === 'bottom' ? 'flex-end' as const : undefined;
-                            return (
-                              <View key={`wc-${ri}-${ci}`} style={isStackedCell ? { flex: cell.col, flexDirection: 'column', gap: 6 } : { flex: cell.col, alignSelf }}>
-                                {cell.blocks.map((block, bi) =>
-                                  isStackedCell ? (
-                                    <View key={block._id || `ws-${ri}-${ci}-${bi}`} style={{ flex: 1 }}>
-                                      {renderContentBlock(block, bi, page.websiteTextColor, true, true, true)}
-                                    </View>
-                                  ) : (
-                                    <React.Fragment key={block._id || `ws-${ri}-${ci}-${bi}`}>
-                                      {renderContentBlock(block, bi, page.websiteTextColor, row.length > 1, false, true)}
-                                    </React.Fragment>
-                                  )
-                                )}
-                              </View>
-                            );
-                          })}
-                        </View>
-                      );
-                    })()
-                  ))}
-                  <View
-                    style={{
-                      ...StyleSheet.absoluteFillObject,
-                      backgroundColor: 'transparent',
-                      zIndex: 20,
-                    }}
-                  />
-                </Pressable>
-              ) : (
-                <Text style={[styles.placeholderText, { color: theme.colors.textSecondary }]}>
-                  {isOwner ? 'Add content to your website.' : 'No content yet.'}
-                </Text>
-              )}
-              {!isOwner && page.websiteContent && page.websiteContent.length > 0 && (
-                <TouchableOpacity
-                  onPress={() => router.push(`/connect/preview?pageId=${id}&section=website&pageName=${encodeURIComponent(page.name)}`)}
-                  activeOpacity={0.7}
-                  style={[styles.viewButton, { borderColor: theme.colors.primary }]}
-                >
-                  <Ionicons name="eye-outline" size={16} color={theme.colors.primary} />
-                  <Text style={[styles.viewButtonText, { color: theme.colors.primary }]}>
-                    View Website
+                <View>
+                  <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Website</Text>
+                  <Text style={[styles.chatDescription, { color: theme.colors.textSecondary }]}>
+                    {isOwner ? 'Manage your site and content' : 'Explore website and pages'}
                   </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-            {isOwner && (
-              <View style={styles.sectionBottomActions}>
-                <TouchableOpacity
-                  onPress={() => {
-                    if (page.websiteContent && page.websiteContent.length > 0) {
-                      router.push(`/connect/preview?pageId=${id}&section=website&pageName=${encodeURIComponent(page.name)}`);
-                    }
-                  }}
-                  activeOpacity={page.websiteContent && page.websiteContent.length > 0 ? 0.7 : 1}
-                  style={[
-                    styles.sectionBottomButton,
-                    { backgroundColor: theme.colors.primary },
-                    !(page.websiteContent && page.websiteContent.length > 0) && { opacity: 0.4 },
-                  ]}
-                >
-                  <Ionicons name="eye-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.sectionBottomButtonText}>Preview</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => router.push(`/connect/editContent?pageId=${id}&section=website`)}
-                  activeOpacity={0.7}
-                  style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
-                >
-                  <Ionicons name="create-outline" size={16} color="#FFFFFF" />
-                  <Text style={styles.sectionBottomButtonText}>Edit</Text>
-                </TouchableOpacity>
+                </View>
               </View>
-            )}
-          </View>
+              <View style={[styles.chatArrowWrap, { backgroundColor: theme.colors.primary + '12' }]}>
+                <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+              </View>
+            </View>
+          </TouchableOpacity>
         )}
 
         {/* Group Chat Section */}
@@ -1130,7 +1084,7 @@ export default function ConnectPageDetailScreen() {
                   />
                 </View>
               </View>
-              <View style={[styles.chatArrowWrap, { backgroundColor: theme.colors.primary + '12' }]}>
+            <View style={[styles.chatArrowWrap, { backgroundColor: theme.colors.primary + '12' }]}>
                 <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
               </View>
             </View>
@@ -1139,377 +1093,34 @@ export default function ConnectPageDetailScreen() {
 
         {/* Subscription / Buy Items Section */}
         {page.features?.subscription && (
-          isCommunity ? (
-            <View style={[styles.section, { backgroundColor: theme.colors.surface }, !page.features?.website && !page.features?.groupChat && { marginTop: isTablet ? 14 : 12 }]}>
-              <View style={styles.sectionHeader}>
-                <View style={styles.sectionTitleRow}>
-                  <View style={[styles.sectionIconWrap, { backgroundColor: theme.colors.primary + '12' }]}>
-                    <Ionicons name="cart-outline" size={18} color={theme.colors.primary} />
-                  </View>
-                  <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Buy Items</Text>
+          <TouchableOpacity
+            style={[styles.section, { backgroundColor: theme.colors.surface, paddingBottom: isTablet ? themeConstants.spacing.md : 12 }, !page.features?.website && !page.features?.groupChat && { marginTop: isTablet ? 14 : 12 }]}
+            onPress={() => router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.sectionHeader, { marginBottom: 0 }]}>
+              <View style={styles.sectionTitleRow}>
+                <View style={[styles.sectionIconWrap, { backgroundColor: theme.colors.primary + '12' }]}>
+                  <Ionicons name={isCommunity ? 'cart-outline' : 'star-outline'} size={18} color={theme.colors.primary} />
                 </View>
-              </View>
-
-              <View style={[styles.sectionContent, { paddingHorizontal: 16, paddingBottom: 16 }]}>
-                {page.buyItems && page.buyItems.filter(item => item.active !== false).length > 0 ? (
-                  page.buyItems.filter(item => item.active !== false).map((item, index) => (
-                    <View key={item._id || index} style={{ marginBottom: 20, borderBottomWidth: index === page.buyItems.filter(i => i.active !== false).length - 1 ? 0 : 1, borderBottomColor: theme.colors.border, paddingBottom: 16 }}>
-                      {item.imageUrl ? (
-                        <Image
-                          source={{ uri: item.imageUrl }}
-                          style={{ width: '100%', height: 160, borderRadius: 8, marginBottom: 10, backgroundColor: theme.colors.border }}
-                          resizeMode="cover"
-                        />
-                      ) : null}
-                      <Text style={{ fontSize: 16, fontFamily: getFontFamily('600'), fontWeight: '600', color: theme.colors.text, marginBottom: 4 }}>
-                        {item.name}
-                      </Text>
-                      {item.description ? (
-                        <Text style={{ fontSize: 13, fontFamily: getFontFamily('400'), color: theme.colors.textSecondary, marginBottom: 10 }}>
-                          {item.description}
-                        </Text>
-                      ) : null}
-                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <Text style={{ fontSize: 18, fontFamily: getFontFamily('700'), fontWeight: '700', color: theme.colors.primary }}>
-                          ₹{item.price}
-                        </Text>
-                        {!isOwner && (
-                          <TouchableOpacity
-                            onPress={() => {
-                              setSelectedItem(item);
-                              setCheckoutModalVisible(true);
-                            }}
-                            activeOpacity={0.8}
-                            style={{
-                              backgroundColor: theme.colors.primary,
-                              paddingVertical: 8,
-                              paddingHorizontal: 16,
-                              borderRadius: 20,
-                            }}
-                          >
-                            <Text style={{ color: '#FFF', fontSize: 14, fontFamily: getFontFamily('600'), fontWeight: '600' }}>
-                              Buy Now
-                            </Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    </View>
-                  ))
-                ) : (
-                  <Text style={[styles.placeholderText, { color: theme.colors.textSecondary }]}>
-                    No items listed for sale yet.
+                <View>
+                  <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
+                    {isCommunity ? 'Buy Items' : subLabel}
                   </Text>
-                )}
-              </View>
-            </View>
-          ) : (
-            <View style={[styles.section, { backgroundColor: theme.colors.surface }, !page.features?.website && !page.features?.groupChat && { marginTop: isTablet ? 14 : 12 }]}>
-              <View style={styles.sectionHeader}>
-                <View style={styles.sectionTitleRow}>
-                  <View style={[styles.sectionIconWrap, { backgroundColor: theme.colors.primary + '12' }]}>
-                    <Ionicons name="star-outline" size={18} color={theme.colors.primary} />
-                  </View>
-                  <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>{subLabel}</Text>
-                </View>
-              </View>
-
-              {/* Approval status banner (owner only) */}
-              {isOwner && page.subscriptionApproval?.status === 'pending' && (
-                <View style={[styles.approvalBanner, { backgroundColor: '#FFF3CD' }]}>
-                  <Ionicons name="time-outline" size={16} color="#856404" />
-                  <Text style={[styles.approvalBannerText, { color: '#856404' }]}>
-                    Price {currSym}{page.subscriptionApproval.requestedPrice}/mo — Pending admin approval
-                  </Text>
-                </View>
-              )}
-              {isOwner && page.subscriptionApproval?.status === 'rejected' && (
-                <View style={[styles.approvalBanner, { backgroundColor: theme.colors.error + '15' }]}>
-                  <Ionicons name="close-circle-outline" size={16} color={theme.colors.error} />
-                  <Text style={[styles.approvalBannerText, { color: theme.colors.error }]}>
-                    Price rejected{page.subscriptionApproval.rejectionReason ? `: ${page.subscriptionApproval.rejectionReason}` : ''}
-                  </Text>
-                </View>
-              )}
-
-              <View style={styles.sectionContent}>
-                {page.subscriptionContent && page.subscriptionContent.length > 0 ? (
-                  (() => {
-                    const isAuthorized = isOwner || subscriptionStatus?.isSubscribed;
-                    const shouldObfuscate = !isRevealed;
-
-                    const contentList = (
-                      <>
-                        {packBlocksIntoRows(
-                          page.subscriptionContent.slice().sort((a, b) => a.order - b.order)
-                        ).map((row, ri) => (
-                          (() => {
-                            const isSingle = row.length === 1 && row[0].blocks.length === 1;
-                            return isSingle ? (
-                              <React.Fragment key={`srow-${ri}`}>
-                                {renderContentBlock(row[0].blocks[0], ri, page.subscriptionTextColor, false, false, shouldObfuscate)}
-                              </React.Fragment>
-                            ) : (
-                              <View key={`srow-${ri}`} style={{ flexDirection: 'row', gap: 3, marginVertical: 1, alignItems: 'flex-start' }}>
-                                {row.map((cell, ci) => {
-                                  const isStackedCell = cell.blocks.length > 1;
-                                  const va = cell.blocks[0]?.verticalAlign;
-                                  const alignSelf = va === 'center' ? 'center' as const : va === 'bottom' ? 'flex-end' as const : undefined;
-                                  return (
-                                    <View key={`sc-${ri}-${ci}`} style={isStackedCell ? { flex: cell.col, flexDirection: 'column', gap: 6 } : { flex: cell.col, alignSelf }}>
-                                      {cell.blocks.map((block, bi) =>
-                                        isStackedCell ? (
-                                          <View key={block._id || `ss-${ri}-${ci}-${bi}`} style={{ flex: 1 }}>
-                                            {renderContentBlock(block, bi, page.subscriptionTextColor, true, true, shouldObfuscate)}
-                                          </View>
-                                        ) : (
-                                          <React.Fragment key={block._id || `ss-${ri}-${ci}-${bi}`}>
-                                            {renderContentBlock(block, bi, page.subscriptionTextColor, row.length > 1, false, shouldObfuscate)}
-                                          </React.Fragment>
-                                        )
-                                      )}
-                                    </View>
-                                  );
-                                })}
-                              </View>
-                            );
-                          })()
-                        ))}
-
-                        {isAuthorized && isRevealed && !isOwner && (
-                          <TouchableOpacity
-                            onPress={() => router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`)}
-                            activeOpacity={0.7}
-                            style={[styles.viewButton, { borderColor: theme.colors.primary }]}
-                          >
-                            <Ionicons name="eye-outline" size={16} color={theme.colors.primary} />
-                            <Text style={[styles.viewButtonText, { color: theme.colors.primary }]}>
-                              View {subLabel}
-                            </Text>
-                          </TouchableOpacity>
-                        )}
-                      </>
-                    );
-
-                    if (shouldObfuscate) {
-                      return (
-                        <Pressable
-                          onPress={() => {
-                            if (isAuthorized) {
-                              setIsRevealed(true);
-                            } else {
-                              handleSubscribe();
-                            }
-                          }}
-                          style={{ position: 'relative' }}
-                        >
-                          {contentList}
-                          <View
-                            style={{
-                              ...StyleSheet.absoluteFillObject,
-                              backgroundColor: 'transparent',
-                              zIndex: 20,
-                            }}
-                          />
-                        </Pressable>
-                      );
+                  <Text style={[styles.chatDescription, { color: theme.colors.textSecondary }]}>
+                    {isOwner 
+                      ? (isCommunity ? 'Manage items listed for sale' : 'Manage subscription content')
+                      : (isCommunity ? 'Browse items for sale' : 'Access premium content')
                     }
-
-                    return contentList;
-                  })()
-                ) : (
-                  <Text style={[styles.placeholderText, { color: theme.colors.textSecondary }]}>
-                    {isOwner ? 'Tap the edit icon to list your services.' : 'No services listed yet.'}
                   </Text>
-                )}
-              </View>
-
-              {/* Subscription pricing section */}
-              {(() => {
-                const approvalStatus = page.subscriptionApproval?.status || 'none';
-                const approvedPrice = page.subscriptionPrice;
-                const requestedPrice = page.subscriptionApproval?.requestedPrice;
-                const displayPrice = approvalStatus === 'approved' ? approvedPrice : requestedPrice;
-
-                // Owner view
-                if (isOwner) {
-                  return (
-                    <View style={[styles.subscriptionPriceSection, { borderTopColor: theme.colors.border }]}>
-                      <View style={styles.priceRow}>
-                        <Text style={[styles.priceAmount, { color: theme.colors.text }]}>
-                          {currSym}{displayPrice || 0}
-                        </Text>
-                        <Text style={[styles.pricePeriod, { color: theme.colors.textSecondary }]}>/month</Text>
-                        <TouchableOpacity
-                          onPress={() => {
-                            setPriceInput(String(displayPrice || ''));
-                            setShowPriceModal(true);
-                          }}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                          style={{ marginLeft: 10 }}
-                        >
-                          <Ionicons name="pencil-outline" size={16} color={theme.colors.primary} />
-                        </TouchableOpacity>
-                      </View>
-
-                      {approvalStatus === 'pending' && (
-                        <View style={[styles.approvalStatusBadge, { backgroundColor: '#FEF3C7' }]}>
-                          <Ionicons name="time-outline" size={14} color="#D97706" />
-                          <Text style={{ color: '#D97706', fontSize: 12, fontWeight: '500', marginLeft: 4 }}>
-                            Pending admin approval
-                          </Text>
-                        </View>
-                      )}
-
-                      {approvalStatus === 'approved' && (
-                        <Text style={[styles.ownerPriceNote, { color: theme.colors.textSecondary }]}>
-                          {subscribersLabel} pay {currSym}{approvedPrice}/month
-                        </Text>
-                      )}
-
-                      {approvalStatus === 'rejected' && (
-                        <View>
-                          <View style={[styles.approvalStatusBadge, { backgroundColor: '#FEE2E2' }]}>
-                            <Ionicons name="close-circle-outline" size={14} color="#DC2626" />
-                            <Text style={{ color: '#DC2626', fontSize: 12, fontWeight: '500', marginLeft: 4 }}>
-                              Price rejected
-                            </Text>
-                          </View>
-                          {page.subscriptionApproval?.rejectionReason ? (
-                            <Text style={[styles.ownerPriceNote, { color: theme.colors.textSecondary }]}>
-                              Reason: {page.subscriptionApproval.rejectionReason}
-                            </Text>
-                          ) : null}
-                        </View>
-                      )}
-
-                      {approvalStatus === 'none' && !displayPrice && (
-                        <Text style={[styles.ownerPriceNote, { color: theme.colors.textSecondary }]}>
-                          Tap the edit icon to set your price
-                        </Text>
-                      )}
-                    </View>
-                  );
-                }
-
-                // Visitor view — show subscribed status or prompt to view subscription page
-                if (page.subscriptionPrice && page.subscriptionPrice > 0) {
-                  if (subscriptionStatus?.isSubscribed) {
-                    return (
-                      <View style={[styles.subscriptionPriceSection, { borderTopColor: theme.colors.border }]}>
-                        <View style={[styles.subscribedBadge, { backgroundColor: theme.colors.success + '15' }]}>
-                          <Ionicons name="checkmark-circle" size={18} color={theme.colors.success} />
-                          <Text style={[styles.subscribedText, { color: theme.colors.success }]}>{isCommunity ? 'Purchased' : 'Subscribed'}</Text>
-                        </View>
-                        {subscriptionStatus.subscription?.currentPeriodEnd && (
-                          <Text style={[styles.renewsText, { color: theme.colors.textSecondary }]}>
-                            Renews {new Date(subscriptionStatus.subscription.currentPeriodEnd).toLocaleDateString()}
-                          </Text>
-                        )}
-                        <TouchableOpacity
-                          onPress={handleCancelSubscription}
-                          activeOpacity={0.7}
-                          style={styles.cancelLink}
-                        >
-                          <Text style={[styles.cancelLinkText, { color: theme.colors.error }]}>
-                            Cancel {isCommunity ? 'purchase' : 'subscription'}
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                    );
-                  }
-                  // Show subscribe button for non-subscribed visitors
-                  return (
-                    <View style={[styles.subscriptionPriceSection, { borderTopColor: theme.colors.border }]}>
-                      <TouchableOpacity
-                        onPress={handleSubscribe}
-                        activeOpacity={0.8}
-                        disabled={subscribing}
-                        style={{ width: '100%', marginTop: 4 }}
-                      >
-                        <LinearGradient
-                          colors={['#1C73B4', '#50C878']}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                          style={{
-                            paddingVertical: 14,
-                            borderRadius: 9999,
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                          }}
-                        >
-                          {subscribing ? (
-                            <LoadingGlobe size="small" color="#FFFFFF" />
-                          ) : (
-                            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
-                              <Ionicons name={isCommunity ? 'cart-outline' : 'star'} size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
-                              <Text style={styles.subscribeButtonText}>
-                                {(() => {
-                                  const locale = Intl.NumberFormat().resolvedOptions().locale || '';
-                                  const userCountry = locale.split('-')[1]?.toUpperCase() || 'IN';
-                                  const userCurrency = countryToCurrency[userCountry] || 'INR';
-                                  const userPriceInfo = displayPrices?.prices?.[userCurrency];
-                                  const altPrice = (userCurrency !== 'INR' && userPriceInfo) ? ` (${userPriceInfo.formatted})` : '';
-                                  return `${subButtonText} · ${currSym}${page.subscriptionPrice}${altPrice}/month`;
-                                })()}
-                              </Text>
-                            </View>
-                          )}
-                        </LinearGradient>
-                      </TouchableOpacity>
-                    </View>
-                  );
-                }
-
-                return null;
-              })()}
-
-              {/* Bottom action buttons (owner only) */}
-              {isOwner && (
-                <View style={styles.sectionBottomActions}>
-                  <TouchableOpacity
-                    onPress={async () => {
-                      try {
-                        const result = await getPayoutPreview(page._id);
-                        setPayoutPreview(result.preview);
-                      } catch { /* ignore */ }
-                      setShowPayoutInfo(true);
-                    }}
-                    activeOpacity={0.7}
-                    style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
-                  >
-                    <Ionicons name="information-circle-outline" size={16} color="#FFFFFF" />
-                    <Text style={styles.sectionBottomButtonText}>Details</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => {
-                      if (page.subscriptionContent && page.subscriptionContent.length > 0) {
-                        router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`);
-                      }
-                    }}
-                    activeOpacity={page.subscriptionContent && page.subscriptionContent.length > 0 ? 0.7 : 1}
-                    style={[
-                      styles.sectionBottomButton,
-                      { backgroundColor: theme.colors.primary },
-                      !(page.subscriptionContent && page.subscriptionContent.length > 0) && { opacity: 0.4 },
-                    ]}
-                  >
-                    <Ionicons name="eye-outline" size={16} color="#FFFFFF" />
-                    <Text style={styles.sectionBottomButtonText}>Preview</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => router.push(`/connect/editContent?pageId=${id}&section=subscription&category=${page.category || 'connect'}`)}
-                    activeOpacity={0.7}
-                    style={[styles.sectionBottomButton, { backgroundColor: theme.colors.primary }]}
-                  >
-                    <Ionicons name="create-outline" size={16} color="#FFFFFF" />
-                    <Text style={styles.sectionBottomButtonText}>Edit</Text>
-                  </TouchableOpacity>
                 </View>
-              )}
+              </View>
+              <View style={[styles.chatArrowWrap, { backgroundColor: theme.colors.primary + '12' }]}>
+                <Ionicons name="chevron-forward" size={16} color={theme.colors.primary} />
+              </View>
             </View>
-          )
+          </TouchableOpacity>
         )}
-
 
         {/* Delete Page — Owner only */}
         {isOwner && (
@@ -2024,12 +1635,29 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  header: {
+  headerContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 60,
+    zIndex: 10,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderTopWidth: 0,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  headerInner: {
     flexDirection: 'row',
     alignItems: 'center',
+    height: '100%',
     paddingHorizontal: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.md,
-    paddingVertical: isTablet ? themeConstants.spacing.md : 12,
-    borderBottomWidth: 1,
   },
   backButton: {
     padding: isTablet ? themeConstants.spacing.sm : 8,

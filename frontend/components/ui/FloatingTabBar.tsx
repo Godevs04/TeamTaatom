@@ -131,36 +131,48 @@ export default function FloatingTabBar({ state, descriptors, navigation }: Botto
     );
   };
 
+  const tabShadowStyle = {
+    shadowColor: isDark ? '#38BDF8' : '#1C73B4',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: isDark ? 0.05 : 0.08,
+    shadowRadius: 12,
+    elevation: 2,
+  };
+
   return (
     <View style={styles.outerContainer}>
       {leftRoutes.length > 0 && (
-        <BlurView
-          intensity={100}
-          tint={isDark ? 'dark' : 'light'}
-          style={[
-            styles.inactivePill,
-            { width: leftRoutes.length * 42, marginRight: 6 },
-            isDark ? styles.pillDark : styles.pillLight,
-          ]}
-        >
-          {leftRoutes.map((route, idx) => renderInactiveTab(route, idx))}
-        </BlurView>
+        <View style={[styles.shadowWrapper, tabShadowStyle, { width: leftRoutes.length * 42, marginRight: 6 }]}>
+          <BlurView
+            intensity={95}
+            tint={isDark ? 'dark' : 'light'}
+            style={[
+              styles.inactivePill,
+              { width: '100%' },
+              isDark ? styles.pillDark : styles.pillLight,
+            ]}
+          >
+            {leftRoutes.map((route, idx) => renderInactiveTab(route, idx))}
+          </BlurView>
+        </View>
       )}
 
       {renderActiveTab(activeRoute, activeIndex)}
 
       {rightRoutes.length > 0 && (
-        <BlurView
-          intensity={100}
-          tint={isDark ? 'dark' : 'light'}
-          style={[
-            styles.inactivePill,
-            { width: rightRoutes.length * 42, marginLeft: 6 },
-            isDark ? styles.pillDark : styles.pillLight,
-          ]}
-        >
-          {rightRoutes.map((route, idx) => renderInactiveTab(route, leftRoutes.length + 1 + idx))}
-        </BlurView>
+        <View style={[styles.shadowWrapper, tabShadowStyle, { width: rightRoutes.length * 42, marginLeft: 6 }]}>
+          <BlurView
+            intensity={95}
+            tint={isDark ? 'dark' : 'light'}
+            style={[
+              styles.inactivePill,
+              { width: '100%' },
+              isDark ? styles.pillDark : styles.pillLight,
+            ]}
+          >
+            {rightRoutes.map((route, idx) => renderInactiveTab(route, leftRoutes.length + 1 + idx))}
+          </BlurView>
+        </View>
       )}
     </View>
   );
@@ -176,22 +188,26 @@ const styles = StyleSheet.create({
     height: 52,
     backgroundColor: 'transparent',
   },
+  shadowWrapper: {
+    height: 44,
+    borderRadius: 22,
+  },
   inactivePill: {
     height: 44,
     borderRadius: 22,
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
-    borderWidth: 1.5,
+    borderWidth: 1,
     overflow: 'hidden',
   },
   pillDark: {
-    backgroundColor: 'rgba(15, 20, 30, 0.35)',
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(15, 22, 35, 0.82)', // Solid frosted glass
+    borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   pillLight: {
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
-    borderColor: 'rgba(255, 255, 255, 0.4)',
+    backgroundColor: 'rgba(250, 252, 255, 0.85)', // Solid frosted glass
+    borderColor: 'rgba(255, 255, 255, 0.35)',
   },
   tabItem: {
     flex: 1,

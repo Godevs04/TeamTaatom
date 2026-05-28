@@ -2,16 +2,21 @@
  * Web stub for ShortsNativeAd. Native ads are not supported on web.
  */
 
-import React, { memo } from 'react';
+import React, { memo, useEffect } from 'react';
 
 export type ShortsNativeAdProps = {
   adIndex: number;
   height?: number;
   fillParent?: boolean;
   onImpression?: () => void;
+  onLoadFailed?: () => void;
 };
 
-function ShortsNativeAdComponent(_props: ShortsNativeAdProps) {
+function ShortsNativeAdComponent({ onLoadFailed }: ShortsNativeAdProps) {
+  useEffect(() => {
+    onLoadFailed?.();
+  }, [onLoadFailed]);
+
   return null;
 }
 

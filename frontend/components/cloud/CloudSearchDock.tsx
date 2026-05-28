@@ -12,6 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { cloudDesign } from '../../constants/cloudDesign';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface CloudSearchDockProps {
   value: string;
@@ -52,42 +53,52 @@ export default function CloudSearchDock({
         style,
       ]}
     >
-      <View
-        style={[
-          styles.searchRow,
-          {
-            backgroundColor: isDark ? 'rgba(18, 34, 54, 0.72)' : 'rgba(255,255,255,0.9)',
-            borderColor: isDark ? theme.colors.glassBorder : 'rgba(0, 0, 0, 0.04)',
-          },
-        ]}
+      <LinearGradient
+        colors={['#1C73B4', '#50C878']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={{
+          borderRadius: cloudDesign.radius.pill,
+          padding: 1.5,
+          width: '100%',
+        }}
       >
-        <Ionicons name="search-outline" size={18} color={isDark ? theme.colors.textSecondary : cloudDesign.textMuted} />
-        <TextInput
-          style={[styles.input, { color: theme.colors.text }]}
-          placeholder={placeholder}
-          placeholderTextColor={isDark ? theme.colors.textSecondary : cloudDesign.textMuted}
-          value={value}
-          onChangeText={onChangeText}
-          returnKeyType="search"
-          onSubmitEditing={onSubmit}
-          {...inputProps}
-        />
-        {value.length > 0 ? (
-          <TouchableOpacity onPress={() => onChangeText('')} hitSlop={12}>
-            <Ionicons name="close-circle" size={18} color={cloudDesign.textMuted} />
-          </TouchableOpacity>
-        ) : null}
-        {onFilterPress ? (
-          <TouchableOpacity onPress={onFilterPress} hitSlop={12} style={styles.filterBtn}>
-            <Ionicons name="options-outline" size={20} color={cloudDesign.textMid} />
-            {filterBadgeCount > 0 && (
-              <View style={[styles.badge, { backgroundColor: cloudDesign.sky }]}>
-                <Text style={styles.badgeText}>{filterBadgeCount > 9 ? '9+' : filterBadgeCount}</Text>
-              </View>
-            )}
-          </TouchableOpacity>
-        ) : null}
-      </View>
+        <View
+          style={[
+            styles.searchRow,
+            {
+              backgroundColor: isDark ? 'rgba(18, 34, 54, 0.95)' : 'rgba(255,255,255,0.98)',
+            },
+          ]}
+        >
+          <Ionicons name="search-outline" size={18} color={isDark ? theme.colors.textSecondary : cloudDesign.textMuted} />
+          <TextInput
+            style={[styles.input, { color: theme.colors.text }]}
+            placeholder={placeholder}
+            placeholderTextColor={isDark ? theme.colors.textSecondary : cloudDesign.textMuted}
+            value={value}
+            onChangeText={onChangeText}
+            returnKeyType="search"
+            onSubmitEditing={onSubmit}
+            {...inputProps}
+          />
+          {value.length > 0 ? (
+            <TouchableOpacity onPress={() => onChangeText('')} hitSlop={12}>
+              <Ionicons name="close-circle" size={18} color={cloudDesign.textMuted} />
+            </TouchableOpacity>
+          ) : null}
+          {onFilterPress ? (
+            <TouchableOpacity onPress={onFilterPress} hitSlop={12} style={styles.filterBtn}>
+              <Ionicons name="options-outline" size={20} color={isDark ? '#FFFFFF' : cloudDesign.textMid} />
+              {filterBadgeCount > 0 && (
+                <View style={[styles.badge, { backgroundColor: cloudDesign.sky }]}>
+                  <Text style={styles.badgeText}>{filterBadgeCount > 9 ? '9+' : filterBadgeCount}</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      </LinearGradient>
     </View>
   );
 }
@@ -102,11 +113,10 @@ const styles = StyleSheet.create({
   searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: cloudDesign.radius.pill,
+    borderRadius: cloudDesign.radius.pill - 1.5,
     paddingHorizontal: 14,
-    height: 40,
+    height: 38,
     gap: 8,
-    borderWidth: 1,
   },
   input: {
     flex: 1,

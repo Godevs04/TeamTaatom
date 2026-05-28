@@ -1429,6 +1429,35 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
         }
       },
       {
+        $lookup: {
+          from: 'songs',
+          localField: 'song.songId',
+          foreignField: '_id',
+          as: 'songData',
+          pipeline: [
+            { 
+              $project: { 
+                title: 1, 
+                artist: 1, 
+                duration: 1, 
+                cloudinaryUrl: 1, 
+                s3Url: 1, 
+                thumbnailUrl: 1, 
+                storageKey: 1,
+                cloudinaryKey: 1,
+                s3Key: 1,
+                _id: 1 
+              } 
+            },
+            {
+              $addFields: {
+                s3Url: { $ifNull: ['$cloudinaryUrl', '$s3Url'] } // Use cloudinaryUrl if available, fallback to s3Url
+              }
+            }
+          ]
+        }
+      },
+      {
         $addFields: {
           comments: {
             $map: {
@@ -1454,6 +1483,18 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
               }
             }
           },
+          song: {
+            $cond: {
+              if: { $and: [{ $ne: ['$song.songId', null] }, { $gt: [{ $size: '$songData' }, 0] }] },
+              then: {
+                songId: { $arrayElemAt: ['$songData', 0] },
+                startTime: '$song.startTime',
+                endTime: '$song.endTime',
+                volume: '$song.volume'
+              },
+              else: null
+            }
+          },
           likesCount: { $size: { $ifNull: ['$likes', []] } },
           commentsCount: { $size: { $ifNull: ['$comments', []] } },
           viewsCount: { $ifNull: ['$views', 0] },
@@ -1464,6 +1505,7 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
       {
         $project: {
           commentUsers: 0,
+          songData: 0,
           'user.followers': 0 // Remove followers array from response
           // Note: All other fields are included by default (storageKey, storageKeys, videoUrl, imageUrl, thumbnailUrl, etc.)
         }
@@ -1474,6 +1516,22 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
     const shortsWithProfilePics = await Promise.all(shorts.map(async (short) => {
       if (short.user) {
         short.user.profilePic = await resolveProfilePic(short.user);
+      }
+
+      // Generate signed URL for song if present (same logic as getShorts)
+      if (short.song?.songId) {
+        const storageKey = short.song.songId.storageKey || short.song.songId.cloudinaryKey || short.song.songId.s3Key;
+        if (storageKey) {
+          try {
+            const songUrl = await generateSignedUrl(storageKey, 'AUDIO');
+            short.song.songId.s3Url = songUrl;
+            short.song.songId.cloudinaryUrl = songUrl;
+          } catch (error) {
+            logger.warn(`Failed to generate song URL for short ${short._id}:`, error.message);
+            short.song.songId.s3Url = null;
+            short.song.songId.cloudinaryUrl = null;
+          }
+        }
       }
 
       // Generate signed URLs for short video and thumbnail
@@ -2079,6 +2137,22 @@ const getUserPosts = async (req, res) => {
         for (const comment of post.comments) {
           if (comment.user) {
             comment.user.profilePic = await resolveProfilePic(comment.user);
+          }
+        }
+      }
+
+      // Generate signed URL for song if present
+      if (post.song?.songId) {
+        const storageKey = post.song.songId.storageKey || post.song.songId.cloudinaryKey || post.song.songId.s3Key;
+        if (storageKey) {
+          try {
+            const songUrl = await generateSignedUrl(storageKey, 'AUDIO');
+            post.song.songId.s3Url = songUrl;
+            post.song.songId.cloudinaryUrl = songUrl;
+          } catch (error) {
+            logger.warn(`Failed to generate song URL for post ${post._id}:`, error.message);
+            post.song.songId.s3Url = null;
+            post.song.songId.cloudinaryUrl = null;
           }
         }
       }

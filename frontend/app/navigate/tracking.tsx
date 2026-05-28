@@ -46,7 +46,7 @@ export default function TrackingScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
   const mapStyle = useMapStyle();
-  const { showAlert } = useAlert();
+  const { showAlert, showError, showOptions } = useAlert();
   const insets = useSafeAreaInsets();
   const {
     initialized,
@@ -68,6 +68,20 @@ export default function TrackingScreen() {
   const [bgPermissionGranted, setBgPermissionGranted] = useState(true);
   const pulseAnim = React.useRef(new Animated.Value(1)).current;
   
+  const webViewRef = React.useRef<any>(null);
+  const [webViewMapReady, setWebViewMapReady] = useState(false);
+
+  // Compute initial map center once when tracking screen is loaded to prevent map shifting/reloads
+  const initialMapCenter = useMemo(() => {
+    if (polyline.length > 0) {
+      return { latitude: polyline[0].latitude, longitude: polyline[0].longitude };
+    }
+    if (currentCoordinate) {
+      return { latitude: currentCoordinate.latitude, longitude: currentCoordinate.longitude };
+    }
+    return { latitude: 12.9716, longitude: 77.5946 }; // Default fallback (e.g. Bangalore)
+  }, []);
+
   // Set when the user intentionally ends — prevents the redirect
   // effect from competing with the deliberate navigation.
   const isNavigatingAwayRef = React.useRef(false);
@@ -123,6 +137,21 @@ export default function TrackingScreen() {
     const last = polyline[polyline.length - 1];
     return { latitude: last.latitude, longitude: last.longitude };
   }, [currentCoordinate, polyline]);
+
+  // Dynamic map path updates for WebView fallback (prevents page reloading on every coordinate update)
+  useEffect(() => {
+    if (useWebViewFallback && webViewMapReady && webViewRef.current) {
+      const polyCoords = JSON.stringify(
+        polyline
+          .filter((p) => p.latitude && p.longitude)
+          .map((p) => ({ lat: p.latitude, lng: p.longitude, timestamp: p.timestamp }))
+      );
+      const lat = currentLocation ? currentLocation.latitude : 'null';
+      const lng = currentLocation ? currentLocation.longitude : 'null';
+      const jsCode = `if (typeof window.updateMapData === 'function') { window.updateMapData(${polyCoords}, ${lat}, ${lng}); }`;
+      webViewRef.current.injectJavaScript(jsCode);
+    }
+  }, [polyline, currentLocation, webViewMapReady]);
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -183,15 +212,9 @@ export default function TrackingScreen() {
   };
 
   const handleStopJourney = () => {
-    Alert.alert(
+    showOptions(
       'End Journey?',
-      'This will complete your current journey. Choose how you want to save the path:',
       [
-        {
-          text: 'Cancel',
-          onPress: () => {},
-          style: 'cancel',
-        },
         {
           text: 'Save Raw GPS Path',
           onPress: async () => {
@@ -201,7 +224,7 @@ export default function TrackingScreen() {
               isNavigatingAwayRef.current = true;
               router.push('/navigate/complete');
             } catch (err: any) {
-              showAlert('Failed to end journey', err.message);
+              showError(err.message || 'Unknown error', 'Failed to end journey');
             } finally {
               setIsLoading(false);
             }
@@ -216,14 +239,16 @@ export default function TrackingScreen() {
               isNavigatingAwayRef.current = true;
               router.push('/navigate/complete');
             } catch (err: any) {
-              showAlert('Failed to end journey', err.message);
+              showError(err.message || 'Unknown error', 'Failed to end journey');
             } finally {
               setIsLoading(false);
             }
           },
-          style: 'default',
         },
-      ]
+      ],
+      'This will complete your current journey. Choose how you want to save the path:',
+      true,
+      'Cancel'
     );
   };
 
@@ -305,9 +330,40 @@ html,body,#map{height:100%;margin:0;padding:0}
 }
 </style>
 <script>
+var map;
+var polylines = [];
+var userMarker = null;
+var PhotoOverlay;
+
 function initMap(){
-  var map=new google.maps.Map(document.getElementById('map'),{
-    center:{lat:${initialRegion.latitude},lng:${initialRegion.longitude}},
+  PhotoOverlay = class extends google.maps.OverlayView {
+    constructor(pos, el) {
+      super();
+      this.position = pos;
+      this.div = el;
+      this.setMap(map);
+    }
+    onAdd() {
+      this.getPanes().overlayMouseTarget.appendChild(this.div);
+    }
+    draw() {
+      var pt = this.getProjection().fromLatLngToDivPixel(this.position);
+      if (pt) {
+        this.div.style.left = pt.x + 'px';
+        this.div.style.top = pt.y + 'px';
+        this.div.style.position = 'absolute';
+        this.div.style.transform = 'translate(-50%,-50%)';
+      }
+    }
+    onRemove() {
+      if (this.div && this.div.parentNode) {
+        this.div.parentNode.removeChild(this.div);
+      }
+    }
+  };
+
+  map=new google.maps.Map(document.getElementById('map'),{
+    center:{lat:${initialMapCenter.latitude},lng:${initialMapCenter.longitude}},
     zoom:15,
     mapTypeId:'roadmap',
     styles:${JSON.stringify(mapStyle.customMapStyle)},
@@ -315,23 +371,23 @@ function initMap(){
     zoomControl:true
   });
 
-  // Custom OverlayView class
-  function PhotoOverlay(pos,el){this.position=pos;this.div=el;this.setMap(map);}
-  PhotoOverlay.prototype=new google.maps.OverlayView();
-  PhotoOverlay.prototype.onAdd=function(){this.getPanes().overlayMouseTarget.appendChild(this.div);};
-  PhotoOverlay.prototype.draw=function(){
-    var pt=this.getProjection().fromLatLngToDivPixel(this.position);
-    if(pt){
-      this.div.style.left=pt.x+'px';
-      this.div.style.top=pt.y+'px';
-      this.div.style.position='absolute';
-      this.div.style.transform='translate(-50%,-50%)';
-    }
-  };
-  PhotoOverlay.prototype.onRemove=function(){if(this.div&&this.div.parentNode)this.div.parentNode.removeChild(this.div);};
+  if (window.initialUpdateData) {
+    window.initialUpdateData();
+  }
+}
 
-  var path=${polyCoords};
-  if(path.length>1){
+window.updateMapData = function(path, currentLat, currentLng) {
+  if (!map) {
+    window.initialUpdateData = function() {
+      window.updateMapData(path, currentLat, currentLng);
+    };
+    return;
+  }
+
+  polylines.forEach(function(p) { p.setMap(null); });
+  polylines = [];
+
+  if(path && path.length>1){
     var segments = [];
     var currentSegment = [];
     for(var i=0; i<path.length; i++){
@@ -352,31 +408,40 @@ function initMap(){
     if(currentSegment.length > 0) segments.push(currentSegment);
     segments.forEach(function(seg){
       if(seg.length > 1){
-        new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:14,map:map});
-        new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:5,map:map});
+        var glow = new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1.0,strokeWeight:14,map:map});
+        var core = new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1.0,strokeWeight:5,map:map});
+        polylines.push(glow);
+        polylines.push(core);
       }
     });
   }
 
-  var currentLat = ${currentLocation ? currentLocation.latitude : 'null'};
-  var currentLng = ${currentLocation ? currentLocation.longitude : 'null'};
   if (currentLat && currentLng) {
-    var userDiv = document.createElement('div');
-    userDiv.style.cssText = 'position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
-    userDiv.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
-    new PhotoOverlay(new google.maps.LatLng(currentLat, currentLng), userDiv);
+    var latLng = new google.maps.LatLng(currentLat, currentLng);
+    if (userMarker) {
+      userMarker.position = latLng;
+      userMarker.draw();
+    } else {
+      var userDiv = document.createElement('div');
+      userDiv.style.cssText = 'position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+      userDiv.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
+      userMarker = new PhotoOverlay(latLng, userDiv);
+    }
+    map.panTo(latLng);
   }
 }
 </script></head><body><div id="map"></div>
 <script async defer src="https://maps.googleapis.com/maps/api/js?key=${WV_KEY}&language=en&callback=initMap"></script></body></html>`;
             return (
               <WebView
+                ref={webViewRef}
                 style={styles.map}
                 source={{ html }}
                 javaScriptEnabled={true}
                 domStorageEnabled={true}
                 originWhitelist={['https://*', 'http://*', 'data:*', 'about:*']}
                 onShouldStartLoadWithRequest={(req) => req.url.startsWith('http') || req.url.startsWith('data:') || req.url.startsWith('about:')}
+                onLoadEnd={() => setWebViewMapReady(true)}
                 {...(Platform.OS === 'android' && { mixedContentMode: 'compatibility' as const, setSupportMultipleWindows: false })}
               />
             );

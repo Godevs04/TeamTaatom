@@ -32,12 +32,27 @@ export function PostCreateHeader({
   const insets = useSafeAreaInsets();
   const isWeb = Platform.OS === 'web';
   const topBarHeight = isWeb ? 56 : (56 + (insets.top || 0));
-  const topBarBg = mode === 'dark' ? '#000000' : '#FFFFFF';
-  const textColor = mode === 'dark' ? '#FFFFFF' : '#122236';
+  const isDark = mode === 'dark';
+  const topBarBg = isDark ? 'rgba(10, 15, 25, 0.7)' : 'rgba(255, 255, 255, 0.65)';
+  const textColor = isDark ? '#FFFFFF' : '#122236';
 
   return (
     <>
-      <View style={[styles.solidTopBar, { height: topBarHeight, paddingTop: topBarHeight - 56, backgroundColor: topBarBg }]}>
+      <View style={[styles.solidTopBar, { height: topBarHeight, paddingTop: topBarHeight - 56, overflow: 'hidden' }]}>
+        <BlurView
+          intensity={80}
+          tint={isDark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFillObject}
+        />
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: topBarBg }]} />
+        <View style={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 1,
+          backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+        }} />
         <View style={styles.topBarContent}>
           <Pressable
             onPress={onClose}
@@ -52,7 +67,7 @@ export function PostCreateHeader({
           <View style={[styles.topBarButton, { alignItems: 'flex-end', minWidth: 60 }]}>
             {showNext && onNext ? (
               <Pressable onPress={onNext} hitSlop={12}>
-                <Text style={{ color: theme.colors.secondary, fontWeight: 'bold', fontSize: 16 }}>{nextText}</Text>
+                <Text style={{ color: '#14B8A6', fontWeight: 'bold', fontSize: 16 }}>{nextText}</Text>
               </Pressable>
             ) : (
               <View style={{ width: 40 }} />
@@ -66,6 +81,7 @@ export function PostCreateHeader({
 
 export function PostMediaTypeToggle({ postType, onPostTypeChange }: PostCreateChromeProps) {
   const { theme, mode } = useTheme();
+  const isDark = mode === 'dark';
 
   const tabs = [
     { key: 'photo' as const, label: 'Photo', icon: 'image-outline' as const },
@@ -77,9 +93,10 @@ export function PostMediaTypeToggle({ postType, onPostTypeChange }: PostCreateCh
       style={[
         styles.toggleWrap,
         {
-          backgroundColor: mode === 'dark' ? '#121212' : '#FFFFFF',
+          backgroundColor: isDark ? 'rgba(10, 15, 25, 0.5)' : 'rgba(255, 255, 255, 0.4)',
           borderColor: theme.colors.border,
           borderWidth: 1.5,
+          overflow: 'hidden',
         },
       ]}
     >
@@ -88,18 +105,27 @@ export function PostMediaTypeToggle({ postType, onPostTypeChange }: PostCreateCh
         return (
           <Pressable
             key={tab.key}
-            style={[styles.toggleSeg, active && { backgroundColor: theme.colors.secondary }]}
+            style={[styles.toggleSeg, { position: 'relative', overflow: 'hidden' }]}
             onPress={() => onPostTypeChange(tab.key)}
           >
+            {active && (
+              <LinearGradient
+                colors={['#38BDF8', '#14B8A6', '#34D399']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={StyleSheet.absoluteFillObject}
+              />
+            )}
             <Ionicons
               name={tab.icon}
               size={16}
               color={active ? '#FFFFFF' : theme.colors.textSecondary}
+              style={{ zIndex: 1 }}
             />
             <Text
               style={[
                 styles.toggleLabel,
-                { color: active ? '#FFFFFF' : theme.colors.textSecondary },
+                { color: active ? '#FFFFFF' : theme.colors.textSecondary, zIndex: 1 },
               ]}
             >
               {tab.label}
@@ -135,18 +161,25 @@ export function PostCreateEmptyCard({
   };
   const dashStroke = theme.colors.secondary + '40';
 
+  const isDark = mode === 'dark';
+
   return (
     <View style={styles.emptyOuter}>
       <View
         style={[
           styles.mainCard,
           {
-            borderColor: theme.colors.border,
-            borderWidth: 1.5,
-            backgroundColor: mode === 'dark' ? '#121212' : '#FFFFFF',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.45)',
+            borderWidth: 1,
+            backgroundColor: isDark ? 'rgba(20, 24, 30, 0.45)' : 'rgba(255, 255, 255, 0.35)',
           },
         ]}
       >
+        <BlurView
+          intensity={80}
+          tint={isDark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFillObject}
+        />
         <View
           style={[
             styles.uploadZone,
@@ -171,13 +204,13 @@ export function PostCreateEmptyCard({
           ) : null}
           <View style={styles.uploadIconWrap}>
             <LinearGradient
-              colors={theme.colors.gradient.button}
+              colors={['#38BDF8', '#14B8A6', '#34D399']}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 0 }}
               style={StyleSheet.absoluteFillObject}
             />
-            <Ionicons name={isPhoto ? 'image' : 'videocam'} size={28} color="#fff" />
-            <View style={[styles.plusBadge, { backgroundColor: theme.colors.secondary }]}>
+            <Ionicons name={isPhoto ? 'image' : 'videocam'} size={28} color="#fff" style={{ zIndex: 1 }} />
+            <View style={[styles.plusBadge, { backgroundColor: '#14B8A6' }]}>
               <Ionicons name="add" size={14} color="#fff" />
             </View>
           </View>
@@ -187,30 +220,56 @@ export function PostCreateEmptyCard({
 
         <View style={styles.actionRow}>
           <Pressable style={styles.actionCard} onPress={onPickLibrary}>
-            <View style={[styles.actionInner, { borderColor: theme.colors.border, backgroundColor: mode === 'dark' ? '#1E1E1E' : '#F9FBFD' }]}>
+            <View style={[
+              styles.actionInner, 
+              { 
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.45)', 
+                backgroundColor: isDark ? 'rgba(20, 24, 30, 0.35)' : 'rgba(255, 255, 255, 0.25)',
+                borderWidth: 1,
+                overflow: 'hidden'
+              }
+            ]}>
+              <BlurView
+                intensity={80}
+                tint={isDark ? 'dark' : 'light'}
+                style={StyleSheet.absoluteFillObject}
+              />
               <View style={styles.actionIcon}>
                 <LinearGradient
-                  colors={theme.colors.gradient.button}
+                  colors={['#38BDF8', '#14B8A6', '#34D399']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={StyleSheet.absoluteFillObject}
                 />
-                <Ionicons name={isPhoto ? 'images' : 'film'} size={22} color="#fff" />
+                <Ionicons name={isPhoto ? 'images' : 'film'} size={22} color="#fff" style={{ zIndex: 1 }} />
               </View>
               <Text style={[styles.actionTitle, { color: theme.colors.text }]}>Choose from Library</Text>
               <Text style={[styles.actionSub, { color: theme.colors.textSecondary }]}>Browse your photos</Text>
             </View>
           </Pressable>
           <Pressable style={styles.actionCard} onPress={onTakeMedia}>
-            <View style={[styles.actionInner, { borderColor: theme.colors.border, backgroundColor: mode === 'dark' ? '#1E1E1E' : '#F9FBFD' }]}>
+            <View style={[
+              styles.actionInner, 
+              { 
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.45)', 
+                backgroundColor: isDark ? 'rgba(20, 24, 30, 0.35)' : 'rgba(255, 255, 255, 0.25)',
+                borderWidth: 1,
+                overflow: 'hidden'
+              }
+            ]}>
+              <BlurView
+                intensity={80}
+                tint={isDark ? 'dark' : 'light'}
+                style={StyleSheet.absoluteFillObject}
+              />
               <View style={styles.actionIcon}>
                 <LinearGradient
-                  colors={theme.colors.gradient.button}
+                  colors={['#38BDF8', '#14B8A6', '#34D399']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={StyleSheet.absoluteFillObject}
                 />
-                <Ionicons name={isPhoto ? 'camera' : 'videocam'} size={22} color="#fff" />
+                <Ionicons name={isPhoto ? 'camera' : 'videocam'} size={22} color="#fff" style={{ zIndex: 1 }} />
               </View>
               <Text style={[styles.actionTitle, { color: theme.colors.text }]}>
                 Take {isPhoto ? 'Photo' : 'Video'}
