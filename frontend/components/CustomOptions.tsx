@@ -87,7 +87,7 @@ export default function CustomOptions({
       <StatusBar backgroundColor="rgba(0,0,0,0.5)" barStyle="light-content" />
       <View style={styles.overlay}>
         <BlurView
-          intensity={isDark ? 30 : 20}
+          intensity={isDark ? 55 : 45}
           tint={isDark ? 'dark' : 'light'}
           style={StyleSheet.absoluteFillObject}
         />
@@ -96,17 +96,17 @@ export default function CustomOptions({
           style={[
             styles.optionsContainer,
             {
-              backgroundColor: isDark ? 'rgba(30, 30, 30, 0.65)' : 'rgba(255, 255, 255, 0.65)',
-              borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.35)',
+              backgroundColor: isDark ? 'rgba(24, 24, 28, 0.90)' : 'rgba(255, 255, 255, 0.92)',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.22)' : 'rgba(255, 255, 255, 0.45)',
               transform: [{ scale: scaleAnim }],
               opacity: opacityAnim,
             },
           ]}
         >
           <BlurView
-            intensity={isDark ? 65 : 75}
+            intensity={isDark ? 80 : 90}
             tint={isDark ? 'dark' : 'light'}
-            style={StyleSheet.absoluteFillObject}
+            style={[StyleSheet.absoluteFillObject, { borderRadius: 24 }]}
           />
           
           <View style={styles.contentWrapper}>
@@ -217,7 +217,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
   },
   optionsContainer: {
     width: width * 0.9,
