@@ -782,6 +782,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // Guard to prevent duplicate navigation on rapid swipes
   const isNavigatingRef = useRef<boolean>(false);
   const lastNavigationUserIdRef = useRef<string | null>(null);
+  const activeRecoveryTimerRef = useRef<any>(null);
   // When we blur with userId in params (e.g. tab switch), clear params on next focus so Shorts shows all users
   const shouldClearParamsOnNextFocusRef = useRef<boolean>(false);
   const lastViewTimeRef = useRef<number>(0);
@@ -2502,6 +2503,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const visibleItem = shortsData[currentVisibleIndex] as ShortsItem | undefined;
     const isReel = visibleItem && !isAdItem(visibleItem);
     previousVisibleIndexRef.current = currentVisibleIndex;
+    
+    // Clear any pending recovery check when visible video changes
+    if (activeRecoveryTimerRef.current) {
+      clearTimeout(activeRecoveryTimerRef.current);
+      activeRecoveryTimerRef.current = null;
+    }
+
     // NOTE: Do NOT call audioManager.stopAll() here.
     // SongPlayer handles its own lifecycle via isVisible/autoPlay props,
     // and audioManager.playSound() already calls stopAll() before playing a new sound.
@@ -2552,6 +2560,39 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           }
         } else {
           logger.debug(`Video ${currentShortId} not loaded yet, waiting for onLoad`);
+          
+          // RECOVERY MECHANISM:
+          // If the visible video is not loaded yet (e.g. failed load in background due to expired URL),
+          // schedule a recovery check after 1.5 seconds. If it's still not loaded, we force-refetch the fresh signed URL.
+          activeRecoveryTimerRef.current = setTimeout(() => {
+            const checkVideo = videoRefs.current[currentShortId];
+            if (checkVideo) {
+              checkVideo.getStatusAsync().then((checkStatus) => {
+                if (!checkStatus.isLoaded) {
+                  logger.warn(`Video ${currentShortId} still not loaded after 1.5s - triggering URL refetch recovery`);
+                  handlersRef.current.refetchShortWithFreshUrl(currentShortId).then((freshShort: PostType | null) => {
+                    const freshVideoUrl = freshShort?.videoUrl || freshShort?.mediaUrl || freshShort?.imageUrl;
+                    if (freshShort && freshVideoUrl) {
+                      setShorts(prev => prev.map(s =>
+                        s._id === currentShortId
+                          ? { ...s, mediaUrl: freshShort.mediaUrl, videoUrl: freshShort.videoUrl || s.videoUrl, imageUrl: freshShort.imageUrl || s.imageUrl }
+                          : s
+                      ));
+                      setSourceVersions(prev => ({
+                        ...prev,
+                        [currentShortId]: (prev[currentShortId] ?? 0) + 1,
+                      }));
+                      logger.info(`Successfully recovered visible video ${currentShortId} with fresh signed URL`);
+                    } else {
+                      handlersRef.current.retryVideoLoad(currentShortId, 200);
+                    }
+                  }).catch(() => {
+                    handlersRef.current.retryVideoLoad(currentShortId, 200);
+                  });
+                }
+              }).catch(() => {});
+            }
+          }, 1500);
         }
       }).catch((error) => {
         logger.error(`Failed to get status for video ${currentShortId}:`, error);
@@ -2565,6 +2606,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       updateKeyedBool(setVideoStates, currentShortId, true);
       logger.debug(`Video ref not available for ${currentShortId}, will play when mounted`);
     }
+
+    return () => {
+      if (activeRecoveryTimerRef.current) {
+        clearTimeout(activeRecoveryTimerRef.current);
+        activeRecoveryTimerRef.current = null;
+      }
+    };
   }, [currentVisibleIndex, shortsData, updateKeyedBool]);
 
   // Preload next reel and track video views (reels only; skip when visible item is ad)
@@ -2866,8 +2914,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     errorDomain === 'NSURLErrorDomain' ||
                     /(-1001|NSURLErrorDomain|timeout|Timeout|timed out)/.test(errorMessage);
                   const isExpiredUrl = /(403|404|Forbidden|expired|ExpiredRequest)/.test(errorMessage);
-
-                  if (index !== currentVisibleIndex) return;
 
                   if (isExpiredUrl || isTimeoutError) {
                     const errorType = isTimeoutError ? 'timeout' : 'expired URL';
