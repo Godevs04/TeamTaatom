@@ -55,46 +55,76 @@ export default function ConnectCard({
     ? imageCacheManager.getCachedPathSync(rawImageUrl) || optimizeCloudinaryUrl(rawImageUrl, { width: 96, height: 96 })
     : '';
 
+  const cardBorderColor = glass.isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.22)';
+  const cardBgColor = glass.isDark ? 'rgba(25, 25, 25, 0.76)' : 'rgba(255, 255, 255, 0.88)';
+  const cardShadowColor = glass.isDark ? '#000000' : '#1C73B4';
+
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.76} style={styles.touchable}>
-      <CloudGlassSurface style={styles.card} contentStyle={styles.cardContent} borderRadius={18}>
+      <CloudGlassSurface
+        style={[
+          styles.card,
+          {
+            backgroundColor: cardBgColor,
+            borderColor: cardBorderColor,
+            borderWidth: 1.2,
+            shadowColor: cardShadowColor,
+            shadowOffset: { width: 0, height: 6 },
+            shadowOpacity: glass.isDark ? 0.35 : 0.09,
+            shadowRadius: 12,
+            elevation: glass.isDark ? 3 : 5,
+          }
+        ]}
+        contentStyle={styles.cardContent}
+        borderRadius={18}
+      >
         <View style={styles.imageContainer}>
-          {cachedImageUri ? (
-            <Image
-              source={{ uri: cachedImageUri }}
-              style={[styles.profileImage, { borderColor: '#1C73B4' }]}
-              onLoad={() => imageCacheManager.cacheAfterDisplay(rawImageUrl)}
-            />
-          ) : (
-            <View style={[styles.profileImagePlaceholder, { backgroundColor: glass.isDark ? 'rgba(0, 0, 0, 0.75)' : '#FFFFFF', borderColor: '#1C73B4', borderWidth: 2 }]}>
-              <Ionicons name="people" size={24} color={theme.colors.textPassive} />
-            </View>
-          )}
+          <LinearGradient
+            colors={['#1C73B4', '#50C878']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{
+              padding: 2,
+              borderRadius: isTablet ? 30 : 26,
+            }}
+          >
+            {cachedImageUri ? (
+              <Image
+                source={{ uri: cachedImageUri }}
+                style={styles.profileImage}
+                onLoad={() => imageCacheManager.cacheAfterDisplay(rawImageUrl)}
+              />
+            ) : (
+              <View style={[styles.profileImagePlaceholder, { backgroundColor: glass.isDark ? 'rgba(0, 0, 0, 0.75)' : '#FFFFFF' }]}>
+                <Ionicons name="people" size={24} color={theme.colors.primary} />
+              </View>
+            )}
+          </LinearGradient>
         </View>
 
         <View style={styles.infoContainer}>
           <View style={styles.nameRow}>
             {page.type === 'private' && (
-              <Ionicons name="lock-closed" size={isTablet ? 15 : 13} color={theme.colors.textPassive} style={{ marginRight: 4 }} />
+              <Ionicons name="lock-closed" size={isTablet ? 15 : 13} color={theme.colors.primary} style={{ marginRight: 4 }} />
             )}
             <Text style={[styles.pageName, { color: glass.textPrimary, flex: 1 }]} numberOfLines={1}>
               {page.name}
             </Text>
           </View>
           {ownerName ? (
-            <Text style={[styles.ownerName, { color: theme.colors.textPassive }]} numberOfLines={1}>
+            <Text style={[styles.ownerName, { color: theme.colors.primary }]} numberOfLines={1}>
               by {ownerName}
             </Text>
           ) : null}
           {page.bio ? (
-            <Text style={[styles.bio, { color: theme.colors.textPassive }]} numberOfLines={2}>
+            <Text style={[styles.bio, { color: theme.colors.primary }]} numberOfLines={2}>
               {page.bio}
             </Text>
           ) : null}
           <View style={styles.statsRow}>
             <View style={styles.stat}>
-              <Ionicons name="people-outline" size={14} color={theme.colors.textPassive} />
-              <Text style={[styles.statText, { color: theme.colors.textPassive }]}>
+              <Ionicons name="people-outline" size={14} color={theme.colors.primary} />
+              <Text style={[styles.statText, { color: theme.colors.primary }]}>
                 {String((page.followerCount || 0) + 1)}
               </Text>
             </View>
@@ -143,30 +173,27 @@ export default function ConnectCard({
 
 const styles = StyleSheet.create({
   touchable: {
-    marginHorizontal: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.md,
-    marginBottom: isTablet ? themeConstants.spacing.md : 10,
+    marginVertical: 6,
+    marginHorizontal: 12,
   },
   card: {
-    marginBottom: 0,
+    padding: 16,
   },
   cardContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: isTablet ? 14 : 12,
-    paddingHorizontal: isTablet ? 14 : 12,
   },
   imageContainer: {
-    marginRight: isTablet ? themeConstants.spacing.md : 12,
+    marginRight: 16,
   },
   profileImage: {
-    width: isTablet ? 56 : 48,
-    height: isTablet ? 56 : 48,
+    width: isTablet ? 60 : 52,
+    height: isTablet ? 60 : 52,
     borderRadius: isTablet ? 28 : 24,
-    borderWidth: 2,
   },
   profileImagePlaceholder: {
-    width: isTablet ? 56 : 48,
-    height: isTablet ? 56 : 48,
+    width: isTablet ? 60 : 52,
+    height: isTablet ? 60 : 52,
     borderRadius: isTablet ? 28 : 24,
     justifyContent: 'center',
     alignItems: 'center',

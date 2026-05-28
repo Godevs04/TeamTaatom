@@ -17,7 +17,7 @@ import {
   KeyboardAvoidingView,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode } from 'expo-av';
@@ -109,6 +109,7 @@ function PreviewImage({ uri, inRow, inStack, arOverride }: { uri: string; inRow?
 export default function ContentPreviewScreen() {
   const { theme, isDark } = useTheme();
   const { showSuccess } = useAlert();
+  const insets = useSafeAreaInsets();
   const { updateSubscriptionStatus } = useSubscription();
   const router = useRouter();
   const { pageId, section, pageName } = useLocalSearchParams<{
@@ -149,7 +150,7 @@ export default function ContentPreviewScreen() {
   const isWebsite = section === 'website';
   const isSubscription = section === 'subscription';
   const isLocked = isSubscription && !isOwner && !subscriptionStatus?.isSubscribed;
-  const isCommunity = pageData?.category === 'community';
+  const isCommunity = pageData?.category === 'community' || pageData?.isAdminPage === true;
   const subLabel = isCommunity ? 'Buy' : 'Subscription';
   const subButtonText = isCommunity ? 'Buy' : 'Subscribe';
   const title = pageName
@@ -580,6 +581,8 @@ export default function ContentPreviewScreen() {
           {
             backgroundColor: isDark ? 'rgba(20, 23, 24, 0.7)' : 'rgba(250, 251, 251, 0.7)',
             borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+            height: 60 + insets.top,
+            paddingTop: insets.top,
           }
         ]}
       >
@@ -647,7 +650,7 @@ export default function ContentPreviewScreen() {
       ) : (
         <ScrollView
           style={[styles.scrollContent, pageBackground ? { backgroundColor: pageBackground } : null]}
-          contentContainerStyle={[styles.contentContainer, { paddingTop: 76 }]}
+          contentContainerStyle={[styles.contentContainer, { paddingTop: 60 + insets.top + 16 }]}
           showsVerticalScrollIndicator={false}
         >
           {/* Buy Items Listing for Community Category */}

@@ -181,4 +181,51 @@
     background-size: auto, auto, auto, 40px 40px, 40px 40px;
     background-position: 0 0, 0 0, 0 0, center center, center center;
   }
+
+  /* Stashed cosmetic styles */
+  .stashed-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: center;
+    height: 150vh;
+    background: hsl(0deg 0% 95%);
+    margin: 0;
+    padding: 0;
+  }
+  
+  .stashed-header {
+    width: 100%;
+    padding: 2rem;
+    z-index: 2;
+  }
+  
+  .ball {
+    width: 64px;
+    height: 64px;
+    background: red;
+    border-radius: 50%;
+    margin-top: 2rem;
+    filter: blur(1px);
+    box-shadow: 0 0 20px rgba(255, 0, 0, 0.3);
+  }
+
+  /* Combined Liquid Glassmorphism & Frosted Glass effects */
+  .glassmorphism-premium {
+    background: rgba(255, 255, 255, 0.45) !important;
+    backdrop-filter: blur(20px) saturate(190%) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(190%) !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.3) !important;
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
+    text-shadow: 0 1px 1px rgba(255, 255, 255, 0.15);
+  }
+
+  .dark .glassmorphism-premium {
+    background: rgba(10, 18, 30, 0.55) !important;
+    backdrop-filter: blur(20px) saturate(170%) !important;
+    -webkit-backdrop-filter: blur(20px) saturate(170%) !important;
+    border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+  }
 }

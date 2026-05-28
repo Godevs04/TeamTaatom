@@ -17,7 +17,7 @@ import {
   Pressable,
 } from 'react-native';
 import LoadingGlobe from '../../../components/LoadingGlobe';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
@@ -157,6 +157,7 @@ function ContentImage({ uri, inRow, inStack, arOverride, blurRadius }: { uri: st
 
 export default function ConnectPageDetailScreen() {
   const { theme, isDark } = useTheme();
+  const insets = useSafeAreaInsets();
   const { showSuccess } = useAlert();
   const { updateSubscriptionStatus } = useSubscription();
   const router = useRouter();
@@ -782,6 +783,8 @@ export default function ConnectPageDetailScreen() {
             {
               backgroundColor: isDark ? 'rgba(13, 27, 42, 0.65)' : 'rgba(255, 255, 255, 0.65)',
               borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
+              height: 60 + insets.top,
+              paddingTop: insets.top,
             }
           ]}
         >
@@ -826,6 +829,8 @@ export default function ConnectPageDetailScreen() {
           {
             backgroundColor: isDark ? 'rgba(13, 27, 42, 0.65)' : 'rgba(255, 255, 255, 0.65)',
             borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
+            height: 60 + insets.top,
+            paddingTop: insets.top,
           }
         ]}
       >

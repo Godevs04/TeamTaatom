@@ -18,6 +18,8 @@ import {
 import LoadingGlobe from '../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../context/ThemeContext';
 import { useAlert } from '../context/AlertContext';
@@ -71,7 +73,7 @@ export default function SearchScreen() {
     endDate: '',
     type: '' as 'photo' | 'short' | '',
   });
-  const { theme, mode } = useTheme();
+  const { theme, mode, isDark } = useTheme();
   const { showError } = useAlert();
   const router = useRouter();
 
@@ -249,7 +251,21 @@ export default function SearchScreen() {
 
   const renderUserItem = ({ item }: { item: UserType }) => (
     <TouchableOpacity 
-      style={[styles.userItem, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}
+      style={[
+        styles.userItem, 
+        { 
+          backgroundColor: isDark ? 'rgba(30, 30, 30, 0.45)' : 'rgba(255, 255, 255, 0.55)',
+          borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.06)',
+          borderWidth: 1,
+          marginHorizontal: 16,
+          marginVertical: 6,
+          borderRadius: 16,
+          overflow: 'hidden',
+          paddingHorizontal: 0,
+          paddingVertical: 0,
+          borderBottomWidth: 1,
+        }
+      ]}
       onPress={async () => {
         // Save to history only when user explicitly selects a result
         if (searchQuery.trim().length >= 3) {
@@ -258,44 +274,53 @@ export default function SearchScreen() {
         router.push(`/profile/${item._id}`);
       }}
     >
-      {item.profilePic ? (
-        <FastImage source={{ uri: item.profilePic }} style={styles.userAvatar} />
-      ) : (
-        <View style={[styles.userAvatar, { backgroundColor: theme.colors.border, justifyContent: 'center', alignItems: 'center' }]}>
-          <Ionicons name="person" size={22} color={theme.colors.textSecondary} />
-        </View>
-      )}
-      <View style={styles.userInfo}>
-        {/* Show fullName as primary, username as secondary below */}
-        <Text style={[styles.userName, { color: theme.colors.text }]}>
-          {item.fullName || item.username || 'Unknown User'}
-        </Text>
-        {item.username && (
-          <Text style={[styles.userUsername, { color: theme.colors.textSecondary }]}>
-            @{item.username}
-          </Text>
+      <BlurView
+        intensity={65}
+        tint={isDark ? 'dark' : 'light'}
+        style={StyleSheet.absoluteFillObject}
+      />
+      
+      <View style={{ flexDirection: 'row', alignItems: 'center', padding: 12, width: '100%' }}>
+        {item.profilePic ? (
+          <FastImage source={{ uri: item.profilePic }} style={styles.userAvatar} />
+        ) : (
+          <View style={[styles.userAvatar, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)', marginRight: 12 }]}>
+            <Ionicons name="person" size={20} color={theme.colors.textSecondary} />
+          </View>
         )}
-        <View style={styles.userStats}>
-          <Text style={[styles.statText, { color: theme.colors.textSecondary }]}>
-            {(item as { followersCount?: number }).followersCount ??
-              (typeof item.followers === 'number' ? item.followers : item.followers?.length) ??
-              0}{' '}
-            followers
+        <View style={styles.userInfo}>
+          {/* Show fullName as primary, username as secondary below */}
+          <Text style={[styles.userName, { color: theme.colors.text }]} numberOfLines={1}>
+            {item.fullName || item.username || 'Unknown User'}
           </Text>
-          <Text style={[styles.statText, { color: theme.colors.textSecondary }]}>
-            • {item.totalLikes || 0} likes
-          </Text>
+          {item.username && (
+            <Text style={[styles.userUsername, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+              @{item.username}
+            </Text>
+          )}
+          <View style={styles.userStats}>
+            <Text style={[styles.statText, { color: theme.colors.textSecondary }]}>
+              {(item as { followersCount?: number }).followersCount ??
+                (typeof item.followers === 'number' ? item.followers : item.followers?.length) ??
+                0}{' '}
+              followers
+            </Text>
+            <Text style={[styles.statText, { color: theme.colors.textSecondary }]}>
+              • {item.totalLikes || 0} likes
+            </Text>
+          </View>
         </View>
+        
+        {item.isFollowing ? (
+          <TouchableOpacity style={[styles.followButton, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)', borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' }]}>
+            <Text style={[styles.followButtonText, { color: theme.colors.text, fontSize: 13 }]}>Following</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={[styles.followButton, { backgroundColor: theme.colors.primary }]}>
+            <Text style={[styles.followButtonText, { color: 'white', fontSize: 13 }]}>Follow</Text>
+          </TouchableOpacity>
+        )}
       </View>
-      {item.isFollowing ? (
-        <TouchableOpacity style={[styles.followButton, { backgroundColor: theme.colors.border }]}>
-          <Text style={[styles.followButtonText, { color: theme.colors.text }]}>Following</Text>
-        </TouchableOpacity>
-      ) : (
-        <TouchableOpacity style={[styles.followButton, { backgroundColor: theme.colors.primary }]}>
-          <Text style={[styles.followButtonText, { color: 'white' }]}>Follow</Text>
-        </TouchableOpacity>
-      )}
     </TouchableOpacity>
   );
 
@@ -351,36 +376,65 @@ export default function SearchScreen() {
     if (filteredHistory.length === 0) return null;
 
     return (
-      <View style={[styles.historyContainer, { backgroundColor: theme.colors.surface }]}>
-        <View style={styles.historyHeader}>
-          <Text style={[styles.historyTitle, { color: theme.colors.text }]}>Recent Searches</Text>
-          <TouchableOpacity onPress={clearAllHistory}>
-            <Text style={[styles.clearAllText, { color: theme.colors.primary }]}>Clear All</Text>
-          </TouchableOpacity>
-        </View>
-        {filteredHistory.map((item, index) => (
-          <TouchableOpacity
-            key={`${item.type}-${index}-${item.query}`}
-            style={[styles.historyItem, { borderBottomColor: theme.colors.border }]}
-            onPress={() => selectFromHistory(item.query, item.type)}
-          >
-            <Ionicons 
-              name="time-outline" 
-              size={20} 
-              color={theme.colors.textSecondary} 
-              style={styles.historyIcon}
-            />
-            <Text style={[styles.historyText, { color: theme.colors.text }]} numberOfLines={1}>
-              {item.query}
-            </Text>
-            <TouchableOpacity
-              onPress={() => deleteSearchHistory(searchHistory.indexOf(item))}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Ionicons name="close-circle-outline" size={20} color={theme.colors.textSecondary} />
+      <View 
+        style={[
+          styles.historyContainer, 
+          { 
+            backgroundColor: isDark ? 'rgba(30, 30, 30, 0.45)' : 'rgba(255, 255, 255, 0.55)',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.06)',
+            borderWidth: 1,
+            marginHorizontal: 16,
+            marginTop: 16,
+            borderRadius: 20,
+            overflow: 'hidden',
+            paddingHorizontal: 0,
+            paddingVertical: 0,
+          }
+        ]}
+      >
+        <BlurView
+          intensity={65}
+          tint={isDark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFillObject}
+        />
+        
+        <View style={{ padding: 16 }}>
+          <View style={styles.historyHeader}>
+            <Text style={[styles.historyTitle, { color: theme.colors.text, fontWeight: '700' }]}>Recent Searches</Text>
+            <TouchableOpacity onPress={clearAllHistory}>
+              <Text style={[styles.clearAllText, { color: theme.colors.primary }]}>Clear All</Text>
             </TouchableOpacity>
-          </TouchableOpacity>
-        ))}
+          </View>
+          {filteredHistory.map((item, index) => (
+            <TouchableOpacity
+              key={`${item.type}-${index}-${item.query}`}
+              style={[
+                styles.historyItem, 
+                { 
+                  borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+                  borderBottomWidth: index < filteredHistory.length - 1 ? 1 : 0
+                }
+              ]}
+              onPress={() => selectFromHistory(item.query, item.type)}
+            >
+              <Ionicons 
+                name="time-outline" 
+                size={20} 
+                color={theme.colors.textSecondary} 
+                style={styles.historyIcon}
+              />
+              <Text style={[styles.historyText, { color: theme.colors.text }]} numberOfLines={1}>
+                {item.query}
+              </Text>
+              <TouchableOpacity
+                onPress={() => deleteSearchHistory(searchHistory.indexOf(item))}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Ionicons name="close-circle-outline" size={20} color={theme.colors.textSecondary} />
+              </TouchableOpacity>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
     );
   };
@@ -397,15 +451,45 @@ export default function SearchScreen() {
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
       {/* Elegant Header */}
-      <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
+      <View 
+        style={[
+          styles.header, 
+          { 
+            backgroundColor: isDark ? 'rgba(25, 25, 25, 0.55)' : 'rgba(255, 255, 255, 0.65)', 
+            borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.06)',
+            overflow: 'hidden'
+          }
+        ]}
+      >
+        <BlurView
+          intensity={65}
+          tint={isDark ? 'dark' : 'light'}
+          style={StyleSheet.absoluteFillObject}
+        />
+        
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
         </TouchableOpacity>
         
-        <View style={[styles.searchContainer, { backgroundColor: theme.colors.background }]}>
-          <Ionicons name="search-outline" size={20} color={theme.colors.textSecondary} />
+        <LinearGradient
+          colors={isDark ? ['rgba(80, 200, 120, 0.15)', 'rgba(28, 115, 180, 0.15)'] : ['rgba(80, 200, 120, 0.08)', 'rgba(28, 115, 180, 0.08)']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={[
+            styles.searchContainer,
+            {
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+              borderWidth: 1,
+              borderRadius: 20,
+              height: 38,
+              paddingVertical: 0,
+              overflow: 'hidden',
+            }
+          ]}
+        >
+          <Ionicons name="search-outline" size={18} color={theme.colors.textSecondary} />
           <TextInput
-            style={[styles.searchInput, { color: theme.colors.text }]}
+            style={[styles.searchInput, { color: theme.colors.text, paddingVertical: 0 }]}
             placeholder="Search users..."
             placeholderTextColor={theme.colors.textSecondary}
             value={searchQuery}
@@ -421,10 +505,10 @@ export default function SearchScreen() {
           />
           {searchQuery.length > 0 && (
             <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
+              <Ionicons name="close-circle" size={18} color={theme.colors.textSecondary} />
             </TouchableOpacity>
           )}
-        </View>
+        </LinearGradient>
       </View>
 
 
