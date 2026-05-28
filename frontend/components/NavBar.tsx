@@ -56,7 +56,7 @@ export default function NavBar(props: NavBarProps) {
         paddingHorizontal: isTablet ? 18 : 10,
         paddingVertical: 8,
         minHeight: isTablet ? 64 : 56,
-        borderRadius: 20,
+        borderRadius: 24,
         borderWidth: 1,
         borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
         backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)',

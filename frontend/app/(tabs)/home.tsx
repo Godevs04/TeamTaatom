@@ -260,7 +260,7 @@ const FeedListItem = React.memo(
 export default function HomeScreen() {
   const { handleScroll } = useScrollToHideNav();
   const insets = useSafeAreaInsets();
-  const topBarHeight = 56 + 63 + insets.top;
+  const [headerHeight, setHeaderHeight] = useState(56 + 63 + insets.top);
   const bottomBarHeight = isWeb ? 70 : (Platform.OS === 'ios' ? (insets.bottom > 0 ? 56 + insets.bottom : 64) : 68);
   const [posts, setRawPosts] = useState<PostType[]>([]);
   const setPosts = useCallback((value: React.SetStateAction<PostType[]>) => {
@@ -1270,18 +1270,6 @@ export default function HomeScreen() {
       paddingTop: insets.top,
       zIndex: 1000,
       backgroundColor: 'transparent',
-      borderBottomWidth: 1,
-      borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.35)',
-      borderTopWidth: 1,
-      borderTopColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.45)',
-      
-      // Soft ambient blue glow
-      shadowColor: isDark ? '#38BDF8' : '#1C73B4',
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: isDark ? 0.04 : 0.06,
-      shadowRadius: 20,
-      elevation: 2,
-
       ...(isWeb && {
         maxWidth: isTablet ? 800 : 600,
         alignSelf: 'center',
@@ -1528,19 +1516,32 @@ export default function HomeScreen() {
             backgroundColor="transparent"
             translucent
           />
-          <View style={[styles.topBarContainer, { position: 'relative', shadowOpacity: 0, elevation: 0 }]}>
-            <BlurView
-              intensity={95}
-              tint={isDark ? 'dark' : 'light'}
-              style={[
-                StyleSheet.absoluteFillObject,
-                {
-                  backgroundColor: isDark ? 'rgba(15, 22, 35, 0.82)' : 'rgba(250, 252, 255, 0.85)',
-                }
-              ]}
-            />
-            {renderTopHeader()}
-            {renderFeedTabs()}
+          <View style={[styles.topBarContainer, { position: 'relative' }]}>
+            <View
+              style={{
+                marginHorizontal: isTablet ? 24 : 14,
+                marginTop: isAndroid ? 6 : 4,
+                borderRadius: 24,
+                borderWidth: 1,
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+                backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)',
+                shadowColor: '#000000',
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: isDark ? 0.3 : 0.1,
+                shadowRadius: 10,
+                elevation: 4,
+                overflow: 'hidden',
+                paddingBottom: 8,
+              }}
+            >
+              <BlurView
+                intensity={95}
+                tint={isDark ? 'dark' : 'light'}
+                style={StyleSheet.absoluteFillObject}
+              />
+              {renderTopHeader()}
+              {renderFeedTabs()}
+            </View>
           </View>
           <ScrollView
             style={styles.postsContainer}
@@ -1585,7 +1586,7 @@ export default function HomeScreen() {
               contentContainerStyle={[
                 styles.postsList,
                 {
-                  paddingTop: topBarHeight,
+                  paddingTop: headerHeight,
                   paddingBottom: bottomBarHeight + 20,
                 }
               ]}
@@ -1603,7 +1604,7 @@ export default function HomeScreen() {
                   colors={[theme.colors.primary]}
                   tintColor={theme.colors.primary}
                   progressBackgroundColor={theme.colors.surface}
-                  progressViewOffset={topBarHeight}
+                  progressViewOffset={headerHeight}
                 />
               }
               onEndReached={handleLoadMore}
@@ -1657,19 +1658,35 @@ export default function HomeScreen() {
         </View>
 
         {/* Absolute Top Bar (zIndex: 1000) */}
-        <View style={styles.topBarContainer}>
-          <BlurView
-            intensity={95}
-            tint={isDark ? 'dark' : 'light'}
-            style={[
-              StyleSheet.absoluteFillObject,
-              {
-                backgroundColor: isDark ? 'rgba(15, 22, 35, 0.82)' : 'rgba(250, 252, 255, 0.85)',
-              }
-            ]}
-          />
-          {renderTopHeader()}
-          {renderFeedTabs()}
+        <View
+          style={styles.topBarContainer}
+          onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
+        >
+          <View
+            style={{
+              marginHorizontal: isTablet ? 24 : 14,
+              marginTop: isAndroid ? 6 : 4,
+              borderRadius: 24,
+              borderWidth: 1,
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+              backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)',
+              shadowColor: '#000000',
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: isDark ? 0.3 : 0.1,
+              shadowRadius: 10,
+              elevation: 4,
+              overflow: 'hidden',
+              paddingBottom: 8,
+            }}
+          >
+            <BlurView
+              intensity={95}
+              tint={isDark ? 'dark' : 'light'}
+              style={StyleSheet.absoluteFillObject}
+            />
+            {renderTopHeader()}
+            {renderFeedTabs()}
+          </View>
         </View>
       </View>
     </View>

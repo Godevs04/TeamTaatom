@@ -41,6 +41,8 @@ const GROWTH_GREEN = '#22C55E';
 const ALERT_RED = '#EF4444';
 const ACTION_BLUE = '#3B82F6';
 const { width: screenWidth } = Dimensions.get('window');
+const isTablet = screenWidth >= 768;
+const isAndroid = Platform.OS === 'android';
 
 
 function safeDecodeUriComponent(value: string | string[] | undefined): string | null {
@@ -192,6 +194,7 @@ function AllLocationsMapInner() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const insets = useSafeAreaInsets();
+  const [headerCardHeight, setHeaderCardHeight] = useState(180);
   const { theme, mode, isDark } = useTheme();
   const mapStyle = useMapStyle();
   const { showAlert, showError, showDestructiveConfirm } = useAlert();
@@ -1479,19 +1482,27 @@ function initMap(){
       </View>
 
       {/* Floating Cockpit Header overlay */}
-      <View style={[
-        styles.floatingHeaderContainer,
-        {
-          top: insets.top + 10,
-          backgroundColor: isDark ? 'rgba(20, 24, 33, 0.75)' : 'rgba(255, 255, 255, 0.75)',
-          borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
-          borderWidth: 1,
-        }
-      ]}>
+      <View 
+        onLayout={(e) => setHeaderCardHeight(e.nativeEvent.layout.height)}
+        style={[
+          styles.floatingHeaderContainer,
+          {
+            top: insets.top,
+            left: 0,
+            right: 0,
+            marginTop: isAndroid ? 6 : 4,
+            marginHorizontal: isTablet ? 24 : 14,
+            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+            borderWidth: 1,
+            shadowOpacity: isDark ? 0.3 : 0.1,
+          }
+        ]}
+      >
         {Platform.OS !== 'android' ? (
-          <BlurView intensity={75} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+          <BlurView intensity={80} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
         ) : (
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
+          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
         )}
         <View style={styles.floatingHeaderContent}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
@@ -1512,139 +1523,83 @@ function initMap(){
             <Ionicons name="list" size={22} color={theme.colors.text} />
           </TouchableOpacity>
         </View>
-      </View>
 
-      {/* Floating Stats - Unified Scrollable Row below Header */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={[styles.statsSliderContainer, { top: insets.top + 82 }]}
-        contentContainerStyle={styles.statsSliderContent}
-      >
-        <View style={[
-          styles.statsSliderCard,
-          {
-            backgroundColor: isDark ? 'rgba(20, 24, 33, 0.75)' : 'rgba(255, 255, 255, 0.75)',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
-          }
-        ]}>
-          {Platform.OS !== 'android' ? (
-            <BlurView intensity={75} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
-          ) : (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
-          )}
-          <Text style={[styles.statsSliderText, { color: isDark ? '#E8F4FF' : '#121212' }]}>
-            📍 {locations.length} Posts
-          </Text>
-        </View>
-
-        <View style={[
-          styles.statsSliderCard,
-          {
-            backgroundColor: isDark ? 'rgba(20, 24, 33, 0.75)' : 'rgba(255, 255, 255, 0.75)',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
-          }
-        ]}>
-          {Platform.OS !== 'android' ? (
-            <BlurView intensity={75} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
-          ) : (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
-          )}
-          <Text style={[styles.statsSliderText, { color: isDark ? '#E8F4FF' : '#121212' }]}>
-            🗺️ {journeys.length} Journeys
-          </Text>
-        </View>
-
-        <View style={[
-          styles.statsSliderCard,
-          {
-            backgroundColor: isDark ? 'rgba(20, 24, 33, 0.75)' : 'rgba(255, 255, 255, 0.75)',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
-          }
-        ]}>
-          {Platform.OS !== 'android' ? (
-            <BlurView intensity={75} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
-          ) : (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
-          )}
-          <Text style={[styles.statsSliderText, { color: isDark ? '#E8F4FF' : '#121212' }]}>
-            ➤ {totalJourneyDistance >= 1000
-              ? `${(totalJourneyDistance / 1000).toFixed(1)}km`
-              : `${Math.round(totalJourneyDistance)}m`} Travel
-          </Text>
-        </View>
-
-        {statistics?.totalDays ? (
-          <View style={[
-            styles.statsSliderCard,
-            {
-              backgroundColor: isDark ? 'rgba(20, 24, 33, 0.75)' : 'rgba(255, 255, 255, 0.75)',
-              borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
-            }
-          ]}>
-            {Platform.OS !== 'android' ? (
-              <BlurView intensity={75} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
-            ) : (
-              <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
-            )}
+        {/* Floating Stats - Unified Scrollable Row inside Header */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.statsSliderContainer}
+          contentContainerStyle={styles.statsSliderContent}
+        >
+          <View style={styles.statsSliderCard}>
             <Text style={[styles.statsSliderText, { color: isDark ? '#E8F4FF' : '#121212' }]}>
-              📅 {statistics.totalDays} Days
+              📍 {locations.length} Posts
             </Text>
           </View>
-        ) : null}
-      </ScrollView>
 
-      {/* Segmented Glass Tabs overlay */}
-      <View style={[
-        styles.floatingTabsContainer,
-        {
-          top: insets.top + 138,
-          backgroundColor: isDark ? 'rgba(20, 24, 33, 0.75)' : 'rgba(255, 255, 255, 0.75)',
-          borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
-        }
-      ]}>
-        {Platform.OS !== 'android' ? (
-          <BlurView intensity={75} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
-        ) : (
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
-        )}
-        {(['posts', 'journeys', 'both'] as const).map((filter) => {
-          const isActive = mapFilter === filter;
-          const label = filter === 'posts' ? 'Posts' : filter === 'journeys' ? 'Journeys' : 'Both';
-          const activeColor = filter === 'posts' ? ALERT_RED : filter === 'journeys' ? GROWTH_GREEN : ACTION_BLUE;
-          return (
-            <TouchableOpacity
-              key={filter}
-              style={[
-                styles.floatingTabItem,
-                isActive && {
-                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.9)',
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.05)',
-                  borderWidth: 1,
-                }
-              ]}
-              onPress={() => setMapFilter(filter)}
-              activeOpacity={0.7}
-            >
-              {isActive && <View style={[styles.activeTabIndicator, { backgroundColor: activeColor }]} />}
-              <Text style={[
-                styles.floatingTabText,
-                {
-                  color: isActive
-                    ? (isDark ? '#FFFFFF' : '#121212')
-                    : (isDark ? '#8A8A8A' : '#667085'),
-                  fontWeight: isActive ? '700' : '500',
-                }
-              ]}>
-                {label}
+          <View style={styles.statsSliderCard}>
+            <Text style={[styles.statsSliderText, { color: isDark ? '#E8F4FF' : '#121212' }]}>
+              🗺️ {journeys.length} Journeys
+            </Text>
+          </View>
+
+          <View style={styles.statsSliderCard}>
+            <Text style={[styles.statsSliderText, { color: isDark ? '#E8F4FF' : '#121212' }]}>
+              ➤ {totalJourneyDistance >= 1000
+                ? `${(totalJourneyDistance / 1000).toFixed(1)}km`
+                : `${Math.round(totalJourneyDistance)}m`} Travel
+            </Text>
+          </View>
+
+          {statistics?.totalDays ? (
+            <View style={styles.statsSliderCard}>
+              <Text style={[styles.statsSliderText, { color: isDark ? '#E8F4FF' : '#121212' }]}>
+                📅 {statistics.totalDays} Days
               </Text>
-            </TouchableOpacity>
-          );
-        })}
+            </View>
+          ) : null}
+        </ScrollView>
+
+        {/* Segmented Glass Tabs overlay inside Header */}
+        <View style={styles.floatingTabsContainer}>
+          {(['posts', 'journeys', 'both'] as const).map((filter) => {
+            const isActive = mapFilter === filter;
+            const label = filter === 'posts' ? 'Posts' : filter === 'journeys' ? 'Journeys' : 'Both';
+            const activeColor = filter === 'posts' ? ALERT_RED : filter === 'journeys' ? GROWTH_GREEN : ACTION_BLUE;
+            return (
+              <TouchableOpacity
+                key={filter}
+                style={[
+                  styles.floatingTabItem,
+                  isActive && {
+                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.9)',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.05)',
+                    borderWidth: 1,
+                  }
+                ]}
+                onPress={() => setMapFilter(filter)}
+                activeOpacity={0.7}
+              >
+                {isActive && <View style={[styles.activeTabIndicator, { backgroundColor: activeColor }]} />}
+                <Text style={[
+                  styles.floatingTabText,
+                  {
+                    color: isActive
+                      ? (isDark ? '#FFFFFF' : '#121212')
+                      : (isDark ? '#8A8A8A' : '#667085'),
+                    fontWeight: isActive ? '700' : '500',
+                  }
+                ]}>
+                  {label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
 
       {/* Floating Map Zoom & Locate Controls overlay */}
-      <View style={[styles.floatingMapControls, { top: insets.top + 194 }]}>
+      <View style={[styles.floatingMapControls, { top: insets.top + (isAndroid ? 6 : 4) + headerCardHeight + 12 }]}>
         <TouchableOpacity
           style={[
             styles.floatingControlBtn,
@@ -2300,8 +2255,16 @@ const styles = StyleSheet.create({
   previewActions: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginTop: 10,
+  },
+  floatingHeaderContainer: {
+    position: 'absolute',
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 4,
   },
   previewButton: {
     minHeight: 34,
@@ -2405,10 +2368,9 @@ const styles = StyleSheet.create({
     color: '#667085',
   },
   statsSliderContainer: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
     height: 44,
+    marginVertical: 4,
+    paddingHorizontal: 16,
   },
   statsSliderContent: {
     flexDirection: 'row',
@@ -2418,27 +2380,24 @@ const styles = StyleSheet.create({
   statsSliderCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    height: 38,
-    borderRadius: 19,
-    paddingHorizontal: 14,
+    height: 34,
+    borderRadius: 17,
+    paddingHorizontal: 12,
     marginRight: 8,
-    borderWidth: 1,
-    overflow: 'hidden',
+    backgroundColor: 'rgba(128, 128, 128, 0.1)',
   },
   statsSliderText: {
     fontSize: 12,
     fontWeight: '700',
   },
   floatingTabsContainer: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
     borderRadius: 20,
     padding: 4,
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    overflow: 'hidden',
+    backgroundColor: 'rgba(128, 128, 128, 0.1)',
+    marginHorizontal: 16,
+    marginBottom: 14,
   },
   floatingTabItem: {
     flex: 1,
