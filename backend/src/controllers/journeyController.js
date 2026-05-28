@@ -720,7 +720,7 @@ const getUserJourneys = async (req, res) => {
     // Include polyline data when requested (for map view)
     const includePolyline = req.query.includePolyline === 'true';
     const selectFields = includePolyline
-      ? 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries polyline tripScoreAwarded privacy'
+      ? 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries polyline sessions tripScoreAwarded privacy'
       : 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries tripScoreAwarded privacy';
 
     // Get journeys

@@ -1435,7 +1435,10 @@ export default function ProfileScreen() {
                 if (userId) router.push(`/map/all-locations?userId=${encodeURIComponent(userId)}`);
               }}
               onOpenTripScore={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
-              onOpenJourneys={() => router.push(`/journeys?userId=${user?._id}`)}
+              onOpenJourneys={() => {
+                const name = user?.fullName || profileData?.fullName || user?.username || '';
+                router.push(`/journeys?userId=${user?._id}&userName=${encodeURIComponent(name)}`);
+              }}
               onOpenConnect={() => router.push('/connect')}
               followingCount={profileData.followingCount || 0}
               onOpenFollowers={() => {

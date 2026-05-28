@@ -145,7 +145,7 @@ export default function TrackingScreen() {
       const polyCoords = JSON.stringify(
         polyline
           .filter((p) => p.latitude && p.longitude)
-          .map((p) => ({ lat: p.latitude, lng: p.longitude, timestamp: p.timestamp }))
+          .map((p) => ({ lat: p.latitude, lng: p.longitude, timestamp: p.timestamp, segmentBreak: p.segmentBreak }))
       );
       const lat = currentLocation ? currentLocation.latitude : 'null';
       const lng = currentLocation ? currentLocation.longitude : 'null';
@@ -298,7 +298,7 @@ export default function TrackingScreen() {
           {useWebViewFallback ? (() => {
             const WV_KEY = getGoogleMapsApiKeyForWebView();
             if (!WV_KEY) return <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}><Ionicons name="map-outline" size={48} color="#9CA3AF" /></View>;
-            const polyCoords = JSON.stringify(polyline.filter(p => p.latitude && p.longitude).map(p => ({ lat: p.latitude, lng: p.longitude, timestamp: p.timestamp })));
+            const polyCoords = JSON.stringify(polyline.filter(p => p.latitude && p.longitude).map(p => ({ lat: p.latitude, lng: p.longitude, timestamp: p.timestamp, segmentBreak: p.segmentBreak })));
             const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>
 html,body,#map{height:100%;margin:0;padding:0}
 .glowing-dot-container {
@@ -398,7 +398,7 @@ window.updateMapData = function(path, currentLat, currentLng) {
       } else {
         var prev = currentSegment[currentSegment.length-1];
         var timeDiff = (p.timestamp && prev.timestamp) ? (p.timestamp - prev.timestamp)/1000 : 0;
-        if(timeDiff > 60){
+        if(p.segmentBreak || timeDiff > 60){
           segments.push(currentSegment);
           currentSegment = [p];
         } else {

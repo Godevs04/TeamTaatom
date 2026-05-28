@@ -37,6 +37,31 @@ const ALERT_RED = '#EF4444';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
+function getJourneyPolylineCoords(journey: any) {
+  const sessionStarts = (journey?.sessions || [])
+    .slice(1)
+    .map((session: any) => new Date(session.startedAt).getTime())
+    .filter((time: number) => Number.isFinite(time))
+    .sort((a: number, b: number) => a - b);
+
+  return (journey?.polyline || []).map((point: any, index: number, points: any[]) => {
+    const timestamp = point.timestamp ? new Date(point.timestamp).getTime() : undefined;
+    const prevTimestamp = index > 0 && points[index - 1]?.timestamp
+      ? new Date(points[index - 1].timestamp).getTime()
+      : undefined;
+    const segmentBreak = !!timestamp && !!prevTimestamp &&
+      sessionStarts.some((start: number) => start > prevTimestamp && start <= timestamp);
+
+    return {
+      latitude: point.lat,
+      longitude: point.lng,
+      timestamp,
+      accuracy: point.accuracy || 0,
+      segmentBreak,
+    };
+  });
+}
+
 /**
  * Journey Detail Screen
  *
@@ -294,7 +319,11 @@ export default function JourneyDetailScreen() {
               );
             }
             const center = journey.polyline[Math.floor(journey.polyline.length / 2)];
-            const polyCoords = JSON.stringify(journey.polyline.map((p: any) => ({ lat: p.lat, lng: p.lng })));
+            const polyCoords = JSON.stringify(getJourneyPolylineCoords(journey).map((p) => ({
+              lat: p.latitude,
+              lng: p.longitude,
+              segmentBreak: p.segmentBreak,
+            })));
             const wps = (journey.waypoints || []).filter((w: any) => w.lat && w.lng);
             const wpMarkers = wps.map((w: any, i: number) => {
               const wpIcon = w.contentType === 'video' 
@@ -309,8 +338,22 @@ export default function JourneyDetailScreen() {
 function initMap(){
   var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${center.lat},lng:${center.lng}},zoom:13,mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true});
   var path=${polyCoords};
-  new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});
-  new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});
+  var segments = [];
+  var currentSegment = [];
+  path.forEach(function(p){
+    if (p.segmentBreak && currentSegment.length > 0) {
+      segments.push(currentSegment);
+      currentSegment = [p];
+    } else {
+      currentSegment.push(p);
+    }
+  });
+  if(currentSegment.length > 0) segments.push(currentSegment);
+  segments.forEach(function(segment){
+    if(segment.length < 2) return;
+    new google.maps.Polyline({path:segment,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});
+    new google.maps.Polyline({path:segment,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});
+  });
   if(path.length>0)new google.maps.Marker({position:path[0],map:map,title:'Start',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#10B981" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="13" font-weight="800" font-family="Arial" fill="white">S</text></svg>'),scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
   if(path.length>1)new google.maps.Marker({position:path[path.length-1],map:map,title:'End',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#EF4444" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="13" font-weight="800" font-family="Arial" fill="white">E</text></svg>'),scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
   ${wpMarkers}
@@ -348,12 +391,7 @@ function initMap(){
             >
               {journey.polyline?.length > 1 && (
                 <PolylineRenderer
-                  coordinates={journey.polyline.map((p: any) => ({
-                    latitude: p.lat,
-                    longitude: p.lng,
-                    timestamp: new Date(p.timestamp).getTime(),
-                    accuracy: p.accuracy || 0,
-                  }))}
+                  coordinates={getJourneyPolylineCoords(journey)}
                   color={mapStyle.routeColor}
                   glowColor={mapStyle.routeGlowColor}
                   strokeWidth={4}
