@@ -302,16 +302,17 @@ export default function PostImage({
     }
   }, [post._id, post.song?.songId, post.song?.volume]); // Removed isCurrentlyVisible - not needed in deps
 
-  // Measure natural aspect for 'full' display mode (only when needed).
+  // Measure natural aspect for 'full' display mode or when aspectRatio is missing/falsy (only when needed).
   // Seed from the module-level cache so recycled FlashList cells skip the
   // square→actual snap that causes scroll jitter.
+  const shouldMeasure = !post.aspectRatio || post.aspectRatio === 'full';
   const [naturalAspect, setNaturalAspect] = useState<number | null>(() => {
-    if (post.aspectRatio !== 'full') return null;
+    if (!shouldMeasure) return null;
     const key = getStableCacheKey(imageUri);
     return key ? (naturalAspectCache.get(key) ?? null) : null;
   });
   useEffect(() => {
-    if (post.aspectRatio !== 'full' || !imageUri) return;
+    if (!shouldMeasure || !imageUri) return;
     const key = getStableCacheKey(imageUri);
     if (key && naturalAspectCache.has(key)) {
       const cached = naturalAspectCache.get(key)!;
@@ -334,7 +335,7 @@ export default function PostImage({
 
   // 16:9 is portrait (1080×1920) → container aspectRatio = 9/16 (taller than wide).
   const getAspectRatio = () => {
-    if (!post.aspectRatio) return 1;
+    if (!post.aspectRatio) return naturalAspect ?? 1;
     if (post.aspectRatio === 'full') return naturalAspect ?? 1;
     if (post.aspectRatio === '1:1') return 1;
     
