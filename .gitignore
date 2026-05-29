@@ -74,6 +74,6 @@ UI_REFRESH_LOG.md
 frontend/AGENT_CONTEXT.md
 frontend/2026-05-17.md
 CHANGES_LOGGED.txt
-frontend/app.json
+# Do NOT ignore frontend/app.json — EAS must receive it (use skip-worktree locally instead; see comment above)
 migrate_theme.js
 ag_knowledge_graph.md

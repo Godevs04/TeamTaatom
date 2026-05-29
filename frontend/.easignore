@@ -1,3 +1,9 @@
+# Always include Expo config (never omit — required for postinstall / prebuild)
+!app.json
+!app.base.json
+!eas.json
+!app.config.js
+
 # Exclude parent directory files that cause casing issues
 ../superAdmin/
 ../superAdmin/**

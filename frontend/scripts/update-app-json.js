@@ -20,7 +20,23 @@ const envProdPath = path.join(__dirname, '../.env.prod');
 require('dotenv').config({ path: envPath });
 require('dotenv').config({ path: envProdPath, override: true });
 
-const appJsonPath = path.join(__dirname, '../app.json');
+const projectRoot = path.join(__dirname, '..');
+const appJsonPath = path.join(projectRoot, 'app.json');
+const appBasePath = path.join(projectRoot, 'app.base.json');
+
+if (!fs.existsSync(appJsonPath)) {
+  if (fs.existsSync(appBasePath)) {
+    fs.copyFileSync(appBasePath, appJsonPath);
+    console.log('[update-app-json] Created app.json from app.base.json');
+  } else {
+    console.error(
+      '❌ ERROR: app.json is missing and app.base.json was not uploaded.\n' +
+        '   Ensure frontend/app.json is committed and not listed in .gitignore / .easignore.',
+    );
+    process.exit(1);
+  }
+}
+
 const appJson = JSON.parse(fs.readFileSync(appJsonPath, 'utf8'));
 
 // Determine environment (production, staging, or development)
