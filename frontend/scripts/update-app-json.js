@@ -2,8 +2,12 @@
 
 /**
  * Script to update app.json extra config from environment variables
- * Run this before building: node scripts/update-app-json.js
+ * Run before builds: npm run update-config (also runs on postinstall for EAS).
+ *
+ * EAS prepends `npx expo` and appends `--platform` to prebuildCommand; strip those
+ * so this script is safe if invoked that way.
  */
+process.argv = process.argv.slice(0, 2);
 
 const fs = require('fs');
 const path = require('path');
