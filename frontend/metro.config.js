@@ -4,6 +4,9 @@ const {
 
 const config = getSentryExpoConfig(__dirname);
 
+// Limit workers to prevent memory exhaustion / OOM errors on Windows
+config.maxWorkers = 2;
+
 // Production optimizations
 const isProduction = process.env.NODE_ENV === 'production';
 
