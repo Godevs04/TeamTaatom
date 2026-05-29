@@ -5,7 +5,6 @@
   },
   "build": {
     "base": {
-      "prebuildCommand": "node scripts/update-app-json.js",
       "env": {
         "EAS_PROJECT_ID": "c3b80b3d-23d8-4948-abfa-80963e4192d0",
         "EXPO_PUBLIC_EXPO_PROJECT_ID": "c3b80b3d-23d8-4948-abfa-80963e4192d0"
