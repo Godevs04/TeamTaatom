@@ -39,14 +39,29 @@ const getApiBaseUrl = () => {
     return envUrl;
   }
   
+  const fromAppJson = appJson.expo.extra?.API_BASE_URL?.trim();
+  if (fromAppJson && fromAppJson !== '') {
+    if (
+      isProduction &&
+      (fromAppJson.includes('localhost') ||
+        fromAppJson.includes('192.168.') ||
+        fromAppJson.includes('10.') ||
+        fromAppJson.includes('172.'))
+    ) {
+      console.error('❌ ERROR: Production app.json API_BASE_URL cannot use localhost or a local IP!');
+      console.error(`   Found: ${fromAppJson}`);
+      process.exit(1);
+    }
+    return fromAppJson;
+  }
+
   // Fallback only for development/staging
   if (!isProduction) {
-    return appJson.expo.extra?.API_BASE_URL || 'http://localhost:3000';
+    return 'http://localhost:3000';
   }
-  
-  // Production requires explicit URL
+
   console.error('❌ ERROR: EXPO_PUBLIC_API_BASE_URL is required for production builds!');
-  console.error('   Please set EXPO_PUBLIC_API_BASE_URL in your .env or .env.prod file');
+  console.error('   Set it in EAS secrets, .env.prod, or commit a valid extra.API_BASE_URL in app.json');
   process.exit(1);
 };
 
@@ -60,11 +75,22 @@ const getWebShareUrl = () => {
     return envUrl;
   }
   
-  if (!isProduction) {
-    return appJson.expo.extra?.WEB_SHARE_URL || appJson.expo.extra?.API_BASE_URL || 'http://localhost:3000';
+  const fromAppJson = appJson.expo.extra?.WEB_SHARE_URL?.trim();
+  if (fromAppJson && fromAppJson !== '') {
+    if (
+      isProduction &&
+      (fromAppJson.includes('localhost') || fromAppJson.includes('192.168.'))
+    ) {
+      console.error('❌ ERROR: Production WEB_SHARE_URL cannot use localhost or a local IP!');
+      process.exit(1);
+    }
+    return fromAppJson;
   }
-  
-  // Production: derive from API_BASE_URL if not explicitly set
+
+  if (!isProduction) {
+    return appJson.expo.extra?.API_BASE_URL || 'http://localhost:3000';
+  }
+
   const apiUrl = getApiBaseUrl();
   return apiUrl.replace('http://', 'https://').replace(':3000', '');
 };
@@ -119,24 +145,47 @@ const resolvedProjectId =
   existingExtra?.eas?.projectId ||
   FALLBACK_EAS_PROJECT_ID;
 
-// Update extra config from environment variables (ALWAYS from .env/.env.prod, no hardcoded fallbacks)
-// All values are now dynamically loaded from .env file
-// Support both EXPO_PUBLIC_ prefix and non-prefixed versions for compatibility
+// Merge env-driven values over existing app.json extra (never drop committed production config on EAS)
 appJson.expo.extra = {
+  ...existingExtra,
   API_BASE_URL: getApiBaseUrl(),
   WEB_SHARE_URL: getWebShareUrl(),
-  GOOGLE_MAPS_API_KEY: process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '',
-  LOGO_IMAGE: process.env.EXPO_PUBLIC_LOGO_IMAGE || process.env.LOGO_IMAGE || '',
+  GOOGLE_MAPS_API_KEY:
+    process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY ||
+    process.env.GOOGLE_MAPS_API_KEY ||
+    existingExtra.GOOGLE_MAPS_API_KEY ||
+    '',
+  LOGO_IMAGE:
+    process.env.EXPO_PUBLIC_LOGO_IMAGE || process.env.LOGO_IMAGE || existingExtra.LOGO_IMAGE || '',
   EXPO_PROJECT_ID: resolvedProjectId,
-  // Google Client ID - check both EXPO_PUBLIC_ prefix and alternative names (GOOGLE_WEB_CLIENT_ID)
-  GOOGLE_CLIENT_ID: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || process.env.GOOGLE_WEB_CLIENT_ID || '',
-  GOOGLE_CLIENT_ID_IOS: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS || process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || process.env.GOOGLE_WEB_CLIENT_ID || '',
-  GOOGLE_CLIENT_ID_ANDROID: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID || process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || process.env.GOOGLE_WEB_CLIENT_ID || '',
+  GOOGLE_CLIENT_ID:
+    process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ||
+    process.env.GOOGLE_WEB_CLIENT_ID ||
+    existingExtra.GOOGLE_CLIENT_ID ||
+    '',
+  GOOGLE_CLIENT_ID_IOS:
+    process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS ||
+    process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ||
+    process.env.GOOGLE_WEB_CLIENT_ID ||
+    existingExtra.GOOGLE_CLIENT_ID_IOS ||
+    existingExtra.GOOGLE_CLIENT_ID ||
+    '',
+  GOOGLE_CLIENT_ID_ANDROID:
+    process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID ||
+    process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID ||
+    process.env.GOOGLE_WEB_CLIENT_ID ||
+    existingExtra.GOOGLE_CLIENT_ID_ANDROID ||
+    existingExtra.GOOGLE_CLIENT_ID ||
+    '',
   // SECURITY: GOOGLE_CLIENT_SECRET is intentionally NOT included here
   // Client secrets should NEVER be exposed in the frontend bundle
   // The secret should only be used on the backend server
   // Google Redirect URI - check both EXPO_PUBLIC_ prefix and alternative names
-  GOOGLE_REDIRECT_URI: process.env.EXPO_PUBLIC_GOOGLE_REDIRECT_URI || process.env.EXPO_REDIRECT_URI || '',
+  GOOGLE_REDIRECT_URI:
+    process.env.EXPO_PUBLIC_GOOGLE_REDIRECT_URI ||
+    process.env.EXPO_REDIRECT_URI ||
+    existingExtra.GOOGLE_REDIRECT_URI ||
+    '',
   // Privacy and legal URLs
   PRIVACY_POLICY_URL: getPrivacyPolicyUrl(),
   TERMS_OF_SERVICE_URL: getTermsOfServiceUrl(),
@@ -156,6 +205,8 @@ if (!appJson.expo.extra) {
 }
 if (iosMapsApiKey) {
   appJson.expo.extra.GOOGLE_MAPS_IOS_KEY = iosMapsApiKey;
+} else if (existingExtra.GOOGLE_MAPS_IOS_KEY) {
+  appJson.expo.extra.GOOGLE_MAPS_IOS_KEY = existingExtra.GOOGLE_MAPS_IOS_KEY;
 } else {
   delete appJson.expo.extra.GOOGLE_MAPS_IOS_KEY;
   if (isProduction) {
@@ -176,8 +227,11 @@ if (!appJson.expo.android.config.googleMaps) {
 }
 if (androidMapsApiKey) {
   appJson.expo.android.config.googleMaps.apiKey = androidMapsApiKey;
+} else if (appJson.expo.android?.config?.googleMaps?.apiKey) {
+  // keep committed app.json key
+} else if (existingExtra.GOOGLE_MAPS_API_KEY) {
+  appJson.expo.android.config.googleMaps.apiKey = existingExtra.GOOGLE_MAPS_API_KEY;
 } else {
-  // Remove hardcoded value - require from .env
   delete appJson.expo.android.config.googleMaps.apiKey;
   if (isProduction) {
     console.warn('⚠️  WARNING: EXPO_PUBLIC_GOOGLE_MAPS_ANDROID_KEY not set. Google Maps may not work on Android in production.');

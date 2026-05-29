@@ -49,7 +49,7 @@
           "tel",
           "sms"
         ],
-        "NSPrivacyPolicyURL": "http://localhost:8081/policies/privacy"
+        "NSPrivacyPolicyURL": "https://api.taatom.com/policies/privacy"
       },
       "config": {
         "usesNonExemptEncryption": false,
@@ -66,9 +66,7 @@
         "backgroundColor": "#000000"
       },
       "config": {
-        "googleMaps": {
-          "apiKey": "AIzaSyARLEQKzcslC-romTHz5DE3lFT9GHW3lQY"
-        }
+        "googleMaps": {}
       },
       "intentFilters": [
         {
@@ -196,9 +194,9 @@
       "GOOGLE_CLIENT_ID_IOS": "139138195988-kclhcnave5urmm7ob2o2erkebp9o4f90.apps.googleusercontent.com",
       "GOOGLE_CLIENT_ID_ANDROID": "139138195988-kclhcnave5urmm7ob2o2erkebp9o4f90.apps.googleusercontent.com",
       "GOOGLE_REDIRECT_URI": "https://auth.expo.io/@taatom/taatom",
-      "PRIVACY_POLICY_URL": "http://localhost:8081/policies/privacy",
-      "TERMS_OF_SERVICE_URL": "http://localhost:8081/policies/terms",
-      "SUPPORT_URL": "http://localhost:8081/support/contact",
+      "PRIVACY_POLICY_URL": "https://taatom.com/policies/privacy",
+      "TERMS_OF_SERVICE_URL": "https://taatom.com/policies/terms",
+      "SUPPORT_URL": "https://taatom.com/support/contact",
       "router": {},
       "eas": {
         "projectId": "c3b80b3d-23d8-4948-abfa-80963e4192d0"
