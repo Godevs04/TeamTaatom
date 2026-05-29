@@ -1,8 +1,7 @@
 /**
  * iOS FFmpeg Kit fixes (arthenica retirement, April 2025):
- * 1. Patch @wokcito/ffmpeg-kit-react-native podspec (name + default subspec).
- * 2. Inject self-hosted ffmpeg-kit-ios-full@6.0 before autolinking so CocoaPods
- *    resolves the local podspec instead of the removed trunk artifact.
+ * 1. Patch @wokcito/ffmpeg-kit-react-native podspec (postinstall + prebuild).
+ * 2. Inject ffmpeg-kit-ios-full + local-path ffmpeg-kit-react-native before autolinking.
  *
  * Android: @wokcito/ffmpeg-kit-react-native uses Maven ffmpeg-kit-main-16kb.
  */
@@ -12,27 +11,39 @@ const { withDangerousMod } = require('@expo/config-plugins');
 const { mergeContents } = require('@expo/config-plugins/build/utils/generateCode');
 const { patchFfmpegKitPodspec } = require('../scripts/patch-ffmpeg-kit-podspec');
 
-const RN_PODSPEC = '../node_modules/@wokcito/ffmpeg-kit-react-native/ffmpeg-kit-react-native.podspec';
+const RN_POD_PATH = '../node_modules/@wokcito/ffmpeg-kit-react-native';
 
 const POD_ENTRIES = [
   "pod 'ffmpeg-kit-ios-full', :podspec => './ffmpeg-kit-ios-full.podspec'",
-  `pod 'ffmpeg-kit-react-native', :subspecs => ['full'], :podspec => '${RN_PODSPEC}'`,
+  `pod 'ffmpeg-kit-react-native', :path => '${RN_POD_PATH}', :subspecs => ['full']`,
 ].join('\n');
 
+const LEGACY_RN_POD = /pod 'ffmpeg-kit-react-native'[^\n]*/;
+
 function injectPodfileEntries(podfileContent, targetName) {
+  if (podfileContent.includes(`:path => '${RN_POD_PATH}'`)) {
+    return podfileContent;
+  }
+
+  if (podfileContent.includes("pod 'ffmpeg-kit-react-native'")) {
+    return podfileContent.replace(LEGACY_RN_POD, POD_ENTRIES.split('\n')[1]);
+  }
+
   if (podfileContent.includes("pod 'ffmpeg-kit-ios-full', :podspec =>")) {
     return podfileContent;
   }
 
   const anchors = [
-    { label: 'use_expo_modules!', pattern: /^\s*use_expo_modules!/m },
+    { pattern: /^\s*use_expo_modules!/m },
     {
-      label: `target '${targetName}' do`,
-      pattern: new RegExp(`^\\s*target\\s+'${targetName.replace(/'/g, "\\'")}'\\s+do`, 'm'),
+      pattern: new RegExp(
+        `^\\s*target\\s+'${(targetName || 'taatom').replace(/'/g, "\\'")}'\\s+do`,
+        'm',
+      ),
     },
   ];
 
-  for (const { label, pattern } of anchors) {
+  for (const { pattern } of anchors) {
     if (!pattern.test(podfileContent)) {
       continue;
     }
@@ -48,7 +59,7 @@ function injectPodfileEntries(podfileContent, targetName) {
   }
 
   throw new Error(
-    `[withFfmpegKitIos] Could not find a Podfile anchor to inject ffmpeg-kit pods (tried use_expo_modules!, target '${targetName}').`,
+    `[withFfmpegKitIos] Could not find a Podfile anchor to inject ffmpeg-kit pods (target '${targetName}').`,
   );
 }
 
