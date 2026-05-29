@@ -1,12 +1,26 @@
 /**
- * Merges app.json with guaranteed EAS projectId.
- * Full native config (ios, android, plugins, etc.) lives in app.json.
+ * Merges app.json (or app.base.json on EAS) with guaranteed EAS projectId.
  * Env-specific extra.* values are written by scripts/update-app-json.js (postinstall on EAS).
  */
-const appJson = require('./app.json');
+const fs = require('fs');
+const path = require('path');
 
 const EAS_PROJECT_ID = 'c3b80b3d-23d8-4948-abfa-80963e4192d0';
-const expo = appJson.expo || appJson;
+
+function loadExpoFromDisk() {
+  for (const file of ['app.json', 'app.base.json']) {
+    const filePath = path.join(__dirname, file);
+    if (fs.existsSync(filePath)) {
+      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      return parsed.expo || parsed;
+    }
+  }
+  throw new Error(
+    'Missing app.json and app.base.json. Commit app.base.json (and app.json) under frontend/.',
+  );
+}
+
+const expo = loadExpoFromDisk();
 
 module.exports = ({ config }) => ({
   ...expo,
