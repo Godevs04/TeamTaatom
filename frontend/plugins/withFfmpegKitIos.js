@@ -14,7 +14,7 @@ const { patchFfmpegKitPodspec } = require('../scripts/patch-ffmpeg-kit-podspec')
 const RN_POD_PATH = '../node_modules/@wokcito/ffmpeg-kit-react-native';
 
 const POD_ENTRIES = [
-  "pod 'ffmpeg-kit-ios-full', :podspec => './ffmpeg-kit-ios-full.podspec'",
+  "pod 'ffmpeg-kit-ios-full', :podspec => 'https://raw.githubusercontent.com/luthviar/ffmpeg-kit-ios-full/main/ffmpeg-kit-ios-full.podspec'",
   `pod 'ffmpeg-kit-react-native', :path => '${RN_POD_PATH}', :subspecs => ['full']`,
 ].join('\n');
 
