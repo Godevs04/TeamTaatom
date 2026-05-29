@@ -36,7 +36,6 @@
     "@wokcito/ffmpeg-kit-react-native": "^6.1.2",
     "axios": "^1.15.0",
     "babel-plugin-transform-remove-console": "^6.9.4",
-    "babel-preset-expo": "~54.0.10",
     "cashfree-pg-api-contract": "^2.1.1",
     "expo": "~54.0.35",
     "expo-asset": "~12.0.13",
