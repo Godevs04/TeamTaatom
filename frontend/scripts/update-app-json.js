@@ -110,13 +110,14 @@ const getSupportUrl = () => {
 };
 
 const existingExtra = appJson.expo.extra || {};
+const FALLBACK_EAS_PROJECT_ID = 'c3b80b3d-23d8-4948-abfa-80963e4192d0';
 const resolvedProjectId =
   process.env.EXPO_PUBLIC_EXPO_PROJECT_ID ||
   process.env.EXPO_PROJECT_ID ||
   process.env.EAS_PROJECT_ID ||
   existingExtra.EXPO_PROJECT_ID ||
   existingExtra?.eas?.projectId ||
-  '';
+  FALLBACK_EAS_PROJECT_ID;
 
 // Update extra config from environment variables (ALWAYS from .env/.env.prod, no hardcoded fallbacks)
 // All values are now dynamically loaded from .env file

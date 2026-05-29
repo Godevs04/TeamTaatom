@@ -1,9 +1,9 @@
-# Replacement for retired CocoaPods artifact ffmpeg-kit-ios-https@6.0.
+# Replacement for retired CocoaPods artifact ffmpeg-kit-ios-full@6.0.
 # Binaries: https://github.com/luthviar/ffmpeg-kit-ios-full (FFmpegKit 6.0 iOS xcframeworks).
 Pod::Spec.new do |s|
-  s.name             = 'ffmpeg-kit-ios-https'
+  s.name             = 'ffmpeg-kit-ios-full'
   s.version          = '6.0'
-  s.summary          = 'Self-hosted FFmpegKit iOS frameworks (ffmpeg-kit-ios-https replacement)'
+  s.summary          = 'Self-hosted FFmpegKit iOS frameworks (ffmpeg-kit-ios-full replacement)'
   s.description      = 'Vendored FFmpegKit 6.0 xcframeworks for iOS after arthenica/ffmpeg-kit retirement.'
   s.homepage         = 'https://github.com/luthviar/ffmpeg-kit-ios-full'
   s.license          = { :type => 'LGPL-3.0' }

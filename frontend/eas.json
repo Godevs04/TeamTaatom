@@ -4,7 +4,11 @@
     "appVersionSource": "remote"
   },
   "build": {
+    "base": {
+      "prebuildCommand": "node scripts/update-app-json.js"
+    },
     "development": {
+      "extends": "base",
       "developmentClient": true,
       "distribution": "internal",
       "ios": {
@@ -20,6 +24,7 @@
       }
     },
     "preview": {
+      "extends": "base",
       "distribution": "internal",
       "ios": {
         "simulator": false,
@@ -34,6 +39,7 @@
       }
     },
     "production": {
+      "extends": "base",
       "distribution": "store",
       "ios": {
         "simulator": false,

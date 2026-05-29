@@ -1,5 +1,6 @@
 /**
  * CocoaPods rejects scoped npm names (e.g. @wokcito/ffmpeg-kit-react-native).
+ * arthenica/ffmpeg-kit iOS binaries were removed from CocoaPods trunk (404).
  * Run on postinstall and during Expo prebuild.
  */
 const fs = require('fs');
@@ -15,6 +16,7 @@ const PODSPEC = path.join(
 );
 
 const VALID_NAME = 'ffmpeg-kit-react-native';
+const DEFAULT_SUBSPEC = 'full';
 
 function patchFfmpegKitPodspec() {
   if (!fs.existsSync(PODSPEC)) {
@@ -22,15 +24,28 @@ function patchFfmpegKitPodspec() {
   }
 
   let content = fs.readFileSync(PODSPEC, 'utf-8');
-  const broken = /s\.name\s*=\s*package\["name"\]/;
+  let changed = false;
 
-  if (!broken.test(content)) {
+  const brokenName = /s\.name\s*=\s*package\["name"\]/;
+  if (brokenName.test(content)) {
+    content = content.replace(brokenName, `s.name         = '${VALID_NAME}'`);
+    changed = true;
+  }
+
+  const defaultSubspec = /s\.default_subspec\s*=\s*'https'/;
+  if (defaultSubspec.test(content)) {
+    content = content.replace(defaultSubspec, `s.default_subspec   = '${DEFAULT_SUBSPEC}'`);
+    changed = true;
+  }
+
+  if (!changed) {
     return false;
   }
 
-  content = content.replace(broken, `s.name         = '${VALID_NAME}'`);
   fs.writeFileSync(PODSPEC, content);
-  console.log(`[patch-ffmpeg-kit-podspec] Set pod name to ${VALID_NAME}`);
+  console.log(
+    `[patch-ffmpeg-kit-podspec] Patched pod name (${VALID_NAME}) and default subspec (${DEFAULT_SUBSPEC})`,
+  );
   return true;
 }
 
@@ -41,4 +56,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { patchFfmpegKitPodspec, PODSPEC, VALID_NAME };
+module.exports = { patchFfmpegKitPodspec, PODSPEC, VALID_NAME, DEFAULT_SUBSPEC };
