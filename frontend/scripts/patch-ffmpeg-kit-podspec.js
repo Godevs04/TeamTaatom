@@ -2,7 +2,7 @@
  * CocoaPods fixes for @wokcito/ffmpeg-kit-react-native:
  * - Valid pod name (CocoaPods rejects scoped npm names)
  * - Default "full" subspec (uses self-hosted ffmpeg-kit-ios-full pod)
- * - Remove s.source (Podfile installs via :path — avoids arthenica git and broken :path=>'.' download)
+ * - Ensure s.source is present (CocoaPods validation requires the source attribute even for local :path pods)
  * - Explicit ios/ source_files paths
  */
 const fs = require('fs');
@@ -13,8 +13,6 @@ const PODSPEC = path.join(PACKAGE_DIR, 'ffmpeg-kit-react-native.podspec');
 
 const VALID_NAME = 'ffmpeg-kit-react-native';
 const DEFAULT_SUBSPEC = 'full';
-
-const ANY_SOURCE_LINE = /^\s*s\.source\s*=\s*\{[^\n]+\}\s*\n/gm;
 
 const GLOB_SOURCE_FILES =
   /ss\.source_files\s*=\s*'\*\*\/FFmpegKitReactNativeModule\.m',\s*\n\s*'\*\*\/FFmpegKitReactNativeModule\.h'/g;
@@ -40,8 +38,13 @@ function patchFfmpegKitPodspec() {
     changed = true;
   }
 
-  if (ANY_SOURCE_LINE.test(content)) {
-    content = content.replace(ANY_SOURCE_LINE, '');
+  // CocoaPods requires s.source to be present for validation even if ignored via :path in Podfile.
+  // If missing, restore/inject a valid git source block.
+  if (!/\s+s\.source\s*=/.test(content)) {
+    content = content.replace(
+      /s\.name\s*=\s*'ffmpeg-kit-react-native'/,
+      "s.name         = 'ffmpeg-kit-react-native'\n  s.source       = { :git => \"https://github.com/arthenica/ffmpeg-kit.git\", :tag => \"react.native.v#{s.version}\" }"
+    );
     changed = true;
   }
 
