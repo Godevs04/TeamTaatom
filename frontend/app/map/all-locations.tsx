@@ -34,6 +34,7 @@ import PremiumMapMarker from '../../components/PremiumMapMarker';
 import { getTravelMapData } from '../../services/profile';
 import { getUserJourneys } from '../../services/journey';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
+import { getApiUrl } from '../../utils/config';
 import { useMapStyle } from '../../hooks/useMapStyle';
 import logger from '../../utils/logger';
 import { ErrorBoundary } from '../../utils/errorBoundary';
@@ -55,6 +56,15 @@ function safeDecodeUriComponent(value: string | string[] | undefined): string | 
     return str;
   }
 }
+
+const resolvePhotoUrl = (url?: string | null): string | undefined => {
+  if (!url) return undefined;
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+    return url;
+  }
+  const cleanPath = url.startsWith('/') ? url : `/${url}`;
+  return getApiUrl(cleanPath);
+};
 
 interface LocationPin {
   number: number;
@@ -90,10 +100,16 @@ function getJourneyPolylineCoords(journey: JourneyPolyline) {
     .filter((time) => Number.isFinite(time))
     .sort((a, b) => a - b);
 
-  return (journey.polyline || []).map((point, index, points) => {
+  const sortedPolyline = [...(journey.polyline || [])].sort((a, b) => {
+    const tA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+    const tB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+    return tA - tB;
+  });
+
+  return sortedPolyline.map((point, index, points) => {
     const timestamp = point.timestamp ? new Date(point.timestamp).getTime() : undefined;
     const prevTimestamp = index > 0 && points[index - 1].timestamp
-      ? new Date(points[index - 1].timestamp!).getTime()
+      ? new Date(points[index - 1].timestamp).getTime()
       : undefined;
     const segmentBreak = !!timestamp && !!prevTimestamp &&
       sessionStarts.some((start) => start > prevTimestamp && start <= timestamp);
@@ -183,7 +199,7 @@ function AllLocationsMapInner() {
   const [journeys, setJourneys] = useState<JourneyPolyline[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [mapFilter, setMapFilter] = useState<'posts' | 'journeys' | 'both'>('posts');
+  const [mapFilter, setMapFilter] = useState<'posts' | 'journeys'>('posts');
   const [selectedLocation, setSelectedLocation] = useState<LocationPin | null>(null);
   const [renderedLocation, setRenderedLocation] = useState<LocationPin | null>(null);
   const slideAnim = useRef(new Animated.Value(300)).current;
@@ -209,12 +225,28 @@ function AllLocationsMapInner() {
   }, [selectedLocation]);
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const [currentCountry, setCurrentCountry] = useState<string | null>(null);
+  const [currentCountryCode, setCurrentCountryCode] = useState<string | null>(null);
   const [currentRegion, setCurrentRegion] = useState<any>(null);
   const [statistics, setStatistics] = useState<{
     totalLocations: number;
     totalDistance: number;
     totalDays: number;
   } | null>(null);
+  const [bottomPanelHeight, setBottomPanelHeight] = useState(140);
+
+  // Helper to convert country code to flag emoji
+  const getFlagEmoji = (countryCode: string) => {
+    if (!countryCode) return '📍';
+    const codePoints = countryCode
+      .toUpperCase()
+      .split('')
+      .map((char) => 127397 + char.charCodeAt(0));
+    try {
+      return String.fromCodePoint(...codePoints);
+    } catch {
+      return '📍';
+    }
+  };
 
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -235,12 +267,22 @@ function AllLocationsMapInner() {
         accuracy: ExpoLocation.Accuracy.Balanced,
       });
       if (loc.coords && mapRef.current) {
-        mapRef.current.animateToRegion({
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-          latitudeDelta: 0.015,
-          longitudeDelta: 0.015,
-        }, 400);
+        if (useWebViewFallback) {
+          mapRef.current.injectJavaScript(`
+            if (window.map) {
+              window.map.panTo({ lat: ${loc.coords.latitude}, lng: ${loc.coords.longitude} });
+              window.map.setZoom(14);
+            }
+            true;
+          `);
+        } else {
+          mapRef.current.animateToRegion({
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+            latitudeDelta: 0.015,
+            longitudeDelta: 0.015,
+          }, 400);
+        }
       }
     } catch (err) {
       logger.error('Failed to get current location for recenter:', err);
@@ -249,6 +291,16 @@ function AllLocationsMapInner() {
 
   const zoomIn = async () => {
     if (!mapRef.current) return;
+    if (useWebViewFallback) {
+      mapRef.current.injectJavaScript(`
+        if (window.map) {
+          var currentZoom = window.map.getZoom();
+          window.map.setZoom(currentZoom + 1);
+        }
+        true;
+      `);
+      return;
+    }
     try {
       const camera = await mapRef.current.getCamera();
       if (camera) {
@@ -268,6 +320,16 @@ function AllLocationsMapInner() {
 
   const zoomOut = async () => {
     if (!mapRef.current) return;
+    if (useWebViewFallback) {
+      mapRef.current.injectJavaScript(`
+        if (window.map) {
+          var currentZoom = window.map.getZoom();
+          window.map.setZoom(currentZoom - 1);
+        }
+        true;
+      `);
+      return;
+    }
     try {
       const camera = await mapRef.current.getCamera();
       if (camera) {
@@ -296,9 +358,11 @@ function AllLocationsMapInner() {
   ), []);
 
   const validLocations = useMemo(() => {
-    return locations.filter(
-      (loc) => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0
-    );
+    return locations
+      .filter(
+        (loc) => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0
+      )
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [locations]);
 
   const clusteredLocations = useMemo(() => {
@@ -632,29 +696,48 @@ function AllLocationsMapInner() {
     });
   };
 
-  // Get current country via reverse geocoding
+  // Get country/flag for header
   useEffect(() => {
     const detectCountry = async () => {
       try {
-        const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
-        if (status !== 'granted') return;
+        let lat: number | null = null;
+        let lng: number | null = null;
 
-        const loc = await ExpoLocation.getCurrentPositionAsync({
-          accuracy: ExpoLocation.Accuracy.Low,
-        });
-        const geocode = await ExpoLocation.reverseGeocodeAsync({
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-        });
-        if (geocode.length > 0 && geocode[0].country) {
-          setCurrentCountry(geocode[0].country);
+        if (isOwnPage) {
+          const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+          if (status !== 'granted') return;
+
+          const loc = await ExpoLocation.getCurrentPositionAsync({
+            accuracy: ExpoLocation.Accuracy.Low,
+          });
+          lat = loc.coords.latitude;
+          lng = loc.coords.longitude;
+        } else if (validLocations.length > 0) {
+          // Use the first valid location of the target user
+          lat = validLocations[0].latitude;
+          lng = validLocations[0].longitude;
+        }
+
+        if (lat !== null && lng !== null) {
+          const geocode = await ExpoLocation.reverseGeocodeAsync({
+            latitude: lat,
+            longitude: lng,
+          });
+          if (geocode.length > 0) {
+            if (geocode[0].country) {
+              setCurrentCountry(geocode[0].country);
+            }
+            if (geocode[0].isoCountryCode) {
+              setCurrentCountryCode(geocode[0].isoCountryCode);
+            }
+          }
         }
       } catch (err) {
         logger.debug('[AllLocations] Country detection failed:', err);
       }
     };
     detectCountry();
-  }, []);
+  }, [isOwnPage, validLocations.length]);
 
   // Load locations + journeys
   useEffect(() => {
@@ -699,10 +782,12 @@ function AllLocationsMapInner() {
       if (journeysResult.status === 'fulfilled') {
         const data = journeysResult.value;
         const rawJourneys = data?.journeys ?? [];
-        // Filter journeys that have polyline data
-        const withPolylines = rawJourneys.filter(
+        // Filter journeys that have polyline data and sort reverse-chronologically
+        const withPolylines = (rawJourneys.filter(
           (j: any) => j.polyline && j.polyline.length > 1
-        ) as unknown as JourneyPolyline[];
+        ) as unknown as JourneyPolyline[]).sort(
+          (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
+        );
         setJourneys(withPolylines);
       }
     } catch (err: any) {
@@ -851,7 +936,7 @@ function AllLocationsMapInner() {
   // ──────────────────────────────────────────────────────
   const getWebMapHTML = useCallback(() => {
     const region = getMapRegion();
-    const validLocations = (mapFilter === 'posts' || mapFilter === 'both')
+    const validLocations = (mapFilter === 'posts')
       ? locations.filter((loc) => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0)
       : [];
     const markersData = validLocations.map((loc) => ({
@@ -861,14 +946,14 @@ function AllLocationsMapInner() {
       cityName: (loc.address ? loc.address.split(',')[0].trim() : `Post #${loc.number}`).replace(/"/g, '&quot;'),
       address: loc.address || `Location #${loc.number}`,
       number: loc.number,
-      photo: loc.photo || null,
+      photo: loc.photo ? resolvePhotoUrl(loc.photo) : null,
       postId: loc.postId || null,
       latitude: loc.latitude,
       longitude: loc.longitude,
       date: loc.date,
       contentType: loc.contentType || null,
     }));
-    const filteredJourneys = (mapFilter === 'journeys' || mapFilter === 'both') ? journeys : [];
+    const filteredJourneys = (mapFilter === 'journeys') ? journeys : [];
     const polylinePaths = filteredJourneys.map((j) => ({
       title: j.title || 'Journey',
       path: j.polyline.map((p) => ({ lat: p.lat, lng: p.lng })),
@@ -892,26 +977,26 @@ function AllLocationsMapInner() {
 html,body,#map{height:100%;margin:0;padding:0}
 .glowing-dot-container {
   position: relative;
-  width: 24px;
-  height: 24px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .pulse-ring {
   position: absolute;
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   background: radial-gradient(circle, ${isDark ? 'rgba(45, 212, 191, 0.4)' : 'rgba(59, 130, 246, 0.4)'} 0%, rgba(59, 130, 246, 0) 70%);
   animation: pulse 1.8s infinite ease-out;
 }
 .core-dot {
-  width: 8px;
-  height: 8px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: linear-gradient(135deg, #2DD4BF 0%, #3B82F6 100%);
-  border: 1.5px solid #FFFFFF;
+  border: 2px solid #FFFFFF;
   box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
 }
 @keyframes pulse {
@@ -1015,12 +1100,16 @@ html,body,#map{height:100%;margin:0;padding:0}
 }
 </style>
 <script>
+window.map = null;
+window.bounds = null;
 function initMap(){
-  var map=new google.maps.Map(document.getElementById('map'),{
+  window.map = new google.maps.Map(document.getElementById('map'),{
     center:{lat:${centerLat},lng:${centerLng}},
     zoom:${zoomLevelVal},minZoom:3,mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true
   });
-  var bounds=new google.maps.LatLngBounds();
+  var map = window.map;
+  window.bounds = new google.maps.LatLngBounds();
+  var bounds = window.bounds;
   var activeOverlays=[];
 
   // Journey polylines + start/end markers
@@ -1038,7 +1127,7 @@ function initMap(){
         map:map,
         title:j.startCity||'Start',
         icon:{
-          url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="14" fill="${GROWTH_GREEN}" stroke="white" stroke-width="2"/><text x="16" y="21" text-anchor="middle" fill="white" font-size="14" font-weight="bold" font-family="Arial">'+j.startLetter+'</text></svg>'),
+          url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="14" fill="${GROWTH_GREEN}" stroke="white" stroke-width="2"/></svg>'),
           scaledSize:new google.maps.Size(32,32),
           anchor:new google.maps.Point(16,16)
         }
@@ -1051,7 +1140,7 @@ function initMap(){
         map:map,
         title:j.endCity||'End',
         icon:{
-          url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="14" fill="${ALERT_RED}" stroke="white" stroke-width="2"/><text x="16" y="21" text-anchor="middle" fill="white" font-size="14" font-weight="bold" font-family="Arial">'+j.endLetter+'</text></svg>'),
+          url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="14" fill="${ALERT_RED}" stroke="white" stroke-width="2"/></svg>'),
           scaledSize:new google.maps.Size(32,32),
           anchor:new google.maps.Point(16,16)
         }
@@ -1163,7 +1252,18 @@ function initMap(){
           div.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
         }
       } else {
-        div.innerHTML = '<div class="glass-cluster"><div class="cluster-pulse"></div><div class="cluster-glass-circle"><span>' + cluster.items.length + '</span></div></div>';
+        var firstPhoto = null;
+        for (var i = 0; i < cluster.items.length; i++) {
+          if (cluster.items[i].photo) {
+            firstPhoto = cluster.items[i].photo;
+            break;
+          }
+        }
+        if (firstPhoto) {
+          div.innerHTML = '<div class="glass-cluster"><div class="cluster-pulse"></div><div class="cluster-glass-circle" style="padding: 1.5px; overflow: hidden;"><img src="' + firstPhoto + '" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;" /></div></div>';
+        } else {
+          div.innerHTML = '<div class="glass-cluster"><div class="cluster-pulse"></div><div class="cluster-glass-circle"><span>📍</span></div></div>';
+        }
       }
 
       // Tap handler: single marker opens the native preview card, cluster zooms in.
@@ -1227,6 +1327,7 @@ function initMap(){
       }
       return (
         <WebView
+          ref={mapRef}
           source={{ html: getWebMapHTML() }}
           style={styles.map}
           javaScriptEnabled={true}
@@ -1326,7 +1427,7 @@ function initMap(){
         }}
       >
         {/* Journey polylines + start/end markers — hidden when filter is 'posts' */}
-        {(mapFilter === 'journeys' || mapFilter === 'both') && journeys.map((j) => {
+        {(mapFilter === 'journeys') && journeys.map((j) => {
           if (!j.polyline || j.polyline.length < 2) return null;
           const coords = getJourneyPolylineCoords(j);
           return (
@@ -1364,8 +1465,10 @@ function initMap(){
         })}
 
         {/* Post location markers — hidden when filter is 'journeys' */}
-        {(mapFilter === 'posts' || mapFilter === 'both') && clusteredLocations.map((cluster) => {
+        {(mapFilter === 'posts') && clusteredLocations.map((cluster) => {
           if (cluster.isCluster) {
+            const firstPhotoLocation = cluster.locations.find((loc: any) => loc.photo);
+            const photoUrl = firstPhotoLocation?.photo;
             return (
               <Marker
                 key={cluster.id}
@@ -1381,18 +1484,45 @@ function initMap(){
                       end={{ x: 1, y: 1 }}
                       style={StyleSheet.absoluteFillObject}
                     />
-                    <BlurView intensity={Platform.OS === 'ios' ? 40 : 100} tint={isDark ? 'dark' : 'light'} style={markerStyles.clusterBlur}>
-                      <LinearGradient
-                        colors={isDark ? ['rgba(15, 23, 42, 0.75)', 'rgba(30, 41, 59, 0.75)'] : ['rgba(255, 255, 255, 0.85)', 'rgba(241, 245, 249, 0.85)']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={markerStyles.clusterContent}
-                      >
-                        <Text style={[markerStyles.clusterText, { color: isDark ? '#2DD4BF' : '#3B82F6' }]}>
-                          {cluster.locations.length}
-                        </Text>
-                      </LinearGradient>
-                    </BlurView>
+                    {Platform.OS === 'ios' ? (
+                      <BlurView intensity={40} tint={isDark ? 'dark' : 'light'} style={markerStyles.clusterBlur}>
+                        <LinearGradient
+                          colors={isDark ? ['rgba(15, 23, 42, 0.75)', 'rgba(30, 41, 59, 0.75)'] : ['rgba(255, 255, 255, 0.85)', 'rgba(241, 245, 249, 0.85)']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={markerStyles.clusterContent}
+                        >
+                          {photoUrl ? (
+                            <ExpoImage
+                              source={{ uri: resolvePhotoUrl(photoUrl) }}
+                              style={markerStyles.clusterPhoto}
+                              contentFit="cover"
+                            />
+                          ) : (
+                            <Ionicons name="location" size={16} color={isDark ? '#2DD4BF' : '#3B82F6'} />
+                          )}
+                        </LinearGradient>
+                      </BlurView>
+                    ) : (
+                      <View style={[markerStyles.clusterBlur, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]}>
+                        <LinearGradient
+                          colors={isDark ? ['#0F172A', '#1E293B'] : ['#FFFFFF', '#F1F5F9']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={markerStyles.clusterContent}
+                        >
+                          {photoUrl ? (
+                            <ExpoImage
+                              source={{ uri: resolvePhotoUrl(photoUrl) }}
+                              style={markerStyles.clusterPhoto}
+                              contentFit="cover"
+                            />
+                          ) : (
+                            <Ionicons name="location" size={16} color={isDark ? '#2DD4BF' : '#3B82F6'} />
+                          )}
+                        </LinearGradient>
+                      </View>
+                    )}
                   </View>
                 </View>
               </Marker>
@@ -1543,7 +1673,9 @@ function initMap(){
             <Text style={[styles.headerTitle, { color: theme.colors.text }]} numberOfLines={1}>{headerTitle}</Text>
             {currentCountry && (
               <View style={styles.countryChip}>
-                <Text style={[styles.countryText, { color: theme.colors.textSecondary }]}>🇮🇳 {currentCountry}</Text>
+                <Text style={[styles.countryText, { color: theme.colors.textSecondary }]}>
+                  {getFlagEmoji(currentCountryCode || '')} {currentCountry}
+                </Text>
               </View>
             )}
           </View>
@@ -1555,48 +1687,12 @@ function initMap(){
           </TouchableOpacity>
         </View>
 
-        {/* Floating Stats - Unified Scrollable Row inside Header */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.statsSliderContainer}
-          contentContainerStyle={styles.statsSliderContent}
-        >
-          <View style={styles.statsSliderCard}>
-            <Text style={[styles.statsSliderText, { color: isDark ? '#E8F4FF' : '#121212' }]}>
-              📍 {locations.length} Posts
-            </Text>
-          </View>
-
-          <View style={styles.statsSliderCard}>
-            <Text style={[styles.statsSliderText, { color: isDark ? '#E8F4FF' : '#121212' }]}>
-              🗺️ {journeys.length} Journeys
-            </Text>
-          </View>
-
-          <View style={styles.statsSliderCard}>
-            <Text style={[styles.statsSliderText, { color: isDark ? '#E8F4FF' : '#121212' }]}>
-              ➤ {totalJourneyDistance >= 1000
-                ? `${(totalJourneyDistance / 1000).toFixed(1)}km`
-                : `${Math.round(totalJourneyDistance)}m`} Travel
-            </Text>
-          </View>
-
-          {statistics?.totalDays ? (
-            <View style={styles.statsSliderCard}>
-              <Text style={[styles.statsSliderText, { color: isDark ? '#E8F4FF' : '#121212' }]}>
-                📅 {statistics.totalDays} Days
-              </Text>
-            </View>
-          ) : null}
-        </ScrollView>
-
         {/* Segmented Glass Tabs overlay inside Header */}
         <View style={styles.floatingTabsContainer}>
-          {(['posts', 'journeys', 'both'] as const).map((filter) => {
+          {(['posts', 'journeys'] as const).map((filter) => {
             const isActive = mapFilter === filter;
-            const label = filter === 'posts' ? 'Posts' : filter === 'journeys' ? 'Journeys' : 'Both';
-            const activeColor = filter === 'posts' ? ALERT_RED : filter === 'journeys' ? GROWTH_GREEN : ACTION_BLUE;
+            const label = filter === 'posts' ? 'Posts' : 'Journeys';
+            const activeColor = filter === 'posts' ? ALERT_RED : GROWTH_GREEN;
             return (
               <TouchableOpacity
                 key={filter}
@@ -1687,7 +1783,7 @@ function initMap(){
             styles.carouselContainer,
             {
               transform: [{ translateY: slideAnim }],
-              bottom: isOwnPage ? insets.bottom + 175 : insets.bottom + 20,
+              bottom: isOwnPage ? insets.bottom + bottomPanelHeight + 16 : insets.bottom + 16,
             }
           ]}
         >
@@ -1715,7 +1811,7 @@ function initMap(){
                     <View style={styles.previewContent}>
                       {item.photo ? (
                         <ExpoImage
-                          source={{ uri: item.photo }}
+                          source={{ uri: resolvePhotoUrl(item.photo) }}
                           style={styles.previewImage}
                           contentFit="cover"
                           cachePolicy="memory-disk"
@@ -1781,10 +1877,14 @@ function initMap(){
       {/* Floating Bottom Cockpit Overlay */}
       {isOwnPage && (
         <View
+          onLayout={(e) => {
+            const h = e.nativeEvent.layout.height;
+            if (h > 0) setBottomPanelHeight(h);
+          }}
           style={[
             styles.floatingBottomPanel,
             {
-              bottom: insets.bottom + 12,
+              bottom: insets.bottom + 8,
               backgroundColor: isDark ? 'rgba(20, 24, 33, 0.75)' : 'rgba(255, 255, 255, 0.75)',
               borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
               borderRadius: isDark ? 24 : 30,
@@ -2541,6 +2641,7 @@ const markerStyles = StyleSheet.create({
     height: 44,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'transparent',
   },
   clusterGlow: {
     width: 40,
@@ -2548,6 +2649,7 @@ const markerStyles = StyleSheet.create({
     borderRadius: 20,
     overflow: 'hidden',
     padding: 1.5,
+    backgroundColor: 'transparent',
   },
   clusterBlur: {
     flex: 1,
@@ -2562,6 +2664,11 @@ const markerStyles = StyleSheet.create({
   clusterText: {
     fontSize: 13,
     fontWeight: '800',
+  },
+  clusterPhoto: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
   },
 });
 
