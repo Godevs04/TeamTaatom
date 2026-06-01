@@ -8,7 +8,7 @@ import {
   Platform,
   Dimensions,
 } from 'react-native';
-import { theme } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -44,6 +44,9 @@ export default function AuthInput({
   success,
   ...props
 }: AuthInputProps) {
+  const { theme } = useTheme();
+  const styles = getStyles(theme);
+
   return (
     <View style={styles.container}>
       <Text style={styles.label}>{label}</Text>
@@ -70,9 +73,9 @@ export default function AuthInput({
       )}
     </View>
   );
-};
+}
 
-const styles = StyleSheet.create({
+const getStyles = (theme: any) => StyleSheet.create({
   container: {
     marginBottom: theme.spacing.md,
     width: '100%',

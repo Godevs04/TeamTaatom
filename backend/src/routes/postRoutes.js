@@ -18,7 +18,8 @@ const {
   toggleComments,
   updatePost,
   getArchivedPosts,
-  getHiddenPosts
+  getHiddenPosts,
+  incrementShare
 } = require('../controllers/postController');
 
 const router = express.Router();
@@ -627,5 +628,28 @@ router.patch('/:id/toggle-comments', authMiddleware, toggleComments);
  *         description: Post updated
  */
 router.patch('/:id', authMiddleware, updatePost);
+
+/**
+ * @swagger
+ * /api/v1/posts/{id}/share:
+ *   post:
+ *     summary: Increment share count on a post
+ *     tags: [Posts]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Share count incremented
+ *       404:
+ *         $ref: '#/components/responses/NotFound'
+ */
+router.post('/:id/share', optionalAuth, incrementShare);
 
 module.exports = router;

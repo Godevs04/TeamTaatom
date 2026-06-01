@@ -559,12 +559,22 @@ export default function ContentPreviewScreen() {
           return (
             <TouchableOpacity
               key={block._id || index}
-              style={[styles.buttonBlock, { backgroundColor: effectiveBg || theme.colors.primary }]}
+              style={[styles.buttonBlock, { overflow: 'hidden' }]}
               onPress={() => {
                 if (buttonUrl) Linking.openURL(buttonUrl).catch(() => {});
               }}
               activeOpacity={0.7}
             >
+              {effectiveBg ? (
+                <View style={[StyleSheet.absoluteFillObject, { backgroundColor: effectiveBg }]} />
+              ) : (
+                <LinearGradient
+                  colors={['#50C878', '#1C73B4']}
+                  style={StyleSheet.absoluteFillObject}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                />
+              )}
               <Text style={[styles.buttonBlockText, block.color ? { color: block.color } : undefined]}>
                 {block.content || 'Button'}
               </Text>
@@ -716,8 +726,8 @@ export default function ContentPreviewScreen() {
           <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
       ) : isEmpty ? (
-        <View style={[styles.emptyContainer, { backgroundColor: '#FFFFFF' }]}>
-          <Text style={[styles.emptyText, { color: '#000000', fontFamily: getFontFamily('600'), fontWeight: '600', fontSize: 16 }]}>
+        <View style={[styles.emptyContainer, { backgroundColor: theme.colors.background }]}>
+          <Text style={[styles.emptyText, { color: theme.colors.text, fontFamily: getFontFamily('600'), fontWeight: '600', fontSize: 16 }]}>
             No content yet
           </Text>
         </View>
@@ -837,12 +847,17 @@ export default function ContentPreviewScreen() {
             if (isOwner) {
               return (
                 <View style={[styles.subscribeSection, { borderTopColor: theme.colors.border }]}>
-                  <View style={[styles.subscribeButton, { backgroundColor: theme.colors.primary }]}>
+                  <LinearGradient
+                    colors={['#50C878', '#1C73B4']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.subscribeButton}
+                  >
                     <Ionicons name={isCommunity ? 'cart-outline' : 'star'} size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
                     <Text style={styles.subscribeButtonText}>
                       {subButtonText} · {currSym}{displayPrice}/month
                     </Text>
-                  </View>
+                  </LinearGradient>
                   <Text style={[styles.subscribeNote, { color: theme.colors.textSecondary }]}>
                     This is a preview — subscribers will see this button on your page
                   </Text>
@@ -881,11 +896,17 @@ export default function ContentPreviewScreen() {
               return (
                 <View style={[styles.subscribeSection, { borderTopColor: theme.colors.border }]}>
                   <TouchableOpacity
-                    style={[styles.subscribeButton, { backgroundColor: theme.colors.primary }]}
+                    style={[styles.subscribeButton, { overflow: 'hidden' }]}
                     onPress={handleSubscribe}
                     activeOpacity={0.7}
                     disabled={subscribing}
                   >
+                    <LinearGradient
+                      colors={['#50C878', '#1C73B4']}
+                      style={StyleSheet.absoluteFillObject}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                    />
                     {subscribing ? (
                       <LoadingGlobe size="small" color="#FFFFFF" />
                     ) : (

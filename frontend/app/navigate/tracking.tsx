@@ -47,7 +47,7 @@ export default function TrackingScreen() {
   const router = useRouter();
   const { theme, isDark } = useTheme();
   const mapStyle = useMapStyle();
-  const { showAlert, showError, showOptions } = useAlert();
+  const { showAlert, showError, showSuccess, showOptions } = useAlert();
   const insets = useSafeAreaInsets();
   const {
     initialized,
@@ -212,45 +212,18 @@ export default function TrackingScreen() {
     }
   };
 
-  const handleStopJourney = () => {
-    showOptions(
-      'End Journey?',
-      [
-        {
-          text: 'Save Raw GPS Path',
-          onPress: async () => {
-            try {
-              setIsLoading(true);
-              await stopJourneyRecording({ snapToRoads: false });
-              isNavigatingAwayRef.current = true;
-              router.push('/navigate/complete');
-            } catch (err: any) {
-              showError(err.message || 'Unknown error', 'Failed to end journey');
-            } finally {
-              setIsLoading(false);
-            }
-          },
-        },
-        {
-          text: 'Snap to Roads & Save',
-          onPress: async () => {
-            try {
-              setIsLoading(true);
-              await stopJourneyRecording({ snapToRoads: true });
-              isNavigatingAwayRef.current = true;
-              router.push('/navigate/complete');
-            } catch (err: any) {
-              showError(err.message || 'Unknown error', 'Failed to end journey');
-            } finally {
-              setIsLoading(false);
-            }
-          },
-        },
-      ],
-      'This will complete your current journey. Choose how you want to save the path:',
-      true,
-      'Cancel'
-    );
+  const handleStopJourney = async () => {
+    try {
+      setIsLoading(true);
+      await stopJourneyRecording();
+      isNavigatingAwayRef.current = true;
+      showSuccess('Journey Saved!', 'Your journey has been saved successfully.');
+      router.push('/navigate/complete');
+    } catch (err: any) {
+      showError(err.message || 'Unknown error', 'Failed to end journey');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const openJourneyCapture = (type: 'photo' | 'short') => {

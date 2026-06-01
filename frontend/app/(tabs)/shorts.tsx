@@ -16,6 +16,8 @@ import {
   AppState,
   BackHandler,
   Pressable,
+  RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -26,7 +28,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import MaskedView from '@react-native-masked-view/masked-view';
 import { useTheme } from '../../context/ThemeContext';
 import { getShorts, getUserShorts, toggleLike, addComment, getPostById, deleteShort } from '../../services/posts';
-import { toggleFollow } from '../../services/profile';
+import { toggleFollow, getProfile } from '../../services/profile';
 import { PostType } from '../../types/post';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter, useFocusEffect, useLocalSearchParams, useSegments } from 'expo-router';
@@ -37,6 +39,7 @@ import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { trackScreenView, trackEngagement } from '../../services/analytics';
 import SongPlayer from '../../components/SongPlayer';
+import { GlassModal } from '../../components/ui/GlassModal';
 import { theme } from '../../constants/theme';
 import { audioManager } from '../../utils/audioManager';
 import PostLocation from '../../components/post/PostLocation';
@@ -48,6 +51,8 @@ import { ShortsNativeAd } from '../../components/ads/ShortsNativeAd';
 import { useAdCap, recordGoogleAdImpression, logContentView } from '../../services/adCap';
 import { realtimePostsService } from '../../services/realtimePosts';
 import Constants from 'expo-constants';
+import { savedEvents } from '../../utils/savedEvents';
+import { triggerHaptic } from '../../utils/hapticFeedback';
 
 /** Shorts list item: either a reel (PostType) or a full-screen native ad slot. */
 export type ShortsItem = PostType | { type: 'ad'; adIndex: number };
@@ -126,6 +131,7 @@ export type ShortsScreenProps = {
   /** When embedded from `/user-shorts/[userId]` — load this user's shorts (params may not reach hooks reliably). */
   scopedUserId?: string;
   initialShortId?: string;
+  isSavedShorts?: boolean;
 };
 
 const videoSourceCache = new Map<string, { uri: string; overrideFileExtensionAndroid?: string }>();
@@ -215,6 +221,10 @@ const ShortsProgressBar = ({
   const pendingSeekTimeoutRef = useRef<any>(null);
   const isPressingRef = useRef(false);
 
+  const lastTouchTimeRef = useRef(0);
+  const lastTouchXRef = useRef(0);
+  const lastHapticProgressRef = useRef(0);
+
   useEffect(() => {
     if (index !== currentVisibleIndex) {
       setProgress(0);
@@ -238,9 +248,28 @@ const ShortsProgressBar = ({
 
   const handleTouch = (event: any, forceSeek = false) => {
     if (duration <= 0) return;
+    
     const pageX = event.nativeEvent.pageX;
+    // Spans the entire screen width horizontally (from 0 to SCREEN_WIDTH)
     const newProgress = Math.max(0, Math.min(1, pageX / SCREEN_WIDTH));
     setProgress(newProgress);
+
+    const now = Date.now();
+    const timeDelta = now - lastTouchTimeRef.current;
+    const xDelta = pageX - lastTouchXRef.current;
+    const velocity = timeDelta > 0 ? Math.abs(xDelta / timeDelta) : 0;
+    lastTouchTimeRef.current = now;
+    lastTouchXRef.current = pageX;
+
+    // Kinesthetic Feedback: haptic ticks on 10% steps
+    const currentStep = Math.floor(newProgress * 10);
+    const lastStep = Math.floor(lastHapticProgressRef.current * 10);
+    if (currentStep !== lastStep) {
+      triggerHaptic('light');
+    }
+
+
+    lastHapticProgressRef.current = newProgress;
 
     const targetMs = newProgress * duration;
     
@@ -274,13 +303,13 @@ const ShortsProgressBar = ({
         clearTimeout(pendingSeekTimeoutRef.current);
         pendingSeekTimeoutRef.current = null;
       }
-      lastSeekTimeRef.current = Date.now();
+      lastSeekTimeRef.current = now;
       performSeek();
     } else {
-      const now = Date.now();
       const timeSinceLastSeek = now - lastSeekTimeRef.current;
+      const throttleDelay = velocity > 0.5 ? 150 : 40;
       
-      if (timeSinceLastSeek > 100) { // 100ms throttle prevents bridge congestion
+      if (timeSinceLastSeek > throttleDelay) {
         if (pendingSeekTimeoutRef.current) {
           clearTimeout(pendingSeekTimeoutRef.current);
           pendingSeekTimeoutRef.current = null;
@@ -296,10 +325,19 @@ const ShortsProgressBar = ({
           lastSeekTimeRef.current = Date.now();
           performSeek();
           pendingSeekTimeoutRef.current = null;
-        }, 100 - timeSinceLastSeek);
+        }, throttleDelay - timeSinceLastSeek);
       }
     }
   };
+
+  const formatSeconds = (ms: number) => {
+    const totalSecs = Math.floor(ms / 1000);
+    const mins = Math.floor(totalSecs / 60);
+    const secs = totalSecs % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const lineThick = isPressing ? 8 : 3;
 
   return (
     <View
@@ -307,6 +345,7 @@ const ShortsProgressBar = ({
       onTouchStart={(e) => {
         setIsPressing(true);
         isPressingRef.current = true;
+        triggerHaptic('medium');
         
         // Pause players immediately when dragging starts to prevent auditory stuttering and visual racing
         const video = getVideoRef();
@@ -317,12 +356,15 @@ const ShortsProgressBar = ({
           currentPlayerRef.current.pauseAsync().catch(() => {});
         }
         
+        lastTouchTimeRef.current = Date.now();
+        lastTouchXRef.current = e.nativeEvent.pageX;
         handleTouch(e, true);
       }}
       onTouchMove={(e) => handleTouch(e, false)}
       onTouchEnd={(e) => {
         setIsPressing(false);
         isPressingRef.current = false;
+        triggerHaptic('success');
         
         if (pendingSeekTimeoutRef.current) {
           clearTimeout(pendingSeekTimeoutRef.current);
@@ -413,17 +455,26 @@ const ShortsProgressBar = ({
         executeFinalSeekAndPlay();
       }}
     >
-      <View style={[styles.progressBarBackground, isPressing && { height: 14 }]} />
-      <LinearGradient
-        colors={['#50C878', '#1C73B4']} // beautiful premium green-blue gradient
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={[
-          styles.progressBarFill,
-          { width: `${progress * 100}%` },
-          isPressing && { height: 14 },
-        ]}
-      />
+      {/* Straight line horizontal bar */}
+      <View style={[styles.progressBarBackground, { height: lineThick }]}>
+        <View
+          style={[
+            styles.progressBarFill,
+            { width: `${progress * 100}%`, height: lineThick }
+          ]}
+        />
+      </View>
+
+
+
+      {/* Tooltip on scrubbing */}
+      {isPressing && duration > 0 && (
+        <View style={[styles.scrubberTooltip, { left: `${Math.max(10, Math.min(80, progress * 100))}%` }]}>
+          <Text style={styles.scrubberTooltipText}>
+            {formatSeconds(progress * duration)} / {formatSeconds(duration)}
+          </Text>
+        </View>
+      )}
     </View>
   );
 };
@@ -496,6 +547,11 @@ const LocalShortsActionRail = React.memo(({
   const [localIsLiked, setLocalIsLiked] = useState(initialIsLiked);
   const [localLikesCount, setLocalLikesCount] = useState(initialLikesCount);
   const { showOptions, showSuccess } = useAlert();
+  const router = useRouter();
+  const { theme } = useTheme();
+  const [showModal, setShowModal] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [likers, setLikers] = useState<any[]>([]);
 
   useEffect(() => {
     setLocalIsLiked(initialIsLiked);
@@ -534,6 +590,34 @@ const LocalShortsActionRail = React.memo(({
     });
     onLikePress(shortId);
   }, [onLikePress, shortId]);
+
+  const handleLikesPress = useCallback(async () => {
+    setShowModal(true);
+    setLoading(true);
+    try {
+      const data = await getPostById(shortId);
+      const likes = data?.data?.post?.likes || data?.post?.likes || data?.likes || [];
+      if (likes.length > 0) {
+        const profiles = await Promise.all(
+          likes.map(async (uid: string) => {
+            try {
+              const res = await getProfile(uid);
+              return res?.profile || null;
+            } catch (err) {
+              return null;
+            }
+          })
+        );
+        setLikers(profiles.filter(Boolean));
+      } else {
+        setLikers([]);
+      }
+    } catch (error) {
+      logger.warn('Failed to load likers for short:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [shortId]);
 
   const handleCommentPressLocal = useCallback(() => {
     onCommentPress(shortId);
@@ -618,25 +702,32 @@ const LocalShortsActionRail = React.memo(({
           </View>
         </TouchableOpacity>
 
-        <Pressable
-          style={styles.actionButton}
-          onPress={handleLikePressLocal}
-          accessibilityLabel={localIsLiked ? `Unlike, ${localLikesCount} likes` : `Like, ${localLikesCount} likes`}
-          accessibilityRole="button"
-        >
-          <View style={[styles.actionIconContainer, localIsLiked && styles.likedContainer]}>
-            {localIsLiked ? (
-              <GradientIcon name="heart" size={28} />
-            ) : (
-              <Ionicons
-                name="heart-outline"
-                size={28}
-                color="white"
-              />
-            )}
-          </View>
-          <Text style={styles.actionText}>{localLikesCount}</Text>
-        </Pressable>
+        <View style={styles.actionButton}>
+          <Pressable
+            onPress={handleLikePressLocal}
+            accessibilityLabel={localIsLiked ? `Unlike` : `Like`}
+            accessibilityRole="button"
+          >
+            <View style={[styles.actionIconContainer, localIsLiked && styles.likedContainer]}>
+              {localIsLiked ? (
+                <GradientIcon name="heart" size={28} />
+              ) : (
+                <Ionicons
+                  name="heart-outline"
+                  size={28}
+                  color="white"
+                />
+              )}
+            </View>
+          </Pressable>
+          <TouchableOpacity
+            onPress={handleLikesPress}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
+          >
+            <Text style={styles.actionText}>{localLikesCount}</Text>
+          </TouchableOpacity>
+        </View>
 
         <Pressable
           style={styles.actionButton}
@@ -675,6 +766,57 @@ const LocalShortsActionRail = React.memo(({
           </View>
         </Pressable>
       </View>
+
+      {/* Likes Detail View Modal */}
+      <GlassModal visible={showModal} onClose={() => setShowModal(false)} style={styles.modalContentStyle}>
+        <View style={styles.modalHeader}>
+          <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Likes</Text>
+          <TouchableOpacity onPress={() => setShowModal(false)} style={styles.closeButton}>
+            <Ionicons name="close" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+        </View>
+
+        {loading ? (
+          <View style={styles.modalLoadingContainer}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+          </View>
+        ) : likers.length === 0 ? (
+          <View style={styles.modalEmptyContainer}>
+            <Text style={[styles.modalEmptyText, { color: theme.colors.textSecondary }]}>No likes yet</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={likers}
+            keyExtractor={(item) => item._id}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={styles.userRow}
+                onPress={() => {
+                  setShowModal(false);
+                  router.push(`/profile/${item._id}`);
+                }}
+              >
+                {item.profilePic ? (
+                  <Image source={{ uri: item.profilePic }} style={styles.avatar as ImageStyle} />
+                ) : (
+                  <View style={[styles.avatarPlaceholder, { backgroundColor: theme.colors.border }]}>
+                    <Ionicons name="person" size={20} color={theme.colors.textSecondary} />
+                  </View>
+                )}
+                <View style={styles.userInfo}>
+                  <Text style={[styles.fullName, { color: theme.colors.text }]}>{item.fullName}</Text>
+                  {item.username && (
+                    <Text style={[styles.modalUsername, { color: theme.colors.textSecondary }]}>@{item.username}</Text>
+                  )}
+                </View>
+              </TouchableOpacity>
+            )}
+            style={styles.list}
+            contentContainerStyle={styles.listContent}
+            nestedScrollEnabled={true}
+          />
+        )}
+      </GlassModal>
     </View>
   );
 });
@@ -685,6 +827,7 @@ LocalShortsActionRail.displayName = 'LocalShortsActionRail';
 export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [shorts, setShorts] = useState<PostType[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   // Track visible index precisely using onViewableItemsChanged
   const [currentVisibleIndex, setCurrentVisibleIndex] = useState(0);
@@ -708,6 +851,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [followStates, setFollowStates] = useState<{ [key: string]: boolean }>({});
   const swipeStartXRef = useRef<number | null>(null);
   const swipeStartYRef = useRef<number | null>(null);
+  const isSwipeActiveRef = useRef(false);
+  const [isSwipeActive, setIsSwipeActive] = useState(false);
   const [showSwipeHint, setShowSwipeHint] = useState(true);
   const [videoQuality, setVideoQuality] = useState<'low' | 'medium' | 'high'>('high');
   const [expandedCaptions, setExpandedCaptions] = useState<{ [key: string]: boolean }>({});
@@ -862,6 +1007,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     handleTouchStart: null as any,
     handleTouchMove: null as any,
     handleTouchEnd: null as any,
+    handleTouchCancel: null as any,
     toggleVideoPlayback: null as any,
     showPauseButtonTemporarily: null as any,
     handleDeleteShort: null as any,
@@ -889,7 +1035,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
   const isOnTabShorts = segments.includes('(tabs)') && segments.includes('shorts');
   const isUserShortsStack = segments.includes('user-shorts');
-  const shortsPlaybackSurfaceActive = isOnTabShorts || isUserShortsStack;
+  const isSavedShortsStack = segments.includes('saved-shorts');
+  const shortsPlaybackSurfaceActive = isOnTabShorts || isUserShortsStack || isSavedShortsStack;
   const { showSuccess, showError, showInfo, showWarning, showConfirm } = useAlert();
   const { handleScroll } = useScrollToHideNav();
 
@@ -1130,6 +1277,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     useCallback(() => {
       isNavigatingRef.current = false;
       lastNavigationUserIdRef.current = null;
+      swipeAnimation.setValue(0);
+      fadeAnimation.setValue(1);
 
       // Only on Shorts *tab*: if we left with ?userId= in URL, clear on next focus so feed is global again
       if (shouldClearParamsOnNextFocusRef.current && isOnTabShorts) {
@@ -1185,12 +1334,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       });
 
       // Screen focused - resume current video if it exists
-      if (activeVideoIdRef.current && shorts[currentVisibleIndex]) {
-        const currentVideoId = shorts[currentVisibleIndex]._id;
+      if (activeVideoIdRef.current && shortsRef.current[currentVisibleIndex]) {
+        const currentVideoId = shortsRef.current[currentVisibleIndex]._id;
         if (currentVideoId === activeVideoIdRef.current) {
           const video = videoRefs.current[currentVideoId];
           if (video) {
-            const hasSong = !!(shorts[currentVisibleIndex].song?.songId?._id || shorts[currentVisibleIndex].song?.songId);
+            const hasSong = !!(shortsRef.current[currentVisibleIndex].song?.songId?._id || shortsRef.current[currentVisibleIndex].song?.songId);
             const expectedMute = hasSong || false;
             video.setIsMutedAsync(expectedMute).catch(() => {});
             video.setVolumeAsync(expectedMute ? 0.0 : 1.0).catch(() => {});
@@ -1226,7 +1375,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         logger.debug('[Shorts] Stopping all audio - leaving shorts page');
         audioManager.stopAll().catch(() => {});
       };
-    }, [currentVisibleIndex, shorts, pauseCurrentVideo])
+    }, [currentVisibleIndex, pauseCurrentVideo])
   );
 
   // Pause when user navigates away from Shorts (tab or /user-shorts stack)
@@ -1261,12 +1410,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         logger.debug('App backgrounded, paused current video and audio');
       } else if (nextAppState === 'active') {
         // App coming to foreground - resume current video if screen is focused
-        if (activeVideoIdRef.current && shorts[currentVisibleIndex] && isScreenFocusedRef.current) {
-          const currentVideoId = shorts[currentVisibleIndex]._id;
+        if (activeVideoIdRef.current && shortsRef.current[currentVisibleIndex] && isScreenFocusedRef.current) {
+          const currentVideoId = shortsRef.current[currentVisibleIndex]._id;
           if (currentVideoId === activeVideoIdRef.current) {
             const video = videoRefs.current[currentVideoId];
             if (video) {
-              const hasSong = !!(shorts[currentVisibleIndex].song?.songId?._id || shorts[currentVisibleIndex].song?.songId);
+              const hasSong = !!(shortsRef.current[currentVisibleIndex].song?.songId?._id || shortsRef.current[currentVisibleIndex].song?.songId);
               const expectedMute = hasSong || false;
               video.setIsMutedAsync(expectedMute).catch(() => {});
               video.setVolumeAsync(expectedMute ? 0.0 : 1.0).catch(() => {});
@@ -1282,7 +1431,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     return () => {
       subscription.remove();
     };
-  }, [currentVisibleIndex, shorts, pauseCurrentVideo]);
+  }, [currentVisibleIndex, pauseCurrentVideo]);
 
   // Handle Android hardware back button
   // Pauses video before allowing normal navigation
@@ -1547,7 +1696,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       logger.debug(`Refetching short ${shortId} to get fresh signed URL...`);
       const response = await getPostById(shortId);
       // getPostById returns { post: PostType } or PostType directly
-      const short = response?.post || response;
+      const short = response?.data?.post || response?.post || response;
       if (short && (short.mediaUrl || short.videoUrl || short.imageUrl)) {
         logger.debug(`Successfully refetched short ${shortId} with fresh URL`);
         return short as PostType;
@@ -1631,8 +1780,79 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       logger.info(`[LOAD_SHORTS] Starting to load shorts`, {
         effectiveUserId,
         effectiveShortId,
+        isSavedShorts: props.isSavedShorts,
         timestamp: new Date().toISOString()
       });
+
+      if (props.isSavedShorts) {
+        logger.debug(`[LOAD_SHORTS] Loading saved shorts`);
+        const savedShortsJson = await AsyncStorage.getItem('savedShorts');
+        let savedIds: string[] = [];
+        if (savedShortsJson) {
+          try {
+            const parsed = JSON.parse(savedShortsJson);
+            savedIds = Array.isArray(parsed) ? parsed.filter((id: any): id is string => typeof id === 'string' && id.length > 0) : [];
+          } catch {
+            savedIds = [];
+          }
+        }
+
+        if (savedIds.length === 0) {
+          setShorts([]);
+          setLoading(false);
+          return;
+        }
+
+        // Fetch each short by ID
+        const resolvedPosts = await Promise.all(
+          savedIds.map(async (id) => {
+            try {
+              const raw = await getPostById(id);
+              return raw?.data?.post || raw?.post || raw || null;
+            } catch {
+              return null;
+            }
+          })
+        );
+
+        const validShorts = resolvedPosts.filter((s): s is PostType => s !== null && (s.type === 'short' || !!s.videoUrl));
+
+        const enriched = validShorts.map((s) => {
+          const fromStorage = likedShortIdsRef.current.has(s._id);
+          const isLiked = s.isLiked || fromStorage;
+          const likesCount = isLiked && fromStorage && !s.isLiked
+            ? Math.max(s.likesCount ?? 0, 1)
+            : (s.likesCount ?? 0);
+          return { ...s, isLiked, likesCount };
+        });
+
+        // Set follow states
+        const followStatesMap: { [key: string]: boolean } = {};
+        enriched.forEach((short: PostType) => {
+          if (short.user && short.user._id) {
+            followStatesMap[short.user._id] = (short.user as any).isFollowing || false;
+          }
+        });
+        setFollowStates(followStatesMap);
+
+        // If we have an initial short ID, make sure it is at index 0 of the feed, or re-order it
+        if (effectiveShortId) {
+          const targetIndex = enriched.findIndex(s => s._id === effectiveShortId);
+          if (targetIndex > 0) {
+            const targetShort = enriched[targetIndex];
+            const remaining = enriched.filter((_, idx) => idx !== targetIndex);
+            setShorts([targetShort, ...remaining]);
+          } else {
+            setShorts(enriched);
+          }
+        } else {
+          setShorts(enriched);
+        }
+
+        setLoading(false);
+        hasMoreRef.current = false; // No paginated loading for saved items
+        return;
+      }
 
       const shouldFilterByUser = !!effectiveUserId;
 
@@ -1641,7 +1861,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       if (effectiveShortId && !shouldFilterByUser) {
         try {
           const raw = await getPostById(effectiveShortId);
-          const singleShort: PostType | null = raw?.post || raw || null;
+          const singleShort: PostType | null = raw?.data?.post || raw?.post || raw || null;
           if (singleShort) {
             logger.info(`[LOAD_SHORTS] Loaded specific short:`, {
               shortId: singleShort._id,
@@ -1765,8 +1985,17 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     loadShortsRef.current = loadShorts;
   }, [loadShorts]);
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadShorts();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadShorts]);
+
   const loadMoreShorts = useCallback(async () => {
-    if (!hasMoreRef.current || isLoadingMore || !!effectiveUserId || !!effectiveShortId) return;
+    if (!hasMoreRef.current || isLoadingMore || !!effectiveUserId || !!effectiveShortId || props.isSavedShorts) return;
     try {
       setIsLoadingMore(true);
       const nextPage = currentPageRef.current + 1;
@@ -2268,6 +2497,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         await AsyncStorage.setItem('savedShorts', JSON.stringify(updatedIds));
         setSavedShorts(new Set(updatedIds));
         showInfo('Removed from saved');
+        savedEvents.emitChanged();
+        savedEvents.emitPostAction(shortId, 'unsave', { isBookmarked: false });
       } else {
         // Add to saved (prevent duplicates)
         if (!currentIds.includes(shortId)) {
@@ -2275,6 +2506,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           await AsyncStorage.setItem('savedShorts', JSON.stringify(updatedIds));
           setSavedShorts(new Set(updatedIds));
           showSuccess('Saved to favorites!');
+          savedEvents.emitChanged();
+          savedEvents.emitPostAction(shortId, 'save', { isBookmarked: true });
         } else {
           // Already saved (race condition handled)
           setSavedShorts(new Set(currentIds));
@@ -2319,10 +2552,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     setShowCommentModal(true);
     setSelectedShortId(shortId);
     
-    // Load comments asynchronously to prevent UI blocking
     getPostById(shortId)
       .then(response => {
-        setSelectedShortComments(response.post.comments || []);
+        const short = response?.data?.post || response?.post || response;
+        setSelectedShortComments(short?.comments || []);
       })
       .catch(error => {
         logger.error('Error loading comments', error);
@@ -2364,32 +2597,36 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // Note: Navigation guard is already set in handleTouchEnd before calling this function
     // This prevents duplicate navigations on rapid swipes
     
-    // Animate swipe gesture
-    Animated.sequence([
+    // Animate swipe gesture to slide screen completely out in parallel
+    Animated.parallel([
       Animated.timing(swipeAnimation, {
-        toValue: -1,
-        duration: 200,
+        toValue: -SCREEN_WIDTH,
+        duration: 250,
         useNativeDriver: true,
       }),
       Animated.timing(fadeAnimation, {
         toValue: 0,
-        duration: 300,
+        duration: 250,
         useNativeDriver: true,
       }),
     ]).start(() => {
       // Navigate to profile
       router.push(`/profile/${userId}`);
       
-      // Reset animations
-      swipeAnimation.setValue(0);
-      fadeAnimation.setValue(1);
-      
-      // Reset navigation guard after navigation completes
-      // Use a longer timeout to ensure navigation has completed
+      // Safety reset fallback: if navigation fails or is rejected, reset after 1.5 seconds
       setTimeout(() => {
-        isNavigatingRef.current = false;
-        lastNavigationUserIdRef.current = null;
-      }, 1000);
+        if (isNavigatingRef.current) {
+          Animated.spring(swipeAnimation, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 100,
+            friction: 8,
+          }).start();
+          fadeAnimation.setValue(1);
+          isNavigatingRef.current = false;
+          lastNavigationUserIdRef.current = null;
+        }
+      }, 1500);
     });
   };
 
@@ -2426,6 +2663,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const { pageX, pageY } = event.nativeEvent;
     swipeStartXRef.current = pageX;
     swipeStartYRef.current = pageY;
+    isSwipeActiveRef.current = false;
+    setIsSwipeActive(false);
   };
 
   const handleTouchMove = (event: any) => {
@@ -2435,14 +2674,22 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const deltaX = pageX - swipeStartXRef.current;
     const deltaY = pageY - swipeStartYRef.current;
 
-    // Only animate for left swipes (negative deltaX)
-    // Right swipes should not trigger any animation or navigation
-    if (deltaX < 0 && Math.abs(deltaX) > Math.abs(deltaY)) {
-      const progress = Math.min(Math.abs(deltaX) / 100, 1);
-      swipeAnimation.setValue(-progress);
+    if (isSwipeActiveRef.current) {
+      // Once horizontal swipe is active, only translate leftwards
+      if (deltaX < 0) {
+        swipeAnimation.setValue(Math.max(deltaX, -SCREEN_WIDTH));
+      } else {
+        swipeAnimation.setValue(0);
+      }
     } else {
-      // Reset animation if swiping right or vertical
-      swipeAnimation.setValue(0);
+      // Lock swipe horizontally if horizontal movement exceeds 5px and dominates vertical movement
+      if (Math.abs(deltaX) > 5 || Math.abs(deltaY) > 5) {
+        if (deltaX < 0 && Math.abs(deltaX) > Math.abs(deltaY)) {
+          isSwipeActiveRef.current = true;
+          setIsSwipeActive(true);
+          swipeAnimation.setValue(Math.max(deltaX, -SCREEN_WIDTH));
+        }
+      }
     }
   };
 
@@ -2452,18 +2699,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const { pageX, pageY } = event.nativeEvent;
     const deltaX = pageX - swipeStartXRef.current;
     const deltaY = pageY - swipeStartYRef.current;
+    const isLeftSwipe = deltaX < 0;
     
-    // Only trigger navigation for LEFT swipes (deltaX must be negative)
-    // Right swipes (positive deltaX) should be ignored
-    const horizontalRatio = Math.abs(deltaX) / (Math.abs(deltaY) || 1);
-    const isLeftSwipe = deltaX < 0; // Negative deltaX means swipe left
-    
-    if (isLeftSwipe && horizontalRatio > 1.5 && Math.abs(deltaX) > 50) {
-      // Check if navigation is already in progress to prevent duplicate navigations
-      // This prevents rapid double swipes from causing duplicate navigation
+    // Swipe left recognized if horizontal swipe is locked and moved left
+    if (isSwipeActiveRef.current && isLeftSwipe) {
       if (isNavigatingRef.current) {
         logger.debug('Swipe left detected but navigation already in progress, ignoring duplicate swipe');
-        // Reset animation
         Animated.spring(swipeAnimation, {
           toValue: 0,
           useNativeDriver: true,
@@ -2472,31 +2713,48 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         }).start();
         swipeStartXRef.current = null;
         swipeStartYRef.current = null;
+        isSwipeActiveRef.current = false;
+        setIsSwipeActive(false);
         return;
       }
 
-      // Set guard immediately to prevent duplicate swipes
+      // Commit to navigation
       isNavigatingRef.current = true;
       lastNavigationUserIdRef.current = userId;
 
       logger.debug('Swipe left detected, navigating to profile:', userId);
       handleSwipeLeft(userId);
     } else {
-      // Reset animation if not a valid left swipe (right swipe or invalid gesture)
+      // Reset animation if not a valid left swipe
       Animated.spring(swipeAnimation, {
         toValue: 0,
         useNativeDriver: true,
         tension: 100,
         friction: 8,
       }).start();
-
-      if (!isLeftSwipe && Math.abs(deltaX) > 50) {
-        logger.debug('Swipe right detected, ignoring (only left swipes navigate to profile)');
-      }
     }
 
     swipeStartXRef.current = null;
     swipeStartYRef.current = null;
+    isSwipeActiveRef.current = false;
+    setIsSwipeActive(false);
+  };
+
+  const handleTouchCancel = () => {
+    if (isNavigatingRef.current) {
+      // Ignore touch cancels if we are already in the process of navigating
+      return;
+    }
+    swipeStartXRef.current = null;
+    swipeStartYRef.current = null;
+    isSwipeActiveRef.current = false;
+    setIsSwipeActive(false);
+    Animated.spring(swipeAnimation, {
+      toValue: 0,
+      useNativeDriver: true,
+      tension: 100,
+      friction: 8,
+    }).start();
   };
 
   // Interleave full-screen native ad after every SHORTS_ADS_AFTER_EVERY reels.
@@ -2739,6 +2997,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       handleTouchStart,
       handleTouchMove,
       handleTouchEnd,
+      handleTouchCancel,
       toggleVideoPlayback,
       showPauseButtonTemporarily,
       handleDeleteShort,
@@ -2752,7 +3011,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       retryVideoLoad,
       handleVideoTap,
     };
-  }, [handleTouchStart, handleTouchMove, handleTouchEnd, toggleVideoPlayback, showPauseButtonTemporarily, handleDeleteShort, handleProfilePress, handleLike, handleComment, handleShare, handleSave, getVideoUrl, refetchShortWithFreshUrl, retryVideoLoad, handleVideoTap]);
+  }, [handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel, toggleVideoPlayback, showPauseButtonTemporarily, handleDeleteShort, handleProfilePress, handleLike, handleComment, handleShare, handleSave, getVideoUrl, refetchShortWithFreshUrl, retryVideoLoad, handleVideoTap]);
 
   // Memoized video item component to prevent unnecessary re-renders
   // Renders either a reel (PostType) or a full-screen ShortsNativeAd (after every 5 reels, max 3).
@@ -2861,6 +3120,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             onTouchStart={handlersRef.current.handleTouchStart}
             onTouchMove={handlersRef.current.handleTouchMove}
             onTouchEnd={(event) => handlersRef.current.handleTouchEnd(event, item.user._id)}
+            onTouchCancel={handlersRef.current.handleTouchCancel}
           >
             <TouchableWithoutFeedback
               onPress={() => {
@@ -2925,35 +3185,32 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 shouldPlay={index === currentVisibleIndex && isVideoPlaying}
                 isLooping
                 progressUpdateIntervalMillis={100}
-                 isMuted={index !== currentVisibleIndex || !!(item.song?.songId?._id || item.song?.songId)}
-                 volume={(() => {
-                   const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                   return hasMusic ? 0.0 : 1.0;
-                 })()}
-                 onLoadStart={() => {
-                   logger.debug(`Video ${item._id} load started, index: ${index}, currentVisible: ${currentVisibleIndex}`);
-                   if (index < 2) {
-                     logger.info(`[RENDER_VIDEO] onLoadStart for short at index ${index}:`, {
-                       shortId: item._id,
-                       timestamp: new Date().toISOString()
-                     });
-                   }
-                   if (index === currentVisibleIndex) {
-                     const video = videoRefs.current[item._id];
-                     if (video) {
-                       // If music exists (by songId), ensure video is muted so only SongPlayer audio plays
-                       const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                       if (hasMusic) {
-                         video.setIsMutedAsync(true).catch(() => {
-                           // Silently handle mute errors
-                         });
-                         video.setVolumeAsync(0.0).catch(() => {
-                           // Silently handle volume errors
-                         });
-                       }
-                     }
-                   }
-                 }}
+                isMuted={index !== currentVisibleIndex || !!(item.song?.songId?._id || item.song?.songId) || mutedShorts.has(item._id)}
+                volume={(() => {
+                  const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
+                  const isMutedByUser = mutedShorts.has(item._id);
+                  return (hasMusic || isMutedByUser) ? 0.0 : 1.0;
+                })()}
+                onLoadStart={() => {
+                  logger.debug(`Video ${item._id} load started, index: ${index}, currentVisible: ${currentVisibleIndex}`);
+                  if (index < 2) {
+                    logger.info(`[RENDER_VIDEO] onLoadStart for short at index ${index}:`, {
+                      shortId: item._id,
+                      timestamp: new Date().toISOString()
+                    });
+                  }
+                  if (index === currentVisibleIndex) {
+                    const video = videoRefs.current[item._id];
+                    if (video) {
+                      const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
+                      const isMutedByUser = mutedShorts.has(item._id);
+                      if (hasMusic || isMutedByUser) {
+                        video.setIsMutedAsync(true).catch(() => {});
+                        video.setVolumeAsync(0.0).catch(() => {});
+                      }
+                    }
+                  }
+                }}
                 onReadyForDisplay={() => {
                   logger.debug(`Video ${item._id} ready for display`);
                 }}
@@ -3020,9 +3277,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     const wasPlaying = videoStates[item._id];
                     const isNowPlaying = status.isPlaying;
                     
-                    // CRITICAL: If music exists, ensure video stays muted
+                    // CRITICAL: If music exists, or if user muted this short, ensure video stays muted
                     const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                    if (hasMusic && index === currentVisibleIndex) {
+                    const isMutedByUser = mutedShorts.has(item._id);
+                    if ((hasMusic || isMutedByUser) && index === currentVisibleIndex) {
                       const video = videoRefs.current[item._id];
                       if (video && !status.isMuted) {
                         // Throttle to once/second per video. Status callbacks fire
@@ -3193,11 +3451,19 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 ]}
                 pointerEvents="none"
               >
-                <Ionicons 
-                  name="heart" 
-                  size={80} 
-                  color="#FF3040" 
-                />
+                <MaskedView
+                  style={{ width: 80, height: 80 }}
+                  maskElement={
+                    <Ionicons name="heart" size={80} color="#000000" />
+                  }
+                >
+                  <LinearGradient
+                    colors={['#50C878', '#1C73B4']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{ flex: 1 }}
+                  />
+                </MaskedView>
               </Animated.View>
             );
           })()}
@@ -3247,11 +3513,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             onCommentPress={handlersRef.current.handleComment}
             onSharePress={handlersRef.current.handleShare}
             onSavePress={handlersRef.current.handleSave}
-            isScopedView={!!effectiveUserId}
+            isScopedView={!!effectiveUserId || props.isSavedShorts}
           />
 
           {/* Bottom Content with Elegant Design */}
-          <View style={[styles.bottomContent, !!effectiveUserId && { paddingBottom: Platform.OS === 'ios' ? 20 : 16 }]}>
+          <View style={[styles.bottomContent, (!!effectiveUserId || props.isSavedShorts) && { paddingBottom: Platform.OS === 'ios' ? 20 : 16 }]}>
             <LinearGradient
               colors={['transparent', 'transparent', 'transparent']}
               style={styles.bottomGradientOverlay}
@@ -3415,7 +3681,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               )}
             </View>
           </View>
-          
           {shouldRenderVideo && (
             <ShortsProgressBar
               shortId={item._id}
@@ -3519,36 +3784,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   }).current;
 
   if (!loading && shorts.length === 0) {
-    return (
-      <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
-        <View style={styles.emptyContainer}>
-          <Ionicons name="videocam-outline" size={80} color="rgba(255,255,255,0.3)" />
-          <Text style={styles.emptyTitle}>
-            {effectiveUserId ? 'No Shorts Yet' : 'No Shorts Available'}
-          </Text>
-          <Text style={styles.emptyDescription}>
-            {effectiveUserId
-              ? 'This user hasn’t posted any shorts yet.'
-              : 'Be the first to create amazing short videos and share your stories with the world.'}
-          </Text>
-          {!effectiveUserId && (
-            <TouchableOpacity
-              style={styles.createShortButton}
-              onPress={() => router.push('/(tabs)/post')}
-            >
-              <LinearGradient
-                colors={['#FF3040', '#FF6B6B']}
-                style={styles.createShortGradient}
-              >
-                <Ionicons name="add" size={20} color="white" />
-                <Text style={styles.createShortButtonText}>Create Short</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          )}
-        </View>
-      </View>
-    );
+    return null;
   }
 
   return (
@@ -3562,11 +3798,17 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         }
       }}
     >
-      <StatusBar 
-        barStyle="light-content" 
-        backgroundColor="transparent" 
-        translucent={true}
-      />
+      <Animated.View
+        style={{
+          flex: 1,
+          transform: [{ translateX: swipeAnimation }],
+        }}
+      >
+        <StatusBar 
+          barStyle="light-content" 
+          backgroundColor="transparent" 
+          translucent={true}
+        />
 
       {/* Premium Top Bar Overlay */}
       {(() => {
@@ -3575,18 +3817,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         const isMuted = currentShort ? mutedShorts.has(currentShort._id) : false;
         
         return (
-          <View style={[styles.topBar, effectiveUserId && { height: 60, backgroundColor: 'transparent' }]}>
-            {!effectiveUserId && (
-              <LinearGradient
-                colors={['#0F0F12', '#000000']}
-                style={StyleSheet.absoluteFillObject}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 0, y: 1 }}
-              />
-            )}
-            <View style={[styles.topBarContent, effectiveUserId && { paddingTop: 10, height: 60 }]}>
+          <View style={[styles.topBar, (effectiveUserId || props.isSavedShorts) && { height: 60, backgroundColor: 'transparent' }]}>
+            <View style={[styles.topBarContent, (effectiveUserId || props.isSavedShorts) && { paddingTop: 10, height: 60 }]}>
               {/* Left Back Button */}
-              {!effectiveUserId ? (
+              {!effectiveUserId && !props.isSavedShorts ? (
                 <TouchableOpacity
                   style={styles.topBarButton}
                   onPress={handleBack}
@@ -3600,10 +3834,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               )}
 
               {/* Centered Shorts Title */}
-              {!effectiveUserId && <Text style={styles.topBarTitle}>Shorts</Text>}
+              {!effectiveUserId && !props.isSavedShorts && <Text style={styles.topBarTitle}>Shorts</Text>}
 
-              {/* Right Mute Button */}
-              {hasSong ? (
+              {/* Right Mute Button - Always Visible for every Short */}
+              {currentShort ? (
                 <TouchableOpacity
                   style={styles.topBarButton}
                   onPress={() => {
@@ -3615,7 +3849,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                       return next;
                     });
                   }}
-                  accessibilityLabel={isMuted ? 'Unmute song' : 'Mute song'}
+                  accessibilityLabel={isMuted ? 'Unmute' : 'Mute'}
                   accessibilityRole="button"
                 >
                   <Ionicons name={isMuted ? 'volume-mute' : 'volume-high'} size={24} color="#fff" />
@@ -3630,6 +3864,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
       <FlatList
         ref={flatListRef}
+        scrollEnabled={!isSwipeActive}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.colors.primary}
+          />
+        }
         data={shortsData}
         renderItem={renderShortItem}
         keyExtractor={keyExtractor}
@@ -3712,6 +3954,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           }}
         />
       )}
+      </Animated.View>
     </View>
     </ErrorBoundary>
   );
@@ -3853,13 +4096,8 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   likeAnimationContainer: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    transform: [{ translateX: -40 }, { translateY: -40 }],
+    ...StyleSheet.absoluteFillObject,
     zIndex: 15,
-    width: 80,
-    height: 80,
     justifyContent: 'center',
     alignItems: 'center',
     pointerEvents: 'none',
@@ -4250,22 +4488,112 @@ const styles = StyleSheet.create({
   },
   progressBarContainer: {
     position: 'absolute',
-    bottom: 0,
+    bottom: Platform.OS === 'ios' ? 96 : 86,
     left: 0,
     right: 0,
     height: 24,
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
     zIndex: 20,
   },
   progressBarBackground: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    width: '100%',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
   },
   progressBarFill: {
-    height: 10,
+    backgroundColor: '#38BDF8',
+  },
+  pinkMarker: {
+    position: 'absolute',
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#FF2E93',
+    top: 9,
+    shadowColor: '#FF2E93',
+    shadowOpacity: 0.9,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  scrubberTooltip: {
+    position: 'absolute',
+    bottom: 24,
+    backgroundColor: 'rgba(15, 15, 18, 0.9)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 4,
+    marginLeft: -25,
+  },
+  scrubberTooltipText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  modalContentStyle: {
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  closeButton: {
+    padding: 4,
+  },
+  modalLoadingContainer: {
+    paddingVertical: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalEmptyContainer: {
+    paddingVertical: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalEmptyText: {
+    fontSize: 15,
+  },
+  list: {
+    maxHeight: 500,
+  },
+  listContent: {
+    paddingBottom: 24,
+  },
+  userRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  avatarPlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  userInfo: {
+    marginLeft: 12,
+  },
+  fullName: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  modalUsername: {
+    fontSize: 13,
+    marginTop: 2,
   },
 });
