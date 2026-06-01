@@ -201,7 +201,6 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       } as UserSettings;
       setSettings(rollbackSettings);
       
-      Alert.alert('Error', 'Failed to update setting');
       throw error;
     } finally {
       updatingKeysRef.current.delete(settingKey);
@@ -238,7 +237,6 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
       // Rollback on failure
       setSettings(previousSettings);
       logger.error('Failed to update settings:', error);
-      Alert.alert('Error', 'Failed to update settings');
       throw error;
     }
   }, [settings]);

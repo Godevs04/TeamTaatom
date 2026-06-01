@@ -989,7 +989,14 @@ function PhotoCard({
       </View>
 
       {/* Likes Count */}
-      <PostLikesCount likesCount={likesCount} />
+      <PostLikesCount 
+        likesCount={likesCount} 
+        postId={post._id}
+        commentsCount={comments.length}
+        sharesCount={post.sharesCount || 0}
+        onCommentsPress={handleOpenComments}
+        onSharesPress={handleShareClick}
+      />
 
       {/* Caption */}
       <PostCaption post={post} />

@@ -33,6 +33,7 @@ import JourneyStatusBar from '../components/JourneyStatusBar';
 import { JourneyProvider, useJourney } from '../context/JourneyContext';
 import { SubscriptionProvider } from '../context/SubscriptionContext';
 import * as Sentry from '@sentry/react-native';
+import * as Location from 'expo-location';
 // Note: expo-av is deprecated but still needed for Audio.setAudioModeAsync
 // Will migrate to expo-audio in future SDK update
 import { Audio } from 'expo-av';
@@ -548,6 +549,26 @@ function RootLayoutInner() {
     initialize();
   }, []);
 
+  // Request location permission once at app launch
+  useEffect(() => {
+    const requestLocationPermissionOnLaunch = async () => {
+      if (Platform.OS === 'web') return;
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        logger.debug('[RootLayout] Location permission requested on launch, status:', status);
+      } catch (error) {
+        logger.error('[RootLayout] Failed to request location permission on launch:', error);
+      }
+    };
+    
+    // Defer the permission check slightly so it doesn't block critical launch renders
+    const timer = setTimeout(() => {
+      requestLocationPermissionOnLaunch();
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, []);
+
   // Hide splash screen once fonts and initial auth states have resolved
   useEffect(() => {
     if (!isInitializing && (fontsLoaded || fontError)) {
@@ -677,6 +698,7 @@ function RootLayoutInner() {
                               segments[0] === 'user-posts' ||
                               segments[0] === 'user-shorts' ||
                               segments[0] === 'saved-posts' ||
+                              segments[0] === 'saved-shorts' ||
                               segments[0] === 'map' ||
                               segments[0] === 'tripscore' ||
                               segments[0] === 'navigate' ||
@@ -702,6 +724,7 @@ function RootLayoutInner() {
                               normalizedPath.startsWith('/user-posts/') ||
                               normalizedPath.startsWith('/user-shorts/') ||
                               normalizedPath.startsWith('/saved-posts') ||
+                              normalizedPath.startsWith('/saved-shorts') ||
                               normalizedPath.startsWith('/map') ||
                               normalizedPath.startsWith('/tripscore') ||
                               normalizedPath.startsWith('/connect') ||
@@ -1050,7 +1073,15 @@ function RootLayoutInner() {
           distance={distance}
           duration={duration}
           onPause={() => pauseJourneyRecording().catch(err => console.error('Failed to pause journey:', err))}
-          onStop={() => stopJourneyRecording().catch(err => console.error('Failed to stop journey:', err))}
+          onStop={async () => {
+            try {
+              await stopJourneyRecording();
+              showSuccess('Journey Saved!', 'Your journey has been saved successfully.');
+              router.push('/navigate/complete');
+            } catch (err: any) {
+              showWarning(err?.message || 'Failed to end journey');
+            }
+          }}
           onContinue={() => {
             resumeJourneyRecording()
               .then(() => router.push('/navigate/tracking'))
@@ -1092,6 +1123,7 @@ function RootLayoutInner() {
           <Stack.Screen name="activity/index" options={{ presentation: 'card' }} />
           <Stack.Screen name="chat/index" options={{ presentation: 'card' }} />
           <Stack.Screen name="saved-posts/index" options={{ presentation: 'card' }} />
+          <Stack.Screen name="saved-shorts/index" options={{ presentation: 'card' }} />
           {/* Collections routes */}
           <Stack.Screen name="collections/index" options={{ presentation: 'card' }} />
           <Stack.Screen name="collections/[id]" options={{ presentation: 'card', gestureEnabled: true, gestureDirection: 'horizontal' }} />

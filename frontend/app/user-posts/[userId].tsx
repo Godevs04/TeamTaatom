@@ -10,10 +10,10 @@ import {
   Dimensions,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
+import NavBar from '../../components/NavBar';
 import api from '../../services/api';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import logger from '../../utils/logger';
@@ -94,11 +94,15 @@ export default function UserPostsScreen() {
       if (postIndex !== -1) {
         // Small delay to ensure FlatList is rendered
         setTimeout(() => {
-          flatListRef.current?.scrollToIndex({
-            index: postIndex,
-            animated: true,
-            viewPosition: 0.5, // Center the post in the view
-          });
+          try {
+            flatListRef.current?.scrollToIndex({
+              index: postIndex,
+              animated: false,
+              viewPosition: 0, // Align post to the top of the view instantly
+            });
+          } catch (error) {
+            logger.debug('Initial scrollToIndex failed:', error);
+          }
         }, 100);
       }
     }
@@ -175,39 +179,29 @@ export default function UserPostsScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={styles.header}>
-          <TouchableOpacity 
-            style={styles.backButton} 
-            onPress={() => router.back()}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Posts</Text>
-        </View>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <NavBar
+          title="Posts"
+          showBack={true}
+          onBack={() => router.back()}
+        />
         <View style={styles.loadingContainer}>
           <LoadingGlobe size="large" color={theme.colors.primary} />
           <Text style={[styles.emptyMessage, { marginTop: theme.spacing.md }]}>
             Loading posts...
           </Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>
-          {user?.fullName ? `${user.fullName}'s Posts` : 'Posts'}
-        </Text>
-      </View>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <NavBar
+        title={user?.fullName ? `${user.fullName}'s Posts` : 'Posts'}
+        showBack={true}
+        onBack={() => router.back()}
+      />
 
       {/* Posts List */}
       {posts.length > 0 ? (
@@ -233,21 +227,23 @@ export default function UserPostsScreen() {
           }}
           scrollEventThrottle={16}
           onScrollToIndexFailed={(info) => {
-            // Fallback if scrollToIndex fails
-            logger.debug('Scroll to index failed:', info);
+            logger.debug('Scroll to index failed, applying offset fallback:', info);
+            const offset = info.averageItemLength * info.index;
+            flatListRef.current?.scrollToOffset({ offset, animated: false });
+            setTimeout(() => {
+              try {
+                flatListRef.current?.scrollToIndex({
+                  index: info.index,
+                  animated: false,
+                  viewPosition: 0,
+                });
+              } catch (e) {
+                logger.error('Scroll fallback failed:', e);
+              }
+            }, 50);
           }}
         />
-      ) : (
-        <View style={styles.emptyContainer}>
-          <View style={styles.emptyIcon}>
-            <Ionicons name="images-outline" size={64} color={theme.colors.textSecondary} />
-          </View>
-          <Text style={styles.emptyTitle}>No Posts Yet</Text>
-          <Text style={styles.emptyMessage}>
-            {user?.fullName ? `${user.fullName} hasn't shared any posts yet.` : 'This user hasn\'t shared any posts yet.'}
-          </Text>
-        </View>
-      )}
-    </SafeAreaView>
+      ) : null}
+    </View>
   );
 }

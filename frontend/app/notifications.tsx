@@ -25,6 +25,7 @@ import { Notification } from '../types/notification';
 import { triggerRefreshHaptic } from '../utils/hapticFeedback';
 import { theme } from '../constants/theme';
 import logger from '../utils/logger';
+import { FILTER_PREVIEW_OVERLAY, ImageFilterType } from '../components/ImageEditModal';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -619,17 +620,28 @@ export default function NotificationsScreen() {
               { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceSecondary }
             ]}>
               {item.post?.imageUrl && !failedThumbnails.has(item._id) ? (
-                <Image
-                  source={{ uri: item.post.imageUrl }}
-                  style={styles.postThumbnail}
-                  resizeMode="cover"
-                  onError={() => {
-                    setFailedThumbnails(prev => new Set(prev).add(item._id));
-                    if (__DEV__) {
-                      logger.warn('Post thumbnail failed to load:', { postId: item.post?._id });
-                    }
-                  }}
-                />
+                <View style={{ position: 'relative' }}>
+                  <Image
+                    source={{ uri: item.post.imageUrl }}
+                    style={styles.postThumbnail}
+                    resizeMode="cover"
+                    onError={() => {
+                      setFailedThumbnails(prev => new Set(prev).add(item._id));
+                      if (__DEV__) {
+                        logger.warn('Post thumbnail failed to load:', { postId: item.post?._id });
+                      }
+                    }}
+                  />
+                  {(item.post as any).filter && FILTER_PREVIEW_OVERLAY[(item.post as any).filter as ImageFilterType] && (
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        StyleSheet.absoluteFillObject,
+                        { backgroundColor: FILTER_PREVIEW_OVERLAY[(item.post as any).filter as ImageFilterType]! },
+                      ]}
+                    />
+                  )}
+                </View>
               ) : (
                 <View style={[styles.postThumbnailPlaceholder, { backgroundColor: theme.colors.surfaceSecondary }]}>
                   <Ionicons name="image-outline" size={isTablet ? 28 : 24} color={theme.colors.textSecondary} />
