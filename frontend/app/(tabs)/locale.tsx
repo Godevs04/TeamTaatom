@@ -18,10 +18,8 @@ import {
   KeyboardAvoidingView,
   Animated,
   Easing,
-  ActivityIndicator,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
-import EmptyState from '../../components/EmptyState';
 import { Image as ExpoImage } from 'expo-image';
 import { BlurView } from 'expo-blur';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -389,23 +387,6 @@ const fetchRealCoords = async (
   }
 };
 
-function debounce<T extends (...args: any[]) => void>(func: T, wait: number): T & { cancel: () => void } {
-  let timeout: NodeJS.Timeout | null = null;
-  const debounced = (...args: any[]) => {
-    if (timeout) clearTimeout(timeout);
-    timeout = setTimeout(() => {
-      func(...args);
-    }, wait);
-  };
-  debounced.cancel = () => {
-    if (timeout) {
-      clearTimeout(timeout);
-      timeout = null;
-    }
-  };
-  return debounced as any;
-}
-
 interface LocationData {
   latitude: number;
   longitude: number;
@@ -512,8 +493,7 @@ export default function LocaleScreen() {
   const [countries, setCountries] = useState<Country[]>([]);
   const [states, setStates] = useState<State[]>([]);
   const [loadingCountries, setLoadingCountries] = useState(false);
-  const [isFetchingStates, setIsFetchingStates] = useState(false);
-  const [radiusInput, setRadiusInput] = useState('');
+  const [loadingStates, setLoadingStates] = useState(false);
   const [activeLocaleFilters, dispatchLocaleFilter] = useReducer(filterReducer, {
     country: '',
     countryCode: '',
@@ -613,10 +593,6 @@ export default function LocaleScreen() {
   // Load guard: Prevent multiple loads per session
   const loadedOnceRef = useRef(false);
   
-  // Grasp Country Defaulting Refs
-  const hasDefaultedCountryRef = useRef(false);
-  const isCountryDefaultedRef = useRef(false);
-  
   // Distance Calculation Guards: Cache calculated distances per session
   const distanceCacheRef = useRef<Map<string, number>>(new Map());
   
@@ -706,15 +682,10 @@ export default function LocaleScreen() {
       // Request permissions with better error handling for Android
       let permissionStatus = 'undetermined';
       try {
-        const currentPermission = await Location.getForegroundPermissionsAsync();
-        permissionStatus = currentPermission.status;
-        
-        if (permissionStatus === 'undetermined') {
-          const permissionResult = await Location.requestForegroundPermissionsAsync();
-          permissionStatus = permissionResult.status;
-        }
+        const permissionResult = await Location.requestForegroundPermissionsAsync();
+        permissionStatus = permissionResult.status;
       } catch (permissionError) {
-        logger.debug('Error getting/requesting location permission:', permissionError);
+        logger.debug('Error requesting location permission:', permissionError);
         setLocationPermissionGranted(false);
         return;
       }
@@ -726,22 +697,6 @@ export default function LocaleScreen() {
       }
       
       setLocationPermissionGranted(true);
-
-      // Get cached location first for instant response
-      try {
-        const lastKnown = await Location.getLastKnownPositionAsync();
-        if (lastKnown && lastKnown.coords && isMountedRef.current) {
-          const coords = {
-            latitude: lastKnown.coords.latitude,
-            longitude: lastKnown.coords.longitude,
-          };
-          setUserLocation(coords);
-          invalidateDistanceCacheIfMoved(coords.latitude, coords.longitude);
-          logger.debug('✅ User last known location obtained:', coords);
-        }
-      } catch (lastKnownError) {
-        logger.debug('Failed to get last known location:', lastKnownError);
-      }
       
       // Get location with timeout protection and Android-specific handling
       // OPTIMIZATION: Use faster timeout and accept cached location for better UX
@@ -923,9 +878,11 @@ export default function LocaleScreen() {
             }
           } else {
             logger.warn('Invalid coordinates received:', coords);
+            setLocationPermissionGranted(false);
           }
         } else {
           logger.warn('Location object missing coordinates');
+          setLocationPermissionGranted(false);
         }
       } catch (locationError: any) {
         // Clear timeout on error
@@ -962,6 +919,8 @@ export default function LocaleScreen() {
           // Only log non-critical errors as debug to avoid Babel issues
           logger.debug('Location request failed:', errorMessage);
         }
+        
+        setLocationPermissionGranted(false);
       }
     } catch (error: any) {
       // Check if component is still mounted before setting state
@@ -1029,9 +988,7 @@ export default function LocaleScreen() {
         
         // Call via ref so the closure with the just-set userLocation is used;
         // calling loadAdminLocales directly captures the userLocation=null version.
-        // If we already have locales (e.g. restored from cache), load in the background
-        const hasData = allLocalesSortedRef.current && allLocalesSortedRef.current.length > 0;
-        loadAdminLocalesRef.current(true, hasData);
+        loadAdminLocalesRef.current(true);
 
         // Then load other data in parallel
         await Promise.allSettled([
@@ -1192,12 +1149,10 @@ export default function LocaleScreen() {
         setHasMore(false);
         setTotalPages(1);
         setDisplayedPage(1);
-        if (!isBackground) {
-          setAllLocalesWithDistances([]); // Clear cached sorted locales
-          allLocalesSortedRef.current = []; // Clear single source of truth
-          locationSnapshotRef.current = null; // Reset location snapshot to allow re-sorting
-        }
+        setAllLocalesWithDistances([]); // Clear cached sorted locales
+        allLocalesSortedRef.current = []; // Clear single source of truth
         drivingDistanceCalculatedRef.current.clear(); // Reset tracking
+        locationSnapshotRef.current = null; // Reset location snapshot to allow re-sorting
       }
       
       // Build query parameters
@@ -1448,7 +1403,7 @@ export default function LocaleScreen() {
           isSearchingRef.current = false;
 
           // STAGE 2: Calculate driving distance ONLY for first N locales (background, non-blocking)
-          // N = 20 (Avoid rate-limiting Google Maps API on initial load, matches ITEMS_PER_PAGE)
+          // N = 20 (Avoid rate-limiting OSRM on initial load, matches ITEMS_PER_PAGE)
           const STAGE2_LIMIT = 20;
           const localesToCalculate = sortedByStraightLine.slice(0, STAGE2_LIMIT);
           
@@ -1612,24 +1567,6 @@ export default function LocaleScreen() {
       } else {
         // Response has no locales property or is empty
         if (isMountedRef.current) {
-          // Check if this was an automatic country filter fallback and we got 0 locales
-          if (isCountryDefaultedRef.current && currentFilters.countryCode && currentFilters.countryCode.trim() !== '' && userCountryCode && currentFilters.countryCode.toUpperCase() === userCountryCode.toUpperCase()) {
-            logger.debug('🌍 No locales found in user country (' + userCountryCode + '), falling back to all locales');
-            
-            // Clear country filter
-            isCountryDefaultedRef.current = false;
-            dispatchLocaleFilter({ type: 'RESET' });
-            
-            // Re-run search/load in background/foreground
-            setTimeout(() => {
-              if (isMountedRef.current) {
-                isSearchingRef.current = false;
-                loadAdminLocalesRef.current(true, isBackground);
-              }
-            }, 100);
-            return;
-          }
-
           // Clear if search query OR any filter is active (server returned 0 results deliberately)
           if (currentSearchQuery.trim() || currentFilters.countryCode || currentFilters.stateCode || currentFilters.spotTypes.length > 0) {
             setAdminLocales([]);
@@ -2500,28 +2437,31 @@ export default function LocaleScreen() {
       return;
     }
     
-    // Check cache before fetching - restore even if snapshot is not yet ready to prevent visual jump/loader
-    const cached = localeCache.get();
-    if (cached && cached.locales && cached.locales.length > 0) {
-      logger.debug('✅ Restoring locales from cache on mount (instant restore)');
-      // Restore instantly from cache
-      allLocalesSortedRef.current = cached.locales;
-      setAllLocalesWithDistances(cached.locales);
-      const firstPage = cached.locales.slice(0, ITEMS_PER_PAGE);
-      setAdminLocales(firstPage);
-      setDisplayedPage(1);
-      setHasMore(cached.locales.length > ITEMS_PER_PAGE);
-      setTotalPages(Math.ceil(cached.locales.length / ITEMS_PER_PAGE));
-      locationSnapshotRef.current = cached.snapshot;
-      setLoadingLocales(false);
-      setLoading(false);
-      // Apply filters to first page
-      const filtered = applyFilters(firstPage, false);
-      setFilteredLocales(filtered);
-      loadedOnceRef.current = true;
-      return;
+    // Check cache before fetching
+    const snapshot = createLocationSnapshot();
+    if (snapshot && localeCache.isValid(snapshot.snapshotKey)) {
+      const cached = localeCache.get();
+      if (cached) {
+        logger.debug('✅ Restoring locales from cache on mount (instant restore)');
+        // Restore instantly from cache
+        allLocalesSortedRef.current = cached.locales;
+        setAllLocalesWithDistances(cached.locales);
+        const firstPage = cached.locales.slice(0, ITEMS_PER_PAGE);
+        setAdminLocales(firstPage);
+        setDisplayedPage(1);
+        setHasMore(cached.locales.length > ITEMS_PER_PAGE);
+        setTotalPages(Math.ceil(cached.locales.length / ITEMS_PER_PAGE));
+        locationSnapshotRef.current = cached.snapshot;
+        setLoadingLocales(false);
+        setLoading(false);
+        // Apply filters to first page
+        const filtered = applyFilters(firstPage, false);
+        setFilteredLocales(filtered);
+        // Skip loadAdminLocales since we restored from cache
+        return;
+      }
     }
-  }, [activeTab, applyFilters, adminLocales.length]);
+  }, [activeTab, createLocationSnapshot, applyFilters, adminLocales.length]);
 
   useEffect(() => {
     // Reload saved locales when the user opens the Saved tab AND whenever
@@ -2532,38 +2472,6 @@ export default function LocaleScreen() {
       loadSavedLocales();
     }
   }, [activeTab, loadSavedLocales]);
-
-  // Grasp user's country code on location detection to default the country filter
-  useEffect(() => {
-    if (userCountryCode && userCountryCode.trim() !== '' && !hasDefaultedCountryRef.current) {
-      if (!activeLocaleFilters.countryCode) {
-        logger.debug('🌍 Grasping country and setting default country filter to user country:', userCountryCode);
-        
-        hasDefaultedCountryRef.current = true;
-        isCountryDefaultedRef.current = true;
-        
-        const matchedCountry = countries.find(c => c.code.toUpperCase() === userCountryCode.toUpperCase());
-        const countryName = matchedCountry ? matchedCountry.name : (userCountry || userCountryCode);
-        
-        dispatchLocaleFilter({
-          type: 'SET_COUNTRY',
-          payload: {
-            country: countryName,
-            countryCode: userCountryCode.toUpperCase()
-          }
-        });
-
-        // Trigger a fresh reload in the background using the new country filter
-        // If we already have locales, do a background load to avoid showing the loading spinner!
-        const hasData = allLocalesSortedRef.current && allLocalesSortedRef.current.length > 0;
-        setTimeout(() => {
-          if (isMountedRef.current) {
-            loadAdminLocalesRef.current(true, hasData);
-          }
-        }, 100);
-      }
-    }
-  }, [userCountryCode, countries, userCountry, activeLocaleFilters.countryCode]);
 
   // Listen for bookmark changes from detail page.
   //
@@ -2824,13 +2732,12 @@ export default function LocaleScreen() {
     if (d !== null && d !== undefined) {
       return d < 1 ? `${Math.round(d * 1000)} m` : `${d.toFixed(1)} km`;
     }
-    // If we are actually still loading or calculating distances, return 'Calculating...' to show the shimmer.
-    // If everything is done and we still have no distance, show '-- km' (which hides the badge).
-    if (loading || loadingLocales || calculatingDistances) {
+    // If coordinates are null, return 'Calculating...' (which triggers the skeleton/shimmer in UI)
+    if (userLocation === null) {
       return 'Calculating...';
     }
     return '-- km';
-  }, [resolveLocaleDistance, loading, loadingLocales, calculatingDistances]);
+  }, [userLocation, resolveLocaleDistance]);
 
   const openLocaleDetail = useCallback((locale: Locale) => {
     // Defensive: Coerce every field to a safe primitive so it never crashes.
@@ -2922,7 +2829,7 @@ export default function LocaleScreen() {
     if (!isMountedRef.current || !countryCode || countryCode.trim() === '') {
       if (isMountedRef.current) {
         setStates([]);
-        setIsFetchingStates(false);
+        setLoadingStates(false);
       }
       return;
     }
@@ -2934,7 +2841,7 @@ export default function LocaleScreen() {
     
     try {
       if (isMountedRef.current) {
-        setIsFetchingStates(true);
+        setLoadingStates(true);
       }
       
       // Race between the actual API call and timeout
@@ -2967,7 +2874,7 @@ export default function LocaleScreen() {
       }
     } finally {
       if (isMountedRef.current) {
-        setIsFetchingStates(false);
+        setLoadingStates(false);
       }
     }
   };
@@ -2978,13 +2885,12 @@ export default function LocaleScreen() {
     }
     
     try {
-      isCountryDefaultedRef.current = false;
       setShowCountryDropdown(false);
       setCountrySearchQuery('');
       if (isMountedRef.current) {
         setStates([]);
         setShowStateDropdown(false);
-        setIsFetchingStates(false);
+        setLoadingStates(false);
       }
       // Only update filter state; do not trigger list load (load only on Search button)
       dispatchFilter({ type: 'SET_COUNTRY', payload: { country: country.name, countryCode: country.code } });
@@ -2994,7 +2900,7 @@ export default function LocaleScreen() {
         setShowCountryDropdown(false);
         setShowStateDropdown(false);
         setStates([]);
-        setIsFetchingStates(false);
+        setLoadingStates(false);
       }
     }
   };
@@ -3235,7 +3141,6 @@ export default function LocaleScreen() {
     if (!isMountedRef.current) return;
     
     try {
-      isCountryDefaultedRef.current = false;
       // Close modal first to prevent white screen
       setShowFilterModal(false);
       
@@ -3289,37 +3194,11 @@ export default function LocaleScreen() {
     }
   }, [activeTab, loadAdminLocales]);
 
-  // Sync local search radius visual input with the actual filter state (e.g. on Reset/Tab switch)
-  useEffect(() => {
-    setRadiusInput(filters.searchRadius);
-  }, [filters.searchRadius]);
-
-  // Debounced dispatch for search radius
-  const debouncedDispatchRadius = useMemo(
-    () =>
-      debounce((text: string, currentDispatch: typeof dispatchFilter) => {
-        currentDispatch({ type: 'SET_SEARCH_RADIUS', payload: text });
-      }, 500),
-    []
-  );
-
-  useEffect(() => {
-    return () => {
-      debouncedDispatchRadius.cancel();
-    };
-  }, [debouncedDispatchRadius]);
-
   // Pagination & Filter Race Safety: Reset pagination when filters change
   const handleSearch = useCallback(() => {
     if (!isMountedRef.current) return;
     
     try {
-      // Flush pending radius changes immediately if they differ
-      debouncedDispatchRadius.cancel();
-      if (radiusInput !== filters.searchRadius) {
-        dispatchFilter({ type: 'SET_SEARCH_RADIUS', payload: radiusInput });
-      }
-
       // Close modal first to prevent white screen
       setShowFilterModal(false);
       
@@ -3368,7 +3247,7 @@ export default function LocaleScreen() {
         setShowStateDropdown(false);
       }
     }
-  }, [activeTab, radiusInput, filters.searchRadius, dispatchFilter, debouncedDispatchRadius]);
+  }, [activeTab]);
   
   // Manual-trigger search: searchInput is the live TextInput value, but
   // searchQuery only flips when the user explicitly taps the search icon
@@ -3608,8 +3487,8 @@ export default function LocaleScreen() {
                   {filters.stateProvince || 'Select State/Province'}
                 </Text>
                 <View style={styles.dropdownIconContainer}>
-                  {isFetchingStates ? (
-                    <ActivityIndicator size="small" color={theme.colors.primary} />
+                  {loadingStates ? (
+                    <LoadingGlobe size="small" color={theme.colors.primary} />
                   ) : (
                     <Ionicons 
                       name={showStateDropdown ? "chevron-up" : "chevron-down"} 
@@ -3735,13 +3614,8 @@ export default function LocaleScreen() {
                   style={[styles.radiusInput, { color: theme.colors.text }]}
                   placeholder="Enter radius in km"
                   placeholderTextColor={theme.colors.textSecondary}
-                  value={radiusInput}
-                  onChangeText={(text) => {
-                    if (text === '' || /^[0-9]*\.?[0-9]*$/.test(text)) {
-                      setRadiusInput(text);
-                      debouncedDispatchRadius(text, dispatchFilter);
-                    }
-                  }}
+                  value={filters.searchRadius}
+                  onChangeText={(text) => dispatchFilter({ type: 'SET_SEARCH_RADIUS', payload: text })}
                   keyboardType="numeric"
                 />
                 <Text style={[styles.radiusUnit, { color: theme.colors.textSecondary }]}>km</Text>
@@ -3763,22 +3637,16 @@ export default function LocaleScreen() {
                 <Text style={[styles.resetButtonText, { color: theme.colors.text }]}>Reset</Text>
               </TouchableOpacity>
               <TouchableOpacity 
-                style={[styles.searchButton, { overflow: 'hidden' }]} 
+                style={[styles.searchButton, { backgroundColor: theme.colors.primary }]} 
                 onPress={handleSearch}
               >
-                <LinearGradient
-                  colors={['#50C878', '#1C73B4']}
-                  style={StyleSheet.absoluteFillObject}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                />
                 <Ionicons 
                   name="search" 
                   size={18} 
-                  color="#FFFFFF" 
+                  color={isDark ? '#000000' : '#FFFFFF'} 
                   style={{ marginRight: 6 }} 
                 />
-                <Text style={[styles.searchButtonText, { color: '#FFFFFF' }]}>
+                <Text style={[styles.searchButtonText, { color: isDark ? '#000000' : '#FFFFFF' }]}>
                   {activeFilterCount > 0 ? `Search (${activeFilterCount})` : 'Search'}
                 </Text>
               </TouchableOpacity>
@@ -3964,7 +3832,21 @@ export default function LocaleScreen() {
     }
 
     if (localesToShow.length === 0) {
-      return null;
+      return (
+        <View style={styles.adminLocalesSection}>
+          <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Featured Locales</Text>
+          <View style={styles.emptyContainer}>
+            <Ionicons name="location-outline" size={60} color={theme.colors.textSecondary} />
+            <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Locales Found</Text>
+            <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
+              {searchQuery || filters.spotTypes.length > 0 || filters.countryCode || filters.stateCode || 
+               (filters.searchRadius && filters.searchRadius.trim() !== '' && parseFloat(filters.searchRadius.trim()) > 0)
+                ? 'Try adjusting your search or filters'
+                : 'Check back later for exciting new destinations!'}
+            </Text>
+          </View>
+        </View>
+      );
     }
 
     return (
@@ -3981,21 +3863,15 @@ export default function LocaleScreen() {
         {hasMore && !loadingMore && !loadingLocales && localesToShow.length > 0 && (
           <View style={styles.loadMoreButtonContainer}>
             <TouchableOpacity
-              style={[styles.loadMoreButton, { overflow: 'hidden' }]}
+              style={[styles.loadMoreButton, { backgroundColor: theme.colors.primary }]}
               onPress={handleLoadMore}
               activeOpacity={0.7}
             >
-              <LinearGradient
-                colors={['#50C878', '#1C73B4']}
-                style={StyleSheet.absoluteFillObject}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              />
-              <Text style={[styles.loadMoreText, { color: '#FFFFFF' }]}>Load More</Text>
+              <Text style={[styles.loadMoreText, { color: isDark ? '#000000' : '#FFFFFF' }]}>Load More</Text>
               <Ionicons 
                 name="chevron-down" 
                 size={20} 
-                color="#FFFFFF" 
+                color={isDark ? '#000000' : '#FFFFFF'} 
                 style={{ marginLeft: 8 }} 
               />
             </TouchableOpacity>
@@ -4155,7 +4031,15 @@ export default function LocaleScreen() {
     );
   }, [openLocaleDetail, resolveLocaleDistance, formatLocaleDistance, unsaveLocale]);
 
-  const renderEmptySavedState = () => null;
+  const renderEmptySavedState = () => (
+    <View style={styles.emptyContainer}>
+      <Ionicons name="bookmark-outline" size={60} color={theme.colors.textSecondary} />
+      <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Saved Locales</Text>
+      <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
+        Bookmark featured locales you love to find them here later
+      </Text>
+    </View>
+  );
 
 
   if (loading && !calculatingDistances) {
@@ -4267,7 +4151,27 @@ export default function LocaleScreen() {
           handlers active), so this is also fine for performance. */}
       <View style={[styles.listSlot, activeTab === 'locale' ? null : styles.hidden]} pointerEvents={activeTab === 'locale' ? 'auto' : 'none'}>
         <View style={{ flex: 1 }}>
-          {loadingLocales && (localesToShow || []).length === 0 ? (
+          {localesToShow.length === 0 && !loadingLocales ? (
+            <View style={styles.adminLocalesSection}>
+              <Text
+                style={[
+                  styles.sectionTitle,
+                  { color: theme.colors.text, marginBottom: 10, paddingHorizontal: 20, marginTop: 12 },
+                ]}
+              >
+                Featured Locales
+              </Text>
+              <View style={styles.emptyContainer}>
+                <Ionicons name="location-outline" size={60} color={theme.colors.textSecondary} />
+                <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Locales Found</Text>
+                <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
+                  {hasActiveFilters
+                    ? 'Try adjusting your search or filters'
+                    : 'Check back later for exciting new destinations!'}
+                </Text>
+              </View>
+            </View>
+          ) : loadingLocales && localesToShow.length === 0 ? (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
               <LoadingGlobe size="small" color={theme.colors.primary} />
             </View>
@@ -4275,11 +4179,11 @@ export default function LocaleScreen() {
             <View style={{ flex: 1, position: 'relative' }}>
               <Animated.FlatList
                 ref={flatListRef}
-                data={localesToShow || []}
+                data={localesToShow}
                 renderItem={renderAdminLocaleItem}
                 keyExtractor={localeKeyExtractor}
                 showsVerticalScrollIndicator={true}
-                onScroll={handleVerticalScroll}
+                 onScroll={handleVerticalScroll}
                 scrollEventThrottle={16}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
@@ -4287,7 +4191,6 @@ export default function LocaleScreen() {
                   paddingHorizontal: isTabletLocal ? 24 : 16,
                   paddingTop: headerHeight > 0 ? headerHeight + 12 : 12,
                   paddingBottom: Platform.OS === 'ios' ? 120 : 140,
-                  flexGrow: 1,
                 }}
                 ItemSeparatorComponent={() => <View style={{ height: 20 }} />}
                 ListHeaderComponent={
@@ -4300,36 +4203,21 @@ export default function LocaleScreen() {
                     Featured Locales
                   </Text>
                 }
-                ListEmptyComponent={
-                  !loadingLocales ? (
-                    <EmptyState
-                      icon="location-outline"
-                      title="No Locales Found"
-                      description="Try adjusting your filters or search radius."
-                    />
-                  ) : null
-                }
                 ListFooterComponent={
-                  (localesToShow || []).length > 0 ? (
+                  localesToShow.length > 0 ? (
                     <View style={{ paddingTop: 20, paddingBottom: 16 }}>
                       {hasMore && !loadingMore && !loadingLocales && (
                         <View style={styles.loadMoreButtonContainer}>
                           <TouchableOpacity
-                            style={[styles.loadMoreButton, { overflow: 'hidden' }]}
+                            style={[styles.loadMoreButton, { backgroundColor: theme.colors.primary }]}
                             onPress={handleLoadMore}
                             activeOpacity={0.7}
                           >
-                            <LinearGradient
-                              colors={['#50C878', '#1C73B4']}
-                              style={StyleSheet.absoluteFillObject}
-                              start={{ x: 0, y: 0 }}
-                              end={{ x: 1, y: 1 }}
-                            />
-                            <Text style={[styles.loadMoreText, { color: '#FFFFFF' }]}>Load More</Text>
+                            <Text style={[styles.loadMoreText, { color: isDark ? '#000000' : '#FFFFFF' }]}>Load More</Text>
                             <Ionicons 
                               name="chevron-down" 
                               size={20} 
-                              color="#FFFFFF" 
+                              color={isDark ? '#000000' : '#FFFFFF'} 
                               style={{ marginLeft: 8 }} 
                             />
                           </TouchableOpacity>
@@ -4381,7 +4269,27 @@ export default function LocaleScreen() {
               </Text>
             ) : null
           }
-          ListEmptyComponent={null}
+          ListEmptyComponent={
+            savedLocales.length === 0
+              ? renderEmptySavedState()
+              : filteredSavedLocales.length === 0
+                ? (
+                    <View style={styles.emptyContainer}>
+                      <Ionicons name="filter-outline" size={60} color={theme.colors.textSecondary} />
+                      <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Results</Text>
+                      <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
+                        Try adjusting your filters or search query
+                      </Text>
+                      <TouchableOpacity
+                        style={[styles.clearFiltersButton, { backgroundColor: theme.colors.primary }]}
+                        onPress={handleClearFilters}
+                      >
+                        <Text style={[styles.clearFiltersButtonText, { color: isDark ? '#000000' : '#FFFFFF' }]}>Clear Filters</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )
+                : null
+          }
           onScroll={(e) => {
             if (e.target !== e.currentTarget) return;
             handleScroll(e);

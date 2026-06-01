@@ -25,7 +25,6 @@ import { PostType } from '../../types/post';
 import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
 import { theme } from '../../constants/theme';
 import logger from '../../utils/logger';
-import { FILTER_PREVIEW_OVERLAY, ImageFilterType } from '../../components/ImageEditModal';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -195,21 +194,10 @@ export default function ActivityFeedScreen() {
         </View>
       </View>
       {item.post && (
-        <View style={{ position: 'relative' }}>
-          <Image
-            source={{ uri: (item.post as PostType).imageUrl }}
-            style={styles.postThumbnail}
-          />
-          {(item.post as PostType).filter && FILTER_PREVIEW_OVERLAY[(item.post as PostType).filter as ImageFilterType] && (
-            <View
-              pointerEvents="none"
-              style={[
-                StyleSheet.absoluteFillObject,
-                { backgroundColor: FILTER_PREVIEW_OVERLAY[(item.post as PostType).filter as ImageFilterType]! },
-              ]}
-            />
-          )}
-        </View>
+        <Image
+          source={{ uri: (item.post as PostType).imageUrl }}
+          style={styles.postThumbnail}
+        />
       )}
     </TouchableOpacity>
   );

@@ -75,54 +75,6 @@ const snapToRoads = async (polyline) => {
   }
 };
 
-/**
- * Split a polyline into segments based on session boundaries.
- * Each session has startedAt. Any coordinate whose timestamp is after a new session started
- * belongs to the new segment.
- */
-const splitPolylineBySessions = (polyline, sessions) => {
-  if (!sessions || sessions.length <= 1 || polyline.length === 0) {
-    return [polyline];
-  }
-
-  const sessionStarts = sessions
-    .slice(1)
-    .map(s => s.startedAt ? new Date(s.startedAt).getTime() : 0)
-    .filter(t => !isNaN(t) && t > 0)
-    .sort((a, b) => a - b);
-
-  if (sessionStarts.length === 0) {
-    return [polyline];
-  }
-
-  const segments = [];
-  let currentSegment = [polyline[0]];
-
-  for (let i = 1; i < polyline.length; i++) {
-    const point = polyline[i];
-    const prevPoint = polyline[i - 1];
-
-    const prevTime = prevPoint.timestamp ? new Date(prevPoint.timestamp).getTime() : 0;
-    const currTime = point.timestamp ? new Date(point.timestamp).getTime() : 0;
-
-    const hasBoundary = !isNaN(prevTime) && !isNaN(currTime) && sessionStarts.some(start => start > prevTime && start <= currTime);
-
-    if (hasBoundary) {
-      if (currentSegment.length > 0) {
-        segments.push(currentSegment);
-      }
-      currentSegment = [];
-    }
-    currentSegment.push(point);
-  }
-
-  if (currentSegment.length > 0) {
-    segments.push(currentSegment);
-  }
-
-  return segments;
-};
-
 // Treat coords as valid only when both axes are real numbers within bounds.
 // `lat == null` correctly catches null/undefined while preserving 0 (equator,
 // prime meridian) — a truthy `!lat` check would silently drop both.
@@ -395,20 +347,6 @@ const updateLocation = async (req, res) => {
         // and before or at point.timestamp.
         const prevTime = new Date(prevPoint.timestamp).getTime();
         const currTime = new Date(point.timestamp).getTime();
-
-        // If this is the very first update after starting (only 1 point in polyline),
-        // and the time difference is small (within 20 seconds), it's almost certainly
-        // a GPS initialization jump from a coarse startCoords to an accurate GPS fix.
-        // We replace the startCoords and first point instead of adding false distance.
-        if (journey.polyline.length === 1 && (currTime - prevTime) < 20000) {
-          journey.polyline[0] = point;
-          journey.startCoords = { lat: point.lat, lng: point.lng };
-          if (journey.sessions && journey.sessions.length > 0) {
-            journey.sessions[0].startCoords = { lat: point.lat, lng: point.lng };
-          }
-          continue;
-        }
-
         const hasSessionBoundary = journey.sessions && journey.sessions.some(s => {
           const sessionStart = new Date(s.startedAt).getTime();
           return sessionStart > prevTime && sessionStart <= currTime;
@@ -426,14 +364,16 @@ const updateLocation = async (req, res) => {
             point.lng
           );
 
-          // Speed sanity check: reject points implying motion faster than 200 km/h.
-          // Catches GPS jumps from indoor multipath, spoofed coords, and parseFloat overflow.
+          // Speed sanity check: reject points implying motion faster than a
+          // commercial flight (~1000 km/h). Catches GPS jumps from indoor
+          // multipath, spoofed coords, and parseFloat overflow that's still
+          // technically in-bounds but absurd vs. the previous point.
           const dtSec = Math.max(
             0.001,
             (point.timestamp - prevPoint.timestamp) / 1000,
           );
           const speedKmh = (distance / 1000) / (dtSec / 3600);
-          if (speedKmh > 200) {
+          if (speedKmh > MAX_REALISTIC_SPEED_KMH) {
             skippedImpossible++;
             continue;
           }
@@ -538,11 +478,7 @@ const completeJourney = async (req, res) => {
     // Non-blocking — falls back to raw polyline on any error.
     if (journey.polyline.length >= 2 && shouldSnap !== false) {
       try {
-        const segments = splitPolylineBySessions(journey.polyline, journey.sessions);
-        const snappedSegments = await Promise.all(
-          segments.map(seg => snapToRoads(seg))
-        );
-        journey.polyline = snappedSegments.flat();
+        journey.polyline = await snapToRoads(journey.polyline);
       } catch (snapErr) {
         logger.warn('Road snap error (non-blocking):', snapErr.message);
       }

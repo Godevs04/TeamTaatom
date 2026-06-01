@@ -160,10 +160,6 @@ const postSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-  sharesCount: {
-    type: Number,
-    default: 0
-  },
   song: {
     songId: {
       type: mongoose.Schema.Types.ObjectId,

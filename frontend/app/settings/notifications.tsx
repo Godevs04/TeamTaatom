@@ -43,7 +43,7 @@ const logger = createLogger('NotificationsSettings');
 
 export default function NotificationsSettingsScreen() {
   // Settings State Single Source of Truth: Use SettingsContext
-  const { settings, loading: settingsLoading, updateSetting, updateAllSettings, refreshSettings } = useSettings();
+  const { settings, loading: settingsLoading, updateSetting, refreshSettings } = useSettings();
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({
     title: '',
@@ -252,13 +252,13 @@ export default function NotificationsSettingsScreen() {
     } catch (error: any) {
       if (isMountedRef.current) {
         logger.error(`Failed to update setting ${key}`, error);
-        showError('Failed to update setting. Please check your network connection.', 'Sync Failure');
+        Alert.alert('Error', 'Failed to update setting');
       }
     } finally {
       updatingKeysRef.current.delete(key);
       setUpdatingKeys(new Set(updatingKeysRef.current));
     }
-  }, [settings, updateSetting, showError]);
+  }, [settings, updateSetting]);
 
   // Toggle Interaction Safety: Handle bulk toggle with guards
   const toggleAllNotifications = useCallback(async (value: boolean) => {
@@ -274,29 +274,25 @@ export default function NotificationsSettingsScreen() {
     setUpdatingKeys(new Set(updatingKeysRef.current));
     
     try {
-      // Use updateAllSettings to optimistically toggle all notification fields in one batch.
-      // This will automatically perform an optimistic state update and revert on error.
-      await updateAllSettings({
-        notifications: {
-          ...settings.notifications,
-          pushNotifications: value,
-          emailNotifications: value,
-          likesNotifications: value,
-          commentsNotifications: value,
-          followsNotifications: value,
-          messagesNotifications: value,
-        }
-      });
+      // Update all notification settings in parallel
+      await Promise.all([
+        updateSetting('notifications', 'pushNotifications', value),
+        updateSetting('notifications', 'emailNotifications', value),
+        updateSetting('notifications', 'likesNotifications', value),
+        updateSetting('notifications', 'commentsNotifications', value),
+        updateSetting('notifications', 'followsNotifications', value),
+        updateSetting('notifications', 'messagesNotifications', value)
+      ]);
     } catch (error: any) {
       if (isMountedRef.current) {
         logger.error('Failed to update all notifications', error);
-        showError('Failed to update settings. Please check your network connection.', 'Sync Failure');
+        Alert.alert('Error', 'Failed to update settings');
       }
     } finally {
       updatingKeysRef.current.delete(key);
       setUpdatingKeys(new Set(updatingKeysRef.current));
     }
-  }, [settings, updateAllSettings, showError]);
+  }, [settings, updateSetting]);
 
   // Screen Load Performance: Memoize loading state and derived values
   const isLoading = useMemo(() => settingsLoading || !settings, [settingsLoading, settings]);

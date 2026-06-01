@@ -50,8 +50,6 @@ export interface ProfilePremiumViewProps {
   onOpenFollowing: () => void;
   onOpenChat?: () => void;
   onHighlightPress?: (postId: string) => void;
-  onAvatarLongPress?: (source: any) => void;
-  onAvatarPressOut?: () => void;
 }
 
 export default function ProfilePremiumView({
@@ -82,8 +80,6 @@ export default function ProfilePremiumView({
   onOpenFollowing,
   onOpenChat,
   onHighlightPress,
-  onAvatarLongPress,
-  onAvatarPressOut,
 }: ProfilePremiumViewProps) {
   const router = useRouter();
 
@@ -111,40 +107,28 @@ export default function ProfilePremiumView({
         {/* Phase 2: Top Row (Avatar & Telemetry Stats) */}
         <View style={styles.topRow}>
           {/* Left Column (Avatar) */}
-          <Pressable
-            onLongPress={() => {
-              const avatarSource = profilePic
-                ? { uri: optimizeCloudinaryUrl(profilePic, { width: 300, height: 300 }) }
-                : require('../../assets/avatars/male_avatar.png');
-              onAvatarLongPress?.(avatarSource);
-            }}
-            onPressOut={onAvatarPressOut}
-            delayLongPress={200}
+          <LinearGradient
+            colors={['#1C73B4', '#50C878']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
             style={styles.avatarGradientWrapper}
           >
-            <LinearGradient
-              colors={['#1C73B4', '#50C878']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[StyleSheet.absoluteFillObject, { borderRadius: 37, padding: 2, alignItems: 'center', justifyContent: 'center' }]}
-            >
-              <View style={[
-                styles.avatarContainer,
-                {
-                  backgroundColor: isDark ? '#080F19' : '#F0F5FA',
+            <View style={[
+              styles.avatarContainer,
+              {
+                backgroundColor: isDark ? '#080F19' : '#F0F5FA',
+              }
+            ]}>
+              <Image
+                source={
+                  profilePic
+                    ? { uri: optimizeCloudinaryUrl(profilePic, { width: 150, height: 150 }) }
+                    : require('../../assets/avatars/male_avatar.png')
                 }
-              ]}>
-                <Image
-                  source={
-                    profilePic
-                      ? { uri: optimizeCloudinaryUrl(profilePic, { width: 150, height: 150 }) }
-                      : require('../../assets/avatars/male_avatar.png')
-                  }
-                  style={styles.avatarImage as ImageStyle}
-                />
-              </View>
-            </LinearGradient>
-          </Pressable>
+                style={styles.avatarImage as ImageStyle}
+              />
+            </View>
+          </LinearGradient>
 
           {/* Right Column (Telemetry Stats) */}
           <View style={styles.statsContainer}>

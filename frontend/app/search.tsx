@@ -354,7 +354,21 @@ export default function SearchScreen() {
     </TouchableOpacity>
   );
 
-  const renderEmptyState = () => null;
+  const renderEmptyState = () => (
+    <View style={styles.emptyContainer}>
+      <Ionicons 
+        name="people-outline"
+        size={60} 
+        color={theme.colors.textSecondary} 
+      />
+      <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>
+        No users found
+      </Text>
+      <Text style={[styles.emptyDescription, { color: theme.colors.textSecondary }]}>
+        Try searching for something else
+      </Text>
+    </View>
+  );
 
   const renderSearchHistory = () => {
     // Only show users history (posts tab commented out)

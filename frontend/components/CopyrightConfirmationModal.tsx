@@ -10,7 +10,6 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 
 interface CopyrightConfirmationModalProps {
   visible: boolean;
@@ -127,7 +126,7 @@ export default function CopyrightConfirmationModal({
               style={[
                 styles.agreeButton,
                 {
-                  overflow: 'hidden',
+                  backgroundColor: agreed ? theme.colors.primary : theme.colors.border,
                   opacity: agreed ? 1 : 0.5,
                 }
               ]}
@@ -135,12 +134,6 @@ export default function CopyrightConfirmationModal({
               disabled={!agreed}
               activeOpacity={0.8}
             >
-              <LinearGradient
-                colors={['#50C878', '#1C73B4']}
-                style={StyleSheet.absoluteFillObject}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              />
               <Text style={styles.agreeButtonText}>
                 Agree & Upload
               </Text>

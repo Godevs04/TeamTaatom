@@ -18,7 +18,7 @@ export default function BioDisplay({ bio, maxLines = 3, fontSize, leftAlign = fa
   }
 
   // Split bio into lines
-  const bioLines = bio.split('\n');
+  const bioLines = bio.split('\n').filter(line => line.trim() !== '');
   
   if (bioLines.length <= maxLines) {
     // Show full bio if it's within the limit
@@ -35,8 +35,9 @@ export default function BioDisplay({ bio, maxLines = 3, fontSize, leftAlign = fa
     );
   }
 
-  // Show truncated bio ending with '...'
-  const truncatedBio = bioLines.slice(0, maxLines).join('\n') + '...';
+  // Show truncated bio with "more" option
+  const truncatedBio = bioLines.slice(0, maxLines).join('\n');
+  const remainingLines = bioLines.slice(maxLines);
 
   return (
     <View style={styles.container}>
@@ -45,8 +46,19 @@ export default function BioDisplay({ bio, maxLines = 3, fontSize, leftAlign = fa
         { color: theme.colors.textSecondary, textAlign: leftAlign ? 'left' : 'center' }, 
         fontSize ? { fontSize, lineHeight: fontSize * 1.4 } : null
       ]}>
-        {truncatedBio}
+        {showFullBio ? bio : truncatedBio}
       </Text>
+      
+      {bioLines.length > maxLines && (
+        <TouchableOpacity 
+          onPress={() => setShowFullBio(!showFullBio)}
+          style={[styles.moreButton, leftAlign && { alignSelf: 'flex-start' }]}
+        >
+          <Text style={[styles.moreText, { color: theme.colors.textSecondary }]}>
+            {showFullBio ? 'Show less' : `Show more (${remainingLines.length} more line${remainingLines.length > 1 ? 's' : ''})`}
+          </Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }

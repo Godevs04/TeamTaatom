@@ -84,7 +84,6 @@ export default function PostDetail() {
           post={post} 
           isCurrentlyVisible={true} 
           onRefresh={fetchPost}
-          onPress={() => {}}
         />
       </ScrollView>
     </SafeAreaView>
