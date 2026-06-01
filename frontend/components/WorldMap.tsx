@@ -82,6 +82,13 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
   const [loading, setLoading] = useState(false);
   const debounceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  interface RegionData {
+    center: { latitude: number; longitude: number };
+    zoom: number;
+    bounds: { latitudeDelta: number; longitudeDelta: number };
+  }
+  const regionDataRef = React.useRef<RegionData | null>(null);
+
   // Fetch travel map data when component becomes visible
   useEffect(() => {
     if (visible && userId) {
@@ -314,24 +321,43 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
             
             map.addLayer(markersGroup);
             
-            // Listen to moveend event to notify React Native about region change
-            map.on('moveend', function() {
-              const center = map.getCenter();
-              const zoom = map.getZoom();
-              const bounds = map.getBounds();
-              const message = {
-                type: 'regionChange',
-                center: { latitude: center.lat, longitude: center.lng },
-                zoom: zoom,
-                bounds: {
-                  latitudeDelta: Math.abs(bounds.getNorth() - bounds.getSouth()),
-                  longitudeDelta: Math.abs(bounds.getEast() - bounds.getWest()),
-                }
-              };
-              if (window.ReactNativeWebView) {
-                window.ReactNativeWebView.postMessage(JSON.stringify(message));
-              }
-            });
+             // Listen to move event for continuous tracking during pan (updates ref, bypasses react renders)
+             map.on('move', function() {
+               const center = map.getCenter();
+               const zoom = map.getZoom();
+               const bounds = map.getBounds();
+               const message = {
+                 type: 'regionChange',
+                 center: { latitude: center.lat, longitude: center.lng },
+                 zoom: zoom,
+                 bounds: {
+                   latitudeDelta: Math.abs(bounds.getNorth() - bounds.getSouth()),
+                   longitudeDelta: Math.abs(bounds.getEast() - bounds.getWest()),
+                 }
+               };
+               if (window.ReactNativeWebView) {
+                 window.ReactNativeWebView.postMessage(JSON.stringify(message));
+               }
+             });
+
+             // Listen to moveend event to notify React Native about region change complete
+             map.on('moveend', function() {
+               const center = map.getCenter();
+               const zoom = map.getZoom();
+               const bounds = map.getBounds();
+               const message = {
+                 type: 'regionChangeComplete',
+                 center: { latitude: center.lat, longitude: center.lng },
+                 zoom: zoom,
+                 bounds: {
+                   latitudeDelta: Math.abs(bounds.getNorth() - bounds.getSouth()),
+                   longitudeDelta: Math.abs(bounds.getEast() - bounds.getWest()),
+                 }
+               };
+               if (window.ReactNativeWebView) {
+                 window.ReactNativeWebView.postMessage(JSON.stringify(message));
+               }
+             });
             
           } catch (error) {
             document.body.innerHTML = '<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f5f5f5; color: #333; font-family: Arial, sans-serif;"><div style="font-size: 48px; margin-bottom: 20px;">⚠️</div><div style="font-size: 24px; font-weight: bold; margin-bottom: 10px;">Map Error</div><div style="font-size: 16px; text-align: center;">Failed to load map. Please check your internet connection.</div></div>';
@@ -403,6 +429,19 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
                 try {
                   const data = JSON.parse(event.nativeEvent.data);
                   if (data.type === 'regionChange') {
+                    // Update ref only - bypass state updates/re-renders during pan
+                    regionDataRef.current = {
+                      center: data.center,
+                      zoom: data.zoom,
+                      bounds: data.bounds,
+                    };
+                  } else if (data.type === 'regionChangeComplete') {
+                    // Update ref
+                    regionDataRef.current = {
+                      center: data.center,
+                      zoom: data.zoom,
+                      bounds: data.bounds,
+                    };
                     if (debounceTimerRef.current) {
                       clearTimeout(debounceTimerRef.current);
                     }

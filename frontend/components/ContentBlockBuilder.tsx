@@ -18,6 +18,7 @@ import { useTheme } from '../context/ThemeContext';
 import { theme as themeConstants } from '../constants/theme';
 import { ContentBlock, uploadContentImage } from '../services/connect';
 import logger from '../utils/logger';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -709,10 +710,16 @@ export default function ContentBlockBuilder({
       {/* ── + Button ── */}
       {blocks.length < maxBlocks && (
         <TouchableOpacity
-          style={[styles.addButton, { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary }]}
+          style={[styles.addButton, { overflow: 'hidden', borderWidth: 0 }]}
           onPress={() => setShowAddPanel(!showAddPanel)}
           activeOpacity={0.7}
         >
+          <LinearGradient
+            colors={['#50C878', '#1C73B4']}
+            style={StyleSheet.absoluteFillObject}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          />
           <Ionicons name={showAddPanel ? 'close' : 'add'} size={24} color="#fff" />
           {!showAddPanel && <Text style={styles.addButtonText}>Add Content</Text>}
         </TouchableOpacity>

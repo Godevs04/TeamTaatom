@@ -2198,6 +2198,46 @@ export default function ChatModal() {
   // → just clear state and stay on the list.
   const externalEntryRef = React.useRef(false);
 
+  // Keep track of locally marked read message IDs
+  const locallyMarkedSeenMessageIdsRef = React.useRef<Set<string>>(new Set());
+  // Keep track of the timestamp when "Mark all as read" was executed
+  const markAllAsReadTimeRef = React.useRef<number>(0);
+
+  const applyOptimisticReadState = useCallback((chats: any[]) => {
+    return chats.map((chat: any) => {
+      const myId = normalizeId(chat.me);
+      const isGroup = chat.type === 'connect_page';
+      const updatedMessages = (chat.messages || []).map((m: any) => {
+        const msgId = normalizeId(m._id);
+        const msgTime = m.timestamp ? new Date(m.timestamp).getTime() : 0;
+        
+        const shouldBeRead = (msgId && locallyMarkedSeenMessageIdsRef.current.has(msgId)) ||
+                             (markAllAsReadTimeRef.current > 0 && msgTime <= markAllAsReadTimeRef.current);
+        
+        if (shouldBeRead) {
+          const senderId = normalizeId(m.sender?._id || m.sender);
+          if (!senderId || !myId || senderId === myId) return m;
+
+          if (isGroup) {
+            const currentSeenBy = Array.isArray(m.seenBy)
+              ? (m.seenBy.map((id: any) => normalizeId(id)).filter(Boolean) as string[])
+              : [];
+            if (myId && !currentSeenBy.includes(myId)) {
+              return { ...m, seenBy: [...currentSeenBy, myId] };
+            }
+            return m;
+          }
+
+          if (m.seen === false || m.seen === undefined || m.seen === null) {
+            return { ...m, seen: true };
+          }
+        }
+        return m;
+      });
+      return { ...chat, messages: updatedMessages };
+    });
+  }, []);
+
   // Parse post share message (for chat list)
   const parsePostShare = (text: string) => {
     if (!text || !text.startsWith('[POST_SHARE]')) return null;
@@ -2819,6 +2859,7 @@ export default function ChatModal() {
       const data = await res.json();
       if (data?.success) {
         let chats = (data.chats || []).map((chat: any) => ({ ...chat, me: myUserId }));
+        chats = applyOptimisticReadState(chats);
         const chatMap = new Map<string, any>();
         chats.forEach((chat: any) => {
           let key;
@@ -2844,7 +2885,7 @@ export default function ChatModal() {
     } finally {
       if (showLoading) setLoading(false);
     }
-  }, []);
+  }, [applyOptimisticReadState]);
 
   // If no userId param, fetch chat conversations and following users
   useEffect(() => {
@@ -2884,6 +2925,7 @@ export default function ChatModal() {
             ...chat,
             me: myUserId,
           }));
+          chats = applyOptimisticReadState(chats);
           
           // Frontend deduplication as safety measure
           const chatMap = new Map<string, any>();
@@ -2933,7 +2975,7 @@ export default function ChatModal() {
     if (!params.userId && !params.chatId && !chatIdModeRef.current) {
       loadChats();
     }
-  }, [params.userId, params.chatId]);
+  }, [params.userId, params.chatId, applyOptimisticReadState]);
 
   // Listen for chat:update socket events to update chat list in real-time
   // This handles: last message preview, sorting (most recent on top), new message indicators
@@ -3029,6 +3071,38 @@ export default function ChatModal() {
         {
           text: 'Mark All as Read',
           onPress: async () => {
+            // Set timestamp of "Mark all as read"
+            markAllAsReadTimeRef.current = Date.now();
+
+            // Optimistic update: Update local state immediately so badge drops to 0 instantly
+            setConversations(prev => prev.map(chat => {
+              const myId = normalizeId(chat.me);
+              const isGroup = (chat as any).type === 'connect_page';
+              const updatedMessages = (chat.messages || []).map((m: any) => {
+                const senderId = normalizeId(m.sender?._id || m.sender);
+                if (!senderId || !myId || senderId === myId) return m;
+
+                const msgId = normalizeId(m._id);
+                if (msgId) {
+                  locallyMarkedSeenMessageIdsRef.current.add(msgId);
+                }
+
+                if (isGroup) {
+                  const currentSeenBy = Array.isArray(m.seenBy)
+                    ? m.seenBy.map((id: any) => normalizeId(id)).filter(Boolean)
+                    : [];
+                  if (!currentSeenBy.includes(myId)) currentSeenBy.push(myId);
+                  return { ...m, seenBy: currentSeenBy };
+                }
+
+                if (m.seen === false || m.seen === undefined || m.seen === null) {
+                  return { ...m, seen: true };
+                }
+                return m;
+              });
+              return { ...chat, messages: updatedMessages };
+            }));
+
             try {
               // Mark all messages as seen in all conversations
               const updatePromises = conversations.map(async (chat) => {
@@ -3063,32 +3137,6 @@ export default function ChatModal() {
               });
 
               await Promise.allSettled(updatePromises);
-
-              // Update local state - mark all messages as seen
-              setConversations(prev => prev.map(chat => {
-                const myId = normalizeId(chat.me);
-                const isGroup = (chat as any).type === 'connect_page';
-                const updatedMessages = (chat.messages || []).map((m: any) => {
-                  const senderId = normalizeId(m.sender?._id || m.sender);
-                  if (!senderId || !myId || senderId === myId) return m;
-
-                  if (isGroup) {
-                    // Group chat: add me to seenBy
-                    const currentSeenBy = Array.isArray(m.seenBy)
-                      ? m.seenBy.map((id: any) => normalizeId(id)).filter(Boolean)
-                      : [];
-                    if (!currentSeenBy.includes(myId)) currentSeenBy.push(myId);
-                    return { ...m, seenBy: currentSeenBy };
-                  }
-
-                  // 1:1 chat: set seen = true
-                  if (m.seen === false || m.seen === undefined || m.seen === null) {
-                    return { ...m, seen: true };
-                  }
-                  return m;
-                });
-                return { ...chat, messages: updatedMessages };
-              }));
 
               // Show success alert
               Alert.alert(
@@ -3150,6 +3198,12 @@ export default function ChatModal() {
       setForceRender={setForceRender}
       router={router}
       onMessagesSeen={(seenChatId, seenIds) => {
+        // Record marked seen message IDs to prevent overwrite on returning
+        if (Array.isArray(seenIds)) {
+          seenIds.forEach(id => {
+            if (id) locallyMarkedSeenMessageIdsRef.current.add(id);
+          });
+        }
         const isGroup = activeChat?.type === 'connect_page';
         // Update badge count in conversations list
         setConversations(prev => prev.map(conv => {
@@ -3205,6 +3259,7 @@ export default function ChatModal() {
             .then(data => {
               let chats = data.chats || [];
               chats = chats.map((chat: any) => ({ ...chat, me: myUserId }));
+              chats = applyOptimisticReadState(chats);
               const chatMap = new Map<string, any>();
               chats.forEach((chat: any) => {
                 const participantIds = chat.participants

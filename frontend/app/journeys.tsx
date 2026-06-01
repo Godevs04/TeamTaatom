@@ -140,17 +140,7 @@ function JourneysListInner() {
     return totalM >= 1000 ? `${(totalM / 1000).toFixed(1)} km` : `${Math.round(totalM)} m`;
   };
 
-  const renderEmptyState = () => (
-    <View style={styles.emptyContainer}>
-      <View style={[styles.emptyIcon, { backgroundColor: GROWTH_GREEN + '10' }]}>
-        <Ionicons name="map-outline" size={48} color={GROWTH_GREEN} />
-      </View>
-      <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No journeys yet</Text>
-      <Text style={[styles.emptySubtext, { color: theme.colors.textSecondary }]}>
-        Your completed journeys will appear here
-      </Text>
-    </View>
-  );
+  const renderEmptyState = () => null;
 
   if (loading) {
     return (

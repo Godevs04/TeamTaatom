@@ -1395,7 +1395,8 @@ const getPageFollowers = async (req, res) => {
 
     // On page 1, prepend creator as admin (filter out if also in followers list)
     let members = membersWithRole;
-    if (page === 1 && creator) {
+    const isCommunity = connectPage.category === 'community' || connectPage.type === 'community';
+    if (page === 1 && creator && !isCommunity) {
       const creatorId = creator._id.toString();
       members = members.filter(m => m._id.toString() !== creatorId);
       members.unshift({
@@ -1407,9 +1408,10 @@ const getPageFollowers = async (req, res) => {
       });
     }
 
+    const finalTotal = (page === 1 && creator && !isCommunity) ? total + 1 : total;
     return sendSuccess(res, 200, 'Followers fetched', {
       followers: members,
-      pagination: { page, limit, total: total + 1, totalPages: Math.ceil((total + 1) / limit) }
+      pagination: { page, limit, total: finalTotal, totalPages: Math.ceil(finalTotal / limit) }
     });
   } catch (error) {
     logger.error('Error fetching page followers:', error);
