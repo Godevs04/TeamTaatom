@@ -179,67 +179,64 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
   }
 
   const { NativeAdView: AdView, NativeAsset: Asset, NativeAssetType: AssetType, NativeMediaView: MediaView } = adsModule;
-  const hasMedia = !!nativeAd.mediaContent;
 
   return (
-    <View style={[styles.wrapper, { backgroundColor: theme.colors.surface }]}>
-      <AdView
-        nativeAd={nativeAd}
-        style={[styles.nativeAdView, { minHeight: hasMedia ? 280 : 120 }]}
-      >
-          <View style={[styles.sponsoredRow, { borderBottomColor: theme.colors.border }]}>
-            <Text style={[styles.sponsoredLabel, { color: theme.colors.textSecondary }]}>
-              Sponsored
-            </Text>
-          </View>
-          <View style={styles.content}>
-            <View style={styles.topRow}>
-              {nativeAd.icon && (
-                <Asset assetType={AssetType.ICON}>
-                  <Image
-                    source={{ uri: nativeAd.icon.url }}
-                    style={[styles.icon, { backgroundColor: theme.colors.background }]}
-                    resizeMode="cover"
-                  />
-                </Asset>
-              )}
-              <View style={styles.headlineBody}>
-                <Asset assetType={AssetType.HEADLINE}>
+    <AdView
+      nativeAd={nativeAd}
+      style={[styles.wrapper, styles.nativeAdView, { backgroundColor: theme.colors.surface }]}
+    >
+        <View style={[styles.sponsoredRow, { borderBottomColor: theme.colors.border }]}>
+          <Text style={[styles.sponsoredLabel, { color: theme.colors.textSecondary }]}>
+            Sponsored
+          </Text>
+        </View>
+        <View style={styles.content}>
+          <View style={styles.topRow}>
+            {nativeAd.icon && (
+              <Asset assetType={AssetType.ICON}>
+                <Image
+                  source={{ uri: nativeAd.icon.url }}
+                  style={[styles.icon, { backgroundColor: theme.colors.background }]}
+                  resizeMode="cover"
+                />
+              </Asset>
+            )}
+            <View style={styles.headlineBody}>
+              <Asset assetType={AssetType.HEADLINE}>
+                <Text
+                  style={[styles.headline, { color: theme.colors.text }]}
+                  numberOfLines={2}
+                >
+                  {nativeAd.headline}
+                </Text>
+              </Asset>
+              {nativeAd.body ? (
+                <Asset assetType={AssetType.BODY}>
                   <Text
-                    style={[styles.headline, { color: theme.colors.text }]}
+                    style={[styles.body, { color: theme.colors.textSecondary }]}
                     numberOfLines={2}
                   >
-                    {nativeAd.headline}
+                    {nativeAd.body}
                   </Text>
                 </Asset>
-                {nativeAd.body ? (
-                  <Asset assetType={AssetType.BODY}>
-                    <Text
-                      style={[styles.body, { color: theme.colors.textSecondary }]}
-                      numberOfLines={2}
-                    >
-                      {nativeAd.body}
-                    </Text>
-                  </Asset>
-                ) : null}
-              </View>
+              ) : null}
             </View>
-            {nativeAd.mediaContent ? (
-              <View style={styles.mediaWrapper}>
-                <MediaView style={styles.media} />
-              </View>
-            ) : null}
-            <Asset assetType={AssetType.CALL_TO_ACTION}>
-              <Text
-                style={[styles.cta, { color: theme.colors.primary }]}
-                numberOfLines={1}
-              >
-                {nativeAd.callToAction}
-              </Text>
-            </Asset>
           </View>
-      </AdView>
-    </View>
+          {nativeAd.mediaContent ? (
+            <View style={styles.mediaWrapper}>
+              <MediaView style={styles.media} />
+            </View>
+          ) : null}
+          <Asset assetType={AssetType.CALL_TO_ACTION}>
+            <Text
+              style={[styles.cta, { color: theme.colors.primary }]}
+              numberOfLines={1}
+            >
+              {nativeAd.callToAction}
+            </Text>
+          </Asset>
+        </View>
+    </AdView>
   );
 }
 

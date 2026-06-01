@@ -7,8 +7,7 @@ import { useTheme } from '../../context/ThemeContext';
 
 interface CloudLocaleFeedProps {
   locales: CloudLocaleCardData[];
-  userCoords?: { latitude: number; longitude: number } | null;
-  getDistanceText?: (locale: CloudLocaleCardData) => string;
+  getDistanceText: (locale: CloudLocaleCardData) => string;
   onLocalePress: (locale: CloudLocaleCardData) => void;
   onSavePress?: (locale: CloudLocaleCardData) => void;
   isSaved?: (id: string) => boolean;
@@ -24,7 +23,6 @@ const { width: SCREEN_W } = Dimensions.get('window');
  */
 export default function CloudLocaleFeed({
   locales,
-  userCoords,
   getDistanceText,
   onLocalePress,
   onSavePress,
@@ -36,7 +34,7 @@ export default function CloudLocaleFeed({
   const { isDark } = useTheme();
   const pageWidth = SCREEN_W;
 
-  const data = useMemo(() => (locales || []).filter(Boolean), [locales]);
+  const data = useMemo(() => locales.filter(Boolean), [locales]);
 
   if (!data.length) return null;
 
@@ -45,7 +43,7 @@ export default function CloudLocaleFeed({
       <Text style={[styles.sectionTitle, { color: glass.textPrimary }]}>{featuredTitle}</Text>
       <View style={styles.carouselSlot}>
         <FlatList
-          data={data || []}
+          data={data}
           keyExtractor={(item) => String(item._id || item.name)}
           horizontal
           pagingEnabled
@@ -64,8 +62,7 @@ export default function CloudLocaleFeed({
             <View style={[styles.page, { width: pageWidth }]}>
               <CloudLocaleHeroCard
                 locale={item}
-                userCoords={userCoords}
-                distanceText={getDistanceText ? getDistanceText(item) : undefined}
+                distanceText={getDistanceText(item)}
                 onPress={() => onLocalePress(item)}
                 onSavePress={onSavePress ? () => onSavePress(item) : undefined}
                 saved={item._id && isSaved ? isSaved(item._id) : false}

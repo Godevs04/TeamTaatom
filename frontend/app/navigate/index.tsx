@@ -38,7 +38,7 @@ const ALERT_RED = '#EF4444';
 export default function NavigateIndexScreen() {
   const router = useRouter();
   const { theme } = useTheme();
-  const { showAlert, showError, showSuccess, showDestructiveConfirm } = useAlert();
+  const { showAlert, showError, showDestructiveConfirm } = useAlert();
   const {
     initialized,
     isTracking,
@@ -126,17 +126,24 @@ export default function NavigateIndexScreen() {
     }
   };
 
-  const handleEndJourney = async () => {
-    try {
-      setIsLoading(true);
-      await stopJourneyRecording();
-      showSuccess('Journey Saved!', 'Your journey has been saved successfully.');
-      router.push('/navigate/complete');
-    } catch (err: any) {
-      showError(err.message || 'Unknown error', 'Failed to end journey');
-    } finally {
-      setIsLoading(false);
-    }
+  const handleEndJourney = () => {
+    showDestructiveConfirm(
+      'This will complete your current journey. You can view it later in your profile.',
+      async () => {
+        try {
+          setIsLoading(true);
+          await stopJourneyRecording();
+          router.push('/navigate/complete');
+        } catch (err: any) {
+          showError(err.message || 'Unknown error', 'Failed to end journey');
+        } finally {
+          setIsLoading(false);
+        }
+      },
+      'End Journey?',
+      'End Journey',
+      'Cancel'
+    );
   };
 
   const handleDeleteJourney = (journeyItem: any) => {
@@ -189,7 +196,17 @@ export default function NavigateIndexScreen() {
     return totalM >= 1000 ? `${(totalM / 1000).toFixed(1)} km` : `${Math.round(totalM)} m`;
   };
 
-  const renderEmptyState = () => null;
+  const renderEmptyState = () => (
+    <View style={styles.emptyContainer}>
+      <View style={[styles.emptyIcon, { backgroundColor: GROWTH_GREEN + '10' }]}>
+        <Ionicons name="map-outline" size={48} color={GROWTH_GREEN} />
+      </View>
+      <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No journeys yet</Text>
+      <Text style={[styles.emptySubtext, { color: theme.colors.textSecondary }]}>
+        Start a journey from the map to begin tracking your travels
+      </Text>
+    </View>
+  );
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>

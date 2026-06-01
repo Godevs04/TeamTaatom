@@ -26,7 +26,7 @@ export const GlassModal = ({ visible, onClose, children, style, ...props }: Glas
         pointerEvents="box-none"
       >
         <Animated.View 
-          entering={SlideInDown.duration(300)}
+          entering={SlideInDown.springify().damping(16).stiffness(120)}
           exiting={SlideOutDown}
           style={[
             styles.modalContent,

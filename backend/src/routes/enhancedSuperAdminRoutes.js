@@ -677,11 +677,8 @@ router.get('/analytics/realtime', async (req, res) => {
       ])
     ])
     
-    // Calculate total shares (stored in Post model sharesCount field)
-    const shareStats = await Post.aggregate([
-      { $group: { _id: null, totalShares: { $sum: { $ifNull: ['$sharesCount', 0] } } } }
-    ])
-    const totalShares = shareStats[0]?.totalShares || 0
+    // Calculate total shares (not stored in Post model, so set to 0)
+    const totalShares = 0
 
     const analytics = {
       timestamp: new Date().toISOString(),
