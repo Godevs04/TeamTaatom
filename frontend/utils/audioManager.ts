@@ -91,6 +91,22 @@ class AudioManager {
     }
   }
 
+  async deactivateSession(): Promise<void> {
+    await this.stopAll();
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: false,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+      });
+      logger.debug('Deactivated audio session');
+    } catch (error) {
+      logger.warn('Failed to deactivate audio session:', error);
+    }
+  }
+
   /**
    * Get currently playing sound instance (for external pause when tab/focus changes)
    */

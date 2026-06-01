@@ -689,11 +689,17 @@ export default function SignUpScreen() {
                   )}
 
                   <TouchableOpacity
-                    style={[styles.signUpButton, (isLoading || !values.termsAccepted) && styles.signUpButtonDisabled]}
+                    style={[styles.signUpButton, (isLoading || !values.termsAccepted) && styles.signUpButtonDisabled, { overflow: 'hidden' }]}
                     onPress={() => handleSubmit()}
                     disabled={isLoading || !values.termsAccepted}
                   >
-                    <Text style={styles.signUpButtonText}>
+                    <LinearGradient
+                      colors={['#50C878', '#1C73B4']}
+                      style={StyleSheet.absoluteFillObject}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                    />
+                    <Text style={[styles.signUpButtonText, { color: '#FFFFFF' }]}>
                       {isLoading ? 'Creating Account...' : !values.termsAccepted ? 'Accept Terms to Continue' : 'Create Account'}
                     </Text>
                   </TouchableOpacity>
@@ -878,7 +884,7 @@ const styles = StyleSheet.create({
     ...(isWeb && {
       cursor: 'pointer',
       transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-      background: `linear-gradient(135deg, ${theme.colors.primary} 0%, ${theme.colors.primary}ee 100%)`,
+      background: 'linear-gradient(135deg, #50C878 0%, #1C73B4 100%)',
       boxShadow: '0 8px 24px 0 rgba(0, 0, 0, 0.3), 0 2px 8px 0 rgba(0, 0, 0, 0.2), inset 0 1px 0 0 rgba(255, 255, 255, 0.2)',
     } as any),
   },

@@ -1,4 +1,4 @@
-import React, { useEffect, memo } from 'react';
+import React, { useEffect, memo, useState } from 'react';
 import { StyleSheet, View, Text, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
@@ -33,6 +33,7 @@ interface PremiumMapMarkerProps {
   activeTitle?: string;
   activeSubtitle?: string;
   photo?: string;
+  tracksViewChanges?: boolean;
 }
 
 const PremiumMapMarker = memo(function PremiumMapMarker({
@@ -45,12 +46,28 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
   activeTitle,
   activeSubtitle,
   photo,
+  tracksViewChanges: propTracksViewChanges,
 }: PremiumMapMarkerProps) {
   const { isDark, theme } = useTheme();
   const activeState = isActive ?? active;
   const activeProgress = useSharedValue(activeState ? 1 : 0);
   const pulse = useSharedValue(1);
   const resolvedPhoto = resolvePhotoUrl(photo);
+
+  const [tracksViewChanges, setTracksViewChanges] = useState(propTracksViewChanges ?? false);
+
+  useEffect(() => {
+    if (propTracksViewChanges !== undefined) {
+      setTracksViewChanges(propTracksViewChanges);
+    }
+  }, [propTracksViewChanges]);
+
+  const handleImageLoad = () => {
+    setTracksViewChanges(true);
+    setTimeout(() => {
+      setTracksViewChanges(propTracksViewChanges ?? false);
+    }, 0);
+  };
 
   useEffect(() => {
     activeProgress.value = withTiming(activeState ? 1 : 0, {
@@ -185,6 +202,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
                   style={[styles.markerPhoto, { borderColor: isDark ? '#2DD4BF' : '#3B82F6' }]}
                   contentFit="cover"
                   cachePolicy="memory-disk"
+                  onLoad={handleImageLoad}
                 />
               ) : (
                 <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)' }]}>
@@ -226,6 +244,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
                   style={[styles.markerPhoto, { borderColor: isDark ? '#2DD4BF' : '#3B82F6' }]}
                   contentFit="cover"
                   cachePolicy="memory-disk"
+                  onLoad={handleImageLoad}
                 />
               ) : (
                 <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)' }]}>
@@ -263,7 +282,8 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
     prevProps.label === nextProps.label &&
     prevProps.activeTitle === nextProps.activeTitle &&
     prevProps.activeSubtitle === nextProps.activeSubtitle &&
-    prevProps.photo === nextProps.photo
+    prevProps.photo === nextProps.photo &&
+    prevProps.tracksViewChanges === nextProps.tracksViewChanges
   );
 });
 

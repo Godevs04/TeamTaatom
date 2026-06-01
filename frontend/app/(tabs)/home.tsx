@@ -34,6 +34,7 @@ import { trackScreenView, trackEngagement, trackFeatureUsage } from '../../servi
 import api from '../../services/api';
 import { socketService } from '../../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import NetInfo from '@react-native-community/netinfo';
 import Constants from 'expo-constants';
 import { isWeb, throttle } from '../../utils/webOptimizations';
 import { triggerRefreshHaptic } from '../../utils/hapticFeedback';
@@ -348,6 +349,7 @@ export default function HomeScreen() {
   const visibleIndexRef = useRef<number | null>(null);
   const visiblePostIdRef = useRef<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [isError, setIsError] = useState(false);
   const [failedAdIndices, setFailedAdIndices] = useState<number[]>([]);
   const handleAdLoadFailed = useCallback((adIndex: number) => {
     setFailedAdIndices(prev => {
@@ -493,6 +495,7 @@ export default function HomeScreen() {
       }
 
       setLoadError(null);
+      setIsError(false);
       
       // Handle empty posts array gracefully (don't show error if API succeeded)
       if (!response.posts || response.posts.length === 0) {
@@ -664,22 +667,8 @@ export default function HomeScreen() {
         }
       }
       
-      // Use setTimeout to prevent error from triggering re-renders that cause loops
-      // Only show error if it's been more than 5 seconds since last error shown
-      if (timeSinceLastError > 5000 || errorCountRef.current === 1) {
-        setTimeout(() => {
-          if (isNetworkError) {
-            // Only show error if we don't have cached data
-            if (pageNum === 1 && !shouldAppend) {
-              showError('Connection issue. Showing cached content if available.');
-            }
-          } else if (error?.response?.status === 429) {
-            showError('Too many requests. Please wait a moment and try again.');
-          } else if (pageNum === 1 && !shouldAppend) {
-            // Only show error on first page load, not on pagination
-            showError('Failed to load posts. Pull down to refresh.');
-          }
-        }, 100);
+      if (pageNum === 1 && !shouldAppend) {
+        setIsError(true);
       }
       // For pagination errors, silently fail - user can retry by scrolling
     } finally {
@@ -852,34 +841,13 @@ export default function HomeScreen() {
     }
   }, []);
 
-  // Monitor network status using fetch with timeout
+  // Monitor network status using NetInfo
   useEffect(() => {
-    const checkNetworkStatus = async () => {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
-        
-        const response = await fetch('https://www.google.com/favicon.ico', {
-          method: 'HEAD',
-          mode: 'no-cors',
-          signal: controller.signal,
-        });
-        
-        clearTimeout(timeoutId);
-        setIsOnline(true);
-      } catch (error) {
-        setIsOnline(false);
-        logger.warn('Network connection lost');
-      }
-    };
-    
-    // Check initially
-    checkNetworkStatus();
-    
-    // Check periodically
-    const interval = setInterval(checkNetworkStatus, 30000); // Check every 30 seconds
-    
-    return () => clearInterval(interval);
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      const online = state.isConnected !== false;
+      setIsOnline(online);
+    });
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -954,12 +922,7 @@ export default function HomeScreen() {
         await fetchPosts(1, false);
       } catch (error) {
         logger.error('Error loading initial data', error);
-        // If we don't have cached data, show error
-        if (posts.length === 0 && feedModeRef.current === requestFeedMode) {
-          setTimeout(() => {
-            showError('Failed to load content. Please pull down to refresh.');
-          }, 100);
-        }
+        setIsError(true);
         hasInitializedRef.current = false; // Allow retry
       } finally {
         // Only clear the loader if this run is still the current tab's run.
@@ -1150,13 +1113,6 @@ export default function HomeScreen() {
   }, [isOnline, fetchUnseenMessageCount]);
 
   const handleRefresh = useCallback(async () => {
-    // Request guard: prevent refresh if offline
-    if (!isOnline) {
-      logger.debug('Refresh blocked: offline');
-      setRefreshing(false);
-      return;
-    }
-
     // Request guard: prevent refresh if a same-tab refresh or pagination is in flight.
     if (fetchingTabsRef.current.has(feedMode) || isPaginatingRef.current) {
       logger.debug('Refresh blocked: already in progress');
@@ -1200,6 +1156,15 @@ export default function HomeScreen() {
       setRefreshing(false);
     }
   }, [fetchPosts, fetchUnseenMessageCount, feedMode, isOnline]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await handleRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [handleRefresh]);
 
   const handleFeedTabPress = useCallback((mode: FeedMode) => {
     if (mode === feedMode) return;
@@ -1357,6 +1322,12 @@ export default function HomeScreen() {
     loadMoreContainer: {
       padding: isTablet ? theme.spacing.lg : theme.spacing.md,
       alignItems: 'center',
+    },
+    emptyLoadingContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      minHeight: 380,
     },
     offlineBanner: {
       backgroundColor: theme.colors.error + '20',
@@ -1593,41 +1564,39 @@ export default function HomeScreen() {
               refreshControl={
                 <RefreshControl
                   refreshing={refreshing}
-                  onRefresh={handleRefresh}
-                  colors={[theme.colors.primary]}
+                  onRefresh={onRefresh}
                   tintColor={theme.colors.primary}
-                  progressBackgroundColor={theme.colors.surface}
-                  progressViewOffset={headerHeight}
                 />
               }
               onEndReached={handleLoadMore}
               onEndReachedThreshold={0.1}
               ListHeaderComponent={
-                !isOnline ? (
+                <View>
+                  {!isOnline && (
                     <View style={styles.offlineBanner}>
                       <Text style={styles.offlineText}>
                         You're offline. Some features may be limited.
                       </Text>
                     </View>
-                ) : null
+                  )}
+                  {isError && isOnline && (
+                    <View style={styles.offlineBanner}>
+                      <Text style={styles.offlineText}>
+                        Failed to update feed. Showing cached content.
+                      </Text>
+                    </View>
+                  )}
+                </View>
               }
               ListEmptyComponent={
-                !loading ? (
-                  <FeedEmptyState
-                    icon={loadError ? 'cloud-offline-outline' : 'camera-outline'}
-                    title={loadError || 'No Content Yet'}
-                    description={
-                      loadError
-                        ? 'Unable to reach the server. Check your connection.'
-                        : 'No content yet. Explore other users or share your first photo!'
-                    }
-                    actionLabel={loadError ? 'Retry' : 'Refresh'}
-                    onAction={handleRefresh}
-                  />
+                (loading || refreshing) ? (
+                  <View style={styles.emptyLoadingContainer}>
+                    <LoadingGlobe color={theme.colors.primary} size="large" />
+                  </View>
                 ) : null
               }
               ListFooterComponent={
-                hasMore ? (
+                hasMore && posts.length > 0 ? (
                   <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
                     <LoadingGlobe color={theme.colors.primary} />
                   </View>

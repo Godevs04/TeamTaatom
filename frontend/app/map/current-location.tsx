@@ -328,7 +328,12 @@ export default function CurrentLocationMap() {
       // distance from here to the destination pin.
       (async () => {
         try {
-          const { status } = await Location.requestForegroundPermissionsAsync();
+          const currentPerm = await Location.getForegroundPermissionsAsync();
+          let status = currentPerm.status;
+          if (status === 'undetermined') {
+            const requested = await Location.requestForegroundPermissionsAsync();
+            status = requested.status;
+          }
           if (status !== 'granted') return;
           const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
           setUserCoords({
@@ -365,7 +370,12 @@ export default function CurrentLocationMap() {
       setError(null);
 
       // Request permission
-      const { status } = await Location.requestForegroundPermissionsAsync();
+      const currentPerm = await Location.getForegroundPermissionsAsync();
+      let status = currentPerm.status;
+      if (status === 'undetermined') {
+        const requested = await Location.requestForegroundPermissionsAsync();
+        status = requested.status;
+      }
       if (status !== 'granted') {
         setError('Location permission denied');
         setLoading(false);
@@ -403,7 +413,12 @@ export default function CurrentLocationMap() {
 
   const watchLocation = async () => {
     try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
+      const currentPerm = await Location.getForegroundPermissionsAsync();
+      let status = currentPerm.status;
+      if (status === 'undetermined') {
+        const requested = await Location.requestForegroundPermissionsAsync();
+        status = requested.status;
+      }
       if (status !== 'granted') {
         return;
       }
@@ -438,7 +453,12 @@ export default function CurrentLocationMap() {
       setRouteLoading(true);
       let coords = userCoords;
       if (!coords) {
-        const { status } = await Location.requestForegroundPermissionsAsync();
+        const currentPerm = await Location.getForegroundPermissionsAsync();
+        let status = currentPerm.status;
+        if (status === 'undetermined') {
+          const requested = await Location.requestForegroundPermissionsAsync();
+          status = requested.status;
+        }
         if (status === 'granted') {
           const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
           coords = {

@@ -12,6 +12,9 @@ import {
   Image,
   FlatList,
   TextInput,
+  ScrollView,
+  Dimensions,
+  Animated,
 } from 'react-native';
 import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
@@ -21,11 +24,14 @@ import { getShortUrl, getJourneyShortUrl } from '../services/shortUrl';
 import { sendMessage, sharePostToChat, listChats, sendMessageToRoom } from '../services/chat';
 import { searchUsers, getSuggestedUsers } from '../services/profile';
 import api from '../services/api';
+import { incrementShareCount } from '../services/posts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import logger from '../utils/logger';
-import BottomSheet, { BottomSheetView, BottomSheetBackdrop } from '@gorhom/bottom-sheet';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { FILTER_PREVIEW_OVERLAY, ImageFilterType } from './ImageEditModal';
 import * as Clipboard from 'expo-clipboard';
+import * as FileSystem from 'expo-file-system/legacy';
+import { showGlobalAlert } from '../utils/globalAlertHandler';
+import { LinearGradient } from 'expo-linear-gradient';
 
 interface ShareModalProps {
   visible: boolean;
@@ -71,45 +77,77 @@ export default function ShareModal({
 }: ShareModalProps) {
   const isJourneyShare = !!journey;
   const { theme } = useTheme();
-  const bottomSheetRef = useRef<BottomSheet>(null);
-  const snapPoints = useMemo(() => ['65%'], []);
+  const { height: screenHeight } = Dimensions.get('window');
 
-  const handleSheetChanges = useCallback((index: number) => {
-    if (index === -1) {
-      onClose();
-    }
-  }, [onClose]);
+  const isPrimaryWhite = theme.colors.primary.toLowerCase() === '#ffffff' || theme.colors.primary.toLowerCase() === '#fff';
+  const buttonTextColor = isPrimaryWhite ? '#000000' : '#ffffff';
 
-  const renderBackdrop = useCallback(
-    (props: any) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-        opacity={0.5}
-      />
-    ),
-    []
-  );
-
-  useEffect(() => {
-    if (visible) {
-      bottomSheetRef.current?.expand();
-    } else {
-      bottomSheetRef.current?.close();
-    }
-  }, [visible]);
+  const translateY = useRef(new Animated.Value(screenHeight)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(0.95)).current;
 
   const [shortUrl, setShortUrl] = useState<string>('');
   const [isLoadingUrl, setIsLoadingUrl] = useState(false);
   const [showUserPicker, setShowUserPicker] = useState(false);
   const [recipients, setRecipients] = useState<RecipientItem[]>([]);
   const [activeChats, setActiveChats] = useState<any[]>([]);
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [isSendingMessage, setIsSendingMessage] = useState(false);
-  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [mostInteracted, setMostInteracted] = useState<RecipientItem[]>([]);
+  const [otherRecipients, setOtherRecipients] = useState<RecipientItem[]>([]);
+  const [currentUserId, setCurrentUserId] = useState<string>('');
+
+  useEffect(() => {
+    if (visible) {
+      translateY.setValue(screenHeight);
+      opacity.setValue(0);
+      scale.setValue(0.95);
+
+      Animated.parallel([
+        Animated.timing(translateY, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacity, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.spring(scale, {
+          toValue: 1,
+          useNativeDriver: true,
+          tension: 100,
+          friction: 8,
+        }),
+      ]).start();
+    }
+  }, [visible, translateY, opacity, scale, screenHeight]);
+
+  const handleClose = () => {
+    Animated.parallel([
+      Animated.timing(translateY, {
+        toValue: screenHeight,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(opacity, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+      Animated.timing(scale, {
+        toValue: 0.95,
+        duration: 250,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      onClose();
+    });
+  };
 
   // Fetch short URL when modal opens (non-blocking)
   useEffect(() => {
@@ -176,6 +214,17 @@ export default function ShareModal({
     return getShareUrl();
   };
 
+  // Track share count
+  const trackShare = async () => {
+    if (post?._id && !isJourneyShare) {
+      try {
+        await incrementShareCount(post._id);
+      } catch (err) {
+        logger.error('Failed to increment share count:', err);
+      }
+    }
+  };
+
   // Share to native share sheet
   const handleNativeShare = async () => {
     try {
@@ -189,28 +238,81 @@ export default function ShareModal({
       });
 
       if (result.action === Share.sharedAction) {
-        onClose();
+        await trackShare();
+        handleClose();
       }
     } catch (error: any) {
       logger.error('Error sharing:', error);
+      showGlobalAlert({
+        title: 'Share Error',
+        message: error.message || 'Failed to open native share sheet.',
+        type: 'error',
+      });
     }
   };
 
   // Share to Instagram
   const handleInstagramShare = async () => {
     try {
-      const url = `instagram://library?AssetPath=${encodeURIComponent(post?.imageUrl || '')}`;
-      const canOpen = await Linking.canOpenURL(url);
+      const hasInstagram = await Linking.canOpenURL('instagram://');
       
-      if (canOpen) {
+      if (hasInstagram) {
+        let finalImageUrl = post?.imageUrl || '';
+        
+        if (finalImageUrl && (finalImageUrl.startsWith('http://') || finalImageUrl.startsWith('https://'))) {
+          // Download to local cache directory first
+          const filename = finalImageUrl.split('/').pop()?.split('?')[0] || 'instagram_share.jpg';
+          const localUri = `${FileSystem.cacheDirectory}${filename}`;
+          const downloadResult = await FileSystem.downloadAsync(finalImageUrl, localUri);
+          finalImageUrl = downloadResult.uri;
+        }
+        
+        const url = `instagram://library?AssetPath=${encodeURIComponent(finalImageUrl)}`;
         await Linking.openURL(url);
       } else {
         // Fallback to web
         await Linking.openURL('https://www.instagram.com/');
       }
-      onClose();
+      await trackShare();
+      handleClose();
     } catch (error: any) {
       logger.error('Error sharing to Instagram:', error);
+      showGlobalAlert({
+        title: 'Share Error',
+        message: error.message || 'Failed to share to Instagram. Please try again.',
+        type: 'error',
+      });
+    }
+  };
+
+  // Share to Instagram Chat (Direct)
+  const handleInstagramChatShare = async () => {
+    try {
+      const url = getShareUrl();
+      const message = `Check this out: ${url}`;
+      
+      // Copy link to clipboard so they can paste it easily
+      await Clipboard.setStringAsync(url);
+      
+      const hasInstagram = await Linking.canOpenURL('instagram://');
+      if (hasInstagram) {
+        // Try opening direct messages sharesheet
+        const directUrl = 'instagram://direct-inbox';
+        const canOpenDirect = await Linking.canOpenURL(directUrl);
+        if (canOpenDirect) {
+          await Linking.openURL(directUrl);
+        } else {
+          await Linking.openURL('instagram://sharesheet?text=' + encodeURIComponent(message));
+        }
+      } else {
+        // Fallback to web direct
+        await Linking.openURL('https://www.instagram.com/direct/inbox/');
+      }
+      await trackShare();
+      handleClose();
+    } catch (error: any) {
+      logger.error('Error sharing to Instagram direct chat:', error);
+      handleNativeShare();
     }
   };
 
@@ -219,9 +321,15 @@ export default function ShareModal({
     try {
       const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(getShareUrl())}`;
       await Linking.openURL(url);
-      onClose();
+      await trackShare();
+      handleClose();
     } catch (error: any) {
       logger.error('Error sharing to Facebook:', error);
+      showGlobalAlert({
+        title: 'Share Error',
+        message: error.message || 'Failed to share to Facebook. Please try again.',
+        type: 'error',
+      });
     }
   };
 
@@ -231,9 +339,41 @@ export default function ShareModal({
       const text = post?.caption ? encodeURIComponent(post.caption.substring(0, 200)) : '';
       const url = `https://twitter.com/intent/tweet?text=${text}&url=${encodeURIComponent(getShareUrl())}`;
       await Linking.openURL(url);
-      onClose();
+      await trackShare();
+      handleClose();
     } catch (error: any) {
       logger.error('Error sharing to Twitter:', error);
+      showGlobalAlert({
+        title: 'Share Error',
+        message: error.message || 'Failed to share to Twitter. Please try again.',
+        type: 'error',
+      });
+    }
+  };
+
+  // Share to WhatsApp Direct
+  const handleWhatsAppDirectShare = async () => {
+    try {
+      const url = getShareUrl();
+      const message = `Check this out: ${url}`;
+      await Linking.openURL(`whatsapp://send?text=${encodeURIComponent(message)}`);
+      await trackShare();
+      handleClose();
+    } catch {
+      handleNativeShare();
+    }
+  };
+
+  // Share to WhatsApp Status
+  const handleWhatsAppStatusShare = async () => {
+    try {
+      const url = getShareUrl();
+      const message = `Check this out: ${url}`;
+      await Linking.openURL(`whatsapp://send?text=${encodeURIComponent(message)}`);
+      await trackShare();
+      handleClose();
+    } catch {
+      handleNativeShare();
     }
   };
 
@@ -242,7 +382,9 @@ export default function ShareModal({
     setShowUserPicker(true);
     setSearchQuery('');
     setRecipients([]);
-    setSelectedIds([]);
+    setMostInteracted([]);
+    setOtherRecipients([]);
+    setSelectedUsers([]);
   };
 
   // Cleanup when modal closes
@@ -250,11 +392,13 @@ export default function ShareModal({
     if (!showUserPicker) {
       setSearchQuery('');
       setRecipients([]);
-      setSelectedIds([]);
+      setMostInteracted([]);
+      setOtherRecipients([]);
+      setSelectedUsers([]);
       setActiveChats([]);
-      if (searchTimeout) {
-        clearTimeout(searchTimeout);
-        setSearchTimeout(null);
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+        searchTimeoutRef.current = null;
       }
     }
   }, [showUserPicker]);
@@ -266,29 +410,94 @@ export default function ShareModal({
     try {
       const trimmedQuery = query.trim().toLowerCase();
 
-      // Build group chat items, filtered by query if present
-      const groupItems: RecipientItem[] = effectiveChats
-        .filter((c: any) => c.type === 'connect_page' && c.connectPageId)
-        .filter((c: any) =>
-          !trimmedQuery || c.connectPageId.name.toLowerCase().includes(trimmedQuery)
-        )
-        .map((c: any): RecipientItem => ({
-          _id: c._id,
-          fullName: c.connectPageId.name,
-          profilePic: c.connectPageId.profileImage,
-          isGroup: true,
-          subtitle: 'Connect Group',
-          chatId: c._id,
-        }));
+      // Retrieve current logged in user ID from AsyncStorage if not set
+      let myId = currentUserId;
+      if (!myId) {
+        const userData = await AsyncStorage.getItem('userData');
+        if (userData) {
+          try {
+            const parsed = JSON.parse(userData);
+            myId = parsed._id || '';
+            setCurrentUserId(myId);
+          } catch {}
+        }
+      }
 
-      let userItems: RecipientItem[] = [];
+      // Build active chat recipients
+      const activeRecipients: RecipientItem[] = [];
+      const activeIds = new Set<string>();
 
-      if (!trimmedQuery || trimmedQuery.length < 2) {
-        // No/short query: show suggested users
+      effectiveChats.forEach((c: any) => {
+        if (c.type === 'connect_page' && c.connectPageId) {
+          activeRecipients.push({
+            _id: c._id,
+            fullName: c.connectPageId.name,
+            profilePic: c.connectPageId.profileImage,
+            isGroup: true,
+            subtitle: 'Connect Group',
+            chatId: c._id,
+          });
+          activeIds.add(c._id);
+        } else {
+          // 1-on-1 chat
+          const otherParticipant = c.participants?.find((p: any) => p._id !== myId);
+          if (otherParticipant) {
+            activeRecipients.push({
+              _id: otherParticipant._id,
+              fullName: otherParticipant.fullName || otherParticipant.username || 'User',
+              profilePic: otherParticipant.profilePic,
+              username: otherParticipant.username,
+              isGroup: false,
+              chatId: c._id,
+            });
+            activeIds.add(otherParticipant._id);
+          }
+        }
+      });
+
+      if (trimmedQuery.length > 0) {
+        // Search query: search users via API
+        let searchResults: RecipientItem[] = [];
+        try {
+          const response = await searchUsers(trimmedQuery, 1, 100);
+          searchResults = (response.users || []).map((u: any): RecipientItem => ({
+            _id: u._id,
+            fullName: u.fullName || u.username || 'User',
+            profilePic: u.profilePic,
+            username: u.username,
+            isGroup: false,
+          }));
+        } catch (err) {
+          logger.error('Search failed', err);
+        }
+
+        // Also search within active chats and prepend them if they match the query
+        const matchingActive = activeRecipients.filter(r => 
+          r.fullName.toLowerCase().includes(trimmedQuery) || 
+          (r.username && r.username.toLowerCase().includes(trimmedQuery))
+        );
+
+        // Deduplicate: merge matching active and search results
+        const mergedResults = [...matchingActive];
+        const mergedIds = new Set(matchingActive.map(r => r._id));
+
+        searchResults.forEach(r => {
+          if (!mergedIds.has(r._id)) {
+            mergedResults.push(r);
+            mergedIds.add(r._id);
+          }
+        });
+
+        setRecipients(mergedResults);
+        setMostInteracted([]);
+        setOtherRecipients([]);
+      } else {
+        // No search query: load suggested users and split into horizontal (most interacted) & vertical (others)
+        let suggestedUsers: RecipientItem[] = [];
         try {
           const suggestedResponse = await getSuggestedUsers(50);
           if (suggestedResponse.users && suggestedResponse.users.length > 0) {
-            userItems = suggestedResponse.users.map((u: any): RecipientItem => ({
+            suggestedUsers = suggestedResponse.users.map((u: any): RecipientItem => ({
               _id: u._id,
               fullName: u.fullName || u.username || 'User',
               profilePic: u.profilePic,
@@ -303,7 +512,7 @@ export default function ShareModal({
             if (userData) {
               const parsed = JSON.parse(userData);
               const response = await api.get(`/api/v1/profile/${parsed._id}/following`);
-              userItems = (response.data.users || []).map((u: any): RecipientItem => ({
+              suggestedUsers = (response.data.users || []).map((u: any): RecipientItem => ({
                 _id: u._id,
                 fullName: u.fullName || u.username || 'User',
                 profilePic: u.profilePic,
@@ -311,30 +520,35 @@ export default function ShareModal({
                 isGroup: false,
               }));
             }
-          } catch {
-            // ignore
-          }
+          } catch {}
         }
-      } else {
-        // Search query: search users via API
-        try {
-          const response = await searchUsers(trimmedQuery, 1, 100);
-          userItems = (response.users || []).map((u: any): RecipientItem => ({
-            _id: u._id,
-            fullName: u.fullName || u.username || 'User',
-            profilePic: u.profilePic,
-            username: u.username,
-            isGroup: false,
-          }));
-        } catch {
-          // ignore
-        }
-      }
 
-      setRecipients([...groupItems, ...userItems]);
+        // Horizontal Row (Most Interacted):
+        // 1. All activeRecipients (which are user's actual chats)
+        // 2. If activeRecipients has < 12 items, fill up with suggested users
+        const horizontalItems = [...activeRecipients];
+        const horizontalIds = new Set(activeRecipients.map(r => r._id));
+
+        suggestedUsers.forEach(u => {
+          if (horizontalItems.length < 12 && !horizontalIds.has(u._id)) {
+            horizontalItems.push(u);
+            horizontalIds.add(u._id);
+          }
+        });
+
+        // Vertical List (Others):
+        // Suggested users that are NOT in the horizontal list
+        const verticalItems = suggestedUsers.filter(u => !horizontalIds.has(u._id));
+
+        setMostInteracted(horizontalItems);
+        setOtherRecipients(verticalItems);
+        setRecipients([]);
+      }
     } catch (error: any) {
       logger.error('Error loading recipients:', error);
       setRecipients([]);
+      setMostInteracted([]);
+      setOtherRecipients([]);
     } finally {
       setIsLoadingUsers(false);
     }
@@ -342,18 +556,29 @@ export default function ShareModal({
 
   // Debounced search when query changes
   useEffect(() => {
-    if (!showUserPicker) return;
-    if (searchTimeout) clearTimeout(searchTimeout);
-    const timeout = setTimeout(() => {
+    if (!visible) return;
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    searchTimeoutRef.current = setTimeout(() => {
       loadUsers(searchQuery, activeChats);
     }, 300);
-    setSearchTimeout(timeout);
-    return () => { clearTimeout(timeout); };
-  }, [searchQuery, showUserPicker]);
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+    };
+  }, [searchQuery, visible]);
 
-  // Fetch chats + load initial recipients when picker opens
+  // Fetch chats + load initial recipients when modal opens
   useEffect(() => {
-    if (!showUserPicker) return;
+    if (!visible) {
+      setSearchQuery('');
+      setRecipients([]);
+      setMostInteracted([]);
+      setOtherRecipients([]);
+      setSelectedUsers([]);
+      setActiveChats([]);
+      return;
+    }
     let cancelled = false;
     const init = async () => {
       try {
@@ -368,18 +593,18 @@ export default function ShareModal({
     };
     init();
     return () => { cancelled = true; };
-  }, [showUserPicker]);
+  }, [visible]);
 
   // Toggle a recipient in/out of the selection
   const toggleRecipient = (id: string) => {
-    setSelectedIds((prev) =>
+    setSelectedUsers((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
   };
 
   // Send post or journey to ALL selected recipients in parallel
   const handleSendToRecipients = async () => {
-    if (selectedIds.length === 0 || (!post?._id && !journey?._id)) return;
+    if (selectedUsers.length === 0 || (!post?._id && !journey?._id)) return;
     setIsSendingMessage(true);
     try {
       const currentShareUrl = getShareUrl();
@@ -415,8 +640,14 @@ export default function ShareModal({
         ].join('|');
         messageText = `[POST_SHARE]${postData}`;
       }
-
-      const targets = recipients.filter((r) => selectedIds.includes(r._id));
+      const allPossibleRecipients = [...mostInteracted, ...otherRecipients, ...recipients];
+      const recipientMap = new Map<string, RecipientItem>();
+      allPossibleRecipients.forEach(r => {
+        if (r && r._id) {
+          recipientMap.set(r._id, r);
+        }
+      });
+      const targets = Array.from(recipientMap.values()).filter((r) => selectedUsers.includes(r._id));
 
       await Promise.all(
         targets.map(async (recipient) => {
@@ -448,16 +679,15 @@ export default function ShareModal({
 
       setIsSendingMessage(false);
       setShowUserPicker(false);
-      setSelectedIds([]);
+      setSelectedUsers([]);
 
-      setTimeout(() => {
-        onClose();
+      setTimeout(async () => {
+        await trackShare();
+        handleClose();
         setTimeout(() => {
           Alert.alert(
             'Sent!',
-            `${isJourneyShare ? 'Journey' : 'Post'} sent to ${targets.length} ${
-              targets.length === 1 ? 'recipient' : 'recipients'
-            }!`
+            `Post sent to ${selectedUsers.length} recipient${selectedUsers.length !== 1 ? 's' : ''}!`
           );
         }, 200);
       }, 150);
@@ -499,349 +729,356 @@ export default function ShareModal({
           });
         }
       }
-      onClose();
+      await trackShare();
+      handleClose();
     } catch (error: any) {
       logger.error('Error copying link:', error);
       // Fallback: show the URL in an alert so user can manually copy
       Alert.alert('Copy Link', `Link: ${getShareUrl()}`, [
-        { text: 'OK', onPress: onClose }
+        { text: 'OK', onPress: handleClose }
       ]);
     }
   };
+
+  const renderHorizontalSuggested = () => {
+    if (mostInteracted.length === 0) return null;
+    return (
+      <View style={styles.horizontalSection}>
+        <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary }]}>Recent Chats</Text>
+        <FlatList
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          data={mostInteracted}
+          keyExtractor={(item) => `horizontal_${item._id}`}
+          contentContainerStyle={styles.horizontalListContent}
+          renderItem={({ item }) => {
+            const isSelected = selectedUsers.includes(item._id);
+            const displayName = item.fullName.split(' ')[0];
+            
+            return (
+              <TouchableOpacity
+                style={styles.horizontalItem}
+                onPress={() => toggleRecipient(item._id)}
+                disabled={isSendingMessage}
+                activeOpacity={0.7}
+              >
+                <View style={styles.horizontalAvatarContainer}>
+                  {item.isGroup ? (
+                    <View style={[styles.horizontalAvatar, { backgroundColor: theme.colors.primary + '22' }]}>
+                      <Ionicons name="chatbubbles" size={24} color={theme.colors.primary} />
+                    </View>
+                  ) : item.profilePic ? (
+                    <Image source={{ uri: item.profilePic }} style={styles.horizontalAvatar} />
+                  ) : (
+                    <View style={[styles.horizontalAvatar, { backgroundColor: theme.colors.border }]}>
+                      <Ionicons name="person" size={24} color={theme.colors.textSecondary} />
+                    </View>
+                  )}
+                  
+                  {isSelected && (
+                    <LinearGradient
+                      colors={['#50C878', '#1C73B4']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={[
+                        styles.horizontalCheckCircle,
+                        {
+                          borderColor: theme.colors.background,
+                          borderWidth: 1.5,
+                        },
+                      ]}
+                    >
+                      <Ionicons name="checkmark" size={10} color="#FFFFFF" />
+                    </LinearGradient>
+                  )}
+                </View>
+                <Text 
+                  style={[styles.horizontalName, { color: theme.colors.text }]} 
+                  numberOfLines={1}
+                >
+                  {displayName}
+                </Text>
+              </TouchableOpacity>
+            );
+          }}
+        />
+        {otherRecipients.length > 0 && (
+          <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary, marginTop: 12 }]}>Suggested</Text>
+        )}
+      </View>
+    );
+  };
+
+  const allUsers = searchQuery.trim().length > 0 ? recipients : [...mostInteracted, ...otherRecipients];
 
   return (
     <Modal
       visible={visible}
       transparent
       animationType="none"
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
+      statusBarTranslucent
     >
-      <GestureHandlerRootView style={{ flex: 1 }}>
-        <BottomSheet
-          ref={bottomSheetRef}
-          index={visible ? 0 : -1}
-          snapPoints={snapPoints}
-          enablePanDownToClose
-          onChange={handleSheetChanges}
-          backdropComponent={renderBackdrop}
-          backgroundStyle={{ backgroundColor: theme.colors.surface }}
-          handleIndicatorStyle={{ backgroundColor: theme.colors.border }}
+      <Animated.View style={[styles.overlay, { opacity }]}>
+        <TouchableOpacity
+          style={styles.overlayTouchable}
+          activeOpacity={1}
+          onPress={handleClose}
         >
-          <BottomSheetView style={styles.modalContent}>
-            <Text style={[styles.title, { color: theme.colors.text }]}>
-              {isJourneyShare ? 'Share Journey' : 'Share Post'}
-            </Text>
+          <View />
+        </TouchableOpacity>
 
-            {/* Journey Preview Card */}
-            {isJourneyShare && journey && (
-              <View style={[styles.previewCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
-                <View style={[styles.journeyPreviewIcon, { backgroundColor: '#22C55E20' }]}>
-                  <Ionicons name="navigate" size={28} color="#22C55E" />
-                </View>
-                <View style={styles.previewContent}>
-                  <Text style={[styles.previewAuthor, { color: theme.colors.text }]}>
-                    {journey.title || 'Journey'}
-                  </Text>
-                  <Text style={[styles.previewCaption, { color: theme.colors.textSecondary }]}>
-                    {journey.distanceTraveled
-                      ? journey.distanceTraveled >= 1000
-                        ? `${(journey.distanceTraveled / 1000).toFixed(1)} km`
-                        : `${Math.round(journey.distanceTraveled)} m`
-                      : ''}
-                    {journey.status ? ` • ${journey.status.charAt(0).toUpperCase() + journey.status.slice(1)}` : ''}
-                  </Text>
-                  <View style={styles.urlContainer}>
-                    <Text style={[styles.previewUrl, { color: theme.colors.primary }]} numberOfLines={1}>
-                      {getShareUrl()}
-                    </Text>
-                    {isLoadingUrl && (
-                      <View style={styles.loadingIndicator}>
-                        <LoadingGlobe size="small" color={theme.colors.primary} />
-                      </View>
-                    )}
-                  </View>
-                </View>
-              </View>
-            )}
-
-            {/* Post Preview Card */}
-            {!isJourneyShare && post && (
-              <View style={[styles.previewCard, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
-                {post.imageUrl && (
-                  <Image
-                    source={{ uri: post.imageUrl }}
-                    style={styles.previewImage}
-                    resizeMode="cover"
-                  />
-                )}
-                <View style={styles.previewContent}>
-                  {post.user && (
-                    <Text style={[styles.previewAuthor, { color: theme.colors.text }]}>
-                      {post.user.fullName}
-                    </Text>
-                  )}
-                  {post.caption && (
-                    <Text
-                      style={[styles.previewCaption, { color: theme.colors.textSecondary }]}
-                      numberOfLines={2}
-                    >
-                      {post.caption}
-                    </Text>
-                  )}
-                  <View style={styles.urlContainer}>
-                    <Text style={[styles.previewUrl, { color: theme.colors.primary }]} numberOfLines={1}>
-                      {getShareUrl()}
-                    </Text>
-                    {isLoadingUrl && (
-                      <View style={styles.loadingIndicator}>
-                        <LoadingGlobe size="small" color={theme.colors.primary} />
-                      </View>
-                    )}
-                  </View>
-                </View>
-              </View>
-            )}
-
-            <View style={styles.shareGrid}>
-              {/* Native Share */}
-              <TouchableOpacity
-                style={[styles.shareOption, { backgroundColor: theme.colors.background }]}
-                onPress={handleNativeShare}
-              >
-                <Ionicons name="share-outline" size={28} color={theme.colors.primary} />
-                <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>
-                  Share
-                </Text>
-              </TouchableOpacity>
-
-              {/* Instagram */}
-              <TouchableOpacity
-                style={[styles.shareOption, { backgroundColor: theme.colors.background }]}
-                onPress={handleInstagramShare}
-              >
-                <Ionicons name="logo-instagram" size={28} color="#E4405F" />
-                <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>
-                  Instagram
-                </Text>
-              </TouchableOpacity>
-
-              {/* Facebook */}
-              <TouchableOpacity
-                style={[styles.shareOption, { backgroundColor: theme.colors.background }]}
-                onPress={handleFacebookShare}
-              >
-                <Ionicons name="logo-facebook" size={28} color="#1877F2" />
-                <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>
-                  Facebook
-                </Text>
-              </TouchableOpacity>
-
-              {/* Twitter */}
-              <TouchableOpacity
-                style={[styles.shareOption, { backgroundColor: theme.colors.background }]}
-                onPress={handleTwitterShare}
-              >
-                <Ionicons name="logo-twitter" size={28} color="#1DA1F2" />
-                <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>
-                  Twitter
-                </Text>
-              </TouchableOpacity>
-
-              {/* Send to Chat */}
-              <TouchableOpacity
-                style={[styles.shareOption, { backgroundColor: theme.colors.background }]}
-                onPress={handleSendToChat}
-              >
-                <Ionicons name="chatbubble-outline" size={28} color={theme.colors.primary} />
-                <Text style={[styles.shareOptionText, { color: theme.colors.text }]}>
-                  Send to Chat
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* Copy Link Button (Full-width row) */}
-            <TouchableOpacity
-              style={[styles.copyLinkButton, { backgroundColor: theme.colors.background }]}
-              onPress={handleCopyLink}
-            >
-              <Ionicons name="link-outline" size={24} color={theme.colors.primary} />
-              <Text style={[styles.copyLinkText, { color: theme.colors.text }]}>
-                Copy Link
-              </Text>
-            </TouchableOpacity>
-          </BottomSheetView>
-        </BottomSheet>
-      </GestureHandlerRootView>
-
-      {/* User Picker Modal */}
-      <Modal
-        visible={showUserPicker}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowUserPicker(false)}
-      >
-        <View style={styles.userPickerOverlay}>
-          <TouchableOpacity
-            style={styles.userPickerBackdrop}
-            activeOpacity={1}
-            onPress={() => setShowUserPicker(false)}
-          />
-          <View style={[styles.userPickerContent, { backgroundColor: theme.colors.surface }]}>
+        <Animated.View
+          style={[
+            styles.bottomSheet,
+            {
+              backgroundColor: theme.colors.surface,
+              transform: [{ translateY }, { scale }],
+              opacity,
+            },
+          ]}
+        >
+          {/* Drag Handle Indicator */}
+          <View style={styles.handleBar}>
             <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
-            
-            <View style={styles.userPickerHeader}>
-              <Text style={[styles.userPickerTitle, { color: theme.colors.text }]}>
-                Send to Chat
-              </Text>
-              <TouchableOpacity
-                onPress={() => setShowUserPicker(false)}
-                style={styles.closeButton}
-              >
-                <Ionicons name="close" size={24} color={theme.colors.text} />
-              </TouchableOpacity>
-            </View>
+          </View>
 
-            {/* Search Bar */}
-            <View style={[styles.searchBar, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
-              <Ionicons name="search" size={20} color={theme.colors.textSecondary} />
+          {/* Header Title and Close button */}
+          <View style={styles.header}>
+            <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Share</Text>
+            <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+              <Ionicons name="close" size={24} color={theme.colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          {/* Search Row */}
+          <View style={styles.searchRow}>
+            <View style={[styles.searchBar, { flex: 1, backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+              <Ionicons name="search" size={18} color={theme.colors.textSecondary} />
               <TextInput
                 style={[styles.searchInput, { color: theme.colors.text }]}
-                placeholder="Search people & groups..."
+                placeholder="Search"
                 placeholderTextColor={theme.colors.textSecondary}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
               />
               {searchQuery.length > 0 && (
                 <TouchableOpacity onPress={() => setSearchQuery('')}>
-                  <Ionicons name="close-circle" size={18} color={theme.colors.textSecondary} />
+                  <Ionicons name="close-circle" size={16} color={theme.colors.textSecondary} />
                 </TouchableOpacity>
               )}
             </View>
+            <TouchableOpacity 
+              style={[styles.searchRightButton, { backgroundColor: 'rgba(255, 255, 255, 0.08)' }]}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="people-outline" size={20} color={theme.colors.text} />
+            </TouchableOpacity>
+          </View>
 
-            {/* Recipients List */}
-            {isLoadingUsers ? (
-              <View style={styles.loadingContainer}>
-                <LoadingGlobe size="large" color={theme.colors.primary} />
-              </View>
-            ) : (
-              <FlatList
-                data={recipients}
-                keyExtractor={(item) => item._id}
-                renderItem={({ item }) => {
-                  const isSelected = selectedIds.includes(item._id);
-                  return (
-                    <TouchableOpacity
-                      style={[
-                        styles.userItem,
-                        {
-                          backgroundColor: isSelected
-                            ? theme.colors.primary + '18'
-                            : theme.colors.background,
-                        },
-                      ]}
-                      onPress={() => toggleRecipient(item._id)}
-                      disabled={isSendingMessage}
-                      activeOpacity={0.7}
-                    >
+          {/* Contacts Grid */}
+          {isLoadingUsers ? (
+            <View style={styles.loadingContainer}>
+              <LoadingGlobe size="large" color={theme.colors.primary} />
+            </View>
+          ) : (
+            <FlatList
+              data={allUsers}
+              keyExtractor={(item) => item._id}
+              numColumns={3}
+              columnWrapperStyle={styles.gridRow}
+              showsVerticalScrollIndicator={false}
+              ListHeaderComponent={searchQuery.trim().length === 0 ? renderHorizontalSuggested : null}
+              renderItem={({ item }) => {
+                const isSelected = selectedUsers.includes(item._id);
+                const displayName = item.fullName.split(' ')[0];
+                
+                return (
+                  <TouchableOpacity
+                    style={styles.gridItem}
+                    onPress={() => toggleRecipient(item._id)}
+                    disabled={isSendingMessage}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.gridAvatarContainer}>
                       {item.isGroup ? (
-                        <View style={[styles.userAvatar, { backgroundColor: theme.colors.primary + '22' }]}>
-                          <Ionicons name="chatbubbles" size={22} color={theme.colors.primary} />
+                        <View style={[styles.gridAvatar, { backgroundColor: theme.colors.primary + '22' }]}>
+                          <Ionicons name="chatbubbles" size={26} color={theme.colors.primary} />
                         </View>
                       ) : item.profilePic ? (
-                        <Image source={{ uri: item.profilePic }} style={styles.userAvatar} />
+                        <Image source={{ uri: item.profilePic }} style={styles.gridAvatar} />
                       ) : (
-                        <View style={[styles.userAvatar, { backgroundColor: theme.colors.border }]}>
-                          <Ionicons name="person" size={24} color={theme.colors.textSecondary} />
+                        <View style={[styles.gridAvatar, { backgroundColor: theme.colors.border }]}>
+                          <Ionicons name="person" size={26} color={theme.colors.textSecondary} />
                         </View>
                       )}
-                      <View style={styles.userInfo}>
-                        <Text style={[styles.userName, { color: theme.colors.text }]}>
-                          {item.fullName}
-                        </Text>
-                        {item.subtitle ? (
-                          <Text style={[styles.userUsername, { color: theme.colors.primary }]}>
-                            {item.subtitle}
-                          </Text>
-                        ) : item.username ? (
-                          <Text style={[styles.userUsername, { color: theme.colors.textSecondary }]}>
-                            @{item.username}
-                          </Text>
-                        ) : null}
-                      </View>
-                      <View
-                        style={[
-                          styles.checkCircle,
-                          {
-                            borderColor: isSelected ? theme.colors.primary : theme.colors.border,
-                            backgroundColor: isSelected ? theme.colors.primary : 'transparent',
-                          },
-                        ]}
-                      >
-                        {isSelected && <Ionicons name="checkmark" size={14} color="#fff" />}
-                      </View>
-                    </TouchableOpacity>
-                  );
-                }}
-                ListEmptyComponent={
-                  <View style={styles.emptyContainer}>
-                    <Ionicons name="people-outline" size={48} color={theme.colors.textSecondary} />
-                    <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
-                      {searchQuery ? 'No results found' : 'No contacts available'}
+                      
+                      {isSelected && (
+                        <LinearGradient
+                          colors={['#50C878', '#1C73B4']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={[
+                            styles.gridCheckCircle,
+                            {
+                              borderColor: theme.colors.surface,
+                              borderWidth: 1.5,
+                            },
+                          ]}
+                        >
+                          <Ionicons name="checkmark" size={10} color="#FFFFFF" />
+                        </LinearGradient>
+                      )}
+                    </View>
+                    <Text 
+                      style={[styles.gridName, { color: theme.colors.text }]} 
+                      numberOfLines={1}
+                    >
+                      {displayName}
                     </Text>
-                  </View>
-                }
-                contentContainerStyle={{ paddingBottom: selectedIds.length > 0 ? 90 : 20 }}
-              />
-            )}
+                  </TouchableOpacity>
+                );
+              }}
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="people-outline" size={48} color={theme.colors.textSecondary} />
+                  <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>
+                    {searchQuery ? 'No results found' : 'No contacts available'}
+                  </Text>
+                </View>
+              }
+              style={styles.gridScroll}
+              contentContainerStyle={{ paddingBottom: selectedUsers.length > 0 ? 100 : 20 }}
+            />
+          )}
 
-            {/* Floating Send Button */}
-            {selectedIds.length > 0 && (
-              <TouchableOpacity
-                style={[styles.sendButton, { backgroundColor: theme.colors.primary }]}
-                onPress={handleSendToRecipients}
-                disabled={isSendingMessage}
-                activeOpacity={0.85}
+          {/* Bottom Actions */}
+          {selectedUsers.length > 0 ? (
+            <TouchableOpacity
+              style={[styles.sendButton, { position: 'absolute', bottom: 20, left: 20, right: 20, overflow: 'hidden' }]}
+              onPress={handleSendToRecipients}
+              disabled={isSendingMessage}
+              activeOpacity={0.85}
+            >
+              <LinearGradient
+                colors={['#50C878', '#1C73B4']}
+                style={StyleSheet.absoluteFillObject}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              />
+              {isSendingMessage ? (
+                <LoadingGlobe size="small" color="#ffffff" />
+              ) : (
+                <>
+                  <Ionicons name="send" size={18} color="#ffffff" />
+                  <Text style={[styles.sendButtonText, { color: '#ffffff' }]}>
+                    Send{selectedUsers.length > 1 ? ` to ${selectedUsers.length}` : ''}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          ) : (
+            <View style={[styles.bottomRailContainer, { borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.08)' }]}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.bottomRailContent}
               >
-                {isSendingMessage ? (
-                  <LoadingGlobe size="small" color="#fff" />
-                ) : (
-                  <>
-                    <Ionicons name="send" size={18} color="#fff" />
-                    <Text style={styles.sendButtonText}>
-                      Send{selectedIds.length > 1 ? ` to ${selectedIds.length}` : ''}
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-      </Modal>
+                <TouchableOpacity style={styles.bottomRailItem} onPress={handleInstagramChatShare}>
+                  <View style={[styles.bottomRailIconCircle, { backgroundColor: '#E4405F' }]}>
+                    <Ionicons name="logo-instagram" size={24} color="#FFFFFF" />
+                  </View>
+                  <Text style={[styles.bottomRailText, { color: theme.colors.text }]} numberOfLines={2}>
+                    Instagram
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.bottomRailItem} onPress={handleCopyLink}>
+                  <View style={[styles.bottomRailIconCircle, { backgroundColor: 'rgba(255, 255, 255, 0.1)' }]}>
+                    <Ionicons name="link-outline" size={24} color="#FFFFFF" />
+                  </View>
+                  <Text style={[styles.bottomRailText, { color: theme.colors.text }]} numberOfLines={2}>
+                    Copy link
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.bottomRailItem} onPress={handleWhatsAppDirectShare}>
+                  <View style={[styles.bottomRailIconCircle, { backgroundColor: '#25D366' }]}>
+                    <Ionicons name="logo-whatsapp" size={24} color="#FFFFFF" />
+                  </View>
+                  <Text style={[styles.bottomRailText, { color: theme.colors.text }]} numberOfLines={2}>
+                    WhatsApp
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.bottomRailItem} onPress={handleWhatsAppStatusShare}>
+                  <View style={[styles.bottomRailIconCircle, { backgroundColor: '#128C7E' }]}>
+                    <Ionicons name="sync" size={24} color="#FFFFFF" />
+                  </View>
+                  <Text style={[styles.bottomRailText, { color: theme.colors.text }]} numberOfLines={2}>
+                    WhatsApp Status
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity style={styles.bottomRailItem} onPress={handleNativeShare}>
+                  <View style={[styles.bottomRailIconCircle, { backgroundColor: 'rgba(255, 255, 255, 0.1)' }]}>
+                    <Ionicons name="share-social-outline" size={24} color="#FFFFFF" />
+                  </View>
+                  <Text style={[styles.bottomRailText, { color: theme.colors.text }]} numberOfLines={2}>
+                    Share
+                  </Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          )}
+        </Animated.View>
+      </Animated.View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  modalOverlay: {
+  overlay: {
     flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
     justifyContent: 'flex-end',
   },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  overlayTouchable: {
+    flex: 1,
   },
-  modalContent: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
-    paddingBottom: 40,
+  bottomSheet: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 12,
+    maxHeight: '90%',
+    minHeight: 450,
+  },
+  handleBar: {
+    alignItems: 'center',
+    paddingVertical: 6,
   },
   handle: {
-    width: 40,
+    width: 48,
     height: 4,
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 20,
+    borderRadius: 999,
+    opacity: 0.4,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 4,
+    paddingBottom: 4,
+    marginBottom: 4,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  closeButton: {
+    padding: 4,
   },
   title: {
     fontSize: 20,
@@ -949,22 +1186,20 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
   },
-  closeButton: {
-    padding: 4,
-  },
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 12,
+    height: 40,
+    borderRadius: 20,
     borderWidth: 1,
-    marginBottom: 16,
   },
   searchInput: {
     flex: 1,
     marginLeft: 8,
-    fontSize: 16,
+    fontSize: 15,
+    height: '100%',
+    padding: 0,
   },
   loadingContainer: {
     padding: 40,
@@ -1023,9 +1258,149 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   sendButtonText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: '700',
   },
+  horizontalSection: {
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    marginBottom: 6,
+  },
+  horizontalListContent: {
+    paddingHorizontal: 4,
+    gap: 16,
+  },
+  horizontalItem: {
+    alignItems: 'center',
+    width: 68,
+  },
+  horizontalAvatarContainer: {
+    position: 'relative',
+    marginBottom: 4,
+  },
+  horizontalAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  horizontalName: {
+    fontSize: 11,
+    marginTop: 6,
+    textAlign: 'center',
+    fontWeight: '400',
+  },
+  horizontalCheckCircle: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1,
+  },
+  sectionTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 6,
+    paddingHorizontal: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    paddingHorizontal: 4,
+    gap: 12,
+  },
+  searchRightButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  gridScroll: {
+    flex: 1,
+    marginTop: 8,
+  },
+  gridRow: {
+    justifyContent: 'flex-start',
+    gap: 0,
+  },
+  gridItem: {
+    flex: 1 / 3,
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 4,
+  },
+  gridAvatarContainer: {
+    position: 'relative',
+    marginBottom: 6,
+  },
+  gridAvatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gridName: {
+    fontSize: 11,
+    marginTop: 6,
+    textAlign: 'center',
+    fontWeight: '400',
+  },
+  gridCheckCircle: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1,
+  },
+  bottomRailContainer: {
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+  },
+  bottomRailContent: {
+    gap: 14,
+    paddingHorizontal: 8,
+  },
+  bottomRailItem: {
+    alignItems: 'center',
+    width: 68,
+  },
+  bottomRailIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  bottomRailText: {
+    fontSize: 10,
+    textAlign: 'center',
+    fontWeight: '400',
+  },
 });
-
