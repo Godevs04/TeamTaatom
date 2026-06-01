@@ -181,17 +181,13 @@ const SongRow: React.FC<SongRowProps> = memo(({
       {isLoading ? (
         <LoadingGlobe size="small" color={selectedColor} />
       ) : isSelected ? (
-        <LinearGradient
-          colors={['#50C878', '#1C73B4']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={{
-            width: 24, height: 24, borderRadius: 12,
-            justifyContent: 'center', alignItems: 'center',
-          }}
-        >
+        <View style={{
+          width: 24, height: 24, borderRadius: 12,
+          backgroundColor: selectedColor,
+          justifyContent: 'center', alignItems: 'center',
+        }}>
           <Ionicons name="checkmark" size={15} color="#fff" />
-        </LinearGradient>
+        </View>
       ) : (
         <Ionicons name="chevron-forward" size={18} color={secondaryColor + '60'} />
       )}
@@ -944,7 +940,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     const selectionDuration = endTime - startTime;
 
     const isDark = theme.colors.background === '#000000' || theme.colors.background === '#111114';
-    const bracketColor = theme.colors.secondary;
+    const bracketColor = theme.colors.primary;
 
     // Scrollable waveform: song's full proportional length, wider than screen
     const totalWaveformWidth = Math.max(SCREEN_WIDTH * 3, duration * 15);
@@ -1019,12 +1015,10 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
               borderRadius: 8,
             }}>
               {/* Left handle */}
-              <LinearGradient
-                colors={['#50C878', '#1C73B4']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 0, y: 1 }}
+              <View
                 style={{
                   position: 'absolute', left: -1, top: 0, bottom: 0, width: 22,
+                  backgroundColor: bracketColor,
                   borderTopLeftRadius: 8, borderBottomLeftRadius: 8,
                   justifyContent: 'center', alignItems: 'center',
                   zIndex: 10,
@@ -1033,14 +1027,12 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                 {...leftTrimPanResponder.panHandlers}
               >
                 <View style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: '#fff' }} />
-              </LinearGradient>
+              </View>
               {/* Right handle */}
-              <LinearGradient
-                colors={['#50C878', '#1C73B4']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 0, y: 1 }}
+              <View
                 style={{
                   position: 'absolute', right: -1, top: 0, bottom: 0, width: 22,
+                  backgroundColor: bracketColor,
                   borderTopRightRadius: 8, borderBottomRightRadius: 8,
                   justifyContent: 'center', alignItems: 'center',
                   zIndex: 10,
@@ -1049,7 +1041,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                 {...rightTrimPanResponder.panHandlers}
               >
                 <View style={{ width: 3, height: 16, borderRadius: 2, backgroundColor: '#fff' }} />
-              </LinearGradient>
+              </View>
             </View>
           </View>
         </View>
@@ -1233,16 +1225,9 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                 onPress={handleConfirm}
                 style={{
                   paddingHorizontal: 20, paddingVertical: 8, borderRadius: 20,
-                  overflow: 'hidden',
-                  justifyContent: 'center', alignItems: 'center'
+                  backgroundColor: theme.colors.primary,
                 }}
               >
-                <LinearGradient
-                  colors={['#50C878', '#1C73B4']}
-                  style={StyleSheet.absoluteFillObject}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                />
                 <Text style={{ fontSize: 14, fontWeight: '700', color: '#fff' }}>Done</Text>
               </TouchableOpacity>
             </View>
@@ -1295,22 +1280,16 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
                   {formatDuration(startTime)}
                 </Text>
 
-                {/* Play/Pause */}
+                {/* Play/Pause — Spotify green circle */}
                 <TouchableOpacity
                   onPress={playAudio}
                   style={{
                     width: 56, height: 56, borderRadius: 28,
+                    backgroundColor: theme.colors.primary,
                     justifyContent: 'center', alignItems: 'center',
-                    overflow: 'hidden',
                   }}
                   activeOpacity={0.8}
                 >
-                  <LinearGradient
-                    colors={['#50C878', '#1C73B4']}
-                    style={StyleSheet.absoluteFillObject}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                  />
                   <Ionicons
                     name={isPlaying ? "pause" : "play"}
                     size={26} color="#fff"

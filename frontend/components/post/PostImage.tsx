@@ -7,7 +7,6 @@ import { useTheme } from '../../context/ThemeContext';
 import { PostType } from '../../types/post';
 import { generateBlurUpUrl } from '../../utils/imageLoader';
 import { applyCloudinaryFilter } from '../../utils/imageCache';
-import { FILTER_PREVIEW_OVERLAY, ImageFilterType } from '../../components/ImageEditModal';
 import { Platform } from 'react-native';
 import SongPlayer from '../SongPlayer';
 import { audioManager } from '../../utils/audioManager';
@@ -99,15 +98,6 @@ const CarouselItem = React.memo(({
             priority={isActive ? "high" : "normal"}
             style={styles.image}
           />
-          {filter && FILTER_PREVIEW_OVERLAY[filter as ImageFilterType] && (
-            <View
-              pointerEvents="none"
-              style={[
-                StyleSheet.absoluteFillObject,
-                { backgroundColor: FILTER_PREVIEW_OVERLAY[filter as ImageFilterType]! },
-              ]}
-            />
-          )}
 
           {/* Heart animation overlay */}
           {isActive && (
@@ -164,7 +154,6 @@ export default function PostImage({
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [scrollEnabled, setScrollEnabled] = useState(true);
   const [containerWidth, setContainerWidth] = useState(screenWidth - 32);
-  const [isZoomed, setIsZoomed] = useState(false);
 
   const handleLayout = useCallback((event: any) => {
     const { width } = event.nativeEvent.layout;
@@ -223,7 +212,6 @@ export default function PostImage({
 
   const singleTapGesture = Gesture.Tap()
     .numberOfTaps(1)
-    .maxDuration(250)
     .requireExternalGestureToFail(doubleTapGesture)
     .onEnd((_event, success) => {
       if (success) {
@@ -377,19 +365,12 @@ export default function PostImage({
   const aspectRatioValue = getAspectRatio();
 
   // Pinch-to-zoom shared values
-  const scale = useSharedValue<number>(1);
-  const focalX = useSharedValue<number>(0);
-  const focalY = useSharedValue<number>(0);
-
-  // Pan shared values for dragging zoomed image
-  const panX = useSharedValue<number>(0);
-  const panY = useSharedValue<number>(0);
-  const prevPanX = useSharedValue<number>(0);
-  const prevPanY = useSharedValue<number>(0);
+  const scale = useSharedValue(1);
+  const focalX = useSharedValue(0);
+  const focalY = useSharedValue(0);
 
   const pinchGesture = Gesture.Pinch()
     .onStart(() => {
-      runOnJS(setIsZoomed)(true);
       runOnJS(setScrollEnabled)(false);
       if (onZoomStateChange) {
         runOnJS(onZoomStateChange)(true);
@@ -407,47 +388,15 @@ export default function PostImage({
       scale.value = withSpring(1);
       focalX.value = withSpring(0);
       focalY.value = withSpring(0);
-      panX.value = withSpring(0);
-      panY.value = withSpring(0);
-      prevPanX.value = 0;
-      prevPanY.value = 0;
-      runOnJS(setIsZoomed)(false);
       runOnJS(setScrollEnabled)(true);
       if (onZoomStateChange) {
         runOnJS(onZoomStateChange)(false);
       }
     });
 
-  const panGesture = Gesture.Pan()
-    .enabled(isZoomed)
-    .onStart(() => {
-      prevPanX.value = panX.value;
-      prevPanY.value = panY.value;
-      runOnJS(setScrollEnabled)(false);
-    })
-    .onUpdate((e) => {
-      if (scale.value > 1.01) {
-        const translationX = (e.translationX && !isNaN(e.translationX) && isFinite(e.translationX)) ? e.translationX : 0;
-        const translationY = (e.translationY && !isNaN(e.translationY) && isFinite(e.translationY)) ? e.translationY : 0;
-        panX.value = prevPanX.value + translationX;
-        panY.value = prevPanY.value + translationY;
-      }
-    })
-    .onEnd(() => {
-      if (scale.value <= 1.01) {
-        panX.value = withSpring(0);
-        panY.value = withSpring(0);
-        prevPanX.value = 0;
-        prevPanY.value = 0;
-        runOnJS(setIsZoomed)(false);
-      }
-      runOnJS(setScrollEnabled)(true);
-    });
-
   // Composed Gestures
   const composedGesture = Gesture.Simultaneous(
     pinchGesture,
-    panGesture,
     Gesture.Exclusive(doubleTapGesture, singleTapGesture)
   );
 
@@ -458,31 +407,27 @@ export default function PostImage({
     const s = (scale.value && !isNaN(scale.value) && isFinite(scale.value)) ? scale.value : 1;
     const fx = (focalX.value && !isNaN(focalX.value) && isFinite(focalX.value)) ? focalX.value : 0;
     const fy = (focalY.value && !isNaN(focalY.value) && isFinite(focalY.value)) ? focalY.value : 0;
-    const px = (panX.value && !isNaN(panX.value) && isFinite(panX.value)) ? panX.value : 0;
-    const py = (panY.value && !isNaN(panY.value) && isFinite(panY.value)) ? panY.value : 0;
 
     const width = containerWidth;
     const height = aspectRatioValue ? (containerWidth / aspectRatioValue) : containerWidth;
     const safeHeight = (height && !isNaN(height) && isFinite(height)) ? height : containerWidth;
 
-    // Translation to center-relative focal point
-    const rawFocalXOffset = width / 2 - fx;
-    const rawFocalYOffset = safeHeight / 2 - fy;
+    // Calculate translation relative to center
+    const x = fx - width / 2;
+    const y = fy - safeHeight / 2;
 
-    const focalXOffset = (!isNaN(rawFocalXOffset) && isFinite(rawFocalXOffset)) ? rawFocalXOffset : 0;
-    const focalYOffset = (!isNaN(rawFocalYOffset) && isFinite(rawFocalYOffset)) ? rawFocalYOffset : 0;
-    const safePanX = (!isNaN(px) && isFinite(px)) ? px : 0;
-    const safePanY = (!isNaN(py) && isFinite(py)) ? py : 0;
+    const tx = x * (1 - s);
+    const ty = y * (1 - s);
+
+    // Guard tx/ty against NaN
+    const safeTx = (!isNaN(tx) && isFinite(tx)) ? tx : 0;
+    const safeTy = (!isNaN(ty) && isFinite(ty)) ? ty : 0;
 
     return {
       transform: [
-        { translateX: focalXOffset },
-        { translateY: focalYOffset },
+        { translateX: safeTx },
+        { translateY: safeTy },
         { scale: s },
-        { translateX: -focalXOffset },
-        { translateY: -focalYOffset },
-        { translateX: safePanX },
-        { translateY: safePanY },
       ] as any,
     };
   });
@@ -601,15 +546,6 @@ export default function PostImage({
                   style={styles.image}
                   onError={() => onImageError()}
                 />
-                {post.filter && FILTER_PREVIEW_OVERLAY[post.filter as ImageFilterType] && (
-                  <View
-                    pointerEvents="none"
-                    style={[
-                      StyleSheet.absoluteFillObject,
-                      { backgroundColor: FILTER_PREVIEW_OVERLAY[post.filter as ImageFilterType]! },
-                    ]}
-                  />
-                )}
 
                 {/* Heart animation overlay */}
                 <View style={styles.heartContainer} pointerEvents="none">

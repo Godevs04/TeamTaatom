@@ -3,7 +3,6 @@ import { View, Text, StyleSheet, TouchableOpacity, Pressable, TouchableWithoutFe
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
-import MaskedView from '@react-native-masked-view/masked-view';
 import { PostType } from '../../types/post';
 import SongPlayer from '../SongPlayer';
 import { useTheme } from '../../context/ThemeContext';
@@ -293,7 +292,6 @@ const ShortsOverlay = ({
         isLiked={localIsLiked}
         likesCount={localLikesCount}
         commentsCount={post.commentsCount || 0}
-        sharesCount={post.sharesCount || 0}
         isSaved={isSaved}
         isFollowing={isFollowing}
         isOwn={post.user._id === currentUser?._id}
@@ -317,19 +315,7 @@ const ShortsOverlay = ({
           ]}
           pointerEvents="none"
         >
-          <MaskedView
-            style={{ width: 80, height: 80 }}
-            maskElement={
-              <Ionicons name="heart" size={80} color="#000000" />
-            }
-          >
-            <LinearGradient
-              colors={['#50C878', '#1C73B4']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={{ flex: 1 }}
-            />
-          </MaskedView>
+          <Ionicons name="heart" size={80} color="#FF3040" />
         </Animated.View>
       )}
 

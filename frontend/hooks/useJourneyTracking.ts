@@ -320,14 +320,6 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           return;
         }
 
-        // Stationary user speed filter: if speed is valid and less than 0.4 m/s (approx 1.4 km/h),
-        // treat user as stationary/idle and do not append to polyline or accumulate distance.
-        const speed = location?.coords?.speed;
-        if (speed !== null && speed !== undefined && speed >= 0 && speed < 0.4) {
-          logger.debug(`[Journey] User is stationary (speed: ${speed} m/s). Skipping polyline update.`);
-          return;
-        }
-
         // Only grow the polyline / running distance when movement is
         // significant. First emission seeds lastCoordinateRef.
         if (lastCoordinateRef.current) {
@@ -337,37 +329,12 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
             coord.latitude,
             coord.longitude
           );
-
-          // Check if this is the first watcher update and it's a startup jump.
-          // Since the initial coordinate might be inaccurate/cached from getCurrentPositionAsync,
-          // we replace it if we get a watcher coordinate within 20 seconds of starting.
-          const timeDiff = coord.timestamp - lastCoordinateRef.current.timestamp;
-          if (polylineRef.current.length === 1 && timeDiff < 20000 && dist >= MIN_LOCATION_DISTANCE) {
-            logger.debug(`[Journey] Replacing inaccurate startup coordinate with accurate watcher coordinate (dist: ${dist}m, time: ${timeDiff}ms).`);
+          if (dist >= MIN_LOCATION_DISTANCE) {
             lastCoordinateRef.current = coord;
-            setPolyline([coord]);
-            batchCoordinatesRef.current = [coord];
+            setPolyline((prev) => [...prev, coord]);
+            setDistance((prev) => prev + dist);
+            batchCoordinatesRef.current.push(coord);
             persistPendingCoords();
-          } else {
-            // Speed filter: reject coordinates that imply unrealistic land travel speed (> 180 km/h)
-            // to filter out transient GPS jumps/spikes.
-            const timeDiffSeconds = Math.max(0.1, (coord.timestamp - lastCoordinateRef.current.timestamp) / 1000);
-            const speedKmh = (dist / 1000) / (timeDiffSeconds / 3600);
-            if (speedKmh > 180) {
-              logger.warn(`[Journey] Discarding coordinate due to unrealistic speed jump: ${speedKmh.toFixed(1)} km/h (dist: ${dist.toFixed(1)}m in ${timeDiffSeconds.toFixed(1)}s).`);
-              return;
-            }
-
-            // Adaptive distance threshold based on current GPS accuracy to filter noise.
-            // When accuracy is worse, we require a larger distance to confirm actual movement.
-            const adaptiveMinDistance = Math.max(MIN_LOCATION_DISTANCE, coord.accuracy * 0.5);
-            if (dist >= adaptiveMinDistance) {
-              lastCoordinateRef.current = coord;
-              setPolyline((prev) => [...prev, coord]);
-              setDistance((prev) => prev + dist);
-              batchCoordinatesRef.current.push(coord);
-              persistPendingCoords();
-            }
           }
         } else {
           lastCoordinateRef.current = coord;

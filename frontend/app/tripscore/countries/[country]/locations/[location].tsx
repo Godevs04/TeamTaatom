@@ -399,15 +399,9 @@ export default function LocationDetailScreen() {
       }
 
       // Distance Calculation Guards: Request permission with error handling
-      let permissionGranted = false;
+      let status;
       try {
-        const currentPerm = await Location.getForegroundPermissionsAsync();
-        let status = currentPerm.status;
-        if (status === 'undetermined') {
-          const requested = await Location.requestForegroundPermissionsAsync();
-          status = requested.status;
-        }
-        permissionGranted = status === 'granted';
+        status = await Location.requestForegroundPermissionsAsync();
       } catch (permError) {
         logger.warn('Failed to request location permission:', permError);
         if (isMountedRef.current) {
@@ -416,32 +410,13 @@ export default function LocationDetailScreen() {
         return;
       }
       
-      if (!permissionGranted) {
+      if (status.status !== 'granted') {
         // Distance Calculation Guards: Permission denied - fallback to null (hide distance)
         logger.debug('Location permission denied or unavailable');
         if (isMountedRef.current) {
           setDistance(null);
         }
         return;
-      }
-      
-      // Distance Calculation Guards: Get cached location first for instant response
-      try {
-        const lastKnown = await Location.getLastKnownPositionAsync();
-        if (lastKnown && lastKnown.coords && isMountedRef.current) {
-          const distanceKm = calculateDistance(
-            lastKnown.coords.latitude,
-            lastKnown.coords.longitude,
-            targetLat,
-            targetLng
-          );
-          if (distanceKm !== null && !isNaN(distanceKm)) {
-            setDistance(distanceKm);
-            logger.debug('✅ User last known location obtained for detail:', distanceKm);
-          }
-        }
-      } catch (lastKnownError) {
-        logger.debug('Failed to get last known location in detail:', lastKnownError);
       }
       
       // Distance Calculation Guards: Get current location with error handling
@@ -460,7 +435,9 @@ export default function LocationDetailScreen() {
         currentLocation = await Promise.race([locationPromise, timeoutPromise]);
       } catch (locationError) {
         logger.warn('Failed to get current location:', locationError);
-        // Do not set distance to null if we already got a cached/last known distance!
+        if (isMountedRef.current) {
+          setDistance(null);
+        }
         return;
       }
       
@@ -513,10 +490,10 @@ export default function LocationDetailScreen() {
             }
           }
         } catch (routeError) {
-          logger.warn('Failed to fetch directions route from Google API:', routeError);
+          logger.warn('Failed to fetch directions route, falling back to OSRM:', routeError);
         }
 
-        // Fallback to Google Distance Matrix driving distance if Google Directions fails
+        // Fallback to OSRM driving distance if Google Directions fails
         if (calculatedDistance === null || isNaN(calculatedDistance) || calculatedDistance < 0) {
           try {
             calculatedDistance = await calculateDrivingDistanceKm(
@@ -525,12 +502,12 @@ export default function LocationDetailScreen() {
               targetLat,
               targetLng
             );
-          } catch (googleError) {
-            logger.warn('Failed to calculate Google Maps driving distance:', googleError);
+          } catch (osrmError) {
+            logger.warn('Failed to calculate OSRM driving distance:', osrmError);
           }
         }
 
-        // Fallback to straight-line distance (Haversine) if Google APIs fail
+        // Fallback to straight-line distance (Haversine) if both routing/OSRM fail
         if (calculatedDistance === null || isNaN(calculatedDistance) || calculatedDistance < 0) {
           calculatedDistance = calculateDistance(
             currentLat,
@@ -1129,11 +1106,7 @@ export default function LocationDetailScreen() {
             // CRITICAL: Always navigate directly to LocaleHome (locale tab)
             // This ensures clean back navigation without stacked screens
             if (isAdminLocale || isFromLocaleFlow) {
-              if (router.canGoBack()) {
-                router.back();
-              } else {
-                router.replace('/(tabs)/locale');
-              }
+              router.replace('/(tabs)/locale');
             } else {
               router.back();
             }
@@ -1198,11 +1171,7 @@ export default function LocationDetailScreen() {
               // CRITICAL: Always navigate directly to LocaleHome (locale tab)
               // This ensures clean back navigation without stacked screens
               if (isAdminLocale || isFromLocaleFlow) {
-                if (router.canGoBack()) {
-                  router.back();
-                } else {
-                  router.replace('/(tabs)/locale');
-                }
+                router.replace('/(tabs)/locale');
               } else {
                 router.back();
               }
@@ -1756,7 +1725,9 @@ const createStyles = () => {
       } as any),
     },
     bookmarkButtonActive: {
-      backgroundColor: 'transparent',
+      backgroundColor: 'rgba(255, 215, 0, 0.15)',
+      borderWidth: 1.5,
+      borderColor: '#FFD700',
     },
     closeButton: {
       // Minimum touch target: 44x44 for iOS, 48x48 for Android

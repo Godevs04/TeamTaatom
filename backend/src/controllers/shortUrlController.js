@@ -4,19 +4,6 @@ const Journey = require('../models/Journey');
 const logger = require('../utils/logger');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 
-/**
- * Escapes HTML characters to prevent HTML/XSS injection.
- */
-function escapeHtml(unsafe) {
-  if (!unsafe) return '';
-  return String(unsafe)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#039;");
-}
-
 // Base62 characters for URL-safe short codes
 const BASE62 = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
 
@@ -172,19 +159,8 @@ const redirectShortUrl = async (req, res) => {
     // Determine if this is a journey or post short URL
     const isJourney = !!shortUrl.journeyId;
 
-    let previewTitle = 'Opening Taatom...';
-    let previewDescription = 'Travel stories that feel alive.';
-    let previewImage = '';
-
     if (isJourney) {
-      const journey = await Journey.findById(shortUrl.journeyId)
-        .populate('user', 'fullName username')
-        .populate({
-          path: 'waypoints.post',
-          select: 'imageUrl thumbnailUrl images mediaUrl videoUrl',
-          match: { _id: { $exists: true } }
-        });
-
+      const journey = await Journey.findById(shortUrl.journeyId);
       if (!journey || !journey.isActive) {
         return res.status(404).send(`
           <!DOCTYPE html>
@@ -205,41 +181,9 @@ const redirectShortUrl = async (req, res) => {
           </html>
         `);
       }
-
-      const journeyTitle = journey.title || 'Journey';
-      const distanceString = journey.distanceTraveled
-        ? journey.distanceTraveled >= 1000
-          ? `${(journey.distanceTraveled / 1000).toFixed(1)} km`
-          : `${Math.round(journey.distanceTraveled)} m`
-        : '0 m';
-
-      previewTitle = `${journeyTitle} • ${distanceString} on Taatom`;
-      previewDescription = `Check out this journey by ${journey.user?.fullName || 'a traveler'}. Distance traveled: ${distanceString}.`;
-
-      // Find first waypoint's post image
-      let journeyImage = '';
-      if (journey.waypoints && journey.waypoints.length > 0) {
-        for (const wp of journey.waypoints) {
-          if (wp.post) {
-            const img = wp.post.imageUrl || 
-                        wp.post.thumbnailUrl || 
-                        (wp.post.images && wp.post.images.length > 0 ? wp.post.images[0] : '') || 
-                        wp.post.mediaUrl;
-            if (img) {
-              journeyImage = img;
-              break;
-            }
-          }
-        }
-      }
-      const baseUrl = process.env.WEB_SHARE_URL || process.env.FRONTEND_URL || 'https://taatom.com';
-      previewImage = journeyImage || `${baseUrl}/icon.png`;
-
     } else {
       // Get post to verify it exists
-      const post = await Post.findById(shortUrl.postId)
-        .populate('user', 'fullName username');
-
+      const post = await Post.findById(shortUrl.postId);
       if (!post || !post.isActive) {
         return res.status(404).send(`
           <!DOCTYPE html>
@@ -260,21 +204,6 @@ const redirectShortUrl = async (req, res) => {
           </html>
         `);
       }
-
-      const postTitle = post.caption 
-        ? `${post.caption.substring(0, 60)}${post.caption.length > 60 ? '...' : ''}` 
-        : `Post by ${post.user?.fullName || 'Traveler'}`;
-      previewTitle = `${postTitle} on Taatom`;
-      previewDescription = post.caption 
-        ? `Check out this post by ${post.user?.fullName || 'Traveler'}: "${post.caption}"`
-        : `Check out this post by ${post.user?.fullName || 'Traveler'} on Taatom.`;
-
-      const img = post.imageUrl || 
-                  post.thumbnailUrl || 
-                  (post.images && post.images.length > 0 ? post.images[0] : '') || 
-                  post.mediaUrl;
-      const baseUrl = process.env.WEB_SHARE_URL || process.env.FRONTEND_URL || 'https://taatom.com';
-      previewImage = img || `${baseUrl}/icon.png`;
     }
 
     // Build deep link and universal link based on type
@@ -297,24 +226,9 @@ const redirectShortUrl = async (req, res) => {
         <!DOCTYPE html>
         <html>
         <head>
-          <title>${escapeHtml(previewTitle)}</title>
+          <title>Opening Taatom...</title>
           <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <meta http-equiv="refresh" content="2;url=${universalLink}">
-
-          <!-- Open Graph / Facebook -->
-          <meta property="og:type" content="website">
-          <meta property="og:url" content="${universalLink}">
-          <meta property="og:title" content="${escapeHtml(previewTitle)}">
-          <meta property="og:description" content="${escapeHtml(previewDescription)}">
-          <meta property="og:image" content="${escapeHtml(previewImage)}">
-          <meta property="og:site_name" content="Taatom">
-
-          <!-- Twitter -->
-          <meta name="twitter:card" content="summary_large_image">
-          <meta name="twitter:url" content="${universalLink}">
-          <meta name="twitter:title" content="${escapeHtml(previewTitle)}">
-          <meta name="twitter:description" content="${escapeHtml(previewDescription)}">
-          <meta name="twitter:image" content="${escapeHtml(previewImage)}">
           <script>
             // Try to open app immediately with deep link
             (function() {

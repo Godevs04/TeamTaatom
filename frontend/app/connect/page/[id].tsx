@@ -605,15 +605,7 @@ export default function ConnectPageDetailScreen() {
     setFollowersLoading(true);
     try {
       const response = await getPageFollowers(id);
-      let list = (response.followers || []).filter(Boolean);
-      const isCommunityPage = (page?.type as string) === 'community' || page?.category === 'community';
-      if (isCommunityPage) {
-        const creatorId = page && typeof page.userId === 'object' && page.userId ? page.userId._id : page?.userId;
-        if (creatorId) {
-          list = list.filter((m: any) => m._id.toString() !== creatorId.toString());
-        }
-      }
-      setFollowers(list);
+      setFollowers((response.followers || []).filter(Boolean));
     } catch (error) {
       logger.error('Error loading followers:', error);
     } finally {
@@ -729,29 +721,20 @@ export default function ConnectPageDetailScreen() {
         const buttonUrl = rawUrl && /^[a-z][a-z0-9+.-]*:/i.test(rawUrl)
           ? rawUrl
           : (rawUrl ? `https://${rawUrl}` : '');
-        const hasCustomBg = !!effectiveBg;
         const buttonBg = effectiveBg || theme.colors.primary;
-        const contrastTextColor = hasCustomBg ? getContrastColor(buttonBg, '#000000', '#FFFFFF') : '#FFFFFF';
+        const contrastTextColor = getContrastColor(buttonBg, '#000000', '#FFFFFF');
         const buttonTextColor = block.color
           ? (block.color.toLowerCase() === '#ffffff' && contrastTextColor === '#000000' ? '#000000' : block.color)
           : contrastTextColor;
         node = (
           <TouchableOpacity
             key={block._id || index}
-            style={[styles.contentButton, { backgroundColor: hasCustomBg ? buttonBg : 'transparent', overflow: 'hidden' }]}
+            style={[styles.contentButton, { backgroundColor: buttonBg }]}
             onPress={() => {
               if (buttonUrl) Linking.openURL(buttonUrl).catch(() => {});
             }}
             activeOpacity={0.7}
           >
-            {!hasCustomBg && (
-              <LinearGradient
-                colors={['#50C878', '#1C73B4']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={StyleSheet.absoluteFillObject}
-              />
-            )}
             <Text style={[styles.contentButtonText, { color: buttonTextColor }]}>
               {block.content || 'Button'}
             </Text>
@@ -881,9 +864,6 @@ export default function ConnectPageDetailScreen() {
 
   const ownerName = typeof page.userId === 'object' && page.userId ? page.userId.fullName : '';
   const currSym = getCurrencySymbol(page.subscriptionCurrency || 'INR');
-  const normalCount = Math.max(0, Math.floor((page.followerCount || 0) + 1));
-  const isCommunityPage = (page.type as string) === 'community' || page.category === 'community';
-  const displayMemberCount = isCommunityPage ? Math.max(0, normalCount - 1) : normalCount;
 
   return (
     <View
@@ -1070,7 +1050,7 @@ export default function ConnectPageDetailScreen() {
             >
               <Ionicons name="people-outline" size={16} color={isDark ? '#38BDF8' : '#1C73B4'} />
               <Text style={[styles.statsButtonText, { color: isDark ? '#FFFFFF' : '#1C73B4' }]}>
-                {displayMemberCount}
+                {(page.followerCount || 0) + 1}
               </Text>
               <Text style={[styles.statsButtonLabel, { color: isDark ? '#8E9AA8' : '#64748B' }]}>
                 Members
@@ -1217,7 +1197,7 @@ export default function ConnectPageDetailScreen() {
                 <View>
                   <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Group Chat</Text>
                   <GradientText
-                    text={`${displayMemberCount} members active`}
+                    text={`${(page.followerCount || 0) + 1} members active`}
                     style={styles.chatDescription}
                   />
                 </View>
@@ -1366,17 +1346,11 @@ export default function ConnectPageDetailScreen() {
                 {bioInput.length}/300
               </Text>
               <TouchableOpacity
-                style={[styles.bioModalSaveButton, { overflow: 'hidden' }]}
+                style={[styles.bioModalSaveButton, { backgroundColor: theme.colors.primary }]}
                 onPress={handleSaveBio}
                 activeOpacity={0.7}
                 disabled={savingBio}
               >
-                <LinearGradient
-                  colors={['#50C878', '#1C73B4']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={StyleSheet.absoluteFillObject}
-                />
                 {savingBio ? (
                   <LoadingGlobe size="small" color="#FFFFFF" />
                 ) : (
@@ -1633,7 +1607,7 @@ export default function ConnectPageDetailScreen() {
                   <Text style={[styles.priceModalBtnText, { color: theme.colors.textSecondary }]}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[styles.priceModalBtn, { overflow: 'hidden' }]}
+                  style={[styles.priceModalBtn, { backgroundColor: theme.colors.primary }]}
                   onPress={async () => {
                     const price = parseFloat(priceInput);
                     if (isNaN(price) || price <= 0) {
@@ -1648,14 +1622,7 @@ export default function ConnectPageDetailScreen() {
                       Alert.alert('Error', err.message || 'Failed to update price.');
                     }
                   }}
-                  activeOpacity={0.7}
                 >
-                  <LinearGradient
-                    colors={['#50C878', '#1C73B4']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={StyleSheet.absoluteFillObject}
-                  />
                   <Text style={[styles.priceModalBtnText, { color: '#FFFFFF' }]}>Save</Text>
                 </TouchableOpacity>
               </View>

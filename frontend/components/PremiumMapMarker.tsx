@@ -1,4 +1,4 @@
-import React, { useEffect, memo, useState } from 'react';
+import React, { useEffect, memo } from 'react';
 import { StyleSheet, View, Text, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Animated, {
@@ -12,16 +12,6 @@ import { Image as ExpoImage } from 'expo-image';
 import { BlurView } from 'expo-blur';
 import { useTheme } from '../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
-import { getApiUrl } from '../utils/config';
-
-const resolvePhotoUrl = (url?: string | null): string | undefined => {
-  if (!url) return undefined;
-  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
-    return url;
-  }
-  const cleanPath = url.startsWith('/') ? url : `/${url}`;
-  return getApiUrl(cleanPath);
-};
 
 interface PremiumMapMarkerProps {
   icon?: keyof typeof Ionicons.glyphMap;
@@ -33,7 +23,6 @@ interface PremiumMapMarkerProps {
   activeTitle?: string;
   activeSubtitle?: string;
   photo?: string;
-  tracksViewChanges?: boolean;
 }
 
 const PremiumMapMarker = memo(function PremiumMapMarker({
@@ -46,28 +35,11 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
   activeTitle,
   activeSubtitle,
   photo,
-  tracksViewChanges: propTracksViewChanges,
 }: PremiumMapMarkerProps) {
   const { isDark, theme } = useTheme();
   const activeState = isActive ?? active;
   const activeProgress = useSharedValue(activeState ? 1 : 0);
   const pulse = useSharedValue(1);
-  const resolvedPhoto = resolvePhotoUrl(photo);
-
-  const [tracksViewChanges, setTracksViewChanges] = useState(propTracksViewChanges ?? false);
-
-  useEffect(() => {
-    if (propTracksViewChanges !== undefined) {
-      setTracksViewChanges(propTracksViewChanges);
-    }
-  }, [propTracksViewChanges]);
-
-  const handleImageLoad = () => {
-    setTracksViewChanges(true);
-    setTimeout(() => {
-      setTracksViewChanges(propTracksViewChanges ?? false);
-    }, 0);
-  };
 
   useEffect(() => {
     activeProgress.value = withTiming(activeState ? 1 : 0, {
@@ -131,6 +103,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
     const badgeColors = pointType === 'start' 
       ? ['#10B981', '#059669'] as const
       : ['#EF4444', '#DC2626'] as const;
+    const textLabel = pointType === 'start' ? 'S' : 'E';
     return (
       <View style={isDark ? styles.shadowDark : styles.shadowLight}>
         <LinearGradient
@@ -138,7 +111,9 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={styles.journeyBadge}
-        />
+        >
+          <Text style={styles.journeyBadgeText}>{textLabel}</Text>
+        </LinearGradient>
       </View>
     );
   }
@@ -183,92 +158,47 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
       
       {/* Glassmorphic card body */}
       <View style={[styles.cardWrapper, isDark ? styles.shadowDark : styles.shadowLight]}>
-        {Platform.OS === 'ios' ? (
-          <BlurView
-            intensity={40}
-            tint={isDark ? 'dark' : 'light'}
-            style={[
-              styles.markerCard,
-              {
-                backgroundColor: outerBg,
-                borderColor: borderCol,
-              }
-            ]}
-          >
-            <View style={styles.markerContentRow}>
-              {resolvedPhoto ? (
-                <ExpoImage
-                  source={{ uri: resolvedPhoto }}
-                  style={[styles.markerPhoto, { borderColor: isDark ? '#2DD4BF' : '#3B82F6' }]}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                  onLoad={handleImageLoad}
+        <BlurView
+          intensity={Platform.OS === 'ios' ? 40 : 100}
+          tint={isDark ? 'dark' : 'light'}
+          style={[
+            styles.markerCard,
+            {
+              backgroundColor: outerBg,
+              borderColor: borderCol,
+            }
+          ]}
+        >
+          <View style={styles.markerContentRow}>
+            {photo ? (
+              <ExpoImage
+                source={{ uri: photo }}
+                style={[styles.markerPhoto, { borderColor: isDark ? '#2DD4BF' : '#3B82F6' }]}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+              />
+            ) : (
+              <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)' }]}>
+                <Ionicons
+                  name={icon}
+                  size={12}
+                  color={isDark ? '#2DD4BF' : '#3B82F6'}
                 />
-              ) : (
-                <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)' }]}>
-                  <Ionicons
-                    name={icon}
-                    size={14}
-                    color={isDark ? '#2DD4BF' : '#3B82F6'}
-                  />
-                </View>
-              )}
-              
-              <View style={styles.textColumn}>
-                {showLabel ? (
-                  <Text style={[styles.markerLabelText, { color: textColor }]} numberOfLines={1}>
-                    {showLabel}
-                  </Text>
-                ) : null}
-                <Text style={[styles.activeSubtitleText, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
-                  {displaySubtitle}
-                </Text>
               </View>
-            </View>
-          </BlurView>
-        ) : (
-          <View
-            style={[
-              styles.markerCard,
-              {
-                backgroundColor: isDark ? '#1E293B' : '#FFFFFF',
-                borderColor: borderCol,
-                borderRadius: 14,
-              }
-            ]}
-          >
-            <View style={styles.markerContentRow}>
-              {resolvedPhoto ? (
-                <ExpoImage
-                  source={{ uri: resolvedPhoto }}
-                  style={[styles.markerPhoto, { borderColor: isDark ? '#2DD4BF' : '#3B82F6' }]}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                  onLoad={handleImageLoad}
-                />
-              ) : (
-                <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)' }]}>
-                  <Ionicons
-                    name={icon}
-                    size={14}
-                    color={isDark ? '#2DD4BF' : '#3B82F6'}
-                  />
-                </View>
-              )}
-              
-              <View style={styles.textColumn}>
-                {showLabel ? (
-                  <Text style={[styles.markerLabelText, { color: textColor }]} numberOfLines={1}>
-                    {showLabel}
-                  </Text>
-                ) : null}
-                <Text style={[styles.activeSubtitleText, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
-                  {displaySubtitle}
+            )}
+            
+            <View style={styles.textColumn}>
+              {showLabel ? (
+                <Text style={[styles.markerLabelText, { color: textColor }]} numberOfLines={1}>
+                  {showLabel}
                 </Text>
-              </View>
+              ) : null}
+              <Text style={[styles.activeSubtitleText, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
+                {displaySubtitle}
+              </Text>
             </View>
           </View>
-        )}
+        </BlurView>
       </View>
     </Animated.View>
   );
@@ -282,8 +212,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
     prevProps.label === nextProps.label &&
     prevProps.activeTitle === nextProps.activeTitle &&
     prevProps.activeSubtitle === nextProps.activeSubtitle &&
-    prevProps.photo === nextProps.photo &&
-    prevProps.tracksViewChanges === nextProps.tracksViewChanges
+    prevProps.photo === nextProps.photo
   );
 });
 
@@ -291,12 +220,12 @@ export default PremiumMapMarker;
 
 const styles = StyleSheet.create({
   journeyBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: '#FFFFFF',
   },
   journeyBadgeText: {
@@ -307,26 +236,24 @@ const styles = StyleSheet.create({
   cockpitContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'transparent',
   },
   dotContainer: {
-    width: 36,
-    height: 36,
+    width: 24,
+    height: 24,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'transparent',
   },
   dotPulse: {
     position: 'absolute',
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
   },
   dotCore: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 2,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    borderWidth: 1.5,
     borderColor: '#FFFFFF',
     elevation: 3,
     shadowColor: '#000',
@@ -409,7 +336,6 @@ const styles = StyleSheet.create({
     height: 32,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'transparent',
   },
   pulsatingRing: {
     position: 'absolute',

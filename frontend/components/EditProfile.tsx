@@ -37,14 +37,14 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
   const [loading, setLoading] = useState(false);
 
   const handleBioChange = (text: string) => {
-    // Split by newlines and limit to 5 lines
+    // Split by newlines and limit to 3 lines
     const lines = text.split('\n');
-    if (lines.length <= 5) {
+    if (lines.length <= 3) {
       setBio(text);
     } else {
-      // If more than 5 lines, take only the first 5 and show error
-      setBio(lines.slice(0, 5).join('\n'));
-      Alert.alert('Bio Limit', 'Bio can only have 5 lines maximum');
+      // If more than 3 lines, take only the first 3 and show error
+      setBio(lines.slice(0, 3).join('\n'));
+      Alert.alert('Bio Limit', 'Bio can only have 3 lines maximum');
     }
   };
 
@@ -311,10 +311,10 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
                 style={[styles.input, styles.bioInput]}
                 value={bio}
                 onChangeText={handleBioChange}
-                placeholder="Tell us about yourself (max 5 lines, 300 characters)"
+                placeholder="Tell us about yourself (max 3 lines, 300 characters)"
                 placeholderTextColor={theme.colors.textSecondary}
                 multiline
-                numberOfLines={5}
+                numberOfLines={3}
                 maxLength={300}
               />
               <Text style={styles.characterCount}>{bio.length}/300</Text>
