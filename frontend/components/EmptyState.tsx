@@ -25,59 +25,7 @@ export default function EmptyState({
   onSecondaryAction,
   illustration,
 }: EmptyStateProps) {
-  const { theme } = useTheme();
-
-  return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      {illustration ? (
-        illustration
-      ) : (
-        <View style={styles.iconContainer}>
-          <View style={[styles.iconCircle, { backgroundColor: theme.colors.border }]}>
-            <Ionicons 
-              name={icon as any} 
-              size={64} 
-              color={theme.colors.textSecondary} 
-            />
-          </View>
-        </View>
-      )}
-      
-      <Text style={[styles.title, { color: theme.colors.text }]}>{title}</Text>
-      <Text style={[styles.description, { color: theme.colors.textSecondary }]}>
-        {description}
-      </Text>
-
-      {actionLabel && onAction && (
-        <TouchableOpacity 
-          onPress={onAction}
-          style={styles.actionButton}
-          activeOpacity={0.8}
-        >
-          <LinearGradient
-            colors={[theme.colors.primary, theme.colors.primary + 'DD']}
-            style={styles.gradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-          >
-            <Text style={styles.actionButtonText}>{actionLabel}</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-      )}
-
-      {secondaryActionLabel && onSecondaryAction && (
-        <TouchableOpacity 
-          onPress={onSecondaryAction}
-          style={[styles.secondaryButton, { borderColor: theme.colors.border }]}
-          activeOpacity={0.8}
-        >
-          <Text style={[styles.secondaryButtonText, { color: theme.colors.text }]}>
-            {secondaryActionLabel}
-          </Text>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
+  return null;
 }
 
 const styles = StyleSheet.create({

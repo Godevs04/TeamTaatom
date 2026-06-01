@@ -47,6 +47,7 @@ import { ErrorBoundary } from '../../utils/errorBoundary';
 import { trackScreenView, trackEngagement, trackFeatureUsage } from '../../services/analytics';
 import { theme } from '../../constants/theme';
 import { optimizeCloudinaryUrl } from '../../utils/imageCache';
+import { FILTER_PREVIEW_OVERLAY, ImageFilterType } from '../../components/ImageEditModal';
 import { CloudSkyBackground } from '../../components/cloud';
 import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 import { cloudDesign } from '../../constants/cloudDesign';
@@ -249,6 +250,8 @@ export default function ProfileScreen() {
   const { theme, mode } = useTheme();
   const { showError, showSuccess, showConfirm } = useAlert();
   
+  const [enlargedPhotoSource, setEnlargedPhotoSource] = useState<any>(null);
+  
   // Lifecycle & Navigation Safety: Track mounted state and cancel requests on unmount
   const isMountedRef = useRef(true);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -421,10 +424,24 @@ export default function ProfileScreen() {
       
       // Handle profile result
       if (profileResult.status === 'fulfilled') {
-        setProfileData(profileResult.value.profile);
+        const freshProfile = profileResult.value.profile;
+        setProfileData(freshProfile);
+        
+        // Update local user state and AsyncStorage cache to keep them consistent
+        if (userData && freshProfile && userData._id === freshProfile._id) {
+          const updatedUser = {
+            ...userData,
+            fullName: freshProfile.fullName,
+            bio: freshProfile.bio,
+            profilePic: freshProfile.profilePic,
+          };
+          setUser(updatedUser);
+          AsyncStorage.setItem('userData', JSON.stringify(updatedUser)).catch(() => {});
+        }
+
         // Cache profile for next time
         AsyncStorage.setItem(`cachedProfile_${userData._id}`, JSON.stringify({
-          data: profileResult.value.profile,
+          data: freshProfile,
           timestamp: Date.now()
         })).catch(() => {});
       }
@@ -833,7 +850,7 @@ export default function ProfileScreen() {
           batchResults.forEach((r, itemIndex) => {
             if (r.status === 'fulfilled') {
               const val: any = (r as any).value;
-              const item = val.post || val;
+              const item = val?.data?.post || val?.post || val;
               if (item && item._id) {
                 // Deduplicate: only add if not already in map
                 if (!itemMap.has(item._id)) {
@@ -1070,7 +1087,7 @@ export default function ProfileScreen() {
           if (profileData) {
             setProfileData(prev => prev ? { 
               ...prev, 
-              postsCount: isShort ? prev.postsCount : prev.postsCount - 1 
+              postsCount: Math.max(0, (prev.postsCount || 0) - 1) 
             } : null);
           }
           
@@ -1088,6 +1105,9 @@ export default function ProfileScreen() {
           await audioManager.stopAll();
           
           showSuccess(`${isShort ? 'Short' : 'Post'} deleted successfully!`);
+          
+          // Invalidate/refresh profile count in the background
+          void loadUserData(true);
         } catch (error: any) {
           // Revert optimistic update on error
           setPosts(previousPosts);
@@ -1134,11 +1154,14 @@ export default function ProfileScreen() {
           if (profileData) {
             setProfileData(prev => prev ? {
               ...prev,
-              postsCount: activeTab === 'shorts' ? prev.postsCount : Math.max(0, prev.postsCount - idsToDelete.length)
+              postsCount: Math.max(0, (prev.postsCount || 0) - idsToDelete.length)
             } : null);
           }
 
           showSuccess(`${idsToDelete.length} ${typeLabel} deleted successfully!`);
+          
+          // Invalidate/refresh profile count in the background
+          void loadUserData(true);
         } catch (error: any) {
           // Revert optimistic updates
           setPosts(previousPosts);
@@ -1175,10 +1198,16 @@ export default function ProfileScreen() {
             Failed to load profile
           </Text>
           <TouchableOpacity
-            style={[styles.retryButton, { backgroundColor: theme.colors.primary }]}
+            style={[styles.retryButton, { overflow: 'hidden' }]}
             onPress={() => loadUserData()}
           >
-            <Text style={[styles.retryButtonText, { color: theme.colors.surface }]}>
+            <LinearGradient
+              colors={['#50C878', '#1C73B4']}
+              style={StyleSheet.absoluteFillObject}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            />
+            <Text style={[styles.retryButtonText, { color: '#FFFFFF' }]}>
               Retry
             </Text>
           </TouchableOpacity>
@@ -1429,6 +1458,8 @@ export default function ProfileScreen() {
               textPrimary={profileTheme.textPrimary}
               textSecondary={profileTheme.textSecondary}
               onEditProfile={() => setShowEditProfile(true)}
+              onAvatarLongPress={(source) => setEnlargedPhotoSource(source)}
+              onAvatarPressOut={() => setEnlargedPhotoSource(null)}
               onOpenMap={() => {
                 const id = user?._id ?? profileData?._id;
                 const userId = id != null ? String(id) : undefined;
@@ -1560,21 +1591,32 @@ export default function ProfileScreen() {
                         onPress={handlePress}
                       >
                         {validImageUrl ? (
-                          <Image 
-                            source={{ uri: validImageUrl }} 
-                            style={styles.thumbnailImage as ImageStyle}
-                            resizeMode="cover"
-                            onError={(error) => {
-                              const errorMessage = error?.nativeEvent?.error?.message || '';
-                              const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
-                              if (__DEV__ && !is403) {
-                                console.warn('⚠️ [Profile] Image failed:', { postId: post._id, url: validImageUrl.substring(0, 80), error: errorMessage || 'Unknown' });
-                              }
-                              if (!is403) {
-                                logger.warn('Image failed to load', { postId: post._id, imageUrl: validImageUrl.substring(0, 100), error: errorMessage || 'Unknown error' });
-                              }
-                            }}
-                          />
+                          <>
+                            <Image 
+                              source={{ uri: validImageUrl }} 
+                              style={styles.thumbnailImage as ImageStyle}
+                              resizeMode="cover"
+                              onError={(error) => {
+                                const errorMessage = error?.nativeEvent?.error?.message || '';
+                                const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
+                                if (__DEV__ && !is403) {
+                                  console.warn('⚠️ [Profile] Image failed:', { postId: post._id, url: validImageUrl.substring(0, 80), error: errorMessage || 'Unknown' });
+                                }
+                                if (!is403) {
+                                  logger.warn('Image failed to load', { postId: post._id, imageUrl: validImageUrl.substring(0, 100), error: errorMessage || 'Unknown error' });
+                                }
+                              }}
+                            />
+                            {post.filter && FILTER_PREVIEW_OVERLAY[post.filter as ImageFilterType] && (
+                              <View
+                                pointerEvents="none"
+                                style={[
+                                  StyleSheet.absoluteFillObject,
+                                  { backgroundColor: FILTER_PREVIEW_OVERLAY[post.filter as ImageFilterType]! },
+                                ]}
+                              />
+                            )}
+                          </>
                         ) : (
                           <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
                             <Ionicons name="image-outline" size={28} color={profileTheme.textSecondary} />
@@ -1614,23 +1656,7 @@ export default function ProfileScreen() {
                   columnWrapperStyle={styles.postsGridWrapper}
                   contentContainerStyle={styles.postsGridContainer}
                 />
-              ) : (
-                <View style={styles.emptyState}>
-                  <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
-                    <Ionicons name="camera-outline" size={56} color={profileTheme.accent} />
-                  </View>
-                  <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No posts yet</Text>
-                  <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
-                    Start sharing your memories from your latest trip
-                  </Text>
-                  <Pressable
-                    style={[styles.createPostButton, { backgroundColor: profileTheme.accent + '15', borderColor: profileTheme.accent + '30' }]}
-                    onPress={() => router.push('/(tabs)/post')}
-                  >
-                    <Text style={[styles.createPostButtonText, { color: profileTheme.accent }]}>Create Post</Text>
-                  </Pressable>
-                </View>
-              )}
+              ) : null}
             </View>
             <View style={activeTab !== 'shorts' ? { height: 0, overflow: 'hidden' } : {}}>
               {userShorts.length > 0 ? (
@@ -1751,23 +1777,7 @@ export default function ProfileScreen() {
                   columnWrapperStyle={styles.postsGridWrapper}
                   contentContainerStyle={styles.postsGridContainer}
                 />
-              ) : (
-                <View style={styles.emptyState}>
-                  <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
-                    <Ionicons name="videocam-outline" size={56} color={profileTheme.accent} />
-                  </View>
-                  <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No shorts yet</Text>
-                  <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
-                    Create your first short video to share your adventures
-                  </Text>
-                  <Pressable
-                    style={[styles.createPostButton, { backgroundColor: profileTheme.accent + '15', borderColor: profileTheme.accent + '30' }]}
-                    onPress={() => router.push('/(tabs)/post')}
-                  >
-                    <Text style={[styles.createPostButtonText, { color: profileTheme.accent }]}>Create Short</Text>
-                  </Pressable>
-                </View>
-              )}
+              ) : null}
             </View>
             <View style={activeTab !== 'saved' ? { height: 0, overflow: 'hidden' } : {}}>
               {/* Saved Sub-Tabs Selection */}
@@ -1862,17 +1872,7 @@ export default function ProfileScreen() {
                     columnWrapperStyle={styles.postsGridWrapper}
                     contentContainerStyle={styles.postsGridContainer}
                   />
-                ) : (
-                  <View style={styles.emptyState}>
-                    <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
-                      <Ionicons name="bookmark-outline" size={56} color={profileTheme.accent} />
-                    </View>
-                    <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No saved posts</Text>
-                    <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
-                      Save posts you love to view later
-                    </Text>
-                  </View>
-                )
+                ) : null
               ) : (
                 savedShorts.length > 0 ? (
                   <FlatList
@@ -1890,7 +1890,7 @@ export default function ProfileScreen() {
                         <Pressable 
                           style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor, aspectRatio: 9/16 }]}
                           onPress={() => {
-                            router.push(`/saved-posts?postId=${item._id}`);
+                            router.push(`/saved-shorts?shortId=${item._id}`);
                           }}
                         >
                           {uri && !hasFailed ? (
@@ -1930,17 +1930,7 @@ export default function ProfileScreen() {
                     columnWrapperStyle={styles.postsGridWrapper}
                     contentContainerStyle={styles.postsGridContainer}
                   />
-                ) : (
-                  <View style={styles.emptyState}>
-                    <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
-                      <Ionicons name="videocam-outline" size={56} color={profileTheme.accent} />
-                    </View>
-                    <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No saved shorts</Text>
-                    <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
-                      Save shorts you love to view later
-                    </Text>
-                  </View>
-                )
+                ) : null
               )}
             </View>
           </View>
@@ -1949,10 +1939,15 @@ export default function ProfileScreen() {
         )}
         
         {/* Edit Profile Modal */}
-        {user && (
+        {showEditProfile && user && (
           <EditProfile
             visible={showEditProfile}
-            user={user}
+            user={{
+              ...user,
+              fullName: profileData?.fullName ?? user.fullName,
+              bio: profileData?.bio ?? user.bio,
+              profilePic: profileData?.profilePic ?? user.profilePic,
+            }}
             onClose={() => setShowEditProfile(false)}
             onSuccess={handleProfileUpdate}
           />
@@ -1982,6 +1977,39 @@ export default function ProfileScreen() {
               <Ionicons name="trash-outline" size={16} color="#FFFFFF" style={{ marginRight: 4 }} />
               <Text style={styles.actionBarDeleteText}>Delete</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {enlargedPhotoSource && (
+        <View 
+          style={[StyleSheet.absoluteFillObject, { 
+            backgroundColor: 'rgba(0, 0, 0, 0.85)', 
+            justifyContent: 'center', 
+            alignItems: 'center', 
+            zIndex: 999999 
+          }]} 
+          pointerEvents="none"
+        >
+          <View style={{
+            width: 280,
+            height: 280,
+            borderRadius: 24,
+            borderWidth: 2,
+            borderColor: 'rgba(255, 255, 255, 0.2)',
+            overflow: 'hidden',
+            backgroundColor: '#000000',
+            shadowColor: '#000000',
+            shadowOffset: { width: 0, height: 12 },
+            shadowOpacity: 0.5,
+            shadowRadius: 24,
+            elevation: 12,
+          }}>
+            <Image
+              source={enlargedPhotoSource}
+              style={{ width: '100%', height: '100%' }}
+              resizeMode="cover"
+            />
           </View>
         </View>
       )}
@@ -2161,9 +2189,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: isTablet ? theme.spacing.xl : 24,
     paddingVertical: isTablet ? theme.spacing.md : 12,
     borderRadius: theme.borderRadius.md,
+    overflow: 'hidden',
     ...(isWeb && {
       cursor: 'pointer',
       transition: 'all 0.2s ease',
+      background: 'linear-gradient(135deg, #50C878 0%, #1C73B4 100%)',
     } as any),
   },
   retryButtonText: {

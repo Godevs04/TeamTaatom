@@ -19,43 +19,7 @@ export default function EmptyState({
   actionLabel = 'Refresh',
   onAction,
 }: EmptyStateProps) {
-  const { theme, mode } = useTheme();
-
-  return (
-    <View style={styles.container}>
-      <View style={styles.iconContainer}>
-        <View style={[styles.iconCircle, { backgroundColor: mode === 'dark' ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)', borderColor: theme.colors.border }]}>
-          <Ionicons 
-            name={icon as any} 
-            size={54} 
-            color={theme.colors.primary} 
-          />
-        </View>
-      </View>
-      
-      <Text style={[styles.title, { color: theme.colors.text }]}>{title}</Text>
-      <Text style={[styles.description, { color: theme.colors.textSecondary }]}>
-        {description}
-      </Text>
-
-      {onAction && (
-        <TouchableOpacity 
-          onPress={onAction}
-          style={styles.actionButton}
-          activeOpacity={0.8}
-        >
-          <LinearGradient
-            colors={[theme.colors.primary, theme.colors.secondary || '#3D9AE0']}
-            style={styles.gradient}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-          >
-            <Text style={styles.actionButtonText}>{actionLabel}</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
+  return null;
 }
 
 const styles = StyleSheet.create({

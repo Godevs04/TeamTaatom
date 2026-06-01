@@ -2656,6 +2656,10 @@ const deletePost = async (req, res) => {
     await Post.findByIdAndDelete(postId);
     logger.info(`Hard deleted post ${postId} from database`);
 
+    // Decrement user's postCount atomically
+    await User.findByIdAndUpdate(userId, { $inc: { postCount: -1 } });
+    logger.info(`Decremented postCount for user ${userId}`);
+
     // Emit socket events
     const io = getIO();
     if (io) {
@@ -3578,8 +3582,8 @@ const createShort = async (req, res) => {
       caption,
       imageUrl: thumbnailUrl || '', // Backward compatibility
       thumbnailUrl: thumbnailUrl || '', // New field for clarity
-      videoUrl: '', // Will be updated by background worker
-      storageKey: '', // Will be updated by background worker
+      videoUrl: videoUploadResult.url, // Playable raw video initially, updated by background worker if needed
+      storageKey: videoStorageKey, // Raw video key initially, updated by background worker if needed
       storageKeys: storageKeys, // CRITICAL: Initially holds raw video key & custom thumbnail key
       cloudinaryPublicId: videoStorageKey, // Backward compatibility
       cloudinaryPublicIds: storageKeys, // Backward compatibility
@@ -3599,7 +3603,7 @@ const createShort = async (req, res) => {
       audioSource: audioSource || null,
       copyrightAccepted: finalCopyrightAccepted,
       copyrightAcceptedAt: finalCopyrightAcceptedAt ? new Date(finalCopyrightAcceptedAt) : null,
-      status: 'processing'
+      status: 'active'
     };
     
     // CRITICAL: Only include song field if we actually want to save it
@@ -3763,6 +3767,44 @@ const createShort = async (req, res) => {
   }
 };
 
+// @desc    Increment share count on a post
+// @route   POST /posts/:id/share
+// @access  Public (optionalAuth)
+const incrementShare = async (req, res) => {
+  try {
+    const post = await Post.findById(req.params.id);
+    if (!post) {
+      return sendError(res, 'RES_3001', 'Post does not exist');
+    }
+
+    post.sharesCount = (post.sharesCount || 0) + 1;
+    await post.save();
+
+    // Invalidate cache
+    await deleteCache(CacheKeys.post(req.params.id));
+    await deleteCacheByPattern('posts:*');
+    await deleteCache(CacheKeys.userPosts(post.user.toString(), 1, 20));
+
+    // Emit real-time post share update if socket is configured
+    try {
+      const io = getIO();
+      if (io) {
+        const nsp = io.of('/app');
+        nsp.emit('post:share', { postId: post._id.toString(), sharesCount: post.sharesCount });
+      }
+    } catch (socketError) {
+      logger.error('Socket error:', socketError);
+    }
+
+    return sendSuccess(res, 200, 'Post share count incremented', {
+      sharesCount: post.sharesCount
+    });
+  } catch (error) {
+    logger.error('Increment share error:', error);
+    return sendError(res, 'SRV_6001', 'Error updating share status');
+  }
+};
+
 module.exports = {
   getPosts,
   getPostById,
@@ -3782,5 +3824,7 @@ module.exports = {
   toggleComments,
   updatePost,
   getArchivedPosts,
-  getHiddenPosts
+  getHiddenPosts,
+  incrementShare
 };
+

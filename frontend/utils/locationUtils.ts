@@ -447,13 +447,23 @@ export const getLocationDetails = async (latitude: number, longitude: number): P
  */
 export const getCurrentLocation = async () => {
   try {
-    const { status } = await Location.requestForegroundPermissionsAsync();
+    const currentPermission = await Location.getForegroundPermissionsAsync();
+    let status = currentPermission.status;
+    
+    if (status === 'undetermined') {
+      const requested = await Location.requestForegroundPermissionsAsync();
+      status = requested.status;
+      
+      if (status !== 'granted') {
+        Alert.alert(
+          'Location Permission Denied',
+          'Taatom needs location permissions to show your position on the map. Defaulting to Bangalore, India.',
+          [{ text: 'OK' }]
+        );
+      }
+    }
+    
     if (status !== 'granted') {
-      Alert.alert(
-        'Location Permission Denied',
-        'Taatom needs location permissions to show your position on the map. Defaulting to Bangalore, India.',
-        [{ text: 'OK' }]
-      );
       return {
         coords: {
           latitude: 12.9716,
@@ -743,14 +753,14 @@ const calculateDrivingDistanceWithGoogleMaps = async (
 };
 
 /**
- * Calculate driving distance using OSRM (Open Source Routing Machine)
- * Free, no API key required, uses real road network
- * Falls back to straight-line distance if OSRM fails
+ * Calculate driving distance using Google Maps Distance Matrix API
+ * Falls back to straight-line distance for accuracy/reliability if Google Maps is not available
+ * (Bypasses OSRM fallback as Google API is required for accuracy)
  * @param userLat User latitude
  * @param userLon User longitude
  * @param localeLat Locale latitude
  * @param localeLon Locale longitude
- * @returns Driving distance in kilometers, or null if invalid
+ * @returns Driving distance in kilometers, or straight-line distance if Google Maps is unavailable
  */
 export const calculateDrivingDistanceKm = async (
   userLat: number,
@@ -759,14 +769,7 @@ export const calculateDrivingDistanceKm = async (
   localeLon: number
 ): Promise<number | null> => {
   try {
-    // Check straight-line distance first - if > 2000 km, use approximate value
     const straightLineDistance = calculateDistance(userLat, userLon, localeLat, localeLon);
-    if (straightLineDistance !== null && straightLineDistance > 2000) {
-      // For very large distances, use approximate straight-line distance
-      // APIs may timeout or be slow for such distances
-      logger.debug(`Using approximate distance for large distance: ${straightLineDistance.toFixed(2)} km`);
-      return straightLineDistance;
-    }
     
     // Try Google Maps Distance Matrix API first (if API key available)
     const googleMapsDistance = await calculateDrivingDistanceWithGoogleMaps(userLat, userLon, localeLat, localeLon);
@@ -774,89 +777,12 @@ export const calculateDrivingDistanceKm = async (
       return googleMapsDistance;
     }
     
-    // Fall back to OSRM if Google Maps is not available
-    // Check cache first (using rounded coordinates for stable keys)
-    const roundedUserLat = roundCoord(userLat);
-    const roundedUserLon = roundCoord(userLon);
-    const roundedLocaleLat = roundCoord(localeLat);
-    const roundedLocaleLon = roundCoord(localeLon);
-    const cacheKey = `osrm-${roundedUserLat},${roundedUserLon}-${roundedLocaleLat},${roundedLocaleLon}`;
-    
-    if (distanceCache.has(cacheKey)) {
-      const cached = distanceCache.get(cacheKey);
-      if (cached !== undefined) {
-        logger.debug(`Using cached OSRM distance: ${cached.toFixed(2)} km`);
-        return cached;
-      }
-    }
-    
-    // OSRM API endpoint (free, no API key needed)
-    // Format: /route/v1/{profile}/{coordinates}?overview=false
-    // Coordinates: lon,lat;lon,lat (note: longitude first!)
-    const url = `https://router.project-osrm.org/route/v1/driving/${roundedUserLon},${roundedUserLat};${roundedLocaleLon},${roundedLocaleLat}?overview=false`;
-    
-    // Add timeout and retry logic for rate limiting
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-    
-    try {
-      const response = await fetch(url, {
-        signal: controller.signal,
-        headers: {
-          'User-Agent': 'TaatomApp/1.0',
-        },
-      });
-      
-      clearTimeout(timeoutId);
-      
-      // Handle 429 rate limit errors
-      if (response.status === 429) {
-        logger.warn('OSRM rate limit hit (429), returning null to retry later');
-        return null;
-      }
-      
-      if (!response.ok) {
-        throw new Error(`OSRM API returned ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      if (data.code === 'Ok' && data.routes && data.routes[0] && typeof data.routes[0].distance === 'number' && !isNaN(data.routes[0].distance)) {
-        // Distance is in meters, convert to kilometers
-        const distanceKm = data.routes[0].distance / 1000;
-        
-        // Cache the result
-        distanceCache.set(cacheKey, distanceKm);
-        
-        if (__DEV__) {
-          logger.debug(`✅ OSRM driving distance: ${distanceKm.toFixed(2)} km`);
-        }
-        
-        return distanceKm;
-      } else {
-        if (__DEV__) {
-          logger.debug(`⚠️ OSRM API returned code: ${data.code}, returning null`);
-        }
-        return null;
-      }
-    } catch (fetchError: any) {
-      clearTimeout(timeoutId);
-      
-      // Handle abort (timeout) or network errors
-      if (fetchError.name === 'AbortError') {
-        logger.warn('OSRM request timeout, returning null');
-      } else if (fetchError.message?.includes('429') || String(fetchError).includes('429')) {
-        logger.warn('OSRM rate limit error, returning null');
-      } else {
-        logger.warn(`OSRM API error: ${fetchError?.message || fetchError}, returning null`);
-      }
-      return null;
-    }
+    // Google API failed or key missing — use straight-line distance instead of OSRM for accuracy and consistency
+    logger.warn('⚠️ Google Maps distance calculation failed/unconfigured. Falling back to straight-line distance for accuracy.');
+    return straightLineDistance;
   } catch (error: any) {
-    if (__DEV__) {
-      logger.error(`❌ OSRM API error:`, error?.message || error);
-    }
-    return null;
+    logger.error('❌ Error calculating driving distance:', error);
+    return calculateDistance(userLat, userLon, localeLat, localeLon);
   }
 };
 
