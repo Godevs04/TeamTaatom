@@ -7,11 +7,6 @@
 
 const path = require('path');
 
-// Mock uuid to prevent ES Module syntax errors in Jest environment
-jest.mock('uuid', () => ({
-  v4: () => '12345678-1234-1234-1234-123456789012'
-}));
-
 // Load environment variables from .env file in backend directory
 require('dotenv').config({ path: path.resolve(__dirname, '.env') });
 

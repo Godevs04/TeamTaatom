@@ -579,16 +579,16 @@ export default function ConnectHubScreen() {
         <TouchableOpacity
           style={[
             styles.followBtn,
-            user.isFollowing === true
-              ? { backgroundColor: 'rgba(255, 255, 255, 0.1)' }
-              : { backgroundColor: theme.colors.secondary },
+            user.isFollowing
+              ? { backgroundColor: 'rgba(255,255,255,0.1)' }
+              : { backgroundColor: theme.colors.primary },
           ]}
           onPress={() => handleProfileFollowToggle(user)}
           activeOpacity={0.7}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Text style={[styles.followBtnText, { color: user.isFollowing === true ? theme.colors.text : '#FFFFFF' }]}>
-            {user.isFollowing === true ? 'Following' : 'Follow'}
+          <Text style={[styles.followBtnText, { color: user.isFollowing ? theme.colors.text : '#FFFFFF' }]}>
+            {user.isFollowing ? 'Following' : 'Follow'}
           </Text>
         </TouchableOpacity>
       </CloudGlassSurface>
@@ -804,7 +804,7 @@ export default function ConnectHubScreen() {
           Your current location
         </Text>
         <View style={[styles.filterSelect, {
-          backgroundColor: isDark ? '#0A1E35' : '#E6F0FA',
+          backgroundColor: isDark ? 'rgba(28, 115, 180, 0.15)' : 'rgba(28, 115, 180, 0.08)',
           borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)'
         }]}>
           <Ionicons name="navigate-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
@@ -858,7 +858,7 @@ export default function ConnectHubScreen() {
         </Text>
         <TouchableOpacity
           style={[styles.filterSelect, {
-            backgroundColor: isDark ? '#0A1E35' : '#E6F0FA',
+            backgroundColor: isDark ? 'rgba(28, 115, 180, 0.15)' : 'rgba(28, 115, 180, 0.08)',
             borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)'
           }]}
           onPress={() => setShowCountryPicker(true)}
@@ -877,7 +877,7 @@ export default function ConnectHubScreen() {
         </Text>
         <TouchableOpacity
           style={[styles.filterSelect, {
-            backgroundColor: isDark ? '#0A1E35' : '#E6F0FA',
+            backgroundColor: isDark ? 'rgba(28, 115, 180, 0.15)' : 'rgba(28, 115, 180, 0.08)',
             borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)'
           }]}
           onPress={() => setShowCurrentCountryPicker(true)}
@@ -896,7 +896,7 @@ export default function ConnectHubScreen() {
         </Text>
         <TouchableOpacity
           style={[styles.filterSelect, {
-            backgroundColor: isDark ? '#0A1E35' : '#E6F0FA',
+            backgroundColor: isDark ? 'rgba(28, 115, 180, 0.15)' : 'rgba(28, 115, 180, 0.08)',
             borderColor: !selectedLanguage ? (isDark ? 'rgba(56, 189, 248, 0.45)' : 'rgba(28, 115, 180, 0.4)') : (isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)')
           }]}
           onPress={() => setShowLanguagePicker(true)}
@@ -912,7 +912,7 @@ export default function ConnectHubScreen() {
         {/* Travel Style Picker */}
         <TouchableOpacity
           style={[styles.filterSelect, {
-            backgroundColor: isDark ? '#0A1E35' : '#E6F0FA',
+            backgroundColor: isDark ? 'rgba(28, 115, 180, 0.15)' : 'rgba(28, 115, 180, 0.08)',
             borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)'
           }]}
           onPress={() => setShowTravelStylePicker(true)}

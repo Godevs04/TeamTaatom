@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, Modal, ScrollView, Dimensions, Pressable, Animated, useColorScheme, Platform, Alert, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, Modal, ScrollView, Dimensions, Pressable, Animated, useColorScheme, Platform, Alert } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
@@ -30,7 +30,6 @@ import logger from '../../utils/logger';
 import { getUserShorts } from '../../services/posts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import FastImage from '../../components/ui/FastImage';
-import { FILTER_PREVIEW_OVERLAY, ImageFilterType } from '../../components/ImageEditModal';
 
 const { width } = Dimensions.get('window');
 // Calculate column width taking into account card margins (0 each side), card content padding (0 each side), and grid gaps (2 between items)
@@ -72,7 +71,6 @@ export default function UserProfileScreen() {
       setProfile(val);
     }
   }, []);
-  const [enlargedPhotoSource, setEnlargedPhotoSource] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [showWorldMap, setShowWorldMap] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -714,37 +712,26 @@ export default function UserProfileScreen() {
             >
               {/* Top Row (Avatar & Telemetry Stats) */}
               <View style={styles.topRow}>
-                <Pressable
-                  onLongPress={() => {
-                    const avatarSource = profile.profilePic
-                      ? { uri: profile.profilePic }
-                      : require('../../assets/avatars/male_avatar.png');
-                    setEnlargedPhotoSource(avatarSource);
-                  }}
-                  onPressOut={() => setEnlargedPhotoSource(null)}
-                  delayLongPress={200}
+                {/* Left Column (Avatar) */}
+                <ExpoLinearGradient
+                  colors={['#1C73B4', '#50C878']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
                   style={styles.avatarGradientWrapper}
                 >
-                  <ExpoLinearGradient
-                    colors={['#1C73B4', '#50C878']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={[StyleSheet.absoluteFillObject, { borderRadius: 37, padding: 2, alignItems: 'center', justifyContent: 'center' }]}
-                  >
-                    <View style={[
-                      styles.avatarContainer,
-                      {
-                        backgroundColor: isDark ? '#080F19' : '#F0F5FA',
-                      }
-                    ]}>
-                      <FastImage
-                        source={profile.profilePic ? { uri: profile.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                        style={styles.avatarImage}
-                        contentFit="cover"
-                      />
-                    </View>
-                  </ExpoLinearGradient>
-                </Pressable>
+                  <View style={[
+                    styles.avatarContainer,
+                    {
+                      backgroundColor: isDark ? '#080F19' : '#F0F5FA',
+                    }
+                  ]}>
+                    <FastImage
+                      source={profile.profilePic ? { uri: profile.profilePic } : require('../../assets/avatars/male_avatar.png')}
+                      style={styles.avatarImage}
+                      contentFit="cover"
+                    />
+                  </View>
+                </ExpoLinearGradient>
 
                 {/* Right Column (Telemetry Stats) */}
                 <View style={styles.statsContainer}>
@@ -851,7 +838,7 @@ export default function UserProfileScreen() {
                       onPress={() => router.push(`/chat?userId=${profile._id}`)}
                     >
                       <ExpoLinearGradient
-                        colors={['#50C878', '#1C73B4']}
+                        colors={isDark ? ['#60A5FA', '#60A5FA'] : ['#1C73B4', '#50C878']}
                         style={StyleSheet.absoluteFillObject}
                         start={{ x: 0, y: 0 }}
                         end={{ x: 1, y: 0 }}
@@ -984,7 +971,7 @@ export default function UserProfileScreen() {
         ) : null}
 
         {(profile.canViewPosts || isOwnProfile) && globeLocations.length > 0 ? (
-          <View style={{ marginHorizontal: 16, marginBottom: 12, alignItems: 'center', paddingVertical: 16 }}>
+          <PremiumGlassCard style={{ marginHorizontal: 16, marginBottom: 12 }} contentStyle={{ alignItems: 'center', paddingVertical: 16 }} subtle>
             <RotatingGlobe
               locations={globeLocations}
               size={140}
@@ -995,7 +982,7 @@ export default function UserProfileScreen() {
                 }
               }}
             />
-          </View>
+          </PremiumGlassCard>
         ) : null}
 
         {/* Posts/Shorts Section */}
@@ -1076,15 +1063,6 @@ export default function UserProfileScreen() {
                       onPress={() => router.push(`/user-posts/${profile._id}?postId=${item._id}`)}
                     >
                       <FastImage source={{ uri: item.imageUrl }} style={styles.postImage as any} contentFit="cover" />
-                      {item.filter && FILTER_PREVIEW_OVERLAY[item.filter as ImageFilterType] && (
-                        <View
-                          pointerEvents="none"
-                          style={[
-                            StyleSheet.absoluteFillObject,
-                            { backgroundColor: FILTER_PREVIEW_OVERLAY[item.filter as ImageFilterType]! },
-                          ]}
-                        />
-                      )}
                       {/* View count overlay */}
                       <View style={styles.viewCountOverlay}>
                         <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
@@ -1098,7 +1076,17 @@ export default function UserProfileScreen() {
                     ))
                   )}
                 </View>
-              ) : null}
+              ) : (
+                <View style={styles.emptyState}>
+                  <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
+                    <Ionicons name="camera-outline" size={56} color={profileTheme.accent} />
+                  </View>
+                  <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No posts yet</Text>
+                  <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
+                    This user hasn&apos;t shared any posts yet
+                  </Text>
+                </View>
+              )}
             </View>
 
             {/* Shorts Tab */}
@@ -1185,7 +1173,17 @@ export default function UserProfileScreen() {
                     );
                   })}
                 </View>
-              ) : null
+              ) : (
+                <View style={styles.emptyState}>
+                  <View style={[styles.emptyIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
+                    <Ionicons name="videocam-outline" size={56} color={profileTheme.accent} />
+                  </View>
+                  <Text style={[styles.emptyText, { color: profileTheme.textPrimary }]}>No shorts yet</Text>
+                  <Text style={[styles.emptySubtext, { color: profileTheme.textSecondary }]}>
+                    This user hasn&apos;t shared any shorts yet
+                  </Text>
+                </View>
+              )
               }
             </View>
           </CloudGlassSurface>
@@ -1308,39 +1306,6 @@ export default function UserProfileScreen() {
         type={alertConfig.type}
         onClose={() => setAlertVisible(false)}
       />
-      
-      {enlargedPhotoSource && (
-        <View 
-          style={[StyleSheet.absoluteFillObject, { 
-            backgroundColor: 'rgba(0, 0, 0, 0.85)', 
-            justifyContent: 'center', 
-            alignItems: 'center', 
-            zIndex: 999999 
-          }]} 
-          pointerEvents="none"
-        >
-          <View style={{
-            width: 280,
-            height: 280,
-            borderRadius: 24,
-            borderWidth: 2,
-            borderColor: 'rgba(255, 255, 255, 0.2)',
-            overflow: 'hidden',
-            backgroundColor: '#000000',
-            shadowColor: '#000000',
-            shadowOffset: { width: 0, height: 12 },
-            shadowOpacity: 0.5,
-            shadowRadius: 24,
-            elevation: 12,
-          }}>
-            <Image
-              source={enlargedPhotoSource}
-              style={{ width: '100%', height: '100%' }}
-              resizeMode="cover"
-            />
-          </View>
-        </View>
-      )}
     </View>
   );
 }

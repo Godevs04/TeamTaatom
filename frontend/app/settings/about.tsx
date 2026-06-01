@@ -291,13 +291,16 @@ export default function AboutSettingsScreen() {
             <View style={[
               styles.appIconContainer,
               {
-                backgroundColor: '#FFFFFF',
+                backgroundColor: isDark ? '#000000' : '#FFFFFF',
                 borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
               }
             ]}>
               <Image 
-                source={require('../../assets/about-logo.png')}
-                style={styles.appIconImage}
+                source={{ uri: 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png' }}
+                style={[
+                  styles.appIconImage,
+                  { tintColor: isDark ? '#FFFFFF' : '#000000' }
+                ]}
                 resizeMode="contain"
               />
             </View>

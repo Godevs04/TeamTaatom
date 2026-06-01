@@ -32,7 +32,6 @@ export interface PostType {
   // Virtual fields from backend
   likesCount: number;
   commentsCount: number;
-  sharesCount?: number;
   viewsCount?: number; // Post view count
   isLiked: boolean;
   // Post settings

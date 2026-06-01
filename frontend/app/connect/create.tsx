@@ -24,7 +24,6 @@ import { useTheme } from '../../context/ThemeContext';
 import { theme as themeConstants } from '../../constants/theme';
 import { createConnectPage, fetchCurrencyConfig, getCurrencySymbol, CurrencyConfig } from '../../services/connect';
 import logger from '../../utils/logger';
-import { LinearGradient } from 'expo-linear-gradient';
 
 // Common countries for quick selection
 const COUNTRY_LIST = [
@@ -239,17 +238,11 @@ export default function CreateConnectPageScreen() {
           Create {isCommunity ? 'Community' : 'Connect'} Page
         </Text>
         <TouchableOpacity
-          style={[styles.createButton, { overflow: 'hidden' }, (creating || !name.trim()) && { opacity: 0.5 }]}
+          style={[styles.createButton, { backgroundColor: theme.colors.primary, opacity: creating || !name.trim() ? 0.5 : 1 }]}
           onPress={handleCreate}
           disabled={creating || !name.trim()}
           activeOpacity={0.7}
         >
-          <LinearGradient
-            colors={['#50C878', '#1C73B4']}
-            style={StyleSheet.absoluteFillObject}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          />
           {creating ? (
             <LoadingGlobe size="small" color="#FFFFFF" />
           ) : (
@@ -371,8 +364,8 @@ export default function CreateConnectPageScreen() {
               <TouchableOpacity
                 style={[
                   styles.typeOption,
-                  { borderColor: category === 'connect' ? theme.colors.secondary : theme.colors.border },
-                  category === 'connect' && { backgroundColor: theme.colors.secondary + '15' },
+                  { borderColor: category === 'connect' ? theme.colors.primary : theme.colors.border },
+                  category === 'connect' && { backgroundColor: theme.colors.primary + '15' },
                 ]}
                 onPress={() => setCategory('connect')}
                 activeOpacity={0.7}
@@ -380,12 +373,12 @@ export default function CreateConnectPageScreen() {
                 <Ionicons
                   name="link-outline"
                   size={20}
-                  color={category === 'connect' ? theme.colors.secondary : theme.colors.textSecondary}
+                  color={category === 'connect' ? theme.colors.primary : theme.colors.textSecondary}
                 />
                 <Text
                   style={[
                     styles.typeLabel,
-                    { color: category === 'connect' ? theme.colors.secondary : theme.colors.textSecondary },
+                    { color: category === 'connect' ? theme.colors.primary : theme.colors.textSecondary },
                   ]}
                 >
                   Connect
@@ -394,8 +387,8 @@ export default function CreateConnectPageScreen() {
               <TouchableOpacity
                 style={[
                   styles.typeOption,
-                  { borderColor: category === 'community' ? theme.colors.secondary : theme.colors.border },
-                  category === 'community' && { backgroundColor: theme.colors.secondary + '15' },
+                  { borderColor: category === 'community' ? theme.colors.primary : theme.colors.border },
+                  category === 'community' && { backgroundColor: theme.colors.primary + '15' },
                 ]}
                 onPress={() => setCategory('community')}
                 activeOpacity={0.7}
@@ -403,12 +396,12 @@ export default function CreateConnectPageScreen() {
                 <Ionicons
                   name="people-outline"
                   size={20}
-                  color={category === 'community' ? theme.colors.secondary : theme.colors.textSecondary}
+                  color={category === 'community' ? theme.colors.primary : theme.colors.textSecondary}
                 />
                 <Text
                   style={[
                     styles.typeLabel,
-                    { color: category === 'community' ? theme.colors.secondary : theme.colors.textSecondary },
+                    { color: category === 'community' ? theme.colors.primary : theme.colors.textSecondary },
                   ]}
                 >
                   Community
@@ -424,8 +417,8 @@ export default function CreateConnectPageScreen() {
               <TouchableOpacity
                 style={[
                   styles.typeOption,
-                  { borderColor: type === 'public' ? theme.colors.secondary : theme.colors.border },
-                  type === 'public' && { backgroundColor: theme.colors.secondary + '15' },
+                  { borderColor: type === 'public' ? theme.colors.primary : theme.colors.border },
+                  type === 'public' && { backgroundColor: theme.colors.primary + '15' },
                 ]}
                 onPress={() => setType('public')}
                 activeOpacity={0.7}
@@ -433,12 +426,12 @@ export default function CreateConnectPageScreen() {
                 <Ionicons
                   name="globe-outline"
                   size={20}
-                  color={type === 'public' ? theme.colors.secondary : theme.colors.textSecondary}
+                  color={type === 'public' ? theme.colors.primary : theme.colors.textSecondary}
                 />
                 <Text
                   style={[
                     styles.typeLabel,
-                    { color: type === 'public' ? theme.colors.secondary : theme.colors.textSecondary },
+                    { color: type === 'public' ? theme.colors.primary : theme.colors.textSecondary },
                   ]}
                 >
                   Public
@@ -447,8 +440,8 @@ export default function CreateConnectPageScreen() {
               <TouchableOpacity
                 style={[
                   styles.typeOption,
-                  { borderColor: type === 'private' ? theme.colors.secondary : theme.colors.border },
-                  type === 'private' && { backgroundColor: theme.colors.secondary + '15' },
+                  { borderColor: type === 'private' ? theme.colors.primary : theme.colors.border },
+                  type === 'private' && { backgroundColor: theme.colors.primary + '15' },
                 ]}
                 onPress={() => setType('private')}
                 activeOpacity={0.7}
@@ -456,12 +449,12 @@ export default function CreateConnectPageScreen() {
                 <Ionicons
                   name="lock-closed-outline"
                   size={20}
-                  color={type === 'private' ? theme.colors.secondary : theme.colors.textSecondary}
+                  color={type === 'private' ? theme.colors.primary : theme.colors.textSecondary}
                 />
                 <Text
                   style={[
                     styles.typeLabel,
-                    { color: type === 'private' ? theme.colors.secondary : theme.colors.textSecondary },
+                    { color: type === 'private' ? theme.colors.primary : theme.colors.textSecondary },
                   ]}
                 >
                   Private
@@ -476,7 +469,7 @@ export default function CreateConnectPageScreen() {
             <View style={[styles.featureCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
               <View style={styles.featureRow}>
                 <View style={styles.featureInfo}>
-                  <Ionicons name="globe-outline" size={20} color={theme.colors.secondary} />
+                  <Ionicons name="globe-outline" size={20} color={theme.colors.primary} />
                   <View style={styles.featureText}>
                     <Text style={[styles.featureName, { color: theme.colors.text }]}>Website</Text>
                     <Text style={[styles.featureDesc, { color: theme.colors.textSecondary }]}>
@@ -487,8 +480,8 @@ export default function CreateConnectPageScreen() {
                 <Switch
                   value={websiteEnabled}
                   onValueChange={setWebsiteEnabled}
-                  trackColor={{ false: theme.colors.border, true: theme.colors.secondary + '80' }}
-                  thumbColor={websiteEnabled ? theme.colors.secondary : theme.colors.textSecondary}
+                  trackColor={{ false: theme.colors.border, true: theme.colors.primary + '80' }}
+                  thumbColor={websiteEnabled ? theme.colors.primary : theme.colors.textSecondary}
                 />
               </View>
 
@@ -496,7 +489,7 @@ export default function CreateConnectPageScreen() {
 
               <View style={styles.featureRow}>
                 <View style={styles.featureInfo}>
-                  <Ionicons name="chatbubbles-outline" size={20} color={theme.colors.secondary} />
+                  <Ionicons name="chatbubbles-outline" size={20} color={theme.colors.primary} />
                   <View style={styles.featureText}>
                     <Text style={[styles.featureName, { color: theme.colors.text }]}>Group Chat</Text>
                     <Text style={[styles.featureDesc, { color: theme.colors.textSecondary }]}>
@@ -507,8 +500,8 @@ export default function CreateConnectPageScreen() {
                 <Switch
                   value={groupChatEnabled}
                   onValueChange={setGroupChatEnabled}
-                  trackColor={{ false: theme.colors.border, true: theme.colors.secondary + '80' }}
-                  thumbColor={groupChatEnabled ? theme.colors.secondary : theme.colors.textSecondary}
+                  trackColor={{ false: theme.colors.border, true: theme.colors.primary + '80' }}
+                  thumbColor={groupChatEnabled ? theme.colors.primary : theme.colors.textSecondary}
                 />
               </View>
 
@@ -516,7 +509,7 @@ export default function CreateConnectPageScreen() {
 
               <View style={styles.featureRow}>
                 <View style={styles.featureInfo}>
-                  <Ionicons name="star-outline" size={20} color={theme.colors.secondary} />
+                  <Ionicons name="star-outline" size={20} color={theme.colors.primary} />
                   <View style={styles.featureText}>
                     <Text style={[styles.featureName, { color: theme.colors.text }]}>{subLabel}</Text>
                     <Text style={[styles.featureDesc, { color: theme.colors.textSecondary }]}>
@@ -530,8 +523,8 @@ export default function CreateConnectPageScreen() {
                     setSubscriptionEnabled(val);
                     if (!val) setSubscriptionPrice('');
                   }}
-                  trackColor={{ false: theme.colors.border, true: theme.colors.secondary + '80' }}
-                  thumbColor={subscriptionEnabled ? theme.colors.secondary : theme.colors.textSecondary}
+                  trackColor={{ false: theme.colors.border, true: theme.colors.primary + '80' }}
+                  thumbColor={subscriptionEnabled ? theme.colors.primary : theme.colors.textSecondary}
                 />
               </View>
               {subscriptionEnabled && (
@@ -574,17 +567,12 @@ export default function CreateConnectPageScreen() {
                       <Text style={[styles.buttonPreviewLabel, { color: theme.colors.textSecondary }]}>
                         Button preview — how users will see it
                       </Text>
-                      <LinearGradient
-                        colors={['#50C878', '#1C73B4']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 1 }}
-                        style={styles.buttonPreview}
-                      >
+                      <View style={[styles.buttonPreview, { backgroundColor: theme.colors.primary }]}>
                         <Ionicons name={isCommunity ? 'cart-outline' : 'star'} size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
                         <Text style={styles.buttonPreviewText}>
                           {subButtonText} · {activeCurrencyConfig.symbol}{subscriptionPrice}/month
                         </Text>
-                      </LinearGradient>
+                      </View>
                       <Text style={[styles.buttonPreviewNote, { color: theme.colors.textSecondary }]}>
                         Price requires admin approval before going live
                       </Text>
@@ -681,8 +669,8 @@ export default function CreateConnectPageScreen() {
                             borderRadius: 12,
                             paddingVertical: 12,
                             gap: 8,
-                            borderColor: intlPayoutMethod === 'wise_email' ? theme.colors.secondary : theme.colors.border,
-                            backgroundColor: intlPayoutMethod === 'wise_email' ? theme.colors.secondary + '15' : 'transparent',
+                            borderColor: intlPayoutMethod === 'wise_email' ? theme.colors.primary : theme.colors.border,
+                            backgroundColor: intlPayoutMethod === 'wise_email' ? theme.colors.primary + '15' : 'transparent',
                           }}
                           onPress={() => setIntlPayoutMethod('wise_email')}
                           activeOpacity={0.7}
@@ -690,13 +678,13 @@ export default function CreateConnectPageScreen() {
                           <Ionicons
                             name="mail-outline"
                             size={18}
-                            color={intlPayoutMethod === 'wise_email' ? theme.colors.secondary : theme.colors.textSecondary}
+                            color={intlPayoutMethod === 'wise_email' ? theme.colors.primary : theme.colors.textSecondary}
                           />
                           <Text
                             style={{
                               fontSize: 14,
                               fontWeight: '600',
-                              color: intlPayoutMethod === 'wise_email' ? theme.colors.secondary : theme.colors.textSecondary,
+                              color: intlPayoutMethod === 'wise_email' ? theme.colors.primary : theme.colors.textSecondary,
                             }}
                           >
                             Wise Email
@@ -712,8 +700,8 @@ export default function CreateConnectPageScreen() {
                             borderRadius: 12,
                             paddingVertical: 12,
                             gap: 8,
-                            borderColor: intlPayoutMethod === 'international_bank' ? theme.colors.secondary : theme.colors.border,
-                            backgroundColor: intlPayoutMethod === 'international_bank' ? theme.colors.secondary + '15' : 'transparent',
+                            borderColor: intlPayoutMethod === 'international_bank' ? theme.colors.primary : theme.colors.border,
+                            backgroundColor: intlPayoutMethod === 'international_bank' ? theme.colors.primary + '15' : 'transparent',
                           }}
                           onPress={() => setIntlPayoutMethod('international_bank')}
                           activeOpacity={0.7}
@@ -721,13 +709,13 @@ export default function CreateConnectPageScreen() {
                           <Ionicons
                             name="business-outline"
                             size={18}
-                            color={intlPayoutMethod === 'international_bank' ? theme.colors.secondary : theme.colors.textSecondary}
+                            color={intlPayoutMethod === 'international_bank' ? theme.colors.primary : theme.colors.textSecondary}
                           />
                           <Text
                             style={{
                               fontSize: 14,
                               fontWeight: '600',
-                              color: intlPayoutMethod === 'international_bank' ? theme.colors.secondary : theme.colors.textSecondary,
+                              color: intlPayoutMethod === 'international_bank' ? theme.colors.primary : theme.colors.textSecondary,
                             }}
                           >
                             Intl Bank

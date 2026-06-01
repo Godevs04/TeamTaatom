@@ -17,7 +17,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import { theme as themeConstants } from '../../constants/theme';
 import ContentBlockBuilder from '../../components/ContentBlockBuilder';
-import { LinearGradient } from 'expo-linear-gradient';
 import {
   getWebsiteContent,
   updateWebsiteContent,
@@ -179,19 +178,13 @@ export default function EditContentScreen() {
         <TouchableOpacity
           style={[
             styles.saveButton,
-            { overflow: 'hidden' },
+            { backgroundColor: theme.colors.primary },
             (!hasChanges || saving) && { opacity: 0.5 },
           ]}
           onPress={handleSave}
           disabled={!hasChanges || saving}
           activeOpacity={0.7}
         >
-          <LinearGradient
-            colors={['#50C878', '#1C73B4']}
-            style={StyleSheet.absoluteFillObject}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          />
           {saving ? (
             <LoadingGlobe size="small" color="#FFFFFF" />
           ) : (

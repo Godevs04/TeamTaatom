@@ -297,7 +297,25 @@ export default function FollowersFollowingList() {
     );
   };
 
-  const renderEmptyState = () => null;
+  const renderEmptyState = () => (
+    <View style={styles(theme).emptyContainer}>
+      <View style={styles(theme).emptyIconContainer}>
+        <Ionicons 
+          name={type === 'followers' ? 'people-outline' : 'person-add-outline'} 
+          size={64} 
+          color={theme.colors.textSecondary} 
+        />
+      </View>
+      <Text style={styles(theme).emptyTitle}>
+        No {type === 'followers' ? 'Followers' : 'Following'} Yet
+      </Text>
+      <Text style={styles(theme).emptyMessage}>
+        {type === 'followers' 
+          ? 'When someone follows you, they\'ll appear here.' 
+          : 'Start following people to see them here.'}
+      </Text>
+    </View>
+  );
 
   return (
     <View style={styles(theme).container}>

@@ -234,17 +234,10 @@ export default function VerifyOTPScreen() {
                     style={[
                       styles.verifyButton,
                       (!values.otp || values.otp.length !== 6 || isSubmitting) && styles.verifyButtonDisabled,
-                      { overflow: 'hidden' }
                     ]}
                     onPress={() => handleSubmit()}
                     disabled={!values.otp || values.otp.length !== 6 || isSubmitting}
                   >
-                    <LinearGradient
-                      colors={['#50C878', '#1C73B4']}
-                      style={StyleSheet.absoluteFillObject}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                    />
                     {isSubmitting ? (
                       <LoadingGlobe color="#FFFFFF" />
                     ) : (
@@ -479,11 +472,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: theme.spacing.lg,
     minHeight: isTablet ? 56 : 50,
-    overflow: 'hidden',
     ...(isWeb && {
       cursor: 'pointer',
       transition: 'all 0.2s ease',
-      background: 'linear-gradient(135deg, #50C878 0%, #1C73B4 100%)',
     } as any),
   },
   verifyButtonDisabled: {
@@ -494,7 +485,7 @@ const styles = StyleSheet.create({
     } as any),
   },
   verifyButtonText: {
-    color: '#FFFFFF',
+    color: '#000000',
     fontSize: isTablet ? theme.typography.body.fontSize + 2 : theme.typography.body.fontSize,
     fontFamily: getFontFamily('500'),
     fontWeight: '500',

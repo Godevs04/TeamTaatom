@@ -17,13 +17,13 @@ import { useTheme } from '../../context/ThemeContext';
 import NavBar from '../../components/NavBar';
 import { useSettings } from '../../context/SettingsContext';
 import { getUserFromStorage } from '../../services/auth';
+import CustomAlert from '../../components/CustomAlert';
 import CustomOptions, { CustomOption } from '../../components/CustomOptions';
 import { createLogger } from '../../utils/logger';
 import { getProfile } from '../../services/profile';
 import { theme } from '../../constants/theme';
 import { showConsentForm } from '../../services/admob';
 import AlertService from '../../services/alertService';
-import { UserSettings } from '../../services/settings';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -44,10 +44,12 @@ const logger = createLogger('PrivacySettings');
 export default function PrivacySettingsScreen() {
   // Settings State Single Source of Truth: Use SettingsContext
   const { settings, loading: settingsLoading, updateSetting, updateAllSettings, refreshSettings } = useSettings();
-  
-  // Local state for optimistic UI updates
-  const [localPrivacy, setLocalPrivacy] = useState<UserSettings['privacy'] | null>(() => settings?.privacy || null);
-  
+  const [alertVisible, setAlertVisible] = useState(false);
+  const [alertConfig, setAlertConfig] = useState({
+    title: '',
+    message: '',
+    type: 'info' as 'info' | 'success' | 'warning' | 'error',
+  });
   const [customOptionsVisible, setCustomOptionsVisible] = useState(false);
   const [isOpeningConsentForm, setIsOpeningConsentForm] = useState(false);
   const [customOptionsConfig, setCustomOptionsConfig] = useState({
@@ -65,12 +67,18 @@ export default function PrivacySettingsScreen() {
   const router = useRouter();
   const { theme } = useTheme();
 
-  // Synchronize local settings state with SettingsContext
-  useEffect(() => {
-    if (settings?.privacy) {
-      setLocalPrivacy(settings.privacy);
-    }
-  }, [settings?.privacy]);
+  const showAlert = (message: string, title?: string, type: 'info' | 'success' | 'warning' | 'error' = 'info') => {
+    setAlertConfig({ title: title || '', message, type });
+    setAlertVisible(true);
+  };
+
+  const showError = useCallback((message: string, title?: string) => {
+    showAlert(message, title || 'Error', 'error');
+  }, []);
+
+  const showSuccess = useCallback((message: string, title?: string) => {
+    showAlert(message, title || 'Success', 'success');
+  }, []);
 
   // Navigation & Lifecycle Safety: Setup and cleanup
   useEffect(() => {
@@ -94,7 +102,7 @@ export default function PrivacySettingsScreen() {
 
   // Toggle Interaction Safety: Wrapper with per-toggle guard and optimistic update
   const handleUpdateSetting = useCallback(async (key: string, value: any) => {
-    if (!settings || !localPrivacy) return;
+    if (!settings) return;
     
     // Prevent re-entry while API call is in-flight
     if (updatingKeysRef.current.has(key)) {
@@ -104,36 +112,25 @@ export default function PrivacySettingsScreen() {
     
     updatingKeysRef.current.add(key);
     
-    // Cache the previous value of this setting
-    const previousValue = localPrivacy[key as keyof UserSettings['privacy']];
-    
-    // Instantly mutate the local React state to the new selection
-    setLocalPrivacy((prev: any) => prev ? { ...prev, [key]: value } : null);
-    
     try {
       await updateSetting('privacy', key, value);
       if (isMountedRef.current) {
-        AlertService.showSuccess('Success', 'Setting updated successfully');
+        showSuccess('Setting updated successfully');
       }
     } catch (error: any) {
       if (isMountedRef.current) {
+        // Error already shown by context (rollback handled there)
         logger.error(`Failed to update setting ${key}`, error);
-        // Rollback: Revert to the cached previous value on failure
-        setLocalPrivacy((prev: any) => prev ? { ...prev, [key]: previousValue } : null);
       }
     } finally {
       updatingKeysRef.current.delete(key);
     }
-  }, [settings, localPrivacy, updateSetting]);
+  }, [settings, updateSetting, showSuccess]);
 
   // [BUG-060] Privacy: User Data Visibility Toggle
   // Triggers API patch, updates local state optimistically, and provides AlertService feedback
-  const handleToggleVisibility = useCallback(async (
-    profileVisibility: 'public' | 'followers' | 'private',
-    requireFollowApproval: boolean,
-    allowFollowRequests: boolean
-  ) => {
-    if (!settings || !localPrivacy) return;
+  const handleToggleVisibility = useCallback(async (profileVisibility: 'public' | 'followers' | 'private', requireFollowApproval: boolean, allowFollowRequests: boolean) => {
+    if (!settings) return;
     
     const key = 'profileVisibility';
     if (updatingKeysRef.current.has(key)) {
@@ -142,19 +139,6 @@ export default function PrivacySettingsScreen() {
     }
     
     updatingKeysRef.current.add(key);
-    
-    // Cache the previous visibility state
-    const previousVisibility = localPrivacy.profileVisibility;
-    const previousRequireApproval = localPrivacy.requireFollowApproval;
-    const previousAllowRequests = localPrivacy.allowFollowRequests;
-    
-    // Instantly mutate the local React state to the new selection
-    setLocalPrivacy((prev: any) => prev ? {
-      ...prev,
-      profileVisibility,
-      requireFollowApproval,
-      allowFollowRequests
-    } : null);
     
     try {
       // Optimistic update of multiple related settings at once to prevent race condition
@@ -184,21 +168,12 @@ export default function PrivacySettingsScreen() {
     } catch (error: any) {
       if (isMountedRef.current) {
         logger.error('Failed to update profile visibility', error);
-        
-        // Rollback: Revert to the cached previous visibility values on failure
-        setLocalPrivacy((prev: any) => prev ? {
-          ...prev,
-          profileVisibility: previousVisibility,
-          requireFollowApproval: previousRequireApproval,
-          allowFollowRequests: previousAllowRequests
-        } : null);
-        
         AlertService.showError('Update Failed', error.message || 'Failed to update profile visibility');
       }
     } finally {
       updatingKeysRef.current.delete(key);
     }
-  }, [settings, localPrivacy, updateAllSettings]);
+  }, [settings, updateAllSettings]);
 
   const handleProfileVisibilityChange = () => {
     const options: CustomOption[] = [
@@ -360,9 +335,9 @@ export default function PrivacySettingsScreen() {
             <View style={styles.settingRight}>
               <Text style={[styles.settingValue, { color: theme.colors.textSecondary }]}>
                 {(() => {
-                  const visibility = localPrivacy?.profileVisibility;
-                  const requiresApproval = localPrivacy?.requireFollowApproval;
-                  const allowsRequests = localPrivacy?.allowFollowRequests;
+                  const visibility = settings?.privacy?.profileVisibility;
+                  const requiresApproval = settings?.privacy?.requireFollowApproval;
+                  const allowsRequests = settings?.privacy?.allowFollowRequests;
                   
                   if (visibility === 'public') return 'Public';
                   if (visibility === 'followers') return 'Followers Only';
@@ -388,7 +363,7 @@ export default function PrivacySettingsScreen() {
               </View>
             </View>
             <Switch
-              value={localPrivacy?.showEmail || false}
+              value={settings?.privacy?.showEmail || false}
               onValueChange={(value) => handleUpdateSetting('showEmail', value)}
               disabled={updatingKeysRef.current.has('showEmail')}
               trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
@@ -409,7 +384,7 @@ export default function PrivacySettingsScreen() {
               </View>
             </View>
             <Switch
-              value={localPrivacy?.showLocation !== false}
+              value={settings?.privacy?.showLocation !== false}
               onValueChange={(value) => handleUpdateSetting('showLocation', value)}
               disabled={updatingKeysRef.current.has('showLocation')}
               trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
@@ -436,7 +411,7 @@ export default function PrivacySettingsScreen() {
             <View style={styles.settingRight}>
               <Text style={[styles.settingValue, { color: theme.colors.textSecondary }]}>
                 {(() => {
-                  const visibility = localPrivacy?.routeVisibility;
+                  const visibility = settings?.privacy?.routeVisibility;
                   if (visibility === 'everyone') return 'Everyone';
                   if (visibility === 'approved_only') return 'Approved Only';
                   if (visibility === 'private') return 'Private (Owner Only)';
@@ -473,8 +448,8 @@ export default function PrivacySettingsScreen() {
             </View>
             <View style={styles.settingRight}>
               <Text style={[styles.settingValue, { color: theme.colors.textSecondary }]}>
-                {localPrivacy?.allowMessages === 'everyone' ? 'Everyone' : 
-                 localPrivacy?.allowMessages === 'followers' ? 'Followers Only' : 'No One'}
+                {settings?.privacy?.allowMessages === 'everyone' ? 'Everyone' : 
+                 settings?.privacy?.allowMessages === 'followers' ? 'Followers Only' : 'No One'}
               </Text>
               <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
             </View>
@@ -493,7 +468,7 @@ export default function PrivacySettingsScreen() {
               </View>
             </View>
             <Switch
-              value={localPrivacy?.shareActivity !== false}
+              value={settings?.privacy?.shareActivity !== false}
               onValueChange={(value) => handleUpdateSetting('shareActivity', value)}
               disabled={updatingKeysRef.current.has('shareActivity')}
               trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
@@ -538,13 +513,14 @@ export default function PrivacySettingsScreen() {
                   setIsOpeningConsentForm(true);
                   const opened = await showConsentForm();
                   if (!opened) {
-                    AlertService.showInfo(
+                    showAlert(
+                      'Privacy options are not available right now for your region/session.',
                       'Not Available',
-                      'Privacy options are not available right now for your region/session.'
+                      'info'
                     );
                   }
                 } catch {
-                  AlertService.showError('Error', 'Unable to open privacy settings. Please try again.');
+                  showError('Unable to open privacy settings. Please try again.');
                 } finally {
                   if (isMountedRef.current) {
                     setIsOpeningConsentForm(false);
@@ -642,7 +618,13 @@ export default function PrivacySettingsScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
-
+      <CustomAlert
+        visible={alertVisible}
+        title={alertConfig.title}
+        message={alertConfig.message}
+        type={alertConfig.type}
+        onClose={() => setAlertVisible(false)}
+      />
       
       <CustomOptions
         visible={customOptionsVisible}

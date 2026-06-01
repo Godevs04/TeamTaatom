@@ -16,7 +16,7 @@ import { Formik } from 'formik';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { useTheme } from '../../context/ThemeContext';
+import { theme } from '../../constants/theme';
 import { useAlert } from '../../context/AlertContext';
 import AuthInput from '../../components/AuthInput';
 import { signInSchema } from '../../utils/validation';
@@ -178,11 +178,81 @@ const TravelAnimatedBackground = () => {
     outputRange: [1, 1.1],
   });
 
-  const { theme, isDark } = useTheme();
-  const styles = getStyles(theme, isDark);
-
   return (
     <Animated.View style={[styles.animatedBackground, { opacity: fadeAnim }]} pointerEvents="none">
+      {/* Airplane 1 - Top - More visible */}
+      <Animated.View
+        style={[
+          styles.travelIcon,
+          styles.airplane1,
+          {
+            transform: [{ translateX: airplane1TranslateX }],
+          },
+        ]}
+      >
+        <Ionicons name="airplane" size={40} color="rgba(255, 255, 255, 0.25)" />
+      </Animated.View>
+
+      {/* Airplane 2 - Middle - More visible */}
+      <Animated.View
+        style={[
+          styles.travelIcon,
+          styles.airplane2,
+          {
+            transform: [{ translateX: airplane2TranslateX }],
+          },
+        ]}
+      >
+        <Ionicons name="airplane" size={36} color="rgba(255, 255, 255, 0.22)" />
+      </Animated.View>
+
+      {/* Location Pin - Floating - More visible */}
+      <Animated.View
+        style={[
+          styles.travelIcon,
+          styles.locationPin,
+          {
+            transform: [{ translateY: locationTranslateY }],
+          },
+        ]}
+      >
+        <Ionicons name="location" size={48} color="rgba(100, 200, 255, 0.3)" />
+      </Animated.View>
+
+      {/* Compass - Rotating - More visible */}
+      <Animated.View
+        style={[
+          styles.travelIcon,
+          styles.compass,
+          {
+            transform: [{ rotate: compassRotate }],
+          },
+        ]}
+      >
+        <Ionicons name="compass" size={44} color="rgba(255, 255, 255, 0.25)" />
+      </Animated.View>
+
+      {/* Map - Pulsing - More visible */}
+      <Animated.View
+        style={[
+          styles.travelIcon,
+          styles.map,
+          {
+            transform: [{ scale: mapScale }],
+          },
+        ]}
+      >
+        <Ionicons name="map" size={52} color="rgba(150, 200, 255, 0.2)" />
+      </Animated.View>
+
+      {/* Additional decorative icons - More visible */}
+      <View style={[styles.travelIcon, styles.camera]}>
+        <Ionicons name="camera" size={32} color="rgba(255, 255, 255, 0.15)" />
+      </View>
+      <View style={[styles.travelIcon, styles.bed]}>
+        <Ionicons name="bed" size={36} color="rgba(255, 255, 255, 0.15)" />
+      </View>
+      
       {/* Travel-themed decorative circles */}
       <View style={[styles.decorativeCircle, styles.circle1]} />
       <View style={[styles.decorativeCircle, styles.circle2]} />
@@ -192,8 +262,6 @@ const TravelAnimatedBackground = () => {
 };
 
 export default function SignInScreen() {
-  const { theme, isDark } = useTheme();
-  const styles = getStyles(theme, isDark);
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   // const [isGoogleLoading, setIsGoogleLoading] = useState(false); // Hidden for now
@@ -338,7 +406,7 @@ export default function SignInScreen() {
             <View style={styles.logoContainer}>
               <Image
                 source={{ uri: LOGO_IMAGE }}
-                style={[styles.logo, { tintColor: theme.colors.text }]}
+                style={styles.logo}
                 accessibilityLabel="Taatom Logo"
               />
             </View>
@@ -414,20 +482,14 @@ export default function SignInScreen() {
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[styles.signInButton, isLoading && styles.signInButtonDisabled, { overflow: 'hidden' }]}
+                    style={[styles.signInButton, isLoading && styles.signInButtonDisabled]}
                     onPress={() => handleSubmit()}
                     disabled={isLoading}
                     accessibilityRole="button"
                     accessibilityLabel={isLoading ? 'Signing in' : 'Sign in'}
                     accessibilityState={{ disabled: isLoading }}
                   >
-                    <LinearGradient
-                      colors={['#50C878', '#1C73B4']}
-                      style={StyleSheet.absoluteFillObject}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                    />
-                    <Text style={[styles.signInButtonText, { color: '#FFFFFF' }]}>
+                    <Text style={styles.signInButtonText}>
                       {isLoading ? 'Signing In...' : 'Sign In'}
                     </Text>
                   </TouchableOpacity>
@@ -472,7 +534,7 @@ export default function SignInScreen() {
   );
 }
 
-const getStyles = (theme: any, isDark: boolean) => StyleSheet.create({
+const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
@@ -500,37 +562,34 @@ const getStyles = (theme: any, isDark: boolean) => StyleSheet.create({
     zIndex: 2,
   },
   logoContainer: {
-    width: isTablet ? 120 : 100,
-    height: isTablet ? 120 : 100,
+    width: isTablet ? 150 : 130,
+    height: isTablet ? 150 : 130,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    borderRadius: isTablet ? 40 : 35,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: theme.spacing.xs,
+    marginBottom: theme.spacing.lg + 4,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    // Enhanced glassmorphism effect
+    ...(isWeb && {
+      backdropFilter: 'blur(30px) saturate(180%)',
+      backgroundColor: 'rgba(255, 255, 255, 0.15)',
+      boxShadow: '0 12px 40px 0 rgba(31, 38, 135, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.2)',
+    } as any),
   },
   logo: {
     width: isTablet ? 120 : 100,
     height: isTablet ? 120 : 100,
     resizeMode: 'contain' as const,
-  },
-  logoText: {
-    fontSize: 36,
-    fontWeight: '600',
-    color: theme.colors.text,
-    fontFamily: Platform.select({
-      ios: 'Snell Roundhand',
-      android: 'cursive',
-      web: '"Dancing Script", "Satisfy", "Brush Script MT", "Lucida Handwriting", cursive',
-      default: 'cursive',
-    }),
-    marginTop: theme.spacing.xs,
-    marginBottom: theme.spacing.sm,
-    textAlign: 'center',
+    tintColor: undefined,
   },
   title: {
     fontSize: isTablet ? 38 : 34,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
-    color: theme.colors.text,
-    marginTop: theme.spacing.sm,
+    color: '#FFFFFF',
+    marginTop: theme.spacing.md + 4,
     textAlign: 'center',
     letterSpacing: isIOS ? -1 : -0.8,
     lineHeight: isTablet ? 52 : 46,
@@ -545,7 +604,7 @@ const getStyles = (theme: any, isDark: boolean) => StyleSheet.create({
   subtitle: {
     fontSize: isTablet ? 18 : 17,
     fontFamily: getFontFamily('400'),
-    color: theme.colors.textSecondary,
+    color: 'rgba(255, 255, 255, 0.75)',
     marginTop: theme.spacing.sm,
     textAlign: 'center',
     letterSpacing: 0.4,
@@ -555,21 +614,20 @@ const getStyles = (theme: any, isDark: boolean) => StyleSheet.create({
     }),
   },
   formContainer: {
-    backgroundColor: isDark ? 'rgba(20, 20, 30, 0.7)' : 'rgba(255, 255, 255, 0.85)',
+    backgroundColor: 'rgba(20, 20, 30, 0.7)',
     borderRadius: isTablet ? 32 : 28,
     padding: isTablet ? theme.spacing.xl + 12 : theme.spacing.lg + 8,
     width: '100%',
     maxWidth: isWeb ? 460 : isTablet ? 580 : 500,
     alignSelf: 'center',
     borderWidth: 1.5,
-    borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
     zIndex: 2,
+    // Enhanced glassmorphism with better shadows and depth
     ...(isWeb && {
       backdropFilter: 'blur(30px) saturate(180%)',
-      backgroundColor: isDark ? 'rgba(20, 20, 30, 0.75)' : 'rgba(255, 255, 255, 0.9)',
-      boxShadow: isDark 
-        ? '0 20px 60px 0 rgba(0, 0, 0, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.05)'
-        : '0 20px 60px 0 rgba(0, 0, 0, 0.15), inset 0 1px 0 0 rgba(255, 255, 255, 0.6), 0 0 0 1px rgba(0, 0, 0, 0.05)',
+      backgroundColor: 'rgba(20, 20, 30, 0.75)',
+      boxShadow: '0 20px 60px 0 rgba(0, 0, 0, 0.5), inset 0 1px 0 0 rgba(255, 255, 255, 0.15), 0 0 0 1px rgba(255, 255, 255, 0.05)',
     } as any),
   },
   formFields: {
@@ -583,7 +641,7 @@ const getStyles = (theme: any, isDark: boolean) => StyleSheet.create({
     paddingHorizontal: theme.spacing.xs,
   },
   forgotPasswordText: {
-    color: theme.colors.link,
+    color: theme.colors.primary,
     fontSize: theme.typography.body.fontSize,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
@@ -601,13 +659,12 @@ const getStyles = (theme: any, isDark: boolean) => StyleSheet.create({
     marginTop: theme.spacing.xl + 4,
     minHeight: isTablet ? 60 : 56,
     overflow: 'hidden',
+    // Enhanced elegant gradient with better shadows
     ...(isWeb && {
       cursor: 'pointer',
       transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-      background: 'linear-gradient(135deg, #50C878 0%, #1C73B4 100%)',
-      boxShadow: isDark
-        ? '0 8px 24px 0 rgba(0, 0, 0, 0.3), 0 2px 8px 0 rgba(0, 0, 0, 0.2), inset 0 1px 0 0 rgba(255, 255, 255, 0.2)'
-        : '0 8px 24px 0 rgba(0, 0, 0, 0.15), 0 2px 8px 0 rgba(0, 0, 0, 0.1), inset 0 1px 0 0 rgba(255, 255, 255, 0.2)',
+      background: `linear-gradient(135deg, ${theme.colors.primary} 0%, ${theme.colors.primary}ee 100%)`,
+      boxShadow: '0 8px 24px 0 rgba(0, 0, 0, 0.3), 0 2px 8px 0 rgba(0, 0, 0, 0.2), inset 0 1px 0 0 rgba(255, 255, 255, 0.2)',
     } as any),
   },
   signInButtonDisabled: {
@@ -617,12 +674,12 @@ const getStyles = (theme: any, isDark: boolean) => StyleSheet.create({
     } as any),
   },
   signInButtonText: {
-    color: theme.colors.background,
+    color: '#000000',
     fontSize: isTablet ? theme.typography.body.fontSize + 3 : theme.typography.body.fontSize + 1,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
     letterSpacing: 0.5,
-    textShadowColor: isDark ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.2)',
+    textShadowColor: 'rgba(0, 0, 0, 0.2)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
     ...(isWeb && {
@@ -636,7 +693,7 @@ const getStyles = (theme: any, isDark: boolean) => StyleSheet.create({
     marginTop: theme.spacing.xl,
     paddingTop: theme.spacing.lg,
     borderTopWidth: 1,
-    borderTopColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+    borderTopColor: 'rgba(255, 255, 255, 0.08)',
     flexWrap: 'wrap',
   },
   footerText: {
@@ -648,7 +705,7 @@ const getStyles = (theme: any, isDark: boolean) => StyleSheet.create({
     }),
   },
   linkText: {
-    color: theme.colors.link,
+    color: theme.colors.primary,
     fontSize: theme.typography.body.fontSize,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',
@@ -748,7 +805,7 @@ const getStyles = (theme: any, isDark: boolean) => StyleSheet.create({
   decorativeCircle: {
     position: 'absolute',
     borderRadius: 9999,
-    backgroundColor: isDark ? 'rgba(100, 200, 255, 0.08)' : 'rgba(28, 115, 180, 0.04)',
+    backgroundColor: 'rgba(100, 200, 255, 0.08)',
     ...(isWeb && {
       backdropFilter: 'blur(20px)',
     } as any),

@@ -20,7 +20,6 @@ import { useTheme } from '../../context/ThemeContext';
 import * as Location from 'expo-location';
 import { MapView, Marker, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
-import { getApiUrl } from '../../utils/config';
 import { calculateDistance } from '../../utils/locationUtils';
 import GlassMapPanel from '../../components/GlassMapPanel';
 import PremiumMapMarker from '../../components/PremiumMapMarker';
@@ -208,15 +207,6 @@ const createStyles = (isDark: boolean) => {
 
 const GROWTH_GREEN = '#22C55E';
 
-const resolvePhotoUrl = (url?: string | null): string | undefined => {
-  if (!url) return undefined;
-  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
-    return url;
-  }
-  const cleanPath = url.startsWith('/') ? url : `/${url}`;
-  return getApiUrl(cleanPath);
-};
-
 export default function CurrentLocationMap() {
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [loading, setLoading] = useState(true);
@@ -328,12 +318,7 @@ export default function CurrentLocationMap() {
       // distance from here to the destination pin.
       (async () => {
         try {
-          const currentPerm = await Location.getForegroundPermissionsAsync();
-          let status = currentPerm.status;
-          if (status === 'undetermined') {
-            const requested = await Location.requestForegroundPermissionsAsync();
-            status = requested.status;
-          }
+          const { status } = await Location.requestForegroundPermissionsAsync();
           if (status !== 'granted') return;
           const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
           setUserCoords({
@@ -370,12 +355,7 @@ export default function CurrentLocationMap() {
       setError(null);
 
       // Request permission
-      const currentPerm = await Location.getForegroundPermissionsAsync();
-      let status = currentPerm.status;
-      if (status === 'undetermined') {
-        const requested = await Location.requestForegroundPermissionsAsync();
-        status = requested.status;
-      }
+      const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         setError('Location permission denied');
         setLoading(false);
@@ -413,12 +393,7 @@ export default function CurrentLocationMap() {
 
   const watchLocation = async () => {
     try {
-      const currentPerm = await Location.getForegroundPermissionsAsync();
-      let status = currentPerm.status;
-      if (status === 'undetermined') {
-        const requested = await Location.requestForegroundPermissionsAsync();
-        status = requested.status;
-      }
+      const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         return;
       }
@@ -453,12 +428,7 @@ export default function CurrentLocationMap() {
       setRouteLoading(true);
       let coords = userCoords;
       if (!coords) {
-        const currentPerm = await Location.getForegroundPermissionsAsync();
-        let status = currentPerm.status;
-        if (status === 'undetermined') {
-          const requested = await Location.requestForegroundPermissionsAsync();
-          status = requested.status;
-        }
+        const { status } = await Location.requestForegroundPermissionsAsync();
         if (status === 'granted') {
           const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
           coords = {
@@ -548,26 +518,26 @@ export default function CurrentLocationMap() {
 html,body,#map{height:100%;margin:0;padding:0}
 .glowing-dot-container {
   position: relative;
-  width: 32px;
-  height: 32px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .pulse-ring {
   position: absolute;
-  width: 28px;
-  height: 28px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: radial-gradient(circle, ${isDark ? 'rgba(45, 212, 191, 0.4)' : 'rgba(59, 130, 246, 0.4)'} 0%, rgba(59, 130, 246, 0) 70%);
   animation: pulse 1.8s infinite ease-out;
 }
 .core-dot {
-  width: 14px;
-  height: 14px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: linear-gradient(135deg, #2DD4BF 0%, #3B82F6 100%);
-  border: 2px solid #FFFFFF;
+  border: 1.5px solid #FFFFFF;
   box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
 }
 @keyframes pulse {
@@ -729,24 +699,14 @@ function initMap(){
         followsUserLocation={!hasValidCoordinates && !route}
       >
         {route?.coordinates?.length > 1 && (
-          <>
-            <PolylineRenderer
-              coordinates={route.coordinates}
-              color={mapStyle.routeColor}
-              glowColor={mapStyle.routeGlowColor}
-              strokeWidth={5}
-              simplifyDistance={4}
-              applyKalman={false}
-            />
-            <Marker
-              coordinate={route.coordinates[0]}
-              title="Start Point"
-              description="Your starting point"
-              anchor={{ x: 0.5, y: 0.5 }}
-            >
-              <PremiumMapMarker pointType="start" active={false} />
-            </Marker>
-          </>
+          <PolylineRenderer
+            coordinates={route.coordinates}
+            color={mapStyle.routeColor}
+            glowColor={mapStyle.routeGlowColor}
+            strokeWidth={5}
+            simplifyDistance={4}
+            applyKalman={false}
+          />
         )}
         <Marker
           coordinate={
@@ -788,7 +748,7 @@ function initMap(){
             label={isPostLocation ? (locationName || postAddress || 'Location') : undefined}
             activeTitle={isPostLocation ? (locationName || postAddress || 'Location') : undefined}
             activeSubtitle={isPostLocation ? (params.spotTypes as string || params.description as string || 'Visited place') : undefined}
-            photo={isPostLocation ? (params.imageUrl ? resolvePhotoUrl(params.imageUrl as string) : undefined) : undefined}
+            photo={isPostLocation ? (params.imageUrl as string || undefined) : undefined}
           />
         </Marker>
       </MapView>
