@@ -59,9 +59,10 @@ import { sanitizeErrorForDisplay } from '../../utils/errorSanitizer';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system/legacy';
 import { SongSelector } from '../../components/SongSelector';
+import { audioManager } from '../../utils/audioManager';
 import { SongBar } from '../../components/SongBar';
 import { Song } from '../../services/songs';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { theme } from '../../constants/theme';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { validateAndSanitizeCaption } from '../../utils/sanitize';
@@ -211,6 +212,8 @@ interface ShortFormValues {
 
 export default function PostScreen() {
   const { showSuccess, showError, showConfirm } = useAlert();
+  const isFocused = useIsFocused();
+  const videoRef = useRef<Video | null>(null);
   const params = useLocalSearchParams();
   const initialPostType = params.postType === 'short' ? 'short' : 'photo';
   const isJourneyCapture = params.journeyCapture === 'true';
@@ -984,7 +987,17 @@ export default function PostScreen() {
     };
   }, [cancelUpload]);
 
-  // Navigation lifecycle safety: cancel upload on screen blur
+  // Component unmount lifecycle cleanup for media playback
+  useEffect(() => {
+    return () => {
+      if (videoRef.current) {
+        videoRef.current.stopAsync().catch(() => {});
+      }
+      audioManager.stopAll().catch(() => {});
+    };
+  }, []);
+
+  // Navigation lifecycle safety: cancel upload and stop audio/video on screen blur
   useFocusEffect(
     useCallback(() => {
       isFocusedRef.current = true;
@@ -1002,6 +1015,20 @@ export default function PostScreen() {
           logger.debug('Screen blurred during upload, cancelling');
           cancelUpload();
         }
+        
+        // Stop active video playback
+        if (videoRef.current) {
+          logger.debug('[Post] Stopping video playback on screen blur');
+          videoRef.current.stopAsync().catch((error) => {
+            logger.error('[Post] Error stopping video:', error);
+          });
+        }
+        
+        // Stop active audio playback
+        logger.debug('[Post] Stopping audio playback on screen blur');
+        audioManager.stopAll().catch((error) => {
+          logger.error('[Post] Error stopping audio:', error);
+        });
       };
     }, [cancelUpload])
   );
@@ -3057,11 +3084,12 @@ export default function PostScreen() {
                   )}
                 </View>
               </View>
-            ) : selectedVideo && selectedVideo.trim() ? (
+            ) : isFocused && selectedVideo && selectedVideo.trim() ? (
               <View>
                 {/* Video preview */}
                 <View style={{ width: "100%", aspectRatio: 9 / 16, borderRadius: theme.borderRadius.lg, overflow: 'hidden', backgroundColor: theme.colors.surface }}>
                   <Video
+                    ref={videoRef}
                     source={{
                       uri: selectedVideo,
                       overrideFileExtensionAndroid: (selectedVideo.toLowerCase().includes('m3u8') || selectedVideo.toLowerCase().includes('hls')) ? 'm3u8' : 'mp4'
@@ -4329,8 +4357,9 @@ export default function PostScreen() {
           position: 'relative',
           overflow: 'hidden',
         }}>
-          {selectedVideo ? (
+          {isFocused && selectedVideo ? (
             <Video
+              ref={videoRef}
               source={{
                 uri: selectedVideo,
                 overrideFileExtensionAndroid: (selectedVideo.toLowerCase().includes('m3u8') || selectedVideo.toLowerCase().includes('hls')) ? 'm3u8' : 'mp4'

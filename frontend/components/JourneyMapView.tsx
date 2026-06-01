@@ -65,6 +65,25 @@ export default function JourneyMapView({
 }: JourneyMapViewProps) {
   const { theme } = useTheme();
   const mapRef = useRef<any>(null);
+
+  interface RegionData {
+    latitude: number;
+    longitude: number;
+    latitudeDelta: number;
+    longitudeDelta: number;
+  }
+
+  const regionDataRef = useRef<RegionData | null>(null);
+
+  const handleRegionChange = (region: RegionData) => {
+    // Keep in ref only to prevent re-renders
+    regionDataRef.current = region;
+  };
+
+  const handleRegionChangeComplete = (region: RegionData) => {
+    regionDataRef.current = region;
+  };
+
   const [mapReady, setMapReady] = useState(false);
   const [selectedWaypoint, setSelectedWaypoint] = useState<Waypoint | null>(null);
   const [activeJourneyDetails, setActiveJourneyDetails] = useState<{

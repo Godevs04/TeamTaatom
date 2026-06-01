@@ -227,6 +227,16 @@ function AllLocationsMapInner() {
   const [currentCountry, setCurrentCountry] = useState<string | null>(null);
   const [currentCountryCode, setCurrentCountryCode] = useState<string | null>(null);
   const [currentRegion, setCurrentRegion] = useState<any>(null);
+  const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimeoutRef.current) {
+        clearTimeout(debounceTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const [statistics, setStatistics] = useState<{
     totalLocations: number;
     totalDistance: number;
@@ -254,11 +264,16 @@ function AllLocationsMapInner() {
   const [headerCardHeight, setHeaderCardHeight] = useState(180);
   const { theme, mode, isDark } = useTheme();
   const mapStyle = useMapStyle();
-  const { showAlert, showError, showDestructiveConfirm } = useAlert();
+  const { showAlert, showError, showSuccess, showDestructiveConfirm } = useAlert();
 
   const recenterOnUser = async () => {
     try {
-      const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+      const currentPerm = await ExpoLocation.getForegroundPermissionsAsync();
+      let status = currentPerm.status;
+      if (status === 'undetermined') {
+        const requested = await ExpoLocation.requestForegroundPermissionsAsync();
+        status = requested.status;
+      }
       if (status !== 'granted') {
         showError('Location permission is required to center on your location.', 'Permission Denied');
         return;
@@ -449,7 +464,12 @@ function AllLocationsMapInner() {
   }, []);
 
   const handleRegionChangeComplete = useCallback((newRegion: any) => {
-    setCurrentRegion(newRegion);
+    if (debounceTimeoutRef.current) {
+      clearTimeout(debounceTimeoutRef.current);
+    }
+    debounceTimeoutRef.current = setTimeout(() => {
+      setCurrentRegion(newRegion);
+    }, 200);
   }, []);
 
   const carouselRef = useRef<FlatList>(null);
@@ -544,7 +564,12 @@ function AllLocationsMapInner() {
     let cancelled = false;
     (async () => {
       try {
-        const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+        const currentPerm = await ExpoLocation.getForegroundPermissionsAsync();
+        let status = currentPerm.status;
+        if (status === 'undetermined') {
+          const requested = await ExpoLocation.requestForegroundPermissionsAsync();
+          status = requested.status;
+        }
         if (status !== 'granted' || cancelled) return;
         const loc = await ExpoLocation.getCurrentPositionAsync({
           accuracy: ExpoLocation.Accuracy.Balanced,
@@ -665,24 +690,17 @@ function AllLocationsMapInner() {
     }
   };
 
-  const handleStopJourney = () => {
-    showDestructiveConfirm(
-      'This will complete your current journey.',
-      async () => {
-        try {
-          setJourneyActionLoading(true);
-          await stopJourneyRecording();
-          router.push('/navigate/complete');
-        } catch (err: any) {
-          showError(err?.message || 'Unknown error', 'Failed to end journey');
-        } finally {
-          setJourneyActionLoading(false);
-        }
-      },
-      'End Journey?',
-      'End Journey',
-      'Cancel'
-    );
+  const handleStopJourney = async () => {
+    try {
+      setJourneyActionLoading(true);
+      await stopJourneyRecording();
+      showSuccess('Journey Saved!', 'Your journey has been saved successfully.');
+      router.push('/navigate/complete');
+    } catch (err: any) {
+      showError(err?.message || 'Unknown error', 'Failed to end journey');
+    } finally {
+      setJourneyActionLoading(false);
+    }
   };
 
   const openJourneyCapture = (type: 'photo' | 'short') => {
@@ -704,7 +722,12 @@ function AllLocationsMapInner() {
         let lng: number | null = null;
 
         if (isOwnPage) {
-          const { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+          const currentPerm = await ExpoLocation.getForegroundPermissionsAsync();
+          let status = currentPerm.status;
+          if (status === 'undetermined') {
+            const requested = await ExpoLocation.requestForegroundPermissionsAsync();
+            status = requested.status;
+          }
           if (status !== 'granted') return;
 
           const loc = await ExpoLocation.getCurrentPositionAsync({
@@ -1309,6 +1332,8 @@ function initMap(){
 </body></html>`;
   }, [locations, journeys, mapFilter, getMapRegion, WEBVIEW_API_KEY, mapStyle.customMapStyle, mapStyle.routeColor, mapStyle.routeGlowColor, selectedLocation]);
 
+  const webViewSource = useMemo(() => ({ html: getWebMapHTML() }), [getWebMapHTML]);
+
   // ──────────────────────────────────────────────────────
   // renderMap — native MapView preferred, WebView fallback
   // ──────────────────────────────────────────────────────
@@ -1328,7 +1353,7 @@ function initMap(){
       return (
         <WebView
           ref={mapRef}
-          source={{ html: getWebMapHTML() }}
+          source={webViewSource}
           style={styles.map}
           javaScriptEnabled={true}
           domStorageEnabled={true}

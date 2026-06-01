@@ -10,10 +10,10 @@ import {
   Dimensions,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
+import NavBar from '../../components/NavBar';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import { getPostById } from '../../services/posts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -69,14 +69,8 @@ export default function SavedPostsScreen() {
     try {
       setLoading(true);
       
-      const [postsArr, shortsArr] = await Promise.all([
-        readSavedIds('savedPosts'),
-        readSavedIds('savedShorts'),
-      ]);
-      
-      // Combine and deduplicate
-      const allIds = [...postsArr, ...shortsArr];
-      const uniqueIds = Array.from(new Set(allIds));
+      const postsArr = await readSavedIds('savedPosts');
+      const uniqueIds = Array.from(new Set(postsArr));
       
       if (uniqueIds.length === 0) {
         setPosts([]);
@@ -105,7 +99,7 @@ export default function SavedPostsScreen() {
         batchResults.forEach((r, itemIndex) => {
           if (r.status === 'fulfilled') {
             const val: any = (r as any).value;
-            const item = val.post || val;
+            const item = val?.data?.post || val?.post || val;
             if (item && item._id) {
               if (!itemMap.has(item._id)) {
                 itemMap.set(item._id, item);
@@ -123,11 +117,7 @@ export default function SavedPostsScreen() {
 
       if (failedIds.length > 0) {
         const cleanedPosts = postsArr.filter(id => !failedIds.includes(id));
-        const cleanedShorts = shortsArr.filter(id => !failedIds.includes(id));
-        await Promise.all([
-          AsyncStorage.setItem('savedPosts', JSON.stringify(cleanedPosts)),
-          AsyncStorage.setItem('savedShorts', JSON.stringify(cleanedShorts)),
-        ]);
+        await AsyncStorage.setItem('savedPosts', JSON.stringify(cleanedPosts));
         logger.debug(`Cleaned up ${failedIds.length} unavailable saved posts`);
       }
       
@@ -169,12 +159,16 @@ export default function SavedPostsScreen() {
       if (postIndex !== -1) {
         // Small delay to ensure FlatList is rendered
         setTimeout(() => {
-          flatListRef.current?.scrollToIndex({
-            index: postIndex,
-            animated: true,
-            viewPosition: 0.5, // Center the post in the view
-          });
-        }, 300);
+          try {
+            flatListRef.current?.scrollToIndex({
+              index: postIndex,
+              animated: false,
+              viewPosition: 0, // Align post to the top of the view instantly
+            });
+          } catch (error) {
+            logger.debug('Initial scrollToIndex failed:', error);
+          }
+        }, 100);
       }
     }
   }, [postId, posts]);
@@ -196,29 +190,26 @@ export default function SavedPostsScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Saved Posts</Text>
-        </View>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <NavBar
+          title="Saved Posts"
+          showBack={true}
+          onBack={() => router.back()}
+        />
         <View style={styles.loadingContainer}>
           <LoadingGlobe size="large" color={theme.colors.primary} />
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Saved Posts</Text>
-      </View>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <NavBar
+        title="Saved Posts"
+        showBack={true}
+        onBack={() => router.back()}
+      />
 
       {/* Posts List */}
       {posts.length > 0 ? (
@@ -239,34 +230,24 @@ export default function SavedPostsScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 20 }}
           onScrollToIndexFailed={(info) => {
-            // Fallback if scrollToIndex fails
-            logger.debug('Scroll to index failed:', info);
-            // Retry after a delay
+            logger.debug('Scroll to index failed, applying offset fallback:', info);
+            const offset = info.averageItemLength * info.index;
+            flatListRef.current?.scrollToOffset({ offset, animated: false });
             setTimeout(() => {
-              if (postId && flatListRef.current) {
-                const postIndex = posts.findIndex(post => post._id === postId);
-                if (postIndex !== -1) {
-                  flatListRef.current?.scrollToIndex({
-                    index: postIndex,
-                    animated: true,
-                  });
-                }
+              try {
+                flatListRef.current?.scrollToIndex({
+                  index: info.index,
+                  animated: false,
+                  viewPosition: 0,
+                });
+              } catch (e) {
+                logger.error('Scroll fallback failed:', e);
               }
-            }, 500);
+            }, 50);
           }}
         />
-      ) : (
-        <View style={styles.emptyContainer}>
-          <View style={styles.emptyIcon}>
-            <Ionicons name="bookmark-outline" size={64} color={theme.colors.textSecondary} />
-          </View>
-          <Text style={[styles.emptyTitle, { color: theme.colors.text }]}>No Saved Posts</Text>
-          <Text style={[styles.emptyMessage, { color: theme.colors.textSecondary }]}>
-            Save posts you love to view later
-          </Text>
-        </View>
-      )}
-    </SafeAreaView>
+      ) : null}
+    </View>
   );
 }
 

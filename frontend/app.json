@@ -49,7 +49,7 @@
           "tel",
           "sms"
         ],
-        "NSPrivacyPolicyURL": "http://10.212.214.180:3001/policies/privacy"
+        "NSPrivacyPolicyURL": "http://10.55.107.180:3001/policies/privacy"
       },
       "config": {
         "usesNonExemptEncryption": false,
@@ -173,6 +173,43 @@
         {
           "androidAppId": "ca-app-pub-6362359854686661~6880786152",
           "iosAppId": "ca-app-pub-6362359854606661~9610954911",
+          "userTrackingUsageDescription": "This identifier will be used to deliver personalized ads to you.",
+          "skAdNetworkItems": [
+            "cstr6suwn9.skadnetwork",
+            "4fzdc2evr5.skadnetwork",
+            "2fnua5tdw4.skadnetwork",
+            "ydx93a7ass.skadnetwork",
+            "5a6flpkh64.skadnetwork",
+            "p78axxw29g.skadnetwork",
+            "v72qych5uu.skadnetwork",
+            "c6k4g5qg8m.skadnetwork",
+            "s39g8k73mm.skadnetwork",
+            "3qy4746246.skadnetwork",
+            "3sh42y64q3.skadnetwork",
+            "f38h382jlk.skadnetwork",
+            "hs6bdukanm.skadnetwork",
+            "prcb7njmu6.skadnetwork",
+            "v4nxqhlyqp.skadnetwork",
+            "wzme5xr556.skadnetwork",
+            "yclnxrl5pm.skadnetwork",
+            "t38b2kh725.skadnetwork",
+            "7ug5zh24hu.skadnetwork",
+            "9rd848q2bz.skadnetwork",
+            "y5ghdn5j9k.skadnetwork",
+            "n38lu8286q.skadnetwork",
+            "47vhws6wlr.skadnetwork",
+            "kbd7576vr8.skadnetwork",
+            "9t245vhmg4.skadnetwork",
+            "a2p9lx4jpn.skadnetwork",
+            "22mmun2rn5.skadnetwork",
+            "3rd42ekr43.skadnetwork",
+            "ludvb6z3bs.skadnetwork",
+            "cp8zw746q7.skadnetwork",
+            "mlmmfzh3r3.skadnetwork",
+            "5lm9lj6db7.skadnetwork",
+            "7953jerfzd.skadnetwork",
+            "9g2yud58w2.skadnetwork"
+          ],
           "delayAppMeasurementInit": true
         }
       ],
@@ -187,8 +224,8 @@
       "fallbackToCacheTimeout": 0
     },
     "extra": {
-      "API_BASE_URL": "http://10.212.214.180:5000",
-      "WEB_SHARE_URL": "http://10.212.214.180:3001",
+      "API_BASE_URL": "http://10.55.107.180:5000",
+      "WEB_SHARE_URL": "http://10.55.107.180:3001",
       "GOOGLE_MAPS_API_KEY": "AIzaSyDPPZ2YVRvuQXpn2mB_mjp1Z1s133gqNhU",
       "LOGO_IMAGE": "https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png",
       "EXPO_PROJECT_ID": "c3b80b3d-23d8-4948-abfa-80963e4192d0",
@@ -196,9 +233,9 @@
       "GOOGLE_CLIENT_ID_IOS": "139138195988-kclhcnave5urmm7ob2o2erkebp9o4f90.apps.googleusercontent.com",
       "GOOGLE_CLIENT_ID_ANDROID": "139138195988-kclhcnave5urmm7ob2o2erkebp9o4f90.apps.googleusercontent.com",
       "GOOGLE_REDIRECT_URI": "https://auth.expo.io/@taatom/taatom",
-      "PRIVACY_POLICY_URL": "http://10.212.214.180:3001/policies/privacy",
-      "TERMS_OF_SERVICE_URL": "http://10.212.214.180:3001/policies/terms",
-      "SUPPORT_URL": "http://10.212.214.180:3001/support/contact",
+      "PRIVACY_POLICY_URL": "http://10.55.107.180:3001/policies/privacy",
+      "TERMS_OF_SERVICE_URL": "http://10.55.107.180:3001/policies/terms",
+      "SUPPORT_URL": "http://10.55.107.180:3001/support/contact",
       "router": {},
       "eas": {
         "projectId": "c3b80b3d-23d8-4948-abfa-80963e4192d0"
