@@ -384,6 +384,26 @@ async function processJob(job, Post) {
         if (file === 'index.m3u8') {
           masterPlaylistUrl = uploadResult.url;
         }
+    if (customThumbnailKey) {
+      uploadedKeys.push(customThumbnailKey);
+      logger.debug(`[transcodeWorker] Preserved custom thumbnail: ${customThumbnailKey}`);
+    } else {
+      // Auto-extract thumbnail
+      const tempThumbPath = tmpFile('thumb.jpg');
+      try {
+        logger.debug(`[transcodeWorker] Extracting thumbnail from video: ${tempInPath}`);
+        await extractThumbnail(tempInPath, tempThumbPath);
+
+        const thumbBuffer = fs.readFileSync(tempThumbPath);
+        const thumbS3Key = `shorts/hls/${postId}/thumbnail.jpg`;
+        logger.debug(`[transcodeWorker] Uploading auto-generated thumbnail to S3: ${thumbS3Key}`);
+        const uploadResult = await uploadObject(thumbBuffer, thumbS3Key, 'image/jpeg');
+        uploadedKeys.push(thumbS3Key);
+        finalImageUrl = uploadResult.url || '';
+      } catch (thumbErr) {
+        logger.error('[transcodeWorker] Failed to extract/upload thumbnail:', thumbErr);
+      } finally {
+        try { fs.unlinkSync(tempThumbPath); } catch (_) { /* tempfile may already be gone */ }
       }
 
       if (!masterPlaylistUrl) {
@@ -464,7 +484,7 @@ async function processJob(job, Post) {
     }
 
   } finally {
-    try { fs.unlinkSync(tempInPath); } catch (_) {}
+    try { fs.unlinkSync(tempInPath); } catch (_) { /* tempfile may already be gone */ }
     try {
       if (fs.existsSync(tempOutDir)) {
         const files = fs.readdirSync(tempOutDir);
