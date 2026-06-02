@@ -354,7 +354,7 @@ async function processJob(job, Post) {
       } catch (thumbErr) {
         logger.error('[transcodeWorker] Failed to extract/upload thumbnail:', thumbErr);
       } finally {
-        try { fs.unlinkSync(tempThumbPath); } catch (_) {}
+        try { fs.unlinkSync(tempThumbPath); } catch (_) { /* tempfile may already be gone */ }
       }
     }
 
@@ -371,14 +371,14 @@ async function processJob(job, Post) {
     await deleteObject(rawKey);
 
   } finally {
-    try { fs.unlinkSync(tempInPath); } catch (_) {}
+    try { fs.unlinkSync(tempInPath); } catch (_) { /* tempfile may already be gone */ }
     try {
       const files = fs.readdirSync(tempOutDir);
       for (const file of files) {
         fs.unlinkSync(path.join(tempOutDir, file));
       }
       fs.rmdirSync(tempOutDir);
-    } catch (_) {}
+    } catch (_) { /* cleanup dir may already be gone */ }
   }
 }
 
