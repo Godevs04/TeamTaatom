@@ -462,6 +462,17 @@ export const toggleLike = async (postId: string): Promise<{ message: string; isL
   }
 };
 
+// Increment post/short share count
+export const incrementShareCount = async (postId: string): Promise<{ message: string; sharesCount: number }> => {
+  try {
+    const response = await api.post(`/api/v1/posts/${postId}/share`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};
+
 // Add comment to post
 export const addComment = async (postId: string, text: string): Promise<{ message: string; comment: any }> => {
   try {

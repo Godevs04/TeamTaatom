@@ -1,11 +1,15 @@
-import React from 'react';
-import { View, StyleSheet, TouchableOpacity, Pressable, Text } from 'react-native';
+import React, { useState } from 'react';
+import { View, StyleSheet, TouchableOpacity, Pressable, Text, FlatList, ActivityIndicator, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaskedView from '@react-native-masked-view/masked-view';
+import { useRouter } from 'expo-router';
+import { getPostById } from '../../services/posts';
+import { getProfile } from '../../services/profile';
+import { GlassModal } from '../ui/GlassModal';
 
 function GradientIcon({ name, size }: { name: any; size: number }) {
   return (
@@ -33,6 +37,7 @@ interface ShortsActionsProps {
   isLiked: boolean;
   likesCount: number;
   commentsCount: number;
+  sharesCount: number;
   isSaved: boolean;
   isFollowing: boolean;
   isOwn: boolean;
@@ -52,6 +57,7 @@ const ShortsActions = ({
   isLiked,
   likesCount,
   commentsCount,
+  sharesCount,
   isSaved,
   isFollowing,
   isOwn,
@@ -63,7 +69,11 @@ const ShortsActions = ({
   onSavePress,
 }: ShortsActionsProps) => {
   const { theme } = useTheme();
+  const router = useRouter();
   const { showOptions, showSuccess } = useAlert();
+  const [showModal, setShowModal] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [likers, setLikers] = useState<any[]>([]);
 
   const handleOptionsPress = () => {
     showOptions(
@@ -89,6 +99,35 @@ const ShortsActions = ({
       true,
       'Cancel'
     );
+  };
+
+  const handleLikesPress = async () => {
+    setShowModal(true);
+    setLoading(true);
+    try {
+      const data = await getPostById(shortId);
+      const likes = data?.data?.post?.likes || data?.post?.likes || data?.likes || [];
+      if (likes.length > 0) {
+        // Fetch profiles in parallel
+        const profiles = await Promise.all(
+          likes.map(async (userId: string) => {
+            try {
+              const res = await getProfile(userId);
+              return res?.profile || null;
+            } catch (err) {
+              return null;
+            }
+          })
+        );
+        setLikers(profiles.filter(Boolean));
+      } else {
+        setLikers([]);
+      }
+    } catch (error) {
+      console.warn('Failed to load likers for short:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -131,33 +170,38 @@ const ShortsActions = ({
       </TouchableOpacity>
 
       {/* 2. Like Button */}
-      <Pressable
-        style={styles.actionButton}
-        onPress={() => onLikePress(shortId)}
-        disabled={actionLoading}
-        accessibilityLabel={isLiked ? `Unlike, ${likesCount} likes` : `Like, ${likesCount} likes`}
-        accessibilityRole="button"
-        accessibilityState={{ disabled: actionLoading }}
-      >
-        <View
-          style={[
-            styles.iconContainer,
-            { backgroundColor: theme.colors.glassSurface, borderColor: theme.colors.glassBorder },
-            isLiked && styles.likedContainer,
-          ]}
+      <View style={styles.actionButton}>
+        <Pressable
+          onPress={() => onLikePress(shortId)}
+          disabled={actionLoading}
+          accessibilityLabel={isLiked ? 'Unlike' : 'Like'}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: actionLoading }}
         >
-          {isLiked ? (
-            <GradientIcon name="heart" size={28} />
-          ) : (
-            <Ionicons
-              name="heart-outline"
-              size={28}
-              color="white"
-            />
-          )}
-        </View>
-        <Text style={styles.actionText}>{likesCount}</Text>
-      </Pressable>
+          <View
+            style={[
+              styles.iconContainer,
+              { backgroundColor: theme.colors.glassSurface, borderColor: theme.colors.glassBorder },
+              isLiked && styles.likedContainer,
+            ]}
+          >
+            {isLiked ? (
+              <GradientIcon name="heart" size={28} />
+            ) : (
+              <Ionicons
+                name="heart-outline"
+                size={28}
+                color="white"
+              />
+            )}
+          </View>
+        </Pressable>
+        {likesCount > 0 && (
+          <TouchableOpacity onPress={handleLikesPress} activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}>
+            <Text style={styles.actionText}>{likesCount}</Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
       {/* 3. Comment Button */}
       <Pressable
@@ -172,7 +216,20 @@ const ShortsActions = ({
         <Text style={styles.actionText}>{commentsCount}</Text>
       </Pressable>
 
-      {/* 4. Options Button */}
+      {/* 4. Share Button */}
+      <Pressable
+        style={styles.actionButton}
+        onPress={onSharePress}
+        accessibilityLabel={`Share, ${sharesCount} shares`}
+        accessibilityRole="button"
+      >
+        <View style={[styles.iconContainer, { backgroundColor: theme.colors.glassSurface, borderColor: theme.colors.glassBorder }]}>
+          <GradientIcon name="paper-plane-outline" size={28} />
+        </View>
+        <Text style={styles.actionText}>{sharesCount}</Text>
+      </Pressable>
+
+      {/* 5. Options Button */}
       <Pressable
         style={styles.actionButton}
         onPress={handleOptionsPress}
@@ -183,6 +240,57 @@ const ShortsActions = ({
           <GradientIcon name="ellipsis-horizontal" size={28} />
         </View>
       </Pressable>
+
+      {/* Likes Detail View Modal */}
+      <GlassModal visible={showModal} onClose={() => setShowModal(false)} style={styles.modalContentStyle}>
+        <View style={styles.modalHeader}>
+          <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Likes</Text>
+          <TouchableOpacity onPress={() => setShowModal(false)} style={styles.closeButton}>
+            <Ionicons name="close" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+        </View>
+
+        {loading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={theme.colors.primary} />
+          </View>
+        ) : likers.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Text style={[styles.emptyText, { color: theme.colors.textSecondary }]}>No likes yet</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={likers}
+            keyExtractor={(item) => item._id}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={styles.userRow}
+                onPress={() => {
+                  setShowModal(false);
+                  router.push(`/profile/${item._id}`);
+                }}
+              >
+                {item.profilePic ? (
+                  <Image source={{ uri: item.profilePic }} style={styles.avatar} />
+                ) : (
+                  <View style={[styles.avatarPlaceholder, { backgroundColor: theme.colors.border }]}>
+                    <Ionicons name="person" size={20} color={theme.colors.textSecondary} />
+                  </View>
+                )}
+                <View style={styles.userInfo}>
+                  <Text style={[styles.fullName, { color: theme.colors.text }]}>{item.fullName}</Text>
+                  {item.username && (
+                    <Text style={[styles.username, { color: theme.colors.textSecondary }]}>@{item.username}</Text>
+                  )}
+                </View>
+              </TouchableOpacity>
+            )}
+            style={styles.list}
+            contentContainerStyle={styles.listContent}
+            nestedScrollEnabled={true}
+          />
+        )}
+      </GlassModal>
     </View>
   );
 };
@@ -191,7 +299,7 @@ const styles = StyleSheet.create({
   rightActions: {
     position: 'absolute',
     right: 14,
-    bottom: 250,
+    bottom: 190,
     width: 60,
     alignItems: 'center',
     justifyContent: 'center',
@@ -199,7 +307,7 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     alignItems: 'center',
-    marginBottom: 22,
+    marginBottom: 16,
     width: '100%',
   },
   iconContainer: {
@@ -264,6 +372,69 @@ const styles = StyleSheet.create({
   },
   followingActive: {
     backgroundColor: '#00C853',
+  },
+  modalContentStyle: {
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  closeButton: {
+    padding: 4,
+  },
+  loadingContainer: {
+    paddingVertical: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyContainer: {
+    paddingVertical: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    fontSize: 15,
+  },
+  list: {
+    maxHeight: 500,
+  },
+  listContent: {
+    paddingBottom: 24,
+  },
+  userRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  avatarPlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  userInfo: {
+    marginLeft: 12,
+  },
+  fullName: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  username: {
+    fontSize: 13,
+    marginTop: 2,
   },
 });
 

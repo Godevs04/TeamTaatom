@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import NavBar from '../../components/NavBar';
+import { LinearGradient } from 'expo-linear-gradient';
 import { getArchivedPosts, getHiddenPosts, unarchivePost, unhidePost } from '../../services/posts';
 import { PostType } from '../../types/post';
 import CustomAlert from '../../components/CustomAlert';
@@ -355,23 +356,29 @@ export default function ManagePostsScreen() {
                   </View>
                   <TouchableOpacity
                     style={[
-                      styles.restoreButton,
+                      styles.restoreButtonContainer,
                       {
-                        backgroundColor: theme.colors.primary,
                         opacity: processingIds.has(post._id) ? 0.6 : 1,
                       },
                     ]}
                     onPress={() => confirmRestore(post._id, activeTab)}
                     disabled={processingIds.has(post._id)}
                   >
-                    {processingIds.has(post._id) ? (
-                      <LoadingGlobe size="small" color="#FFFFFF" />
-                    ) : (
-                      <>
-                        <Ionicons name="return-up-back" size={18} color="#FFFFFF" />
-                        <Text style={styles.restoreButtonText}>Restore</Text>
-                      </>
-                    )}
+                    <LinearGradient
+                      colors={['#50C878', '#1C73B4']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                      style={styles.restoreButton}
+                    >
+                      {processingIds.has(post._id) ? (
+                        <LoadingGlobe size="small" color="#FFFFFF" />
+                      ) : (
+                        <>
+                          <Ionicons name="return-up-back" size={18} color="#FFFFFF" />
+                          <Text style={styles.restoreButtonText}>Restore</Text>
+                        </>
+                      )}
+                    </LinearGradient>
                   </TouchableOpacity>
                 </View>
               ))}
@@ -537,6 +544,9 @@ const styles = StyleSheet.create({
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
+  },
+  restoreButtonContainer: {
+    overflow: 'hidden',
   },
   restoreButton: {
     flexDirection: 'row',

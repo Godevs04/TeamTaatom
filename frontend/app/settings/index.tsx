@@ -16,7 +16,6 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import NavBar from '../../components/NavBar';
 import { LinearGradient } from 'expo-linear-gradient';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   CloudSkyBackground,
   CloudGlassSurface,
@@ -245,12 +244,12 @@ export default function SettingsScreen() {
   if (isLoading) {
     return (
       <View style={[styles.container, { backgroundColor: isDark ? '#000000' : '#FFFFFF' }]}>
-        <SafeAreaView style={styles.safeFill} edges={['top']}>
-        <NavBar title="Settings" showBack onBack={() => router.back()} />
-        <View style={styles.loadingContainer}>
-          <LoadingGlobe size="large" color={theme.colors.primary} />
+        <View style={styles.safeFill}>
+          <NavBar title="Settings" showBack onBack={() => router.back()} />
+          <View style={styles.loadingContainer}>
+            <LoadingGlobe size="large" color={theme.colors.primary} />
+          </View>
         </View>
-        </SafeAreaView>
       </View>
     );
   }
@@ -266,7 +265,7 @@ export default function SettingsScreen() {
         style={StyleSheet.absoluteFillObject}
         locations={isDark ? [0, 0.3, 1] : [0, 0.22, 0.55, 1]}
       />
-      <SafeAreaView style={styles.safeFill} edges={['top']}>
+      <View style={styles.safeFill}>
       <NavBar 
         title="Settings" 
         showBack={true}
@@ -356,7 +355,7 @@ export default function SettingsScreen() {
           </Text>
         </View>
       </ScrollView>
-      </SafeAreaView>
+      </View>
     </View>
   );
 }

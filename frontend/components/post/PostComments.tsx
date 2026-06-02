@@ -13,6 +13,8 @@ import {
   Animated,
   Keyboard,
   KeyboardAvoidingView,
+  ActionSheetIOS,
+  Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -253,6 +255,44 @@ export default function PostComments({
     );
   };
 
+  const handleMoreOptions = () => {
+    const options = ['Sort by Top', 'Sort by Newest', 'Close Comments', 'Cancel'];
+    const destructiveButtonIndex = 2;
+    const cancelButtonIndex = 3;
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options,
+          cancelButtonIndex,
+          destructiveButtonIndex,
+          title: 'Comment Options',
+        },
+        (buttonIndex) => {
+          if (buttonIndex === 0) {
+            showCustomAlertMessage('Sort', 'Sort by Top is not connected to backend yet.', 'info');
+          } else if (buttonIndex === 1) {
+            showCustomAlertMessage('Sort', 'Sort by Newest is not connected to backend yet.', 'info');
+          } else if (buttonIndex === 2) {
+            handleClose();
+          }
+        }
+      );
+    } else {
+      Alert.alert(
+        'Comment Options',
+        'Select an option:',
+        [
+          { text: 'Sort by Top', onPress: () => showCustomAlertMessage('Sort', 'Sort by Top is not connected to backend yet.', 'info') },
+          { text: 'Sort by Newest', onPress: () => showCustomAlertMessage('Sort', 'Sort by Newest is not connected to backend yet.', 'info') },
+          { text: 'Close Comments', onPress: () => handleClose(), style: 'destructive' },
+          { text: 'Cancel', style: 'cancel' },
+        ],
+        { cancelable: true }
+      );
+    }
+  };
+
   const handleClose = () => {
     setNewComment('');
     setIsSubmitting(false);
@@ -328,7 +368,11 @@ export default function PostComments({
               <Text style={[styles.headerTitle, { color: theme.colors.text }]}>
                 Comments ({comments.length})
               </Text>
-              <TouchableOpacity style={styles.moreButton}>
+              <TouchableOpacity 
+                style={styles.moreButton}
+                onPress={handleMoreOptions}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
                 <Ionicons name="ellipsis-horizontal" size={20} color={theme.colors.text} />
               </TouchableOpacity>
             </View>
