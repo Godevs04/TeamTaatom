@@ -133,6 +133,38 @@ export async function hidePost(postId: string) {
   return res.data as { message?: string };
 }
 
+export async function unarchivePost(postId: string) {
+  const res = await api.patch(`/posts/${postId}/unarchive`);
+  return res.data as { message?: string; post?: Post };
+}
+
+export async function unhidePost(postId: string) {
+  const res = await api.patch(`/posts/${postId}/unhide`);
+  return res.data as { message?: string; post?: Post };
+}
+
+export async function getArchivedPosts(page = 1, limit = 20) {
+  const res = await api.get("/posts/archived", { params: { page, limit } });
+  return res.data as {
+    success?: boolean;
+    posts: Post[];
+    page?: number;
+    limit?: number;
+    total?: number;
+  };
+}
+
+export async function getHiddenPosts(page = 1, limit = 20) {
+  const res = await api.get("/posts/hidden", { params: { page, limit } });
+  return res.data as {
+    success?: boolean;
+    posts: Post[];
+    page?: number;
+    limit?: number;
+    total?: number;
+  };
+}
+
 export type ReportReason =
   | "spam"
   | "abuse"
@@ -188,12 +220,12 @@ export async function followProfile(userId: string) {
 
 export async function getBlockStatus(userId: string) {
   const res = await api.get(`/profile/${userId}/block-status`);
-  return res.data as { blocked: boolean };
+  return res.data as { isBlocked: boolean };
 }
 
 export async function blockUser(userId: string) {
   const res = await api.post(`/profile/${userId}/block`);
-  return res.data as { blocked: boolean; message?: string };
+  return res.data as { isBlocked: boolean; message?: string };
 }
 
 export async function getFollowRequests() {
@@ -208,6 +240,28 @@ export async function approveFollowRequest(requestId: string) {
 
 export async function rejectFollowRequest(requestId: string) {
   const res = await api.post(`/profile/follow-requests/${requestId}/reject`);
+  return res.data as { message?: string };
+}
+
+export type RouteAccessRequest = {
+  _id: string;
+  user?: User;
+  requestedAt?: string;
+};
+
+export async function getRouteAccessRequests() {
+  const res = await api.get("/profile/route-access/requests");
+  const data = res.data as { requests?: RouteAccessRequest[] };
+  return { requests: data.requests ?? [] };
+}
+
+export async function approveRouteAccess(requestId: string) {
+  const res = await api.post(`/profile/route-access/requests/${requestId}/approve`);
+  return res.data as { message?: string };
+}
+
+export async function rejectRouteAccess(requestId: string) {
+  const res = await api.post(`/profile/route-access/requests/${requestId}/reject`);
   return res.data as { message?: string };
 }
 

@@ -115,7 +115,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                   className={cn(
                     "flex items-center gap-3 rounded-xl px-4 py-3 text-[15px] font-medium transition-all duration-200",
                     active
-                      ? "bg-primary text-primary-foreground shadow-lg shadow-primary/20"
+                      ? "bg-primary text-on-primary shadow-lg shadow-primary/20 [&_svg]:text-white"
                       : "border border-transparent text-slate-600 hover:border-premium hover:bg-white hover:text-slate-900 hover:shadow-premium dark:text-zinc-300 dark:hover:border-zinc-700/80 dark:hover:bg-zinc-800/90 dark:hover:text-white dark:hover:shadow-premium"
                   )}
                 >

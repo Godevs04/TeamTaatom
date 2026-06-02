@@ -16,6 +16,7 @@ import {
   X,
   User,
   ShoppingBag,
+  Pencil,
 } from "lucide-react";
 import {
   connectGetPageDetail,
@@ -334,6 +335,26 @@ export default function ConnectPageDetailPage() {
                       Dashboard
                     </Link>
                   </Button>
+                  {page.features?.website && (
+                    <Button asChild variant="outline" size="sm">
+                      <Link
+                        href={`/connect/edit-content?pageId=${page._id}&section=website&category=${isCommunityPage ? "community" : "connect"}`}
+                      >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Edit website
+                      </Link>
+                    </Button>
+                  )}
+                  {showSubTab && (
+                    <Button asChild variant="outline" size="sm">
+                      <Link
+                        href={`/connect/edit-content?pageId=${page._id}&section=subscription&category=${isCommunityPage ? "community" : "connect"}`}
+                      >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Edit {isCommunityPage ? "buy" : "subscription"} content
+                      </Link>
+                    </Button>
+                  )}
                   {showSubTab && hasPrice && priceApproved && (
                     <Button
                       type="button"

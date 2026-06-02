@@ -76,7 +76,7 @@ export default function ChatListPage() {
           <button
             type="button"
             onClick={() => refetch()}
-            className="mt-4 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-95"
+            className="mt-4 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-on-primary hover:opacity-95"
           >
             Try again
           </button>
@@ -90,7 +90,7 @@ export default function ChatListPage() {
           <p className="mt-2 text-[15px] text-slate-500 dark:text-zinc-400">Start a chat from a user&apos;s profile.</p>
           <Link
             href="/search"
-            className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:opacity-95"
+            className="mt-6 inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-on-primary shadow-lg shadow-primary/25 hover:opacity-95"
           >
             Find people
           </Link>

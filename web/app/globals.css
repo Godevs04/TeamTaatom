@@ -5,7 +5,7 @@
 @layer base {
   :root {
     --background: 255 255 255;
-    --foreground: 0 0 0;
+    --foreground: 0 0% 9%;
 
     --glass-surface: 255 255 255;
     --glass-opacity-base: 0.85;
@@ -15,30 +15,30 @@
     --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.08);
     --glass-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.20) 0%, rgba(255, 255, 255, 0) 100%);
 
-    --card: 255 255 255;
-    --card-foreground: 0 0 0;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 9%;
 
-    --popover: 255 255 255;
-    --popover-foreground: 0 0 0;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 9%;
 
     --primary: 206 63% 41%; /* Ocean Blue #1C73B4 */
-    --primary-foreground: 255 255 255;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 255 255 255;
-    --secondary-foreground: 0 0 0;
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 9%;
 
-    --muted: 255 255 255;
-    --muted-foreground: 0 0 0 / 55%;
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
 
     --accent: 147 50% 55%; /* Emerald Green #50C878 */
-    --accent-foreground: 255 255 255;
+    --accent-foreground: 0 0% 100%;
 
     --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 255 255 255;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 28 115 180 / 0.15;
-    --input: 28 115 180 / 0.15;
-    --ring: 28 115 180 / 0.15;
+    --border: 206 63% 41% / 0.15;
+    --input: 206 63% 41% / 0.15;
+    --ring: 206 63% 41% / 0.35;
 
     --radius: 14px;
   }
@@ -55,32 +55,32 @@
     --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.60);
     --glass-gradient: linear-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0) 100%);
 
-    --foreground: 255 255 255;
+    --foreground: 0 0% 98%;
 
-    --card: 0 0 0;
-    --card-foreground: 255 255 255;
+    --card: 0 0% 7%;
+    --card-foreground: 0 0% 98%;
 
-    --popover: 0 0 0;
-    --popover-foreground: 255 255 255;
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 98%;
 
     --primary: 206 63% 41%; /* Ocean Blue #1C73B4 */
-    --primary-foreground: 255 255 255;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 0 0 0;
-    --secondary-foreground: 255 255 255;
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 0 0% 98%;
 
-    --muted: 0 0 0;
-    --muted-foreground: 255 255 255 / 55%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 65%;
 
     --accent: 147 50% 55%; /* Emerald Green #50C878 */
-    --accent-foreground: 0 0 0;
+    --accent-foreground: 0 0% 9%;
 
     --destructive: 0 62.8% 40%;
-    --destructive-foreground: 255 255 255;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 28 115 180 / 0.15;
-    --input: 28 115 180 / 0.15;
-    --ring: 28 115 180 / 0.15;
+    --border: 206 63% 41% / 0.2;
+    --input: 206 63% 41% / 0.2;
+    --ring: 206 63% 41% / 0.4;
   }
 
   * {
@@ -217,7 +217,7 @@
     -webkit-backdrop-filter: blur(20px) saturate(190%) !important;
     border: 1.5px solid rgba(255, 255, 255, 0.3) !important;
     box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
-    text-shadow: 0 1px 1px rgba(255, 255, 255, 0.15);
+    text-shadow: none;
   }
 
   .dark .glassmorphism-premium {
@@ -226,6 +226,14 @@
     -webkit-backdrop-filter: blur(20px) saturate(170%) !important;
     border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
     box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37), inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
-    text-shadow: 0 1px 1px rgba(0, 0, 0, 0.2);
+    text-shadow: none;
+  }
+
+  /* Crisp labels on primary (ocean blue) surfaces — avoids muddy hsl mis-parse */
+  .text-on-primary {
+    color: #ffffff;
+    text-shadow: none;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }

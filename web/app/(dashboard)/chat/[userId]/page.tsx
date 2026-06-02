@@ -149,10 +149,10 @@ export default function ChatConversationPage() {
                   className={`max-w-[min(80%,360px)] rounded-2xl px-2 py-2 sm:px-3 sm:py-2.5 ${
                     postShare
                       ? isMe
-                        ? "bg-primary text-primary-foreground"
+                        ? "bg-primary text-on-primary"
                         : "bg-slate-100 text-slate-900 dark:bg-zinc-800 dark:text-zinc-100"
                       : isMe
-                        ? "bg-primary px-4 py-2.5 text-primary-foreground"
+                        ? "bg-primary px-4 py-2.5 text-on-primary"
                         : "bg-slate-100 px-4 py-2.5 text-slate-900 dark:bg-zinc-800 dark:text-zinc-100"
                   }`}
                 >
@@ -162,7 +162,7 @@ export default function ChatConversationPage() {
                     <p className="text-[15px] leading-snug">{text}</p>
                   )}
                   {msg.createdAt && (
-                    <p className={`mt-1.5 px-1 text-xs ${isMe ? "text-primary-foreground/80" : "text-slate-500 dark:text-zinc-400"}`}>
+                    <p className={`mt-1.5 px-1 text-xs ${isMe ? "text-white/80" : "text-slate-500 dark:text-zinc-400"}`}>
                       {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </p>
                   )}

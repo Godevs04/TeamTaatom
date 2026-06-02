@@ -171,16 +171,83 @@ export function cashfreeCheckoutUrl(paymentSessionId: string): string {
     : `https://sandbox.cashfree.com/pg/view/sessions/${paymentSessionId}`;
 }
 
-export async function connectUpdateWebsiteContent(pageId: string, content: ContentBlock[]) {
-  const res = await api.put(`/connect/page/${pageId}/website`, { content });
-  const d = res.data as { websiteContent?: ContentBlock[] };
-  return d.websiteContent ?? content;
+export async function connectGetWebsiteContent(pageId: string) {
+  const res = await api.get(`/connect/page/${pageId}/website`);
+  const d = res.data as {
+    websiteContent?: ContentBlock[];
+    websiteBackground?: string;
+    websiteTextColor?: string;
+  };
+  return {
+    websiteContent: d.websiteContent ?? [],
+    websiteBackground: d.websiteBackground ?? "",
+    websiteTextColor: d.websiteTextColor ?? "",
+  };
 }
 
-export async function connectUpdateSubscriptionContent(pageId: string, content: ContentBlock[]) {
-  const res = await api.put(`/connect/page/${pageId}/subscription`, { content });
-  const d = res.data as { subscriptionContent?: ContentBlock[] };
-  return d.subscriptionContent ?? content;
+export async function connectGetSubscriptionContent(pageId: string) {
+  const res = await api.get(`/connect/page/${pageId}/subscription`);
+  const d = res.data as {
+    subscriptionContent?: ContentBlock[];
+    subscriptionBackground?: string;
+    subscriptionTextColor?: string;
+  };
+  return {
+    subscriptionContent: d.subscriptionContent ?? [],
+    subscriptionBackground: d.subscriptionBackground ?? "",
+    subscriptionTextColor: d.subscriptionTextColor ?? "",
+  };
+}
+
+export async function connectUpdateWebsiteContent(
+  pageId: string,
+  content: ContentBlock[],
+  options?: { background?: string; textColor?: string }
+) {
+  const body: Record<string, unknown> = { content };
+  if (options?.background !== undefined) body.background = options.background;
+  if (options?.textColor !== undefined) body.textColor = options.textColor;
+  const res = await api.put(`/connect/page/${pageId}/website`, body);
+  const d = res.data as {
+    websiteContent?: ContentBlock[];
+    websiteBackground?: string;
+    websiteTextColor?: string;
+  };
+  return {
+    websiteContent: d.websiteContent ?? content,
+    websiteBackground: d.websiteBackground,
+    websiteTextColor: d.websiteTextColor,
+  };
+}
+
+export async function connectUpdateSubscriptionContent(
+  pageId: string,
+  content: ContentBlock[],
+  options?: { background?: string; textColor?: string }
+) {
+  const body: Record<string, unknown> = { content };
+  if (options?.background !== undefined) body.background = options.background;
+  if (options?.textColor !== undefined) body.textColor = options.textColor;
+  const res = await api.put(`/connect/page/${pageId}/subscription`, body);
+  const d = res.data as {
+    subscriptionContent?: ContentBlock[];
+    subscriptionBackground?: string;
+    subscriptionTextColor?: string;
+  };
+  return {
+    subscriptionContent: d.subscriptionContent ?? content,
+    subscriptionBackground: d.subscriptionBackground,
+    subscriptionTextColor: d.subscriptionTextColor,
+  };
+}
+
+export async function connectUploadContentImage(pageId: string, file: File) {
+  const form = new FormData();
+  form.append("image", file);
+  const res = await api.post(`/connect/page/${pageId}/content-image`, form, {
+    headers: { "Content-Type": undefined } as unknown as Record<string, string>,
+  });
+  return res.data as { storageKey?: string; signedUrl?: string };
 }
 
 export async function connectBuyItem(

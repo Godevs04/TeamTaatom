@@ -95,7 +95,7 @@ export default function AppearanceSettingsPage() {
                       className={cn(
                         "flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50",
                         selected
-                          ? "bg-primary text-primary-foreground shadow-md shadow-primary/20 dark:shadow-primary/30"
+                          ? "bg-primary text-on-primary shadow-md shadow-primary/20 dark:shadow-primary/30"
                           : "text-muted-foreground hover:bg-background/80 hover:text-foreground dark:hover:bg-background/60"
                       )}
                     >
