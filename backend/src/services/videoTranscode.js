@@ -280,9 +280,6 @@ async function processJob(job, Post) {
 
   const tempInPath = tmpFile('raw.mp4');
   const tempOutDir = path.join(os.tmpdir(), `hls-${postId}`);
-  if (!fs.existsSync(tempOutDir)) {
-    fs.mkdirSync(tempOutDir, { recursive: true });
-  }
 
   await new Promise((resolve, reject) => {
     const writer = fs.createWriteStream(tempInPath);
@@ -297,88 +294,186 @@ async function processJob(job, Post) {
       throw new Error(`Post document for ${postId} not found`);
     }
 
-    logger.debug(`[transcodeWorker] Transcoding raw video to HLS at ${tempOutDir}`);
-    await transcodeToHLS(tempInPath, tempOutDir);
-
-    const files = fs.readdirSync(tempOutDir);
-    const uploadedKeys = [];
-    let masterPlaylistUrl = '';
-
-    for (const file of files) {
-      const filePath = path.join(tempOutDir, file);
-      const fileBuffer = fs.readFileSync(filePath);
-      const fileExt = file.split('.').pop() || '';
-
-      let contentType = 'application/x-mpegURL';
-      if (fileExt === 'ts') {
-        contentType = 'video/MP2T';
-      }
-
-      const s3Key = `shorts/hls/${postId}/${file}`;
-      logger.debug(`[transcodeWorker] Uploading HLS file: ${s3Key}`);
-      const uploadResult = await uploadObject(fileBuffer, s3Key, contentType);
-
-      uploadedKeys.push(s3Key);
-      if (file === 'index.m3u8') {
-        masterPlaylistUrl = uploadResult.url;
-      }
-    }
-
-    if (!masterPlaylistUrl) {
-      throw new Error('index.m3u8 not generated or uploaded');
-    }
-
     // Preserve custom thumbnail if one exists in the postDoc's storageKeys
     const customThumbnailKey = postDoc.storageKeys.find(
       (k) => k !== rawKey && (k.endsWith('.jpg') || k.endsWith('.png') || k.endsWith('.jpeg'))
     );
 
-    let finalImageUrl = postDoc.imageUrl || '';
+    // Probe downloaded raw video to check compliance
+    let needsHLSTranscode = true;
+    try {
+      const meta = await probe(tempInPath);
+      const videoStream = (meta.streams || []).find((s) => s.codec_type === 'video');
+      const audioStream = (meta.streams || []).find((s) => s.codec_type === 'audio');
+      
+      const videoOk = videoStream && (videoStream.codec_name === 'h264' || videoStream.codec_name === 'avc1');
+      const audioOk = !audioStream || audioStream.codec_name === 'aac';
+      
+      const height = videoStream && videoStream.height ? videoStream.height : 0;
+      const width = videoStream && videoStream.width ? videoStream.width : 0;
+      const resolutionOk = (height <= 1080 && width <= 1920) || (width <= 1080 && height <= 1920);
 
-    if (customThumbnailKey) {
-      uploadedKeys.push(customThumbnailKey);
-      logger.debug(`[transcodeWorker] Preserved custom thumbnail: ${customThumbnailKey}`);
-    } else {
-      // Auto-extract thumbnail
-      const tempThumbPath = tmpFile('thumb.jpg');
-      try {
-        logger.debug(`[transcodeWorker] Extracting thumbnail from video: ${tempInPath}`);
-        await extractThumbnail(tempInPath, tempThumbPath);
-
-        const thumbBuffer = fs.readFileSync(tempThumbPath);
-        const thumbS3Key = `shorts/hls/${postId}/thumbnail.jpg`;
-        logger.debug(`[transcodeWorker] Uploading auto-generated thumbnail to S3: ${thumbS3Key}`);
-        const uploadResult = await uploadObject(thumbBuffer, thumbS3Key, 'image/jpeg');
-        uploadedKeys.push(thumbS3Key);
-        finalImageUrl = uploadResult.url || '';
-      } catch (thumbErr) {
-        logger.error('[transcodeWorker] Failed to extract/upload thumbnail:', thumbErr);
-      } finally {
-        try { fs.unlinkSync(tempThumbPath); } catch (_) { /* tempfile may already be gone */ }
+      // Calculate input frame rate
+      let fps = 30;
+      if (videoStream && videoStream.r_frame_rate) {
+        const parts = videoStream.r_frame_rate.split('/');
+        if (parts.length === 2 && parseFloat(parts[1]) > 0) {
+          fps = parseFloat(parts[0]) / parseFloat(parts[1]);
+        } else if (!isNaN(parseFloat(videoStream.r_frame_rate))) {
+          fps = parseFloat(videoStream.r_frame_rate);
+        }
       }
+      const fpsOk = fps <= 30.5;
+
+      // Calculate input bitrate
+      const bitrate = videoStream && videoStream.bit_rate ? parseInt(videoStream.bit_rate) : 0;
+      const bitrateOk = bitrate > 0 && bitrate <= 5000000; // Capped at 5Mbps
+
+      if (videoOk && audioOk && resolutionOk && fpsOk && bitrateOk) {
+        needsHLSTranscode = false;
+        logger.info('[transcodeWorker] Video is compliant (H.264/AAC, ≤1080p, ≤30fps, ≤5Mbps). Bypassing HLS transcoding.', {
+          postId,
+          videoCodec: videoStream.codec_name,
+          audioCodec: audioStream ? audioStream.codec_name : 'none',
+          resolution: `${width}x${height}`,
+          fps: fps.toFixed(2),
+          bitrate: (bitrate / 1000000).toFixed(2) + ' Mbps'
+        });
+      } else {
+        logger.info('[transcodeWorker] Video needs HLS transcoding.', {
+          postId,
+          videoCodec: videoStream ? videoStream.codec_name : 'none',
+          audioCodec: audioStream ? audioStream.codec_name : 'none',
+          resolution: videoStream ? `${width}x${height}` : 'unknown',
+          fps: fps.toFixed(2),
+          bitrate: bitrate ? (bitrate / 1000000).toFixed(2) + ' Mbps' : 'unknown',
+          reason: !videoOk ? 'video codec' : !audioOk ? 'audio codec' : !resolutionOk ? 'resolution' : !fpsOk ? 'framerate' : 'bitrate',
+        });
+      }
+    } catch (probeErr) {
+      logger.warn('[transcodeWorker] Probe failed. Defaulting to HLS transcode to be safe.', probeErr && probeErr.message);
     }
 
-    await Post.findByIdAndUpdate(postId, {
-      status: 'active',
-      videoUrl: masterPlaylistUrl,
-      imageUrl: finalImageUrl,
-      thumbnailUrl: finalImageUrl,
-      storageKey: `shorts/hls/${postId}/index.m3u8`,
-      storageKeys: uploadedKeys
-    });
+    if (needsHLSTranscode) {
+      if (!fs.existsSync(tempOutDir)) {
+        fs.mkdirSync(tempOutDir, { recursive: true });
+      }
 
-    logger.debug(`[transcodeWorker] Deleting S3 raw file: ${rawKey}`);
-    await deleteObject(rawKey);
+      logger.debug(`[transcodeWorker] Transcoding raw video to HLS at ${tempOutDir}`);
+      await transcodeToHLS(tempInPath, tempOutDir);
+
+      const files = fs.readdirSync(tempOutDir);
+      const uploadedKeys = [];
+      let masterPlaylistUrl = '';
+
+      for (const file of files) {
+        const filePath = path.join(tempOutDir, file);
+        const fileBuffer = fs.readFileSync(filePath);
+        const fileExt = file.split('.').pop() || '';
+
+        let contentType = 'application/x-mpegURL';
+        if (fileExt === 'ts') {
+          contentType = 'video/MP2T';
+        }
+
+        const s3Key = `shorts/hls/${postId}/${file}`;
+        logger.debug(`[transcodeWorker] Uploading HLS file: ${s3Key}`);
+        const uploadResult = await uploadObject(fileBuffer, s3Key, contentType);
+
+        uploadedKeys.push(s3Key);
+        if (file === 'index.m3u8') {
+          masterPlaylistUrl = uploadResult.url;
+        }
+      }
+
+      if (!masterPlaylistUrl) {
+        throw new Error('index.m3u8 not generated or uploaded');
+      }
+
+      let finalImageUrl = postDoc.imageUrl || '';
+      if (customThumbnailKey) {
+        uploadedKeys.push(customThumbnailKey);
+        logger.debug(`[transcodeWorker] Preserved custom thumbnail: ${customThumbnailKey}`);
+      } else {
+        // Auto-extract thumbnail
+        const tempThumbPath = tmpFile('thumb.jpg');
+        try {
+          logger.debug(`[transcodeWorker] Extracting thumbnail from video: ${tempInPath}`);
+          await extractThumbnail(tempInPath, tempThumbPath);
+
+          const thumbBuffer = fs.readFileSync(tempThumbPath);
+          const thumbS3Key = `shorts/hls/${postId}/thumbnail.jpg`;
+          logger.debug(`[transcodeWorker] Uploading auto-generated thumbnail to S3: ${thumbS3Key}`);
+          const uploadResult = await uploadObject(thumbBuffer, thumbS3Key, 'image/jpeg');
+          uploadedKeys.push(thumbS3Key);
+          finalImageUrl = uploadResult.url || '';
+        } catch (thumbErr) {
+          logger.error('[transcodeWorker] Failed to extract/upload thumbnail:', thumbErr);
+        } finally {
+          try { fs.unlinkSync(tempThumbPath); } catch (_) { /* tempfile may already be gone */ }
+        }
+      }
+
+      await Post.findByIdAndUpdate(postId, {
+        status: 'active',
+        videoUrl: masterPlaylistUrl,
+        imageUrl: finalImageUrl,
+        thumbnailUrl: finalImageUrl,
+        storageKey: `shorts/hls/${postId}/index.m3u8`,
+        storageKeys: uploadedKeys
+      });
+
+      logger.debug(`[transcodeWorker] Deleting S3 raw file: ${rawKey}`);
+      await deleteObject(rawKey);
+    } else {
+      // Passthrough branch: skip HLS transcoding
+      let finalImageUrl = postDoc.imageUrl || '';
+      const uploadedKeys = [rawKey];
+
+      if (customThumbnailKey) {
+        uploadedKeys.push(customThumbnailKey);
+        logger.debug(`[transcodeWorker] Preserved custom thumbnail: ${customThumbnailKey}`);
+      } else {
+        // Auto-extract thumbnail
+        const tempThumbPath = tmpFile('thumb.jpg');
+        try {
+          logger.debug(`[transcodeWorker] Extracting thumbnail from compliant video: ${tempInPath}`);
+          await extractThumbnail(tempInPath, tempThumbPath);
+
+          const thumbBuffer = fs.readFileSync(tempThumbPath);
+          const thumbS3Key = `shorts/raw/${postId}/thumbnail.jpg`;
+          logger.debug(`[transcodeWorker] Uploading auto-generated thumbnail to S3: ${thumbS3Key}`);
+          const uploadResult = await uploadObject(thumbBuffer, thumbS3Key, 'image/jpeg');
+          uploadedKeys.push(thumbS3Key);
+          finalImageUrl = uploadResult.url || '';
+        } catch (thumbErr) {
+          logger.error('[transcodeWorker] Failed to extract/upload thumbnail:', thumbErr);
+        } finally {
+          try { fs.unlinkSync(tempThumbPath); } catch (_) {}
+        }
+      }
+
+      // Update Post to keep rawKey as storageKey
+      await Post.findByIdAndUpdate(postId, {
+        status: 'active',
+        imageUrl: finalImageUrl,
+        thumbnailUrl: finalImageUrl,
+        storageKeys: uploadedKeys
+      });
+      logger.info(`[transcodeWorker] Completed compliant video passthrough for post ${postId}`);
+    }
 
   } finally {
     try { fs.unlinkSync(tempInPath); } catch (_) { /* tempfile may already be gone */ }
     try {
-      const files = fs.readdirSync(tempOutDir);
-      for (const file of files) {
-        fs.unlinkSync(path.join(tempOutDir, file));
+      if (fs.existsSync(tempOutDir)) {
+        const files = fs.readdirSync(tempOutDir);
+        for (const file of files) {
+          fs.unlinkSync(path.join(tempOutDir, file));
+        }
+        fs.rmdirSync(tempOutDir);
       }
-      fs.rmdirSync(tempOutDir);
-    } catch (_) { /* cleanup dir may already be gone */ }
+    } catch (_) {}
   }
 }
 
@@ -386,6 +481,10 @@ let workerRunning = false;
 let workerIntervalId = null;
 
 function startTranscodeWorker() {
+  if (process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined) {
+    logger.info('[transcodeWorker] Running in test environment - skipping background interval');
+    return;
+  }
   if (workerIntervalId) return;
   logger.info('[transcodeWorker] Initializing background MongoDB transcode worker');
 

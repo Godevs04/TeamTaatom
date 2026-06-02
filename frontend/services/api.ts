@@ -459,9 +459,11 @@ api.interceptors.response.use(
         logger.warn('Failed to fetch NetInfo status in error interceptor:', err);
       }
 
-      // If offline or timeout, queue the request for replaying when network is restored
-      if (isOffline || isTimeout) {
-        logger.debug(`[API] Request failed due to offline/timeout. Queuing: ${originalRequest.url}`);
+      const isGetRequest = originalRequest.method?.toUpperCase() === 'GET';
+
+      // If offline or timeout and it's a non-GET request, queue the request for replaying when network is restored
+      if ((isOffline || isTimeout) && !isGetRequest) {
+        logger.debug(`[API] Request failed due to offline/timeout. Queuing non-GET: ${originalRequest.url}`);
         return new Promise((resolve, reject) => {
           offlineQueue.push({
             config: originalRequest,
@@ -469,6 +471,16 @@ api.interceptors.response.use(
             reject,
           });
         });
+      }
+
+      // If we are offline and it's a GET request, reject immediately to let caller handle it (e.g. offline cache fallback)
+      if (isOffline && isGetRequest) {
+        const parsedError = parseError(error);
+        const finalError = new Error(parsedError.userMessage || 'Unable to connect to the server. Please check your internet connection.');
+        (finalError as any).parsedError = parsedError;
+        (finalError as any).userMessage = parsedError.userMessage || 'Unable to connect to the server. Please check your internet connection.';
+        (finalError as any).code = parsedError.code;
+        return Promise.reject(finalError);
       }
 
       // Transient network issue retry logic (if online)

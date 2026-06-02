@@ -47,8 +47,12 @@ export async function initializeAds(): Promise<void> {
 
       logger.debug('[AdMob] Requesting consent info update with options:', options);
       consentFlowPromise = (async () => {
-        await AdsConsent.requestInfoUpdate(options);
-        await AdsConsent.loadAndShowConsentFormIfRequired();
+        try {
+          await AdsConsent.requestInfoUpdate(options);
+          await AdsConsent.loadAndShowConsentFormIfRequired();
+        } catch (consentError: any) {
+          logger.warn('[AdMob] Consent info update or form show failed (non-blocking):', consentError?.message || consentError);
+        }
       })();
       await consentFlowPromise;
 
