@@ -537,6 +537,21 @@ function PhotoCard({
     }, 280);
   };
 
+  const handleDoubleTap = () => {
+    if (!currentUser) {
+      Alert.alert('Error', 'You must be signed in to like posts.');
+      return;
+    }
+
+    if (isLiked) {
+      // Double tap on already liked post should not remove the like
+      triggerLikeHaptic(true);
+      return;
+    }
+
+    handleLike();
+  };
+
   const handleShareClick = () => {
     setShowShareModal(true);
   };
@@ -970,7 +985,7 @@ function PhotoCard({
         onRetry={handleImageRetry}
         pulseAnim={pulseAnim}
         isCurrentlyVisible={isCurrentlyVisible}
-        onDoubleTap={handleLike}
+        onDoubleTap={handleDoubleTap}
         onZoomStateChange={setIsZooming}
       />
 
