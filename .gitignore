@@ -58,11 +58,7 @@ UI_CHANGES_MAPPING.md
 # (EAS / build pipeline reads them from git). Listing them here would be a
 # no-op since gitignore is bypassed for already-tracked files.
 #
-# To stop your local edits from being staged accidentally, use skip-worktree
-# (per-machine, doesn't propagate):
-#   git update-index --skip-worktree frontend/package.json frontend/package-lock.json frontend/app.json
-#   git update-index --skip-worktree SuperAdmin/package.json SuperAdmin/package-lock.json
-# Undo with:  git update-index --no-skip-worktree <file>
+
 #
 # For machine-specific config, use .env / EXPO_PUBLIC_* overrides.
 
