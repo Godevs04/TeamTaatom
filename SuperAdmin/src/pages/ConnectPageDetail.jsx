@@ -254,7 +254,7 @@ const ConnectPageDetail = () => {
     const shippedOrdersCount = orders.filter(o => o.deliveryStatus === 'shipped').length
     const deliveredOrdersCount = orders.filter(o => o.deliveryStatus === 'delivered').length
     const totalSales = orders
-      .filter(o => o.paymentStatus === 'completed' && o.deliveryStatus !== 'cancelled')
+      .filter(o => ['paid', 'completed'].includes(o.paymentStatus?.toLowerCase()) && o.deliveryStatus !== 'cancelled')
       .reduce((sum, o) => sum + (o.price || 0), 0)
 
     return (
@@ -276,7 +276,7 @@ const ConnectPageDetail = () => {
                 </span>
               </h1>
               <p className="text-sm text-gray-500 truncate">
-                Owned by {page?.userId?.fullName || page?.userId?.username || '—'} ({page?.userId?.email || 'no email'})
+                Owned by {page?.userId?.fullName || page?.userId?.username || '—'} ({page?.userId?.email || 'no email'}) • {page?.followerCount || 0} members
               </p>
             </div>
           </div>
@@ -427,9 +427,9 @@ const ConnectPageDetail = () => {
                       </TableCell>
                       <TableCell>
                         <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium border rounded-full ${
-                          o.paymentStatus === 'completed'
+                          ['paid', 'completed'].includes(o.paymentStatus?.toLowerCase())
                             ? 'bg-green-50 text-green-700 border-green-200'
-                            : o.paymentStatus === 'failed'
+                            : o.paymentStatus?.toLowerCase() === 'failed'
                             ? 'bg-red-50 text-red-700 border-red-200'
                             : 'bg-amber-50 text-amber-700 border-amber-200'
                         }`}>
@@ -511,7 +511,7 @@ const ConnectPageDetail = () => {
               )}
             </h1>
             <p className="text-sm text-gray-500 truncate">
-              Owned by {page?.userId?.fullName || page?.userId?.username || '—'} ({page?.userId?.email || 'no email'})
+              Owned by {page?.userId?.fullName || page?.userId?.username || '—'} ({page?.userId?.email || 'no email'}) • {page?.followerCount || 0} followers
             </p>
           </div>
         </div>

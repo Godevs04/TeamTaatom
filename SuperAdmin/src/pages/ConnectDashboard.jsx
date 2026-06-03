@@ -72,6 +72,7 @@ const ConnectDashboard = () => {
   }
 
   const totalSubscribers = pages.reduce((sum, p) => sum + (p.subscriberCount || 0), 0)
+  const totalFollowers = pages.reduce((sum, p) => sum + (p.followerCount || 0), 0)
   const totalRevenue = pages.reduce((sum, p) => sum + (p.monthlyRevenue || 0), 0)
   const subscribablePages = pages.filter(p => p.features?.subscription).length
 
@@ -114,10 +115,12 @@ const ConnectDashboard = () => {
         </div>
         <div className="bg-green-50 rounded-xl p-5 border border-gray-100">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-gray-600">Subscribers</span>
+            <span className="text-sm font-medium text-gray-600">Subscribers / Followers</span>
             <Users className="w-5 h-5 text-green-600" />
           </div>
-          <div className="text-2xl font-bold text-green-600">{totalSubscribers}</div>
+          <div className="text-2xl font-bold text-green-600">
+            {totalSubscribers} <span className="text-sm font-normal text-gray-500">/ {totalFollowers} followers</span>
+          </div>
           <p className="text-xs text-gray-500 mt-1">on this page</p>
         </div>
         <div className="bg-amber-50 rounded-xl p-5 border border-gray-100">
@@ -173,6 +176,7 @@ const ConnectDashboard = () => {
                 <TableHead>Category</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Price</TableHead>
+                <TableHead className="text-right">Followers</TableHead>
                 <TableHead className="text-right">Subscribers</TableHead>
                 <TableHead className="text-right">MRR</TableHead>
                 <TableHead>Created</TableHead>
@@ -182,13 +186,13 @@ const ConnectDashboard = () => {
             <TableBody>
               {loading && pages.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-gray-500">
+                  <TableCell colSpan={10} className="text-center py-8 text-gray-500">
                     Loading...
                   </TableCell>
                 </TableRow>
               ) : pages.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-8 text-gray-500">
+                  <TableCell colSpan={10} className="text-center py-8 text-gray-500">
                     No Connect pages found
                   </TableCell>
                 </TableRow>
@@ -234,6 +238,9 @@ const ConnectDashboard = () => {
                       {p.features?.subscription && p.subscriptionPrice
                         ? `₹${p.subscriptionPrice}`
                         : <span className="text-gray-400">—</span>}
+                    </TableCell>
+                    <TableCell className="text-right text-sm">
+                      {p.followerCount || 0}
                     </TableCell>
                     <TableCell className="text-right">
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-xs font-medium">

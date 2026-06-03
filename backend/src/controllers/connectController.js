@@ -164,6 +164,15 @@ const createPage = async (req, res) => {
     const { name, type, category, bio, features, subscriptionPrice, subscriptionCurrency, country, payoutInfo } = req.body;
     const { getCurrencyFromCountry, validatePrice } = require('../utils/currencyConfig');
 
+    // Ensure users can only create at most one Connect page
+    const targetCategory = category === 'community' ? 'community' : 'connect';
+    if (targetCategory === 'connect') {
+      const existingPage = await ConnectPage.findOne({ userId, category: 'connect', status: { $ne: 'archived' } });
+      if (existingPage) {
+        return sendError(res, 'BUSINESS_LIMIT_EXCEEDED', 'You can only create one Connect page');
+      }
+    }
+
     if (!name || name.trim().length < 3 || name.trim().length > 50) {
       return sendError(res, 'VALIDATION_FAILED', 'Connect page name must be 3-50 characters');
     }

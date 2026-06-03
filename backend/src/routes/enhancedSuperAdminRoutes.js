@@ -5683,11 +5683,32 @@ router.get('/orders', authenticateSuperAdmin, async (req, res) => {
     if (paymentStatus && paymentStatus !== 'all') match.paymentStatus = paymentStatus
     if (deliveryStatus && deliveryStatus !== 'all') match.deliveryStatus = deliveryStatus
     if (search) {
-      match.$or = [
+      const orConditions = [
         { buyerName: { $regex: search, $options: 'i' } },
         { buyerPhone: { $regex: search, $options: 'i' } },
         { itemName: { $regex: search, $options: 'i' } },
+        { cashfreeOrderId: { $regex: search, $options: 'i' } },
+        { cashfreePaymentId: { $regex: search, $options: 'i' } }
       ]
+
+      const mongoose = require('mongoose')
+      if (mongoose.Types.ObjectId.isValid(search)) {
+        orConditions.push({ _id: new mongoose.Types.ObjectId(search) })
+      }
+
+      const User = require('../models/User')
+      const matchingUsers = await User.find({
+        $or: [
+          { username: { $regex: search, $options: 'i' } },
+          { fullName: { $regex: search, $options: 'i' } }
+        ]
+      }).select('_id').lean()
+
+      if (matchingUsers.length > 0) {
+        orConditions.push({ userId: { $in: matchingUsers.map(u => u._id) } })
+      }
+
+      match.$or = orConditions
     }
 
     const [orders, total] = await Promise.all([

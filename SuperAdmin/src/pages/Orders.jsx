@@ -102,6 +102,7 @@ const PaymentStatusBadge = ({ status }) => {
   const config = {
     pending: { bg: 'bg-amber-100 text-amber-700 border-amber-200', icon: <Clock className="w-3 h-3" />, label: 'Pending' },
     paid: { bg: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: <CheckCircle className="w-3 h-3" />, label: 'Paid' },
+    completed: { bg: 'bg-emerald-100 text-emerald-700 border-emerald-200', icon: <CheckCircle className="w-3 h-3" />, label: 'Paid' },
     failed: { bg: 'bg-rose-100 text-rose-700 border-rose-200', icon: <XCircle className="w-3 h-3" />, label: 'Failed' },
   }
   const c = config[status?.toLowerCase()] || { bg: 'bg-gray-100 text-gray-600 border-gray-200', icon: null, label: status }
