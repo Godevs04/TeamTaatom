@@ -1138,16 +1138,16 @@ html,body,#map{height:100%;margin:0;padding:0}
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: radial-gradient(circle, ${isDark ? 'rgba(45, 212, 191, 0.4)' : 'rgba(59, 130, 246, 0.4)'} 0%, rgba(59, 130, 246, 0) 70%);
+  background: radial-gradient(circle, ${isDark ? 'rgba(80, 200, 120, 0.4)' : 'rgba(28, 115, 180, 0.4)'} 0%, rgba(28, 115, 180, 0) 70%);
   animation: pulse 1.8s infinite ease-out;
 }
 .core-dot {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #2DD4BF 0%, #3B82F6 100%);
+  background: linear-gradient(135deg, #50C878 0%, #1C73B4 100%);
   border: 2px solid #FFFFFF;
-  box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+  box-shadow: 0 0 8px rgba(28, 115, 180, 0.6);
 }
 @keyframes pulse {
   0% { transform: scale(0.6); opacity: 1; }
