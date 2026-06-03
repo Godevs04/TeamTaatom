@@ -1446,7 +1446,7 @@ export default function ProfileScreen() {
               bio={profileData.bio}
               createdAt={profileData.createdAt}
               tripScore={profileData.tripScore?.totalScore ?? 0}
-              postCount={posts.length + userShorts.length}
+              postCount={profileData.postsCount || 0}
               followersCount={profileData.followersCount || 0}
               verifiedCount={verifiedLocationsCount}
               tripsCount={tripsCount}

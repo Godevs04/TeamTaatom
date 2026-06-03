@@ -158,7 +158,15 @@ const getProfile = async (req, res) => {
     }
 
     // Get user's posts count and locations (optimized query)
-    const posts = await Post.find({ user: id, isActive: true })
+    // Filter out hidden, archived, and non-active status posts to match profile tabs
+    const posts = await Post.find({
+      user: id,
+      isActive: true,
+      isHidden: { $ne: true },
+      isArchived: { $ne: true },
+      type: { $in: ['photo', 'short'] },
+      $or: [{ status: 'active' }, { status: { $exists: false } }]
+    })
       .select('location createdAt likes')
       .lean()
       .limit(1000); // Limit for performance
@@ -3005,6 +3013,10 @@ const getSuggestedUsers = async (req, res) => {
         const postCount = await Post.countDocuments({
           user: user._id,
           isActive: true,
+          isHidden: { $ne: true },
+          isArchived: { $ne: true },
+          type: { $in: ['photo', 'short'] },
+          $or: [{ status: 'active' }, { status: { $exists: false } }]
         });
         user.profilePic = await resolveProfilePic(user);
         const { interests: _i, profilePicStorageKey: _psk, ...rest } = user;
