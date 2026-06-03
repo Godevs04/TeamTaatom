@@ -250,8 +250,8 @@ const ShortsProgressBar = ({
     if (duration <= 0) return;
     
     const pageX = event.nativeEvent.pageX;
-    // Spans the entire screen width horizontally (from 0 to SCREEN_WIDTH)
-    const newProgress = Math.max(0, Math.min(1, pageX / SCREEN_WIDTH));
+    const leftOffset = (SCREEN_WIDTH - 226) / 2;
+    const newProgress = Math.max(0, Math.min(1, (pageX - leftOffset) / 226));
     setProgress(newProgress);
 
     const now = Date.now();
@@ -456,13 +456,20 @@ const ShortsProgressBar = ({
       }}
     >
       {/* Straight line horizontal bar */}
-      <View style={[styles.progressBarBackground, { height: lineThick }]}>
+      <View style={[styles.progressBarBackground, { height: lineThick, borderRadius: lineThick / 2 }]}>
         <View
           style={[
             styles.progressBarFill,
-            { width: `${progress * 100}%`, height: lineThick }
+            { width: `${progress * 100}%`, height: lineThick, borderRadius: lineThick / 2, overflow: 'hidden' }
           ]}
-        />
+        >
+          <LinearGradient
+            colors={['#50C878', '#1C73B4']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={StyleSheet.absoluteFillObject}
+          />
+        </View>
       </View>
 
 
@@ -762,7 +769,7 @@ const LocalShortsActionRail = React.memo(({
           accessibilityRole="button"
         >
           <View style={styles.actionIconContainer}>
-            <GradientIcon name="ellipsis-horizontal" size={28} />
+            <GradientIcon name="ellipsis-vertical" size={28} />
           </View>
         </Pressable>
       </View>
@@ -4488,9 +4495,9 @@ const styles = StyleSheet.create({
   },
   progressBarContainer: {
     position: 'absolute',
-    bottom: isWeb ? 10 : 0,
-    left: 0,
-    right: 0,
+    bottom: isWeb ? 10 : 84,
+    alignSelf: 'center',
+    width: 226,
     height: 24,
     justifyContent: 'center',
     zIndex: 20,
@@ -4498,9 +4505,11 @@ const styles = StyleSheet.create({
   progressBarBackground: {
     width: '100%',
     backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    borderRadius: 4,
+    overflow: 'hidden',
   },
   progressBarFill: {
-    backgroundColor: '#38BDF8',
+    height: '100%',
   },
   pinkMarker: {
     position: 'absolute',
