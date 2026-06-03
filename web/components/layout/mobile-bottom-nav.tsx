@@ -134,7 +134,7 @@ export function MobileBottomNav() {
                       className={cn(
                         "flex items-center gap-3 rounded-xl px-4 py-3 text-[15px] font-medium transition-all duration-200",
                         active
-                          ? "bg-primary text-primary-foreground shadow-md shadow-primary/10"
+                          ? "bg-primary text-on-primary shadow-md shadow-primary/10 [&_svg]:text-white"
                           : "text-slate-700 hover:bg-white/40 dark:text-zinc-200 dark:hover:bg-zinc-800/40"
                       )}
                     >

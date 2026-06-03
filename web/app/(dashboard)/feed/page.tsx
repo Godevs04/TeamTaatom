@@ -275,7 +275,7 @@ function FeedContent() {
                 </span>
               </div>
               <span
-                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/30 transition-opacity duration-300 group-hover:opacity-[0.96]"
+                className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-primary px-5 text-sm font-semibold text-on-primary shadow-lg shadow-primary/30 transition-opacity duration-300 group-hover:opacity-[0.96] [&_svg]:text-white"
                 aria-hidden
               >
                 <Send className="h-4 w-4" />

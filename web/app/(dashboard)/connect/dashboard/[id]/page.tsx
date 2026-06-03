@@ -4,8 +4,9 @@ import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, TrendingUp, Eye } from "lucide-react";
+import { Loader2, TrendingUp, Eye, Pencil } from "lucide-react";
 import { connectGetPageAnalytics, connectGetPageSubscribers } from "@/lib/connect-api";
+import { Button } from "@/components/ui/button";
 
 export default function ConnectDashboardPage() {
   const params = useParams();
@@ -33,6 +34,21 @@ export default function ConnectDashboardPage() {
       <h1 className="font-display text-2xl font-semibold text-slate-900 dark:text-white md:text-3xl">
         Creator dashboard
       </h1>
+
+      <div className="flex flex-wrap gap-2">
+        <Button asChild variant="outline" size="sm" className="rounded-xl gap-2">
+          <Link href={`/connect/edit-content?pageId=${id}&section=website`}>
+            <Pencil className="h-4 w-4" />
+            Edit website content
+          </Link>
+        </Button>
+        <Button asChild variant="outline" size="sm" className="rounded-xl gap-2">
+          <Link href={`/connect/edit-content?pageId=${id}&section=subscription`}>
+            <Pencil className="h-4 w-4" />
+            Edit subscription content
+          </Link>
+        </Button>
+      </div>
 
       {analyticsQ.isLoading || subsQ.isLoading ? (
         <div className="flex justify-center py-16">

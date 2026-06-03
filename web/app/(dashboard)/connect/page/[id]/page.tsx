@@ -16,6 +16,7 @@ import {
   X,
   User,
   ShoppingBag,
+  Pencil,
 } from "lucide-react";
 import {
   connectGetPageDetail,
@@ -138,8 +139,6 @@ export default function ConnectPageDetailPage() {
   const isOwner = detailQ.data?.isOwner ?? false;
   const isFollowing = detailQ.data?.isFollowing ?? page?.isFollowing ?? false;
   const isCommunityPage = page?.category === "community" || page?.isAdminPage === true;
-  const normalCount = Math.max(0, Math.floor((page?.followerCount || 0) + 1));
-  const displayMemberCount = isCommunityPage ? Math.max(0, normalCount - 1) : normalCount;
 
   React.useEffect(() => {
     if (id) void connectRecordView(id);
@@ -316,7 +315,7 @@ export default function ConnectPageDetailPage() {
                     onClick={() => setFollowersOpen((v) => !v)}
                     className="underline decoration-slate-300 underline-offset-2 transition hover:text-primary hover:decoration-primary dark:decoration-zinc-600"
                   >
-                    {displayMemberCount} Members
+                    {(page.followerCount ?? 0) + 1} Members
                   </button>
                   <span>{page.viewCount ?? 0} views</span>
                   {hasPrice && priceApproved && (
@@ -336,6 +335,26 @@ export default function ConnectPageDetailPage() {
                       Dashboard
                     </Link>
                   </Button>
+                  {page.features?.website && (
+                    <Button asChild variant="outline" size="sm">
+                      <Link
+                        href={`/connect/edit-content?pageId=${page._id}&section=website&category=${isCommunityPage ? "community" : "connect"}`}
+                      >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Edit website
+                      </Link>
+                    </Button>
+                  )}
+                  {showSubTab && (
+                    <Button asChild variant="outline" size="sm">
+                      <Link
+                        href={`/connect/edit-content?pageId=${page._id}&section=subscription&category=${isCommunityPage ? "community" : "connect"}`}
+                      >
+                        <Pencil className="mr-2 h-4 w-4" />
+                        Edit {isCommunityPage ? "buy" : "subscription"} content
+                      </Link>
+                    </Button>
+                  )}
                   {showSubTab && hasPrice && priceApproved && (
                     <Button
                       type="button"
@@ -450,7 +469,7 @@ export default function ConnectPageDetailPage() {
               <div className="min-w-0 flex-1">
                 <p className="font-medium text-slate-900 dark:text-white">Group Chat</p>
                 <p className="text-xs text-slate-500 dark:text-zinc-400">
-                  {displayMemberCount} members active
+                  {(page.followerCount ?? 0) + 1} members active
                 </p>
               </div>
               <svg className="h-4 w-4 text-slate-400 dark:text-zinc-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">

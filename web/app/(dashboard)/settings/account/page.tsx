@@ -8,6 +8,8 @@ import { useSettings } from "../../../../hooks/useSettings";
 import { Skeleton } from "../../../../components/ui/skeleton";
 import { toast } from "sonner";
 import { cn } from "../../../../lib/utils";
+import { useAuth } from "../../../../context/auth-context";
+import { EditProfileForm } from "../../../../components/profile/edit-profile-form";
 
 function themeToNextThemes(value: "light" | "dark" | "auto") {
   return value === "auto" ? "system" : value;
@@ -27,6 +29,7 @@ const dataOptions: { value: "low" | "medium" | "high"; label: string; icon: Reac
 
 export default function AccountSettingsPage() {
   const { setTheme } = useTheme();
+  const { user } = useAuth();
   const { settings, isLoading, updateCategory, isUpdating } = useSettings();
   const updatingRef = useRef<Set<string>>(new Set());
 
@@ -91,6 +94,19 @@ export default function AccountSettingsPage() {
         </div>
 
         <div className="space-y-0 divide-y divide-border/60">
+          {/* Profile */}
+          {user && (
+            <section id="profile" className="px-6 py-6 md:px-8 md:py-7">
+              <div className="mb-5">
+                <h3 className="text-base font-semibold text-foreground">Profile</h3>
+                <p className="mt-0.5 text-sm text-muted-foreground">
+                  Update your name, bio, and profile photo.
+                </p>
+              </div>
+              <EditProfileForm user={user} />
+            </section>
+          )}
+
           {/* Theme */}
           <section className="px-6 py-6 md:px-8 md:py-7">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -112,7 +128,7 @@ export default function AccountSettingsPage() {
                         className={cn(
                           "flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:opacity-50",
                           selected
-                            ? "bg-primary text-primary-foreground shadow-md shadow-primary/20 dark:shadow-primary/30"
+                            ? "bg-primary text-on-primary shadow-md shadow-primary/20 dark:shadow-primary/30"
                             : "text-muted-foreground hover:bg-background/80 hover:text-foreground dark:hover:bg-background/60"
                         )}
                       >
@@ -147,7 +163,7 @@ export default function AccountSettingsPage() {
                       className={cn(
                         "flex items-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-medium transition-all duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50",
                         selected
-                          ? "border-primary bg-primary text-primary-foreground shadow-md shadow-primary/20 dark:shadow-primary/30"
+                          ? "border-primary bg-primary text-on-primary shadow-md shadow-primary/20 dark:shadow-primary/30"
                           : "border-border bg-background/50 text-muted-foreground hover:border-primary/50 hover:bg-primary/5 hover:text-foreground dark:bg-muted/30 dark:hover:bg-primary/10"
                       )}
                     >

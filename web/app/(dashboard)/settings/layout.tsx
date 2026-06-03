@@ -17,6 +17,7 @@ import {
   UserX,
   Monitor,
   HelpCircle,
+  Route,
 } from "lucide-react";
 import { cn } from "../../../lib/utils";
 
@@ -26,6 +27,7 @@ import { cn } from "../../../lib/utils";
 const sections: { id: string; title: string; href: string; icon: React.ElementType }[] = [
   { id: "account", title: "Account", href: "/settings/account", icon: UserCircle },
   { id: "privacy", title: "Privacy & Security", href: "/settings/privacy", icon: ShieldCheck },
+  { id: "route-access", title: "Route Access", href: "/settings/route-access-requests", icon: Route },
   { id: "notifications", title: "Notifications", href: "/settings/notifications", icon: Bell },
   { id: "appearance", title: "Appearance & Theme", href: "/settings/appearance", icon: Palette },
   { id: "data", title: "Data & Storage", href: "/settings/data", icon: Cloud },
@@ -77,7 +79,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
                       className={cn(
                         "relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
                         active
-                          ? "text-white"
+                          ? "text-on-primary"
                           : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-zinc-800 dark:hover:text-white"
                       )}
                     >

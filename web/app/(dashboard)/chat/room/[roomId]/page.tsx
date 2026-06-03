@@ -158,7 +158,7 @@ export default function GroupChatRoomPage() {
                 <div
                   className={`max-w-[min(80%,360px)] rounded-2xl px-4 py-2.5 ${
                     isMe
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-primary text-on-primary"
                       : "bg-slate-100 text-slate-900 dark:bg-zinc-800 dark:text-zinc-100"
                   }`}
                 >
@@ -167,7 +167,7 @@ export default function GroupChatRoomPage() {
                   )}
                   <p className="text-[15px] leading-snug">{msg.text}</p>
                   {(msg.createdAt || msg.timestamp) && (
-                    <p className={`mt-1.5 text-xs ${isMe ? "text-primary-foreground/80" : "text-slate-500 dark:text-zinc-400"}`}>
+                    <p className={`mt-1.5 text-xs ${isMe ? "text-white/80" : "text-slate-500 dark:text-zinc-400"}`}>
                       {new Date(msg.createdAt || msg.timestamp || "").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                     </p>
                   )}

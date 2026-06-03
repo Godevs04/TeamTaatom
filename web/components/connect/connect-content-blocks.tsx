@@ -221,7 +221,7 @@ function ConnectBlock({
           rel="noopener noreferrer"
           className={cn(
             "inline-flex rounded-xl px-5 py-2.5 text-sm font-semibold shadow-lg transition hover:opacity-95",
-            !useCustom && "bg-primary text-primary-foreground shadow-primary/20"
+            !useCustom && "bg-primary text-on-primary shadow-primary/20"
           )}
           style={useCustom ? btnStyle : undefined}
         >

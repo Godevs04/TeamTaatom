@@ -70,7 +70,7 @@ export default function PrivacySettingsPage() {
                   disabled={isUpdating}
                   className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
                     profileVisibility === v
-                      ? "border-primary bg-primary text-primary-foreground"
+                      ? "border-primary bg-primary text-on-primary"
                       : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-300 dark:hover:bg-zinc-700"
                   }`}
                 >
@@ -134,7 +134,7 @@ export default function PrivacySettingsPage() {
                   disabled={isUpdating}
                   className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
                     allowMessages === v
-                      ? "border-primary bg-primary text-primary-foreground"
+                      ? "border-primary bg-primary text-on-primary"
                       : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-300 dark:hover:bg-zinc-700"
                   }`}
                 >

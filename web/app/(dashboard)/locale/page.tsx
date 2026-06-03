@@ -222,7 +222,7 @@ export default function LocalePage() {
               onClick={() => setActiveTab("discover")}
               className={`rounded-xl border px-4 py-2 text-sm font-medium transition-colors ${
                 activeTab === "discover"
-                  ? "border-primary bg-primary text-primary-foreground"
+                  ? "border-primary bg-primary text-on-primary"
                   : "border-slate-200 bg-slate-50/50 text-slate-600 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-slate-300"
               }`}
             >
@@ -233,7 +233,7 @@ export default function LocalePage() {
               onClick={() => setActiveTab("saved")}
               className={`rounded-xl border px-4 py-2 text-sm font-medium transition-colors ${
                 activeTab === "saved"
-                  ? "border-primary bg-primary text-primary-foreground"
+                  ? "border-primary bg-primary text-on-primary"
                   : "border-slate-200 bg-slate-50/50 text-slate-600 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-slate-300"
               }`}
             >
@@ -305,7 +305,7 @@ export default function LocalePage() {
                     onClick={() => toggleSpotType(type)}
                     className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                       spotTypes.includes(type)
-                        ? "border-primary bg-primary text-primary-foreground"
+                        ? "border-primary bg-primary text-on-primary"
                         : "border-slate-200 bg-slate-50/50 text-slate-600 hover:bg-slate-100 dark:border-zinc-700 dark:bg-zinc-800/50 dark:text-slate-300 dark:hover:bg-zinc-700"
                     }`}
                   >

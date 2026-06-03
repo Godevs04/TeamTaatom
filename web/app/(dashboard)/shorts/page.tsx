@@ -328,7 +328,7 @@ export default function ShortsPage() {
                               {(short.user?.fullName || short.user?.username || "U").charAt(0).toUpperCase()}
                             </span>
                           )}
-                          <span className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-white/70 bg-primary text-primary-foreground dark:border-zinc-900">
+                          <span className="absolute -bottom-0.5 -right-0.5 flex h-5 w-5 items-center justify-center rounded-full border border-white/70 bg-primary text-on-primary dark:border-zinc-900">
                             {short.user?.isFollowing ? <Check className="h-3 w-3" /> : <UserPlus className="h-3 w-3" />}
                           </span>
                         </Button>

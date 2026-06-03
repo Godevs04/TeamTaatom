@@ -28,7 +28,7 @@ export default function JourneysListPage() {
         </h1>
         <Link
           href="/navigate"
-          className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-lg shadow-primary/25 hover:opacity-95"
+          className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-lg shadow-primary/25 hover:opacity-95"
         >
           Live navigate
         </Link>
