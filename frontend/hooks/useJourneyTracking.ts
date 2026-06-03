@@ -704,8 +704,8 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       if (already) return true;
       await Location.startLocationUpdatesAsync(BG_LOCATION_TASK, {
         accuracy: Location.Accuracy.High, // Upgraded for high-accuracy path tracking
-        timeInterval: 5000, // Query every 5 seconds for a denser track
-        distanceInterval: 5, // Track every 5 meters
+        timeInterval: 2000, // Query every 2 seconds for a denser track
+        distanceInterval: 2, // Track every 2 meters
         showsBackgroundLocationIndicator: true, // Enable indicator to prevent OS suspension
         foregroundService: {
           notificationTitle: 'Recording your journey',
