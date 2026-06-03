@@ -47,6 +47,12 @@ import { cn } from "@/lib/utils";
 
 type Tab = "website" | "subscription";
 
+type PendingBuyOrder = {
+  orderId?: string;
+  cashfreeOrderId?: string;
+  pageId?: string;
+};
+
 const PENDING_BUY_KEY = "taatom_pending_buy_order";
 
 export default function ConnectPageDetailPage() {
@@ -197,10 +203,10 @@ export default function ConnectPageDetailPage() {
 
     const raw = sessionStorage.getItem(PENDING_BUY_KEY);
     sessionStorage.removeItem(PENDING_BUY_KEY);
-    let pending: { orderId?: string; cashfreeOrderId?: string; pageId?: string } | null = null;
+    let pending: PendingBuyOrder | null = null;
     if (raw) {
       try {
-        pending = JSON.parse(raw) as typeof pending;
+        pending = JSON.parse(raw) as PendingBuyOrder;
       } catch {
         pending = null;
       }
