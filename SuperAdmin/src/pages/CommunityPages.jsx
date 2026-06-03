@@ -39,21 +39,13 @@ import {
 const StatCards = memo(({ pages, loading }) => {
   const total = pages.length
   const withSubscription = pages.filter(p => p.features?.subscription).length
-<<<<<<< HEAD
-  const totalMembers = pages.reduce((sum, p) => sum + (p.followerCount || 0), 0)
-=======
   const totalFollowers = pages.reduce((sum, p) => sum + (p.followerCount || 0), 0)
->>>>>>> backup/local-main-8a5f597
   const withChat = pages.filter(p => p.features?.groupChat).length
 
   const cards = [
     { title: 'Total Pages', value: total, icon: Layers, color: 'text-blue-600', bg: 'bg-blue-50' },
     { title: 'With Buy', value: withSubscription, icon: ShoppingBag, color: 'text-purple-600', bg: 'bg-purple-50' },
-<<<<<<< HEAD
-    { title: 'Members', value: totalMembers, icon: Users, color: 'text-green-600', bg: 'bg-green-50', note: 'on this page' },
-=======
     { title: 'Followers', value: totalFollowers, icon: Users, color: 'text-green-600', bg: 'bg-green-50', note: 'on this page' },
->>>>>>> backup/local-main-8a5f597
     { title: 'With Group Chat', value: withChat, icon: MessageSquare, color: 'text-amber-600', bg: 'bg-amber-50' },
   ]
 
@@ -816,11 +808,7 @@ export default function CommunityPages() {
                 <TableHead>Type</TableHead>
                 <TableHead>Features</TableHead>
                 <TableHead className="text-right">Buy Price</TableHead>
-<<<<<<< HEAD
-                <TableHead>Members</TableHead>
-=======
                 <TableHead>Followers</TableHead>
->>>>>>> backup/local-main-8a5f597
                 <TableHead>Status</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead>Actions</TableHead>
