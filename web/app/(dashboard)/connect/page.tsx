@@ -3,13 +3,20 @@
 import * as React from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Users, Link2, Search, PlusCircle, Bookmark, Archive, CreditCard, Loader2 } from "lucide-react";
+import { Users, Link2, Search, PlusCircle, Bookmark, Archive, CreditCard, Loader2, Wallet, Compass } from "lucide-react";
 import { connectGetCommunities, connectGetConnectPages } from "@/lib/connect-api";
+import { FindUsersPanel } from "@/components/connect/find-users-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { ConnectPage } from "@/types/connect";
 
-type TabType = "connect" | "community";
+type TabType = "connect" | "community" | "find";
+
+function memberCount(p: ConnectPage) {
+  const normal = Math.max(0, Math.floor((p.followerCount ?? 0) + 1));
+  const isCommunity = p.category === "community";
+  return isCommunity ? Math.max(0, normal - 1) : normal;
+}
 
 function PageCard({ p }: { p: ConnectPage }) {
   return (
@@ -35,7 +42,9 @@ function PageCard({ p }: { p: ConnectPage }) {
           <h3 className="font-semibold text-slate-900 dark:text-white">{p.name}</h3>
           <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-zinc-400">{p.bio}</p>
           <div className="mt-3 flex gap-3 text-xs text-slate-500">
-            <span>{p.followerCount ?? 0} followers</span>
+            <span>
+              {memberCount(p)} {memberCount(p) === 1 ? "member" : "members"}
+            </span>
             {p.isFollowing && (
               <span className="font-medium text-primary">Following</span>
             )}
@@ -130,6 +139,7 @@ export default function ConnectHubPage() {
   const tabs: { key: TabType; label: string; icon: React.ReactNode }[] = [
     { key: "connect", label: "Connect", icon: <Link2 className="h-4 w-4" /> },
     { key: "community", label: "Community", icon: <Users className="h-4 w-4" /> },
+    { key: "find", label: "Find", icon: <Compass className="h-4 w-4" /> },
   ];
 
   return (
@@ -159,7 +169,14 @@ export default function ConnectHubPage() {
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <Link
+          href="/connect/payouts"
+          className="flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm transition hover:border-primary/30 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900/70"
+        >
+          <Wallet className="h-8 w-8 text-primary" />
+          <span className="font-medium text-slate-900 dark:text-white">Payouts</span>
+        </Link>
         <Link
           href="/connect/following"
           className="flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white/90 p-4 shadow-sm transition hover:border-primary/30 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900/70"
@@ -228,6 +245,7 @@ export default function ConnectHubPage() {
             setPage={setCommunityPage}
           />
         )}
+        {activeTab === "find" && <FindUsersPanel />}
       </div>
     </div>
   );

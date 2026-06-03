@@ -4,6 +4,7 @@ import { API_V1_ABS } from "../../../../lib/constants";
 import { fetchWithAuth } from "../../../../lib/server-fetch";
 import { Card } from "../../../../components/ui/card";
 import { ProfileActions } from "../../../../components/profile/profile-actions";
+import { ProfileJourneyAccess } from "../../../../components/profile/profile-journey-access";
 import { getPostDisplayLocation } from "../../../../lib/post-utils";
 import type { User } from "../../../../types/user";
 import type { Post } from "../../../../types/post";
@@ -103,7 +104,11 @@ export default async function ProfilePage({ params }: { params: { id: string } }
         </div>
       </div>
 
-      {u.tripScore != null && (
+      <ProfileJourneyAccess profile={u} />
+
+      {(u.tripScore != null || u.canViewLocations) && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          {u.tripScore != null && (
         <Link
           href={`/profile/${params.id}/tripscore`}
           className="block rounded-2xl border border-slate-200/80 bg-white p-5 shadow-premium transition-shadow hover:shadow-premium-hover dark:border-zinc-800/80 dark:bg-zinc-900/90"
@@ -121,9 +126,21 @@ export default async function ProfilePage({ params }: { params: { id: string } }
                 </p>
               </div>
             </div>
-            <span className="text-sm font-medium text-sky-600">View travel map →</span>
+            <span className="text-sm font-medium text-sky-600">View TripScore →</span>
           </div>
         </Link>
+          )}
+          <Link
+            href={`/profile/${params.id}/travel-map`}
+            className="flex items-center justify-between rounded-2xl border border-slate-200/80 bg-white p-5 shadow-premium transition-shadow hover:shadow-premium-hover dark:border-zinc-800/80 dark:bg-zinc-900/90"
+          >
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900 dark:text-zinc-50">World travel map</h2>
+              <p className="text-sm text-slate-500 dark:text-zinc-400">All verified places on a map</p>
+            </div>
+            <span className="text-sm font-medium text-primary">Open map →</span>
+          </Link>
+        </div>
       )}
 
       <section className="space-y-4">

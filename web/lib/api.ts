@@ -265,6 +265,34 @@ export async function rejectRouteAccess(requestId: string) {
   return res.data as { message?: string };
 }
 
+export async function requestRouteAccess(userId: string) {
+  const res = await api.post(`/profile/${userId}/route-access/request`);
+  return res.data as { message?: string; status?: "pending" | "approved" };
+}
+
+export type TravelMapLocation = {
+  number?: number;
+  latitude: number;
+  longitude: number;
+  address?: string;
+  date?: string;
+  photo?: string;
+  postId?: string;
+  contentType?: string;
+};
+
+export async function getTravelMapData(userId: string) {
+  const res = await api.get(`/profile/${userId}/travel-map`);
+  const d = res.data as {
+    locations?: TravelMapLocation[];
+    statistics?: { totalLocations: number; totalDistance: number; totalDays: number };
+  };
+  return {
+    locations: d.locations ?? [],
+    statistics: d.statistics ?? { totalLocations: 0, totalDistance: 0, totalDays: 0 },
+  };
+}
+
 export async function updateProfile(userId: string, form: FormData) {
   const res = await api.put(`/profile/${userId}`, form, {
     headers: { "Content-Type": undefined } as unknown as Record<string, string>,

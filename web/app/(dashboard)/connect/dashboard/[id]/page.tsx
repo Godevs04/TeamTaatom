@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, TrendingUp, Eye, Pencil } from "lucide-react";
+import { Loader2, TrendingUp, Eye, Pencil, Wallet } from "lucide-react";
 import { connectGetPageAnalytics, connectGetPageSubscribers } from "@/lib/connect-api";
 import { Button } from "@/components/ui/button";
 
@@ -46,6 +46,12 @@ export default function ConnectDashboardPage() {
           <Link href={`/connect/edit-content?pageId=${id}&section=subscription`}>
             <Pencil className="h-4 w-4" />
             Edit subscription content
+          </Link>
+        </Button>
+        <Button asChild variant="outline" size="sm" className="rounded-xl gap-2">
+          <Link href="/connect/payouts">
+            <Wallet className="h-4 w-4" />
+            Payout history
           </Link>
         </Button>
       </div>

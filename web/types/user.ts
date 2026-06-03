@@ -30,6 +30,11 @@ export type User = {
   tripScore?: TripScore | null;
   /** Whether the viewer can see this user's locations/trip score */
   canViewLocations?: boolean;
+  /** Journey route visibility for this profile owner */
+  routeVisibility?: "everyone" | "private" | "approved_only";
+  /** Viewer's access when routeVisibility is approved_only */
+  routeAccessStatus?: "none" | "pending" | "approved";
+  canViewPosts?: boolean;
 };
 
 export type FollowRequest = {

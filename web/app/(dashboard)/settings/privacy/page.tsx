@@ -2,7 +2,7 @@
 
 import { useCallback, useRef } from "react";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ChevronRight, Shield, Users, Activity } from "lucide-react";
 import { useSettings } from "../../../../hooks/useSettings";
 import { Skeleton } from "../../../../components/ui/skeleton";
 import { toast } from "sonner";
@@ -58,6 +58,29 @@ export default function PrivacySettingsPage() {
         </div>
 
         <div className="space-y-6 px-5 py-6 md:px-8 md:py-7">
+          <div className="space-y-2 rounded-xl border border-slate-200/80 bg-slate-50/50 p-2 dark:border-zinc-700/80 dark:bg-zinc-800/30">
+            <p className="px-2 pt-1 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-zinc-400">
+              Manage access
+            </p>
+            {[
+              { href: "/settings/route-access-requests", label: "Route access requests", icon: Shield },
+              { href: "/settings/blocked-users", label: "Blocked users", icon: Users },
+              { href: "/settings/account-activity", label: "Account activity", icon: Activity },
+            ].map(({ href, label, icon: Icon }) => (
+              <Link
+                key={href}
+                href={href}
+                className="flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium text-slate-800 transition hover:bg-white dark:text-zinc-200 dark:hover:bg-zinc-800/80"
+              >
+                <span className="flex items-center gap-2">
+                  <Icon className="h-4 w-4 text-primary" />
+                  {label}
+                </span>
+                <ChevronRight className="h-4 w-4 text-slate-400" />
+              </Link>
+            ))}
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">Profile visibility</label>
             <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">Who can see your profile.</p>

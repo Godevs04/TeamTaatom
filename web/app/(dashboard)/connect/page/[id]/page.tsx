@@ -17,6 +17,7 @@ import {
   User,
   ShoppingBag,
   Pencil,
+  Archive,
 } from "lucide-react";
 import {
   connectGetPageDetail,
@@ -29,7 +30,11 @@ import {
   connectDeletePage,
   connectGetPayoutPreview,
   connectGetPageFollowers,
-  connectBuyItem,
+  connectCreateBuyOrder,
+  connectVerifyBuyOrder,
+  cashfreeCheckoutUrl,
+  connectUpdatePage,
+  connectArchivePage,
 } from "@/lib/connect-api";
 import type { ConnectFollower } from "@/lib/connect-api";
 import type { BuyItem } from "@/types/connect";
@@ -41,6 +46,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { cn } from "@/lib/utils";
 
 type Tab = "website" | "subscription";
+
+const PENDING_BUY_KEY = "taatom_pending_buy_order";
 
 export default function ConnectPageDetailPage() {
   const params = useParams();
@@ -58,33 +65,40 @@ export default function ConnectPageDetailPage() {
   const [selectedItem, setSelectedItem] = React.useState<BuyItem | null>(null);
   const [buyerName, setBuyerName] = React.useState("");
   const [buyerPhone, setBuyerPhone] = React.useState("");
-  const [payPhone, setPayPhone] = React.useState("");
   const [deliveryAddress, setDeliveryAddress] = React.useState("");
   const [buying, setBuying] = React.useState(false);
+  const [bioEditOpen, setBioEditOpen] = React.useState(false);
+  const [bioInput, setBioInput] = React.useState("");
+  const [bioSaving, setBioSaving] = React.useState(false);
+  const [archiveBusy, setArchiveBusy] = React.useState(false);
   const cashfreeReturnDoneRef = React.useRef(false);
+  const buyReturnDoneRef = React.useRef(false);
 
   const handleBuyItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedItem) return;
-    if (!buyerName.trim() || !buyerPhone.trim() || !payPhone.trim() || !deliveryAddress.trim()) {
-      toast.error("Please fill in all delivery details.");
+    if (!selectedItem?._id) return;
+    if (!buyerName.trim() || !buyerPhone.trim() || !deliveryAddress.trim()) {
+      toast.error("Please fill in name, phone, and delivery address.");
       return;
     }
     setBuying(true);
     try {
-      await connectBuyItem(id, {
+      const result = await connectCreateBuyOrder(id, {
         itemId: selectedItem._id,
         buyerName: buyerName.trim(),
         buyerPhone: buyerPhone.trim(),
-        payPhone: payPhone.trim(),
         deliveryAddress: deliveryAddress.trim(),
       });
-      toast.success("Order placed successfully! The admin will deliver your items soon.");
+      sessionStorage.setItem(
+        PENDING_BUY_KEY,
+        JSON.stringify({
+          orderId: result.orderId,
+          cashfreeOrderId: result.cashfreeOrderId,
+          pageId: id,
+        })
+      );
       setCheckoutOpen(false);
-      setBuyerName("");
-      setBuyerPhone("");
-      setPayPhone("");
-      setDeliveryAddress("");
+      window.location.href = cashfreeCheckoutUrl(result.paymentSessionId);
     } catch (err) {
       toast.error(getFriendlyErrorMessage(err));
     } finally {
@@ -172,7 +186,45 @@ export default function ConnectPageDetailPage() {
 
   React.useEffect(() => {
     cashfreeReturnDoneRef.current = false;
+    buyReturnDoneRef.current = false;
   }, [id]);
+
+  /** After Cashfree buy redirect (mirrors mobile verifyBuyOrder). */
+  React.useEffect(() => {
+    if (!id || buyReturnDoneRef.current) return;
+    if (searchParams.get("order_return") !== "1") return;
+    buyReturnDoneRef.current = true;
+
+    const raw = sessionStorage.getItem(PENDING_BUY_KEY);
+    sessionStorage.removeItem(PENDING_BUY_KEY);
+    let pending: { orderId?: string; cashfreeOrderId?: string; pageId?: string } | null = null;
+    if (raw) {
+      try {
+        pending = JSON.parse(raw) as typeof pending;
+      } catch {
+        pending = null;
+      }
+    }
+
+    const cashfreePaymentId =
+      searchParams.get("cashfree_payment_id") ||
+      searchParams.get("payment_id") ||
+      undefined;
+
+    void (async () => {
+      try {
+        await connectVerifyBuyOrder(id, {
+          orderId: pending?.pageId === id ? pending.orderId : undefined,
+          cashfreeOrderId: pending?.cashfreeOrderId,
+          cashfreePaymentId,
+        });
+        toast.success("Payment verified. Your order is confirmed.");
+      } catch (e) {
+        toast.error(getFriendlyErrorMessage(e));
+      }
+      router.replace(`/connect/page/${id}`, { scroll: false });
+    })();
+  }, [id, searchParams, router]);
 
   React.useEffect(() => {
     if (page && !page.features?.website && page.features?.subscription) {
@@ -248,6 +300,41 @@ export default function ConnectPageDetailPage() {
       router.replace("/connect");
     } catch (e) {
       toast.error(getFriendlyErrorMessage(e));
+    }
+  };
+
+  const handleArchive = async () => {
+    if (!page || !isOwner) return;
+    if (!confirm("Archive this page? You can restore it from Archived pages.")) return;
+    setArchiveBusy(true);
+    try {
+      await connectArchivePage(page._id);
+      toast.success("Page archived.");
+      router.replace("/connect/archived");
+    } catch (e) {
+      toast.error(getFriendlyErrorMessage(e));
+    } finally {
+      setArchiveBusy(false);
+    }
+  };
+
+  const handleSaveBio = async () => {
+    if (!page || !isOwner) return;
+    const trimmed = bioInput.trim();
+    if (trimmed.length > 300) {
+      toast.error("Description must be 300 characters or less.");
+      return;
+    }
+    setBioSaving(true);
+    try {
+      await connectUpdatePage(page._id, { bio: trimmed });
+      toast.success("Description updated.");
+      setBioEditOpen(false);
+      await qc.invalidateQueries({ queryKey: ["connect-page", id] });
+    } catch (e) {
+      toast.error(getFriendlyErrorMessage(e));
+    } finally {
+      setBioSaving(false);
     }
   };
 
@@ -366,6 +453,16 @@ export default function ConnectPageDetailPage() {
                       {payoutBreakdownOpen ? "Hide payout breakdown" : "Payout breakdown"}
                     </Button>
                   )}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={archiveBusy}
+                    onClick={() => void handleArchive()}
+                  >
+                    <Archive className="mr-2 h-4 w-4" />
+                    {archiveBusy ? "…" : "Archive"}
+                  </Button>
                   <Button variant="destructive" size="sm" onClick={handleDelete}>
                     <Trash2 className="mr-2 h-4 w-4" />
                     Delete
@@ -394,7 +491,22 @@ export default function ConnectPageDetailPage() {
             </div>
           </div>
 
-          {page.bio ? (
+          {isOwner ? (
+            <button
+              type="button"
+              onClick={() => {
+                setBioInput(page.bio || "");
+                setBioEditOpen(true);
+              }}
+              className="mt-6 w-full rounded-xl border border-dashed border-slate-200/80 px-4 py-3 text-left text-[15px] leading-relaxed text-slate-700 transition hover:border-primary/40 hover:bg-slate-50/80 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-800/50"
+            >
+              {page.bio ? (
+                <span className="whitespace-pre-wrap">{page.bio}</span>
+              ) : (
+                <span className="text-primary">Add a description…</span>
+              )}
+            </button>
+          ) : page.bio ? (
             <p className="mt-6 whitespace-pre-wrap text-[15px] leading-relaxed text-slate-700 dark:text-zinc-300">
               {page.bio}
             </p>
@@ -722,21 +834,6 @@ export default function ConnectPageDetailPage() {
               </div>
 
               <div className="space-y-1">
-                <label htmlFor="checkout-pay-phone" className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
-                  Pay Phone Number (for payment reference)
-                </label>
-                <input
-                  id="checkout-pay-phone"
-                  type="tel"
-                  required
-                  value={payPhone}
-                  onChange={(e) => setPayPhone(e.target.value)}
-                  placeholder="9876543210"
-                  className="w-full rounded-xl border border-slate-200 bg-transparent px-3.5 py-2 text-sm text-slate-900 placeholder-slate-400 outline-none transition focus:border-primary dark:border-zinc-700 dark:text-white dark:placeholder-zinc-500"
-                />
-              </div>
-
-              <div className="space-y-1">
                 <label htmlFor="checkout-delivery-address" className="text-xs font-semibold text-slate-500 dark:text-zinc-400">
                   Delivery Address
                 </label>
@@ -762,6 +859,40 @@ export default function ConnectPageDetailPage() {
                 )}
               </Button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {bioEditOpen && isOwner && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-zinc-800">
+              <h3 className="text-lg font-semibold text-slate-950 dark:text-white">Edit description</h3>
+              <button
+                type="button"
+                onClick={() => setBioEditOpen(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <textarea
+              value={bioInput}
+              onChange={(e) => setBioInput(e.target.value)}
+              maxLength={300}
+              rows={5}
+              placeholder="Tell visitors about this page…"
+              className="mt-4 w-full rounded-xl border border-slate-200 bg-transparent px-3.5 py-2 text-sm text-slate-900 outline-none focus:border-primary dark:border-zinc-700 dark:text-white"
+            />
+            <p className="mt-1 text-right text-xs text-slate-500">{bioInput.length}/300</p>
+            <Button
+              type="button"
+              className="mt-4 w-full"
+              disabled={bioSaving}
+              onClick={() => void handleSaveBio()}
+            >
+              {bioSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
+            </Button>
           </div>
         </div>
       )}

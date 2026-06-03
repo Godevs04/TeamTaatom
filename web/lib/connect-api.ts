@@ -250,6 +250,142 @@ export async function connectUploadContentImage(pageId: string, file: File) {
   return res.data as { storageKey?: string; signedUrl?: string };
 }
 
+export type GeoItem = { code: string; name: string };
+
+export type FoundUser = {
+  _id: string;
+  username: string;
+  fullName: string;
+  profilePic: string;
+  bio: string;
+  language?: string;
+  travelStyle?: string;
+  isFollowing: boolean;
+};
+
+export async function connectGetCountries() {
+  const res = await api.get("/geo/countries");
+  const d = res.data as { countries?: GeoItem[] };
+  return { countries: d.countries ?? [] };
+}
+
+export async function connectGetLanguages() {
+  const res = await api.get("/geo/languages");
+  const d = res.data as { languages?: GeoItem[] };
+  return { languages: d.languages ?? [] };
+}
+
+export async function connectFindUsers(params: {
+  target_country?: string;
+  current_country?: string;
+  lang: string;
+  travel_style?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const res = await api.get("/connect/find-users", { params });
+  const d = res.data as { users?: FoundUser[]; pagination?: ConnectPagination };
+  return { users: d.users ?? [], pagination: d.pagination };
+}
+
+export async function connectUpdatePage(
+  pageId: string,
+  data: Partial<Pick<ConnectPage, "bio" | "subscriptionPrice">>
+) {
+  const res = await api.put(`/connect/page/${pageId}`, data);
+  const d = res.data as { page?: ConnectPage };
+  return { page: d.page };
+}
+
+export async function connectArchivePage(connectPageId: string) {
+  await api.post("/connect/archive", { connectPageId });
+}
+
+export async function connectUnarchivePage(connectPageId: string) {
+  await api.post("/connect/unarchive", { connectPageId });
+}
+
+export type PayoutStatus = "calculated" | "pending" | "processing" | "completed" | "failed";
+
+export type MyPayout = {
+  _id: string;
+  periodMonth: number;
+  periodYear: number;
+  pageId: string;
+  pageName: string;
+  pageCategory: string;
+  currency: string;
+  creatorPayout: number;
+  grossAmount: number;
+  status: PayoutStatus;
+  payoutMethod: string;
+  processedAt: string | null;
+  failureReason: string;
+  createdAt: string;
+};
+
+export async function connectGetMyPayouts(params?: {
+  page?: number;
+  limit?: number;
+  status?: PayoutStatus;
+}) {
+  const res = await api.get("/connect/my-payouts", { params });
+  const body = res.data as {
+    data?: {
+      payouts?: MyPayout[];
+      summary?: { totalEarned: number; totalPending: number; payoutCount: number };
+      pagination?: ConnectPagination;
+    };
+    payouts?: MyPayout[];
+    summary?: { totalEarned: number; totalPending: number; payoutCount: number };
+    pagination?: ConnectPagination;
+  };
+  const payload = body.data ?? body;
+  return {
+    payouts: payload.payouts ?? [],
+    summary: payload.summary ?? { totalEarned: 0, totalPending: 0, payoutCount: 0 },
+    pagination: payload.pagination,
+  };
+}
+
+export type BuyOrderResponse = {
+  orderId: string;
+  cashfreeOrderId: string;
+  paymentSessionId: string;
+  amount: number;
+  currency: string;
+  cashfreeEnvironment?: "sandbox" | "production";
+  itemName: string;
+};
+
+export async function connectCreateBuyOrder(
+  pageId: string,
+  body: {
+    itemId: string;
+    buyerName: string;
+    buyerPhone: string;
+    deliveryAddress: string;
+  }
+) {
+  const res = await api.post(`/connect/page/${pageId}/buy-order`, body);
+  const d = res.data as { data?: BuyOrderResponse } & BuyOrderResponse;
+  return (d.data ?? d) as BuyOrderResponse;
+}
+
+export async function connectVerifyBuyOrder(
+  pageId: string,
+  body: {
+    orderId?: string;
+    cashfreeOrderId?: string;
+    cashfreePaymentId?: string;
+  }
+) {
+  const res = await api.post(`/connect/page/${pageId}/buy-verify`, body);
+  const d = res.data as { data?: unknown };
+  return d.data ?? res.data;
+}
+
+/** @deprecated Use connectCreateBuyOrder + Cashfree redirect */
 export async function connectBuyItem(
   pageId: string,
   body: {
