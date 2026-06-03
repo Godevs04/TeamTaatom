@@ -140,7 +140,7 @@ try {
         if (Number.isNaN(lat) || Number.isNaN(lng)) continue;
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
         const accuracy = loc.coords?.accuracy || 0;
-        if (accuracy > 80) continue; // Filter out poor accuracy fixes in background (relaxed to 80m for low-power updates)
+        if (accuracy > 20) continue; // Drop any coordinate where accuracy > 20
         valid.push({
           latitude: lat,
           longitude: lng,
@@ -305,20 +305,21 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         const lat = location?.coords?.latitude;
         const lng = location?.coords?.longitude;
         if (typeof lat !== 'number' || typeof lng !== 'number' || isNaN(lat) || isNaN(lng)) return;
+        const accuracy = location?.coords?.accuracy || 0;
+        if (accuracy > 20) {
+          logger.debug(`[Journey] Discarding low-accuracy coordinate (±${accuracy}m) immediately.`);
+          return;
+        }
+
         const coord: Coordinate = {
           latitude: lat,
           longitude: lng,
           timestamp: location.timestamp,
-          accuracy: location.coords.accuracy || 0,
+          accuracy,
         };
         setAccuracy(coord.accuracy);
         setCurrentCoordinate(coord);
 
-        // Ignore updates with poor GPS accuracy (> 30 meters) to avoid erratic spikes/drift
-        if (coord.accuracy && coord.accuracy > 30) {
-          logger.debug(`[Journey] Discarding low-accuracy coordinate (±${coord.accuracy}m) for polyline tracking.`);
-          return;
-        }
 
         // Stationary user speed filter: if speed is valid and less than 0.4 m/s (approx 1.4 km/h),
         // treat user as stationary/idle and do not append to polyline or accumulate distance.
@@ -1104,7 +1105,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
             accuracy: finalLoc.coords.accuracy || 0,
           };
 
-          if (!finalCoord.accuracy || finalCoord.accuracy <= 30) {
+          if (!finalCoord.accuracy || finalCoord.accuracy <= 20) {
             // Avoid duplicate points if final location is virtually identical to the last tracked point
             const lastTracked = lastCoordinateRef.current;
             const dist = lastTracked

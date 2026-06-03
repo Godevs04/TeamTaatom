@@ -1591,6 +1591,7 @@ function initMap(){
                 strokeWidth={4}
                 simplifyDistance={10}
                 applyKalman={false}
+                latitudeDelta={currentRegion?.latitudeDelta}
               />
               {/* Start marker */}
               {j.startCoords?.lat && j.startCoords?.lng && (

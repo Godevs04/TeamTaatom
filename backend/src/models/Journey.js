@@ -41,8 +41,8 @@ const journeySchema = new mongoose.Schema({
       required: false
     }
   },
-  // Continuous GPS path recorded during travel
-  polyline: [
+  // The Hardware Truth: Used for audits and OSRM debugging
+  raw_polyline: [
     {
       lat: {
         type: Number,
@@ -59,9 +59,76 @@ const journeySchema = new mongoose.Schema({
       accuracy: {
         type: Number,
         required: false
+      },
+      segmentBreak: {
+        type: Boolean,
+        default: false
       }
     }
   ],
+  // The Mathematical Truth: Used exclusively for Frontend Rendering
+  snapped_polyline: [
+    {
+      lat: {
+        type: Number,
+        required: true
+      },
+      lng: {
+        type: Number,
+        required: true
+      }
+    }
+  ],
+  // Legacy / Compatibility GPS path (getter reconstructed dynamically for reads)
+  polyline: {
+    type: [
+      {
+        lat: {
+          type: Number,
+          required: true
+        },
+        lng: {
+          type: Number,
+          required: true
+        },
+        timestamp: {
+          type: Date,
+          default: Date.now
+        },
+        accuracy: {
+          type: Number,
+          required: false
+        },
+        segmentBreak: {
+          type: Boolean,
+          default: false
+        }
+      }
+    ],
+    get: function(val) {
+      if (this.snapped_polyline && this.snapped_polyline.length > 0) {
+        const raw = this.raw_polyline || [];
+        return this.snapped_polyline.map((p, idx) => {
+          let origIdx = 0;
+          if (this.snapped_polyline.length > 1 && raw.length > 0) {
+            origIdx = Math.min(
+              Math.floor((idx / (this.snapped_polyline.length - 1)) * (raw.length - 1)),
+              raw.length - 1
+            );
+          }
+          const rawP = raw[origIdx];
+          return {
+            lat: p.lat,
+            lng: p.lng,
+            timestamp: rawP ? rawP.timestamp : new Date(),
+            accuracy: rawP ? rawP.accuracy : 0,
+            segmentBreak: rawP ? rawP.segmentBreak : false
+          };
+        });
+      }
+      return val;
+    }
+  },
   // Posts/shorts/videos auto-attached during journey
   waypoints: [
     {
@@ -173,7 +240,9 @@ const journeySchema = new mongoose.Schema({
     default: true
   }
 }, {
-  timestamps: true // Adds createdAt and updatedAt
+  timestamps: true, // Adds createdAt and updatedAt
+  toJSON: { getters: true, virtuals: true },
+  toObject: { getters: true, virtuals: true }
 });
 
 // Indexes for efficient queries
