@@ -199,6 +199,7 @@ interface ShortsProgressBarProps {
   currentPlayerRef: React.MutableRefObject<Audio.Sound | null>;
   progressCallbacks: React.MutableRefObject<Record<string, (position: number, duration: number) => void>>;
   lastVideoPositionRef: React.MutableRefObject<Record<string, number>>;
+  isScopedView?: boolean;
 }
 
 const ShortsProgressBar = ({
@@ -212,6 +213,7 @@ const ShortsProgressBar = ({
   currentPlayerRef,
   progressCallbacks,
   lastVideoPositionRef,
+  isScopedView,
 }: ShortsProgressBarProps) => {
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -341,7 +343,10 @@ const ShortsProgressBar = ({
 
   return (
     <View
-      style={styles.progressBarContainer}
+      style={[
+        styles.progressBarContainer,
+        isScopedView && { bottom: isWeb ? 8 : 20 }
+      ]}
       onTouchStart={(e) => {
         setIsPressing(true);
         isPressingRef.current = true;
@@ -3524,7 +3529,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           />
 
           {/* Bottom Content with Elegant Design */}
-          <View style={[styles.bottomContent, (!!effectiveUserId || props.isSavedShorts) && { paddingBottom: Platform.OS === 'ios' ? 20 : 16 }]}>
+          <View 
+            style={[
+              styles.bottomContent, 
+              (!!effectiveUserId || props.isSavedShorts) && { bottom: isWeb ? 30 : 38, paddingBottom: 0 }
+            ]}
+          >
             <LinearGradient
               colors={['transparent', 'transparent', 'transparent']}
               style={styles.bottomGradientOverlay}
@@ -3700,6 +3710,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               currentPlayerRef={currentPlayerRef}
               progressCallbacks={progressCallbacks}
               lastVideoPositionRef={lastVideoPositionRef}
+              isScopedView={!!effectiveUserId || props.isSavedShorts}
             />
           )}
       </View>
@@ -4170,14 +4181,14 @@ const styles = StyleSheet.create({
   rightActions: {
     position: 'absolute',
     right: isTablet ? theme.spacing.lg : 12,
-    bottom: Platform.OS === 'ios' ? (isWeb ? 90 : 86) : (isWeb ? 80 : 86),
+    bottom: Platform.OS === 'ios' ? (isWeb ? 110 : 106) : (isWeb ? 100 : 106),
     alignItems: 'center',
     zIndex: 5,
   },
   optionsActionContainer: {
     position: 'absolute',
     right: isTablet ? theme.spacing.lg : 12,
-    bottom: Platform.OS === 'ios' ? (isWeb ? 16 : 12) : (isWeb ? 12 : 12),
+    bottom: Platform.OS === 'ios' ? (isWeb ? 36 : 32) : (isWeb ? 32 : 32),
     alignItems: 'center',
     zIndex: 5,
   },
@@ -4261,12 +4272,10 @@ const styles = StyleSheet.create({
   },
   bottomContent: {
     position: 'absolute',
-    bottom: 0,
+    bottom: isWeb ? 30 : 96,
     left: 0,
     right: 80,
-    // SHORTS_ITEM_HEIGHT already excludes TAB_BAR_HEIGHT, so only a small
-    // padding is needed to keep content off the very bottom edge
-    paddingBottom: Platform.OS === 'ios' ? (isWeb ? 16 : 32) : (isWeb ? 16 : 32),
+    paddingBottom: 0,
     paddingTop: 0,
     paddingHorizontal: 20,
     zIndex: 5,
@@ -4495,7 +4504,7 @@ const styles = StyleSheet.create({
   },
   progressBarContainer: {
     position: 'absolute',
-    bottom: isWeb ? 10 : 84,
+    bottom: isWeb ? 8 : 77,
     alignSelf: 'center',
     width: 226,
     height: 24,
