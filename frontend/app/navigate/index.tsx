@@ -9,6 +9,8 @@ import {
   Platform,
   StatusBar,
   RefreshControl,
+  LayoutAnimation,
+  Animated,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -58,6 +60,29 @@ export default function NavigateIndexScreen() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+
+  // Animated toast state
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastAnim = React.useRef(new Animated.Value(0)).current;
+
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    Animated.sequence([
+      Animated.timing(toastAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.delay(3000),
+      Animated.timing(toastAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      })
+    ]).start(() => {
+      setToastMessage(null);
+    });
+  };
 
   // Get current user ID
   useEffect(() => {
@@ -141,14 +166,20 @@ export default function NavigateIndexScreen() {
 
   const handleDeleteJourney = (journeyItem: any) => {
     showDestructiveConfirm(
-      `Are you sure you want to delete "${journeyItem.title || 'Untitled Journey'}"? This cannot be undone.`,
+      'Are you sure you want to delete this journey? This action cannot be undone.',
       async () => {
+        const previousJourneys = [...journeys];
+        // Optimistic UI Update
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setJourneys((prev) => prev.filter((j) => j._id !== journeyItem._id));
+
         try {
           await deleteJourney(journeyItem._id);
-          setJourneys((prev) => prev.filter((j) => j._id !== journeyItem._id));
-          showAlert('Journey deleted', '');
         } catch (err: any) {
-          showError(err.message || 'Something went wrong', 'Failed to delete');
+          // Revert state
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+          setJourneys(previousJourneys);
+          showToast('Failed to delete journey. Please check your connection.');
         }
       },
       'Delete Journey',
@@ -297,6 +328,29 @@ export default function NavigateIndexScreen() {
         <View style={styles.loadingOverlay}>
           <LoadingGlobe size="large" color={GROWTH_GREEN} />
         </View>
+      )}
+
+      {toastMessage && (
+        <Animated.View
+          style={[
+            styles.toastContainer,
+            {
+              backgroundColor: '#EF4444',
+              transform: [
+                {
+                  translateY: toastAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [100, 0],
+                  }),
+                },
+              ],
+              opacity: toastAnim,
+            },
+          ]}
+        >
+          <Ionicons name="alert-circle-outline" size={20} color="white" />
+          <Text style={styles.toastText}>{toastMessage}</Text>
+        </Animated.View>
       )}
     </View>
   );
@@ -448,5 +502,29 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 999,
+  },
+  toastContainer: {
+    position: 'absolute',
+    bottom: 40,
+    left: 20,
+    right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 5,
+    gap: 8,
+    zIndex: 9999,
+  },
+  toastText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
   },
 });

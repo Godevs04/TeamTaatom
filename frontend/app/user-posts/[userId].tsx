@@ -27,11 +27,26 @@ const isIOS = Platform.OS === 'ios';
 const isAndroid = Platform.OS === 'android';
 
 export default function UserPostsScreen() {
-  const { userId, postId } = useLocalSearchParams();
+  const { userId, postId, postData } = useLocalSearchParams();
   const { theme } = useTheme();
   const router = useRouter();
-  const [posts, setPosts] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  
+  const initialPost = useRef<any>(null);
+  if (postData && !initialPost.current) {
+    try {
+      initialPost.current = JSON.parse(postData as string);
+    } catch (e) {
+      logger.error('Failed to parse postData in UserPostsScreen:', e);
+    }
+  }
+
+  const [posts, setPosts] = useState<any[]>(() => {
+    if (initialPost.current) {
+      return [initialPost.current];
+    }
+    return [];
+  });
+  const [loading, setLoading] = useState(() => !initialPost.current);
   const [refreshing, setRefreshing] = useState(false);
   const [user, setUser] = useState<any>(null);
   const flatListRef = useRef<FlatList>(null);
@@ -40,7 +55,9 @@ export default function UserPostsScreen() {
 
   const fetchUserPosts = useCallback(async () => {
     try {
-      setLoading(true);
+      if (posts.length === 0) {
+        setLoading(true);
+      }
       
       // Fetch user info
       const userResponse = await api.get(`/profile/${userId}`);
@@ -48,7 +65,12 @@ export default function UserPostsScreen() {
       
       // Fetch user's posts
       const postsResponse = await api.get(`/posts/user/${userId}`);
-      setPosts(postsResponse.data.posts || []);
+      const fetchedPosts = (postsResponse.data.posts || []).sort((a: any, b: any) => {
+        const dateA = new Date(a.createdAt || a.created_at || 0).getTime();
+        const dateB = new Date(b.createdAt || b.created_at || 0).getTime();
+        return dateB - dateA;
+      });
+      setPosts(fetchedPosts);
       
     } catch (error) {
       logger.error('Error fetching user posts:', error);
@@ -56,16 +78,16 @@ export default function UserPostsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [userId]);
+  }, [userId, postId]);
 
   useEffect(() => {
     fetchUserPosts();
   }, [fetchUserPosts]);
 
   useEffect(() => {
-    const unsubscribe = realtimePostsService.subscribeToLikes(({ postId, isLiked, likesCount }) => {
+    const unsubscribe = realtimePostsService.subscribeToLikes(({ postId: likedPostId, isLiked, likesCount }) => {
       setPosts(prev => prev.map(post => (
-        post._id === postId
+        post._id === likedPostId
           ? { ...post, isLiked, likesCount } as any
           : post
       )));
@@ -87,26 +109,6 @@ export default function UserPostsScreen() {
     }, [])
   );
 
-  // Scroll to specific post if postId is provided
-  useEffect(() => {
-    if (postId && posts.length > 0 && flatListRef.current) {
-      const postIndex = posts.findIndex(post => post._id === postId);
-      if (postIndex !== -1) {
-        // Small delay to ensure FlatList is rendered
-        setTimeout(() => {
-          try {
-            flatListRef.current?.scrollToIndex({
-              index: postIndex,
-              animated: false,
-              viewPosition: 0, // Align post to the top of the view instantly
-            });
-          } catch (error) {
-            logger.debug('Initial scrollToIndex failed:', error);
-          }
-        }, 100);
-      }
-    }
-  }, [postId, posts]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

@@ -11,6 +11,7 @@ import {
   ScrollView,
   TextInput,
   Alert,
+  KeyboardAvoidingView,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -44,6 +45,7 @@ import PremiumSegmentedTabs from '../../components/ui/PremiumSegmentedTabs';
 import GradientText from '../../components/ui/GradientText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Location from 'expo-location';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -231,6 +233,57 @@ export default function ConnectHubScreen() {
   const [userLocationSuggestions, setUserLocationSuggestions] = useState<string[]>([]);
   const [loadingUserLocation, setLoadingUserLocation] = useState(false);
   const userLocationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const userLocationOverriddenRef = useRef(false);
+
+  const formatDetectedLocation = useCallback((address: Location.LocationGeocodedAddress) => {
+    return [
+      address.city || address.subregion || address.district,
+      address.region,
+      address.country,
+    ].filter(Boolean).join(', ');
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateCurrentLocation = async () => {
+      if (activeTab !== 'find' || userLocationOverriddenRef.current || userLocationInput.trim()) return;
+      if (Platform.OS === 'web') return;
+      try {
+        setLoadingUserLocation(true);
+        const existingPermission = await Location.getForegroundPermissionsAsync();
+        const permission = existingPermission.status === 'granted'
+          ? existingPermission
+          : await Location.requestForegroundPermissionsAsync();
+
+        if (cancelled || permission.status !== 'granted') return;
+
+        const lastKnown = await Location.getLastKnownPositionAsync();
+        const position = lastKnown || await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (cancelled || userLocationOverriddenRef.current) return;
+
+        const [address] = await Location.reverseGeocodeAsync(position.coords);
+        if (cancelled || userLocationOverriddenRef.current || !address) return;
+
+        const label = formatDetectedLocation(address);
+        if (!label) return;
+        setUserLocation(label);
+        setUserLocationInput(label);
+        setUserLocationSuggestions([]);
+      } catch (error) {
+        logger.debug('Unable to hydrate current location for traveler search:', error);
+      } finally {
+        if (!cancelled) setLoadingUserLocation(false);
+      }
+    };
+
+    hydrateCurrentLocation();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, formatDetectedLocation, userLocationInput]);
 
   // Load countries/languages for Find tab and pre-populate from profile
   useEffect(() => {
@@ -426,6 +479,7 @@ export default function ConnectHubScreen() {
 
   // User's own current location — debounced Places autocomplete.
   const handleUserLocationChange = (text: string) => {
+    userLocationOverriddenRef.current = true;
     setUserLocationInput(text);
     // Typing means the previously selected location is no longer authoritative.
     if (userLocation) setUserLocation('');
@@ -450,6 +504,7 @@ export default function ConnectHubScreen() {
   };
 
   const handleUserLocationSelect = (place: string) => {
+    userLocationOverriddenRef.current = true;
     setUserLocation(place);
     setUserLocationInput(place);
     setUserLocationSuggestions([]);
@@ -785,10 +840,17 @@ export default function ConnectHubScreen() {
   };
 
   const renderFindTab = () => (
+    <KeyboardAvoidingView
+      style={styles.findKeyboardWrapper}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={topBarHeight}
+    >
     <ScrollView
       style={styles.findContainer}
       contentContainerStyle={styles.findContent}
       showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
     >
       {/* Filter Form */}
       <CloudGlassSurface style={styles.filterCard} contentStyle={styles.filterCardContent} borderRadius={20}>
@@ -824,6 +886,7 @@ export default function ConnectHubScreen() {
           ) : userLocationInput.length > 0 ? (
             <TouchableOpacity
               onPress={() => {
+                userLocationOverriddenRef.current = true;
                 setUserLocation('');
                 setUserLocationInput('');
                 setUserLocationSuggestions([]);
@@ -852,9 +915,8 @@ export default function ConnectHubScreen() {
           </View>
         )}
 
-        {/* People-from country */}
         <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>
-          Which country&apos;s people would you like to connect with?
+          Nationality
         </Text>
         <TouchableOpacity
           style={[styles.filterSelect, {
@@ -871,9 +933,8 @@ export default function ConnectHubScreen() {
           <Ionicons name="chevron-down" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
         </TouchableOpacity>
 
-        {/* Where they currently are */}
         <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>
-          Which country should they currently be in?
+          Current Location / Residence
         </Text>
         <TouchableOpacity
           style={[styles.filterSelect, {
@@ -909,7 +970,9 @@ export default function ConnectHubScreen() {
           <Ionicons name="chevron-down" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
         </TouchableOpacity>
 
-        {/* Travel Style Picker */}
+        <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>
+          Travel Style
+        </Text>
         <TouchableOpacity
           style={[styles.filterSelect, {
             backgroundColor: isDark ? '#0A1E35' : '#E6F0FA',
@@ -962,6 +1025,7 @@ export default function ConnectHubScreen() {
 
       {foundUsers.map(user => renderUserItem(user))}
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 
   const renderPageListTab = () => {
@@ -1171,6 +1235,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   // Find Tab
+  findKeyboardWrapper: {
+    flex: 1,
+  },
   findContainer: {
     flex: 1,
   },

@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
+import { triggerHaptic } from '../utils/hapticFeedback';
 
 const isIOS = Platform.OS === 'ios';
 const isWeb = Platform.OS === 'web';
@@ -36,6 +37,13 @@ const GROWTH_GREEN = '#22C55E';
 
 export default function JourneyCard({ journey, onPress, onLongPress }: JourneyCardProps) {
   const { theme } = useTheme();
+
+  const handleLongPress = () => {
+    if (onLongPress) {
+      triggerHaptic('light');
+      onLongPress();
+    }
+  };
 
   const startDate = new Date(journey.startedAt);
   const endDate = journey.completedAt ? new Date(journey.completedAt) : new Date();
@@ -70,7 +78,7 @@ export default function JourneyCard({ journey, onPress, onLongPress }: JourneyCa
       style={[styles.card, { backgroundColor: theme.colors.surface }]}
       activeOpacity={0.65}
       onPress={onPress}
-      onLongPress={onLongPress}
+      onLongPress={handleLongPress}
       delayLongPress={500}
     >
       {/* Icon */}

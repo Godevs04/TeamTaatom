@@ -61,7 +61,7 @@ function isAdItem(item: FeedItem): item is { type: 'ad'; adIndex: number } {
 }
 
 const ADS_AFTER_EVERY = 6;
-const POST_VIEW_DWELL_MS = 1000;
+const POST_VIEW_DWELL_MS = 2500;
 const HOME_AD_START_DELAY_MS = __DEV__ ? 1000 : 30000;
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -213,6 +213,7 @@ const FeedListItem = React.memo(
         post={item}
         onRefresh={onRefresh}
         isCurrentlyVisible={isCurrentlyVisible}
+        hideShareCount={true}
       />
     );
   },

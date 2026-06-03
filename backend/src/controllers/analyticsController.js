@@ -41,9 +41,9 @@ const trackEvents = async (req, res) => {
           try {
             const post = await Post.findById(postId);
             if (post) {
-              // 8-hour cooldown verification: check if this user (userId) or session (sessionId)
-              // already viewed this post/short in the last 8 hours
-              const cooldownPeriod = 8 * 60 * 60 * 1000; // 8 hours in milliseconds
+              // 24-hour cooldown verification: check if this user (userId) or session (sessionId)
+              // already viewed this post/short in the last 24 hours
+              const cooldownPeriod = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
               const cutoffTime = new Date(event.timestamp.getTime() - cooldownPeriod);
 
               const cooldownQuery = {
@@ -70,24 +70,13 @@ const trackEvents = async (req, res) => {
               if (existingView) {
                 shouldIncrement = false;
                 const identity = event.userId ? `User ${event.userId}` : `Session ${event.sessionId}`;
-                logger.info(`[VIEW TRACKING] ${identity} already viewed post/short ${postId} within the last 8 hours (existing view at ${existingView.timestamp.toISOString()}). Cooldown active, skipping view increment.`);
+                logger.info(`[VIEW TRACKING] ${identity} already viewed post/short ${postId} within the last 24 hours (existing view at ${existingView.timestamp.toISOString()}). Cooldown active, skipping view increment.`);
               }
 
               if (shouldIncrement) {
-                post.views = (post.views || 0) + 1;
-                await post.save();
-                logger.info(`[VIEW TRACKING] Post/short ${postId} view count incremented to ${post.views} for ${event.userId ? 'User ' + event.userId : 'Session ' + event.sessionId}.`);
-
-                try {
-                  const io = global.socketIO || req.app?.get?.('io');
-                  const nsp = io?.of?.('/app');
-                  nsp?.emitPostView?.(postId, post.views, event.userId || null);
-                } catch (socketError) {
-                  logger.debug(`[VIEW TRACKING] Failed to emit view update for ${postId}:`, socketError);
-                }
-                
-                // Invalidate post cache so fresh views count is fetched next time
-                await deleteCache(CacheKeys.post(postId)).catch(() => {});
+                const viewAggregator = require('../utils/viewAggregator');
+                viewAggregator.addView(postId);
+                logger.info(`[VIEW TRACKING] Post/short ${postId} view event queued in aggregator for ${event.userId ? 'User ' + event.userId : 'Session ' + event.sessionId}.`);
               }
             }
           } catch (err) {

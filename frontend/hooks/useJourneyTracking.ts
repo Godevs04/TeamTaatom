@@ -1088,44 +1088,48 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         throw new Error('No active journey');
       }
 
-      // Capture one final high-accuracy coordinate to guarantee the exact ending location pin is precise
-      try {
-        const finalLoc = await Promise.race([
-          Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.High,
-          }),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)) // 4s timeout fallback
-        ]);
+      const isCurrentlyPaused = isPausedRef.current;
 
-        if (finalLoc) {
-          const finalCoord: Coordinate = {
-            latitude: finalLoc.coords.latitude,
-            longitude: finalLoc.coords.longitude,
-            timestamp: finalLoc.timestamp,
-            accuracy: finalLoc.coords.accuracy || 0,
-          };
+      if (!isCurrentlyPaused) {
+        // Capture one final high-accuracy coordinate to guarantee the exact ending location pin is precise
+        try {
+          const finalLoc = await Promise.race([
+            Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.High,
+            }),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)) // 4s timeout fallback
+          ]);
 
-          if (!finalCoord.accuracy || finalCoord.accuracy <= 20) {
-            // Avoid duplicate points if final location is virtually identical to the last tracked point
-            const lastTracked = lastCoordinateRef.current;
-            const dist = lastTracked
-              ? calculateCoordinateDistance(
-                  lastTracked.latitude,
-                  lastTracked.longitude,
-                  finalCoord.latitude,
-                  finalCoord.longitude
-                )
-              : Infinity;
+          if (finalLoc) {
+            const finalCoord: Coordinate = {
+              latitude: finalLoc.coords.latitude,
+              longitude: finalLoc.coords.longitude,
+              timestamp: finalLoc.timestamp,
+              accuracy: finalLoc.coords.accuracy || 0,
+            };
 
-            if (dist >= 1) { // only push if at least 1 meter away or if no prior point
-              batchCoordinatesRef.current.push(finalCoord);
-              setPolyline((prev) => [...prev, finalCoord]);
-              lastCoordinateRef.current = finalCoord;
+            if (!finalCoord.accuracy || finalCoord.accuracy <= 20) {
+              // Avoid duplicate points if final location is virtually identical to the last tracked point
+              const lastTracked = lastCoordinateRef.current;
+              const dist = lastTracked
+                ? calculateCoordinateDistance(
+                    lastTracked.latitude,
+                    lastTracked.longitude,
+                    finalCoord.latitude,
+                    finalCoord.longitude
+                  )
+                : Infinity;
+
+              if (dist >= 1) { // only push if at least 1 meter away or if no prior point
+                batchCoordinatesRef.current.push(finalCoord);
+                setPolyline((prev) => [...prev, finalCoord]);
+                lastCoordinateRef.current = finalCoord;
+              }
             }
           }
+        } catch (locErr) {
+          logger.warn('[Journey] Could not fetch final high-accuracy location for stop:', locErr);
         }
-      } catch (locErr) {
-        logger.warn('[Journey] Could not fetch final high-accuracy location for stop:', locErr);
       }
 
       // Stop location tracking
@@ -1149,12 +1153,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         clearInterval(batchSendTimerRef.current);
       }
 
-      // Send final coordinates. If the network is bad at exactly this
-      // moment we don't lose them — the persisted-batch entry stays on disk
-      // and the next time the user opens the app with this journey id, the
-      // init flow recovers them.
+      // Send final coordinates only if NOT paused
       const completingJourneyId = journeyIdRef.current;
-      if (batchCoordinatesRef.current.length > 0) {
+      if (!isCurrentlyPaused && batchCoordinatesRef.current.length > 0) {
         const coords = batchCoordinatesRef.current.splice(0);
         try {
           await updateJourneyLocation(completingJourneyId, coords);

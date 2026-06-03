@@ -29,6 +29,11 @@ import { DirectionsRoute, fetchDirectionsRoute, getManeuverIcon } from '../../se
 import { useMapStyle } from '../../hooks/useMapStyle';
 import logger from '../../utils/logger';
 import { BlurView } from 'expo-blur';
+import {
+  isValidMapCoordinate,
+  sanitizeLatitudeDelta,
+  sanitizeMapRegion,
+} from '../../utils/mapSafety';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -223,6 +228,7 @@ export default function CurrentLocationMap() {
   const [error, setError] = useState<string | null>(null);
   const [isWatching, setIsWatching] = useState(false);
   const [userCoords, setUserCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [latitudeDelta, setLatitudeDelta] = useState(0.1);
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme, isDark } = useTheme();
@@ -254,9 +260,8 @@ export default function CurrentLocationMap() {
   const isTripScoreFlow = countryParam && countryParam !== 'general' && userIdParam !== 'admin-locale';
   
   // CRITICAL: Validate coordinates are valid (not 0 or undefined)
-  const hasValidCoordinates = postLatitude && postLongitude && 
-                               postLatitude !== 0 && postLongitude !== 0 &&
-                               !isNaN(postLatitude) && !isNaN(postLongitude);
+  const hasValidCoordinates = isValidMapCoordinate({ latitude: postLatitude, longitude: postLongitude }) &&
+                               postLatitude !== 0 && postLongitude !== 0;
   
   const isPostLocation = hasValidCoordinates; // Use valid coordinates check
 
@@ -645,7 +650,12 @@ function initMap(){
         this.div.style.left = pt.x + 'px';
         this.div.style.top = pt.y + 'px';
         this.div.style.position = 'absolute';
-        this.div.style.transform = 'translate(-50%,-50%)';
+        var anchor = this.div.getAttribute('data-anchor') || 'bottom';
+        if (anchor === 'center') {
+          this.div.style.transform = 'translate(-50%, -50%)';
+        } else {
+          this.div.style.transform = 'translate(-50%, -100%)';
+        }
       }
     }
     onRemove() {
@@ -666,6 +676,7 @@ function initMap(){
   if(routePath.length>1 && userCoords){
     var userDiv=document.createElement('div');
     userDiv.style.cssText='position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+    userDiv.setAttribute('data-anchor', 'center');
     userDiv.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
     new PhotoOverlay(new google.maps.LatLng(userCoords.latitude, userCoords.longitude), userDiv);
   }
@@ -675,8 +686,10 @@ function initMap(){
   
   var isPostLoc = ${isPostLocation};
   if (isPostLoc || routePath.length > 1) {
-    div.innerHTML = '<div style="font-size: 32px; line-height: 1; margin-top: -16px; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.35));">📍</div>';
+    div.setAttribute('data-anchor', 'bottom');
+    div.innerHTML = '<svg width="30" height="40" viewBox="0 0 30 40" style="filter: drop-shadow(0px 3px 4px rgba(0,0,0,0.35))"><defs><linearGradient id="htmlPinGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#50C878" /><stop offset="100%" stop-color="#1C73B4" /></linearGradient></defs><path d="M15 1C7.27 1 1 7.27 1 15c0 10 14 25 14 25s14-15 14-25c0-7.73-6.27-14-14-14zm0 19c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z" fill="url(#htmlPinGrad)" fill-rule="evenodd" stroke="#FFFFFF" stroke-width="1.5"/></svg>';
   } else {
+    div.setAttribute('data-anchor', 'center');
     div.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
   }
   new PhotoOverlay(new google.maps.LatLng(${lat}, ${lng}), div);
@@ -721,6 +734,12 @@ function initMap(){
           latitudeDelta: 0.1,
           longitudeDelta: 0.1,
         }}
+        onRegionChangeComplete={(region) => {
+          const safeRegion = sanitizeMapRegion(region);
+          if (safeRegion) {
+            setLatitudeDelta(safeRegion.latitudeDelta);
+          }
+        }}
         showsUserLocation={true}
         showsMyLocationButton={true}
         showsCompass={true}
@@ -737,6 +756,7 @@ function initMap(){
               strokeWidth={5}
               simplifyDistance={4}
               applyKalman={false}
+              latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
             />
             <Marker
               coordinate={route.coordinates[0]}
@@ -744,7 +764,7 @@ function initMap(){
               description="Your starting point"
               anchor={{ x: 0.5, y: 0.5 }}
             >
-              <PremiumMapMarker pointType="start" active={false} />
+              <PremiumMapMarker pointType="start" active={false} latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
             </Marker>
           </>
         )}
@@ -765,7 +785,7 @@ function initMap(){
               ? 'Post Location'
               : (locationName ? `${locationName} Location` : 'You are here')
           }
-          anchor={{ x: 0.5, y: 1 }}
+          anchor={{ x: 0.5, y: 1.0 }}
           onPress={() => {
             if (isTripScoreFlow) {
               router.back();
@@ -789,6 +809,7 @@ function initMap(){
             activeTitle={isPostLocation ? (locationName || postAddress || 'Location') : undefined}
             activeSubtitle={isPostLocation ? (params.spotTypes as string || params.description as string || 'Visited place') : undefined}
             photo={isPostLocation ? (params.imageUrl ? resolvePhotoUrl(params.imageUrl as string) : undefined) : undefined}
+            latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
           />
         </Marker>
       </MapView>

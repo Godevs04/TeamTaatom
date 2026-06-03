@@ -44,19 +44,19 @@ export default function CloudChatConversationHeader({
       <BlurView intensity={isDark ? 40 : 20} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
       <View style={styles.border} />
       <View style={styles.row}>
-        <TouchableOpacity onPress={onBack} style={[styles.back, { overflow: 'hidden', borderRadius: 20 }]} hitSlop={10}>
+        <TouchableOpacity onPress={onBack} style={[styles.back, { overflow: 'hidden', borderRadius: 16 }]} hitSlop={10}>
           <LinearGradient
             colors={['#1C73B4', '#50C878']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFillObject}
           />
-          <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
+          <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
         </TouchableOpacity>
         <TouchableOpacity style={styles.center} onPress={onTitlePress} activeOpacity={onTitlePress ? 0.7 : 1} disabled={!onTitlePress}>
           {avatarUris.length > 0 ? (
             <View style={styles.avatarWrapper}>
-              <CloudAvatarStack uris={avatarUris} size={36} max={1} />
+              <CloudAvatarStack uris={avatarUris} size={32} max={1} />
             </View>
           ) : null}
           <View style={styles.headerTextContainer}>
@@ -94,11 +94,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 8,
-    paddingVertical: 12,
+    paddingVertical: 5,
   },
   back: {
-    width: 40,
-    height: 40,
+    width: 32,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -106,10 +106,10 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
   },
   title: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '900',
     color: cloudDesign.textDark,
     fontFamily: undefined,

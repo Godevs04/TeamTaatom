@@ -515,7 +515,7 @@ export default function SignUpScreen() {
           <View style={styles.header}>
             <View style={styles.logoContainer}>
               <Image
-                source={{ uri: LOGO_IMAGE }}
+                source={LOGO_IMAGE}
                 style={styles.logo}
                 accessibilityLabel="Taatom Logo"
               />
@@ -789,6 +789,7 @@ const styles = StyleSheet.create({
     height: isTablet ? 120 : 100,
     resizeMode: 'contain' as const,
     tintColor: undefined,
+    borderRadius: isTablet ? 24 : 20,
   },
   title: {
     fontSize: isTablet ? 38 : 34,

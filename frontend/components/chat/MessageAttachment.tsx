@@ -336,7 +336,13 @@ const MessageAttachment: React.FC<MessageAttachmentProps> = ({ attachment, isOwn
           ]}
           onPress={() => {
             if (authorId && contentId) {
-              router.push(`/user-posts/${authorId}?postId=${contentId}`);
+              router.push({
+                pathname: `/user-posts/${authorId}`,
+                params: {
+                  postId: contentId,
+                  postData: postDetails ? JSON.stringify(postDetails) : undefined,
+                },
+              });
             }
           }}
         >

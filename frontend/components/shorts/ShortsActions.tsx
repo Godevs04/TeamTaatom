@@ -220,13 +220,12 @@ const ShortsActions = ({
       <Pressable
         style={styles.actionButton}
         onPress={onSharePress}
-        accessibilityLabel={`Share, ${sharesCount} shares`}
+        accessibilityLabel="Share"
         accessibilityRole="button"
       >
         <View style={[styles.iconContainer, { backgroundColor: theme.colors.glassSurface, borderColor: theme.colors.glassBorder }]}>
           <GradientIcon name="paper-plane-outline" size={28} />
         </View>
-        <Text style={styles.actionText}>{sharesCount}</Text>
       </Pressable>
 
       {/* 5. Options Button */}

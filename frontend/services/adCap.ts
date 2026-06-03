@@ -20,7 +20,7 @@ const STORAGE_KEY = '@taatom/adCap/v1';
 const MAX_GOOGLE_ADS = 5;
 const WINDOW_MS = 8 * 60 * 60 * 1000; // 8 hours
 const LAUNCH_DELAY_MS = __DEV__ ? 1000 : 30000; // 30 seconds (1s in dev)
-const VIEW_EXPIRY_MS = 8 * 60 * 60 * 1000; // 8 hours
+const VIEW_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export interface ContentViewEntry {
   contentId: string;

@@ -7,12 +7,15 @@ import {
   ScrollView,
   StyleSheet,
   Platform,
+  Dimensions,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useTheme } from '../context/ThemeContext';
+import AspectImageCropper, { CropTransform } from './post/AspectImageCropper';
 
 // Re-exported for callers that previously imported CropTransform from here.
 export type { CropTransform } from './post/AspectImageCropper';
@@ -62,6 +65,7 @@ interface ImageEditModalProps {
   onFilterChange: (filter: ImageFilterType) => void;
   selectedAspectRatio?: AspectRatioChoice;
   onAspectRatioChange?: (ratio: AspectRatioChoice) => void;
+  onTransformChange?: (transform: CropTransform | null) => void;
 }
 
 export default function ImageEditModal({
@@ -73,6 +77,7 @@ export default function ImageEditModal({
   onFilterChange,
   selectedAspectRatio = '1:1',
   onAspectRatioChange,
+  onTransformChange,
 }: ImageEditModalProps) {
   const { theme, mode } = useTheme();
   const searchAbortControllerRef = useRef<AbortController | null>(null);
@@ -92,10 +97,11 @@ export default function ImageEditModal({
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-        <View style={[
-          styles.container,
-          {
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <View style={[styles.overlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+          <View style={[
+            styles.container,
+            {
             borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.45)',
             borderWidth: 1,
             overflow: 'hidden',
@@ -184,45 +190,65 @@ export default function ImageEditModal({
               {/* Photos — informational thumbnails. Pinch+pan cropping happens on the post creation
                   screen itself, not in this modal. */}
               {/* Filter preview — first selected image with approximate overlay. */}
-              {images.length > 0 && (
-                <>
-                  <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary, marginTop: theme.spacing.lg }]}>
-                    Preview
-                  </Text>
-                  <View style={{
-                    width: '100%',
-                    height: 240,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    backgroundColor: mode === 'dark' ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.3)',
-                    borderRadius: 16,
-                    marginBottom: 6,
-                    padding: 12,
-                    borderWidth: 1,
-                    borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                  }}>
-                    <View style={[
-                      styles.previewContainer,
-                      {
-                        height: '100%',
-                        aspectRatio: selectedAspectRatio === '1.91:1' ? 1.91 / 1 : 1 / 1,
-                        width: undefined,
-                      }
-                    ]}>
-                      <ExpoImage source={{ uri: images[0].uri }} style={styles.previewImage} />
-                      {FILTER_PREVIEW_OVERLAY[selectedFilter] && (
-                        <View
-                          pointerEvents="none"
-                          style={[
-                            StyleSheet.absoluteFillObject,
-                            { backgroundColor: FILTER_PREVIEW_OVERLAY[selectedFilter]! },
-                          ]}
+              {/* Filter preview — first selected image with approximate overlay. */}
+              {images.length > 0 && (() => {
+                const { width: screenWidth } = Dimensions.get('window');
+                const maxViewportWidth = screenWidth - 40 - 24;
+                const desiredHeight = 240 - 24;
+                const selectedRatioNum = selectedAspectRatio === '1.91:1' ? 1.91 : 1;
+                let viewportWidth = desiredHeight * selectedRatioNum;
+                if (viewportWidth > maxViewportWidth) {
+                  viewportWidth = maxViewportWidth;
+                }
+                const viewportH = Math.round(viewportWidth / selectedRatioNum);
+                return (
+                  <>
+                    <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary, marginTop: theme.spacing.lg }]}>
+                      Preview
+                    </Text>
+                    <View style={{
+                      width: '100%',
+                      height: 240,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      backgroundColor: mode === 'dark' ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.3)',
+                      borderRadius: 16,
+                      marginBottom: 6,
+                      padding: 12,
+                      borderWidth: 1,
+                      borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    }}>
+                      <View style={[
+                        styles.previewContainer,
+                        {
+                          width: viewportWidth,
+                          height: viewportH,
+                          position: 'relative',
+                        }
+                      ]}>
+                        <AspectImageCropper
+                          uri={images[0].uri}
+                          aspectRatio={selectedRatioNum}
+                          borderRadius={12}
+                          showHint={false}
+                          showReset={true}
+                          viewportWidth={viewportWidth}
+                          onTransformChange={onTransformChange}
                         />
-                      )}
+                        {FILTER_PREVIEW_OVERLAY[selectedFilter] && (
+                          <View
+                            pointerEvents="none"
+                            style={[
+                              StyleSheet.absoluteFillObject,
+                              { backgroundColor: FILTER_PREVIEW_OVERLAY[selectedFilter]!, borderRadius: 12 },
+                            ]}
+                          />
+                        )}
+                      </View>
                     </View>
-                  </View>
-                </>
-              )}
+                  </>
+                );
+              })()}
 
               {/* Filters */}
               <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary, marginTop: theme.spacing.lg }]}>
@@ -333,6 +359,7 @@ export default function ImageEditModal({
           </View>
         </View>
       </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }

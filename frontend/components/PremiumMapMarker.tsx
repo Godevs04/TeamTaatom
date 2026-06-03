@@ -12,7 +12,9 @@ import { Image as ExpoImage } from 'expo-image';
 import { BlurView } from 'expo-blur';
 import { useTheme } from '../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
 import { getApiUrl } from '../utils/config';
+import { sanitizeLatitudeDelta } from '../utils/mapSafety';
 
 const resolvePhotoUrl = (url?: string | null): string | undefined => {
   if (!url) return undefined;
@@ -35,7 +37,17 @@ interface PremiumMapMarkerProps {
   photo?: string;
   tracksViewChanges?: boolean;
   onImageLoad?: () => void;
+  latitudeDelta?: number;
 }
+
+const getScaleFromDelta = (delta?: number) => {
+  const safeDelta = sanitizeLatitudeDelta(delta, 1);
+  const zoom = Math.log2(360 / safeDelta);
+  if (!Number.isFinite(zoom)) return 1.0;
+  if (zoom <= 15) return 1.0;
+  if (zoom >= 18) return 0.5;
+  return 1.0 - ((zoom - 15) / 3) * 0.5;
+};
 
 const PremiumMapMarker = memo(function PremiumMapMarker({
   icon = 'location',
@@ -49,14 +61,23 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
   photo,
   tracksViewChanges: propTracksViewChanges,
   onImageLoad,
+  latitudeDelta,
 }: PremiumMapMarkerProps) {
   const { isDark, theme } = useTheme();
   const activeState = isActive ?? active;
   const activeProgress = useSharedValue(activeState ? 1 : 0);
   const pulse = useSharedValue(1);
   const resolvedPhoto = resolvePhotoUrl(photo);
+  const usesNativeIosMarker = Platform.OS === 'ios';
 
   const [tracksViewChanges, setTracksViewChanges] = useState(propTracksViewChanges ?? false);
+
+  const zoomScaleShared = useSharedValue(1.0);
+
+  useEffect(() => {
+    const targetZoomScale = usesNativeIosMarker ? 1.0 : getScaleFromDelta(latitudeDelta);
+    zoomScaleShared.value = withTiming(targetZoomScale, { duration: 200 });
+  }, [latitudeDelta, usesNativeIosMarker, zoomScaleShared]);
 
   useEffect(() => {
     if (propTracksViewChanges !== undefined) {
@@ -82,17 +103,23 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
   }, [activeState, activeProgress]);
 
   useEffect(() => {
+    if (usesNativeIosMarker) {
+      pulse.value = 1;
+      return;
+    }
+
     pulse.value = withRepeat(
       withTiming(2.2, { duration: 1800, easing: Easing.out(Easing.ease) }),
       -1,
       false
     );
-  }, []);
+  }, [pulse, usesNativeIosMarker]);
 
   const containerStyle = useAnimatedStyle(() => {
-    const scale = activeState ? (isDark ? 1.15 : 1.1) : 1.0;
+    const baseScale = activeState ? (isDark ? 1.15 : 1.1) : 1.0;
+    const totalScale = baseScale * zoomScaleShared.value;
     return {
-      transform: [{ scale: withTiming(scale, { duration: 200 }) }],
+      transform: [{ scale: totalScale }],
     };
   });
 
@@ -107,16 +134,18 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
   if (icon === 'navigate') {
     const outerBg = isDark ? '#0F172A' : '#FFFFFF';
     return (
-      <View style={styles.userMarkerContainer}>
+      <Animated.View style={[styles.userMarkerContainer, containerStyle]}>
         {/* Pulsating Ring */}
-        <Animated.View style={[styles.pulsatingRing, pulseStyle]}>
-          <LinearGradient
-            colors={['#3B82F6', '#2DD4BF']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={[StyleSheet.absoluteFillObject, { borderRadius: 12 }]}
-          />
-        </Animated.View>
+        {!usesNativeIosMarker && (
+          <Animated.View style={[styles.pulsatingRing, pulseStyle]}>
+            <LinearGradient
+              colors={['#3B82F6', '#2DD4BF']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[StyleSheet.absoluteFillObject, { borderRadius: 12 }]}
+            />
+          </Animated.View>
+        )}
         
         {/* Static Inner Border */}
         <View style={[styles.userMarkerOuter, { backgroundColor: outerBg, borderColor: isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.1)' }]}>
@@ -127,7 +156,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
             style={styles.userMarkerInner}
           />
         </View>
-      </View>
+      </Animated.View>
     );
   }
 
@@ -137,39 +166,50 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
       ? ['#10B981', '#059669'] as const
       : ['#EF4444', '#DC2626'] as const;
     return (
-      <View style={isDark ? styles.shadowDark : styles.shadowLight}>
+      <Animated.View style={[isDark ? styles.shadowDark : styles.shadowLight, containerStyle]}>
         <LinearGradient
           colors={badgeColors}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={styles.journeyBadge}
         />
-      </View>
+      </Animated.View>
     );
   }
 
-  // Handle standard location markers (if inactive, render as small glowing dot)
+  // Handle standard location markers (if inactive, render as Google Maps style gradient pin with cutout center)
   if (!activeState) {
     return (
-      <View style={styles.dotContainer}>
-        {/* Pulsating Ring */}
-        <Animated.View style={[styles.dotPulse, pulseStyle]}>
-          <LinearGradient
-            colors={isDark ? ['rgba(80, 200, 120, 0.4)', 'rgba(28, 115, 180, 0.05)'] as const : ['rgba(28, 115, 180, 0.4)', 'rgba(80, 200, 120, 0.05)'] as const}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={[StyleSheet.absoluteFillObject, { borderRadius: 15 }]}
-          />
-        </Animated.View>
+      <Animated.View style={[styles.inactiveMarkerContainer, containerStyle]}>
+        {/* Pulsating Ring (under the pin) */}
+        {!usesNativeIosMarker && (
+          <Animated.View style={[styles.dotPulse, pulseStyle, { top: 5 }]}>
+            <LinearGradient
+              colors={isDark ? ['rgba(80, 200, 120, 0.4)', 'rgba(28, 115, 180, 0.05)'] as const : ['rgba(28, 115, 180, 0.4)', 'rgba(80, 200, 120, 0.05)'] as const}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[StyleSheet.absoluteFillObject, { borderRadius: 15 }]}
+            />
+          </Animated.View>
+        )}
         
-        {/* Core Dot */}
-        <LinearGradient
-          colors={['#50C878', '#1C73B4'] as const}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.dotCore}
-        />
-      </View>
+        {/* Custom Svg Gradient Pin (Teardrop shape matching Google Maps logo, cutout center, white border) */}
+        <Svg width={30} height={40} viewBox="0 0 30 40" style={styles.svgPin}>
+          <Defs>
+            <SvgLinearGradient id="pinGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+              <Stop offset="0%" stopColor="#50C878" />
+              <Stop offset="100%" stopColor="#1C73B4" />
+            </SvgLinearGradient>
+          </Defs>
+          <Path
+            d="M15 1C7.27 1 1 7.27 1 15c0 10 14 25 14 25s14-15 14-25c0-7.73-6.27-14-14-14zm0 19c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"
+            fill="url(#pinGrad)"
+            fillRule="evenodd"
+            stroke="#FFFFFF"
+            strokeWidth={1.5}
+          />
+        </Svg>
+      </Animated.View>
     );
   }
 
@@ -183,9 +223,6 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
 
   return (
     <Animated.View style={[styles.cockpitContainer, containerStyle]}>
-      {/* Base Point Indicator */}
-      <View style={[styles.activeBaseDot, { backgroundColor: isDark ? '#2DD4BF' : '#3B82F6' }]} />
-      
       {/* Shadow wrapper (no overflow hidden to allow shadows on iOS, flat wrapper on Android) */}
       <View style={isDark ? styles.shadowDark : styles.shadowLight}>
         {/* Glassmorphic card body (clips inner contents like blur/image) */}
@@ -278,6 +315,9 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
           )}
         </View>
       </View>
+
+      {/* Base Point Indicator at the bottom */}
+      <View style={[styles.activeBaseDot, { backgroundColor: isDark ? '#2DD4BF' : '#3B82F6', marginTop: 4, marginBottom: 0 }]} />
     </Animated.View>
   );
 }, (prevProps, nextProps) => {
@@ -292,13 +332,32 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
     prevProps.activeSubtitle === nextProps.activeSubtitle &&
     prevProps.photo === nextProps.photo &&
     prevProps.tracksViewChanges === nextProps.tracksViewChanges &&
-    prevProps.onImageLoad === nextProps.onImageLoad
+    prevProps.onImageLoad === nextProps.onImageLoad &&
+    prevProps.latitudeDelta === nextProps.latitudeDelta
   );
 });
 
 export default PremiumMapMarker;
 
 const styles = StyleSheet.create({
+  inactiveMarkerContainer: {
+    width: 36,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+  },
+  svgPin: {
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.35,
+        shadowRadius: 4,
+      },
+      android: {},
+    }),
+  },
   journeyBadge: {
     width: 36,
     height: 36,

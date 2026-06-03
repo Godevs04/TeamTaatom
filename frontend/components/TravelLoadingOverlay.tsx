@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, Animated, Easing, StyleSheet, Dimensions, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import LoadingGlobe from './LoadingGlobe';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTabletLocal = screenWidth >= 768;
@@ -42,9 +43,6 @@ const TravelLoadingOverlay: React.FC<TravelLoadingOverlayProps> = ({
   const floatAnim = useRef(new Animated.Value(0)).current;
   const globeRotateAnim = useRef(new Animated.Value(0)).current;
   const shimmerAnim = useRef(new Animated.Value(0)).current;
-  const dot1Anim = useRef(new Animated.Value(0)).current;
-  const dot2Anim = useRef(new Animated.Value(0)).current;
-  const dot3Anim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (calculatingDistances) {
@@ -91,24 +89,6 @@ const TravelLoadingOverlay: React.FC<TravelLoadingOverlayProps> = ({
             useNativeDriver: true,
           })
         ),
-        Animated.loop(
-          Animated.sequence([
-            Animated.parallel([
-              Animated.timing(dot1Anim, { toValue: 1, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-              Animated.delay(200),
-              Animated.timing(dot2Anim, { toValue: 1, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-              Animated.delay(400),
-              Animated.timing(dot3Anim, { toValue: 1, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-            ]),
-            Animated.parallel([
-              Animated.timing(dot1Anim, { toValue: 0, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-              Animated.delay(200),
-              Animated.timing(dot2Anim, { toValue: 0, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-              Animated.delay(400),
-              Animated.timing(dot3Anim, { toValue: 0, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-            ]),
-          ])
-        ),
       ]).start();
     } else {
       Animated.timing(fadeAnim, {
@@ -125,11 +105,8 @@ const TravelLoadingOverlay: React.FC<TravelLoadingOverlayProps> = ({
       floatAnim.stopAnimation();
       globeRotateAnim.stopAnimation();
       shimmerAnim.stopAnimation();
-      dot1Anim.stopAnimation();
-      dot2Anim.stopAnimation();
-      dot3Anim.stopAnimation();
     };
-  }, [calculatingDistances, rotateAnim, pulseAnim, fadeAnim, floatAnim, globeRotateAnim, shimmerAnim, dot1Anim, dot2Anim, dot3Anim]);
+  }, [calculatingDistances, rotateAnim, pulseAnim, fadeAnim, floatAnim, globeRotateAnim, shimmerAnim]);
 
   const rotation = rotateAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
   const scale = pulseAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.15] });
@@ -137,12 +114,6 @@ const TravelLoadingOverlay: React.FC<TravelLoadingOverlayProps> = ({
   const globeRotation = globeRotateAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
   const shimmerTranslate = shimmerAnim.interpolate({ inputRange: [0, 1], outputRange: [-100, 100] });
   const shimmerOpacity = shimmerAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 0.3, 0] });
-  const dot1Scale = dot1Anim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.3] });
-  const dot1Opacity = dot1Anim.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] });
-  const dot2Scale = dot2Anim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.3] });
-  const dot2Opacity = dot2Anim.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] });
-  const dot3Scale = dot3Anim.interpolate({ inputRange: [0, 1], outputRange: [1, 1.3] });
-  const dot3Opacity = dot3Anim.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] });
 
   if (!calculatingDistances) return null;
 
@@ -193,15 +164,7 @@ const TravelLoadingOverlay: React.FC<TravelLoadingOverlayProps> = ({
           </Animated.View>
 
           <View style={styles.travelDotsContainer}>
-            <Animated.View
-              style={[styles.travelDot, { transform: [{ scale: dot1Scale }], opacity: dot1Opacity, backgroundColor: theme.colors.primary }]}
-            />
-            <Animated.View
-              style={[styles.travelDot, { transform: [{ scale: dot2Scale }], opacity: dot2Opacity, backgroundColor: theme.colors.primary }]}
-            />
-            <Animated.View
-              style={[styles.travelDot, { transform: [{ scale: dot3Scale }], opacity: dot3Opacity, backgroundColor: theme.colors.primary }]}
-            />
+            <LoadingGlobe size="small" color={theme.colors.primary} />
           </View>
 
           <View style={styles.travelTextContainer}>
@@ -304,12 +267,7 @@ const styles = StyleSheet.create({
     gap: 12,
     zIndex: 2,
   },
-  travelDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    marginHorizontal: 4,
-  },
+
   travelTextContainer: {
     alignItems: 'center',
     justifyContent: 'center',

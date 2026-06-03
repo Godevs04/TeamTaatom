@@ -53,6 +53,7 @@ import { realtimePostsService } from '../../services/realtimePosts';
 import Constants from 'expo-constants';
 import { savedEvents } from '../../utils/savedEvents';
 import { triggerHaptic } from '../../utils/hapticFeedback';
+import { shortsEvents } from '../../utils/shortsEvents';
 
 /** Shorts list item: either a reel (PostType) or a full-screen native ad slot. */
 export type ShortsItem = PostType | { type: 'ad'; adIndex: number };
@@ -64,7 +65,7 @@ function isAdItem(item: ShortsItem): item is { type: 'ad'; adIndex: number } {
 const SHORTS_ADS_AFTER_EVERY = 5;
 const MAX_SHORTS_ADS = 3;
 const SHORTS_ADS_SESSION_DELAY_MS = 20000;
-const SHORT_VIEW_DWELL_MS = 1000;
+const SHORT_VIEW_DWELL_MS = 2500;
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
 const isTablet = SCREEN_WIDTH >= 768;
@@ -82,6 +83,25 @@ const logger = createLogger('ShortsScreen');
 // Tab bar height from (tabs)/_layout - content must sit above it
 const TAB_BAR_HEIGHT = isWeb ? 70 : 88;
 const SHORTS_ITEM_HEIGHT = SCREEN_HEIGHT;
+
+const getScaledVideoDimensions = (width: number, height: number) => {
+  const targetRatio = 9 / 16;
+  const currentRatio = width / height;
+  
+  if (currentRatio > targetRatio) {
+    // The container is wider than 9:16 (e.g. tablet)
+    // Fit to height, scale width
+    const videoHeight = height;
+    const videoWidth = height * targetRatio;
+    return { width: videoWidth, height: videoHeight };
+  } else {
+    // The container is taller/narrower than 9:16 (e.g. standard phone)
+    // Fit to width, scale height
+    const videoWidth = width;
+    const videoHeight = width / targetRatio;
+    return { width: videoWidth, height: videoHeight };
+  }
+};
 
 const LIKED_SHORTS_STORAGE_KEY = 'taatom_shorts_liked_ids';
 
@@ -986,6 +1006,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const fadeAnimation = useRef(new Animated.Value(1)).current;
   // Track currently active video to ensure only one plays at a time
   const activeVideoIdRef = useRef<string | null>(null);
+  const userPausedShortIdsRef = useRef<Set<string>>(new Set());
   // Track current audio player (Sound from SongPlayer) so we can pause when tab/focus/scroll/background
   const currentPlayerRef = useRef<Audio.Sound | null>(null);
   // Callbacks map to track position/duration of playing videos and update progress bars efficiently
@@ -1348,7 +1369,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       // Screen focused - resume current video if it exists
       if (activeVideoIdRef.current && shortsRef.current[currentVisibleIndex]) {
         const currentVideoId = shortsRef.current[currentVisibleIndex]._id;
-        if (currentVideoId === activeVideoIdRef.current) {
+        if (currentVideoId === activeVideoIdRef.current && !userPausedShortIdsRef.current.has(currentVideoId)) {
           const video = videoRefs.current[currentVideoId];
           if (video) {
             const hasSong = !!(shortsRef.current[currentVisibleIndex].song?.songId?._id || shortsRef.current[currentVisibleIndex].song?.songId);
@@ -1424,7 +1445,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         // App coming to foreground - resume current video if screen is focused
         if (activeVideoIdRef.current && shortsRef.current[currentVisibleIndex] && isScreenFocusedRef.current) {
           const currentVideoId = shortsRef.current[currentVisibleIndex]._id;
-          if (currentVideoId === activeVideoIdRef.current) {
+          if (currentVideoId === activeVideoIdRef.current && !userPausedShortIdsRef.current.has(currentVideoId)) {
             const video = videoRefs.current[currentVideoId];
             if (video) {
               const hasSong = !!(shortsRef.current[currentVisibleIndex].song?.songId?._id || shortsRef.current[currentVisibleIndex].song?.songId);
@@ -1847,19 +1868,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         });
         setFollowStates(followStatesMap);
 
-        // If we have an initial short ID, make sure it is at index 0 of the feed, or re-order it
-        if (effectiveShortId) {
-          const targetIndex = enriched.findIndex(s => s._id === effectiveShortId);
-          if (targetIndex > 0) {
-            const targetShort = enriched[targetIndex];
-            const remaining = enriched.filter((_, idx) => idx !== targetIndex);
-            setShorts([targetShort, ...remaining]);
-          } else {
-            setShorts(enriched);
-          }
-        } else {
-          setShorts(enriched);
-        }
+        setShorts(enriched);
 
         setLoading(false);
         hasMoreRef.current = false; // No paginated loading for saved items
@@ -2006,6 +2015,28 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     }
   }, [loadShorts]);
 
+  useEffect(() => {
+    return shortsEvents.addTabRefreshListener(async () => {
+      if (!isOnTabShorts || effectiveUserId || props.isSavedShorts) return;
+      userPausedShortIdsRef.current.clear();
+      setRefreshing(true);
+      setCurrentIndex(0);
+      setCurrentVisibleIndex(0);
+      previousVisibleIndexRef.current = -1;
+      activeVideoIdRef.current = null;
+      pauseCurrentAudio();
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      try {
+        await loadShorts();
+        requestAnimationFrame(() => {
+          flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+        });
+      } finally {
+        setRefreshing(false);
+      }
+    });
+  }, [effectiveUserId, isOnTabShorts, loadShorts, pauseCurrentAudio, props.isSavedShorts]);
+
   const loadMoreShorts = useCallback(async () => {
     if (!hasMoreRef.current || isLoadingMore || !!effectiveUserId || !!effectiveShortId || props.isSavedShorts) return;
     try {
@@ -2138,6 +2169,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
       // If starting playback, pause all other videos first
       if (newPlayState) {
+        userPausedShortIdsRef.current.delete(videoId);
         pauseAllVideosExcept(videoId);
         activeVideoIdRef.current = videoId;
         // Update video state immediately for music sync (coalesced)
@@ -2154,6 +2186,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           video.setVolumeAsync(1.0).catch(() => {});
         }
       } else {
+        userPausedShortIdsRef.current.add(videoId);
         if (activeVideoIdRef.current === videoId) {
           activeVideoIdRef.current = null;
         }
@@ -2512,9 +2545,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         savedEvents.emitChanged();
         savedEvents.emitPostAction(shortId, 'unsave', { isBookmarked: false });
       } else {
-        // Add to saved (prevent duplicates)
+        // Add newest saves at the beginning so saved feeds stay reverse chronological by saved time.
         if (!currentIds.includes(shortId)) {
-          updatedIds = [...currentIds, shortId];
+          updatedIds = [shortId, ...currentIds.filter(id => id !== shortId)];
           await AsyncStorage.setItem('savedShorts', JSON.stringify(updatedIds));
           setSavedShorts(new Set(updatedIds));
           showSuccess('Saved to favorites!');
@@ -2858,6 +2891,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
     const currentShortId = (visibleItem as PostType)._id.toString();
     const currentVideo = videoRefs.current[currentShortId];
+    const isUserPausedCurrent = userPausedShortIdsRef.current.has(currentShortId);
     // Pause non-current videos but do NOT reset their videoStates to false.
     // videoStates tracks whether the user intentionally paused a video.
     // When returning to a video, its previous state is preserved so the song
@@ -2880,16 +2914,20 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             currentVideo.setIsMutedAsync(false).catch(() => {});
             currentVideo.setVolumeAsync(1.0).catch(() => {});
           }
-          if (!status.isPlaying) {
+          if (!status.isPlaying && !isUserPausedCurrent) {
             currentVideo.playAsync().then(() => {
               updateKeyedBool(setVideoStates, currentShortId, true);
               logger.debug(`Video ${currentShortId} started playing via useEffect`);
             }).catch((error) => {
               logger.error(`Video ${currentShortId} failed to play via useEffect:`, error);
-              setTimeout(() => { currentVideo.playAsync().catch(() => {}); }, 500);
+              setTimeout(() => {
+                if (!userPausedShortIdsRef.current.has(currentShortId)) {
+                  currentVideo.playAsync().catch(() => {});
+                }
+              }, 500);
             });
           } else {
-            updateKeyedBool(setVideoStates, currentShortId, true);
+            updateKeyedBool(setVideoStates, currentShortId, !isUserPausedCurrent);
           }
         } else {
           logger.debug(`Video ${currentShortId} not loaded yet, waiting for onLoad`);
@@ -2932,11 +2970,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         const hasMusic = !!((visibleItem as PostType)?.song?.songId?._id || (visibleItem as PostType)?.song?.songId);
         currentVideo.setIsMutedAsync(hasMusic).catch(() => {});
         currentVideo.setVolumeAsync(hasMusic ? 0.0 : 1.0).catch(() => {});
-        currentVideo.playAsync().catch(() => {});
+        if (!userPausedShortIdsRef.current.has(currentShortId)) {
+          currentVideo.playAsync().catch(() => {});
+        }
       });
     } else {
       activeVideoIdRef.current = currentShortId;
-      updateKeyedBool(setVideoStates, currentShortId, true);
+      updateKeyedBool(setVideoStates, currentShortId, !isUserPausedCurrent);
       logger.debug(`Video ref not available for ${currentShortId}, will play when mounted`);
     }
 
@@ -3123,6 +3163,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       `${item.commentsCount ?? 0}|${item.viewsCount ?? 0}|` +
       `${isOwn ? 1 : 0}|${isScreenFocused ? 1 : 0}|${containerHeight}|${expandedCaptions[item._id] ? 1 : 0}`;
 
+    const videoDim = getScaledVideoDimensions(SCREEN_WIDTH, containerHeight);
+
     return (
       <ShortCellMemo cacheKey={cacheKey} render={() => (
       <View style={[styles.shortItem, { height: containerHeight }]}>
@@ -3151,7 +3193,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               {/* TouchableWithoutFeedback uses React.Children.only — wrap the backdrop
                   + Video pair in a single View so it sees one child. The wrapper fills
                   the parent so taps still hit anywhere. */}
-              <View style={styles.shortVideo}>
+              <View style={[
+                styles.shortVideo,
+                {
+                  width: videoDim.width,
+                  height: videoDim.height,
+                  alignSelf: 'center',
+                }
+              ]}>
               {/* Always show thumbnail backdrop so there's never a black surface.
                   The Video layers on top; once its first frame decodes, it
                   naturally covers the image — no opacity hack needed. */}
@@ -3194,7 +3243,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   StyleSheet.absoluteFillObject,
                 ]}
                 resizeMode={ResizeMode.CONTAIN}
-                shouldPlay={index === currentVisibleIndex && isVideoPlaying}
+                shouldPlay={index === currentVisibleIndex && isVideoPlaying && !userPausedShortIdsRef.current.has(item._id)}
                 isLooping
                 progressUpdateIntervalMillis={100}
                 isMuted={index !== currentVisibleIndex || !!(item.song?.songId?._id || item.song?.songId) || mutedShorts.has(item._id)}
@@ -3382,7 +3431,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     
                     // CRITICAL FIX: Ensure video plays when it becomes visible and is loaded
                     // This fixes the black screen issue for subsequent videos
-                    if (index === currentVisibleIndex && isScreenFocusedRef.current) {
+                    if (index === currentVisibleIndex && isScreenFocusedRef.current && !userPausedShortIdsRef.current.has(item._id)) {
                       const video = videoRefs.current[item._id];
                       if (video) {
                         // onLoad fires when video is ready — call play immediately (no setTimeout delay)
@@ -3399,7 +3448,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                             }
 
                             // Play video if it's not already playing
-                            if (!currentStatus.isPlaying) {
+                            if (!currentStatus.isPlaying && !userPausedShortIdsRef.current.has(item._id)) {
                               activeVideoIdRef.current = item._id;
                               video.playAsync().then(() => {
                                 updateKeyedBool(setVideoStates, item._id, true);
@@ -3767,6 +3816,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     if (previousItem && !isAdItem(previousItem)) {
       const previousVideoId = previousItem._id;
       const previousVideo = videoRefs.current[previousVideoId];
+      userPausedShortIdsRef.current.delete(previousVideoId);
       if (previousVideo) {
         previousVideo.pauseAsync()
           .then(() => {
@@ -3790,7 +3840,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // If new visible item is a reel, mark it active for playback; if ad, leave video paused
     if (item && !isAdItem(item)) {
       activeVideoIdRef.current = item._id;
-      updateKeyedBool(setVideoStates, item._id, true);
+      updateKeyedBool(setVideoStates, item._id, !userPausedShortIdsRef.current.has(item._id));
     } else {
       activeVideoIdRef.current = null;
     }
@@ -4091,6 +4141,9 @@ const styles = StyleSheet.create({
     height: '100%',
     position: 'relative',
     backgroundColor: 'black',
+    display: 'flex',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
   },
   shortVideo: {
     width: '100%',

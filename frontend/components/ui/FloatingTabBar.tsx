@@ -1,15 +1,48 @@
 import React from 'react';
-import { View, StyleSheet, Pressable } from 'react-native';
+import { View, StyleSheet, Pressable, Animated } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { usePathname } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
+import { useJourney } from '../../context/JourneyContext';
+import { shortsEvents } from '../../utils/shortsEvents';
 
 export default function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const { isDark } = useTheme();
   const pathname = usePathname();
+  const router = useRouter();
+  const { isTracking, isPaused } = useJourney();
+  const pulseAnim = React.useRef(new Animated.Value(1)).current;
+
+  React.useEffect(() => {
+    let animation: Animated.CompositeAnimation | null = null;
+    if (isTracking && !isPaused) {
+      animation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.4,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1.0,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      animation.start();
+    } else {
+      pulseAnim.setValue(1);
+    }
+    return () => {
+      if (animation) {
+        animation.stop();
+      }
+    };
+  }, [isTracking, isPaused]);
 
   // Hide the tab bar on post screen
   const isPostScreen = pathname === '/post' || pathname === '/(tabs)/post' || pathname?.endsWith('/post');
@@ -89,6 +122,9 @@ export default function FloatingTabBar({ state, descriptors, navigation }: Botto
         target: route.key,
         canPreventDefault: true,
       });
+      if (route.name === 'shorts') {
+        shortsEvents.emitTabRefresh();
+      }
     };
 
     let iconName: keyof typeof Ionicons.glyphMap = 'help-outline';
@@ -139,6 +175,13 @@ export default function FloatingTabBar({ state, descriptors, navigation }: Botto
     elevation: 2,
   };
 
+  const showIndicator = isTracking;
+  const indicatorColor = isPaused ? '#F59E0B' : '#EF4444';
+
+  const handleIndicatorPress = () => {
+    router.push('/navigate/tracking');
+  };
+
   return (
     <View style={styles.outerContainer}>
       {leftRoutes.length > 0 && (
@@ -173,6 +216,40 @@ export default function FloatingTabBar({ state, descriptors, navigation }: Botto
             {rightRoutes.map((route, idx) => renderInactiveTab(route, leftRoutes.length + 1 + idx))}
           </BlurView>
         </View>
+      )}
+
+      {showIndicator && (
+        <Pressable
+          onPress={handleIndicatorPress}
+          style={[
+            styles.trackingIndicator,
+            {
+              backgroundColor: isDark ? 'rgba(15, 22, 35, 0.9)' : 'rgba(250, 252, 255, 0.9)',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+            },
+          ]}
+        >
+          {isTracking && !isPaused ? (
+            <>
+              <Animated.View
+                style={[
+                  styles.pulseRing,
+                  {
+                    borderColor: indicatorColor,
+                    transform: [{ scale: pulseAnim }],
+                    opacity: pulseAnim.interpolate({
+                      inputRange: [1, 1.4],
+                      outputRange: [0.8, 0.2],
+                    }),
+                  },
+                ]}
+              />
+              <View style={[styles.pulseDot, { backgroundColor: indicatorColor }]} />
+            </>
+          ) : (
+            <View style={[styles.pulseDot, { backgroundColor: indicatorColor }]} />
+          )}
+        </Pressable>
       )}
     </View>
   );
@@ -229,5 +306,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
+  },
+  trackingIndicator: {
+    position: 'absolute',
+    right: 4,
+    top: -32,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.15,
+    shadowRadius: 5,
+    elevation: 5,
+  },
+  pulseRing: {
+    position: 'absolute',
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+  },
+  pulseDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
 });

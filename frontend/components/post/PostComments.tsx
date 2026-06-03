@@ -381,7 +381,7 @@ export default function PostComments({
             <KeyboardAvoidingView 
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
               style={styles.container}
-              keyboardVerticalOffset={Platform.OS === 'ios' ? insets.bottom + 64 : 0}
+              keyboardVerticalOffset={0}
             >
               <FlatList
                 ref={flatListRef}

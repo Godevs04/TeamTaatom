@@ -257,12 +257,13 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       visible={visible}
       transparent
       animationType="fade"
+      statusBarTranslucent={true}
       onRequestClose={onClose}
     >
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.overlay}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        keyboardVerticalOffset={0}
       >
         <View style={styles.container}>
           <View style={styles.header}>

@@ -13,6 +13,7 @@ import {
   FlatList,
   Dimensions,
   ScrollView,
+  Keyboard,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { Image as ExpoImage } from 'expo-image';
@@ -38,6 +39,11 @@ import { getApiUrl } from '../../utils/config';
 import { useMapStyle } from '../../hooks/useMapStyle';
 import logger from '../../utils/logger';
 import { ErrorBoundary } from '../../utils/errorBoundary';
+import {
+  isValidMapCoordinate,
+  sanitizeLatitudeDelta,
+  sanitizeMapRegion,
+} from '../../utils/mapSafety';
 const GROWTH_GREEN = '#22C55E';
 const ALERT_RED = '#EF4444';
 const ACTION_BLUE = '#3B82F6';
@@ -120,20 +126,22 @@ function getJourneyPolylineCoords(journey: JourneyPolyline) {
       timestamp,
       segmentBreak,
     };
-  });
+  }).filter(isValidMapCoordinate);
 }
 
 interface OptimizedMarkerProps {
   coordinate: { latitude: number; longitude: number };
-  title: string;
-  description: string;
+  title?: string;
+  description?: string;
   onPress: () => void;
   isActive: boolean;
-  icon: keyof typeof Ionicons.glyphMap;
+  icon?: keyof typeof Ionicons.glyphMap;
   label?: string;
   activeTitle?: string;
   activeSubtitle?: string;
   photo?: string;
+  onImageLoad?: () => void;
+  latitudeDelta?: number;
 }
 
 const OptimizedMarker = React.memo(({
@@ -142,11 +150,13 @@ const OptimizedMarker = React.memo(({
   description,
   onPress,
   isActive,
-  icon,
-  label,
+  icon = 'location',
+  label = '',
   activeTitle,
   activeSubtitle,
-  photo
+  photo,
+  onImageLoad,
+  latitudeDelta
 }: OptimizedMarkerProps) => {
   const [tracksViewChanges, setTracksViewChanges] = useState(true);
 
@@ -178,6 +188,7 @@ const OptimizedMarker = React.memo(({
       description={description}
       onPress={onPress}
       tracksViewChanges={tracksViewChanges}
+      anchor={{ x: 0.5, y: 1.0 }}
     >
       <PremiumMapMarker
         icon={icon}
@@ -187,6 +198,7 @@ const OptimizedMarker = React.memo(({
         activeSubtitle={activeSubtitle}
         photo={photo}
         onImageLoad={handleImageLoad}
+        latitudeDelta={latitudeDelta}
       />
     </Marker>
   );
@@ -201,7 +213,8 @@ const OptimizedMarker = React.memo(({
     prev.label === next.label &&
     prev.activeTitle === next.activeTitle &&
     prev.activeSubtitle === next.activeSubtitle &&
-    prev.photo === next.photo
+    prev.photo === next.photo &&
+    prev.latitudeDelta === next.latitudeDelta
   );
 });
 
@@ -356,6 +369,22 @@ function AllLocationsMapInner() {
     totalDays: number;
   } | null>(null);
   const [bottomPanelHeight, setBottomPanelHeight] = useState(140);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  useEffect(() => {
+    const showSubscription = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      (e) => setKeyboardHeight(e.endCoordinates.height)
+    );
+    const hideSubscription = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => setKeyboardHeight(0)
+    );
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
 
   // Helper to convert country code to flag emoji
   const getFlagEmoji = (countryCode: string) => {
@@ -437,11 +466,14 @@ function AllLocationsMapInner() {
       }
     } catch (err) {
       if (currentRegion) {
-        mapRef.current.animateToRegion({
+        const safeRegion = sanitizeMapRegion({
           ...currentRegion,
           latitudeDelta: currentRegion.latitudeDelta / 2,
           longitudeDelta: currentRegion.longitudeDelta / 2,
-        }, 300);
+        }, currentRegion);
+        if (safeRegion) {
+          mapRef.current.animateToRegion(safeRegion, 300);
+        }
       }
     }
   };
@@ -466,11 +498,14 @@ function AllLocationsMapInner() {
       }
     } catch (err) {
       if (currentRegion) {
-        mapRef.current.animateToRegion({
+        const safeRegion = sanitizeMapRegion({
           ...currentRegion,
           latitudeDelta: currentRegion.latitudeDelta * 2,
           longitudeDelta: currentRegion.longitudeDelta * 2,
-        }, 300);
+        }, currentRegion);
+        if (safeRegion) {
+          mapRef.current.animateToRegion(safeRegion, 300);
+        }
       }
     }
   };
@@ -488,13 +523,15 @@ function AllLocationsMapInner() {
   const validLocations = useMemo(() => {
     return locations
       .filter(
-        (loc) => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0
+        (loc) => isValidMapCoordinate({ latitude: loc.latitude, longitude: loc.longitude }) &&
+          loc.latitude !== 0 &&
+          loc.longitude !== 0
       )
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [locations]);
 
   const clusteredLocations = useMemo(() => {
-    const latDelta = currentRegion?.latitudeDelta || 0.1;
+    const latDelta = sanitizeLatitudeDelta(currentRegion?.latitudeDelta, 0.1);
     
     const dedupedLocations: LocationPin[] = [];
     const seenCoords = new Set<string>();
@@ -517,7 +554,7 @@ function AllLocationsMapInner() {
       }));
     }
 
-    const gridSize = latDelta / 8.0;
+    const gridSize = Math.max(latDelta / 8.0, 0.0001);
     const grid: { [key: string]: LocationPin[] } = {};
 
     dedupedLocations.forEach((loc) => {
@@ -577,13 +614,16 @@ function AllLocationsMapInner() {
   }, []);
 
   const handleRegionChangeComplete = useCallback((newRegion: any) => {
+    const safeRegion = sanitizeMapRegion(newRegion, currentRegion ?? undefined);
+    if (!safeRegion) return;
+
     if (debounceTimeoutRef.current) {
       clearTimeout(debounceTimeoutRef.current);
     }
     debounceTimeoutRef.current = setTimeout(() => {
-      setCurrentRegion(newRegion);
+      setCurrentRegion(safeRegion);
     }, 200);
-  }, []);
+  }, [currentRegion]);
 
   const carouselRef = useRef<FlatList>(null);
   const isScrollingCarouselRef = useRef(false);
@@ -994,7 +1034,7 @@ function AllLocationsMapInner() {
 
     // Add post locations
     locations.forEach((loc) => {
-      if (loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0) {
+      if (isValidMapCoordinate({ latitude: loc.latitude, longitude: loc.longitude }) && loc.latitude !== 0 && loc.longitude !== 0) {
         allCoords.push({ latitude: loc.latitude, longitude: loc.longitude });
       }
     });
@@ -1037,7 +1077,7 @@ function AllLocationsMapInner() {
     let hasCoords = false;
 
     locations.forEach((loc) => {
-      if (loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0) {
+      if (isValidMapCoordinate({ latitude: loc.latitude, longitude: loc.longitude }) && loc.latitude !== 0 && loc.longitude !== 0) {
         if (loc.latitude < minLat) minLat = loc.latitude;
         if (loc.latitude > maxLat) maxLat = loc.latitude;
         if (loc.longitude < minLng) minLng = loc.longitude;
@@ -1047,14 +1087,14 @@ function AllLocationsMapInner() {
     });
 
     journeys.forEach((j) => {
-      if (j.startCoords?.lat && j.startCoords?.lng) {
+      if (isValidMapCoordinate({ latitude: j.startCoords?.lat, longitude: j.startCoords?.lng }) && j.startCoords.lat !== 0 && j.startCoords.lng !== 0) {
         if (j.startCoords.lat < minLat) minLat = j.startCoords.lat;
         if (j.startCoords.lat > maxLat) maxLat = j.startCoords.lat;
         if (j.startCoords.lng < minLng) minLng = j.startCoords.lng;
         if (j.startCoords.lng > maxLng) maxLng = j.startCoords.lng;
         hasCoords = true;
       }
-      if (j.endCoords?.lat && j.endCoords?.lng) {
+      if (isValidMapCoordinate({ latitude: j.endCoords?.lat, longitude: j.endCoords?.lng }) && j.endCoords.lat !== 0 && j.endCoords.lng !== 0) {
         if (j.endCoords.lat < minLat) minLat = j.endCoords.lat;
         if (j.endCoords.lat > maxLat) maxLat = j.endCoords.lat;
         if (j.endCoords.lng < minLng) minLng = j.endCoords.lng;
@@ -1064,18 +1104,18 @@ function AllLocationsMapInner() {
     });
 
     if (!hasCoords) {
-      return { latitude: 20, longitude: 0, latitudeDelta: 140, longitudeDelta: 360 };
+      return { latitude: 20, longitude: 0, latitudeDelta: 120, longitudeDelta: 320 };
     }
 
     const latDelta = Math.max((maxLat - minLat) * 1.8, 0.1);
     const lngDelta = Math.max((maxLng - minLng) * 1.8, 0.1);
 
-    return {
+    return sanitizeMapRegion({
       latitude: (minLat + maxLat) / 2,
       longitude: (minLng + maxLng) / 2,
       latitudeDelta: latDelta,
       longitudeDelta: lngDelta,
-    };
+    })!;
   }, [locations, journeys]);
 
   // Keep backward-compatible getter for WebView HTML builder
@@ -1358,7 +1398,12 @@ function initMap(){
         this.div.style.left = pt.x + 'px';
         this.div.style.top = pt.y + 'px';
         this.div.style.position = 'absolute';
-        this.div.style.transform = 'translate(-50%,-50%)';
+        var anchor = this.div.getAttribute('data-anchor') || 'bottom';
+        if (anchor === 'center') {
+          this.div.style.transform = 'translate(-50%, -50%)';
+        } else {
+          this.div.style.transform = 'translate(-50%, -100%)';
+        }
       }
     }
     onRemove() {
@@ -1391,6 +1436,7 @@ function initMap(){
           var nameText = main.cityName || 'Post #' + main.number;
           var photoUrl = main.photo || '';
           var imgHtml = photoUrl ? '<img src="' + photoUrl + '" class="marker-thumb" />' : '<div class="marker-thumb-placeholder">📍</div>';
+          div.setAttribute('data-anchor', 'bottom');
           div.innerHTML = '<div class="glass-marker-card">' +
             imgHtml +
             '<div class="marker-info">' +
@@ -1399,9 +1445,11 @@ function initMap(){
             '</div>' +
           '</div>';
         } else {
-          div.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
+          div.setAttribute('data-anchor', 'bottom');
+          div.innerHTML = '<svg width="30" height="40" viewBox="0 0 30 40" style="filter: drop-shadow(0px 3px 4px rgba(0,0,0,0.3))"><defs><linearGradient id="htmlPinGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#50C878" /><stop offset="100%" stop-color="#1C73B4" /></linearGradient></defs><path d="M15 1C7.27 1 1 7.27 1 15c0 10 14 25 14 25s14-15 14-25c0-7.73-6.27-14-14-14zm0 19c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z" fill="url(#htmlPinGrad)" fill-rule="evenodd" stroke="#FFFFFF" stroke-width="1.5"/></svg>';
         }
       } else {
+        div.setAttribute('data-anchor', 'center');
         var firstPhoto = null;
         for (var i = 0; i < cluster.items.length; i++) {
           if (cluster.items[i].photo) {
@@ -1412,6 +1460,7 @@ function initMap(){
         if (firstPhoto) {
           div.innerHTML = '<div class="glass-cluster"><div class="cluster-pulse"></div><div class="cluster-glass-circle" style="padding: 1.5px; overflow: hidden;"><img src="' + firstPhoto + '" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;" /></div></div>';
         } else {
+          div.setAttribute('data-anchor', 'bottom');
           div.innerHTML = '<div class="glass-cluster"><div class="cluster-pulse"></div><div class="cluster-glass-circle"><span>📍</span></div></div>';
         }
       }
@@ -1535,8 +1584,11 @@ function initMap(){
 
     const region = getMapRegion();
     const validLocations = locations.filter(
-      (loc) => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0
+      (loc) => isValidMapCoordinate({ latitude: loc.latitude, longitude: loc.longitude }) &&
+        loc.latitude !== 0 &&
+        loc.longitude !== 0
     );
+    const safeLatitudeDelta = sanitizeLatitudeDelta(currentRegion?.latitudeDelta, region.latitudeDelta);
 
     return (
       <MapView
@@ -1565,7 +1617,7 @@ function initMap(){
             ...journeys.flatMap((j) =>
               j.polyline?.map((p) => ({ latitude: p.lat, longitude: p.lng })) || []
             ),
-          ];
+          ].filter(isValidMapCoordinate);
           if (allCoords.length > 0 && mapRef.current) {
             setTimeout(() => {
               try {
@@ -1591,10 +1643,10 @@ function initMap(){
                 strokeWidth={4}
                 simplifyDistance={10}
                 applyKalman={false}
-                latitudeDelta={currentRegion?.latitudeDelta}
+                latitudeDelta={safeLatitudeDelta}
               />
               {/* Start marker */}
-              {j.startCoords?.lat && j.startCoords?.lng && (
+              {isValidMapCoordinate({ latitude: j.startCoords?.lat, longitude: j.startCoords?.lng }) && (
                 <Marker
                   coordinate={{ latitude: j.startCoords.lat, longitude: j.startCoords.lng }}
                   title={j.startCity || 'Start'}
@@ -1604,7 +1656,7 @@ function initMap(){
                 </Marker>
               )}
               {/* End marker */}
-              {j.endCoords?.lat && j.endCoords?.lng && (
+              {isValidMapCoordinate({ latitude: j.endCoords?.lat, longitude: j.endCoords?.lng }) && (
                 <Marker
                   coordinate={{ latitude: j.endCoords.lat, longitude: j.endCoords.lng }}
                   title={j.endCity || 'End'}
@@ -1653,6 +1705,7 @@ function initMap(){
                 activeTitle={city}
                 activeSubtitle="1 post"
                 photo={location.photo}
+                latitudeDelta={safeLatitudeDelta}
               />
             );
           }
@@ -1841,9 +1894,9 @@ function initMap(){
           onPress={zoomIn}
         >
           {Platform.OS !== 'android' ? (
-            <BlurView intensity={75} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+            <BlurView pointerEvents="none" intensity={75} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
           ) : (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
+            <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
           )}
           <Ionicons name="add" size={24} color={isDark ? '#FFFFFF' : '#121212'} />
         </TouchableOpacity>
@@ -1856,9 +1909,9 @@ function initMap(){
           onPress={zoomOut}
         >
           {Platform.OS !== 'android' ? (
-            <BlurView intensity={75} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+            <BlurView pointerEvents="none" intensity={75} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
           ) : (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
+            <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
           )}
           <Ionicons name="remove" size={24} color={isDark ? '#FFFFFF' : '#121212'} />
         </TouchableOpacity>
@@ -1872,9 +1925,9 @@ function initMap(){
             onPress={recenterOnUser}
           >
             {Platform.OS !== 'android' ? (
-              <BlurView intensity={75} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+              <BlurView pointerEvents="none" intensity={75} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
             ) : (
-              <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
+              <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
             )}
             <Ionicons name="locate" size={24} color={isDark ? '#FFFFFF' : '#121212'} />
           </TouchableOpacity>
@@ -1989,7 +2042,7 @@ function initMap(){
           style={[
             styles.floatingBottomPanel,
             {
-              bottom: insets.bottom + 8,
+              bottom: insets.bottom + 8 + keyboardHeight,
               backgroundColor: isDark ? 'rgba(20, 24, 33, 0.75)' : 'rgba(255, 255, 255, 0.75)',
               borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
               borderRadius: isDark ? 24 : 30,
@@ -2081,29 +2134,25 @@ function initMap(){
                 <View style={[journeyStyles.liveDot, { backgroundColor: GROWTH_GREEN }]} />
                 <Text style={[journeyStyles.liveText, { color: GROWTH_GREEN }]}>Recording</Text>
               </View>
-              <View style={journeyStyles.captureRow}>
+              <View style={journeyStyles.consolidatedRow}>
                 <TouchableOpacity
-                  style={[journeyStyles.captureBtn, { borderColor: ACTION_BLUE }]}
+                  style={[journeyStyles.circularBtn, { borderColor: ACTION_BLUE }]}
                   onPress={() => openJourneyCapture('photo')}
                 >
                   <Ionicons name="camera" size={18} color={ACTION_BLUE} />
-                  <Text style={[journeyStyles.captureText, { color: ACTION_BLUE }]}>Post</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[journeyStyles.captureBtn, { borderColor: ALERT_RED }]}
+                  style={[journeyStyles.circularBtn, { borderColor: ALERT_RED }]}
                   onPress={() => openJourneyCapture('short')}
                 >
                   <Ionicons name="videocam" size={18} color={ALERT_RED} />
-                  <Text style={[journeyStyles.captureText, { color: ALERT_RED }]}>Post a reel</Text>
                 </TouchableOpacity>
-              </View>
-              <View style={journeyStyles.actionRow}>
                 <TouchableOpacity
                   style={[journeyStyles.pauseBtn, { borderColor: '#F59E0B' }]}
                   onPress={handlePauseJourney}
                   disabled={journeyActionLoading}
                 >
-                  <Ionicons name="pause" size={18} color="#F59E0B" />
+                  <Ionicons name="pause" size={16} color="#F59E0B" />
                   <Text style={[journeyStyles.pauseBtnText, { color: '#F59E0B' }]}>Pause</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -2111,7 +2160,7 @@ function initMap(){
                   onPress={handleStopJourney}
                   disabled={journeyActionLoading}
                 >
-                  <Ionicons name="stop" size={18} color={ALERT_RED} />
+                  <Ionicons name="stop" size={16} color={ALERT_RED} />
                   <Text style={[journeyStyles.pauseBtnText, { color: ALERT_RED }]}>End</Text>
                 </TouchableOpacity>
               </View>
@@ -2133,25 +2182,21 @@ function initMap(){
                 <View style={[journeyStyles.liveDot, { backgroundColor: '#F59E0B' }]} />
                 <Text style={[journeyStyles.liveText, { color: '#F59E0B' }]}>Paused</Text>
               </View>
-              <View style={journeyStyles.captureRow}>
+              <View style={journeyStyles.consolidatedRow}>
                 <TouchableOpacity
-                  style={[journeyStyles.captureBtn, { borderColor: ACTION_BLUE }]}
+                  style={[journeyStyles.circularBtn, { borderColor: ACTION_BLUE }]}
                   onPress={() => openJourneyCapture('photo')}
                 >
                   <Ionicons name="camera" size={18} color={ACTION_BLUE} />
-                  <Text style={[journeyStyles.captureText, { color: ACTION_BLUE }]}>Post</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
-                  style={[journeyStyles.captureBtn, { borderColor: ALERT_RED }]}
+                  style={[journeyStyles.circularBtn, { borderColor: ALERT_RED }]}
                   onPress={() => openJourneyCapture('short')}
                 >
                   <Ionicons name="videocam" size={18} color={ALERT_RED} />
-                  <Text style={[journeyStyles.captureText, { color: ALERT_RED }]}>Post a reel</Text>
                 </TouchableOpacity>
-              </View>
-              <View style={journeyStyles.actionRow}>
                 <TouchableOpacity
-                  style={{ flex: 1 }}
+                  style={{ flex: 1.5 }}
                   onPress={handleResumeJourney}
                   disabled={journeyActionLoading}
                 >
@@ -2160,10 +2205,10 @@ function initMap(){
                     style={journeyStyles.startBtn}
                   >
                     {journeyActionLoading ? (
-                      <LoadingGlobe color="white" />
+                      <LoadingGlobe color="white" size="small" />
                     ) : (
                       <>
-                        <Ionicons name="play" size={20} color="white" />
+                        <Ionicons name="play" size={16} color="white" />
                         <Text style={journeyStyles.startBtnText}>Continue</Text>
                       </>
                     )}
@@ -2174,7 +2219,7 @@ function initMap(){
                   onPress={handleStopJourney}
                   disabled={journeyActionLoading}
                 >
-                  <Ionicons name="stop" size={18} color={ALERT_RED} />
+                  <Ionicons name="stop" size={16} color={ALERT_RED} />
                   <Text style={[journeyStyles.pauseBtnText, { color: ALERT_RED }]}>End</Text>
                 </TouchableOpacity>
               </View>
@@ -2650,6 +2695,8 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 16,
     gap: 12,
+    zIndex: 9999,
+    elevation: 9999,
   },
   floatingControlBtn: {
     width: 50,
@@ -2673,10 +2720,10 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
     borderWidth: 1,
-    gap: 12,
+    gap: 8,
     overflow: 'hidden',
   },
   actionBtnTouch: {
@@ -2823,14 +2870,13 @@ const journeyStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 14,
+    height: 44,
     borderRadius: 12,
     gap: 8,
-    minHeight: 50,
   },
   startBtnText: {
     color: 'white',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
   },
   statsRow: {
@@ -2857,46 +2903,37 @@ const journeyStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  actionRow: {
+  consolidatedRow: {
     flexDirection: 'row',
-    gap: 10,
-  },
-  captureRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  captureBtn: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
     gap: 8,
+    alignItems: 'center',
+  },
+  circularBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    alignItems: 'center',
     backgroundColor: 'rgba(255,255,255,0.06)',
   },
-  captureText: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
   pauseBtn: {
-    flex: 1,
+    flex: 1.5,
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1.5,
     gap: 6,
   },
   stopBtn: {
+    flex: 1.2,
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1.5,
     gap: 6,
   },

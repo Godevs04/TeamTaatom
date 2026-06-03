@@ -164,16 +164,16 @@ const getLocales = async (req, res) => {
         const escapedCode = queryCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         stateConditions.push(
           { stateCode: queryCode },
-          { stateCode: { $regex: `^${escapedCode}$`, $options: 'i' } },
-          { stateProvince: { $regex: `^${escapedCode}$`, $options: 'i' } }
+          { stateCode: { $regex: `^\\s*${escapedCode}\\s*$`, $options: 'i' } },
+          { stateProvince: { $regex: `^\\s*${escapedCode}\\s*$`, $options: 'i' } }
         );
       }
       if (queryProvince) {
         const escapedProvince = queryProvince.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         stateConditions.push(
           { stateProvince: queryProvince },
-          { stateProvince: { $regex: `^${escapedProvince}$`, $options: 'i' } },
-          { stateCode: { $regex: `^${escapedProvince}$`, $options: 'i' } }
+          { stateProvince: { $regex: `^\\s*${escapedProvince}\\s*$`, $options: 'i' } },
+          { stateCode: { $regex: `^\\s*${escapedProvince}\\s*$`, $options: 'i' } }
         );
       }
     }

@@ -1870,7 +1870,14 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
       nextCursor = Buffer.from(`${lastCreatedAtMs},${lastId}`).toString('base64');
     }
 
-    const totalShorts = await Post.countDocuments({ user: userIdObj, isActive: true, type: 'short' });
+    const totalShorts = await Post.countDocuments({
+      user: userIdObj,
+      isActive: true,
+      isHidden: { $ne: true },
+      isArchived: { $ne: true },
+      type: 'short',
+      $or: [{ status: 'active' }, { status: { $exists: false } }]
+    });
 
     return sendSuccess(res, 200, 'User shorts fetched successfully', {
       shorts: responseShorts,
@@ -1973,7 +1980,7 @@ const getUserPosts = async (req, res) => {
             $or: [{ status: 'active' }, { status: { $exists: false } }]
           }
         },
-        { $sort: { createdAt: -1 } },
+        { $sort: { createdAt: -1, _id: -1 } },
         { $skip: skip },
         { $limit: limit },
         {
@@ -2080,7 +2087,14 @@ const getUserPosts = async (req, res) => {
         }
       ]);
 
-      const totalPosts = await Post.countDocuments({ user: userId, isActive: true, type: 'photo' }).lean();
+      const totalPosts = await Post.countDocuments({
+        user: userIdObj,
+        isActive: true,
+        isHidden: { $ne: true },
+        isArchived: { $ne: true },
+        type: 'photo',
+        $or: [{ status: 'active' }, { status: { $exists: false } }]
+      }).lean();
 
       return { posts, totalPosts };
     }, CACHE_TTL.POST_LIST);
