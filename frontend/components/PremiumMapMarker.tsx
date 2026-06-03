@@ -155,7 +155,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
         {/* Pulsating Ring */}
         <Animated.View style={[styles.dotPulse, pulseStyle]}>
           <LinearGradient
-            colors={isDark ? ['rgba(45, 212, 191, 0.4)', 'rgba(59, 130, 246, 0.05)'] as const : ['rgba(59, 130, 246, 0.4)', 'rgba(45, 212, 191, 0.05)'] as const}
+            colors={isDark ? ['rgba(80, 200, 120, 0.4)', 'rgba(28, 115, 180, 0.05)'] as const : ['rgba(28, 115, 180, 0.4)', 'rgba(80, 200, 120, 0.05)'] as const}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={[StyleSheet.absoluteFillObject, { borderRadius: 15 }]}
@@ -164,7 +164,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
         
         {/* Core Dot */}
         <LinearGradient
-          colors={['#2DD4BF', '#3B82F6'] as const}
+          colors={['#50C878', '#1C73B4'] as const}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={styles.dotCore}
