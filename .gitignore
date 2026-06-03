@@ -36,9 +36,6 @@ de/rules/byterover-rules.md
 !.vscode/tasks.json
 !.vscode/launch.json
 
-# Exclude superAdmin from git to fix EAS build casing issues
-# superAdmin/
-# superAdmin/**
 
 # Claude setup
 .claude/
