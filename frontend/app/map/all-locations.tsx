@@ -834,22 +834,36 @@ function AllLocationsMapInner() {
         let lat: number | null = null;
         let lng: number | null = null;
 
-        if (isOwnPage) {
+        // 1. Try to get device's live/last known location first (even if not own page)
+        try {
           const currentPerm = await ExpoLocation.getForegroundPermissionsAsync();
           let status = currentPerm.status;
           if (status === 'undetermined') {
             const requested = await ExpoLocation.requestForegroundPermissionsAsync();
             status = requested.status;
           }
-          if (status !== 'granted') return;
 
-          const loc = await ExpoLocation.getCurrentPositionAsync({
-            accuracy: ExpoLocation.Accuracy.Low,
-          });
-          lat = loc.coords.latitude;
-          lng = loc.coords.longitude;
-        } else if (validLocations.length > 0) {
-          // Use the first valid location of the target user
+          if (status === 'granted') {
+            // Get last known location first ("last used of the app" - instant)
+            const lastKnown = await ExpoLocation.getLastKnownPositionAsync();
+            if (lastKnown) {
+              lat = lastKnown.coords.latitude;
+              lng = lastKnown.coords.longitude;
+            } else {
+              // Fallback to low accuracy current position
+              const loc = await ExpoLocation.getCurrentPositionAsync({
+                accuracy: ExpoLocation.Accuracy.Low,
+              });
+              lat = loc.coords.latitude;
+              lng = loc.coords.longitude;
+            }
+          }
+        } catch (locErr) {
+          logger.debug('[AllLocations] Live location check failed, using target location fallback:', locErr);
+        }
+
+        // 2. Fall back to the first location in validLocations if live location is unavailable
+        if ((lat === null || lng === null) && validLocations.length > 0) {
           lat = validLocations[0].latitude;
           lng = validLocations[0].longitude;
         }
@@ -873,7 +887,7 @@ function AllLocationsMapInner() {
       }
     };
     detectCountry();
-  }, [isOwnPage, validLocations.length]);
+  }, [validLocations.length]);
 
   // Load locations + journeys
   useEffect(() => {
@@ -1538,8 +1552,8 @@ function initMap(){
         // useEffect at the top of this component, so the SDK silently no-ops
         // if the user denied it. `followsUserLocation` stays false so we don't
         // hijack the camera if the user pans away.
-        showsUserLocation={isOwnPage}
-        showsMyLocationButton={isOwnPage}
+        showsUserLocation={true}
+        showsMyLocationButton={true}
         followsUserLocation={false}
         showsCompass={true}
         showsScale={true}
