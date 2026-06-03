@@ -138,6 +138,8 @@ export default function ConnectPageDetailPage() {
   const isOwner = detailQ.data?.isOwner ?? false;
   const isFollowing = detailQ.data?.isFollowing ?? page?.isFollowing ?? false;
   const isCommunityPage = page?.category === "community" || page?.isAdminPage === true;
+  const normalCount = Math.max(0, Math.floor((page?.followerCount || 0) + 1));
+  const displayMemberCount = isCommunityPage ? Math.max(0, normalCount - 1) : normalCount;
 
   React.useEffect(() => {
     if (id) void connectRecordView(id);
@@ -314,7 +316,7 @@ export default function ConnectPageDetailPage() {
                     onClick={() => setFollowersOpen((v) => !v)}
                     className="underline decoration-slate-300 underline-offset-2 transition hover:text-primary hover:decoration-primary dark:decoration-zinc-600"
                   >
-                    {(page.followerCount ?? 0) + 1} Members
+                    {displayMemberCount} Members
                   </button>
                   <span>{page.viewCount ?? 0} views</span>
                   {hasPrice && priceApproved && (
@@ -448,7 +450,7 @@ export default function ConnectPageDetailPage() {
               <div className="min-w-0 flex-1">
                 <p className="font-medium text-slate-900 dark:text-white">Group Chat</p>
                 <p className="text-xs text-slate-500 dark:text-zinc-400">
-                  {(page.followerCount ?? 0) + 1} members active
+                  {displayMemberCount} members active
                 </p>
               </div>
               <svg className="h-4 w-4 text-slate-400 dark:text-zinc-500" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">

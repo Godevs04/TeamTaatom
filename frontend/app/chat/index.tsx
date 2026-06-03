@@ -4179,11 +4179,18 @@ export default function ChatModal() {
                   </View>
                   <View style={styles.chatBottomRow}>
                     <View style={{ flex: 1 }}>
-                      {(item as any).type === 'connect_page' && (
-                        <Text style={[styles.lastMessage, { fontSize: 12, marginBottom: 1 }]} numberOfLines={1}>
-                          {((item as any).connectPageId?.followerCount || 0) + 1} {((item as any).connectPageId?.followerCount || 0) + 1 === 1 ? 'member' : 'members'}
-                        </Text>
-                      )}
+                      {(item as any).type === 'connect_page' && (() => {
+                        const page = (item as any).connectPageId;
+                        if (!page) return null;
+                        const normalCount = Math.max(0, Math.floor((page.followerCount || 0) + 1));
+                        const isCommunityPage = (page.type as string) === 'community' || page.category === 'community';
+                        const displayMemberCount = isCommunityPage ? Math.max(0, normalCount - 1) : normalCount;
+                        return (
+                          <Text style={[styles.lastMessage, { fontSize: 12, marginBottom: 1 }]} numberOfLines={1}>
+                            {displayMemberCount} {displayMemberCount === 1 ? 'member' : 'members'}
+                          </Text>
+                        );
+                      })()}
                       {(() => {
                         const lastMessage = item.messages?.[item.messages.length-1];
                         const messageText = String(lastMessage?.text || '');

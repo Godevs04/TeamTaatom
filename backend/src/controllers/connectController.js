@@ -1594,8 +1594,50 @@ const getSubscriptionContent = async (req, res) => {
       ? true
       : await userCanReadSubscriptionContent(currentUserId, page.userId, pageId);
     if (!isOwner && !isSubscribed) {
+      // Map and obfuscate blocks to show a blurred preview layout without leaking sensitive data
+      const obfuscatedContent = (page.subscriptionContent || []).map((block, idx) => {
+        const clean = {
+          _id: block._id || idx,
+          type: block.type,
+          order: block.order !== undefined ? block.order : idx,
+          col: block.col,
+          backgroundColor: block.backgroundColor,
+          color: block.color,
+          bold: block.bold,
+          align: block.align,
+          fontSize: block.fontSize,
+          stacked: block.stacked,
+          padding: block.padding,
+          borderRadius: block.borderRadius,
+          verticalAlign: block.verticalAlign,
+          aspectRatio: block.aspectRatio,
+        };
+
+        if (block.type === 'heading' || block.type === 'text') {
+          // Replace each word with block characters of equal length to preserve layout/visual flow
+          clean.content = (block.content || '')
+            .split(' ')
+            .map(word => '█'.repeat(word.length || 3))
+            .join(' ');
+        } else if (block.type === 'image') {
+          // Abstract colorful image from unsplash that looks great when blurred
+          clean.content = 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=300&q=80';
+        } else if (block.type === 'button') {
+          clean.content = block.content || 'Premium Link';
+          clean.url = ''; // Strip redirect URL
+        } else if (block.type === 'video') {
+          clean.content = '';
+        } else if (block.type === 'embed') {
+          clean.content = '';
+          clean.embedType = block.embedType;
+        } else {
+          clean.content = '';
+        }
+        return clean;
+      });
+
       return sendSuccess(res, 200, 'Subscription content gated', {
-        subscriptionContent: [],
+        subscriptionContent: obfuscatedContent,
         isSubscribed: false,
         gated: true,
       });

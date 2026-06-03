@@ -836,7 +836,7 @@ export default function ContentPreviewScreen() {
           })}
 
           {/* Subscribe section */}
-          {!isCommunity && isSubscription && pageData && (pageData.subscriptionPrice || pageData.subscriptionApproval?.requestedPrice) && (() => {
+          {isSubscription && pageData && (pageData.subscriptionPrice || pageData.subscriptionApproval?.requestedPrice) && (() => {
             const approvalStatus = pageData.subscriptionApproval?.status || 'none';
             const approvedPrice = pageData.subscriptionPrice;
             const requestedPrice = pageData.subscriptionApproval?.requestedPrice;
@@ -859,7 +859,9 @@ export default function ContentPreviewScreen() {
                     </Text>
                   </LinearGradient>
                   <Text style={[styles.subscribeNote, { color: theme.colors.textSecondary }]}>
-                    This is a preview — subscribers will see this button on your page
+                    {isCommunity
+                      ? 'This is a preview — buyers will see this button on your page'
+                      : 'This is a preview — subscribers will see this button on your page'}
                   </Text>
                 </View>
               );
@@ -871,7 +873,9 @@ export default function ContentPreviewScreen() {
                 <View style={[styles.subscribeSection, { borderTopColor: theme.colors.border }]}>
                   <View style={[styles.subscribedBadge, { backgroundColor: (theme.colors as any).success + '15' }]}>
                     <Ionicons name="checkmark-circle" size={18} color={(theme.colors as any).success} />
-                    <Text style={[styles.subscribedText, { color: (theme.colors as any).success }]}>Subscribed</Text>
+                    <Text style={[styles.subscribedText, { color: (theme.colors as any).success }]}>
+                      {isCommunity ? 'Purchased' : 'Subscribed'}
+                    </Text>
                   </View>
                   {subscriptionStatus.subscription?.currentPeriodEnd && (
                     <Text style={[styles.subscribeNote, { color: theme.colors.textSecondary, fontStyle: 'normal' }]}>
@@ -884,7 +888,7 @@ export default function ContentPreviewScreen() {
                     style={{ marginTop: 8, paddingVertical: 4 }}
                   >
                     <Text style={{ color: theme.colors.error, fontSize: 13, fontFamily: getFontFamily('500'), fontWeight: '500' }}>
-                      Cancel subscription
+                      {isCommunity ? 'Cancel purchase' : 'Cancel subscription'}
                     </Text>
                   </TouchableOpacity>
                 </View>

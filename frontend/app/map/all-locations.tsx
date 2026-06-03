@@ -150,13 +150,23 @@ const OptimizedMarker = React.memo(({
 }: OptimizedMarkerProps) => {
   const [tracksViewChanges, setTracksViewChanges] = useState(true);
 
+  const handleImageLoad = useCallback(() => {
+    setTracksViewChanges(true);
+    const timer = setTimeout(() => {
+      if (!isActive) {
+        setTracksViewChanges(false);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [isActive]);
+
   useEffect(() => {
     if (isActive) {
       setTracksViewChanges(true);
     } else {
       const timer = setTimeout(() => {
         setTracksViewChanges(false);
-      }, 500);
+      }, 800);
       return () => clearTimeout(timer);
     }
   }, [isActive]);
@@ -176,6 +186,7 @@ const OptimizedMarker = React.memo(({
         activeTitle={activeTitle}
         activeSubtitle={activeSubtitle}
         photo={photo}
+        onImageLoad={handleImageLoad}
       />
     </Marker>
   );
@@ -191,6 +202,108 @@ const OptimizedMarker = React.memo(({
     prev.activeTitle === next.activeTitle &&
     prev.activeSubtitle === next.activeSubtitle &&
     prev.photo === next.photo
+  );
+});
+
+interface OptimizedClusterMarkerProps {
+  cluster: any;
+  onPress: () => void;
+  isDark: boolean;
+  photoUrl?: string;
+  resolvePhotoUrl: (url?: string) => string | undefined;
+}
+
+const OptimizedClusterMarker = React.memo(({
+  cluster,
+  onPress,
+  isDark,
+  photoUrl,
+  resolvePhotoUrl
+}: OptimizedClusterMarkerProps) => {
+  const [tracksViewChanges, setTracksViewChanges] = useState(true);
+
+  const handleImageLoad = useCallback(() => {
+    setTracksViewChanges(true);
+    const timer = setTimeout(() => {
+      setTracksViewChanges(false);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    setTracksViewChanges(true);
+    const timer = setTimeout(() => {
+      setTracksViewChanges(false);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [photoUrl]);
+
+  return (
+    <Marker
+      coordinate={{ latitude: cluster.latitude, longitude: cluster.longitude }}
+      onPress={onPress}
+      tracksViewChanges={tracksViewChanges}
+    >
+      <View style={markerStyles.clusterContainer}>
+        <View style={markerStyles.clusterGlow}>
+          <LinearGradient
+            colors={isDark ? ['rgba(45, 212, 191, 0.4)', 'rgba(59, 130, 246, 0.4)'] : ['rgba(59, 130, 246, 0.3)', 'rgba(45, 212, 191, 0.3)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[StyleSheet.absoluteFillObject, { borderRadius: 20 }]}
+          />
+          {Platform.OS === 'ios' ? (
+            <BlurView intensity={40} tint={isDark ? 'dark' : 'light'} style={markerStyles.clusterBlur}>
+              <LinearGradient
+                colors={isDark ? ['rgba(15, 23, 42, 0.75)', 'rgba(30, 41, 59, 0.75)'] : ['rgba(255, 255, 255, 0.85)', 'rgba(241, 245, 249, 0.85)']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[markerStyles.clusterContent, { borderRadius: 18.5 }]}
+              >
+                {photoUrl ? (
+                  <ExpoImage
+                    source={{ uri: resolvePhotoUrl(photoUrl) }}
+                    style={markerStyles.clusterPhoto}
+                    contentFit="cover"
+                    onLoad={handleImageLoad}
+                  />
+                ) : (
+                  <Ionicons name="location" size={16} color={isDark ? '#2DD4BF' : '#3B82F6'} />
+                )}
+              </LinearGradient>
+            </BlurView>
+          ) : (
+            <View style={[markerStyles.clusterBlur, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]}>
+              <LinearGradient
+                colors={isDark ? ['#0F172A', '#1E293B'] : ['#FFFFFF', '#F1F5F9']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[markerStyles.clusterContent, { borderRadius: 18.5 }]}
+              >
+                {photoUrl ? (
+                  <ExpoImage
+                    source={{ uri: resolvePhotoUrl(photoUrl) }}
+                    style={markerStyles.clusterPhoto}
+                    contentFit="cover"
+                    onLoad={handleImageLoad}
+                  />
+                ) : (
+                  <Ionicons name="location" size={16} color={isDark ? '#2DD4BF' : '#3B82F6'} />
+                )}
+              </LinearGradient>
+            </View>
+          )}
+        </View>
+      </View>
+    </Marker>
+  );
+}, (prev, next) => {
+  return (
+    prev.isDark === next.isDark &&
+    prev.cluster.id === next.cluster.id &&
+    prev.cluster.latitude === next.cluster.latitude &&
+    prev.cluster.longitude === next.cluster.longitude &&
+    prev.photoUrl === next.photoUrl
   );
 });
 
@@ -1495,62 +1608,14 @@ function initMap(){
             const firstPhotoLocation = cluster.locations.find((loc: any) => loc.photo);
             const photoUrl = firstPhotoLocation?.photo;
             return (
-              <Marker
+              <OptimizedClusterMarker
                 key={cluster.id}
-                coordinate={{ latitude: cluster.latitude, longitude: cluster.longitude }}
+                cluster={cluster}
                 onPress={() => handleClusterPress(cluster)}
-                tracksViewChanges={false}
-              >
-                <View style={markerStyles.clusterContainer}>
-                  <View style={markerStyles.clusterGlow}>
-                    <LinearGradient
-                      colors={isDark ? ['rgba(45, 212, 191, 0.4)', 'rgba(59, 130, 246, 0.4)'] : ['rgba(59, 130, 246, 0.3)', 'rgba(45, 212, 191, 0.3)']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={StyleSheet.absoluteFillObject}
-                    />
-                    {Platform.OS === 'ios' ? (
-                      <BlurView intensity={40} tint={isDark ? 'dark' : 'light'} style={markerStyles.clusterBlur}>
-                        <LinearGradient
-                          colors={isDark ? ['rgba(15, 23, 42, 0.75)', 'rgba(30, 41, 59, 0.75)'] : ['rgba(255, 255, 255, 0.85)', 'rgba(241, 245, 249, 0.85)']}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                          style={markerStyles.clusterContent}
-                        >
-                          {photoUrl ? (
-                            <ExpoImage
-                              source={{ uri: resolvePhotoUrl(photoUrl) }}
-                              style={markerStyles.clusterPhoto}
-                              contentFit="cover"
-                            />
-                          ) : (
-                            <Ionicons name="location" size={16} color={isDark ? '#2DD4BF' : '#3B82F6'} />
-                          )}
-                        </LinearGradient>
-                      </BlurView>
-                    ) : (
-                      <View style={[markerStyles.clusterBlur, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]}>
-                        <LinearGradient
-                          colors={isDark ? ['#0F172A', '#1E293B'] : ['#FFFFFF', '#F1F5F9']}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 1 }}
-                          style={markerStyles.clusterContent}
-                        >
-                          {photoUrl ? (
-                            <ExpoImage
-                              source={{ uri: resolvePhotoUrl(photoUrl) }}
-                              style={markerStyles.clusterPhoto}
-                              contentFit="cover"
-                            />
-                          ) : (
-                            <Ionicons name="location" size={16} color={isDark ? '#2DD4BF' : '#3B82F6'} />
-                          )}
-                        </LinearGradient>
-                      </View>
-                    )}
-                  </View>
-                </View>
-              </Marker>
+                isDark={isDark}
+                photoUrl={photoUrl}
+                resolvePhotoUrl={resolvePhotoUrl}
+              />
             );
           } else {
             const location = cluster.location!;
@@ -1808,7 +1873,7 @@ function initMap(){
             styles.carouselContainer,
             {
               transform: [{ translateY: slideAnim }],
-              bottom: isOwnPage ? insets.bottom + bottomPanelHeight + 16 : insets.bottom + 16,
+              bottom: isOwnPage ? insets.bottom + bottomPanelHeight + 8 : insets.bottom + 8,
             }
           ]}
         >
@@ -2366,7 +2431,8 @@ const styles = StyleSheet.create({
   },
   carouselCardWrapper: {
     width: screenWidth,
-    justifyContent: 'center',
+    height: 180,
+    justifyContent: 'flex-end',
     alignItems: 'center',
     paddingHorizontal: 16,
   },
@@ -2647,11 +2713,17 @@ const markerStyles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 2,
     borderColor: '#fff',
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 0,
+      },
+    }),
   },
   journeyMarkerEnd: {
     backgroundColor: ALERT_RED,

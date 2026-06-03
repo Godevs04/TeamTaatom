@@ -34,6 +34,7 @@ interface PremiumMapMarkerProps {
   activeSubtitle?: string;
   photo?: string;
   tracksViewChanges?: boolean;
+  onImageLoad?: () => void;
 }
 
 const PremiumMapMarker = memo(function PremiumMapMarker({
@@ -47,6 +48,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
   activeSubtitle,
   photo,
   tracksViewChanges: propTracksViewChanges,
+  onImageLoad,
 }: PremiumMapMarkerProps) {
   const { isDark, theme } = useTheme();
   const activeState = isActive ?? active;
@@ -64,6 +66,9 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
 
   const handleImageLoad = () => {
     setTracksViewChanges(true);
+    if (onImageLoad) {
+      onImageLoad();
+    }
     setTimeout(() => {
       setTracksViewChanges(propTracksViewChanges ?? false);
     }, 0);
@@ -109,7 +114,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
             colors={['#3B82F6', '#2DD4BF']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFillObject}
+            style={[StyleSheet.absoluteFillObject, { borderRadius: 12 }]}
           />
         </Animated.View>
         
@@ -153,7 +158,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
             colors={isDark ? ['rgba(45, 212, 191, 0.4)', 'rgba(59, 130, 246, 0.05)'] as const : ['rgba(59, 130, 246, 0.4)', 'rgba(45, 212, 191, 0.05)'] as const}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFillObject}
+            style={[StyleSheet.absoluteFillObject, { borderRadius: 15 }]}
           />
         </Animated.View>
         
@@ -181,94 +186,97 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
       {/* Base Point Indicator */}
       <View style={[styles.activeBaseDot, { backgroundColor: isDark ? '#2DD4BF' : '#3B82F6' }]} />
       
-      {/* Glassmorphic card body */}
-      <View style={[styles.cardWrapper, isDark ? styles.shadowDark : styles.shadowLight]}>
-        {Platform.OS === 'ios' ? (
-          <BlurView
-            intensity={40}
-            tint={isDark ? 'dark' : 'light'}
-            style={[
-              styles.markerCard,
-              {
-                backgroundColor: outerBg,
-                borderColor: borderCol,
-              }
-            ]}
-          >
-            <View style={styles.markerContentRow}>
-              {resolvedPhoto ? (
-                <ExpoImage
-                  source={{ uri: resolvedPhoto }}
-                  style={[styles.markerPhoto, { borderColor: isDark ? '#2DD4BF' : '#3B82F6' }]}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                  onLoad={handleImageLoad}
-                />
-              ) : (
-                <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)' }]}>
-                  <Ionicons
-                    name={icon}
-                    size={14}
-                    color={isDark ? '#2DD4BF' : '#3B82F6'}
+      {/* Shadow wrapper (no overflow hidden to allow shadows on iOS, flat wrapper on Android) */}
+      <View style={isDark ? styles.shadowDark : styles.shadowLight}>
+        {/* Glassmorphic card body (clips inner contents like blur/image) */}
+        <View style={styles.cardWrapper}>
+          {Platform.OS === 'ios' ? (
+            <BlurView
+              intensity={40}
+              tint={isDark ? 'dark' : 'light'}
+              style={[
+                styles.markerCard,
+                {
+                  backgroundColor: outerBg,
+                  borderColor: borderCol,
+                }
+              ]}
+            >
+              <View style={styles.markerContentRow}>
+                {resolvedPhoto ? (
+                  <ExpoImage
+                    source={{ uri: resolvedPhoto }}
+                    style={[styles.markerPhoto, { borderColor: isDark ? '#2DD4BF' : '#3B82F6' }]}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    onLoad={handleImageLoad}
                   />
-                </View>
-              )}
-              
-              <View style={styles.textColumn}>
-                {showLabel ? (
-                  <Text style={[styles.markerLabelText, { color: textColor }]} numberOfLines={1}>
-                    {showLabel}
+                ) : (
+                  <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)' }]}>
+                    <Ionicons
+                      name={icon}
+                      size={14}
+                      color={isDark ? '#2DD4BF' : '#3B82F6'}
+                    />
+                  </View>
+                )}
+                
+                <View style={styles.textColumn}>
+                  {showLabel ? (
+                    <Text style={[styles.markerLabelText, { color: textColor }]} numberOfLines={1}>
+                      {showLabel}
+                    </Text>
+                  ) : null}
+                  <Text style={[styles.activeSubtitleText, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
+                    {displaySubtitle}
                   </Text>
-                ) : null}
-                <Text style={[styles.activeSubtitleText, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
-                  {displaySubtitle}
-                </Text>
+                </View>
+              </View>
+            </BlurView>
+          ) : (
+            <View
+              style={[
+                styles.markerCard,
+                {
+                  backgroundColor: isDark ? '#1E293B' : '#FFFFFF',
+                  borderColor: borderCol,
+                  borderRadius: 14,
+                }
+              ]}
+            >
+              <View style={styles.markerContentRow}>
+                {resolvedPhoto ? (
+                  <ExpoImage
+                    source={{ uri: resolvedPhoto }}
+                    style={[styles.markerPhoto, { borderColor: isDark ? '#2DD4BF' : '#3B82F6' }]}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    onLoad={handleImageLoad}
+                  />
+                ) : (
+                  <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)' }]}>
+                    <Ionicons
+                      name={icon}
+                      size={14}
+                      color={isDark ? '#2DD4BF' : '#3B82F6'}
+                    />
+                  </View>
+                )}
+                
+                <View style={styles.textColumn}>
+                  {showLabel ? (
+                    <Text style={[styles.markerLabelText, { color: textColor }]} numberOfLines={1}>
+                      {showLabel}
+                    </Text>
+                  ) : null}
+                  <Text style={[styles.activeSubtitleText, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
+                    {displaySubtitle}
+                  </Text>
+                </View>
               </View>
             </View>
-          </BlurView>
-        ) : (
-          <View
-            style={[
-              styles.markerCard,
-              {
-                backgroundColor: isDark ? '#1E293B' : '#FFFFFF',
-                borderColor: borderCol,
-                borderRadius: 14,
-              }
-            ]}
-          >
-            <View style={styles.markerContentRow}>
-              {resolvedPhoto ? (
-                <ExpoImage
-                  source={{ uri: resolvedPhoto }}
-                  style={[styles.markerPhoto, { borderColor: isDark ? '#2DD4BF' : '#3B82F6' }]}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                  onLoad={handleImageLoad}
-                />
-              ) : (
-                <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)' }]}>
-                  <Ionicons
-                    name={icon}
-                    size={14}
-                    color={isDark ? '#2DD4BF' : '#3B82F6'}
-                  />
-                </View>
-              )}
-              
-              <View style={styles.textColumn}>
-                {showLabel ? (
-                  <Text style={[styles.markerLabelText, { color: textColor }]} numberOfLines={1}>
-                    {showLabel}
-                  </Text>
-                ) : null}
-                <Text style={[styles.activeSubtitleText, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
-                  {displaySubtitle}
-                </Text>
-              </View>
-            </View>
-          </View>
-        )}
+          )}
+        </View>
       </View>
     </Animated.View>
   );
@@ -283,7 +291,8 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
     prevProps.activeTitle === nextProps.activeTitle &&
     prevProps.activeSubtitle === nextProps.activeSubtitle &&
     prevProps.photo === nextProps.photo &&
-    prevProps.tracksViewChanges === nextProps.tracksViewChanges
+    prevProps.tracksViewChanges === nextProps.tracksViewChanges &&
+    prevProps.onImageLoad === nextProps.onImageLoad
   );
 });
 
@@ -328,22 +337,34 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     borderWidth: 2,
     borderColor: '#FFFFFF',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 2,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 2,
+      },
+      android: {
+        elevation: 0,
+      },
+    }),
   },
   activeBaseDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
     marginBottom: 4,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 1,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2,
+        shadowRadius: 1,
+      },
+      android: {
+        elevation: 0,
+      },
+    }),
   },
   cardWrapper: {
     borderRadius: 14,
@@ -390,20 +411,24 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 1,
   },
-  shadowDark: {
-    shadowColor: '#000000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 6,
-  },
-  shadowLight: {
-    shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
-  },
+  shadowDark: Platform.select({
+    ios: {
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.4,
+      shadowRadius: 12,
+    },
+    android: {},
+  }) as any,
+  shadowLight: Platform.select({
+    ios: {
+      shadowColor: '#0F172A',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.15,
+      shadowRadius: 8,
+    },
+    android: {},
+  }) as any,
   userMarkerContainer: {
     width: 32,
     height: 32,
@@ -424,11 +449,17 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.25,
+        shadowRadius: 3,
+      },
+      android: {
+        elevation: 0,
+      },
+    }),
   },
   userMarkerInner: {
     width: 8,

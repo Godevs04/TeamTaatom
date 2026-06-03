@@ -4163,14 +4163,14 @@ const styles = StyleSheet.create({
   rightActions: {
     position: 'absolute',
     right: isTablet ? theme.spacing.lg : 12,
-    bottom: Platform.OS === 'ios' ? (isWeb ? 90 : 170) : (isWeb ? 80 : 160),
+    bottom: Platform.OS === 'ios' ? (isWeb ? 90 : 86) : (isWeb ? 80 : 86),
     alignItems: 'center',
     zIndex: 5,
   },
   optionsActionContainer: {
     position: 'absolute',
     right: isTablet ? theme.spacing.lg : 12,
-    bottom: Platform.OS === 'ios' ? (isWeb ? 16 : 96) : (isWeb ? 12 : 86),
+    bottom: Platform.OS === 'ios' ? (isWeb ? 16 : 12) : (isWeb ? 12 : 12),
     alignItems: 'center',
     zIndex: 5,
   },
@@ -4259,7 +4259,7 @@ const styles = StyleSheet.create({
     right: 80,
     // SHORTS_ITEM_HEIGHT already excludes TAB_BAR_HEIGHT, so only a small
     // padding is needed to keep content off the very bottom edge
-    paddingBottom: Platform.OS === 'ios' ? (isWeb ? 16 : 96) : (isWeb ? 16 : 86),
+    paddingBottom: Platform.OS === 'ios' ? (isWeb ? 16 : 32) : (isWeb ? 16 : 32),
     paddingTop: 0,
     paddingHorizontal: 20,
     zIndex: 5,
@@ -4488,7 +4488,7 @@ const styles = StyleSheet.create({
   },
   progressBarContainer: {
     position: 'absolute',
-    bottom: Platform.OS === 'ios' ? 96 : 86,
+    bottom: isWeb ? 10 : 0,
     left: 0,
     right: 0,
     height: 24,

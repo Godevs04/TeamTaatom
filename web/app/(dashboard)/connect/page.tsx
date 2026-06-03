@@ -12,6 +12,10 @@ import type { ConnectPage } from "@/types/connect";
 type TabType = "connect" | "community";
 
 function PageCard({ p }: { p: ConnectPage }) {
+  const normalCount = Math.max(0, Math.floor((p.followerCount || 0) + 1));
+  const isCommunityPage = p.category === "community" || p.isAdminPage === true;
+  const displayMemberCount = isCommunityPage ? Math.max(0, normalCount - 1) : normalCount;
+
   return (
     <Link href={`/connect/page/${p._id}`}>
       <Card className="h-full overflow-hidden transition hover:shadow-lg hover:ring-2 hover:ring-primary/20">
@@ -35,7 +39,7 @@ function PageCard({ p }: { p: ConnectPage }) {
           <h3 className="font-semibold text-slate-900 dark:text-white">{p.name}</h3>
           <p className="mt-1 line-clamp-2 text-xs text-slate-500 dark:text-zinc-400">{p.bio}</p>
           <div className="mt-3 flex gap-3 text-xs text-slate-500">
-            <span>{p.followerCount ?? 0} followers</span>
+            <span>{displayMemberCount} {isCommunityPage ? 'members' : 'followers'}</span>
             {p.isFollowing && (
               <span className="font-medium text-primary">Following</span>
             )}

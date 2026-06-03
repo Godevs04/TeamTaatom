@@ -59,6 +59,10 @@ export default function ConnectCard({
   const cardBgColor = glass.isDark ? 'rgba(25, 25, 25, 0.76)' : 'rgba(255, 255, 255, 0.88)';
   const cardShadowColor = glass.isDark ? '#000000' : '#1C73B4';
 
+  const normalCount = Math.max(0, Math.floor((page.followerCount || 0) + 1));
+  const isCommunityPage = (page.type as string) === 'community' || page.category === 'community';
+  const displayMemberCount = isCommunityPage ? Math.max(0, normalCount - 1) : normalCount;
+
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.76} style={styles.touchable}>
       <CloudGlassSurface
@@ -125,7 +129,7 @@ export default function ConnectCard({
             <View style={styles.stat}>
               <Ionicons name="people-outline" size={14} color={theme.colors.primary} />
               <Text style={[styles.statText, { color: theme.colors.primary }]}>
-                {String((page.followerCount || 0) + 1)}
+                {String(displayMemberCount)}
               </Text>
             </View>
             {page.features?.website && (
