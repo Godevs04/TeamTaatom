@@ -4624,17 +4624,11 @@ const styles = StyleSheet.create({
   actionIconContainer: {
     width: 48,
     height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 0.5,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
     marginBottom: isTablet ? 6 : 4,
   },
   likedContainer: {
-    borderColor: 'rgba(80, 200, 120, 0.25)',
-    backgroundColor: 'rgba(28, 115, 180, 0.08)',
   },
   actionText: {
     color: 'white',
@@ -4721,6 +4715,7 @@ const styles = StyleSheet.create({
     borderWidth: 2.5,
     borderColor: 'rgba(0,0,0,0.8)',
     backgroundColor: 'transparent',
+    opacity: 0,
   },
   userDetails: {
     flex: 1,

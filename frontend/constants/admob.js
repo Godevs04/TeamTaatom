@@ -26,7 +26,7 @@ export const ADMOB = {
   android: {
     banner: __DEV__
       ? 'ca-app-pub-3940256099942544/6300978111'
-      : 'ca-app-pub-6362359854606661/XXXXXXXXXX',
+      : 'ca-app-pub-6362359854606661/7027944948',
     interstitial: __DEV__
       ? 'ca-app-pub-3940256099942544/1033173712'
       : 'ca-app-pub-6362359854606661/XXXXXXXXXX',
@@ -43,7 +43,7 @@ export const ADMOB = {
   ios: {
     banner: __DEV__
       ? 'ca-app-pub-3940256099942544/2934735716'
-      : 'ca-app-pub-6362359854606661/XXXXXXXXXX',
+      : 'ca-app-pub-6362359854606661/2303221559',
     interstitial: __DEV__
       ? 'ca-app-pub-3940256099942544/4411468910'
       : 'ca-app-pub-6362359854606661/XXXXXXXXXX',
