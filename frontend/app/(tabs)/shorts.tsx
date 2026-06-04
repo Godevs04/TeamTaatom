@@ -18,6 +18,7 @@ import {
   Pressable,
   RefreshControl,
   ActivityIndicator,
+  Easing,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -247,6 +248,137 @@ const MarqueeText = React.memo(({ text, style, containerStyle, icon }: MarqueeTe
 });
 
 MarqueeText.displayName = 'MarqueeText';
+
+interface CyclingMetadataProps {
+  song?: {
+    songId?: {
+      title?: string;
+      artist?: string;
+    } | string | null;
+  } | null;
+  location?: {
+    address?: string;
+  } | null;
+  onLocationPress: (e: any) => void;
+}
+
+const CyclingMetadata = React.memo(({ song, location, onLocationPress }: CyclingMetadataProps) => {
+  const songIdObj = typeof song?.songId === 'object' ? song?.songId : null;
+  const songTitle = songIdObj?.title;
+  const songArtist = songIdObj?.artist;
+  const hasSong = !!(songTitle || songArtist);
+  const hasLocation = !!location?.address;
+
+  // If neither is present, show nothing
+  if (!hasSong && !hasLocation) return null;
+
+  // If only one is present, show it statically without animation
+  if (hasSong && !hasLocation) {
+    const displayText = `${songTitle || 'Unknown Song'} · ${songArtist || 'Unknown Artist'}`;
+    return (
+      <View style={styles.cyclingContainer}>
+        <Ionicons name="musical-notes" size={12} color="#38BDF8" />
+        <Text style={styles.cyclingText} numberOfLines={1}>
+          {displayText}
+        </Text>
+      </View>
+    );
+  }
+
+  if (!hasSong && hasLocation) {
+    return (
+      <TouchableOpacity 
+        style={styles.cyclingContainer} 
+        onPress={onLocationPress}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="location" size={12} color="#38BDF8" />
+        <Text style={styles.cyclingText} numberOfLines={1}>
+          {location.address}
+        </Text>
+      </TouchableOpacity>
+    );
+  }
+
+  // Both song and location are present -> cycle every 2 seconds
+  const [showLocation, setShowLocation] = useState(false);
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const translateAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      // Step 1: Fade out & Slide up
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateAnim, {
+          toValue: -10,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        // Step 2: Toggle content and position text below
+        setShowLocation(prev => !prev);
+        translateAnim.setValue(10);
+        
+        // Step 3: Fade in & Slide back to center
+        Animated.parallel([
+          Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.timing(translateAnim, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      });
+    }, 2000); // 2 seconds delay
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const songText = `${songTitle || 'Unknown Song'} · ${songArtist || 'Unknown Artist'}`;
+
+  return (
+    <Animated.View
+      style={[
+        styles.cyclingAnimatedWrapper,
+        {
+          opacity: fadeAnim,
+          transform: [{ translateY: translateAnim }],
+        }
+      ]}
+    >
+      {showLocation ? (
+        <TouchableOpacity 
+          style={styles.cyclingContainer} 
+          onPress={onLocationPress}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="location" size={12} color="#38BDF8" />
+          <Text style={styles.cyclingText} numberOfLines={1}>
+            {location.address}
+          </Text>
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.cyclingContainer}>
+          <Ionicons name="musical-notes" size={12} color="#38BDF8" />
+          <Text style={styles.cyclingText} numberOfLines={1}>
+            {songText}
+          </Text>
+        </View>
+      )}
+    </Animated.View>
+  );
+});
+
+CyclingMetadata.displayName = 'CyclingMetadata';
 
 
 /**
@@ -628,12 +760,14 @@ interface LocalShortsActionRailProps {
   onSharePress: (short: PostType) => void;
   onSavePress: (shortId: string) => void;
   isScopedView?: boolean;
+  isPlaying: boolean;
 }
 
 function GradientIcon({ name, size }: { name: any; size: number }) {
   return (
     <MaskedView
       style={{ width: size, height: size }}
+      pointerEvents="none"
       maskElement={
         <Ionicons name={name} size={size} color="#000000" />
       }
@@ -667,6 +801,7 @@ const LocalShortsActionRail = React.memo(({
   onSharePress,
   onSavePress,
   isScopedView,
+  isPlaying,
 }: LocalShortsActionRailProps) => {
   const [localIsLiked, setLocalIsLiked] = useState(initialIsLiked);
   const [localLikesCount, setLocalLikesCount] = useState(initialLikesCount);
@@ -676,6 +811,47 @@ const LocalShortsActionRail = React.memo(({
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [likers, setLikers] = useState<any[]>([]);
+
+  // 360-degree rotation animation setup for the album art disc
+  const spinValue = useRef(new Animated.Value(0)).current;
+  const spinAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+
+  useEffect(() => {
+    if (isPlaying) {
+      // Smooth linear looping rotation
+      spinValue.setValue(0);
+      spinAnimRef.current = Animated.loop(
+        Animated.timing(spinValue, {
+          toValue: 1,
+          duration: 4000, // 4 seconds for one full loop
+          useNativeDriver: true,
+          easing: Easing.linear,
+        })
+      );
+      spinAnimRef.current.start();
+    } else {
+      if (spinAnimRef.current) {
+        spinAnimRef.current.stop();
+        spinAnimRef.current = null;
+      }
+    }
+    return () => {
+      if (spinAnimRef.current) {
+        spinAnimRef.current.stop();
+      }
+    };
+  }, [isPlaying]);
+
+  const spin = spinValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
+  const albumArtSource = useMemo(() => {
+    const DEFAULT_ALBUM_ART = 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=120&auto=format&fit=crop';
+    const thumbnailUrl = short.song?.songId?.thumbnailUrl || (typeof short.song?.songId === 'object' && short.song?.songId?.thumbnailUrl);
+    return thumbnailUrl ? { uri: thumbnailUrl } : { uri: DEFAULT_ALBUM_ART };
+  }, [short.song]);
 
   useEffect(() => {
     setLocalIsLiked(initialIsLiked);
@@ -752,6 +928,7 @@ const LocalShortsActionRail = React.memo(({
   }, [onSharePress, short]);
 
   const handleOptionsPress = useCallback(() => {
+    logger.debug('Options menu pressed for short:', shortId);
     showOptions(
       'Reel Options',
       [
@@ -786,45 +963,21 @@ const LocalShortsActionRail = React.memo(({
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       {/* Vertical actions rail (moved higher, containing Profile, Like, Comment, Share) */}
       <View style={[styles.rightActions, isScopedView && { bottom: Platform.OS === 'ios' ? 94 : 88 }]} pointerEvents="box-none">
-        <TouchableOpacity
-          style={styles.profileButton}
-          onPress={handleProfilePressLocal}
-          activeOpacity={0.8}
-          accessibilityLabel={`View ${username || 'user'}'s profile`}
-          accessibilityRole="button"
-        >
-          <View style={styles.actionsAvatarContainer}>
-            <LinearGradient
-              colors={['#1C73B4', '#50C878']}
-              style={styles.actionsGradientBorder}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
+        <View style={styles.profileButton}>
+          <Animated.View style={[styles.actionsAvatarContainer, { transform: [{ rotate: spin }] }]}>
+            <View style={styles.albumArtContainer}>
               <ExpoImage
-                source={profileSource}
-                style={styles.actionsProfileImage as ImageStyle}
+                source={albumArtSource}
+                style={styles.albumArtImage as ImageStyle}
                 cachePolicy="memory-disk"
-                placeholder={require('../../assets/avatars/male_avatar.png')}
+                placeholder={{ uri: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=120&auto=format&fit=crop' }}
                 contentFit="cover"
                 transition={200}
-                onError={(e: any) => logger.warn('[shorts profile avatar] load failed', {
-                  userId,
-                  url: profilePic?.substring(0, 120),
-                  error: e?.error || e?.nativeEvent?.error || String(e),
-                })}
               />
-            </LinearGradient>
-            {currentUserLoaded && !isOwn && (
-              <View style={[styles.followButton, isFollowing && styles.followingButton]}>
-                <Ionicons
-                  name={isFollowing ? "checkmark" : "add"}
-                  size={12}
-                  color="white"
-                />
-              </View>
-            )}
-          </View>
-        </TouchableOpacity>
+              <View style={styles.albumArtInnerRing} />
+            </View>
+          </Animated.View>
+        </View>
 
         <View style={styles.actionButton}>
           <Pressable
@@ -876,16 +1029,17 @@ const LocalShortsActionRail = React.memo(({
           </View>
         </Pressable>
 
-        <Pressable
+        <TouchableOpacity
           style={styles.actionButton}
           onPress={handleOptionsPress}
           accessibilityLabel="More options"
           accessibilityRole="button"
+          activeOpacity={0.7}
         >
           <View style={styles.actionIconContainer}>
             <GradientIcon name="ellipsis-vertical" size={28} />
           </View>
-        </Pressable>
+        </TouchableOpacity>
       </View>
 
       {/* Likes Detail View Modal */}
@@ -3307,7 +3461,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const isScopedView = !!effectiveUserId || props.isSavedShorts;
     const progressBottom = isScopedView ? (isWeb ? 8 : 20) : (isWeb ? 8 : 77);
     const progressHeight = 24;
-    const clearance = 24;
+    const videoContainerBottom = progressBottom + progressHeight;
+    const clearance = 16;
     const bottomContentOffset = progressBottom + progressHeight + clearance;
     
     // Calculate pause button visibility and icon - isolated from like state to prevent flexing
@@ -3358,7 +3513,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           <View
             style={[
               styles.videoContainer,
-              isScopedView ? styles.videoContainerScoped : styles.videoContainerTabbed
+              { bottom: videoContainerBottom }
             ]}
             onTouchStart={handlersRef.current.handleTouchStart}
             onTouchMove={handlersRef.current.handleTouchMove}
@@ -3384,13 +3539,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   the parent so taps still hit anywhere. */}
               <View style={[
                 styles.shortVideo,
-                {
-                  width: '100%',
-                  height: undefined, // Override height: '100%' from styles.shortVideo
-                  aspectRatio: 9 / 16,
-                  maxHeight: '100%',
-                  alignSelf: 'center',
-                }
+                StyleSheet.absoluteFillObject
               ]}>
               {/* Always show thumbnail backdrop so there's never a black surface.
                   The Video layers on top; once its first frame decodes, it
@@ -3399,7 +3548,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 <ExpoImage
                   source={{ uri: item.imageUrl }}
                   style={[styles.shortVideo as ImageStyle, StyleSheet.absoluteFillObject]}
-                  contentFit="contain"
+                  contentFit="cover"
                   cachePolicy="memory-disk"
                   transition={0}
                   onError={(e: any) => logger.warn('[shorts thumbnail] load failed', {
@@ -3433,7 +3582,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   styles.shortVideo,
                   StyleSheet.absoluteFillObject,
                 ]}
-                resizeMode={ResizeMode.CONTAIN}
+                resizeMode={ResizeMode.COVER}
                 shouldPlay={index === currentVisibleIndex && isVideoPlaying && !userPausedShortIdsRef.current.has(item._id)}
                 isLooping
                 progressUpdateIntervalMillis={100}
@@ -3786,6 +3935,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             onSharePress={handlersRef.current.handleShare}
             onSavePress={handlersRef.current.handleSave}
             isScopedView={!!effectiveUserId || props.isSavedShorts}
+            isPlaying={isCellVideoPlaying}
           />
 
           {/* Bottom Content with Elegant Design */}
@@ -3801,92 +3951,64 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             />
             
             <View style={styles.bottomContentInner}>
-              <TouchableOpacity
-                style={styles.userProfileSection}
-                onPress={(e) => {
-                  e.stopPropagation?.(); // Prevent event from bubbling
-                  handlersRef.current.handleProfilePress(item.user._id);
-                }}
-                activeOpacity={0.7}
-                accessibilityLabel={`View ${item.user.username || 'user'}'s profile`}
-                accessibilityRole="button"
-              >
-                <View style={styles.avatarContainer}>
-                  <ExpoImage
-                    source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                    style={styles.userAvatar as ImageStyle}
-                    cachePolicy="memory-disk"
-                    placeholder={require('../../assets/avatars/male_avatar.png')}
-                    contentFit="cover"
-                    transition={200}
-                    onError={(e: any) => logger.warn('[shorts bottom avatar] load failed', {
-                      userId: item.user._id,
-                      url: item.user.profilePic?.substring(0, 120),
-                      error: e?.error || e?.nativeEvent?.error || String(e),
-                    })}
-                  />
-                  <View style={styles.avatarRing} />
-                </View>
+              <View style={styles.userProfileSection}>
+                <TouchableOpacity
+                  style={styles.bottomAvatarContainer}
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    handlersRef.current.handleProfilePress(item.user._id);
+                  }}
+                  activeOpacity={0.7}
+                  accessibilityLabel={`View ${item.user.username || 'user'}'s profile`}
+                  accessibilityRole="button"
+                >
+                  <LinearGradient
+                    colors={['#50C878', '#1C73B4']}
+                    style={styles.bottomGradientBorder}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                  >
+                    <ExpoImage
+                      source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
+                      style={styles.bottomProfileImage as ImageStyle}
+                      cachePolicy="memory-disk"
+                      placeholder={require('../../assets/avatars/male_avatar.png')}
+                      contentFit="cover"
+                      transition={200}
+                      onError={(e: any) => logger.warn('[shorts bottom avatar] load failed', {
+                        userId: item.user._id,
+                        url: item.user.profilePic?.substring(0, 120),
+                        error: e?.error || e?.nativeEvent?.error || String(e),
+                      })}
+                    />
+                  </LinearGradient>
+                </TouchableOpacity>
+
                 <View style={styles.userDetails}>
+                  {/* Row 1 (Identity): A horizontal flex row containing the Username */}
                   <View style={styles.usernameRow}>
-                    <Text style={styles.username}>@{item.user.username || item.user.fullName}</Text>
+                    <TouchableOpacity
+                      onPress={(e) => {
+                        e.stopPropagation?.();
+                        handlersRef.current.handleProfilePress(item.user._id);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.username}>@{item.user.username || item.user._id}</Text>
+                    </TouchableOpacity>
+                    
                     {isFollowing && (
                       <View style={styles.followingBadge}>
                         <Text style={styles.followingText}>Following</Text>
                       </View>
                     )}
                   </View>
-                  
-                  {item.caption ? (() => {
-                    const isExpanded = !!expandedCaptions[item._id];
-                    const canExpand = item.caption.length > 80;
-                    const showTags = isExpanded;
-                    return (
-                      <TouchableOpacity 
-                        activeOpacity={0.9}
-                        onPress={(e) => {
-                          e.stopPropagation?.();
-                          setExpandedCaptions(prev => ({
-                            ...prev,
-                            [item._id]: !prev[item._id]
-                          }));
-                        }}
-                      >
-                        <Text 
-                          style={styles.caption} 
-                          numberOfLines={isExpanded ? undefined : 2}
-                        >
-                          {item.caption}
-                          {canExpand && !isExpanded && (
-                            <Text style={styles.moreText}> ...more</Text>
-                          )}
-                          {canExpand && isExpanded && (
-                            <Text style={styles.moreText}>  less</Text>
-                          )}
-                        </Text>
-                        
-                        {showTags && item.tags && item.tags.length > 0 && (
-                          <View style={styles.tagsContainer}>
-                            {item.tags.slice(0, 3).map((tag, tagIndex) => (
-                              <LinearGradient
-                                key={tagIndex}
-                                colors={['#1C73B4', '#50C878']}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 0 }}
-                                style={styles.tagBadgeGradient}
-                              >
-                                <Text style={styles.tagTextGradient}>#{tag}</Text>
-                              </LinearGradient>
-                            ))}
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })() : null}
-                  
-                  {/* Location - Instagram style inline */}
-                  {item.location?.address && (() => {
-                    const handleLocationPress = async (e: any) => {
+
+                  {/* Row 2 (Music & Location Cycling Carousel): Alternates every 2 seconds */}
+                  <CyclingMetadata
+                    song={item.song}
+                    location={item.location}
+                    onLocationPress={async (e) => {
                       e.stopPropagation?.();
                       try {
                         const address = item.location?.address;
@@ -3909,39 +4031,31 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                         logger.warn('Failed to geocode location:', error);
                         router.push('/map/current-location');
                       }
-                    };
-                    
-                    return (
-                      <TouchableOpacity 
-                        style={styles.inlineLocation} 
-                        onPress={handleLocationPress}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name="location-outline" size={12} color="#38BDF8" />
-                        <Text style={styles.inlineLocationText} numberOfLines={1}>
-                          {item.location.address}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })()}
-
-                  {/* Song - scrolling marquee */}
-                  {item.song?.songId && (() => {
-                    const song = item.song.songId;
-                    const songTitle = song.title || 'Unknown Song';
-                    const songArtist = song.artist || 'Unknown Artist';
-                    const displayText = `${songTitle} · ${songArtist}`;
-                    return (
-                      <MarqueeText
-                        text={displayText}
-                        style={styles.inlineSongText}
-                        containerStyle={styles.inlineSong}
-                        icon={<Ionicons name="musical-notes" size={12} color="#38BDF8" />}
-                      />
-                    );
-                  })()}
+                    }}
+                  />
                 </View>
-              </TouchableOpacity>
+              </View>
+
+              {/* Row 3 (Caption Constraint): Toggles between 2 lines and expanded on press */}
+              {item.caption ? (
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    setExpandedCaptions(prev => ({
+                      ...prev,
+                      [item._id]: !prev[item._id]
+                    }));
+                  }}
+                >
+                  <Text 
+                    style={styles.caption} 
+                    numberOfLines={expandedCaptions[item._id] ? undefined : 2}
+                  >
+                    {item.caption}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
               
               {/* Song Player - Hidden but active for audio playback */}
               {/* CRITICAL: Only render SongPlayer if song exists with valid s3Url */}
@@ -4351,19 +4465,14 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   videoContainer: {
-    width: '100%',
-    height: '100%',
-    position: 'relative',
-    backgroundColor: 'black',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#000000',
     display: 'flex',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  videoContainerTabbed: {
-    paddingTop: Platform.OS === 'ios' ? 94 : 86, // Move video lower to touch the bar
-  },
-  videoContainerScoped: {
-    paddingTop: Platform.OS === 'ios' ? 24 : 16,
   },
   shortVideo: {
     width: '100%',
@@ -4561,28 +4670,57 @@ const styles = StyleSheet.create({
   userProfileSection: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 16,
+    marginBottom: 8,
   },
-  avatarContainer: {
-    position: 'relative',
+  bottomAvatarContainer: {
+    width: 48,
+    height: 48,
     marginRight: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  userAvatar: {
+  bottomGradientBorder: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    borderWidth: 2.5,
-    borderColor: 'rgba(255,255,255,0.9)',
+    padding: 2.5,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  avatarRing: {
+  bottomProfileImage: {
+    width: 43,
+    height: 43,
+    borderRadius: 21.5,
+    backgroundColor: '#333',
+  },
+  albumArtContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#000',
+    borderWidth: 2,
+    borderColor: '#222',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  albumArtImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  albumArtInnerRing: {
     position: 'absolute',
-    top: -2,
-    left: -2,
-    right: -2,
-    bottom: -2,
-    borderRadius: 26,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.3)',
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2.5,
+    borderColor: 'rgba(0,0,0,0.8)',
+    backgroundColor: 'transparent',
   },
   userDetails: {
     flex: 1,
@@ -4591,8 +4729,8 @@ const styles = StyleSheet.create({
   usernameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4, // Reduced from 6 to move text up slightly
-    flexWrap: 'wrap',
+    marginBottom: 4,
+    flexWrap: 'nowrap',
   },
   username: {
     color: 'white',
@@ -4602,10 +4740,33 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
-    marginRight: isTablet ? theme.spacing.sm : 8,
+    marginRight: 6,
+    flexShrink: 1,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
+  },
+  cyclingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 20,
+  },
+  cyclingText: {
+    color: '#38BDF8',
+    fontSize: 14,
+    marginLeft: 6,
+    fontFamily: getFontFamily('400'),
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  cyclingAnimatedWrapper: {
+    height: 20,
+    justifyContent: 'center',
+    marginVertical: 4,
   },
   followingBadge: {
     backgroundColor: 'rgba(255,255,255,0.2)',
@@ -4629,8 +4790,8 @@ const styles = StyleSheet.create({
     fontSize: isTablet ? theme.typography.body.fontSize : 14,
     fontFamily: getFontFamily('400'),
     lineHeight: isTablet ? 22 : 20,
-    marginTop: 2, // Small margin to separate from location
-    marginBottom: isTablet ? theme.spacing.md : 8, // Reduced from 10 to move text up
+    marginTop: 6,
+    marginBottom: 0,
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
