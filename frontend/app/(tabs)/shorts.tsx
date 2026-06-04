@@ -166,6 +166,89 @@ const getVideoSource = (uri: string | null | undefined) => {
   return videoSourceCache.get(uri);
 };
 
+interface MarqueeTextProps {
+  text: string;
+  style?: any;
+  containerStyle?: any;
+  icon?: React.ReactNode;
+}
+
+const MarqueeText = React.memo(({ text, style, containerStyle, icon }: MarqueeTextProps) => {
+  const animatedValue = useRef(new Animated.Value(0)).current;
+  const [textWidth, setTextWidth] = useState(0);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  useEffect(() => {
+    animatedValue.setValue(0);
+    if (textWidth > 0 && containerWidth > 0 && textWidth > containerWidth) {
+      const offset = textWidth - containerWidth + 24; // 24px extra buffer
+      
+      const startAnimation = () => {
+        Animated.loop(
+          Animated.sequence([
+            Animated.delay(1500),
+            Animated.timing(animatedValue, {
+              toValue: -offset,
+              duration: offset * 30, // 30ms per pixel
+              useNativeDriver: true,
+            }),
+            Animated.delay(1500),
+            Animated.timing(animatedValue, {
+              toValue: 0,
+              duration: offset * 30,
+              useNativeDriver: true,
+            }),
+          ])
+        ).start();
+      };
+
+      startAnimation();
+    }
+    return () => {
+      animatedValue.stopAnimation();
+    };
+  }, [textWidth, containerWidth, text]);
+
+  const onTextLayout = (e: any) => {
+    const { width } = e.nativeEvent.layout;
+    setTextWidth(width);
+  };
+
+  const onContainerLayout = (e: any) => {
+    const { width } = e.nativeEvent.layout;
+    setContainerWidth(width);
+  };
+
+  return (
+    <View 
+      style={[{ flexDirection: 'row', alignItems: 'center', overflow: 'hidden' }, containerStyle]}
+      onLayout={onContainerLayout}
+    >
+      {icon}
+      <View style={{ overflow: 'hidden', flex: 1, marginLeft: icon ? 6 : 0 }}>
+        <Animated.View
+          style={{
+            flexDirection: 'row',
+            transform: [{ translateX: animatedValue }],
+            alignSelf: 'flex-start',
+          }}
+        >
+          <Text
+            style={[style, { flexShrink: 0, flexGrow: 0 }]}
+            onLayout={onTextLayout}
+            numberOfLines={1}
+          >
+            {text}
+          </Text>
+        </Animated.View>
+      </View>
+    </View>
+  );
+});
+
+MarqueeText.displayName = 'MarqueeText';
+
+
 /**
  * Memo wrapper around a single shorts cell. The parent computes a small
  * `cacheKey` string of every state slice that affects this cell's rendered
@@ -792,10 +875,7 @@ const LocalShortsActionRail = React.memo(({
             <GradientIcon name="paper-plane-outline" size={28} />
           </View>
         </Pressable>
-      </View>
 
-      {/* Options Button (Three dots - placed next to the username row at the bottom) */}
-      <View style={[styles.optionsActionContainer, isScopedView && { bottom: Platform.OS === 'ios' ? 20 : 16 }]} pointerEvents="box-none">
         <Pressable
           style={styles.actionButton}
           onPress={handleOptionsPress}
@@ -3224,6 +3304,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const isSaved = savedShorts.has(item._id);
     const isLiked = item.isLiked || false;
     
+    const isScopedView = !!effectiveUserId || props.isSavedShorts;
+    const progressBottom = isScopedView ? (isWeb ? 8 : 20) : (isWeb ? 8 : 77);
+    const progressHeight = 24;
+    const clearance = 24;
+    const bottomContentOffset = progressBottom + progressHeight + clearance;
+    
     // Calculate pause button visibility and icon - isolated from like state to prevent flexing
     // Don't show pause button if like animation is showing
     // Only show play/pause overlay when the user explicitly taps. Previously
@@ -3261,7 +3347,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
     return (
       <ShortCellMemo cacheKey={cacheKey} render={() => (
-      <View style={[styles.shortItem, { height: containerHeight }]}>
+      <View style={[
+        styles.shortItem, 
+        { 
+          height: containerHeight,
+          paddingBottom: isScopedView ? 0 : TAB_BAR_HEIGHT,
+        }
+      ]}>
           {/* Video Player with Gesture Handling */}
           <View
             style={styles.videoContainer}
@@ -3290,8 +3382,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               <View style={[
                 styles.shortVideo,
                 {
-                  width: videoDim.width,
-                  height: videoDim.height,
+                  width: '100%',
+                  height: undefined, // Override height: '100%' from styles.shortVideo
+                  aspectRatio: 9 / 16,
+                  maxHeight: '100%',
                   alignSelf: 'center',
                 }
               ]}>
@@ -3695,7 +3789,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           <View 
             style={[
               styles.bottomContent, 
-              (!!effectiveUserId || props.isSavedShorts) && { bottom: isWeb ? 30 : 38, paddingBottom: 0 }
+              { bottom: bottomContentOffset }
             ]}
           >
             <LinearGradient
@@ -3715,85 +3809,30 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 accessibilityRole="button"
               >
                 <View style={styles.avatarContainer}>
-                <ExpoImage
-                  source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                  style={styles.userAvatar as ImageStyle}
-                  cachePolicy="memory-disk"
-                  placeholder={require('../../assets/avatars/male_avatar.png')}
-                  contentFit="cover"
-                  transition={200}
-                  onError={(e: any) => logger.warn('[shorts bottom avatar] load failed', {
-                    userId: item.user._id,
-                    url: item.user.profilePic?.substring(0, 120),
-                    error: e?.error || e?.nativeEvent?.error || String(e),
-                  })}
-                />
+                  <ExpoImage
+                    source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
+                    style={styles.userAvatar as ImageStyle}
+                    cachePolicy="memory-disk"
+                    placeholder={require('../../assets/avatars/male_avatar.png')}
+                    contentFit="cover"
+                    transition={200}
+                    onError={(e: any) => logger.warn('[shorts bottom avatar] load failed', {
+                      userId: item.user._id,
+                      url: item.user.profilePic?.substring(0, 120),
+                      error: e?.error || e?.nativeEvent?.error || String(e),
+                    })}
+                  />
                   <View style={styles.avatarRing} />
                 </View>
                 <View style={styles.userDetails}>
                   <View style={styles.usernameRow}>
-                  <Text style={styles.username}>{item.user.fullName}</Text>
+                    <Text style={styles.username}>@{item.user.username || item.user.fullName}</Text>
                     {isFollowing && (
                       <View style={styles.followingBadge}>
                         <Text style={styles.followingText}>Following</Text>
                       </View>
                     )}
                   </View>
-                  
-                  {/* Song - Instagram style inline */}
-                  {item.song?.songId && (() => {
-                    const song = item.song.songId;
-                    const songTitle = song.title || 'Unknown Song';
-                    const songArtist = song.artist || 'Unknown Artist';
-                    return (
-                      <View style={styles.inlineSong}>
-                        <Ionicons name="musical-notes" size={12} color="#38BDF8" />
-                        <Text style={styles.inlineSongText} numberOfLines={1}>
-                          {songTitle} · {songArtist}
-                        </Text>
-                      </View>
-                    );
-                  })()}
-                  
-                  {/* Location - Instagram style inline */}
-                  {item.location?.address && (() => {
-                    const handleLocationPress = async () => {
-                      try {
-                        const address = item.location?.address;
-                        if (address) {
-                          const coordinates = await geocodeAddress(address);
-                          if (coordinates) {
-                            router.push({
-                              pathname: '/map/current-location',
-                              params: {
-                                latitude: coordinates.latitude.toString(),
-                                longitude: coordinates.longitude.toString(),
-                                address,
-                              }
-                            });
-                          } else {
-                            router.push('/map/current-location');
-                          }
-                        }
-                      } catch (error) {
-                        logger.warn('Failed to geocode location:', error);
-                        router.push('/map/current-location');
-                      }
-                    };
-                    
-                    return (
-                      <TouchableOpacity 
-                        style={styles.inlineLocation} 
-                        onPress={handleLocationPress}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name="location-outline" size={12} color="#38BDF8" />
-                        <Text style={styles.inlineLocationText} numberOfLines={1}>
-                          {item.location.address}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })()}
                   
                   {item.caption ? (() => {
                     const isExpanded = !!expandedCaptions[item._id];
@@ -3841,6 +3880,63 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                       </TouchableOpacity>
                     );
                   })() : null}
+                  
+                  {/* Location - Instagram style inline */}
+                  {item.location?.address && (() => {
+                    const handleLocationPress = async (e: any) => {
+                      e.stopPropagation?.();
+                      try {
+                        const address = item.location?.address;
+                        if (address) {
+                          const coordinates = await geocodeAddress(address);
+                          if (coordinates) {
+                            router.push({
+                              pathname: '/map/current-location',
+                              params: {
+                                latitude: coordinates.latitude.toString(),
+                                longitude: coordinates.longitude.toString(),
+                                address,
+                              }
+                            });
+                          } else {
+                            router.push('/map/current-location');
+                          }
+                        }
+                      } catch (error) {
+                        logger.warn('Failed to geocode location:', error);
+                        router.push('/map/current-location');
+                      }
+                    };
+                    
+                    return (
+                      <TouchableOpacity 
+                        style={styles.inlineLocation} 
+                        onPress={handleLocationPress}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="location-outline" size={12} color="#38BDF8" />
+                        <Text style={styles.inlineLocationText} numberOfLines={1}>
+                          {item.location.address}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })()}
+
+                  {/* Song - scrolling marquee */}
+                  {item.song?.songId && (() => {
+                    const song = item.song.songId;
+                    const songTitle = song.title || 'Unknown Song';
+                    const songArtist = song.artist || 'Unknown Artist';
+                    const displayText = `${songTitle} · ${songArtist}`;
+                    return (
+                      <MarqueeText
+                        text={displayText}
+                        style={styles.inlineSongText}
+                        containerStyle={styles.inlineSong}
+                        icon={<Ionicons name="musical-notes" size={12} color="#38BDF8" />}
+                      />
+                    );
+                  })()}
                 </View>
               </TouchableOpacity>
               
@@ -4242,7 +4338,8 @@ const styles = StyleSheet.create({
   },
   shortItem: {
     width: '100%',
-    height: SHORTS_ITEM_HEIGHT,
+    flex: 1,
+    height: (isWeb ? '100vh' : Dimensions.get('window').height) as any,
     position: 'relative',
     backgroundColor: 'black',
   },
@@ -4256,8 +4353,9 @@ const styles = StyleSheet.create({
     position: 'relative',
     backgroundColor: 'black',
     display: 'flex',
-    justifyContent: 'flex-start',
+    justifyContent: 'center',
     alignItems: 'center',
+    paddingTop: Platform.OS === 'ios' ? 24 : 16, // Move video a little lower
   },
   shortVideo: {
     width: '100%',
@@ -4352,15 +4450,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 5,
   },
-  optionsActionContainer: {
-    position: 'absolute',
-    right: isTablet ? theme.spacing.lg : 12,
-    bottom: Platform.OS === 'ios' ? (isWeb ? 36 : 32) : (isWeb ? 32 : 32),
-    alignItems: 'center',
-    zIndex: 5,
-  },
   profileButton: {
-    marginBottom: isTablet ? theme.spacing.xl : 20,
+    marginBottom: 16,
     position: 'relative',
   },
   actionsAvatarContainer: {
@@ -4632,7 +4723,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: Platform.OS === 'ios' ? 100 : 80,
+    height: Platform.OS === 'ios' ? 80 : 64,
     zIndex: 100,
   },
   topBarContent: {
@@ -4640,7 +4731,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'ios' ? 50 : 36,
+    paddingTop: Platform.OS === 'ios' ? 36 : 20,
     height: '100%',
     width: '100%',
   },

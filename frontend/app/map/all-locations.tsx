@@ -1544,7 +1544,12 @@ function initMap(){
             try {
               const data = JSON.parse(event.nativeEvent.data);
               if (data.type === 'navigatePost' && data.postId) {
-                router.push(`/post/${data.postId}`);
+                const targetUserId = data.userId || userId;
+                if (data.contentType === 'short') {
+                  router.push(`/user-shorts/${targetUserId}?shortId=${data.postId}`);
+                } else {
+                  router.push(`/post/${data.postId}`);
+                }
               } else if (data.type === 'selectLocation' && data.location) {
                 setSelectedLocation({
                   number: data.location.number,
@@ -1703,7 +1708,7 @@ function initMap(){
                 icon="location"
                 label={city}
                 activeTitle={city}
-                activeSubtitle="1 post"
+                activeSubtitle={location.contentType === 'short' ? '1 short' : '1 post'}
                 photo={location.photo}
                 latitudeDelta={safeLatitudeDelta}
               />
@@ -1989,13 +1994,23 @@ function initMap(){
                         </Text>
                         <View style={styles.previewActions}>
                           {item.postId ? (
-                            <TouchableOpacity
-                              style={[styles.previewButton, { borderColor: theme.colors.border }]}
-                              onPress={() => router.push(`/post/${item.postId}`)}
-                            >
-                              <Ionicons name="images-outline" size={16} color={theme.colors.text} />
-                              <Text style={[styles.previewButtonText, { color: theme.colors.text }]}>Post</Text>
-                            </TouchableOpacity>
+                            item.contentType === 'short' ? (
+                              <TouchableOpacity
+                                style={[styles.previewButton, { borderColor: theme.colors.border }]}
+                                onPress={() => router.push(`/user-shorts/${userId}?shortId=${item.postId}`)}
+                              >
+                                <Ionicons name="videocam-outline" size={16} color={theme.colors.text} />
+                                <Text style={[styles.previewButtonText, { color: theme.colors.text }]}>Shorts</Text>
+                              </TouchableOpacity>
+                            ) : (
+                              <TouchableOpacity
+                                style={[styles.previewButton, { borderColor: theme.colors.border }]}
+                                onPress={() => router.push(`/post/${item.postId}`)}
+                              >
+                                <Ionicons name="images-outline" size={16} color={theme.colors.text} />
+                                <Text style={[styles.previewButtonText, { color: theme.colors.text }]}>Post</Text>
+                              </TouchableOpacity>
+                            )
                           ) : null}
                           <TouchableOpacity
                             style={[styles.previewButton, styles.previewPrimaryButton, { backgroundColor: mapStyle.routeColor }]}
@@ -2513,7 +2528,7 @@ const styles = StyleSheet.create({
   previewImage: {
     width: 72,
     height: 72,
-    borderRadius: 16,
+    borderRadius: 36,
     overflow: 'hidden',
   },
   previewFallback: {

@@ -936,7 +936,7 @@ const styles = StyleSheet.create({
   previewImage: {
     width: 72,
     height: 72,
-    borderRadius: 16,
+    borderRadius: 36,
     overflow: 'hidden',
   },
   previewFallback: {
