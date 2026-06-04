@@ -598,20 +598,22 @@ function AllLocationsMapInner() {
   }, [validLocations, currentRegion]);
 
   const handleClusterPress = useCallback((cluster: any) => {
-    if (!mapRef.current) return;
+    if (!mapRef.current || useWebViewFallback) return;
     try {
       const coords = cluster.locations.map((loc: any) => ({
         latitude: loc.latitude,
         longitude: loc.longitude,
       }));
-      mapRef.current.fitToCoordinates(coords, {
-        edgePadding: { top: 100, right: 100, bottom: 100, left: 100 },
-        animated: true,
-      });
+      if (typeof mapRef.current.fitToCoordinates === 'function') {
+        mapRef.current.fitToCoordinates(coords, {
+          edgePadding: { top: 100, right: 100, bottom: 100, left: 100 },
+          animated: true,
+        });
+      }
     } catch (err) {
       logger.error('Error fitting to cluster coordinates:', err);
     }
-  }, []);
+  }, [useWebViewFallback]);
 
   const handleRegionChangeComplete = useCallback((newRegion: any) => {
     const safeRegion = sanitizeMapRegion(newRegion, currentRegion ?? undefined);
@@ -631,19 +633,31 @@ function AllLocationsMapInner() {
   const centerMapOnLocation = useCallback((latitude: number, longitude: number) => {
     if (!mapRef.current) return;
     try {
-      mapRef.current.animateToRegion(
-        {
-          latitude,
-          longitude,
-          latitudeDelta: 0.015,
-          longitudeDelta: 0.015,
-        },
-        400
-      );
+      if (useWebViewFallback) {
+        mapRef.current.injectJavaScript(`
+          if (window.map) {
+            window.map.panTo({ lat: ${latitude}, lng: ${longitude} });
+            window.map.setZoom(15);
+          }
+          true;
+        `);
+      } else {
+        if (typeof mapRef.current.animateToRegion === 'function') {
+          mapRef.current.animateToRegion(
+            {
+              latitude,
+              longitude,
+              latitudeDelta: 0.015,
+              longitudeDelta: 0.015,
+            },
+            400
+          );
+        }
+      }
     } catch (err) {
       logger.error('Error centering map on location:', err);
     }
-  }, []);
+  }, [useWebViewFallback]);
 
   const getCarouselItemLayout = useCallback((data: any, index: number) => ({
     length: screenWidth,
@@ -1055,12 +1069,14 @@ function AllLocationsMapInner() {
         const delay = Platform.OS === 'ios' ? (attempt === 0 ? 150 : 200) : (attempt === 0 ? 500 : 200);
         setTimeout(() => {
           try {
-            if (mapRef.current && allCoords.length > 0) {
-              mapRef.current.fitToCoordinates(allCoords, {
-                edgePadding: { top: 120, right: 80, bottom: 120, left: 80 },
-                animated: attempt === 0 && Platform.OS !== 'ios',
-              });
-              if (Platform.OS === 'ios' && attempt === 0) fitMap(1);
+            if (mapRef.current && allCoords.length > 0 && !useWebViewFallback) {
+              if (typeof mapRef.current.fitToCoordinates === 'function') {
+                mapRef.current.fitToCoordinates(allCoords, {
+                  edgePadding: { top: 120, right: 80, bottom: 120, left: 80 },
+                  animated: attempt === 0 && Platform.OS !== 'ios',
+                });
+                if (Platform.OS === 'ios' && attempt === 0) fitMap(1);
+              }
             }
           } catch (err) {
             if (attempt < 3) fitMap(attempt + 1);
@@ -1211,6 +1227,10 @@ html,body,#map{height:100%;margin:0;padding:0}
 .marker-thumb {
   width: 26px;
   height: 26px;
+  min-width: 26px;
+  min-height: 26px;
+  flex-shrink: 0;
+  -webkit-flex-shrink: 0;
   border-radius: 50%;
   object-fit: cover;
   border: 1.5px solid ${isDark ? '#2DD4BF' : '#3B82F6'};
@@ -1218,6 +1238,10 @@ html,body,#map{height:100%;margin:0;padding:0}
 .marker-thumb-placeholder {
   width: 26px;
   height: 26px;
+  min-width: 26px;
+  min-height: 26px;
+  flex-shrink: 0;
+  -webkit-flex-shrink: 0;
   border-radius: 50%;
   background: ${isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)'};
   display: flex;
@@ -1623,13 +1647,15 @@ function initMap(){
               j.polyline?.map((p) => ({ latitude: p.lat, longitude: p.lng })) || []
             ),
           ].filter(isValidMapCoordinate);
-          if (allCoords.length > 0 && mapRef.current) {
+          if (allCoords.length > 0 && mapRef.current && !useWebViewFallback) {
             setTimeout(() => {
               try {
-                mapRef.current?.fitToCoordinates(allCoords, {
-                  edgePadding: { top: 120, right: 80, bottom: 120, left: 80 },
-                  animated: false,
-                });
+                if (typeof mapRef.current?.fitToCoordinates === 'function') {
+                  mapRef.current.fitToCoordinates(allCoords, {
+                    edgePadding: { top: 120, right: 80, bottom: 120, left: 80 },
+                    animated: false,
+                  });
+                }
               } catch {}
             }, 300);
           }

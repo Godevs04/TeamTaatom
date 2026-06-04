@@ -527,13 +527,15 @@ export default function CurrentLocationMap() {
   };
 
   useEffect(() => {
-    if (route?.coordinates && route.coordinates.length > 0 && mapRef.current) {
-      mapRef.current.fitToCoordinates(route.coordinates, {
-        edgePadding: { top: 120, right: 50, bottom: 50, left: 50 },
-        animated: true,
-      });
+    if (route?.coordinates && route.coordinates.length > 0 && mapRef.current && !useWebViewFallback) {
+      if (typeof mapRef.current.fitToCoordinates === 'function') {
+        mapRef.current.fitToCoordinates(route.coordinates, {
+          edgePadding: { top: 120, right: 50, bottom: 50, left: 50 },
+          animated: true,
+        });
+      }
     }
-  }, [route]);
+  }, [route, useWebViewFallback]);
 
   const renderMap = () => {
     if (loading) {
@@ -632,6 +634,10 @@ html,body,#map{height:100%;margin:0;padding:0}
 .marker-thumb-placeholder {
   width: 26px;
   height: 26px;
+  min-width: 26px;
+  min-height: 26px;
+  flex-shrink: 0;
+  -webkit-flex-shrink: 0;
   border-radius: 50%;
   background: ${isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)'};
   display: flex;

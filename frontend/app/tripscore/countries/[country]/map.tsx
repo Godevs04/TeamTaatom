@@ -498,6 +498,10 @@ export default function CountryMapScreen() {
           .marker-thumb {
             width: 26px;
             height: 26px;
+            min-width: 26px;
+            min-height: 26px;
+            flex-shrink: 0;
+            -webkit-flex-shrink: 0;
             border-radius: 50%;
             object-fit: cover;
             border: 1.5px solid ${isDark ? '#2DD4BF' : '#3B82F6'};
@@ -505,6 +509,10 @@ export default function CountryMapScreen() {
           .marker-thumb-placeholder {
             width: 26px;
             height: 26px;
+            min-width: 26px;
+            min-height: 26px;
+            flex-shrink: 0;
+            -webkit-flex-shrink: 0;
             border-radius: 50%;
             background: ${isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)'};
             display: flex;
