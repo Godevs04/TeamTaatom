@@ -29,7 +29,6 @@ import { featureFlagsService } from '../services/featureFlags';
 import { crashReportingService } from '../services/crashReporting';
 import { ErrorBoundary } from '../utils/errorBoundary';
 import { registerServiceWorker } from '../utils/serviceWorker';
-import JourneyStatusBar from '../components/JourneyStatusBar';
 import { JourneyProvider, useJourney } from '../context/JourneyContext';
 import { SubscriptionProvider } from '../context/SubscriptionContext';
 import * as Sentry from '@sentry/react-native';
@@ -1065,30 +1064,7 @@ function RootLayoutInner() {
           </TouchableOpacity>
         </View>
       )}
-      {/* Journey Status Bar - shown when journey is active or paused, but NOT on the tracking screen itself */}
-      {(isTracking || isPaused) && pathname !== '/navigate/tracking' && (
-        <JourneyStatusBar
-          isTracking={isTracking}
-          isPaused={isPaused}
-          distance={distance}
-          duration={duration}
-          onPause={() => pauseJourneyRecording().catch(err => console.error('Failed to pause journey:', err))}
-          onStop={async () => {
-            try {
-              await stopJourneyRecording();
-              showSuccess('Journey Saved!', 'Your journey has been saved successfully.');
-              router.push('/navigate/complete');
-            } catch (err: any) {
-              showWarning(err?.message || 'Failed to end journey');
-            }
-          }}
-          onContinue={() => {
-            resumeJourneyRecording()
-              .then(() => router.push('/navigate/tracking'))
-              .catch(err => console.error('Failed to resume journey:', err));
-          }}
-        />
-      )}
+
       <Suspense
         fallback={<LottieSplashScreen visible={true} />}
       >

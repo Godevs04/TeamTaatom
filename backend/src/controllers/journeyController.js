@@ -7,70 +7,60 @@ const User = require('../models/User');
 const { MAX_REALISTIC_SPEED_KMH } = require('../config/tripScoreConfig');
 
 // ─── Road Snap ──────────────────────────────────────────────────────
-// Uses Google Maps Roads API to snap raw GPS points to the nearest road.
-// The API accepts up to 100 points per request, so longer polylines are
-// chunked with a 1-point overlap so the snapped segments join seamlessly.
-// Falls back to the original polyline on any error (network, quota, etc.)
-// so journey completion is never blocked.
-const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
+// Uses internal OSRM Match API to snap raw GPS points to the nearest road.
+// Falls back to the original polyline on any error so journey completion is never blocked.
 
 /**
- * Snap an array of { lat, lng } points to roads via Google Maps Roads API.
+ * Snap an array of { lat, lng } points to roads via OSRM Match API.
  * Returns the snapped points in the same { lat, lng, timestamp?, accuracy? } shape,
  * preserving timestamps via interpolation from the original array.
  */
 const snapToRoads = async (polyline) => {
-  if (!GOOGLE_MAPS_API_KEY || polyline.length < 2) return polyline;
+  if (polyline.length < 2) return polyline;
 
-  const CHUNK_SIZE = 100; // Roads API limit per request
-  const snappedAll = [];
+  const osrmServer = process.env.OSRM_SERVER_URL || 'http://localhost:5000';
+  const coordinates = polyline.map(p => `${p.lng},${p.lat}`).join(';');
+  const radiuses = polyline.map(p => p.accuracy || 20).join(';');
+  const timestamps = polyline.map(p => Math.floor(new Date(p.timestamp).getTime() / 1000)).join(';');
+
+  const osrmUrl = `${osrmServer}/match/v1/driving/${coordinates}?radiuses=${radiuses}&timestamps=${timestamps}&geometries=geojson&overview=full`;
 
   try {
-    for (let i = 0; i < polyline.length; i += CHUNK_SIZE - 1) {
-      const chunk = polyline.slice(i, i + CHUNK_SIZE);
-      const pathParam = chunk.map(p => `${p.lat},${p.lng}`).join('|');
-
-      const url = `https://roads.googleapis.com/v1/snapToRoads?path=${pathParam}&interpolate=true&key=${GOOGLE_MAPS_API_KEY}`;
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        logger.warn(`Roads API returned ${response.status} — falling back to raw polyline`);
-        return polyline;
-      }
-
-      const data = await response.json();
-      if (!data.snappedPoints || data.snappedPoints.length === 0) {
-        // Chunk had no road matches — keep originals for this segment
-        if (snappedAll.length === 0) return polyline;
-        continue;
-      }
-
-      // Map snapped points back, interpolating timestamps from the original
-      // chunk based on the originalIndex provided by the API.
-      for (const sp of data.snappedPoints) {
-        // Skip the first point of subsequent chunks (overlap point)
-        if (snappedAll.length > 0 && i > 0 &&
-            sp.location.latitude === snappedAll[snappedAll.length - 1].lat &&
-            sp.location.longitude === snappedAll[snappedAll.length - 1].lng) {
-          continue;
-        }
-
-        const origIdx = sp.originalIndex != null ? sp.originalIndex : 0;
-        const origPoint = chunk[Math.min(origIdx, chunk.length - 1)];
-        snappedAll.push({
-          lat: sp.location.latitude,
-          lng: sp.location.longitude,
-          timestamp: origPoint.timestamp || new Date(),
-          accuracy: 0, // snapped = perfect road accuracy
-        });
-      }
+    const response = await fetch(osrmUrl);
+    if (!response.ok) {
+      logger.warn(`OSRM Match returned status ${response.status} — falling back to raw polyline`);
+      return polyline;
     }
 
-    if (snappedAll.length < 2) return polyline;
-    logger.debug(`Road snap: ${polyline.length} raw → ${snappedAll.length} snapped points`);
-    return snappedAll;
+    const data = await response.json();
+    if (data.code === 'Ok' && data.matchings && data.matchings.length > 0) {
+      const bestMatch = data.matchings[0];
+      const originalLength = polyline.length;
+      const matchedCoords = bestMatch.geometry.coordinates;
+
+      return matchedCoords.map((coord, idx) => {
+        let origIdx = 0;
+        if (matchedCoords.length > 1) {
+          origIdx = Math.min(
+            Math.floor((idx / (matchedCoords.length - 1)) * (originalLength - 1)),
+            originalLength - 1
+          );
+        }
+        const originalPoint = polyline[origIdx];
+        return {
+          lat: coord[1],
+          lng: coord[0],
+          timestamp: originalPoint.timestamp ? new Date(originalPoint.timestamp) : new Date(),
+          accuracy: originalPoint.accuracy || 0,
+          segmentBreak: originalPoint.segmentBreak || false
+        };
+      });
+    } else {
+      logger.warn(`OSRM Match returned code: ${data.code} — falling back to raw polyline`);
+      return polyline;
+    }
   } catch (err) {
-    logger.warn('Road snap failed (non-blocking), keeping raw polyline:', err.message);
+    logger.warn('OSRM snap failed (non-blocking), keeping raw polyline:', err.message);
     return polyline;
   }
 };
@@ -180,12 +170,19 @@ const startJourney = async (req, res) => {
       ],
       startedAt: new Date(),
       lastActiveAt: new Date(),
-      polyline: [
+      raw_polyline: [
         {
           lat: parseFloat(startCoords.lat),
           lng: parseFloat(startCoords.lng),
           timestamp: new Date(),
-          accuracy: null
+          accuracy: null,
+          segmentBreak: false
+        }
+      ],
+      snapped_polyline: [
+        {
+          lat: parseFloat(startCoords.lat),
+          lng: parseFloat(startCoords.lng)
         }
       ],
       sourceUserId: sourceUserId || null,
@@ -367,47 +364,162 @@ const updateLocation = async (req, res) => {
       return sendError(res, 'BIZ_7001', 'Journey is not active');
     }
 
-    // Process each coordinate
+    // Filter coordinates by validity and accuracy threshold (drop > 20m)
+    const filteredCoords = [];
     let skippedInvalid = 0;
-    let skippedImpossible = 0;
+    let skippedAccuracy = 0;
+
     for (const coord of coordinates) {
-      // Reject out-of-bounds / NaN before they enter the polyline. A single
-      // bad point (e.g. parseFloat overflow → lat:300) corrupts distance math
-      // and map rendering permanently — and there's no easy DB cleanup.
       if (!isValidCoord(coord.lat, coord.lng)) {
         skippedInvalid++;
         continue;
       }
 
-      const point = {
+      const accuracy = coord.accuracy != null ? parseFloat(coord.accuracy) : null;
+      if (accuracy !== null && accuracy > 20) {
+        skippedAccuracy++;
+        continue;
+      }
+
+      filteredCoords.push({
         lat: parseFloat(coord.lat),
         lng: parseFloat(coord.lng),
         timestamp: coord.timestamp ? new Date(coord.timestamp) : new Date(),
-        accuracy: coord.accuracy ? parseFloat(coord.accuracy) : null
-      };
+        accuracy: accuracy,
+        segmentBreak: coord.segmentBreak === true || coord.segmentBreak === 'true'
+      });
+    }
 
-      // Calculate distance from previous point using Haversine formula
-      if (journey.polyline.length > 0) {
-        const prevPoint = journey.polyline[journey.polyline.length - 1];
+    if (filteredCoords.length === 0) {
+      if (skippedInvalid > 0 || skippedAccuracy > 0) {
+        logger.warn(`Journey ${journeyId} updateLocation: dropped all points`, {
+          skippedInvalid,
+          skippedAccuracy,
+          userId: req.user._id.toString()
+        });
+      }
+      journey.lastActiveAt = new Date();
+      await journey.save();
+      return sendSuccess(res, 200, 'Location updated (all points filtered out)', {
+        journey,
+        pointsAdded: 0
+      });
+    }
 
-        // Check if there was a pause/resume boundary between prevPoint and the new point.
-        // We scan for any session in journey.sessions that started after prevPoint.timestamp
-        // and before or at point.timestamp.
-        const prevTime = new Date(prevPoint.timestamp).getTime();
-        const currTime = new Date(point.timestamp).getTime();
+    // Call OSRM Match API to snap coordinates to road network
+    let snappedPoints = [];
+    let matchSucceeded = false;
 
-        // If this is the very first update after starting (only 1 point in polyline),
-        // and the time difference is small (within 20 seconds), it's almost certainly
-        // a GPS initialization jump from a coarse startCoords to an accurate GPS fix.
-        // We replace the startCoords and first point instead of adding false distance.
-        if (journey.polyline.length === 1 && (currTime - prevTime) < 20000) {
-          journey.polyline[0] = point;
-          journey.startCoords = { lat: point.lat, lng: point.lng };
-          if (journey.sessions && journey.sessions.length > 0) {
-            journey.sessions[0].startCoords = { lat: point.lat, lng: point.lng };
+    const osrmServer = process.env.OSRM_SERVER_URL || 'http://localhost:5000';
+
+    if (filteredCoords.length >= 2) {
+      const coordinatesParam = filteredCoords.map(p => `${p.lng},${p.lat}`).join(';');
+      const radiusesParam = filteredCoords.map(p => p.accuracy || 20).join(';');
+      const timestampsParam = filteredCoords.map(p => Math.floor(new Date(p.timestamp).getTime() / 1000)).join(';');
+
+      const osrmUrl = `${osrmServer}/match/v1/driving/${coordinatesParam}?radiuses=${radiusesParam}&timestamps=${timestampsParam}&geometries=geojson&overview=full`;
+
+      try {
+        const response = await fetch(osrmUrl);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.code === 'Ok' && data.matchings && data.matchings.length > 0) {
+            const bestMatch = data.matchings[0];
+            const matchedCoords = bestMatch.geometry.coordinates;
+
+            snappedPoints = matchedCoords.map(coord => ({
+              lat: coord[1],
+              lng: coord[0]
+            }));
+            matchSucceeded = true;
+          } else {
+            logger.warn(`OSRM Match returned code: ${data.code} — falling back to raw coords`);
           }
-          continue;
+        } else {
+          logger.warn(`OSRM Match API returned status: ${response.status} — falling back to raw coords`);
         }
+      } catch (err) {
+        logger.warn(`OSRM Match call failed — falling back to raw coords: ${err.message}`);
+      }
+    }
+
+    if (!matchSucceeded) {
+      snappedPoints = filteredCoords.map(c => ({
+        lat: c.lat,
+        lng: c.lng
+      }));
+    }
+
+    // For session/speed calculations on matched geometry points, reconstruct matching timestamps/segment breaks
+    const snappedWithMetadata = snappedPoints.map((p, idx) => {
+      let origIdx = 0;
+      if (snappedPoints.length > 1) {
+        origIdx = Math.min(
+          Math.floor((idx / (snappedPoints.length - 1)) * (filteredCoords.length - 1)),
+          filteredCoords.length - 1
+        );
+      }
+      const originalPoint = filteredCoords[origIdx];
+      return {
+        lat: p.lat,
+        lng: p.lng,
+        timestamp: originalPoint.timestamp,
+        accuracy: originalPoint.accuracy || 0,
+        segmentBreak: originalPoint.segmentBreak || false
+      };
+    });
+
+    const distanceSource = matchSucceeded ? snappedWithMetadata : filteredCoords;
+    let addedDistance = 0;
+    let skippedImpossible = 0;
+    let startIndex = 0;
+
+    let lastPointTime = journey.lastActiveAt;
+    if (journey.raw_polyline.length > 0) {
+      lastPointTime = journey.raw_polyline[journey.raw_polyline.length - 1].timestamp;
+    }
+
+    let lastPoint = journey.snapped_polyline.length > 0
+      ? {
+          lat: journey.snapped_polyline[journey.snapped_polyline.length - 1].lat,
+          lng: journey.snapped_polyline[journey.snapped_polyline.length - 1].lng,
+          timestamp: lastPointTime
+        }
+      : null;
+
+    // Startup jump check
+    if (lastPoint && distanceSource.length > 0) {
+      const firstPoint = distanceSource[0];
+      const prevTime = new Date(lastPoint.timestamp).getTime();
+      const currTime = new Date(firstPoint.timestamp).getTime();
+
+      if (journey.snapped_polyline.length === 1 && (currTime - prevTime) < 20000) {
+        journey.startCoords = { lat: firstPoint.lat, lng: firstPoint.lng };
+        if (journey.sessions && journey.sessions.length > 0) {
+          journey.sessions[0].startCoords = { lat: firstPoint.lat, lng: firstPoint.lng };
+        }
+
+        if (journey.raw_polyline.length > 0) {
+          journey.raw_polyline[0] = filteredCoords[0];
+        }
+        if (journey.snapped_polyline.length > 0) {
+          journey.snapped_polyline[0] = { lat: snappedPoints[0].lat, lng: snappedPoints[0].lng };
+        }
+
+        lastPoint = firstPoint;
+        startIndex = 1;
+      }
+    }
+
+    // Process and push coordinates
+    for (let i = startIndex; i < distanceSource.length; i++) {
+      const point = distanceSource[i];
+      const rawP = filteredCoords[i];
+      const snappedP = snappedPoints[i];
+
+      if (lastPoint) {
+        const prevTime = new Date(lastPoint.timestamp).getTime();
+        const currTime = new Date(point.timestamp).getTime();
 
         const hasSessionBoundary = journey.sessions && journey.sessions.some(s => {
           const sessionStart = new Date(s.startedAt).getTime();
@@ -415,55 +527,61 @@ const updateLocation = async (req, res) => {
         });
 
         if (hasSessionBoundary) {
-          // A new session started between these points, so we do NOT count the distance
-          // traveled while paused/suspended.
-          journey.polyline.push(point);
+          journey.raw_polyline.push(rawP);
+          journey.snapped_polyline.push({ lat: snappedP.lat, lng: snappedP.lng });
         } else {
           const distance = calculateHaversineDistance(
-            prevPoint.lat,
-            prevPoint.lng,
+            lastPoint.lat,
+            lastPoint.lng,
             point.lat,
             point.lng
           );
 
           // Speed sanity check: reject points implying motion faster than 200 km/h.
-          // Catches GPS jumps from indoor multipath, spoofed coords, and parseFloat overflow.
-          const dtSec = Math.max(
-            0.001,
-            (point.timestamp - prevPoint.timestamp) / 1000,
-          );
+          const dtSec = Math.max(0.001, (new Date(point.timestamp) - new Date(lastPoint.timestamp)) / 1000);
           const speedKmh = (distance / 1000) / (dtSec / 3600);
+
           if (speedKmh > 200) {
             skippedImpossible++;
             continue;
           }
 
-          journey.polyline.push(point);
-          journey.distanceTraveled += distance; // distance in meters
+          journey.raw_polyline.push(rawP);
+          journey.snapped_polyline.push({ lat: snappedP.lat, lng: snappedP.lng });
+          addedDistance += distance;
         }
       } else {
-        journey.polyline.push(point);
+        journey.raw_polyline.push(rawP);
+        journey.snapped_polyline.push({ lat: snappedP.lat, lng: snappedP.lng });
       }
-    }
 
-    if (skippedInvalid > 0 || skippedImpossible > 0) {
-      logger.warn(`Journey ${journeyId} updateLocation: dropped points`, {
-        skippedInvalid,
-        skippedImpossible,
-        accepted: coordinates.length - skippedInvalid - skippedImpossible,
-        userId: req.user._id.toString(),
-      });
-    }
-
-    // Update endCoords to last polyline point
-    if (journey.polyline.length > 0) {
-      const lastPoint = journey.polyline[journey.polyline.length - 1];
-      journey.endCoords = {
-        lat: lastPoint.lat,
-        lng: lastPoint.lng
+      lastPoint = {
+        lat: snappedP.lat,
+        lng: snappedP.lng,
+        timestamp: rawP.timestamp
       };
     }
 
+    if (skippedInvalid > 0 || skippedAccuracy > 0 || skippedImpossible > 0) {
+      logger.warn(`Journey ${journeyId} updateLocation: dropped coordinates`, {
+        skippedInvalid,
+        skippedAccuracy,
+        skippedImpossible,
+        accepted: filteredCoords.length - startIndex - skippedImpossible,
+        userId: req.user._id.toString()
+      });
+    }
+
+    // Update endCoords to last snapped polyline point
+    if (journey.snapped_polyline.length > 0) {
+      const lastSnapped = journey.snapped_polyline[journey.snapped_polyline.length - 1];
+      journey.endCoords = {
+        lat: lastSnapped.lat,
+        lng: lastSnapped.lng
+      };
+    }
+
+    journey.distanceTraveled += addedDistance;
     journey.lastActiveAt = new Date();
     await journey.save();
 
@@ -476,6 +594,7 @@ const updateLocation = async (req, res) => {
       journey,
       pointsAdded: coordinates.length
     });
+
   } catch (error) {
     logger.error('Update location error:', error);
     return sendError(res, 'ERR_5001', 'Failed to update location');
@@ -510,8 +629,8 @@ const completeJourney = async (req, res) => {
     const currentSession = journey.sessions[journey.sessions.length - 1];
     if (currentSession && !currentSession.stoppedAt) {
       currentSession.stoppedAt = new Date();
-      if (journey.polyline.length > 0) {
-        const lastPoint = journey.polyline[journey.polyline.length - 1];
+      if (journey.snapped_polyline.length > 0) {
+        const lastPoint = journey.snapped_polyline[journey.snapped_polyline.length - 1];
         currentSession.endCoords = {
           lat: lastPoint.lat,
           lng: lastPoint.lng
@@ -526,8 +645,8 @@ const completeJourney = async (req, res) => {
     // Set endCoords to last polyline point before snapping to roads.
     // This ensures that the final destination pin marks the exact physical end location
     // of the user, even if the travel route line is snapped/smoothed to vehicle roads.
-    if (journey.polyline.length > 0) {
-      const lastPoint = journey.polyline[journey.polyline.length - 1];
+    if (journey.snapped_polyline.length > 0) {
+      const lastPoint = journey.snapped_polyline[journey.snapped_polyline.length - 1];
       journey.endCoords = {
         lat: lastPoint.lat,
         lng: lastPoint.lng
@@ -536,17 +655,22 @@ const completeJourney = async (req, res) => {
 
     // Snap raw GPS polyline to actual roads for a cleaner path display.
     // Non-blocking — falls back to raw polyline on any error.
-    if (journey.polyline.length >= 2 && shouldSnap !== false) {
+    if (journey.raw_polyline.length >= 2 && shouldSnap !== false) {
       try {
-        const segments = splitPolylineBySessions(journey.polyline, journey.sessions);
+        const segments = splitPolylineBySessions(journey.raw_polyline, journey.sessions);
         const snappedSegments = await Promise.all(
           segments.map(seg => snapToRoads(seg))
         );
-        journey.polyline = snappedSegments.flat();
+        // Stripped of timestamps / segment-breaks forSnapped polyline storage optimization
+        journey.snapped_polyline = snappedSegments.flat().map(p => ({
+          lat: p.lat,
+          lng: p.lng
+        }));
       } catch (snapErr) {
         logger.warn('Road snap error (non-blocking):', snapErr.message);
       }
     }
+
 
     await journey.save();
     logger.info(`Journey completed for user ${req.user._id}:`, {
@@ -784,7 +908,7 @@ const getUserJourneys = async (req, res) => {
     // Include polyline data when requested (for map view)
     const includePolyline = req.query.includePolyline === 'true';
     const selectFields = includePolyline
-      ? 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries polyline sessions tripScoreAwarded privacy'
+      ? 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries raw_polyline snapped_polyline polyline sessions tripScoreAwarded privacy'
       : 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries tripScoreAwarded privacy';
 
     // Get journeys
@@ -815,11 +939,41 @@ const getUserJourneys = async (req, res) => {
 
     const total = await Journey.countDocuments(journeyQuery);
 
-    // Add basic waypoint count (no full population for performance)
-    const enrichedJourneys = journeys.map(j => ({
-      ...j,
-      waypointCount: j.waypoints ? j.waypoints.length : 0
-    }));
+    // Add basic waypoint count and dynamic polyline mapping (since lean bypasses getters)
+    const enrichedJourneys = journeys.map(j => {
+      let poly = j.polyline;
+      if (includePolyline) {
+        if (j.snapped_polyline && j.snapped_polyline.length > 0) {
+          const raw = j.raw_polyline || [];
+          poly = j.snapped_polyline.map((p, idx) => {
+            let origIdx = 0;
+            if (j.snapped_polyline.length > 1 && raw.length > 0) {
+              origIdx = Math.min(
+                Math.floor((idx / (j.snapped_polyline.length - 1)) * (raw.length - 1)),
+                raw.length - 1
+              );
+            }
+            const rawP = raw[origIdx];
+            return {
+              lat: p.lat,
+              lng: p.lng,
+              timestamp: rawP ? rawP.timestamp : new Date(),
+              accuracy: rawP ? rawP.accuracy : 0,
+              segmentBreak: rawP ? rawP.segmentBreak : false
+            };
+          });
+        } else if (j.raw_polyline && j.raw_polyline.length > 0) {
+          poly = j.raw_polyline;
+        }
+      }
+
+      return {
+        ...j,
+        polyline: poly,
+        waypointCount: j.waypoints ? j.waypoints.length : 0
+      };
+    });
+
 
     return sendSuccess(res, 200, 'Journeys retrieved', {
       journeys: enrichedJourneys,

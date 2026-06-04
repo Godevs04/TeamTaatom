@@ -86,8 +86,89 @@ export function calculateCoordinateDistance(
 }
 
 /**
- * Simple polyline simplification (removes points that are too close together)
- * Reduces visual clutter on the map for dense GPS traces
+ * Calculates the perpendicular distance from a point to a line segment in meters
+ * using flat-earth projection.
+ */
+function getPerpendicularDistance(
+  p: { latitude: number; longitude: number },
+  p0: { latitude: number; longitude: number },
+  p1: { latitude: number; longitude: number }
+): number {
+  const latRad = (p0.latitude * Math.PI) / 180;
+  const kx = 111320 * Math.cos(latRad);
+  const ky = 111320;
+
+  const dx = (p1.longitude - p0.longitude) * kx;
+  const dy = (p1.latitude - p0.latitude) * ky;
+
+  const x = (p.longitude - p0.longitude) * kx;
+  const y = (p.latitude - p0.latitude) * ky;
+
+  const mag2 = dx * dx + dy * dy;
+  if (mag2 === 0) {
+    return Math.sqrt(x * x + y * y);
+  }
+
+  const t = Math.max(0, Math.min(1, (x * dx + y * dy) / mag2));
+  const px = t * dx;
+  const py = t * dy;
+
+  const rx = x - px;
+  const ry = y - py;
+
+  return Math.sqrt(rx * rx + ry * ry);
+}
+
+/**
+ * Ramer-Douglas-Peucker (RDP) algorithm for coordinate simplification.
+ */
+export function douglasPeucker<T extends { latitude: number; longitude: number }>(
+  points: T[],
+  epsilon: number
+): T[] {
+  if (points.length <= 2) {
+    return points;
+  }
+
+  let maxDist = 0;
+  let index = 0;
+  const end = points.length - 1;
+
+  for (let i = 1; i < end; i++) {
+    const dist = getPerpendicularDistance(points[i], points[0], points[end]);
+    if (dist > maxDist) {
+      maxDist = dist;
+      index = i;
+    }
+  }
+
+  if (maxDist > epsilon) {
+    const results1 = douglasPeucker(points.slice(0, index + 1), epsilon);
+    const results2 = douglasPeucker(points.slice(index), epsilon);
+    return results1.slice(0, results1.length - 1).concat(results2);
+  } else {
+    return [points[0], points[end]];
+  }
+}
+
+/**
+ * Helper to compute epsilon in meters based on map zoom level (latitudeDelta).
+ */
+export function getEpsilonForDelta(latitudeDelta?: number, simplifyDistance: number = 5): number {
+  if (latitudeDelta === undefined || isNaN(latitudeDelta) || latitudeDelta <= 0) {
+    return simplifyDistance;
+  }
+  // 1 degree latitude is approx 111,320 meters.
+  // We want epsilon to be roughly 2 pixels of screen resolution.
+  // Assuming a screen height of 1000 pixels:
+  // metersPerPixel = (latitudeDelta * 111320) / 1000
+  // epsilon = metersPerPixel * 2
+  const computed = latitudeDelta * 222.64;
+  return Math.max(2, Math.min(2000, computed));
+}
+
+/**
+ * Simple polyline simplification (delegates to Douglas-Peucker)
  *
  * @param coords Raw coordinates
  * @param minDistanceMeters Minimum distance between kept points (default 5m)
@@ -97,30 +178,7 @@ export function simplifyPolyline<T extends { latitude: number; longitude: number
   coords: T[],
   minDistanceMeters: number = 5
 ): T[] {
-  if (coords.length <= 1) return coords;
-
-  const simplified: T[] = [coords[0]];
-
-  for (let i = 1; i < coords.length; i++) {
-    if ((coords[i] as any).segmentBreak) {
-      simplified.push(coords[i]);
-      continue;
-    }
-
-    const lastKept = simplified[simplified.length - 1];
-    const distance = calculateCoordinateDistance(
-      lastKept.latitude,
-      lastKept.longitude,
-      coords[i].latitude,
-      coords[i].longitude
-    );
-
-    if (distance >= minDistanceMeters) {
-      simplified.push(coords[i]);
-    }
-  }
-
-  return simplified;
+  return douglasPeucker(coords, minDistanceMeters);
 }
 
 /**
@@ -165,9 +223,10 @@ interface PolylineRendererProps {
   color?: string;
   glowColor?: string;
   strokeWidth?: number;
-  simplifyDistance?: number; // Minimum distance in meters to keep points
+  simplifyDistance?: number; // Minimum distance in meters to keep points (fallback epsilon)
   applyKalman?: boolean; // Whether to apply Kalman filter for smoothing
   onPress?: () => void;
+  latitudeDelta?: number; // Zoom-dynamic latitude span for epsilon calculation
 }
 
 /**
@@ -177,9 +236,8 @@ interface PolylineRendererProps {
  * - Default color: Growth Green (#22C55E)
  * - Default stroke width: 4
  * - Applies sorting and deduplication to prevent crisscrossing and jagged lines
- * - Applies simplification to skip closely-spaced points
+ * - Applies Douglas-Peucker simplification using dynamic zoom-level epsilon
  * - Works with native MapView (react-native-maps Polyline component)
- * - For WebView maps, pass coordinates as props to a custom HTML renderer
  */
 export default function PolylineRenderer({
   coordinates,
@@ -189,6 +247,7 @@ export default function PolylineRenderer({
   simplifyDistance = 5,
   applyKalman = false,
   onPress,
+  latitudeDelta,
 }: PolylineRendererProps) {
   if (coordinates.length < 2) {
     return null;
@@ -203,34 +262,11 @@ export default function PolylineRenderer({
   // 2. Deduplicate coordinates within a strict 2-meter radius to smooth out path
   processedCoords = deduplicateCoords(processedCoords, 2);
 
-  // 3. Simplify to remove closely-spaced points
-  if (processedCoords.length > 1) {
-    processedCoords = simplifyPolyline(processedCoords, simplifyDistance);
-  }
-
-  // 4. Apply Kalman filter if requested
-  if (applyKalman && processedCoords.length > 1) {
-    const segmentBreaks = processedCoords.map((coord) => coord.segmentBreak);
-    processedCoords = kalmanFilter(processedCoords).map((coord, index) => ({
-      ...coord,
-      timestamp: processedCoords[index]?.timestamp,
-      segmentBreak: segmentBreaks[index],
-    }));
-  }
-
-  // Skip rendering if we don't have enough points left
   if (processedCoords.length < 2) {
     return null;
   }
 
-  // Check if Polyline component is available (not available in WebView mode)
-  // Native MapView provides a Polyline component
-  if (!MapView || Platform.OS === 'web') {
-    // For WebView, return null - caller should handle polylines via injected JavaScript
-    return null;
-  }
-
-  // 5. Split coordinates into segments based on a time gap of > 60 seconds (indicating a pause/break)
+  // 3. Split coordinates into segments based on a time gap of > 60 seconds (indicating a pause/break)
   const segments: Array<Array<{ latitude: number; longitude: number; timestamp?: number; segmentBreak?: boolean }>> = [];
   let currentSegment: Array<{ latitude: number; longitude: number; timestamp?: number; segmentBreak?: boolean }> = [];
 
@@ -256,14 +292,44 @@ export default function PolylineRenderer({
     segments.push(currentSegment);
   }
 
+  // 4. Compute epsilon and simplify/smooth each segment independently
+  const epsilon = getEpsilonForDelta(latitudeDelta, simplifyDistance);
+  const processedSegments = segments.map((segment) => {
+    if (segment.length < 2) return segment;
+
+    // Apply Douglas-Peucker simplification
+    let simplified = douglasPeucker(segment, epsilon);
+
+    // Apply Kalman filter if requested
+    if (applyKalman && simplified.length > 1) {
+      const segmentBreaks = simplified.map((coord) => coord.segmentBreak);
+      simplified = kalmanFilter(simplified).map((coord, index) => ({
+        ...coord,
+        timestamp: simplified[index]?.timestamp,
+        segmentBreak: segmentBreaks[index],
+      }));
+    }
+
+    return simplified;
+  }).filter((seg) => seg.length >= 2);
+
+  // Skip rendering if we don't have enough points left
+  if (processedSegments.length === 0) {
+    return null;
+  }
+
+  // Check if Polyline component is available (not available in WebView mode)
+  if (!MapView || Platform.OS === 'web') {
+    return null;
+  }
+
   // Try to import and render Polyline for native MapView
   try {
-    // Dynamically import Polyline only if available
     const { Polyline } = require('react-native-maps');
 
     return (
       <>
-        {segments.map((segment, index) => {
+        {processedSegments.map((segment, index) => {
           if (segment.length < 2) return null;
           return (
             <React.Fragment key={`segment-${index}`}>
@@ -285,7 +351,7 @@ export default function PolylineRenderer({
                 strokeWidth={strokeWidth}
                 lineCap="round"
                 lineJoin="round"
-                geodesic={true} // Follow Earth's curvature for long distances
+                geodesic={true}
                 tappable={!!onPress}
                 onPress={onPress}
               />
@@ -295,27 +361,19 @@ export default function PolylineRenderer({
       </>
     );
   } catch (error) {
-    // Polyline component not available, return null
     return null;
   }
 }
 
 /**
  * Helper function to generate polyline HTML for WebView maps
- *
- * Use this when rendering polylines in WebView-based maps (e.g., Google Maps JavaScript API)
- *
- * @param coordinates Array of lat/lng coordinates
- * @param color Polyline color (default: #22C55E)
- * @param strokeWidth Stroke width (default: 4)
- * @param simplifyDistance Minimum distance in meters to keep points (default: 5)
- * @returns JavaScript code string to inject into WebView initMap function
  */
 export function generatePolylineJS(
   coordinates: Array<{ latitude: number; longitude: number; timestamp?: number; segmentBreak?: boolean }>,
   color: string = '#22C55E',
   strokeWidth: number = 4,
-  simplifyDistance: number = 5
+  simplifyDistance: number = 5,
+  latitudeDelta?: number
 ): string {
   if (coordinates.length < 2) return '';
 
@@ -329,16 +387,14 @@ export function generatePolylineJS(
   // Deduplicate
   processed = deduplicateCoords(processed, 2);
 
-  // Simplify coordinates
-  const simplified = simplifyPolyline(processed, simplifyDistance);
-  if (simplified.length < 2) return '';
+  if (processed.length < 2) return '';
 
   // Split into segments based on 60 seconds timestamp gap
   const segments: Array<Array<{ latitude: number; longitude: number; timestamp?: number; segmentBreak?: boolean }>> = [];
   let currentSegment: Array<{ latitude: number; longitude: number; timestamp?: number; segmentBreak?: boolean }> = [];
 
-  for (let i = 0; i < simplified.length; i++) {
-    const coord = simplified[i];
+  for (let i = 0; i < processed.length; i++) {
+    const coord = processed[i];
     if (currentSegment.length === 0) {
       currentSegment.push(coord);
     } else {
@@ -359,10 +415,13 @@ export function generatePolylineJS(
     segments.push(currentSegment);
   }
 
+  const epsilon = getEpsilonForDelta(latitudeDelta, simplifyDistance);
+
   return segments
     .map((seg, idx) => {
-      if (seg.length < 2) return '';
-      const pathArray = seg
+      const simplified = douglasPeucker(seg, epsilon);
+      if (simplified.length < 2) return '';
+      const pathArray = simplified
         .map(coord => `{ lat: ${coord.latitude}, lng: ${coord.longitude} }`)
         .join(', ');
 

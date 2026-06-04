@@ -32,9 +32,14 @@ jest.mock('../utils/cache', () => ({
   }
 }));
 
+const mockAddView = jest.fn();
+jest.mock('../utils/viewAggregator', () => ({
+  addView: (...args) => mockAddView(...args),
+}));
+
 const { trackEvents } = require('../controllers/analyticsController');
 
-describe('Views Cooldown & 2-Second Rule Tracking', () => {
+describe('Views Cooldown & 2.5-Second Rule Tracking', () => {
   let mockRes;
 
   beforeEach(() => {
@@ -45,7 +50,7 @@ describe('Views Cooldown & 2-Second Rule Tracking', () => {
     };
   });
 
-  it('should increment view count and invalidate cache for a fresh view event', async () => {
+  it('should queue view event in aggregator for a fresh view event', async () => {
     const mockPostId = '658428800000000000000001';
     const mockUserId = '658428800000000000000002';
     const mockEvent = {
@@ -58,7 +63,6 @@ describe('Views Cooldown & 2-Second Rule Tracking', () => {
     const mockPost = {
       _id: mockPostId,
       views: 10,
-      save: jest.fn().mockResolvedValue(true),
     };
 
     mockInsertMany.mockResolvedValue([mockEvent]);
@@ -73,12 +77,11 @@ describe('Views Cooldown & 2-Second Rule Tracking', () => {
     await trackEvents(mockReq, mockRes);
 
     expect(mockFindOne).toHaveBeenCalled();
-    expect(mockPost.views).toBe(11);
-    expect(mockPost.save).toHaveBeenCalled();
+    expect(mockAddView).toHaveBeenCalledWith(mockPostId);
     expect(mockRes.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
   });
 
-  it('should ignore the view if it is within the 8-hour cooldown period', async () => {
+  it('should ignore the view if it is within the 24-hour cooldown period', async () => {
     const mockPostId = '658428800000000000000001';
     const mockUserId = '658428800000000000000002';
     const mockEvent = {
@@ -91,14 +94,13 @@ describe('Views Cooldown & 2-Second Rule Tracking', () => {
     const mockPost = {
       _id: mockPostId,
       views: 10,
-      save: jest.fn().mockResolvedValue(true),
     };
 
     const mockExistingView = {
       event: 'post_view',
       userId: mockUserId,
       properties: { post_id: mockPostId },
-      timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000), // 4 hours ago (within 8h cooldown)
+      timestamp: new Date(Date.now() - 12 * 60 * 60 * 1000), // 12 hours ago (within 24h cooldown)
     };
 
     mockInsertMany.mockResolvedValue([mockEvent]);
@@ -113,8 +115,7 @@ describe('Views Cooldown & 2-Second Rule Tracking', () => {
     await trackEvents(mockReq, mockRes);
 
     expect(mockFindOne).toHaveBeenCalled();
-    expect(mockPost.views).toBe(10); // Unchanged
-    expect(mockPost.save).not.toHaveBeenCalled();
+    expect(mockAddView).not.toHaveBeenCalled();
     expect(mockRes.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
   });
 });

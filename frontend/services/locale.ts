@@ -58,7 +58,9 @@ export const getLocales = async (
   limit: number = 50,
   includeInactive: boolean = false,
   stateProvince: string = '',
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  latitude?: number,
+  longitude?: number
 ): Promise<LocalesResponse> => {
   try {
     const params = new URLSearchParams();
@@ -86,6 +88,13 @@ export const getLocales = async (
     }
     if (includeInactive) {
       params.append('includeInactive', 'true');
+    }
+    if (latitude !== undefined && latitude !== null) {
+      params.append('lat', latitude.toString());
+    }
+    if (longitude !== undefined && longitude !== null) {
+      params.append('long', longitude.toString());
+      params.append('sort', 'nearest');
     }
 
     const response = await api.get(`/api/v1/locales?${params.toString()}`, { signal });

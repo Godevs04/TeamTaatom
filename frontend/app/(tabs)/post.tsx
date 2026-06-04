@@ -365,23 +365,6 @@ export default function PostScreen() {
           if (result && result.assets && result.assets.length > 0) {
             setCameraRollAssets(result.assets);
             setLatestAssetUri(result.assets[0].uri);
-
-            // Set the first asset as default preview
-            if (selectedImages.length === 0 && !selectedVideo) {
-              const firstAsset = result.assets[0];
-              const resolvedUri = await resolvePhUri(firstAsset.uri);
-              if (firstAsset.mediaType === 'video') {
-                setSelectedVideo(resolvedUri);
-                setPostType('short');
-              } else {
-                setSelectedImages([{
-                  uri: resolvedUri,
-                  type: 'image/jpeg',
-                  name: firstAsset.filename || `photo_${Date.now()}.jpg`,
-                }]);
-                setPostType('photo');
-              }
-            }
             return; // Success! Exit function.
           }
         }
@@ -390,28 +373,12 @@ export default function PostScreen() {
         console.log("[loadCameraRoll] Media library empty or not granted (Expo Go / Simulator). Loading mock travel placeholder assets...");
         setCameraRollAssets(MOCK_GALLERY_ASSETS);
         setLatestAssetUri(MOCK_GALLERY_ASSETS[0].uri);
-        if (selectedImages.length === 0 && !selectedVideo) {
-          setSelectedImages([{
-            uri: MOCK_GALLERY_ASSETS[0].uri,
-            type: 'image/jpeg',
-            name: MOCK_GALLERY_ASSETS[0].filename || 'mock.jpg',
-          }]);
-          setPostType('photo');
-        }
       } catch (err: any) {
         console.error("[loadCameraRoll] CRITICAL EXCEPTION, falling back to mock assets:", err);
         logger.error('Error loading camera roll:', err?.message || err);
         // Guarantee fallback even on crash
         setCameraRollAssets(MOCK_GALLERY_ASSETS);
         setLatestAssetUri(MOCK_GALLERY_ASSETS[0].uri);
-        if (selectedImages.length === 0 && !selectedVideo) {
-          setSelectedImages([{
-            uri: MOCK_GALLERY_ASSETS[0].uri,
-            type: 'image/jpeg',
-            name: MOCK_GALLERY_ASSETS[0].filename || 'mock.jpg',
-          }]);
-          setPostType('photo');
-        }
       }
     }
     loadCameraRoll();
@@ -490,6 +457,18 @@ export default function PostScreen() {
     formattedAddress?: string;
   } | null>(null);
   
+  // Media manager modal state
+  const [showMediaManagerModal, setShowMediaManagerModal] = useState(false);
+
+  // Auto request camera permission if no media is selected and we are on the New Post tab
+  useEffect(() => {
+    if (isFocused && selectedImages.length === 0 && !selectedVideo) {
+      if (permission && !permission.granted && permission.canAskAgain) {
+        requestPermission();
+      }
+    }
+  }, [isFocused, selectedImages, selectedVideo, permission]);
+
   // Ref to store Formik's setFieldValue for use in modal
   const setFieldValueRef = useRef<((field: string, value: any) => void) | null>(null);
   // Ref to store Formik's resetForm function
@@ -1203,6 +1182,123 @@ export default function PostScreen() {
     } catch (error) {
       logger.error('Error picking images', error);
       Alert.alert('Error', 'Failed to pick images');
+    }
+  };
+
+  const appendMoreImages = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== ImagePicker.PermissionStatus.GRANTED) {
+        Alert.alert('Permission needed', 'Please grant photo library permissions.');
+        return;
+      }
+    } catch (permissionError: any) {
+      logger.debug('Permission request error:', permissionError);
+      Alert.alert('Error', 'Failed to request permissions. Please try again.');
+      return;
+    }
+
+    try {
+      const selectionStartTime = Date.now();
+      
+      let result;
+      try {
+        result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          allowsMultipleSelection: true,
+          selectionLimit: 10 - selectedImages.length,
+          quality: 0.8,
+          allowsEditing: false,
+          exif: true,
+        });
+      } catch (pickerError: any) {
+        logger.debug('ImagePicker error:', pickerError);
+        if (pickerError?.code === 'E_PICKER_CANCELLED' || pickerError?.message?.includes('cancel')) {
+          return;
+        }
+        const errorMessage = pickerError?.message || pickerError?.code || 'Failed to open image picker';
+        Alert.alert('Error', errorMessage);
+        return;
+      }
+
+      if (result && !result.canceled && result.assets) {
+        const newImages = result.assets.map(asset => {
+          let mimeType = 'image/jpeg';
+          if (asset.fileName) {
+            const extension = asset.fileName.split('.').pop()?.toLowerCase();
+            switch (extension) {
+              case 'png':
+                mimeType = 'image/png';
+                break;
+              case 'gif':
+                mimeType = 'image/gif';
+                break;
+              case 'webp':
+                mimeType = 'image/webp';
+                break;
+              default:
+                mimeType = 'image/jpeg';
+            }
+          }
+          return {
+            uri: asset.uri,
+            type: mimeType,
+            name: asset.fileName || `image_${Date.now()}.jpg`,
+            id: (asset as any).id,
+            originalAsset: asset,
+          };
+        });
+
+        setSelectedImages(prev => {
+          const filteredNew = newImages.filter(n => !prev.some(p => p.uri === n.uri));
+          const combined = [...prev, ...filteredNew];
+          if (combined.length > 10) {
+            Alert.alert('Too many images', 'Maximum 10 images allowed');
+            return combined.slice(0, 10);
+          }
+          return combined;
+        });
+        setSelectedVideo(null);
+        setVideoDuration(null);
+        setPostType('photo');
+
+        setCameraRollAssets(prev => {
+          const newAssets = newImages.map((img, idx) => ({
+            id: `picked_${Date.now()}_${idx}`,
+            filename: img.name,
+            uri: img.uri,
+            mediaType: 'photo' as const,
+            width: 800,
+            height: 800,
+            creationTime: Date.now(),
+            duration: 0,
+          }));
+          const filteredPrev = prev.filter(p => !newImages.some(n => n.uri === p.uri));
+          return [...newAssets, ...filteredPrev];
+        });
+
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const locationResult = await LocationExtractionService.extractFromPhotos(
+          result.assets,
+          selectionStartTime
+        );
+        
+        if (locationResult) {
+          setLocation(prev => prev || { lat: locationResult.lat, lng: locationResult.lng });
+          if (locationResult.address) {
+            setAddress(prev => prev || locationResult.address || '');
+          }
+          setLocationMetadata(prev => prev || {
+            hasExifGps: locationResult.hasExifGps,
+            takenAt: locationResult.takenAt || null,
+            rawSource: locationResult.rawSource
+          });
+          setIsFromCameraFlow(false);
+        }
+      }
+    } catch (error) {
+      logger.error('Error appending images', error);
+      Alert.alert('Error', 'Failed to add images');
     }
   };
 
@@ -2991,23 +3087,28 @@ export default function PostScreen() {
 
                 {/* Image counter */}
                 {selectedImages.length > 1 && (
-                  <View style={{ 
-                    position: 'absolute', 
-                    top: theme.spacing.md, 
-                    left: theme.spacing.md, 
-                    backgroundColor: 'rgba(0,0,0,0.75)', 
-                    paddingHorizontal: theme.spacing.md, 
-                    paddingVertical: theme.spacing.sm, 
-                    borderRadius: theme.borderRadius.full,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 6
-                  }}>
+                  <TouchableOpacity
+                    onPress={() => setShowMediaManagerModal(true)}
+                    activeOpacity={0.8}
+                    style={{ 
+                      position: 'absolute', 
+                      top: theme.spacing.md, 
+                      left: theme.spacing.md, 
+                      backgroundColor: 'rgba(0,0,0,0.75)', 
+                      paddingHorizontal: theme.spacing.md, 
+                      paddingVertical: theme.spacing.sm, 
+                      borderRadius: theme.borderRadius.full,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 6,
+                      zIndex: 10,
+                    }}
+                  >
                     <Ionicons name="images" size={16} color="white" />
                     <Text style={{ color: 'white', fontSize: theme.typography.body.fontSize, fontWeight: '600' }}>
                       {selectedImages.length} photos
                     </Text>
-                  </View>
+                  </TouchableOpacity>
                 )}
                 
                 {/* Bottom action bar — anchored to preview edges so buttons stay inside the
@@ -3043,7 +3144,7 @@ export default function PostScreen() {
                   </TouchableOpacity>
                   {selectedImages.length < 10 && (
                     <TouchableOpacity
-                      onPress={pickImages}
+                      onPress={appendMoreImages}
                       activeOpacity={0.8}
                       style={{
                         borderRadius: 9999,
@@ -4381,7 +4482,58 @@ export default function PostScreen() {
               onTransformChange={setCropTransform}
             />
           ) : (
-            <LoadingGlobe size="large" color="#0095F6" />
+            permission === null ? (
+              <LoadingGlobe size="large" color="#0095F6" />
+            ) : !permission.granted ? (
+              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, width: '100%' }}>
+                <Ionicons name="camera-outline" size={44} color={mode === 'dark' ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.35)'} style={{ marginBottom: 10 }} />
+                <Text style={{
+                  color: mode === 'dark' ? 'rgba(255,255,255,0.8)' : '#122236',
+                  fontSize: 14,
+                  fontWeight: '600',
+                  textAlign: 'center',
+                  marginBottom: 6
+                }}>
+                  Camera Access Required
+                </Text>
+                <Text style={{
+                  color: mode === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)',
+                  fontSize: 12,
+                  textAlign: 'center',
+                  marginBottom: 16,
+                  paddingHorizontal: 20
+                }}>
+                  Allow Taatom to access your camera to show the live preview.
+                </Text>
+                <TouchableOpacity
+                  onPress={async () => {
+                    if (!permission.canAskAgain) {
+                      Linking.openSettings();
+                    } else {
+                      await requestPermission();
+                    }
+                  }}
+                  activeOpacity={0.8}
+                  style={{
+                    backgroundColor: '#0095F6',
+                    paddingHorizontal: 16,
+                    paddingVertical: 8,
+                    borderRadius: 20,
+                  }}
+                >
+                  <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>
+                    {permission.canAskAgain ? 'Grant Access' : 'Open Settings'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : isFocused ? (
+              <CameraView
+                style={{ width: '100%', height: '100%' }}
+                facing="back"
+              />
+            ) : (
+              <View style={{ flex: 1, backgroundColor: '#000000', width: '100%' }} />
+            )
           )}
         </View>
 
@@ -5687,6 +5839,181 @@ export default function PostScreen() {
           onAgree={handleCopyrightAgree}
         />
 
+        {/* Selection Manager Modal (Ticket 4) */}
+        <Modal
+          visible={showMediaManagerModal}
+          animationType="slide"
+          transparent
+          onRequestClose={() => setShowMediaManagerModal(false)}
+        >
+          <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
+            <View style={{
+              height: '75%',
+              borderTopLeftRadius: 24,
+              borderTopRightRadius: 24,
+              borderWidth: 1,
+              borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.45)',
+              overflow: 'hidden',
+              backgroundColor: mode === 'dark' ? 'rgba(10, 18, 32, 0.92)' : 'rgba(255, 255, 255, 0.85)',
+              paddingBottom: Platform.OS === 'ios' ? 34 : 24,
+            }}>
+              <BlurView
+                intensity={80}
+                tint={mode === 'dark' ? 'dark' : 'light'}
+                style={StyleSheet.absoluteFillObject}
+              />
+              <View style={{ flex: 1, zIndex: 1 }}>
+                {/* Modal Header */}
+                <View style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  paddingHorizontal: 20,
+                  paddingVertical: 16,
+                  borderBottomWidth: 1,
+                  borderBottomColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                }}>
+                  <View>
+                    <Text style={{ fontSize: 20, fontWeight: '700', color: theme.colors.text }}>Selected Photos</Text>
+                    <Text style={{ fontSize: 12, color: theme.colors.textSecondary, marginTop: 2 }}>
+                      {selectedImages.length} of 10 photos selected
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setShowMediaManagerModal(false)} hitSlop={12}>
+                    <Ionicons name="close" size={28} color={theme.colors.text} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Modal Content */}
+                <ScrollView 
+                  style={{ flex: 1 }} 
+                  contentContainerStyle={{ padding: 16 }}
+                  showsVerticalScrollIndicator={false}
+                >
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                    {selectedImages.map((image, index) => (
+                      <View 
+                        key={image.uri || index} 
+                        style={{ 
+                          width: (screenWidth - 32 - 24) / 3, 
+                          aspectRatio: 1, 
+                          position: 'relative', 
+                          borderRadius: 12, 
+                          overflow: 'hidden',
+                          backgroundColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0,0,0,0.05)',
+                          borderWidth: 1,
+                          borderColor: mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                        }}
+                      >
+                        <Image source={{ uri: image.uri }} style={{ width: '100%', height: '100%', resizeMode: 'cover' }} />
+                        <TouchableOpacity
+                          onPress={() => {
+                            setSelectedImages(prev => {
+                              const updated = prev.filter((_, i) => i !== index);
+                              if (updated.length === 0) {
+                                setShowMediaManagerModal(false);
+                                setShowDetails(false);
+                              }
+                              return updated;
+                            });
+                          }}
+                          style={{
+                            position: 'absolute',
+                            top: 6,
+                            right: 6,
+                            backgroundColor: 'rgba(239, 68, 68, 0.9)',
+                            borderRadius: 12,
+                            width: 24,
+                            height: 24,
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            shadowColor: '#000',
+                            shadowOffset: { width: 0, height: 2 },
+                            shadowOpacity: 0.25,
+                            shadowRadius: 3.84,
+                            elevation: 5,
+                          }}
+                        >
+                          <Ionicons name="close" size={14} color="white" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+
+                    {/* Add More slot if less than 10 */}
+                    {selectedImages.length < 10 && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          appendMoreImages();
+                        }}
+                        style={{
+                          width: (screenWidth - 32 - 24) / 3,
+                          aspectRatio: 1,
+                          borderRadius: 12,
+                          borderWidth: 2,
+                          borderStyle: 'dashed',
+                          borderColor: '#0095F6',
+                          justifyContent: 'center',
+                          alignItems: 'center',
+                          backgroundColor: mode === 'dark' ? 'rgba(0, 149, 246, 0.08)' : 'rgba(0, 149, 246, 0.04)',
+                        }}
+                      >
+                        <Ionicons name="add" size={32} color="#0095F6" />
+                        <Text style={{ fontSize: 10, color: '#0095F6', fontWeight: '600', marginTop: 4 }}>Add More</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </ScrollView>
+
+                {/* Done Button */}
+                <TouchableOpacity
+                  onPress={() => setShowMediaManagerModal(false)}
+                  style={{
+                    marginHorizontal: 20,
+                    marginTop: 8,
+                    borderRadius: 9999,
+                    shadowColor: '#14B8A6',
+                    shadowOffset: { width: 0, height: 6 },
+                    shadowOpacity: 0.3,
+                    shadowRadius: 12,
+                    elevation: 4,
+                    overflow: 'hidden',
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <LinearGradient
+                    colors={['#38BDF8', '#14B8A6', '#34D399']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={{
+                      paddingVertical: 16,
+                      borderRadius: 9999,
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: 'rgba(255, 255, 255, 0.35)',
+                    }}
+                  >
+                    <LinearGradient
+                      colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 0, y: 0.4 }}
+                      style={StyleSheet.absoluteFillObject}
+                      pointerEvents="none"
+                    />
+                    <Text style={{
+                      color: '#FFFFFF',
+                      fontSize: 16,
+                      fontWeight: '700',
+                      zIndex: 1,
+                    }}>
+                      Done
+                    </Text>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
         {/* Image edit: aspect ratio & filter */}
         <ImageEditModal
           visible={showImageEditModal}
@@ -5697,6 +6024,7 @@ export default function PostScreen() {
           onFilterChange={setSelectedFilter}
           selectedAspectRatio={selectedAspectRatio}
           onAspectRatioChange={(ar) => { setSelectedAspectRatio(ar); setCropTransform(null); }}
+          onTransformChange={setCropTransform}
         />
         {/* Shadow Gate above bottom tab bar */}
         <LinearGradient

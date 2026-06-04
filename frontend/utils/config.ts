@@ -119,8 +119,8 @@ export const WEB_SHARE_URL =
   Constants.expoConfig?.extra?.WEB_SHARE_URL ||
   API_BASE_URL.replace('http://', 'https://').replace(':3000', '');
 
-// Logo Image URL (always use the clean compass-only logo, ignoring any overrides with names/white backgrounds)
-export const LOGO_IMAGE = 'https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png';
+// Logo Image local asset (white bg compass logo)
+export const LOGO_IMAGE = require('../assets/images/current_logo.png');
 
 // Google Configuration
 export const GOOGLE_CLIENT_ID =

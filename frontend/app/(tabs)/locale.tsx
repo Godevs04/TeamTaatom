@@ -465,6 +465,79 @@ const filterReducer = (state: FilterState, action: FilterAction): FilterState =>
   }
 };
 
+interface ExpoImageWithShimmerProps {
+  source: any;
+  style: any;
+  contentFit?: 'cover' | 'contain' | 'fill' | 'none' | 'scale-down';
+  cachePolicy?: 'none' | 'disk' | 'memory-disk' | 'memory';
+  transition?: number;
+}
+
+const ExpoImageWithShimmer = React.memo(({ source, style, contentFit = 'cover', cachePolicy = 'memory-disk', transition = 0 }: ExpoImageWithShimmerProps) => {
+  const [loading, setLoading] = useState(true);
+  const shimmerAnim = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    let animation: Animated.CompositeAnimation | null = null;
+    if (loading) {
+      animation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(shimmerAnim, {
+            toValue: 0.7,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(shimmerAnim, {
+            toValue: 0.3,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      animation.start();
+    } else {
+      shimmerAnim.setValue(0);
+    }
+    return () => {
+      if (animation) {
+        animation.stop();
+      }
+    };
+  }, [loading, shimmerAnim]);
+
+  // Handle source changes - reset loading state
+  const sourceUri = typeof source === 'object' ? source.uri : source;
+  useEffect(() => {
+    setLoading(true);
+  }, [sourceUri]);
+
+  return (
+    <View style={[style, { overflow: 'hidden' }]}>
+      {loading && (
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFillObject,
+            {
+              backgroundColor: 'rgba(255, 255, 255, 0.12)',
+              opacity: shimmerAnim,
+              borderRadius: style?.borderRadius || 0,
+              zIndex: 1,
+            },
+          ]}
+        />
+      )}
+      <ExpoImage
+        source={source}
+        style={[style, { width: '100%', height: '100%' }]}
+        contentFit={contentFit}
+        cachePolicy={cachePolicy}
+        transition={transition}
+        onLoad={() => setLoading(false)}
+      />
+    </View>
+  );
+});
+
 export default function LocaleScreen() {
   const { showSuccess, showError, showInfo } = useAlert();
   const { handleScroll } = useScrollToHideNav();
@@ -548,6 +621,7 @@ export default function LocaleScreen() {
   const scrollY = useRef(new Animated.Value(0)).current;
   const savedScrollOffsetRef = useRef<number>(0);
   const flatListRef = useRef<any>(null);
+  const filterScrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     const id = scrollY.addListener(({ value }) => {
@@ -1247,7 +1321,9 @@ export default function LocaleScreen() {
           BACKEND_LIMIT,
           baseParams.includeInactive,
           currentFilters.stateProvince || '',
-          searchAbortControllerRef.current?.signal
+          searchAbortControllerRef.current?.signal,
+          currentUserLocation?.latitude ?? undefined,
+          currentUserLocation?.longitude ?? undefined
         );
 
         if (!isMountedRef.current) return;
@@ -1265,12 +1341,26 @@ export default function LocaleScreen() {
             const bgStateProvince = currentFilters.stateProvince || '';
             const bgSpotTypes = spotTypesParam;
             const bgIncludeInactive = baseParams.includeInactive;
+            const uLat = currentUserLocation?.latitude;
+            const uLon = currentUserLocation?.longitude;
             ;(async () => {
               const moreLocales: Locale[] = [];
               for (let page = 2; page <= totalPagesCount; page++) {
                 if (!isMountedRef.current || lastFetchKeyRef.current !== bgFetchKey) return;
                 try {
-                  const res = await getLocales(bgSearch, bgCountry, bgState, bgSpotTypes, page, BACKEND_LIMIT, bgIncludeInactive, bgStateProvince);
+                  const res = await getLocales(
+                    bgSearch,
+                    bgCountry,
+                    bgState,
+                    bgSpotTypes,
+                    page,
+                    BACKEND_LIMIT,
+                    bgIncludeInactive,
+                    bgStateProvince,
+                    undefined,
+                    uLat ?? undefined,
+                    uLon ?? undefined
+                  );
                   if (res?.locales?.length > 0) moreLocales.push(...res.locales);
                   else break;
                 } catch { break; }
@@ -1281,11 +1371,11 @@ export default function LocaleScreen() {
               const novel = moreLocales.filter(l => !existingIds.has(l._id));
               if (novel.length === 0) return;
               const snapshot = createLocationSnapshot();
-              const uLat = currentUserLocation?.latitude;
-              const uLon = currentUserLocation?.longitude;
+              const uLatVal = currentUserLocation?.latitude;
+              const uLonVal = currentUserLocation?.longitude;
               const novelWithDist = novel.map(l => {
-                if (l.latitude && l.longitude && uLat && uLon) {
-                  return { ...l, distanceKm: calculateDistance(uLat, uLon, l.latitude, l.longitude) };
+                if (l.latitude && l.longitude && uLatVal && uLonVal) {
+                  return { ...l, distanceKm: calculateDistance(uLatVal, uLonVal, l.latitude, l.longitude) };
                 }
                 return { ...l, distanceKm: null as number | null };
               });
@@ -1311,8 +1401,10 @@ export default function LocaleScreen() {
           20,
           baseParams.includeInactive,
           currentFilters.stateProvince || '',
-          searchAbortControllerRef.current?.signal
-      );
+          searchAbortControllerRef.current?.signal,
+          currentUserLocation?.latitude ?? undefined,
+          currentUserLocation?.longitude ?? undefined
+        );
       
       if (!isMountedRef.current) return;
       
@@ -2624,15 +2716,11 @@ export default function LocaleScreen() {
         }
       }
 
-      // Only load on initial mount (not loaded yet). The useEffect watching
-      // userLocation handles the "location became available after load" case.
-      if (!loadedOnceRef.current && !isSearchingRef.current) {
+      // Only load on initial mount (not loaded yet)
+      if (!loadedOnceRef.current && !isSearchingRef.current && allLocalesSortedRef.current.length === 0) {
         loadAdminLocalesRef.current(true);
-      } else if (loadedOnceRef.current) {
-        // Background refresh: refresh content behind the scenes but preserve visual scroll position
-        loadAdminLocalesRef.current(true, true);
-
-        // Restore scroll offset
+      } else {
+        // Restore scroll offset when returning to screen
         if (savedScrollOffsetRef.current > 0 && flatListRef.current) {
           const offset = savedScrollOffsetRef.current;
           setTimeout(() => {
@@ -3440,6 +3528,7 @@ export default function LocaleScreen() {
         visible={showFilterModal}
         animationType="slide"
         presentationStyle="pageSheet"
+        statusBarTranslucent={true}
         onRequestClose={() => {
           setCountrySearchQuery('');
           setStateSearchQuery('');
@@ -3447,8 +3536,9 @@ export default function LocaleScreen() {
         }}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={{ flex: 1 }}
+          keyboardVerticalOffset={0}
         >
           <SafeAreaView style={[styles.filterModalContainer, { backgroundColor: theme.colors.background }]}>
             <StatusBar barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} />
@@ -3485,6 +3575,7 @@ export default function LocaleScreen() {
           </View>
   
           <ScrollView 
+            ref={filterScrollRef}
             style={styles.filterContent} 
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.filterScrollContent}
@@ -3534,6 +3625,11 @@ export default function LocaleScreen() {
                       onChangeText={setCountrySearchQuery}
                       autoCapitalize="none"
                       autoCorrect={false}
+                      onFocus={() => {
+                        setTimeout(() => {
+                          filterScrollRef.current?.scrollTo({ y: 0, animated: true });
+                        }, 100);
+                      }}
                     />
                     {countrySearchQuery.length > 0 && (
                       <TouchableOpacity
@@ -3639,6 +3735,11 @@ export default function LocaleScreen() {
                       onChangeText={setStateSearchQuery}
                       autoCapitalize="none"
                       autoCorrect={false}
+                      onFocus={() => {
+                        setTimeout(() => {
+                          filterScrollRef.current?.scrollTo({ y: 150, animated: true });
+                        }, 100);
+                      }}
                     />
                     {stateSearchQuery.length > 0 && (
                       <TouchableOpacity
@@ -3743,6 +3844,11 @@ export default function LocaleScreen() {
                     }
                   }}
                   keyboardType="numeric"
+                  onFocus={() => {
+                    setTimeout(() => {
+                      filterScrollRef.current?.scrollToEnd({ animated: true });
+                    }, 100);
+                  }}
                 />
                 <Text style={[styles.radiusUnit, { color: theme.colors.textSecondary }]}>km</Text>
               </View>
@@ -3839,12 +3945,12 @@ export default function LocaleScreen() {
               transform: [{ translateY }, { scale: 1.05 }],
             }}
           >
-            <ExpoImage
+            <ExpoImageWithShimmer
               source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: 400, height: 300 }) }}
               style={{ width: '100%', height: '100%' }}
               contentFit="cover"
               cachePolicy="memory-disk"
-              transition={0}
+              transition={200}
             />
           </Animated.View>
         ) : (
@@ -3864,9 +3970,9 @@ export default function LocaleScreen() {
         <View
           style={{
             position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
+            bottom: -1,
+            left: -1,
+            right: -1,
             height: '30%',
             overflow: 'hidden',
             borderBottomLeftRadius: 24,
@@ -3885,6 +3991,9 @@ export default function LocaleScreen() {
               justifyContent: 'space-between',
               paddingHorizontal: 16,
               paddingVertical: 8,
+              borderBottomLeftRadius: 24,
+              borderBottomRightRadius: 24,
+              overflow: 'hidden',
             }}
           >
             {/* Left Column: Primary Title & Location Tag */}
@@ -4065,12 +4174,12 @@ export default function LocaleScreen() {
         accessibilityHint="Opens locale details"
       >
         {safeImageUrl ? (
-          <ExpoImage
+          <ExpoImageWithShimmer
             source={{ uri: optimizeCloudinaryUrl(safeImageUrl, { width: 300, height: 200 }) }}
             style={styles.cardImage as ImageStyle}
             contentFit="cover"
             cachePolicy="memory-disk"
-            transition={0}
+            transition={200}
           />
         ) : (
           <LinearGradient

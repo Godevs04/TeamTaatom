@@ -224,6 +224,7 @@ function initMap(){
                   key={`waypoint-${index}`}
                   coordinate={{ latitude: waypoint.latitude, longitude: waypoint.longitude }}
                   title={`${waypoint.type === 'photo' ? 'Photo' : 'Video'} #${index + 1}`}
+                  anchor={{ x: 0.5, y: 1.0 }}
                 >
                   <PremiumMapMarker icon={waypoint.type === 'photo' ? 'camera' : 'videocam'} />
                 </Marker>

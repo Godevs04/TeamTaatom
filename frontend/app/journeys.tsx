@@ -5,14 +5,17 @@ import {
   StyleSheet,
   FlatList,
   RefreshControl,
+  LayoutAnimation,
+  Animated,
 } from 'react-native';
 import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { useTheme } from '../context/ThemeContext';
+import { useAlert } from '../context/AlertContext';
 import NavBar from '../components/NavBar';
 import JourneyCard from '../components/JourneyCard';
-import { getUserJourneys } from '../services/journey';
+import { getUserJourneys, deleteJourney } from '../services/journey';
 import { getUserFromStorage } from '../services/auth';
 import { getProfile } from '../services/profile';
 import { ErrorBoundary } from '../utils/errorBoundary';
@@ -31,6 +34,7 @@ function JourneysListInner() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const { theme } = useTheme();
+  const { showDestructiveConfirm } = useAlert();
   const userId = typeof params.userId === 'string' ? params.userId : Array.isArray(params.userId) ? params.userId[0] : '';
   const userNameParam = typeof params.userName === 'string' ? params.userName : Array.isArray(params.userName) ? params.userName[0] : '';
   const decodedUserName = userNameParam ? safeDecodeParam(userNameParam).trim() : '';
@@ -42,6 +46,53 @@ function JourneysListInner() {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+
+  // Animated toast state
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastAnim = React.useRef(new Animated.Value(0)).current;
+
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    Animated.sequence([
+      Animated.timing(toastAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.delay(3000),
+      Animated.timing(toastAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      })
+    ]).start(() => {
+      setToastMessage(null);
+    });
+  };
+
+  const handleDeleteJourney = (journeyItem: any) => {
+    showDestructiveConfirm(
+      'Are you sure you want to delete this journey? This action cannot be undone.',
+      async () => {
+        const previousJourneys = [...journeys];
+        // Optimistic UI Update
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setJourneys((prev) => prev.filter((j) => j._id !== journeyItem._id));
+
+        try {
+          await deleteJourney(journeyItem._id);
+        } catch (err: any) {
+          // Revert state
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+          setJourneys(previousJourneys);
+          showToast('Failed to delete journey. Please check your connection.');
+        }
+      },
+      'Delete Journey',
+      'Delete',
+      'Cancel'
+    );
+  };
 
   const loadJourneys = useCallback(async (pageNum: number = 1, isRefresh: boolean = false) => {
     if (!userId) return;
@@ -171,6 +222,7 @@ function JourneysListInner() {
           <JourneyCard
             journey={item}
             onPress={() => router.push(`/navigate/detail?journeyId=${item._id}`)}
+            onLongPress={() => handleDeleteJourney(item)}
           />
         )}
         ListEmptyComponent={renderEmptyState}
@@ -182,6 +234,29 @@ function JourneysListInner() {
         ListFooterComponent={loadingMore ? <LoadingGlobe style={{ padding: 16 }} color={GROWTH_GREEN} /> : null}
         contentContainerStyle={journeys.length === 0 ? { flex: 1 } : { paddingTop: 6, paddingBottom: 30 }}
       />
+
+      {toastMessage && (
+        <Animated.View
+          style={[
+            styles.toastContainer,
+            {
+              backgroundColor: '#EF4444',
+              transform: [
+                {
+                  translateY: toastAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [100, 0],
+                  }),
+                },
+              ],
+              opacity: toastAnim,
+            },
+          ]}
+        >
+          <Ionicons name="alert-circle-outline" size={20} color="white" />
+          <Text style={styles.toastText}>{toastMessage}</Text>
+        </Animated.View>
+      )}
     </View>
   );
 }
@@ -237,5 +312,29 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     marginBottom: 24,
+  },
+  toastContainer: {
+    position: 'absolute',
+    bottom: 40,
+    left: 20,
+    right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 5,
+    gap: 8,
+    zIndex: 9999,
+  },
+  toastText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+    flex: 1,
   },
 });

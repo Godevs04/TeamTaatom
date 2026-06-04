@@ -2731,12 +2731,27 @@ export default function ChatModal() {
       if (!activeChat) return; // Only intercept if chat is open
 
       const unsubscribe = navigation?.addListener('beforeRemove', (e: any) => {
+        // If the user entered from an external screen (e.g. Home Page), swiping back
+        // should return them smoothly to that previous screen. Let the native pop happen
+        // unless there is no back stack (in which case we prevent and fallback to home).
+        if (externalEntryRef.current) {
+          if (navigation.canGoBack()) {
+            // Let the stack pop naturally
+            return;
+          }
+          // Fallback if we cannot go back: redirect to Home Page instead of null state
+          e.preventDefault();
+          router.replace('/(tabs)/home');
+          unsubscribe?.();
+          return;
+        }
+
+        // Otherwise (entered from Chat Main Page / Inbox list), intercept the pop
+        // and close the active chat window, staying on `/chat` route.
         e.preventDefault();
         setSelectedUser(null);
         setActiveChat(null);
         setActiveMessages([]);
-        // Also clear the external-entry flag so once the user is back on the
-        // chat list, a further swipe-back pops /chat to wherever they came from.
         externalEntryRef.current = false;
         chatIdModeRef.current = false;
         
@@ -2748,10 +2763,7 @@ export default function ChatModal() {
         }
         
         // Detach immediately so a rapid second iOS swipe-back actually pops
-        // the chat list. Without this, the old listener stays attached until
-        // the next render's cleanup runs — long enough for users on iOS to
-        // fire a follow-up swipe that gets preventDefault()-ed too, making
-        // back navigation appear to "break" until they release and retry.
+        // the chat list.
         unsubscribe?.();
       });
 
@@ -3163,22 +3175,28 @@ export default function ChatModal() {
     return <ChatWindow
       otherUser={selectedUser}
       onClose={() => {
-        // Back from a chat always returns to the chat list, regardless of how
-        // the user entered (list tap, deep-link, notification, profile message
-        // button, Connect page). Matches the swipe-back behavior. A second
-        // back action from the list then pops /chat to the caller.
-        chatIdModeRef.current = false;
-        externalEntryRef.current = false;
-        setSelectedUser(null);
-        setActiveChat(null);
-        setActiveMessages([]);
-        refreshChatList();
-        
-        // Clear query parameters from URL so that subsequent back navigation works correctly
-        try {
-          router.replace('/chat');
-        } catch (err) {
-          logger.error('Failed to clear chat params on close:', err);
+        if (externalEntryRef.current) {
+          // If we entered from an external screen (e.g. Home Page), go back
+          if (navigation.canGoBack()) {
+            router.back();
+          } else {
+            // Fallback if no back stack: redirect to Home Page
+            router.replace('/(tabs)/home');
+          }
+        } else {
+          // If we entered from Chat Main Page (Inbox), return to Chat Main Page
+          chatIdModeRef.current = false;
+          externalEntryRef.current = false;
+          setSelectedUser(null);
+          setActiveChat(null);
+          setActiveMessages([]);
+          refreshChatList();
+          
+          try {
+            router.replace('/chat');
+          } catch (err) {
+            logger.error('Failed to clear chat params on close:', err);
+          }
         }
       }}
       messages={activeMessages} 
@@ -3787,7 +3805,7 @@ export default function ChatModal() {
       alignItems: 'center',
       justifyContent: 'space-between',
       paddingHorizontal: 16,
-      paddingVertical: 12,
+      paddingVertical: 6,
       backgroundColor: 'transparent',
     },
     newMessageTitle: {
@@ -3958,7 +3976,7 @@ export default function ChatModal() {
       {/* Debug: Render check */}
       {__DEV__ && logger.debug('📞 Render check', { showGlobalCallScreen, otherUserId: globalCallState.otherUserId, forceRender })}
       
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
       {!isDark && <CloudSkyBackground heightRatio={0.3} />}
       <LinearGradient
         colors={
@@ -4335,7 +4353,7 @@ export default function ChatModal() {
           </View>
         </SafeAreaView>
       )}
-    </SafeAreaView>
+    </View>
     <ChatMediaViewer isGlobal />
     </>
   );

@@ -140,7 +140,7 @@ try {
         if (Number.isNaN(lat) || Number.isNaN(lng)) continue;
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
         const accuracy = loc.coords?.accuracy || 0;
-        if (accuracy > 80) continue; // Filter out poor accuracy fixes in background (relaxed to 80m for low-power updates)
+        if (accuracy > 20) continue; // Drop any coordinate where accuracy > 20
         valid.push({
           latitude: lat,
           longitude: lng,
@@ -305,20 +305,21 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         const lat = location?.coords?.latitude;
         const lng = location?.coords?.longitude;
         if (typeof lat !== 'number' || typeof lng !== 'number' || isNaN(lat) || isNaN(lng)) return;
+        const accuracy = location?.coords?.accuracy || 0;
+        if (accuracy > 20) {
+          logger.debug(`[Journey] Discarding low-accuracy coordinate (±${accuracy}m) immediately.`);
+          return;
+        }
+
         const coord: Coordinate = {
           latitude: lat,
           longitude: lng,
           timestamp: location.timestamp,
-          accuracy: location.coords.accuracy || 0,
+          accuracy,
         };
         setAccuracy(coord.accuracy);
         setCurrentCoordinate(coord);
 
-        // Ignore updates with poor GPS accuracy (> 30 meters) to avoid erratic spikes/drift
-        if (coord.accuracy && coord.accuracy > 30) {
-          logger.debug(`[Journey] Discarding low-accuracy coordinate (±${coord.accuracy}m) for polyline tracking.`);
-          return;
-        }
 
         // Stationary user speed filter: if speed is valid and less than 0.4 m/s (approx 1.4 km/h),
         // treat user as stationary/idle and do not append to polyline or accumulate distance.
@@ -703,8 +704,8 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       if (already) return true;
       await Location.startLocationUpdatesAsync(BG_LOCATION_TASK, {
         accuracy: Location.Accuracy.High, // Upgraded for high-accuracy path tracking
-        timeInterval: 5000, // Query every 5 seconds for a denser track
-        distanceInterval: 5, // Track every 5 meters
+        timeInterval: 2000, // Query every 2 seconds for a denser track
+        distanceInterval: 2, // Track every 2 meters
         showsBackgroundLocationIndicator: true, // Enable indicator to prevent OS suspension
         foregroundService: {
           notificationTitle: 'Recording your journey',
@@ -1087,44 +1088,48 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         throw new Error('No active journey');
       }
 
-      // Capture one final high-accuracy coordinate to guarantee the exact ending location pin is precise
-      try {
-        const finalLoc = await Promise.race([
-          Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.High,
-          }),
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)) // 4s timeout fallback
-        ]);
+      const isCurrentlyPaused = isPausedRef.current;
 
-        if (finalLoc) {
-          const finalCoord: Coordinate = {
-            latitude: finalLoc.coords.latitude,
-            longitude: finalLoc.coords.longitude,
-            timestamp: finalLoc.timestamp,
-            accuracy: finalLoc.coords.accuracy || 0,
-          };
+      if (!isCurrentlyPaused) {
+        // Capture one final high-accuracy coordinate to guarantee the exact ending location pin is precise
+        try {
+          const finalLoc = await Promise.race([
+            Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.High,
+            }),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)) // 4s timeout fallback
+          ]);
 
-          if (!finalCoord.accuracy || finalCoord.accuracy <= 30) {
-            // Avoid duplicate points if final location is virtually identical to the last tracked point
-            const lastTracked = lastCoordinateRef.current;
-            const dist = lastTracked
-              ? calculateCoordinateDistance(
-                  lastTracked.latitude,
-                  lastTracked.longitude,
-                  finalCoord.latitude,
-                  finalCoord.longitude
-                )
-              : Infinity;
+          if (finalLoc) {
+            const finalCoord: Coordinate = {
+              latitude: finalLoc.coords.latitude,
+              longitude: finalLoc.coords.longitude,
+              timestamp: finalLoc.timestamp,
+              accuracy: finalLoc.coords.accuracy || 0,
+            };
 
-            if (dist >= 1) { // only push if at least 1 meter away or if no prior point
-              batchCoordinatesRef.current.push(finalCoord);
-              setPolyline((prev) => [...prev, finalCoord]);
-              lastCoordinateRef.current = finalCoord;
+            if (!finalCoord.accuracy || finalCoord.accuracy <= 20) {
+              // Avoid duplicate points if final location is virtually identical to the last tracked point
+              const lastTracked = lastCoordinateRef.current;
+              const dist = lastTracked
+                ? calculateCoordinateDistance(
+                    lastTracked.latitude,
+                    lastTracked.longitude,
+                    finalCoord.latitude,
+                    finalCoord.longitude
+                  )
+                : Infinity;
+
+              if (dist >= 1) { // only push if at least 1 meter away or if no prior point
+                batchCoordinatesRef.current.push(finalCoord);
+                setPolyline((prev) => [...prev, finalCoord]);
+                lastCoordinateRef.current = finalCoord;
+              }
             }
           }
+        } catch (locErr) {
+          logger.warn('[Journey] Could not fetch final high-accuracy location for stop:', locErr);
         }
-      } catch (locErr) {
-        logger.warn('[Journey] Could not fetch final high-accuracy location for stop:', locErr);
       }
 
       // Stop location tracking
@@ -1148,12 +1153,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         clearInterval(batchSendTimerRef.current);
       }
 
-      // Send final coordinates. If the network is bad at exactly this
-      // moment we don't lose them — the persisted-batch entry stays on disk
-      // and the next time the user opens the app with this journey id, the
-      // init flow recovers them.
+      // Send final coordinates only if NOT paused
       const completingJourneyId = journeyIdRef.current;
-      if (batchCoordinatesRef.current.length > 0) {
+      if (!isCurrentlyPaused && batchCoordinatesRef.current.length > 0) {
         const coords = batchCoordinatesRef.current.splice(0);
         try {
           await updateJourneyLocation(completingJourneyId, coords);
