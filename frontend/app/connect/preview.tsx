@@ -82,7 +82,7 @@ const AR_MAP: Record<string, number> = { square: 1, landscape: 16 / 9, portrait:
 
 // inRow: paired side-by-side with another block (fixed 4:3 + cover)
 // inStack: stacked vertically in a mosaic column (fills flex:1 with cover)
-function PreviewImage({ uri, inRow, inStack, arOverride }: { uri: string; inRow?: boolean; inStack?: boolean; arOverride?: string }) {
+function PreviewImage({ uri, inRow, inStack, arOverride, blurRadius }: { uri: string; inRow?: boolean; inStack?: boolean; arOverride?: string; blurRadius?: number }) {
   const [aspectRatio, setAspectRatio] = useState<number>(4 / 3);
 
   useEffect(() => {
@@ -98,6 +98,7 @@ function PreviewImage({ uri, inRow, inStack, arOverride }: { uri: string; inRow?
         source={{ uri }}
         style={{ flex: 1, width: '100%', borderRadius: 8 }}
         resizeMode="cover"
+        blurRadius={blurRadius}
       />
     );
   }
@@ -106,6 +107,7 @@ function PreviewImage({ uri, inRow, inStack, arOverride }: { uri: string; inRow?
       source={{ uri }}
       style={[styles.imageBlock, { aspectRatio: resolvedAR }]}
       resizeMode="cover"
+      blurRadius={blurRadius}
     />
   );
 }
@@ -533,7 +535,7 @@ export default function ContentPreviewScreen() {
         case 'image':
           return block.content ? (
             <View key={block._id || index} style={blockRadius !== undefined ? { borderRadius: blockRadius, overflow: 'hidden' } : undefined}>
-              <PreviewImage uri={block.content} inRow={inRow} inStack={inStack} arOverride={block.aspectRatio} />
+              <PreviewImage uri={block.content} inRow={inRow} inStack={inStack} arOverride={block.aspectRatio} blurRadius={isLocked ? 25 : undefined} />
             </View>
           ) : null;
         case 'video':
@@ -620,14 +622,37 @@ export default function ContentPreviewScreen() {
         <View key={block._id || index} pointerEvents="none" style={{ position: 'relative', overflow: 'hidden', borderRadius: blockRadius ?? 12, marginBottom: 8 }}>
           {element}
           <BlurView
-            intensity={40}
-            tint="dark"
-            style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.15)' }]}
+            intensity={45}
+            tint={isDark ? 'dark' : 'light'}
+            style={StyleSheet.absoluteFillObject}
+            {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
+          />
+          <View
+            style={{
+              ...StyleSheet.absoluteFillObject,
+              backgroundColor: isDark ? 'rgba(30, 30, 30, 0.45)' : 'rgba(245, 245, 245, 0.45)',
+              justifyContent: 'center',
+              alignItems: 'center',
+              zIndex: 10,
+            }}
           >
-            <View style={{ backgroundColor: 'rgba(0,0,0,0.5)', padding: 8, borderRadius: 20 }}>
-              <Ionicons name="lock-closed" size={18} color="#FFFFFF" />
+            <View
+              style={{
+                backgroundColor: isDark ? 'rgba(0, 0, 0, 0.5)' : 'rgba(255, 255, 255, 0.65)',
+                padding: 10,
+                borderRadius: 22,
+                borderWidth: 1,
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.15,
+                shadowRadius: 4,
+                elevation: 3,
+              }}
+            >
+              <Ionicons name="lock-closed" size={18} color={isDark ? '#FFFFFF' : '#000000'} />
             </View>
-          </BlurView>
+          </View>
         </View>
       );
     }
@@ -653,31 +678,30 @@ export default function ContentPreviewScreen() {
         style={[
           styles.headerContainer,
           {
-            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+            position: 'absolute',
+            left: 0,
+            right: 0,
             top: 0,
+            zIndex: 100,
             paddingTop: insets.top,
             height: 52 + insets.top,
-            marginTop: 0,
-            marginHorizontal: 0,
-            borderBottomLeftRadius: 24,
-            borderBottomRightRadius: 24,
-            borderTopLeftRadius: 0,
-            borderTopRightRadius: 0,
+            backgroundColor: 'rgba(15, 15, 15, 0.4)',
+            borderColor: 'rgba(255, 255, 255, 0.08)',
             borderWidth: 0,
             borderBottomWidth: 1,
-            shadowOpacity: isDark ? 0.3 : 0.1,
           }
         ]}
       >
         <BlurView
-          intensity={80}
-          tint={isDark ? 'dark' : 'light'}
+          intensity={85}
+          tint="dark"
           style={StyleSheet.absoluteFillObject}
         />
-        <LinearGradient
-          colors={isDark ? ['rgba(255, 255, 255, 0.1)', 'transparent'] : ['rgba(255, 255, 255, 0.5)', 'transparent']}
-          style={StyleSheet.absoluteFillObject}
+        <View
+          style={[
+            StyleSheet.absoluteFillObject,
+            { backgroundColor: 'rgba(15, 15, 15, 0.4)' }
+          ]}
         />
         <View style={styles.headerInner}>
           <TouchableOpacity
@@ -686,9 +710,9 @@ export default function ContentPreviewScreen() {
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.7}
           >
-            <Ionicons name="arrow-back" size={isTablet ? 28 : 24} color={textColor} />
+            <Ionicons name="arrow-back" size={isTablet ? 28 : 24} color="#FFFFFF" />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: textColor }]} numberOfLines={1}>
+          <Text style={[styles.headerTitle, { color: '#FFFFFF' }]} numberOfLines={1}>
             {title}
           </Text>
           <View style={styles.headerRight}>
@@ -711,10 +735,10 @@ export default function ContentPreviewScreen() {
               </TouchableOpacity>
             ) : (
               <View
-                style={[styles.liveBadge, { backgroundColor: theme.colors.primary + '15' }]}
+                style={[styles.liveBadge, { backgroundColor: 'rgba(255, 255, 255, 0.15)' }]}
               >
-                <View style={[styles.liveDot, { backgroundColor: theme.colors.primary }]} />
-                <Text style={[styles.liveText, { color: theme.colors.primary }]}>Preview</Text>
+                <View style={[styles.liveDot, { backgroundColor: '#FFFFFF' }]} />
+                <Text style={[styles.liveText, { color: '#FFFFFF' }]}>Preview</Text>
               </View>
             )}
           </View>
@@ -734,7 +758,7 @@ export default function ContentPreviewScreen() {
       ) : (
         <ScrollView
           style={[styles.scrollContent, pageBackground ? { backgroundColor: pageBackground } : null]}
-          contentContainerStyle={[styles.contentContainer, { paddingTop: 56 + (isAndroid ? 6 : 4) + insets.top + 16 }]}
+          contentContainerStyle={[styles.contentContainer, { paddingTop: 52 + insets.top + 16 }]}
           showsVerticalScrollIndicator={false}
         >
           {/* Buy Items Listing for Community Category */}
@@ -867,32 +891,9 @@ export default function ContentPreviewScreen() {
               );
             }
 
-            // Visitor — already subscribed
+            // Visitor — already subscribed (purged from feed as billing logic resides in page details card modal)
             if (subscriptionStatus?.isSubscribed) {
-              return (
-                <View style={[styles.subscribeSection, { borderTopColor: theme.colors.border }]}>
-                  <View style={[styles.subscribedBadge, { backgroundColor: (theme.colors as any).success + '15' }]}>
-                    <Ionicons name="checkmark-circle" size={18} color={(theme.colors as any).success} />
-                    <Text style={[styles.subscribedText, { color: (theme.colors as any).success }]}>
-                      {isCommunity ? 'Purchased' : 'Subscribed'}
-                    </Text>
-                  </View>
-                  {subscriptionStatus.subscription?.currentPeriodEnd && (
-                    <Text style={[styles.subscribeNote, { color: theme.colors.textSecondary, fontStyle: 'normal' }]}>
-                      Renews {new Date(subscriptionStatus.subscription.currentPeriodEnd).toLocaleDateString()}
-                    </Text>
-                  )}
-                  <TouchableOpacity
-                    onPress={handleCancelSubscription}
-                    activeOpacity={0.7}
-                    style={{ marginTop: 8, paddingVertical: 4 }}
-                  >
-                    <Text style={{ color: theme.colors.error, fontSize: 13, fontFamily: getFontFamily('500'), fontWeight: '500' }}>
-                      {isCommunity ? 'Cancel purchase' : 'Cancel subscription'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              );
+              return null;
             }
 
             // Visitor — can subscribe (price approved)

@@ -54,6 +54,7 @@ import Constants from 'expo-constants';
 import { savedEvents } from '../../utils/savedEvents';
 import { triggerHaptic } from '../../utils/hapticFeedback';
 import { shortsEvents } from '../../utils/shortsEvents';
+import { preloadVideoAsync, getLocalVideoUri, removeCachedVideo } from '../../src/utils/videoCache';
 
 /** Shorts list item: either a reel (PostType) or a full-screen native ad slot. */
 export type ShortsItem = PostType | { type: 'ad'; adIndex: number };
@@ -306,14 +307,22 @@ const ShortsProgressBar = ({
     const performSeek = () => {
       const video = getVideoRef();
       if (video) {
-        // Enforce frame-accurate seeking using precise tolerance options in expo-av
-        video.setPositionAsync(targetMs, {
-          toleranceMillisBefore: 0,
-          toleranceMillisAfter: 0,
-        }).catch(() => {});
+        if (forceSeek) {
+          // Enforce frame-accurate seeking using precise tolerance options on touch start/end
+          video.setPositionAsync(targetMs, {
+            toleranceMillisBefore: 0,
+            toleranceMillisAfter: 0,
+          }).catch(() => {});
+        } else {
+          // Fast seek during active drag to avoid UI stuttering
+          video.setPositionAsync(targetMs).catch(() => {});
+        }
       }
-      if (hasMusic && currentPlayerRef.current) {
+      if (forceSeek && hasMusic && currentPlayerRef.current) {
         // Audio seek does not use tolerance parameters (to prevent codec rejection errors)
+        // We only seek the background audio player on initial touch (forceSeek = true)
+        // because the final seek is handled separately on touch end.
+        // This avoids audio thread clogging during active drag.
         currentPlayerRef.current.setPositionAsync(finalAudioMs).catch(() => {});
       }
       // Update lastVideoPosition immediately to prevent false loop detection triggers
@@ -329,7 +338,7 @@ const ShortsProgressBar = ({
       performSeek();
     } else {
       const timeSinceLastSeek = now - lastSeekTimeRef.current;
-      const throttleDelay = velocity > 0.5 ? 150 : 40;
+      const throttleDelay = 80; // Fixed 80ms throttle window for continuous seeks
       
       if (timeSinceLastSeek > throttleDelay) {
         if (pendingSeekTimeoutRef.current) {
@@ -888,6 +897,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [showSwipeHint, setShowSwipeHint] = useState(true);
   const [videoQuality, setVideoQuality] = useState<'low' | 'medium' | 'high'>('high');
   const [expandedCaptions, setExpandedCaptions] = useState<{ [key: string]: boolean }>({});
+  const [localVideoUris, setLocalVideoUris] = useState<Record<string, string>>({});
+  const activeStartedWithRemoteRef = useRef<Record<string, boolean>>({});
 
   useEffect(() => {
     const unsubscribeViews = realtimePostsService.subscribeToViews(({ postId, viewsCount }) => {
@@ -1552,21 +1563,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     return () => clearInterval(interval);
   }, []);
 
-  // Cleanup videos that are far from viewport
-  // Uses centralized stopAndUnloadVideo helper
-  useEffect(() => {
-    const cleanupDistance = 2; // Cleanup videos more than 1 position away (since we keep prev/current/next)
-    Object.keys(videoRefs.current).forEach((videoId) => {
-      const videoIndex = shorts.findIndex(s => s._id === videoId);
-      if (videoIndex === -1) return;
-      
-      const distance = Math.abs(videoIndex - currentVisibleIndex);
-      if (distance > cleanupDistance) {
-        // Use centralized helper to ensure proper cleanup
-        stopAndUnloadVideo(videoId);
-      }
-    });
-  }, [currentVisibleIndex, shorts, stopAndUnloadVideo]);
+  // Note: Cleanup, preloading, and remote URL tracking effects moved lower (after shortsData declaration)
 
   // Video cache for offline support
   const videoCacheRef = useRef<Map<string, { url: string; timestamp: number }>>(new Map());
@@ -1576,9 +1573,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // Priority: videoUrl > mediaUrl > imageUrl (for shorts, videoUrl should always be present)
   // CRITICAL: Signed URLs expire after 15 minutes, so cache is limited to 10 minutes
   const getVideoUrl = useCallback((item: PostType) => {
+    const videoId = item._id;
+
+    // Return local URI if available and we didn't start playing with a remote URL
+    if (localVideoUris[videoId] && !activeStartedWithRemoteRef.current[videoId]) {
+      return localVideoUris[videoId];
+    }
+
     // Prioritize videoUrl for shorts, fallback to mediaUrl or imageUrl
     const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
-    const videoId = item._id;
     
     // DETAILED LOGGING: Track URL resolution for first 2 shorts
     const isFirstTwoShorts = shorts.length > 0 && shorts.indexOf(item) < 2;
@@ -1680,7 +1683,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     }
     logger.debug(`Video URL for ${videoId} (fresh):`, url.substring(0, 100) + '...');
     return url;
-  }, [videoQuality, shorts]);
+  }, [videoQuality, shorts, localVideoUris]);
   
   // Track previous visible index to detect actual scroll changes
   const previousVisibleIndexRef = useRef<number>(-1);
@@ -2831,6 +2834,97 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     return result;
   }, [shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots, failedAdIndices]);
 
+  // Cleanup videos that are far from viewport
+  // Uses centralized stopAndUnloadVideo helper
+  useEffect(() => {
+    const cleanupDistance = 2; // Cleanup videos more than 2 positions away (since we keep 5 mounted)
+    Object.keys(videoRefs.current).forEach((videoId) => {
+      const videoIndex = shortsData.findIndex(s => !isAdItem(s) && s._id === videoId);
+      if (videoIndex === -1) return;
+      
+      const distance = Math.abs(videoIndex - currentVisibleIndex);
+      if (distance > cleanupDistance) {
+        // Use centralized helper to ensure proper cleanup
+        stopAndUnloadVideo(videoId);
+        // Clean up from tracking refs to free memory
+        delete activeStartedWithRemoteRef.current[videoId];
+      }
+    });
+  }, [currentVisibleIndex, shortsData, stopAndUnloadVideo]);
+
+  // Sliding-Window Preloading and Local Cache Resolution Effect
+  useEffect(() => {
+    if (!shortsData || shortsData.length === 0) return;
+
+    const minIndex = Math.max(0, currentVisibleIndex - 2);
+    const maxIndex = Math.min(shortsData.length - 1, currentVisibleIndex + 2);
+
+    // 1. Trigger background preloading for all videos in the sliding window
+    for (let i = minIndex; i <= maxIndex; i++) {
+      const item = shortsData[i];
+      if (item && !isAdItem(item)) {
+        const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
+        if (baseUrl) {
+          preloadVideoAsync(item._id, baseUrl);
+        }
+      }
+    }
+
+    // 2. Poll/check file existence for the sliding window to update localVideoUris state
+    let active = true;
+    const checkCachedVideos = async () => {
+      const newUris: Record<string, string> = {};
+      for (let i = minIndex; i <= maxIndex; i++) {
+        const item = shortsData[i];
+        if (item && !isAdItem(item)) {
+          const localUri = await getLocalVideoUri(item._id);
+          if (localUri) {
+            newUris[item._id] = localUri;
+          }
+        }
+      }
+      if (active) {
+        setLocalVideoUris(prev => {
+          let changed = false;
+          const merged = { ...prev };
+          for (const id of Object.keys(newUris)) {
+            if (prev[id] !== newUris[id]) {
+              merged[id] = newUris[id];
+              changed = true;
+            }
+          }
+          if (changed) {
+            return merged;
+          }
+          return prev;
+        });
+      }
+    };
+
+    checkCachedVideos();
+    const interval = setInterval(checkCachedVideos, 1000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [currentVisibleIndex, shortsData]);
+
+  // Track if active video started with a remote URL when it became visible.
+  // This prevents reload stuttering / black flashes mid-playback when download finishes.
+  useEffect(() => {
+    if (!shortsData || shortsData.length === 0) return;
+    const visibleItem = shortsData[currentVisibleIndex];
+    if (visibleItem && !isAdItem(visibleItem)) {
+      const videoId = visibleItem._id;
+      // If it became visible and we don't have a cached local URI for it yet,
+      // it must have started playing with a remote URL. Mark it as such.
+      if (!localVideoUris[videoId]) {
+        activeStartedWithRemoteRef.current[videoId] = true;
+      }
+    }
+  }, [currentVisibleIndex, shortsData, localVideoUris]);
+
   // Deep link: scroll to specific short when effectiveShortId is set (URL or props). dataIndex accounts for ad slots when showShortsAds.
   useEffect(() => {
     if (!effectiveShortId || shorts.length === 0) return;
@@ -3116,7 +3210,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // three concurrent decoders (prev + current + next) is the sweet spot.
     // The cleanup effect at distance > 2 unloads anything further out, and
     // the blur handler unloads ALL decoders when the user leaves the tab.
-    const shouldRenderVideo = Math.abs(distanceFromVisible) <= 1;
+    const shouldRenderVideo = Math.abs(distanceFromVisible) <= 2;
 
     const videoState = videoStates[item._id];
     // Only treat the video as "playing" once it has actually reported playback
@@ -3284,6 +3378,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   // unmounts the old player and remounts a clean one with the new URL.
                   logger.error(`Video ${item._id} failed to load:`, error);
                   videoCacheRef.current.delete(item._id);
+                  if (localVideoUris[item._id]) {
+                    const pathToRemove = localVideoUris[item._id];
+                    setLocalVideoUris(prev => {
+                      const updated = { ...prev };
+                      delete updated[item._id];
+                      return updated;
+                    });
+                    removeCachedVideo(pathToRemove).catch(() => {});
+                  }
+                  delete activeStartedWithRemoteRef.current[item._id];
                   updateKeyedBool(setVideoStates, item._id, false);
 
                   const errorMessage = typeof error === 'string' ? error : (error as any)?.message || '';
@@ -3418,6 +3522,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     // Clear cache and retry if this is the current visible video
                     if (index === currentVisibleIndex) {
                       videoCacheRef.current.delete(item._id);
+                      if (localVideoUris[item._id]) {
+                        const pathToRemove = localVideoUris[item._id];
+                        setLocalVideoUris(prev => {
+                          const updated = { ...prev };
+                          delete updated[item._id];
+                          return updated;
+                        });
+                        removeCachedVideo(pathToRemove).catch(() => {});
+                      }
+                      delete activeStartedWithRemoteRef.current[item._id];
                     }
                   }
                 }}
@@ -3768,7 +3882,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // swipeAnimation / fadeAnimation are Animated.Value refs from useRef ---
     // their identity never changes, so they don't belong in the deps array.
     // Including them was harmless but signaled false volatility.
-  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions, containerHeight, expandedCaptions, isVideoPlaying]);
+  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions, containerHeight, expandedCaptions, isVideoPlaying, localVideoUris]);
 
   const keyExtractor = useCallback((item: ShortsItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;

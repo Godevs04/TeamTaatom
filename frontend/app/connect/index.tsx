@@ -12,6 +12,7 @@ import {
   TextInput,
   Alert,
   KeyboardAvoidingView,
+  Modal,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -106,73 +107,88 @@ function PickerModal({
     : items;
 
   return (
-    <View style={[styles.pickerOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-      <View style={[styles.pickerModal, { backgroundColor: theme.colors.surface }]}>
-        <View style={styles.pickerHeader}>
-          <Text style={[styles.pickerTitle, { color: theme.colors.text }]}>{title}</Text>
-          <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Ionicons name="close" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-        </View>
+    <Modal
+      animationType="fade"
+      transparent={true}
+      visible={true}
+      onRequestClose={onClose}
+    >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={[styles.pickerOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}
+      >
+        <TouchableOpacity
+          style={StyleSheet.absoluteFillObject}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+        <View style={[styles.pickerModal, { backgroundColor: theme.colors.surface, width: '100%' }]}>
+          <View style={styles.pickerHeader}>
+            <Text style={[styles.pickerTitle, { color: theme.colors.text }]}>{title}</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close" size={24} color={theme.colors.text} />
+            </TouchableOpacity>
+          </View>
 
-        {/* Search input */}
-        <View style={[styles.pickerSearchWrap, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
-          <Ionicons name="search" size={16} color={theme.colors.textSecondary} />
-          <TextInput
-            style={[styles.pickerSearchInput, { color: theme.colors.text }]}
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Type to search…"
-            placeholderTextColor={theme.colors.textSecondary}
-            autoCorrect={false}
-            autoCapitalize="none"
-            returnKeyType="search"
-          />
-          {query.length > 0 && (
-            <TouchableOpacity onPress={() => setQuery('')} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
-              <Ionicons name="close-circle" size={16} color={theme.colors.textSecondary} />
-            </TouchableOpacity>
-          )}
-        </View>
+          {/* Search input */}
+          <View style={[styles.pickerSearchWrap, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+            <Ionicons name="search" size={16} color={theme.colors.textSecondary} />
+            <TextInput
+              style={[styles.pickerSearchInput, { color: theme.colors.text }]}
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Type to search…"
+              placeholderTextColor={theme.colors.textSecondary}
+              autoCorrect={false}
+              autoCapitalize="none"
+              returnKeyType="search"
+            />
+            {query.length > 0 && (
+              <TouchableOpacity onPress={() => setQuery('')} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                <Ionicons name="close-circle" size={16} color={theme.colors.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
 
-        <ScrollView style={styles.pickerList} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          {/* "Any" option always visible (only when not searching) */}
-          {!trimmed && (
-            <TouchableOpacity
-              style={[styles.pickerItem, !selected && { backgroundColor: theme.colors.primary + '15' }]}
-              onPress={() => { onSelect(''); onClose(); }}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.pickerItemText, { color: !selected ? theme.colors.primary : theme.colors.textSecondary }]}>
-                Any
-              </Text>
-            </TouchableOpacity>
-          )}
-          {filtered.map(item => (
-            <TouchableOpacity
-              key={item.code}
-              style={[styles.pickerItem, selected === item.code && { backgroundColor: theme.colors.primary + '15' }]}
-              onPress={() => { onSelect(item.code); onClose(); }}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.pickerItemText, { color: selected === item.code ? theme.colors.primary : theme.colors.text }]}>
-                {item.name}
-              </Text>
-              {selected === item.code && (
-                <Ionicons name="checkmark" size={20} color={theme.colors.primary} />
-              )}
-            </TouchableOpacity>
-          ))}
-          {trimmed && filtered.length === 0 && (
-            <View style={styles.pickerEmpty}>
-              <Text style={[styles.pickerItemText, { color: theme.colors.textSecondary }]}>
-                No matches
-              </Text>
-            </View>
-          )}
-        </ScrollView>
-      </View>
-    </View>
+          <ScrollView style={styles.pickerList} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            {/* "Any" option always visible (only when not searching) */}
+            {!trimmed && (
+              <TouchableOpacity
+                style={[styles.pickerItem, !selected && { backgroundColor: theme.colors.primary + '15' }]}
+                onPress={() => { onSelect(''); onClose(); }}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.pickerItemText, { color: !selected ? theme.colors.primary : theme.colors.textSecondary }]}>
+                  Any
+                </Text>
+              </TouchableOpacity>
+            )}
+            {filtered.map(item => (
+              <TouchableOpacity
+                key={item.code}
+                style={[styles.pickerItem, selected === item.code && { backgroundColor: theme.colors.primary + '15' }]}
+                onPress={() => { onSelect(item.code); onClose(); }}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.pickerItemText, { color: selected === item.code ? theme.colors.primary : theme.colors.text }]}>
+                  {item.name}
+                </Text>
+                {selected === item.code && (
+                  <Ionicons name="checkmark" size={20} color={theme.colors.primary} />
+                )}
+              </TouchableOpacity>
+            ))}
+            {trimmed && filtered.length === 0 && (
+              <View style={styles.pickerEmpty}>
+                <Text style={[styles.pickerItemText, { color: theme.colors.textSecondary }]}>
+                  No matches
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 
@@ -377,7 +393,7 @@ export default function ConnectHubScreen() {
     try {
       if (pNum === 1) {
         if (isRefresh) setConnectRefreshing(true);
-        else setMyPagesLoading(true);
+        else if (myPages.length === 0) setMyPagesLoading(true);
       } else {
         setConnectLoadingMore(true);
       }
@@ -404,7 +420,7 @@ export default function ConnectHubScreen() {
       setConnectRefreshing(false);
       setConnectLoadingMore(false);
     }
-  }, []);
+  }, [myPages]);
 
   const handleLoadMoreConnect = useCallback(() => {
     if (!connectLoadingMore && connectHasMore && !myPagesLoading) {
@@ -418,7 +434,7 @@ export default function ConnectHubScreen() {
     try {
       if (pNum === 1) {
         if (isRefresh) setRefreshing(true);
-        else setLoading(true);
+        else if (pages.length === 0) setLoading(true);
       }
       const response = await getCommunities(pNum, 20);
       if (response) {
@@ -434,7 +450,7 @@ export default function ConnectHubScreen() {
       setRefreshing(false);
       setLoadingMore(false);
     }
-  }, [activeTab]);
+  }, [activeTab, pages]);
 
   useFocusEffect(
     useCallback(() => {
@@ -446,7 +462,7 @@ export default function ConnectHubScreen() {
   const handleTabChange = (tab: TabType) => {
     if (tab === activeTab) return;
     setActiveTab(tab);
-    if (tab === 'community') {
+    if (tab === 'community' && pages.length === 0) {
       setPages([]);
       setPageNum(1);
       setHasMore(true);
@@ -680,7 +696,7 @@ export default function ConnectHubScreen() {
   // Connect tab — every user-created (non-admin) page on the platform,
   // followed entries first (global ranking from the backend), paginated.
   const renderConnectTab = () => {
-    if (myPagesLoading) {
+    if (myPagesLoading && myPages.length === 0) {
       return (
         <View style={styles.loadingContainer}>
           <LoadingGlobe size="large" color={theme.colors.primary} />
@@ -1029,7 +1045,7 @@ export default function ConnectHubScreen() {
   );
 
   const renderPageListTab = () => {
-    if (loading) {
+    if (loading && pages.length === 0) {
       return (
         <View style={styles.loadingContainer}>
           <LoadingGlobe size="large" color={theme.colors.primary} />
@@ -1130,7 +1146,15 @@ export default function ConnectHubScreen() {
         <PremiumSegmentedTabs tabs={tabs} value={activeTab} onChange={handleTabChange} style={styles.tabBar} />
 
         {/* Tab Content */}
-        {activeTab === 'connect' ? renderConnectTab() : activeTab === 'find' ? renderFindTab() : renderPageListTab()}
+        <View style={[styles.listSlot, activeTab === 'connect' ? null : styles.hidden]} pointerEvents={activeTab === 'connect' ? 'auto' : 'none'}>
+          {renderConnectTab()}
+        </View>
+        <View style={[styles.listSlot, activeTab === 'find' ? null : styles.hidden]} pointerEvents={activeTab === 'find' ? 'auto' : 'none'}>
+          {renderFindTab()}
+        </View>
+        <View style={[styles.listSlot, activeTab === 'community' ? null : styles.hidden]} pointerEvents={activeTab === 'community' ? 'auto' : 'none'}>
+          {renderPageListTab()}
+        </View>
       </View>
 
       {/* FAB — Create Connect Page (Connect tab only) */}
@@ -1208,6 +1232,12 @@ const styles = StyleSheet.create({
   tabBar: {
     marginHorizontal: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.md,
     marginBottom: 10,
+  },
+  listSlot: {
+    flex: 1,
+  },
+  hidden: {
+    display: 'none',
   },
   loadingContainer: {
     flex: 1,

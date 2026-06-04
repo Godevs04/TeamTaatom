@@ -122,7 +122,6 @@ export default function TabsLayout() {
         options={{
           title: 'Shorts',
           tabBarAccessibilityLabel: 'Shorts tab',
-          unmountOnBlur: true,
         } as any}
       />
       <Tabs.Screen
