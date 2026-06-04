@@ -3356,7 +3356,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       ]}>
           {/* Video Player with Gesture Handling */}
           <View
-            style={styles.videoContainer}
+            style={[
+              styles.videoContainer,
+              isScopedView ? styles.videoContainerScoped : styles.videoContainerTabbed
+            ]}
             onTouchStart={handlersRef.current.handleTouchStart}
             onTouchMove={handlersRef.current.handleTouchMove}
             onTouchEnd={(event) => handlersRef.current.handleTouchEnd(event, item.user._id)}
@@ -4355,7 +4358,12 @@ const styles = StyleSheet.create({
     display: 'flex',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: Platform.OS === 'ios' ? 24 : 16, // Move video a little lower
+  },
+  videoContainerTabbed: {
+    paddingTop: Platform.OS === 'ios' ? 94 : 86, // Move video lower to touch the bar
+  },
+  videoContainerScoped: {
+    paddingTop: Platform.OS === 'ios' ? 24 : 16,
   },
   shortVideo: {
     width: '100%',
