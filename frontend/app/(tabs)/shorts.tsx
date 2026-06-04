@@ -154,6 +154,8 @@ export type ShortsScreenProps = {
   scopedUserId?: string;
   initialShortId?: string;
   isSavedShorts?: boolean;
+  isMuted?: boolean;
+  onMuteToggle?: () => void;
 };
 
 const videoSourceCache = new Map<string, { uri: string; overrideFileExtensionAndroid?: string }>();
@@ -413,10 +415,11 @@ const MemoizedVideo = React.memo(
     const nextUri = next.source && typeof next.source === 'object' && 'uri' in next.source ? (next.source as any).uri : null;
 
     // Native expo-av players are fragile when parent UI state changes. Only
-    // playback, mute, or source changes are allowed to reach the native Video.
+    // playback, mute, volume, or source changes are allowed to reach the native Video.
     return (
       prev.shouldPlay === next.shouldPlay &&
       prev.isMuted === next.isMuted &&
+      prev.volume === next.volume &&
       prevUri === nextUri
     );
   }
@@ -3489,9 +3492,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // to build and compare; deliberately avoiding JSON.stringify per cell.
     const isOwn = item.user._id === currentUser?._id;
     const isVisibleNow = index === currentVisibleIndex;
+    const isMutedByUser = props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id);
     const cacheKey =
       `${item._id}|${index}|${isVisibleNow ? 1 : 0}|` +
-      `${isCellVideoPlaying ? 1 : 0}|${mutedShorts.has(item._id) ? 1 : 0}|` +
+      `${isCellVideoPlaying ? 1 : 0}|${isMutedByUser ? 1 : 0}|` +
       `${isSaved ? 1 : 0}|${isFollowing ? 1 : 0}|` +
       `${shouldShowPauseButton ? 1 : 0}|${shouldShowLikeAnimation ? 1 : 0}|` +
       `${sourceVersions[item._id] ?? 0}|` +
@@ -3513,7 +3517,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           <View
             style={[
               styles.videoContainer,
-              { bottom: videoContainerBottom }
+              { bottom: isScopedView ? 100 : 0 }
             ]}
             onTouchStart={handlersRef.current.handleTouchStart}
             onTouchMove={handlersRef.current.handleTouchMove}
@@ -3548,7 +3552,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 <ExpoImage
                   source={{ uri: item.imageUrl }}
                   style={[styles.shortVideo as ImageStyle, StyleSheet.absoluteFillObject]}
-                  contentFit="cover"
+                  contentFit="contain"
                   cachePolicy="memory-disk"
                   transition={0}
                   onError={(e: any) => logger.warn('[shorts thumbnail] load failed', {
@@ -3582,14 +3586,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   styles.shortVideo,
                   StyleSheet.absoluteFillObject,
                 ]}
-                resizeMode={ResizeMode.COVER}
+                resizeMode={ResizeMode.CONTAIN}
                 shouldPlay={index === currentVisibleIndex && isVideoPlaying && !userPausedShortIdsRef.current.has(item._id)}
                 isLooping
                 progressUpdateIntervalMillis={100}
-                isMuted={index !== currentVisibleIndex || !!(item.song?.songId?._id || item.song?.songId) || mutedShorts.has(item._id)}
+                isMuted={index !== currentVisibleIndex || !!(item.song?.songId?._id || item.song?.songId) || (props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id))}
                 volume={(() => {
                   const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                  const isMutedByUser = mutedShorts.has(item._id);
+                  const isMutedByUser = props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id);
                   return (hasMusic || isMutedByUser) ? 0.0 : 1.0;
                 })()}
                 onLoadStart={() => {
@@ -3604,7 +3608,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     const video = videoRefs.current[item._id];
                     if (video) {
                       const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                      const isMutedByUser = mutedShorts.has(item._id);
+                      const isMutedByUser = props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id);
                       if (hasMusic || isMutedByUser) {
                         video.setIsMutedAsync(true).catch(() => {});
                         video.setVolumeAsync(0.0).catch(() => {});
@@ -3690,7 +3694,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     
                     // CRITICAL: If music exists, or if user muted this short, ensure video stays muted
                     const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                    const isMutedByUser = mutedShorts.has(item._id);
+                    const isMutedByUser = props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id);
                     if ((hasMusic || isMutedByUser) && index === currentVisibleIndex) {
                       const video = videoRefs.current[item._id];
                       if (video && !status.isMuted) {
@@ -4067,7 +4071,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                       post={item}
                       isVisible={isScreenFocused && index === currentVisibleIndex}
                       autoPlay={isCellVideoPlaying}
-                      externalMuted={mutedShorts.has(item._id)}
+                      externalMuted={props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id)}
                       onPlayingChange={handleSongPlayingChange}
                     />
                   </View>
@@ -4095,7 +4099,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // swipeAnimation / fadeAnimation are Animated.Value refs from useRef ---
     // their identity never changes, so they don't belong in the deps array.
     // Including them was harmless but signaled false volatility.
-  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions, containerHeight, expandedCaptions, isVideoPlaying, localVideoUris]);
+  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions, containerHeight, expandedCaptions, isVideoPlaying, localVideoUris, props.isMuted]);
 
   const keyExtractor = useCallback((item: ShortsItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;
@@ -4207,29 +4211,30 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
       {/* Premium Top Bar Overlay */}
       {(() => {
+        // If it's a scoped view, we do NOT want to render the topBar overlay at all because the parent page renders its own header!
+        if (effectiveUserId || props.isSavedShorts) {
+          return null;
+        }
+
         const currentShort = shorts[currentVisibleIndex] as PostType | undefined;
         const hasSong = !!(currentShort?.song?.songId && (currentShort.song.songId._id || typeof currentShort.song.songId === 'string'));
-        const isMuted = currentShort ? mutedShorts.has(currentShort._id) : false;
+        const isMuted = currentShort ? (props.isMuted !== undefined ? props.isMuted : mutedShorts.has(currentShort._id)) : false;
         
         return (
-          <View style={[styles.topBar, (effectiveUserId || props.isSavedShorts) && { height: 60, backgroundColor: 'transparent' }]}>
-            <View style={[styles.topBarContent, (effectiveUserId || props.isSavedShorts) && { paddingTop: 10, height: 60 }]}>
+          <View style={styles.topBar}>
+            <View style={styles.topBarContent}>
               {/* Left Back Button */}
-              {!effectiveUserId && !props.isSavedShorts ? (
-                <TouchableOpacity
-                  style={styles.topBarButton}
-                  onPress={handleBack}
-                  accessibilityLabel="Go back"
-                  accessibilityRole="button"
-                >
-                  <Ionicons name="arrow-back" size={24} color="#fff" />
-                </TouchableOpacity>
-              ) : (
-                <View style={styles.topBarButtonEmpty} />
-              )}
+              <TouchableOpacity
+                style={styles.topBarButton}
+                onPress={handleBack}
+                accessibilityLabel="Go back"
+                accessibilityRole="button"
+              >
+                <Ionicons name="arrow-back" size={24} color="#fff" />
+              </TouchableOpacity>
 
               {/* Centered Shorts Title */}
-              {!effectiveUserId && !props.isSavedShorts && <Text style={styles.topBarTitle}>Shorts</Text>}
+              <Text style={styles.topBarTitle}>Shorts</Text>
 
               {/* Right Mute Button - Always Visible for every Short */}
               {currentShort ? (
@@ -4237,12 +4242,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   style={styles.topBarButton}
                   onPress={() => {
                     if (!currentShort) return;
-                    setMutedShorts(prev => {
-                      const next = new Set(prev);
-                      if (next.has(currentShort._id)) next.delete(currentShort._id);
-                      else next.add(currentShort._id);
-                      return next;
-                    });
+                    if (props.onMuteToggle) {
+                      props.onMuteToggle();
+                    } else {
+                      setMutedShorts(prev => {
+                        const next = new Set(prev);
+                        if (next.has(currentShort._id)) next.delete(currentShort._id);
+                        else next.add(currentShort._id);
+                        return next;
+                      });
+                    }
                   }}
                   accessibilityLabel={isMuted ? 'Unmute' : 'Mute'}
                   accessibilityRole="button"
@@ -4903,7 +4912,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
   },

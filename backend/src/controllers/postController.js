@@ -566,6 +566,7 @@ const getPostById = async (req, res) => {
               {
                 $project: {
                   fullName: 1,
+                  username: 1,
                   profilePic: 1,
                   profilePicStorageKey: 1,
                   followers: 1, // Include followers for follow status check

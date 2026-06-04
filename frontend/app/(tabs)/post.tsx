@@ -2902,10 +2902,10 @@ export default function PostScreen() {
     <ErrorBoundary level="route">
     <KeyboardAvoidingView
       behavior={Platform.OS === 'ios' ? 'padding' : isWeb ? undefined : 'height'}
-      style={{ flex: 1 }}
+      style={{ flex: 1, backgroundColor: theme.colors.background || '#000000' }}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
-      <View style={{ flex: 1, backgroundColor: 'transparent' }}>
+      <View style={{ flex: 1, backgroundColor: theme.colors.background || '#000000' }}>
         <View style={StyleSheet.absoluteFillObject}>
           <CloudPostMountainBackground />
           {(selectedImages.length > 0 || selectedVideo) && (
@@ -4445,7 +4445,7 @@ export default function PostScreen() {
     </View>
     ) : (
       // Unified Instagram 1:1 Editor view
-      <View style={{ flex: 1, backgroundColor: 'transparent' }}>
+      <View style={{ flex: 1, backgroundColor: theme.colors.background || '#000000' }}>
         <PostCreateHeader onClose={() => router.push('/(tabs)/home')} onNext={() => setShowDetails(true)} showNext={selectedImages.length > 0 || !!selectedVideo} />
         
         {/* Top Half - Preview & Crop (exactly 50% of viewport) */}

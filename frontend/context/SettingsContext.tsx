@@ -210,9 +210,21 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({ children }) 
   const updateAllSettings = useCallback(async (newSettings: Partial<UserSettings>) => {
     if (!settings) return;
     
-    // Optimistic update
+    // Optimistic update with deep merge for top-level categories
     const previousSettings = settings;
-    setSettings({ ...settings, ...newSettings } as UserSettings);
+    
+    const mergedSettings = { ...settings };
+    Object.keys(newSettings).forEach(key => {
+      const category = key as keyof UserSettings;
+      if (newSettings[category] && typeof newSettings[category] === 'object') {
+        mergedSettings[category] = {
+          ...mergedSettings[category],
+          ...newSettings[category]
+        } as any;
+      }
+    });
+    
+    setSettings(mergedSettings);
     
     try {
       const response = await updateSettings(newSettings);

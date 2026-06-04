@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
+import { LinearGradient } from 'expo-linear-gradient';
 
 export interface ProgressAlertProps {
   visible: boolean;
@@ -153,15 +154,22 @@ const ProgressAlert: React.FC<ProgressAlertProps> = ({
                 style={[
                   styles.progressBar,
                   {
-                    backgroundColor: color,
                     width: progressAnim.interpolate({
                       inputRange: [0, 100],
                       outputRange: ['0%', '100%'],
                       extrapolate: 'clamp',
                     }),
+                    overflow: 'hidden',
                   },
                 ]}
-              />
+              >
+                <LinearGradient
+                  colors={theme.colors.gradient?.secondary || ['#1C73B4', '#50C878']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={StyleSheet.absoluteFillObject}
+                />
+              </Animated.View>
             </View>
           </View>
 
