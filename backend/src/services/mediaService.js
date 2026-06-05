@@ -271,7 +271,9 @@ const resolveSong = async (song) => {
               song.thumbnailUrl = artworkUrl;
               song.imageUrl = artworkUrl;
             }
-          } catch (_) {}
+          } catch (_) {
+            // Signed URL generation is best-effort; keep original thumbnail on failure.
+          }
         }
       } else {
         // Fallback for permanent URLs

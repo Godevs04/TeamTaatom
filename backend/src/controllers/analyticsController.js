@@ -33,7 +33,6 @@ const trackEvents = async (req, res) => {
 
     // Increment post/short views count in database
     const Post = require('../models/Post');
-    const { deleteCache, CacheKeys } = require('../utils/cache');
     for (const event of eventsToSave) {
       if (event.event === 'post_view') {
         const postId = event.properties?.post_id || event.properties?.postId;

@@ -1,4 +1,4 @@
-const { projectPointToSegment, calculateHaversine } = require('../utils/projection');
+const { projectPointToSegment } = require('../utils/projection');
 const { matchTrajectory } = require('../utils/mapMatcher');
 const Road = require('../models/Road');
 
