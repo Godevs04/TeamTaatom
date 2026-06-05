@@ -640,7 +640,7 @@ html,body,#map{height:100%;margin:0;padding:0}
   -webkit-flex-shrink: 0;
   border-radius: 50%;
   object-fit: cover;
-  border: 1.5px solid ${isDark ? '#2DD4BF' : '#3B82F6'};
+  border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.08)'};
 }
 .marker-thumb-placeholder {
   width: 26px;
@@ -741,8 +741,8 @@ function initMap(){
   if (isPostLoc) {
     var titleText = ${JSON.stringify(htmlEsc(locationName || postAddress || 'Location'))};
     var subtitleText = ${JSON.stringify(htmlEsc(params.spotTypes as string || params.description as string || 'Visited place'))};
-    var photoUrl = ${JSON.stringify(params.imageUrl ? resolvePhotoUrl(params.imageUrl as string) || '' : '')};
-    var imgHtml = photoUrl ? '<img src="' + photoUrl + '" class="marker-thumb" onerror="this.style.display=\'none\'" />' : '<div class="marker-thumb-placeholder">📍</div>';
+    var photoUrl = ${JSON.stringify(params.imageUrl ? resolvePhotoUrl(params.imageUrl as string) : '')};
+    var imgHtml = photoUrl ? '<img src="' + photoUrl + '" class="marker-thumb" onerror="this.style.display=\\'none\\'" />' : '<div class="marker-thumb-placeholder">📍</div>';
     div.setAttribute('data-anchor', 'bottom');
     div.innerHTML = '<div class="glass-marker-card">' +
       imgHtml +
