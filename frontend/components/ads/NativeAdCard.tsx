@@ -7,7 +7,7 @@
  *
  * Development vs Production: In __DEV__ we use test ad unit IDs from ADMOB config
  * (already set to Google's test IDs in constants/admob.js). In production builds
- * use the real Native Ad Unit ID (ca-app-pub-6362359854606661/3257756403).
+ * use the platform-specific live Native Ad Unit ID from constants/admob.js.
  * Apple policy: never use production ad unit IDs in development to avoid invalid traffic.
  */
 
@@ -23,9 +23,12 @@ import LoadingGlobe from '../../components/LoadingGlobe';
 import Constants from 'expo-constants';
 import { useTheme } from '../../context/ThemeContext';
 import { ADMOB } from '../../constants/admob';
+import logger from '../../utils/logger';
+import { initializeAds } from '../../services/admob';
 
 const isWeb = Platform.OS === 'web';
 const isExpoGo = Constants.appOwnership === 'expo';
+const NATIVE_AD_LOAD_TIMEOUT_MS = 12000;
 
 // Do NOT require('react-native-google-mobile-ads') at module load. It triggers
 // TurboModuleRegistry and crashes in Expo Go / when native module isn't linked.
@@ -50,6 +53,12 @@ type AdsModule = {
   NativeMediaView: React.ComponentType<any>;
   NativeAsset: React.ComponentType<any>;
   NativeAssetType: typeof import('react-native-google-mobile-ads').NativeAssetType;
+};
+
+const maskAdUnitId = (unitId?: string) => {
+  if (!unitId) return 'missing';
+  const [publisher, unit] = unitId.split('/');
+  return unit ? `${publisher}/${unit.slice(0, 3)}...${unit.slice(-3)}` : `${unitId.slice(0, 12)}...`;
 };
 
 function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAdCardProps) {
@@ -116,12 +125,42 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
     setLoading(true);
     setError(false);
 
-    adsModule.NativeAd.createForAdRequest(unitId)
+    logger.debug('[AdMob] Loading home native ad', {
+      platform: Platform.OS,
+      unitId: maskAdUnitId(unitId),
+      adIndex,
+      dev: __DEV__,
+    });
+
+    let requestTimedOut = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const adRequest = initializeAds()
+      .then(() => adsModule.NativeAd.createForAdRequest(unitId))
       .then((ad) => {
+        if (requestTimedOut || destroyedRef.current) {
+          ad.destroy();
+        }
+        return ad;
+      });
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        requestTimedOut = true;
+        reject(new Error(`Native ad request timed out after ${NATIVE_AD_LOAD_TIMEOUT_MS}ms`));
+      }, NATIVE_AD_LOAD_TIMEOUT_MS);
+    });
+
+    Promise.race([adRequest, timeout])
+      .then((ad) => {
+        if (timeoutId) clearTimeout(timeoutId);
         if (destroyedRef.current) {
           ad.destroy();
           return;
         }
+        logger.info('[AdMob] Home native ad loaded', {
+          platform: Platform.OS,
+          unitId: maskAdUnitId(unitId),
+          adIndex,
+        });
         setNativeAd(ad);
         setLoading(false);
         // Fire impression for the cap tracker as soon as the ad is loaded
@@ -132,8 +171,15 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
           try { onImpression?.(); } catch { /* swallow */ }
         }
       })
-      .catch(() => {
+      .catch((loadError) => {
+        if (timeoutId) clearTimeout(timeoutId);
         if (!destroyedRef.current) {
+          logger.warn('[AdMob] Home native ad failed to load', {
+            platform: Platform.OS,
+            unitId: maskAdUnitId(unitId),
+            adIndex,
+            message: loadError instanceof Error ? loadError.message : String(loadError),
+          });
           setError(true);
           setLoading(false);
           fireLoadFailed();
@@ -142,6 +188,7 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
 
     return () => {
       destroyedRef.current = true;
+      if (timeoutId) clearTimeout(timeoutId);
       impressionFiredRef.current = false;
       setNativeAd((prev: any) => {
         if (prev) {

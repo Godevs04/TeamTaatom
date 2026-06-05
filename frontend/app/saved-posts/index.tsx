@@ -20,6 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createLogger } from '../../utils/logger';
 import { PostType } from '../../types/post';
 import { realtimePostsService } from '../../services/realtimePosts';
+import { savedEvents } from '../../utils/savedEvents';
 
 const logger = createLogger('SavedPostsScreen');
 
@@ -155,14 +156,37 @@ export default function SavedPostsScreen() {
   }, [loadSavedPosts]);
 
   useEffect(() => {
-    const unsubscribe = realtimePostsService.subscribeToLikes(({ postId: likedPostId, isLiked, likesCount }) => {
+    const unsubscribeLikes = realtimePostsService.subscribeToLikes(({ postId: likedPostId, isLiked, likesCount }) => {
       setPosts(prev => prev.map(post => (
         post._id === likedPostId
           ? { ...post, isLiked, likesCount } as any
           : post
       )));
     });
-    return unsubscribe;
+
+    const unsubscribeLocalActions = savedEvents.addPostActionListener((likedPostId, action, data) => {
+      if (action === 'like' || action === 'unlike') {
+        const isLiked = action === 'like';
+        const likesCount = data?.likesCount ?? 0;
+        setPosts(prev => prev.map(post => (
+          post._id === likedPostId
+            ? { ...post, isLiked, likesCount } as any
+            : post
+        )));
+      } else if (action === 'save' || action === 'unsave') {
+        const isBookmarked = action === 'save';
+        setPosts(prev => prev.map(post => (
+          post._id === likedPostId
+            ? { ...post, isSaved: isBookmarked } as any
+            : post
+        )));
+      }
+    });
+
+    return () => {
+      unsubscribeLikes();
+      unsubscribeLocalActions();
+    };
   }, []);
 
 

@@ -206,6 +206,57 @@ const journeySchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  // Tracking / map-matching diagnostics for route trust and debugging
+  routeQuality: {
+    totalRawPoints: {
+      type: Number,
+      default: 0
+    },
+    acceptedPoints: {
+      type: Number,
+      default: 0
+    },
+    rejectedInvalidPoints: {
+      type: Number,
+      default: 0
+    },
+    rejectedLowAccuracyPoints: {
+      type: Number,
+      default: 0
+    },
+    rejectedDuplicatePoints: {
+      type: Number,
+      default: 0
+    },
+    rejectedImpossibleSpeedPoints: {
+      type: Number,
+      default: 0
+    },
+    matchedPoints: {
+      type: Number,
+      default: 0
+    },
+    rawFallbackPoints: {
+      type: Number,
+      default: 0
+    },
+    averageGpsAccuracy: {
+      type: Number,
+      default: null
+    },
+    averageSnapDistance: {
+      type: Number,
+      default: null
+    },
+    averageMatchConfidence: {
+      type: Number,
+      default: null
+    },
+    lastUpdatedAt: {
+      type: Date,
+      required: false
+    }
+  },
   // Countries traversed (derived from GPS)
   countries: [
     {

@@ -34,6 +34,7 @@ import { theme } from '../constants/theme';
 import logger from '../utils/logger';
 import { getUserFromStorage } from '../services/auth';
 import FastImage from '../components/ui/FastImage';
+import FollowButton from '../components/ui/FollowButton';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -312,15 +313,11 @@ export default function SearchScreen() {
           </View>
         </View>
         
-        {item.isFollowing ? (
-          <TouchableOpacity style={[styles.followButton, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)', borderWidth: 1, borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)' }]}>
-            <Text style={[styles.followButtonText, { color: theme.colors.text, fontSize: 13 }]}>Following</Text>
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity style={[styles.followButton, { backgroundColor: theme.colors.primary }]}>
-            <Text style={[styles.followButtonText, { color: 'white', fontSize: 13 }]}>Follow</Text>
-          </TouchableOpacity>
-        )}
+        <FollowButton 
+          userId={item._id} 
+          initialIsFollowing={item.isFollowing} 
+          size="small" 
+        />
       </View>
     </TouchableOpacity>
   );

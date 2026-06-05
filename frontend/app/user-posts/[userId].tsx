@@ -18,6 +18,7 @@ import api from '../../services/api';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import logger from '../../utils/logger';
 import { realtimePostsService } from '../../services/realtimePosts';
+import { savedEvents } from '../../utils/savedEvents';
 
 // Platform-specific constants
 const { width: screenWidth } = Dimensions.get('window');
@@ -85,14 +86,37 @@ export default function UserPostsScreen() {
   }, [fetchUserPosts]);
 
   useEffect(() => {
-    const unsubscribe = realtimePostsService.subscribeToLikes(({ postId: likedPostId, isLiked, likesCount }) => {
+    const unsubscribeLikes = realtimePostsService.subscribeToLikes(({ postId: likedPostId, isLiked, likesCount }) => {
       setPosts(prev => prev.map(post => (
         post._id === likedPostId
           ? { ...post, isLiked, likesCount } as any
           : post
       )));
     });
-    return unsubscribe;
+
+    const unsubscribeLocalActions = savedEvents.addPostActionListener((likedPostId, action, data) => {
+      if (action === 'like' || action === 'unlike') {
+        const isLiked = action === 'like';
+        const likesCount = data?.likesCount ?? 0;
+        setPosts(prev => prev.map(post => (
+          post._id === likedPostId
+            ? { ...post, isLiked, likesCount } as any
+            : post
+        )));
+      } else if (action === 'save' || action === 'unsave') {
+        const isSaved = action === 'save';
+        setPosts(prev => prev.map(post => (
+          post._id === likedPostId
+            ? { ...post, isSaved } as any
+            : post
+        )));
+      }
+    });
+
+    return () => {
+      unsubscribeLikes();
+      unsubscribeLocalActions();
+    };
   }, []);
 
   useFocusEffect(

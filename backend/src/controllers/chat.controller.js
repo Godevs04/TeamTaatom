@@ -140,9 +140,19 @@ exports.listChats = async (req, res) => {
     }
     
     // Generate signed URLs for participant profile pictures
-    // Filter out null participants (deleted users that populate couldn't resolve)
     if (chat.participants && Array.isArray(chat.participants)) {
+      // For admin_support chats, ensure the official user is present even if missing in DB
+      if (chat.type === 'admin_support') {
+        const officialId = TAATOM_OFFICIAL_USER_ID ? TAATOM_OFFICIAL_USER_ID.toString() : '000000000000000000000001';
+        const hasOfficialUser = chat.participants.some(p => p && p._id && p._id.toString() === officialId);
+        if (!hasOfficialUser) {
+          chat.participants.push({ ...TAATOM_OFFICIAL_USER });
+        }
+      }
+
+      // Filter out null participants (deleted users that populate couldn't resolve)
       chat.participants = chat.participants.filter(p => p != null);
+      
       for (const participant of chat.participants) {
         // Special handling for Taatom Official user
         const officialId = TAATOM_OFFICIAL_USER_ID ? TAATOM_OFFICIAL_USER_ID.toString() : '000000000000000000000001';
@@ -426,6 +436,18 @@ exports.getChat = async (req, res) => {
     
     // Generate signed URLs for participant profile pictures
     if (chat.participants && Array.isArray(chat.participants)) {
+      // For admin_support chats, ensure the official user is present even if missing in DB
+      if (chat.type === 'admin_support') {
+        const officialId = TAATOM_OFFICIAL_USER_ID ? TAATOM_OFFICIAL_USER_ID.toString() : '000000000000000000000001';
+        const hasOfficialUser = chat.participants.some(p => p && p._id && p._id.toString() === officialId);
+        if (!hasOfficialUser) {
+          chat.participants.push({ ...TAATOM_OFFICIAL_USER });
+        }
+      }
+
+      // Filter out null participants
+      chat.participants = chat.participants.filter(p => p != null);
+
       const officialId = TAATOM_OFFICIAL_USER_ID ? TAATOM_OFFICIAL_USER_ID.toString() : '000000000000000000000001';
       for (const participant of chat.participants) {
         // Special handling for Taatom Official user

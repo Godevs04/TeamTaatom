@@ -888,32 +888,34 @@ function AllLocationsMapInner() {
         let lat: number | null = null;
         let lng: number | null = null;
 
-        // 1. Try to get device's live/last known location first (even if not own page)
-        try {
-          const currentPerm = await ExpoLocation.getForegroundPermissionsAsync();
-          let status = currentPerm.status;
-          if (status === 'undetermined') {
-            const requested = await ExpoLocation.requestForegroundPermissionsAsync();
-            status = requested.status;
-          }
-
-          if (status === 'granted') {
-            // Get last known location first ("last used of the app" - instant)
-            const lastKnown = await ExpoLocation.getLastKnownPositionAsync();
-            if (lastKnown) {
-              lat = lastKnown.coords.latitude;
-              lng = lastKnown.coords.longitude;
-            } else {
-              // Fallback to low accuracy current position
-              const loc = await ExpoLocation.getCurrentPositionAsync({
-                accuracy: ExpoLocation.Accuracy.Low,
-              });
-              lat = loc.coords.latitude;
-              lng = loc.coords.longitude;
+        // 1. Try to get device's live/last known location first (if viewing own page)
+        if (isOwnPage) {
+          try {
+            const currentPerm = await ExpoLocation.getForegroundPermissionsAsync();
+            let status = currentPerm.status;
+            if (status === 'undetermined') {
+              const requested = await ExpoLocation.requestForegroundPermissionsAsync();
+              status = requested.status;
             }
+
+            if (status === 'granted') {
+              // Get last known location first ("last used of the app" - instant)
+              const lastKnown = await ExpoLocation.getLastKnownPositionAsync();
+              if (lastKnown) {
+                lat = lastKnown.coords.latitude;
+                lng = lastKnown.coords.longitude;
+              } else {
+                // Fallback to low accuracy current position
+                const loc = await ExpoLocation.getCurrentPositionAsync({
+                  accuracy: ExpoLocation.Accuracy.Low,
+                });
+                lat = loc.coords.latitude;
+                lng = loc.coords.longitude;
+              }
+            }
+          } catch (locErr) {
+            logger.debug('[AllLocations] Live location check failed, using target location fallback:', locErr);
           }
-        } catch (locErr) {
-          logger.debug('[AllLocations] Live location check failed, using target location fallback:', locErr);
         }
 
         // 2. Fall back to the first location in validLocations if live location is unavailable
@@ -941,7 +943,7 @@ function AllLocationsMapInner() {
       }
     };
     detectCountry();
-  }, [validLocations.length]);
+  }, [validLocations.length, isOwnPage]);
 
   // Load locations + journeys
   useEffect(() => {
@@ -1722,7 +1724,7 @@ function initMap(){
             const city = location.address ? location.address.split(',')[0].trim() : `Post #${location.number}`;
             return (
               <OptimizedMarker
-                key={cluster.id}
+                key={`${cluster.id}-${isActive ? 'active' : 'inactive'}`}
                 coordinate={{ latitude: location.latitude, longitude: location.longitude }}
                 title={location.address || `Location #${location.number}`}
                 description={`Visit #${location.number}`}

@@ -395,15 +395,14 @@ const getPosts = async (req, res) => {
             }
           }
         }
-
         // Generate song URL if present
         if (post.song?.songId) {
           const storageKey = post.song.songId.storageKey || post.song.songId.cloudinaryKey || post.song.songId.s3Key;
           if (storageKey) {
             try {
               const songUrl = await generateSignedUrl(storageKey, 'AUDIO');
-              post.song.songId.s3Url = songUrl;
-              post.song.songId.cloudinaryUrl = songUrl;
+              post.song.songId.s3Url = songUrl || post.song.songId.s3Url || post.song.songId.cloudinaryUrl;
+              post.song.songId.cloudinaryUrl = songUrl || post.song.songId.cloudinaryUrl || post.song.songId.s3Url;
             } catch (error) {
               logger.warn('Failed to generate URL for song in post:', {
                 postId: post._id,
@@ -411,8 +410,7 @@ const getPosts = async (req, res) => {
                 storageKey,
                 error: error.message
               });
-              post.song.songId.s3Url = null;
-              post.song.songId.cloudinaryUrl = null;
+              // Do not set to null, keep existing URLs as fallback
             }
           }
         }
@@ -782,8 +780,8 @@ const getPostById = async (req, res) => {
       if (storageKey) {
         try {
           const songUrl = await generateSignedUrl(storageKey, 'AUDIO');
-          post.song.songId.s3Url = songUrl;
-          post.song.songId.cloudinaryUrl = songUrl;
+          post.song.songId.s3Url = songUrl || post.song.songId.s3Url || post.song.songId.cloudinaryUrl;
+          post.song.songId.cloudinaryUrl = songUrl || post.song.songId.cloudinaryUrl || post.song.songId.s3Url;
         } catch (error) {
           logger.warn('Failed to generate URL for song in post:', { 
             postId: post._id, 
@@ -791,8 +789,7 @@ const getPostById = async (req, res) => {
             storageKey,
             error: error.message 
           });
-          post.song.songId.s3Url = null;
-          post.song.songId.cloudinaryUrl = null;
+          // Do not set to null, keep existing URLs as fallback
         }
       }
     }
@@ -1524,7 +1521,17 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
 
       // Generate signed URL for song if present (same logic as getShorts)
       if (short.song?.songId) {
-        await resolveSong(short.song.songId);
+        const storageKey = short.song.songId.storageKey || short.song.songId.cloudinaryKey || short.song.songId.s3Key;
+        if (storageKey) {
+          try {
+            const songUrl = await generateSignedUrl(storageKey, 'AUDIO');
+            short.song.songId.s3Url = songUrl || short.song.songId.s3Url || short.song.songId.cloudinaryUrl;
+            short.song.songId.cloudinaryUrl = songUrl || short.song.songId.cloudinaryUrl || short.song.songId.s3Url;
+          } catch (error) {
+            logger.warn(`Failed to generate song URL for short ${short._id}:`, error.message);
+            // Do not set to null, keep existing URLs as fallback
+          }
+        }
       }
 
       // Generate signed URLs for short video and thumbnail
@@ -2154,12 +2161,11 @@ const getUserPosts = async (req, res) => {
         if (storageKey) {
           try {
             const songUrl = await generateSignedUrl(storageKey, 'AUDIO');
-            post.song.songId.s3Url = songUrl;
-            post.song.songId.cloudinaryUrl = songUrl;
+            post.song.songId.s3Url = songUrl || post.song.songId.s3Url || post.song.songId.cloudinaryUrl;
+            post.song.songId.cloudinaryUrl = songUrl || post.song.songId.cloudinaryUrl || post.song.songId.s3Url;
           } catch (error) {
             logger.warn(`Failed to generate song URL for post ${post._id}:`, error.message);
-            post.song.songId.s3Url = null;
-            post.song.songId.cloudinaryUrl = null;
+            // Do not set to null, keep existing URLs as fallback
           }
         }
       }
@@ -3077,6 +3083,8 @@ const getShorts = async (req, res) => {
 
     const matchQuery = {
       isActive: true,
+      isArchived: { $ne: true },
+      isHidden: { $ne: true },
       type: 'short',
       $and: [
         { $or: [{ status: 'active' }, { status: { $exists: false } }] }
@@ -3599,6 +3607,9 @@ const createShort = async (req, res) => {
 
     await short.save();
 
+    await deleteCacheByPattern('posts:*');
+    await deleteCache(CacheKeys.userPosts(req.user._id.toString(), 1, 20));
+
     // Create TranscodeJob
     const TranscodeJob = mongoose.model('TranscodeJob');
     const job = new TranscodeJob({
@@ -3777,6 +3788,56 @@ const incrementShare = async (req, res) => {
   }
 };
 
+// @desc    Get users who liked a post
+// @route   GET /posts/:id/likes
+// @access  Public (optionalAuth)
+const getPostLikers = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    const post = await Post.findById(id).select('likes').lean();
+    if (!post) {
+      return sendError(res, 'RES_3001', 'Post does not exist');
+    }
+
+    const likerIds = (post.likes || []).slice(skip, skip + limit);
+    const totalLikes = (post.likes || []).length;
+
+    const likers = await User.find({ _id: { $in: likerIds } })
+      .select('fullName username profilePic profilePicStorageKey settings.privacy.profileVisibility')
+      .lean();
+
+    // Map to preserve order and resolve profile pics
+    const likersMap = new Map(likers.map(u => [u._id.toString(), u]));
+    
+    const orderedLikers = [];
+    for (const userId of likerIds) {
+      const user = likersMap.get(userId.toString());
+      if (user) {
+        user.profilePic = await resolveProfilePic(user);
+        orderedLikers.push(user);
+      }
+    }
+
+    return sendSuccess(res, 200, 'Likers fetched successfully', {
+      likers: orderedLikers,
+      pagination: {
+        total: totalLikes,
+        page,
+        limit,
+        pages: Math.ceil(totalLikes / limit)
+      }
+    });
+  } catch (error) {
+    logger.error('Get post likers error:', error);
+    return sendError(res, 'SRV_6001', 'Error fetching likers');
+  }
+};
+
+
 module.exports = {
   getPosts,
   getPostById,
@@ -3797,6 +3858,6 @@ module.exports = {
   updatePost,
   getArchivedPosts,
   getHiddenPosts,
-  incrementShare
+  incrementShare,
+  getPostLikers
 };
-

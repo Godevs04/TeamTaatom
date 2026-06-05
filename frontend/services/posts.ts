@@ -1072,3 +1072,14 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     throw new Error(parsedError.userMessage);
   }
 };
+
+// Get post likers
+export const getPostLikers = async (postId: string, page: number = 1, limit: number = 20): Promise<{ success: boolean; likers: any[]; pagination: any }> => {
+  try {
+    const response = await api.get(`/api/v1/posts/${postId}/likes?page=${page}&limit=${limit}`);
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};

@@ -18,6 +18,7 @@ import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import EmptyState from '../../components/EmptyState';
 import ErrorMessage from '../../components/ErrorMessage';
 import NavBar from '../../components/NavBar';
+import { savedEvents } from '../../utils/savedEvents';
 
 export default function HashtagDetailScreen() {
   const { hashtag } = useLocalSearchParams<{ hashtag: string }>();
@@ -72,6 +73,31 @@ export default function HashtagDetailScreen() {
       loadData();
     }
   }, [hashtagName]);
+
+  useEffect(() => {
+    const unsubscribeLocalActions = savedEvents.addPostActionListener((likedPostId, action, data) => {
+      if (action === 'like' || action === 'unlike') {
+        const isLiked = action === 'like';
+        const likesCount = data?.likesCount ?? 0;
+        setPosts(prev => prev.map(post => (
+          post._id === likedPostId
+            ? { ...post, isLiked, likesCount } as any
+            : post
+        )));
+      } else if (action === 'save' || action === 'unsave') {
+        const isSaved = action === 'save';
+        setPosts(prev => prev.map(post => (
+          post._id === likedPostId
+            ? { ...post, isSaved } as any
+            : post
+        )));
+      }
+    });
+
+    return () => {
+      unsubscribeLocalActions();
+    };
+  }, []);
 
   const handleRefresh = async () => {
     setRefreshing(true);

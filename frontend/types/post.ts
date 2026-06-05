@@ -35,6 +35,7 @@ export interface PostType {
   sharesCount?: number;
   viewsCount?: number; // Post view count
   isLiked: boolean;
+  isSaved?: boolean;
   // Post settings
   commentsDisabled?: boolean;
   isArchived?: boolean;

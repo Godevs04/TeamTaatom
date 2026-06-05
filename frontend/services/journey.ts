@@ -40,6 +40,20 @@ export interface Journey {
   updatedAt: string;
   // Backend-shaped fields surfaced by the API as-is from the Mongoose model
   distanceTraveled?: number;
+  routeQuality?: {
+    totalRawPoints?: number;
+    acceptedPoints?: number;
+    rejectedInvalidPoints?: number;
+    rejectedLowAccuracyPoints?: number;
+    rejectedDuplicatePoints?: number;
+    rejectedImpossibleSpeedPoints?: number;
+    matchedPoints?: number;
+    rawFallbackPoints?: number;
+    averageGpsAccuracy?: number | null;
+    averageSnapDistance?: number | null;
+    averageMatchConfidence?: number | null;
+    lastUpdatedAt?: string;
+  };
   startedAt?: string;
   completedAt?: string;
   pausedAt?: string;

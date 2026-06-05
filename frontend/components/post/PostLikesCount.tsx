@@ -3,8 +3,7 @@ import { View, StyleSheet, TouchableOpacity, Text, Image, FlatList, ActivityIndi
 import GradientText from '../ui/GradientText';
 import { GlassModal } from '../ui/GlassModal';
 import { useTheme } from '../../context/ThemeContext';
-import { getPostById } from '../../services/posts';
-import { getProfile } from '../../services/profile';
+import { getPostLikers } from '../../services/posts';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -45,24 +44,9 @@ export default function PostLikesCount({
       setShowModal(true);
       setLoading(true);
       try {
-        const data = await getPostById(postId);
-        const likes = data?.data?.post?.likes || data?.post?.likes || data?.likes || [];
-        if (likes.length > 0) {
-          // Fetch profiles in parallel
-          const profiles = await Promise.all(
-            likes.map(async (userId: string) => {
-              try {
-                const res = await getProfile(userId);
-                return res?.profile || null;
-              } catch (err) {
-                return null;
-              }
-            })
-          );
-          setLikers(profiles.filter(Boolean));
-        } else {
-          setLikers([]);
-        }
+        const response = await getPostLikers(postId, 1, 100);
+        const likersList = response?.likers || (response as any)?.data?.likers || [];
+        setLikers(likersList);
       } catch (error) {
         console.warn('Failed to load likers:', error);
       } finally {

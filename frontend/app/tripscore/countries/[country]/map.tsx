@@ -751,7 +751,7 @@ export default function CountryMapScreen() {
 
             return (
               <Marker
-                key={stableKey}
+                key={`${stableKey}-${isSelected ? 'selected' : 'unselected'}`}
                 zIndex={isSelected ? 99999 : index}
                 anchor={{ x: 0.5, y: 1.0 }}
                 coordinate={{
