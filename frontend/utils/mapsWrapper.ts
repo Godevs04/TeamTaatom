@@ -2,9 +2,7 @@
 // Metro will automatically use mapsWrapper.web.ts for web builds
 //
 // Strategy:
-//   iOS ........................ native MapView (Apple Maps)
-//   Android dev/prod build .... native MapView (Google Maps)
-//   Android Expo Go ........... WebView fallback (react-native-maps not bundled)
+//   iOS / Android .............. WebView fallback (stable under zoom with custom markers)
 //   Web ....................... handled by mapsWrapper.web.ts
 
 import { Platform } from 'react-native';

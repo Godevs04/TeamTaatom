@@ -1343,9 +1343,9 @@ function initMap(){
         map:map,
         title:j.startCity||'Start',
         icon:{
-          url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="14" fill="${GROWTH_GREEN}" stroke="white" stroke-width="2"/></svg>'),
-          scaledSize:new google.maps.Size(32,32),
-          anchor:new google.maps.Point(16,16)
+          url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><circle cx="11" cy="11" r="9" fill="${GROWTH_GREEN}" stroke="white" stroke-width="1.5"/></svg>'),
+          scaledSize:new google.maps.Size(22,22),
+          anchor:new google.maps.Point(11,11)
         }
       });
     }
@@ -1356,9 +1356,9 @@ function initMap(){
         map:map,
         title:j.endCity||'End',
         icon:{
-          url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="14" fill="${ALERT_RED}" stroke="white" stroke-width="2"/></svg>'),
-          scaledSize:new google.maps.Size(32,32),
-          anchor:new google.maps.Point(16,16)
+          url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><circle cx="11" cy="11" r="9" fill="${ALERT_RED}" stroke="white" stroke-width="1.5"/></svg>'),
+          scaledSize:new google.maps.Size(22,22),
+          anchor:new google.maps.Point(11,11)
         }
       });
     }

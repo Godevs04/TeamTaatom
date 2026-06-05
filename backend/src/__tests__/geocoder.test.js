@@ -56,9 +56,9 @@ describe('Geocoder Utility', () => {
     expect(res2).toBeNull();
   });
 
-  it('should return null if GOOGLE_MAPS_API_KEY is not set', async () => {
+  it('should return null for non-canonical addresses if GOOGLE_MAPS_API_KEY is not set', async () => {
     process.env.GOOGLE_MAPS_API_KEY = '';
-    const res = await geocodeAddress('Big Ben');
+    const res = await geocodeAddress('Some Unknown Place');
     expect(res).toBeNull();
   });
 
@@ -71,5 +71,15 @@ describe('Geocoder Utility', () => {
     expect(res.city).toBe('London');
     expect(res.country).toBe('United Kingdom');
     expect(res.continent).toBe('EUROPE');
+  });
+
+  it('should canonicalize London Eye without relying on generic geocoder ordering', async () => {
+    process.env.GOOGLE_MAPS_API_KEY = '';
+    const res = await geocodeAddress('London Eye');
+    expect(res).not.toBeNull();
+    expect(res.lat).toBe(51.503324);
+    expect(res.lng).toBe(-0.119543);
+    expect(res.city).toBe('London');
+    expect(res.country).toBe('United Kingdom');
   });
 });

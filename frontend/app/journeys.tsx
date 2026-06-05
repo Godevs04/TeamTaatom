@@ -101,7 +101,7 @@ function JourneysListInner() {
       else if (pageNum === 1) setLoading(true);
       else setLoadingMore(true);
 
-      const data = await getUserJourneys(userId, pageNum, 20);
+      const data = await getUserJourneys(userId, pageNum, 20, true);
       const fetched = data?.journeys ?? [];
 
       if (pageNum === 1) {

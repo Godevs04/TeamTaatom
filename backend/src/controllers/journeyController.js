@@ -157,6 +157,32 @@ const updateRouteQuality = (journey, stats) => {
   };
 };
 
+const buildDisplayPolyline = (journey) => {
+  const snapped = journey.snapped_polyline || [];
+  const raw = journey.raw_polyline || [];
+
+  if (snapped.length > 0) {
+    return snapped.map((p, idx) => {
+      let origIdx = 0;
+      if (snapped.length > 1 && raw.length > 0) {
+        origIdx = Math.min(
+          Math.floor((idx / (snapped.length - 1)) * (raw.length - 1)),
+          raw.length - 1
+        );
+      }
+      const rawP = raw[origIdx];
+      return {
+        lat: p.lat,
+        lng: p.lng,
+        timestamp: rawP ? rawP.timestamp : new Date(),
+        accuracy: rawP ? rawP.accuracy : 0,
+        segmentBreak: rawP ? rawP.segmentBreak : false
+      };
+    });
+  }
+
+  return raw;
+};
 // POST /api/v1/journey/start
 const startJourney = async (req, res) => {
   try {
@@ -754,13 +780,15 @@ const completeJourney = async (req, res) => {
 
 
     await journey.save();
+    const responseJourney = journey.toObject();
+    responseJourney.polyline = buildDisplayPolyline(journey);
     logger.info(`Journey completed for user ${req.user._id}:`, {
       journeyId: journey._id,
       distance: journey.distanceTraveled,
       waypoints: journey.waypoints.length
     });
 
-    return sendSuccess(res, 200, 'Journey completed', { journey });
+    return sendSuccess(res, 200, 'Journey completed', { journey: responseJourney });
   } catch (error) {
     logger.error('Complete journey error:', error);
     return sendError(res, 'ERR_5001', 'Failed to complete journey');
@@ -1024,28 +1052,7 @@ const getUserJourneys = async (req, res) => {
     const enrichedJourneys = journeys.map(j => {
       let poly = j.polyline;
       if (includePolyline) {
-        if (j.snapped_polyline && j.snapped_polyline.length > 0) {
-          const raw = j.raw_polyline || [];
-          poly = j.snapped_polyline.map((p, idx) => {
-            let origIdx = 0;
-            if (j.snapped_polyline.length > 1 && raw.length > 0) {
-              origIdx = Math.min(
-                Math.floor((idx / (j.snapped_polyline.length - 1)) * (raw.length - 1)),
-                raw.length - 1
-              );
-            }
-            const rawP = raw[origIdx];
-            return {
-              lat: p.lat,
-              lng: p.lng,
-              timestamp: rawP ? rawP.timestamp : new Date(),
-              accuracy: rawP ? rawP.accuracy : 0,
-              segmentBreak: rawP ? rawP.segmentBreak : false
-            };
-          });
-        } else if (j.raw_polyline && j.raw_polyline.length > 0) {
-          poly = j.raw_polyline;
-        }
+        poly = buildDisplayPolyline(j);
       }
 
       return {

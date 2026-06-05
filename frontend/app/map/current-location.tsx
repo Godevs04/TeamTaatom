@@ -98,8 +98,8 @@ const createStyles = (isDark: boolean) => {
       ...StyleSheet.absoluteFillObject,
     },
     map: {
-      width: '100%',
-      height: '100%',
+      flex: 1,
+      minHeight: 200,
     },
     centerContainer: {
       flex: 1,

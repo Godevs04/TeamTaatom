@@ -289,16 +289,16 @@ export default function PostScreen() {
       try {
         let status = 'denied';
 
-        // 2-second permission timeout to prevent native bridge hangs
+        // 60-second permission timeout to prevent native bridge hangs while giving user time to respond
         const permissionTimeout = new Promise<string>((resolve) => {
-          setTimeout(() => resolve('timeout'), 2000);
+          setTimeout(() => resolve('timeout'), 60000);
         });
 
         const permissionResolver = async (): Promise<string> => {
           try {
             // Check existing first (non-blocking)
             const existing = await MediaLibrary.getPermissionsAsync();
-            if (existing.status === 'granted') {
+            if (existing.granted || existing.status === 'granted') {
               return 'granted';
             }
 
@@ -309,17 +309,17 @@ export default function PostScreen() {
                 console.log("[loadCameraRoll] Android 13+: Requesting granular MediaLibrary permissions...");
                 // Note: avoiding requesting 'audio' granular permission to prevent AndroidManifest audio declaration rejection
                 const permResult = await MediaLibrary.requestPermissionsAsync(false, ['photo', 'video']);
-                return permResult.status;
+                return (permResult.granted || permResult.status === 'granted') ? 'granted' : permResult.status;
               } else {
                 console.log("[loadCameraRoll] Android legacy: Requesting standard MediaLibrary permissions...");
                 const permResult = await MediaLibrary.requestPermissionsAsync(false);
-                return permResult.status;
+                return (permResult.granted || permResult.status === 'granted') ? 'granted' : permResult.status;
               }
             } else {
               // iOS Flow
               console.log("[loadCameraRoll] iOS: Requesting standard MediaLibrary permissions...");
               const permResult = await MediaLibrary.requestPermissionsAsync(false);
-              return permResult.status;
+              return (permResult.granted || permResult.status === 'granted') ? 'granted' : permResult.status;
             }
           } catch (err: any) {
             console.warn("[loadCameraRoll] MediaLibrary request failed, trying fallback:", err);
@@ -344,7 +344,7 @@ export default function PostScreen() {
                 }
               } else {
                 const permResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                return permResult.status;
+                return (permResult.granted || permResult.status === 'granted') ? 'granted' : permResult.status;
               }
             } catch (rawErr) {
               console.error("[loadCameraRoll] Fallback permission check failed:", rawErr);
@@ -356,13 +356,14 @@ export default function PostScreen() {
         status = await Promise.race([permissionResolver(), permissionTimeout]);
         console.log("[loadCameraRoll] Resolved permission status:", status);
 
+        let result: any = null;
+
         if (status === 'granted') {
           console.log("[loadCameraRoll] Requesting assets from MediaLibrary...");
-          let result;
           try {
-            // 2-second assets fetch timeout to prevent native bridge hangs
+            // 30-second assets fetch timeout to prevent native bridge hangs
             const assetsTimeout = new Promise<any>((_, reject) =>
-              setTimeout(() => reject(new Error("Assets fetch timeout")), 2000)
+              setTimeout(() => reject(new Error("Assets fetch timeout")), 30000)
             );
 
             const assetsFetch = async () => {
@@ -394,10 +395,16 @@ export default function PostScreen() {
           }
         }
 
-        // If status was not granted, or if result was empty/timed out, fallback to mock assets
-        console.log("[loadCameraRoll] Media library empty or not granted (Expo Go / Simulator). Loading mock travel placeholder assets...");
-        setCameraRollAssets(MOCK_GALLERY_ASSETS);
-        setLatestAssetUri(MOCK_GALLERY_ASSETS[0].uri);
+        // If status was not granted, or if result was empty/timed out, fallback to mock assets only in dev mode
+        if (status !== 'granted' || (__DEV__ && (!result || !result.assets || result.assets.length === 0))) {
+          console.log("[loadCameraRoll] Loading mock travel placeholder assets...");
+          setCameraRollAssets(MOCK_GALLERY_ASSETS);
+          setLatestAssetUri(MOCK_GALLERY_ASSETS[0].uri);
+        } else {
+          console.log("[loadCameraRoll] Rendering empty gallery.");
+          setCameraRollAssets([]);
+          setLatestAssetUri(null);
+        }
       } catch (err: any) {
         console.error("[loadCameraRoll] CRITICAL EXCEPTION, falling back to mock assets:", err);
         logger.error('Error loading camera roll:', err?.message || err);
@@ -406,8 +413,10 @@ export default function PostScreen() {
         setLatestAssetUri(MOCK_GALLERY_ASSETS[0].uri);
       }
     }
-    loadCameraRoll();
-  }, []);
+    if (isFocused) {
+      loadCameraRoll();
+    }
+  }, [isFocused]);
 
   const [selectedImages, setSelectedImages] = useState<Array<{ uri: string; type: string; name: string }>>([]);
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null);

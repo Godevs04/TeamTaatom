@@ -979,12 +979,8 @@ export default function UserProfileScreen() {
                       : 'No verified journeys summary yet'
                 }
                 onPress={() => {
-                  if (verifiedLocationsCount !== null && verifiedLocationsCount > 0) {
-                    const name = profile?.fullName || profile?.username || 'User';
-                    router.push(`/map/all-locations?userId=${id}&userName=${encodeURIComponent(name)}`);
-                  } else if (profile.canViewLocations && profile.locations && profile.locations.length > 0) {
-                    setShowWorldMap(true);
-                  }
+                  const name = profile?.fullName || profile?.username || 'User';
+                  router.push(`/map/all-locations?userId=${id}&userName=${encodeURIComponent(name)}`);
                 }}
                 showDivider={profile.canViewPosts}
                 iconTint={profileTheme.accent}
@@ -993,16 +989,14 @@ export default function UserProfileScreen() {
           </CloudActionGroup>
         ) : null}
 
-        {(profile.canViewPosts || isOwnProfile) && globeLocations.length > 0 ? (
+        {(profile.canViewPosts || isOwnProfile) ? (
           <View style={{ marginHorizontal: 16, marginBottom: 12, alignItems: 'center', paddingVertical: 16 }}>
             <RotatingGlobe
               locations={globeLocations}
               size={140}
               onPress={() => {
-                if (verifiedLocationsCount !== null && verifiedLocationsCount > 0) {
-                  const name = profile?.fullName || profile?.username || 'User';
-                  router.push(`/map/all-locations?userId=${id}&userName=${encodeURIComponent(name)}`);
-                }
+                const name = profile?.fullName || profile?.username || 'User';
+                router.push(`/map/all-locations?userId=${id}&userName=${encodeURIComponent(name)}`);
               }}
             />
           </View>
@@ -1088,6 +1082,7 @@ export default function UserProfileScreen() {
                         params: {
                           postId: item._id,
                           postData: JSON.stringify(item),
+                          index: String(index),
                         },
                       })}
                     >
@@ -1130,7 +1125,7 @@ export default function UserProfileScreen() {
                         key={s._id}
                         item={s}
                         isThumbnail={true}
-                        onPress={() => router.push(`/user-shorts/${id}?shortId=${s._id}`)}
+                        onPress={() => router.push(`/user-shorts/${id}?shortId=${s._id}&index=${index}`)}
                         profileTheme={profileTheme}
                       />
                     );

@@ -151,6 +151,7 @@ export const updateJourneyLocation = async (
       lng: c.longitude,
       timestamp: c.timestamp,
       accuracy: c.accuracy,
+      segmentBreak: c.segmentBreak === true,
     }));
     const response = await api.put(`/api/v1/journey/${journeyId}/location`, {
       coordinates: mappedCoords,

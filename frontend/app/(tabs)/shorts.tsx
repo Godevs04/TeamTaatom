@@ -153,6 +153,7 @@ export type ShortsScreenProps = {
   /** When embedded from `/user-shorts/[userId]` — load this user's shorts (params may not reach hooks reliably). */
   scopedUserId?: string;
   initialShortId?: string;
+  initialIndex?: number;
   isSavedShorts?: boolean;
   isMuted?: boolean;
   onMuteToggle?: () => void;
@@ -1103,12 +1104,18 @@ LocalShortsActionRail.displayName = 'LocalShortsActionRail';
 
 
 export default function ShortsScreen(props: ShortsScreenProps = {}) {
+  const params = useLocalSearchParams();
+  const initialIndex = props.initialIndex ?? (params.index ? parseInt(params.index as string, 10) : 0);
+
   const [shorts, setShorts] = useState<PostType[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [currentIndex, setCurrentIndex] = useState(0);
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
   // Track visible index precisely using onViewableItemsChanged
-  const [currentVisibleIndex, setCurrentVisibleIndex] = useState(0);
+  const [currentVisibleIndex, setCurrentVisibleIndex] = useState(initialIndex);
+
+  const targetInitialIndexRef = useRef<number>(initialIndex);
+  const isInitialScrollDoneRef = useRef(initialIndex === 0);
   const [isVideoPlaying, setIsVideoPlaying] = useState(true);
   const [isScreenFocused, setIsScreenFocused] = useState(true);
   const isScreenFocusedRef = useRef(true);
@@ -1305,7 +1312,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   
   const { theme, mode } = useTheme();
   const router = useRouter();
-  const params = useLocalSearchParams();
   const segments = useSegments();
 
   const effectiveUserId =
@@ -3178,11 +3184,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     setCurrentIndex(dataIndex);
     setCurrentVisibleIndex(dataIndex);
     const attemptScroll = (attempt: number = 0) => {
-      if (attempt > 5) return;
+      if (attempt > 5) {
+        isInitialScrollDoneRef.current = true;
+        return;
+      }
       setTimeout(() => {
         if (flatListRef.current) {
           try {
             flatListRef.current.scrollToIndex({ index: dataIndex, animated: false });
+            isInitialScrollDoneRef.current = true;
           } catch {
             attemptScroll(attempt + 1);
           }
@@ -4120,6 +4130,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const item = visibleItem.item as ShortsItem;
 
     if (newVisibleIndex === undefined || newVisibleIndex === null || newVisibleIndex === currentVisibleIndex) return;
+
+    if (!isInitialScrollDoneRef.current) {
+      if (newVisibleIndex === targetInitialIndexRef.current) {
+        isInitialScrollDoneRef.current = true;
+      } else {
+        return;
+      }
+    }
 
     // Pause previous short's audio immediately when user scrolls to another video.
     // NOTE: Only pause here — do NOT call audioManager.stopAll() which destructively

@@ -575,7 +575,23 @@ const getPostById = async (req, res) => {
             ]
           }
         },
-        { $unwind: { path: '$user', preserveNullAndEmptyArrays: false } },
+        { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+        {
+          $addFields: {
+            user: {
+              $cond: {
+                if: { $eq: ['$user', null] },
+                then: {
+                  fullName: 'Unknown User',
+                  profilePic: '',
+                  followers: [],
+                  settings: { privacy: { profileVisibility: 'public' } }
+                },
+                else: '$user'
+              }
+            }
+          }
+        },
         {
           $lookup: {
             from: 'users',
@@ -688,7 +704,10 @@ const getPostById = async (req, res) => {
     const visibility = post.user?.settings?.privacy?.profileVisibility || 'public';
     if (visibility !== 'public' && postAuthorId !== userId) {
       const viewerObjId = userId ? new mongoose.Types.ObjectId(userId) : null;
-      const authorFollowers = (post.user?.followers || []).map(f => f.toString());
+      
+      // Fetch fresh author data for followers check to avoid cache staleness
+      const freshAuthor = await User.findById(postAuthorId).select('followers').lean();
+      const authorFollowers = (freshAuthor?.followers || []).map(f => f.toString());
       const isFollower = viewerObjId ? authorFollowers.includes(viewerObjId.toString()) : false;
 
       if (visibility === 'followers' && !isFollower) {

@@ -1221,9 +1221,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           logger.error('[Journey] Failed to send final coordinates:', err);
           batchCoordinatesRef.current.unshift(...coords);
           persistPendingCoords();
-          // Don't proceed to completeJourney — surface the error so the
-          // user can retry from the End Journey button.
-          throw err;
+          // Keep going: one failed final GPS batch should not trap the user
+          // in an un-endable journey.
+          logger.warn('[Journey] Continuing completion despite final coordinate upload failure');
         }
       } else {
         // Even if the in-memory batch is empty the persisted-batch entry
