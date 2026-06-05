@@ -1,6 +1,6 @@
 {
   "name": "taatom",
-  "version": "26.3.9",
+  "version": "26.3.11",
   "main": "index.js",
   "scripts": {
     "start": "expo start",
