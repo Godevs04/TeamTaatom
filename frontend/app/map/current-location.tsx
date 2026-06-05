@@ -739,9 +739,9 @@ function initMap(){
   
   var isPostLoc = ${isPostLocation};
   if (isPostLoc) {
-    var titleText = "${htmlEsc(locationName || postAddress || 'Location')}";
-    var subtitleText = "${htmlEsc(params.spotTypes as string || params.description as string || 'Visited place')}";
-    var photoUrl = "${params.imageUrl ? resolvePhotoUrl(params.imageUrl as string) : ''}";
+    var titleText = ${JSON.stringify(htmlEsc(locationName || postAddress || 'Location'))};
+    var subtitleText = ${JSON.stringify(htmlEsc(params.spotTypes as string || params.description as string || 'Visited place'))};
+    var photoUrl = ${JSON.stringify(params.imageUrl ? resolvePhotoUrl(params.imageUrl as string) || '' : '')};
     var imgHtml = photoUrl ? '<img src="' + photoUrl + '" class="marker-thumb" onerror="this.style.display=\'none\'" />' : '<div class="marker-thumb-placeholder">📍</div>';
     div.setAttribute('data-anchor', 'bottom');
     div.innerHTML = '<div class="glass-marker-card">' +
