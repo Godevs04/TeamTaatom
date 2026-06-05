@@ -9,6 +9,7 @@ import { getPostById } from '../../services/posts';
 import { trackPostView } from '../../services/analytics';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import { createLogger } from '../../utils/logger';
+import { savedEvents } from '../../utils/savedEvents';
 
 const logger = createLogger('PostDetail');
 
@@ -42,6 +43,26 @@ export default function PostDetail() {
   useEffect(() => {
     fetchPost();
   }, [fetchPost]);
+
+  useEffect(() => {
+    if (!id) return;
+    const unsubscribeLocalActions = savedEvents.addPostActionListener((likedPostId, action, data) => {
+      if (likedPostId !== id) return;
+
+      if (action === 'like' || action === 'unlike') {
+        const isLiked = action === 'like';
+        const likesCount = data?.likesCount ?? 0;
+        setPost(prev => prev ? { ...prev, isLiked, likesCount } : null);
+      } else if (action === 'save' || action === 'unsave') {
+        const isSaved = action === 'save';
+        setPost(prev => prev ? { ...prev, isSaved } : null);
+      }
+    });
+
+    return () => {
+      unsubscribeLocalActions();
+    };
+  }, [id]);
 
   // View tracking: send view event after 2 seconds (2-second rule)
   useEffect(() => {

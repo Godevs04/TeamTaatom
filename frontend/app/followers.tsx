@@ -12,6 +12,7 @@ import NavBar from '../components/NavBar';
 import { theme } from '../constants/theme';
 import { parseError } from '../utils/errorCodes';
 import logger from '../utils/logger';
+import FollowButton from '../components/ui/FollowButton';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -39,7 +40,6 @@ export default function FollowersFollowingList() {
   const type = (params.type as 'followers' | 'following') || 'followers';
   const [users, setUsers] = useState<UserType[]>([]);
   const [loading, setLoading] = useState(true);
-  const [followLoading, setFollowLoading] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [hasNextPage, setHasNextPage] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -115,99 +115,10 @@ export default function FollowersFollowingList() {
     }
   };
 
-  const handleToggleFollow = async (targetId: string) => {
-    // Prevent self-following
-    if (targetId === userId) {
-      Alert.alert('Error', 'You cannot follow yourself');
-      return;
-    }
-    
-    setFollowLoading(targetId);
-    
-    // Store previous state for rollback on error
-    const previousState = users.find(u => u._id === targetId);
-    const previousFollowing = previousState?.isFollowing ?? false;
-    const previousFollowRequestSent = previousState?.followRequestSent ?? false;
-    
-    // Optimistic update
-    setUsers(prev => prev.map(u => {
-      if (u._id === targetId) {
-        if (previousFollowing || previousFollowRequestSent) {
-          return { ...u, isFollowing: false, followRequestSent: false };
-        } else {
-          return { ...u, isFollowing: true, followRequestSent: false };
-        }
-      }
-      return u;
-    }));
-
-    try {
-      // Call API and use the response
-      const response = await toggleFollow(targetId);
-
-      // Extract values from response
-      const isFollowingValue = Boolean(response.isFollowing);
-      const followRequestSentValue = Boolean(response.followRequestSent);
-
-      // Update state with actual API response (source of truth)
-      setUsers(prev => prev.map(u => {
-        if (u._id === targetId) {
-          return {
-            ...u,
-            isFollowing: isFollowingValue,
-            followRequestSent: followRequestSentValue,
-            // Update followersCount if provided (for the profile owner)
-            ...(response.followersCount !== undefined && { followersCount: response.followersCount })
-          };
-        }
-        return u;
-      }));
-      
-      // No success alert - silent update for better UX
-      
-      // Refresh the list to ensure consistency
-      // Only refresh if we're viewing someone's followers/following (not our own)
-      if (userId && userId !== targetId) {
-        setTimeout(() => {
-          fetchList(page, true);
-        }, 300);
-      }
-    } catch (err: any) {
-      // Revert optimistic update on error
-      setUsers(prev => prev.map(u => 
-        u._id === targetId 
-          ? { ...u, isFollowing: previousFollowing, followRequestSent: previousFollowRequestSent } 
-          : u
-      ));
-      
-      // Don't log conflict errors (follow request already pending) as they are expected
-      if (!err.isConflict && err.response?.status !== 409) {
-        logger.error('Error following/unfollowing user:', err);
-      }
-      
-      const errorMessage = err.response?.data?.message || err.message || 'Failed to update follow status';
-      
-      // Check if it's a follow request already pending message or conflict error
-      if (errorMessage.includes('Follow request already pending') || errorMessage.includes('Request already sent') || err.isConflict) {
-        // Update state to show request sent
-        setUsers(prev => prev.map(u =>
-          u._id === targetId
-            ? { ...u, isFollowing: false, followRequestSent: true }
-            : u
-        ));
-        Alert.alert('Follow Request Pending', errorMessage);
-      } else {
-        Alert.alert('Error', errorMessage);
-      }
-    } finally {
-      setFollowLoading(null);
-    }
-  };
 
   const renderItem = ({ item }: { item: UserType & { isFollowing?: boolean; followRequestSent?: boolean } }) => {
     const isFollowing = item.isFollowing ?? false;
     const isRequested = !isFollowing && (item.followRequestSent ?? false);
-    const isLoading = followLoading === item._id;
 
     return (
       <View style={styles(theme).cardContainer}>
@@ -257,30 +168,17 @@ export default function FollowersFollowingList() {
             </TouchableOpacity>
 
             {item._id !== userId && (
-              <TouchableOpacity
-                style={[
-                  styles(theme).followButton,
-                  (isFollowing || isRequested) && styles(theme).followButtonFollowing,
-                  isLoading && styles(theme).followButtonLoading
-                ]}
-                onPress={() => handleToggleFollow(item._id)}
-                disabled={isLoading}
-                activeOpacity={0.8}
-              >
-                {isLoading ? (
-                  <LoadingGlobe
-                    size="small"
-                    color={(isFollowing || isRequested) ? theme.colors.primary : '#FFFFFF'}
-                  />
-                ) : (
-                  <Text style={[
-                    styles(theme).followButtonText,
-                    (isFollowing || isRequested) && styles(theme).followButtonTextFollowing
-                  ]}>
-                    {isFollowing ? 'Unfollow' : isRequested ? 'Requested' : 'Follow'}
-                  </Text>
-                )}
-              </TouchableOpacity>
+              <FollowButton 
+                userId={item._id} 
+                initialIsFollowing={isFollowing} 
+                onToggle={(newFollowState) => {
+                  setUsers(prev => prev.map(u => 
+                    u._id === item._id 
+                      ? { ...u, isFollowing: newFollowState === 'FOLLOWING', followRequestSent: newFollowState === 'REQUESTED' } 
+                      : u
+                  ));
+                }}
+              />
             )}
           </View>
         </TouchableOpacity>

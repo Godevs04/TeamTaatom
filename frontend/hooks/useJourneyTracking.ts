@@ -93,6 +93,10 @@ const normalizeJourneyPolyline = (journey?: Journey | null): Coordinate[] => {
 
 const BATCH_SEND_INTERVAL = 30000; // Send coordinates every 30 seconds
 const MIN_LOCATION_DISTANCE = 5; // Minimum 5 meters between tracked points (denser paths)
+const WALKING_SPEED_MPS = 2.2; // ~8 km/h
+const DRIVING_SPEED_MPS = 8; // ~29 km/h
+const STATIONARY_SPEED_MPS = 0.4; // ~1.4 km/h
+const STATIONARY_MARKER_UPDATE_INTERVAL = 10000;
 // AsyncStorage prefix for the unsent-coords queue. Each in-memory push to
 // batchCoordinatesRef also writes here so a crash mid-journey doesn't lose
 // the path between the last successful 60s sync and the crash.
@@ -106,6 +110,19 @@ const BG_QUEUE_KEY_PREFIX = 'bgJourneyCoords:';
 // every JS bundle load (required by TaskManager's API contract — it must
 // be reachable before `startLocationUpdatesAsync` is called).
 const BG_LOCATION_TASK = 'taatom-journey-bg-location';
+
+const getAdaptiveMinDistance = (accuracy: number, speed?: number | null): number => {
+  const accuracyFloor = Math.max(0, Number.isFinite(accuracy) ? accuracy : 0) * 0.5;
+  if (typeof speed === 'number' && speed >= 0) {
+    if (speed < WALKING_SPEED_MPS) {
+      return Math.max(3, accuracyFloor);
+    }
+    if (speed >= DRIVING_SPEED_MPS) {
+      return Math.max(10, accuracyFloor);
+    }
+  }
+  return Math.max(MIN_LOCATION_DISTANCE, accuracyFloor);
+};
 
 // Background location task. Runs in a headless JS context when the app is
 // backgrounded / locked. Cannot touch React state — only persists incoming
@@ -249,6 +266,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   const startTimeRef = useRef<number | null>(null);
   const pendingSegmentBreakRef = useRef(false);
   const kalmanFilterRef = useRef<KalmanFilter | null>(null);
+  const lastStationaryMarkerUpdateRef = useRef(0);
   // Tracks whether this hook instance is still mounted. Async paths (API
   // awaits, location callbacks fired after subscription removal on some
   // Android OEMs, late timer ticks) check this before calling setState so
@@ -325,17 +343,21 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           timestamp: location.timestamp,
           accuracy,
         };
-        setAccuracy(coord.accuracy);
-        setCurrentCoordinate(coord);
-
-
         // Stationary user speed filter: if speed is valid and less than 0.4 m/s (approx 1.4 km/h),
         // treat user as stationary/idle and do not append to polyline or accumulate distance.
         const speed = location?.coords?.speed;
-        if (speed !== null && speed !== undefined && speed >= 0 && speed < 0.4) {
+        if (speed !== null && speed !== undefined && speed >= 0 && speed < STATIONARY_SPEED_MPS) {
+          const now = Date.now();
+          if (now - lastStationaryMarkerUpdateRef.current >= STATIONARY_MARKER_UPDATE_INTERVAL) {
+            lastStationaryMarkerUpdateRef.current = now;
+            setAccuracy(coord.accuracy);
+            setCurrentCoordinate(coord);
+          }
           logger.debug(`[Journey] User is stationary (speed: ${speed} m/s). Skipping polyline update.`);
           return;
         }
+        setAccuracy(coord.accuracy);
+        setCurrentCoordinate(coord);
 
         // Only grow the polyline / running distance when movement is
         // significant. First emission seeds lastCoordinateRef.
@@ -369,7 +391,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
             // Adaptive distance threshold based on current GPS accuracy to filter noise.
             // When accuracy is worse, we require a larger distance to confirm actual movement.
-            const adaptiveMinDistance = Math.max(MIN_LOCATION_DISTANCE, coord.accuracy * 0.5);
+            const adaptiveMinDistance = getAdaptiveMinDistance(coord.accuracy, speed);
             if (dist >= adaptiveMinDistance) {
               lastCoordinateRef.current = coord;
               setPolyline((prev) => [...prev, coord]);
@@ -583,6 +605,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           lastCoordinateRef.current = null;
           pendingSegmentBreakRef.current = false;
           kalmanFilterRef.current = null;
+          lastStationaryMarkerUpdateRef.current = 0;
           batchCoordinatesRef.current = [];
           setIsTracking(false);
           setIsPaused(false);
@@ -830,7 +853,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           lastCoord.latitude, lastCoord.longitude,
           c.latitude, c.longitude
         );
-        if (d >= MIN_LOCATION_DISTANCE) {
+        if (d >= getAdaptiveMinDistance(c.accuracy ?? 0, null)) {
           accepted.push(c);
           addedDistance += d;
           lastCoord = c;
@@ -976,6 +999,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           initialCoord.timestamp
         );
         lastCoordinateRef.current = initialCoord;
+        lastStationaryMarkerUpdateRef.current = Date.now();
         pendingSegmentBreakRef.current = false;
         setPolyline([initialCoord]);
         setAccuracy(location.coords.accuracy);
@@ -1096,6 +1120,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       lastCoordinateRef.current = null; // Clear to guarantee first location fix starts a new segment
       pendingSegmentBreakRef.current = true;
       kalmanFilterRef.current = null; // Reset Kalman Filter on resume to avoid velocity projection jump from pause gap
+      lastStationaryMarkerUpdateRef.current = Date.now();
 
       // Restart location watcher via the centralized helper.
       await startLocationWatcher();
@@ -1169,6 +1194,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         locationWatcherRef.current = null;
       }
       lastCoordinateRef.current = null; // Clear on stop
+      lastStationaryMarkerUpdateRef.current = 0;
       pendingSegmentBreakRef.current = false;
 
       // Stop background updates and absorb anything the bg task captured
@@ -1195,9 +1221,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           logger.error('[Journey] Failed to send final coordinates:', err);
           batchCoordinatesRef.current.unshift(...coords);
           persistPendingCoords();
-          // Don't proceed to completeJourney — surface the error so the
-          // user can retry from the End Journey button.
-          throw err;
+          // Keep going: one failed final GPS batch should not trap the user
+          // in an un-endable journey.
+          logger.warn('[Journey] Continuing completion despite final coordinate upload failure');
         }
       } else {
         // Even if the in-memory batch is empty the persisted-batch entry
@@ -1277,6 +1303,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       lastCoordinateRef.current = null;
       pendingSegmentBreakRef.current = false;
       kalmanFilterRef.current = null;
+      lastStationaryMarkerUpdateRef.current = 0;
       batchCoordinatesRef.current = [];
       setIsTracking(false);
       setIsPaused(false);

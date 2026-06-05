@@ -6,6 +6,7 @@ const { projectPointToSegment, calculateHaversine } = require('./projection');
 const SIGMA_Z = 8.0;          // GPS accuracy noise standard deviation in meters
 const BETA = 25.0;            // Transition scale parameter in meters
 const MAX_SEARCH_RADIUS = 30.0; // Max radius (meters) to query candidate road segments
+const MIN_PROBABILITY = 1e-12;
 
 /**
  * Estimates driving routing distance between two snapped candidate locations.
@@ -25,6 +26,23 @@ function estimateRoutingDistance(cPrev, cCurr) {
   
   // Apply Manhattan grid detour scaling factor (approximates road grid curvature)
   return linearDist * 1.35;
+}
+
+function emissionProbability(distance) {
+  const probability = Math.exp(-0.5 * (distance / SIGMA_Z) ** 2) / (SIGMA_Z * Math.sqrt(2 * Math.PI));
+  return Math.max(probability, MIN_PROBABILITY);
+}
+
+function transitionProbability(greatCircleDistance, routeDistance) {
+  const distanceDelta = Math.abs(greatCircleDistance - routeDistance);
+  const probability = Math.exp(-distanceDelta / BETA) / BETA;
+  return Math.max(probability, MIN_PROBABILITY);
+}
+
+function candidateConfidence(candidate) {
+  if (!candidate || candidate.roadId === 'fallback') return 0.2;
+  // 1.0 at the road centerline, tapering to ~0.02 near the max search radius.
+  return Math.max(0, Math.min(1, Math.exp(-candidate.distance / SIGMA_Z)));
 }
 
 /**
@@ -105,7 +123,8 @@ async function matchTrajectory(rawPoints) {
         distance: 0,
         roadId: 'fallback',
         osmId: 'fallback',
-        roadName: 'Raw Path'
+        roadName: 'Raw Path',
+        source: 'raw'
       });
     }
     timelineCandidates.push(cands);
@@ -118,8 +137,7 @@ async function matchTrajectory(rawPoints) {
 
   // 2. Base Case: Initialization (t = 0)
   timelineCandidates[0].forEach((cand, idx) => {
-    const emission = Math.exp(-0.5 * (cand.distance / SIGMA_Z) ** 2) / (SIGMA_Z * Math.sqrt(2 * Math.PI));
-    V[0][idx] = emission;
+    V[0][idx] = Math.log(emissionProbability(cand.distance));
     backpointers[0][idx] = null;
   });
 
@@ -130,43 +148,45 @@ async function matchTrajectory(rawPoints) {
     const dGcd = calculateHaversine(rawPoints[t-1].lat, rawPoints[t-1].lng, rawPoints[t].lat, rawPoints[t].lng);
 
     currCands.forEach((curr, currIdx) => {
-      const emission = Math.exp(-0.5 * (curr.distance / SIGMA_Z) ** 2) / (SIGMA_Z * Math.sqrt(2 * Math.PI));
-      let maxProb = -1;
+      const emissionLog = Math.log(emissionProbability(curr.distance));
+      let maxScore = Number.NEGATIVE_INFINITY;
       let bestPrevIdx = 0;
 
       prevCands.forEach((prev, prevIdx) => {
-        const prevV = V[t - 1][prevIdx] || 0;
+        const prevScore = Number.isFinite(V[t - 1][prevIdx]) ? V[t - 1][prevIdx] : Number.NEGATIVE_INFINITY;
         
         // Compute Transition Probability (exponential distribution matching relative distances)
         const dRoute = estimateRoutingDistance(prev, curr);
-        const distanceDelta = Math.abs(dGcd - dRoute);
-        const transition = Math.exp(-distanceDelta / BETA) / BETA;
+        const transitionLog = Math.log(transitionProbability(dGcd, dRoute));
 
-        const totalProb = prevV * transition * emission;
-        if (totalProb > maxProb) {
-          maxProb = totalProb;
+        const totalScore = prevScore + transitionLog + emissionLog;
+        if (totalScore > maxScore) {
+          maxScore = totalScore;
           bestPrevIdx = prevIdx;
         }
       });
 
-      V[t][currIdx] = maxProb;
+      V[t][currIdx] = maxScore;
       backpointers[t][currIdx] = bestPrevIdx;
     });
 
-    // Renormalize row scaling to prevent floating-point numerical underflow over long sequences
-    let rowSum = 0;
-    currCands.forEach((_, idx) => { rowSum += V[t][idx]; });
-    if (rowSum > 0) {
-      currCands.forEach((_, idx) => { V[t][idx] /= rowSum; });
+    // Normalize log scores per row so long journeys remain numerically stable
+    // while preserving the ordering needed by Viterbi.
+    let rowMax = Number.NEGATIVE_INFINITY;
+    currCands.forEach((_, idx) => {
+      if (V[t][idx] > rowMax) rowMax = V[t][idx];
+    });
+    if (Number.isFinite(rowMax)) {
+      currCands.forEach((_, idx) => { V[t][idx] -= rowMax; });
     }
   }
 
   // 4. Backtrack the highest probability path
-  let maxFinalProb = -1;
+  let maxFinalScore = Number.NEGATIVE_INFINITY;
   let bestFinalIdx = 0;
   timelineCandidates[T - 1].forEach((_, idx) => {
-    if (V[T - 1][idx] > maxFinalProb) {
-      maxFinalProb = V[T - 1][idx];
+    if (V[T - 1][idx] > maxFinalScore) {
+      maxFinalScore = V[T - 1][idx];
       bestFinalIdx = idx;
     }
   });
@@ -179,7 +199,13 @@ async function matchTrajectory(rawPoints) {
       lat: candidate.lat,
       lng: candidate.lng,
       timestamp: rawPoints[t].timestamp,
-      segmentBreak: rawPoints[t].segmentBreak || false
+      segmentBreak: rawPoints[t].segmentBreak || false,
+      matchDistance: candidate.distance,
+      roadId: candidate.roadId,
+      osmId: candidate.osmId,
+      roadName: candidate.roadName,
+      source: candidate.roadId === 'fallback' ? 'raw' : 'matched',
+      confidence: candidateConfidence(candidate)
     });
     currIdx = backpointers[t][currIdx];
   }

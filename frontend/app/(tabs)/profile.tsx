@@ -126,12 +126,15 @@ const readAllSavedIds = async (context: string): Promise<string[]> => {
 
 const isSavedItemUnavailable = (reason: any): boolean => {
   const status = reason?.response?.status;
+  const errorCode = reason?.response?.data?.error?.code || reason?.response?.data?.code;
   const message = reason?.response?.data?.error?.message || reason?.response?.data?.message || reason?.message || '';
 
+  // Only delete saved items if we get an explicit application error indicating the item is gone/private
+  if (status === 403 && errorCode === 'AUTH_1006') return true;
+  if (status === 404 && errorCode === 'RES_3001') return true;
+  if (status === 410) return true;
+
   return (
-    status === 403 ||
-    status === 404 ||
-    status === 410 ||
     (status === 401 && typeof message === 'string' && message.toLowerCase().includes('not available'))
   );
 };

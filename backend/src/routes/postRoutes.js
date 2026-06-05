@@ -19,7 +19,8 @@ const {
   updatePost,
   getArchivedPosts,
   getHiddenPosts,
-  incrementShare
+  incrementShare,
+  getPostLikers
 } = require('../controllers/postController');
 
 const router = express.Router();
@@ -428,6 +429,24 @@ router.post('/', authMiddleware, upload.fields([{ name: 'images', maxCount: 10 }
  *         description: User posts list
  */
 router.get('/user/:userId', optionalAuth, getUserPosts);
+/**
+ * @swagger
+ * /api/v1/posts/{id}/likes:
+ *   get:
+ *     summary: Get users who liked a post
+ *     tags: [Posts]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Returns likers list
+ */
+router.get('/:id/likes', optionalAuth, getPostLikers);
+
 /**
  * @swagger
  * /api/v1/posts/{id}/like:

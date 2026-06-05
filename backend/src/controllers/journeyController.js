@@ -4,7 +4,6 @@ const logger = require('../utils/logger');
 const Journey = require('../models/Journey');
 const Post = require('../models/Post');
 const User = require('../models/User');
-const { MAX_REALISTIC_SPEED_KMH } = require('../config/tripScoreConfig');
 const { matchTrajectory } = require('../utils/mapMatcher');
 
 // ─── Road Snap ──────────────────────────────────────────────────────
@@ -102,6 +101,88 @@ const isValidCoord = (lat, lng) => {
   );
 };
 
+const toNumberOrNull = (value) => {
+  if (value === null || value === undefined) return null;
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : null;
+};
+
+const isNearDuplicatePoint = (candidate, existingPoint) => {
+  if (!candidate || !existingPoint) return false;
+  const candidateTime = candidate.timestamp ? new Date(candidate.timestamp).getTime() : null;
+  const existingTime = existingPoint.timestamp ? new Date(existingPoint.timestamp).getTime() : null;
+
+  if (Number.isFinite(candidateTime) && Number.isFinite(existingTime) && Math.abs(candidateTime - existingTime) <= 500) {
+    return true;
+  }
+
+  if (Number.isFinite(candidateTime) && Number.isFinite(existingTime) && Math.abs(candidateTime - existingTime) <= 5000) {
+    const distance = calculateHaversineDistance(candidate.lat, candidate.lng, existingPoint.lat, existingPoint.lng);
+    return distance <= 1;
+  }
+
+  return false;
+};
+
+const updateRouteQuality = (journey, stats) => {
+  const current = journey.routeQuality || {};
+  const previousAccepted = current.acceptedPoints || 0;
+  const previousMatched = current.matchedPoints || 0;
+  const previousAccuracy = current.averageGpsAccuracy;
+  const previousSnap = current.averageSnapDistance;
+  const previousConfidence = current.averageMatchConfidence;
+
+  const nextAccepted = previousAccepted + (stats.acceptedPoints || 0);
+  const nextMatched = previousMatched + (stats.matchedPoints || 0);
+
+  const weightedAverage = (previousAverage, previousCount, nextAverage, nextCount) => {
+    if (!Number.isFinite(nextAverage) || nextCount <= 0) return previousAverage ?? null;
+    if (!Number.isFinite(previousAverage) || previousCount <= 0) return nextAverage;
+    return ((previousAverage * previousCount) + (nextAverage * nextCount)) / (previousCount + nextCount);
+  };
+
+  journey.routeQuality = {
+    totalRawPoints: (current.totalRawPoints || 0) + (stats.totalRawPoints || 0),
+    acceptedPoints: nextAccepted,
+    rejectedInvalidPoints: (current.rejectedInvalidPoints || 0) + (stats.rejectedInvalidPoints || 0),
+    rejectedLowAccuracyPoints: (current.rejectedLowAccuracyPoints || 0) + (stats.rejectedLowAccuracyPoints || 0),
+    rejectedDuplicatePoints: (current.rejectedDuplicatePoints || 0) + (stats.rejectedDuplicatePoints || 0),
+    rejectedImpossibleSpeedPoints: (current.rejectedImpossibleSpeedPoints || 0) + (stats.rejectedImpossibleSpeedPoints || 0),
+    matchedPoints: nextMatched,
+    rawFallbackPoints: (current.rawFallbackPoints || 0) + (stats.rawFallbackPoints || 0),
+    averageGpsAccuracy: weightedAverage(previousAccuracy, previousAccepted, stats.averageGpsAccuracy, stats.acceptedPoints || 0),
+    averageSnapDistance: weightedAverage(previousSnap, previousMatched, stats.averageSnapDistance, stats.matchedPoints || 0),
+    averageMatchConfidence: weightedAverage(previousConfidence, previousMatched, stats.averageMatchConfidence, stats.matchedPoints || 0),
+    lastUpdatedAt: new Date()
+  };
+};
+
+const buildDisplayPolyline = (journey) => {
+  const snapped = journey.snapped_polyline || [];
+  const raw = journey.raw_polyline || [];
+
+  if (snapped.length > 0) {
+    return snapped.map((p, idx) => {
+      let origIdx = 0;
+      if (snapped.length > 1 && raw.length > 0) {
+        origIdx = Math.min(
+          Math.floor((idx / (snapped.length - 1)) * (raw.length - 1)),
+          raw.length - 1
+        );
+      }
+      const rawP = raw[origIdx];
+      return {
+        lat: p.lat,
+        lng: p.lng,
+        timestamp: rawP ? rawP.timestamp : new Date(),
+        accuracy: rawP ? rawP.accuracy : 0,
+        segmentBreak: rawP ? rawP.segmentBreak : false
+      };
+    });
+  }
+
+  return raw;
+};
 // POST /api/v1/journey/start
 const startJourney = async (req, res) => {
   try {
@@ -163,6 +244,12 @@ const startJourney = async (req, res) => {
       ],
       sourceUserId: sourceUserId || null,
       distanceTraveled: 0,
+      routeQuality: {
+        totalRawPoints: 1,
+        acceptedPoints: 1,
+        averageGpsAccuracy: null,
+        lastUpdatedAt: new Date()
+      },
       privacy: (['public', 'followers'].includes(req.user.settings?.privacy?.profileVisibility)
         ? req.user.settings.privacy.profileVisibility
         : 'public')
@@ -342,39 +429,77 @@ const updateLocation = async (req, res) => {
 
     // Filter coordinates by validity and accuracy threshold (drop > 20m)
     const filteredCoords = [];
-    let skippedInvalid = 0;
-    let skippedAccuracy = 0;
+    const qualityStats = {
+      totalRawPoints: coordinates.length,
+      acceptedPoints: 0,
+      rejectedInvalidPoints: 0,
+      rejectedLowAccuracyPoints: 0,
+      rejectedDuplicatePoints: 0,
+      rejectedImpossibleSpeedPoints: 0,
+      matchedPoints: 0,
+      rawFallbackPoints: 0,
+      averageGpsAccuracy: null,
+      averageSnapDistance: null,
+      averageMatchConfidence: null
+    };
+    let accuracySum = 0;
+    let accuracyCount = 0;
 
     for (const coord of coordinates) {
       if (!isValidCoord(coord.lat, coord.lng)) {
-        skippedInvalid++;
+        qualityStats.rejectedInvalidPoints++;
         continue;
       }
 
-      const accuracy = coord.accuracy != null ? parseFloat(coord.accuracy) : null;
+      const accuracy = toNumberOrNull(coord.accuracy);
       if (accuracy !== null && accuracy > 20) {
-        skippedAccuracy++;
+        qualityStats.rejectedLowAccuracyPoints++;
         continue;
       }
 
-      filteredCoords.push({
+      const normalized = {
         lat: parseFloat(coord.lat),
         lng: parseFloat(coord.lng),
         timestamp: coord.timestamp ? new Date(coord.timestamp) : new Date(),
         accuracy: accuracy,
         segmentBreak: coord.segmentBreak === true || coord.segmentBreak === 'true'
-      });
+      };
+
+      const lastExisting = journey.raw_polyline.length > 0
+        ? journey.raw_polyline[journey.raw_polyline.length - 1]
+        : null;
+      const lastAccepted = filteredCoords.length > 0
+        ? filteredCoords[filteredCoords.length - 1]
+        : null;
+      if (isNearDuplicatePoint(normalized, lastExisting) || isNearDuplicatePoint(normalized, lastAccepted)) {
+        qualityStats.rejectedDuplicatePoints++;
+        continue;
+      }
+
+      filteredCoords.push(normalized);
+      if (accuracy !== null) {
+        accuracySum += accuracy;
+        accuracyCount++;
+      }
     }
+    qualityStats.acceptedPoints = filteredCoords.length;
+    qualityStats.averageGpsAccuracy = accuracyCount > 0 ? accuracySum / accuracyCount : null;
 
     if (filteredCoords.length === 0) {
-      if (skippedInvalid > 0 || skippedAccuracy > 0) {
+      if (
+        qualityStats.rejectedInvalidPoints > 0 ||
+        qualityStats.rejectedLowAccuracyPoints > 0 ||
+        qualityStats.rejectedDuplicatePoints > 0
+      ) {
         logger.warn(`Journey ${journeyId} updateLocation: dropped all points`, {
-          skippedInvalid,
-          skippedAccuracy,
+          skippedInvalid: qualityStats.rejectedInvalidPoints,
+          skippedAccuracy: qualityStats.rejectedLowAccuracyPoints,
+          skippedDuplicate: qualityStats.rejectedDuplicatePoints,
           userId: req.user._id.toString()
         });
       }
       journey.lastActiveAt = new Date();
+      updateRouteQuality(journey, qualityStats);
       await journey.save();
       return sendSuccess(res, 200, 'Location updated (all points filtered out)', {
         journey,
@@ -392,7 +517,13 @@ const updateLocation = async (req, res) => {
         if (snapped && snapped.length > 0) {
           snappedPoints = snapped.map(p => ({
             lat: p.lat,
-            lng: p.lng
+            lng: p.lng,
+            matchDistance: p.matchDistance,
+            roadId: p.roadId,
+            osmId: p.osmId,
+            roadName: p.roadName,
+            source: p.source,
+            confidence: p.confidence
           }));
           matchSucceeded = true;
         }
@@ -404,8 +535,18 @@ const updateLocation = async (req, res) => {
     if (!matchSucceeded) {
       snappedPoints = filteredCoords.map(c => ({
         lat: c.lat,
-        lng: c.lng
+        lng: c.lng,
+        source: 'raw',
+        confidence: 0.2
       }));
+    }
+
+    const matchedMeta = snappedPoints.filter(p => p.source === 'matched');
+    qualityStats.matchedPoints = matchedMeta.length;
+    qualityStats.rawFallbackPoints = snappedPoints.length - matchedMeta.length;
+    if (matchedMeta.length > 0) {
+      qualityStats.averageSnapDistance = matchedMeta.reduce((sum, p) => sum + (Number.isFinite(p.matchDistance) ? p.matchDistance : 0), 0) / matchedMeta.length;
+      qualityStats.averageMatchConfidence = matchedMeta.reduce((sum, p) => sum + (Number.isFinite(p.confidence) ? p.confidence : 0), 0) / matchedMeta.length;
     }
 
     // For session/speed calculations on matched geometry points, reconstruct matching timestamps/segment breaks
@@ -429,7 +570,6 @@ const updateLocation = async (req, res) => {
 
     const distanceSource = matchSucceeded ? snappedWithMetadata : filteredCoords;
     let addedDistance = 0;
-    let skippedImpossible = 0;
     let startIndex = 0;
 
     let lastPointTime = journey.lastActiveAt;
@@ -500,7 +640,7 @@ const updateLocation = async (req, res) => {
           const speedKmh = (distance / 1000) / (dtSec / 3600);
 
           if (speedKmh > 200) {
-            skippedImpossible++;
+            qualityStats.rejectedImpossibleSpeedPoints++;
             continue;
           }
 
@@ -520,12 +660,20 @@ const updateLocation = async (req, res) => {
       };
     }
 
-    if (skippedInvalid > 0 || skippedAccuracy > 0 || skippedImpossible > 0) {
+    qualityStats.acceptedPoints = Math.max(0, filteredCoords.length - qualityStats.rejectedImpossibleSpeedPoints);
+
+    if (
+      qualityStats.rejectedInvalidPoints > 0 ||
+      qualityStats.rejectedLowAccuracyPoints > 0 ||
+      qualityStats.rejectedDuplicatePoints > 0 ||
+      qualityStats.rejectedImpossibleSpeedPoints > 0
+    ) {
       logger.warn(`Journey ${journeyId} updateLocation: dropped coordinates`, {
-        skippedInvalid,
-        skippedAccuracy,
-        skippedImpossible,
-        accepted: filteredCoords.length - startIndex - skippedImpossible,
+        skippedInvalid: qualityStats.rejectedInvalidPoints,
+        skippedAccuracy: qualityStats.rejectedLowAccuracyPoints,
+        skippedDuplicate: qualityStats.rejectedDuplicatePoints,
+        skippedImpossible: qualityStats.rejectedImpossibleSpeedPoints,
+        accepted: filteredCoords.length - startIndex - qualityStats.rejectedImpossibleSpeedPoints,
         userId: req.user._id.toString()
       });
     }
@@ -541,6 +689,7 @@ const updateLocation = async (req, res) => {
 
     journey.distanceTraveled += addedDistance;
     journey.lastActiveAt = new Date();
+    updateRouteQuality(journey, qualityStats);
     await journey.save();
 
     logger.debug(`Location updated for journey ${journeyId}:`, {
@@ -631,13 +780,15 @@ const completeJourney = async (req, res) => {
 
 
     await journey.save();
+    const responseJourney = journey.toObject();
+    responseJourney.polyline = buildDisplayPolyline(journey);
     logger.info(`Journey completed for user ${req.user._id}:`, {
       journeyId: journey._id,
       distance: journey.distanceTraveled,
       waypoints: journey.waypoints.length
     });
 
-    return sendSuccess(res, 200, 'Journey completed', { journey });
+    return sendSuccess(res, 200, 'Journey completed', { journey: responseJourney });
   } catch (error) {
     logger.error('Complete journey error:', error);
     return sendError(res, 'ERR_5001', 'Failed to complete journey');
@@ -866,8 +1017,8 @@ const getUserJourneys = async (req, res) => {
     // Include polyline data when requested (for map view)
     const includePolyline = req.query.includePolyline === 'true';
     const selectFields = includePolyline
-      ? 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries raw_polyline snapped_polyline polyline sessions tripScoreAwarded privacy'
-      : 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries tripScoreAwarded privacy';
+      ? 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries raw_polyline snapped_polyline polyline sessions tripScoreAwarded privacy routeQuality'
+      : 'title startCoords endCoords startedAt completedAt distanceTraveled waypoints countries tripScoreAwarded privacy routeQuality';
 
     // Get journeys
     // For non-owners, also filter by completed status and per-journey privacy
@@ -901,28 +1052,7 @@ const getUserJourneys = async (req, res) => {
     const enrichedJourneys = journeys.map(j => {
       let poly = j.polyline;
       if (includePolyline) {
-        if (j.snapped_polyline && j.snapped_polyline.length > 0) {
-          const raw = j.raw_polyline || [];
-          poly = j.snapped_polyline.map((p, idx) => {
-            let origIdx = 0;
-            if (j.snapped_polyline.length > 1 && raw.length > 0) {
-              origIdx = Math.min(
-                Math.floor((idx / (j.snapped_polyline.length - 1)) * (raw.length - 1)),
-                raw.length - 1
-              );
-            }
-            const rawP = raw[origIdx];
-            return {
-              lat: p.lat,
-              lng: p.lng,
-              timestamp: rawP ? rawP.timestamp : new Date(),
-              accuracy: rawP ? rawP.accuracy : 0,
-              segmentBreak: rawP ? rawP.segmentBreak : false
-            };
-          });
-        } else if (j.raw_polyline && j.raw_polyline.length > 0) {
-          poly = j.raw_polyline;
-        }
+        poly = buildDisplayPolyline(j);
       }
 
       return {

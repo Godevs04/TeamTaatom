@@ -12,12 +12,13 @@ const isTablet = screenWidth >= 768;
 const isWeb = Platform.OS === 'web';
 
 export default function SavedShortsScreen() {
-  const { shortId } = useLocalSearchParams();
+  const { shortId, index } = useLocalSearchParams();
   const { theme } = useTheme();
   const router = useRouter();
   const [isMuted, setIsMuted] = useState(false);
 
   const sid = typeof shortId === 'string' ? shortId : Array.isArray(shortId) ? shortId[0] : undefined;
+  const idx = typeof index === 'string' ? parseInt(index, 10) : Array.isArray(index) ? parseInt(index[0], 10) : undefined;
 
   const styles = StyleSheet.create({
     container: {
@@ -85,6 +86,7 @@ export default function SavedShortsScreen() {
           <Shorts 
             isSavedShorts={true} 
             initialShortId={sid} 
+            initialIndex={idx}
             isMuted={isMuted}
             onMuteToggle={() => setIsMuted(prev => !prev)}
           />

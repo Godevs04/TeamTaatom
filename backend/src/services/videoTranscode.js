@@ -519,7 +519,10 @@ function startTranscodeWorker() {
           await job.save();
 
           if (job.status === 'failed') {
-            await Post.findByIdAndUpdate(job.post, { status: 'failed' });
+            // The raw upload is already playable from the post's existing
+            // storageKey/videoUrl. Keep the short visible and let playback use
+            // that fallback instead of hiding it from app feeds/profile tabs.
+            logger.error(`[transcodeWorker] Job failed permanently for post ${job.post}; leaving post active with raw video fallback`);
           }
         }
       }

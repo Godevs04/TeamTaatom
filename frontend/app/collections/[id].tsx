@@ -24,6 +24,7 @@ import { PostType } from '../../types/post';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import { theme } from '../../constants/theme';
 import logger from '../../utils/logger';
+import { savedEvents } from '../../utils/savedEvents';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -75,6 +76,34 @@ export default function CollectionDetailScreen() {
       loadCollection();
     }
   }, [id]);
+
+  useEffect(() => {
+    const unsubscribeLocalActions = savedEvents.addPostActionListener((likedPostId, action, data) => {
+      setCollection(prev => {
+        if (!prev || !prev.posts) return prev;
+        
+        const updatedPosts = prev.posts.map(post => {
+          if (post._id !== likedPostId) return post;
+          
+          if (action === 'like' || action === 'unlike') {
+            const isLiked = action === 'like';
+            const likesCount = data?.likesCount ?? 0;
+            return { ...post, isLiked, likesCount } as any;
+          } else if (action === 'save' || action === 'unsave') {
+            const isSaved = action === 'save';
+            return { ...post, isSaved } as any;
+          }
+          return post;
+        });
+
+        return { ...prev, posts: updatedPosts };
+      });
+    });
+
+    return () => {
+      unsubscribeLocalActions();
+    };
+  }, []);
 
   const handleRefresh = async () => {
     setRefreshing(true);

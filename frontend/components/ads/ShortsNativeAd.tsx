@@ -22,9 +22,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import Constants from 'expo-constants';
 import { ADMOB } from '../../constants/admob';
+import logger from '../../utils/logger';
+import { initializeAds } from '../../services/admob';
 
 const isWeb = Platform.OS === 'web';
 const isExpoGo = Constants.appOwnership === 'expo';
+const NATIVE_AD_LOAD_TIMEOUT_MS = 12000;
 
 type AdsModule = {
   NativeAd: typeof import('react-native-google-mobile-ads').NativeAd;
@@ -33,6 +36,12 @@ type AdsModule = {
   NativeAsset: React.ComponentType<any>;
   NativeAssetType: typeof import('react-native-google-mobile-ads').NativeAssetType;
   AdEventType: { IMPRESSION: string };
+};
+
+const maskAdUnitId = (unitId?: string) => {
+  if (!unitId) return 'missing';
+  const [publisher, unit] = unitId.split('/');
+  return unit ? `${publisher}/${unit.slice(0, 3)}...${unit.slice(-3)}` : `${unitId.slice(0, 12)}...`;
 };
 
 export type ShortsNativeAdProps = {
@@ -117,12 +126,42 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
     setLoading(true);
     setError(false);
 
-    adsModule.NativeAd.createForAdRequest(unitId, { startVideoMuted: true })
+    logger.debug('[AdMob] Loading shorts native ad', {
+      platform: Platform.OS,
+      unitId: maskAdUnitId(unitId),
+      adIndex,
+      dev: __DEV__,
+    });
+
+    let requestTimedOut = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    const adRequest = initializeAds()
+      .then(() => adsModule.NativeAd.createForAdRequest(unitId, { startVideoMuted: true }))
       .then((ad) => {
+        if (requestTimedOut || destroyedRef.current) {
+          ad.destroy();
+        }
+        return ad;
+      });
+    const timeout = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        requestTimedOut = true;
+        reject(new Error(`Native ad request timed out after ${NATIVE_AD_LOAD_TIMEOUT_MS}ms`));
+      }, NATIVE_AD_LOAD_TIMEOUT_MS);
+    });
+
+    Promise.race([adRequest, timeout])
+      .then((ad) => {
+        if (timeoutId) clearTimeout(timeoutId);
         if (destroyedRef.current) {
           ad.destroy();
           return;
         }
+        logger.info('[AdMob] Shorts native ad loaded', {
+          platform: Platform.OS,
+          unitId: maskAdUnitId(unitId),
+          adIndex,
+        });
         // Observe impression only; do not manipulate
         if (adsModule.AdEventType?.IMPRESSION && typeof ad.addAdEventListener === 'function') {
           ad.addAdEventListener(adsModule.AdEventType.IMPRESSION as any, () => {
@@ -132,8 +171,15 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
         setNativeAd(ad);
         setLoading(false);
       })
-      .catch(() => {
+      .catch((loadError) => {
+        if (timeoutId) clearTimeout(timeoutId);
         if (!destroyedRef.current) {
+          logger.warn('[AdMob] Shorts native ad failed to load', {
+            platform: Platform.OS,
+            unitId: maskAdUnitId(unitId),
+            adIndex,
+            message: loadError instanceof Error ? loadError.message : String(loadError),
+          });
           setError(true);
           setLoading(false);
           // No-fill / network / SDK error — bubble up so parent can drop the slot.
@@ -143,6 +189,7 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
 
     return () => {
       destroyedRef.current = true;
+      if (timeoutId) clearTimeout(timeoutId);
       setNativeAd((prev: any) => {
         if (prev) prev.destroy();
         return null;

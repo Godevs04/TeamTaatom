@@ -18,6 +18,7 @@ import api from '../../services/api';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import logger from '../../utils/logger';
 import { realtimePostsService } from '../../services/realtimePosts';
+import { savedEvents } from '../../utils/savedEvents';
 
 // Platform-specific constants
 const { width: screenWidth } = Dimensions.get('window');
@@ -27,7 +28,7 @@ const isIOS = Platform.OS === 'ios';
 const isAndroid = Platform.OS === 'android';
 
 export default function UserPostsScreen() {
-  const { userId, postId, postData } = useLocalSearchParams();
+  const { userId, postId, postData, index } = useLocalSearchParams();
   const { theme } = useTheme();
   const router = useRouter();
   
@@ -40,18 +41,21 @@ export default function UserPostsScreen() {
     }
   }
 
-  const [posts, setPosts] = useState<any[]>(() => {
-    if (initialPost.current) {
-      return [initialPost.current];
-    }
-    return [];
-  });
-  const [loading, setLoading] = useState(() => !initialPost.current);
+  const [posts, setPosts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [user, setUser] = useState<any>(null);
   const flatListRef = useRef<FlatList>(null);
   const scrollOffsetRef = useRef(0);
   const shouldRestoreScrollRef = useRef(false);
+
+  const initialIndex = index ? parseInt(index as string, 10) : 0;
+
+  const getItemLayout = useCallback((_data: any, index: number) => ({
+    length: 580,
+    offset: 580 * index,
+    index,
+  }), []);
 
   const fetchUserPosts = useCallback(async () => {
     try {
@@ -85,14 +89,37 @@ export default function UserPostsScreen() {
   }, [fetchUserPosts]);
 
   useEffect(() => {
-    const unsubscribe = realtimePostsService.subscribeToLikes(({ postId: likedPostId, isLiked, likesCount }) => {
+    const unsubscribeLikes = realtimePostsService.subscribeToLikes(({ postId: likedPostId, isLiked, likesCount }) => {
       setPosts(prev => prev.map(post => (
         post._id === likedPostId
           ? { ...post, isLiked, likesCount } as any
           : post
       )));
     });
-    return unsubscribe;
+
+    const unsubscribeLocalActions = savedEvents.addPostActionListener((likedPostId, action, data) => {
+      if (action === 'like' || action === 'unlike') {
+        const isLiked = action === 'like';
+        const likesCount = data?.likesCount ?? 0;
+        setPosts(prev => prev.map(post => (
+          post._id === likedPostId
+            ? { ...post, isLiked, likesCount } as any
+            : post
+        )));
+      } else if (action === 'save' || action === 'unsave') {
+        const isSaved = action === 'save';
+        setPosts(prev => prev.map(post => (
+          post._id === likedPostId
+            ? { ...post, isSaved } as any
+            : post
+        )));
+      }
+    });
+
+    return () => {
+      unsubscribeLikes();
+      unsubscribeLocalActions();
+    };
   }, []);
 
   useFocusEffect(
@@ -213,6 +240,8 @@ export default function UserPostsScreen() {
           data={posts}
           keyExtractor={(item) => item._id}
           renderItem={renderPost}
+          initialScrollIndex={initialIndex}
+          getItemLayout={getItemLayout}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

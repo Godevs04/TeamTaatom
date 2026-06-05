@@ -731,8 +731,8 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   map: {
-    width: '100%',
-    height: '100%',
+    flex: 1,
+    minHeight: 200,
   },
   topPanel: {
     position: 'absolute',

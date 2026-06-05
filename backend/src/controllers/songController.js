@@ -34,7 +34,7 @@ const getSongs = async (req, res) => {
     }
 
     const songs = await Song.find(query)
-      .select('title artist duration thumbnailUrl genre _id isActive createdAt usageCount uploadDate storageKey cloudinaryKey s3Key imageStorageKey')
+      .select('title artist duration thumbnailUrl genre _id isActive createdAt usageCount uploadDate storageKey cloudinaryKey s3Key imageStorageKey s3Url cloudinaryUrl')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(validatedLimit)
@@ -75,9 +75,9 @@ const getSongs = async (req, res) => {
       
       return {
         ...song,
-        s3Url: signedUrl, // Dynamically generated URL
-        cloudinaryUrl: signedUrl, // Backward compatibility
-        imageUrl: imageUrl, // Dynamically generated image URL
+        s3Url: signedUrl || song.s3Url || song.cloudinaryUrl, // Fallback if no signed URL
+        cloudinaryUrl: signedUrl || song.cloudinaryUrl || song.s3Url, // Backward compatibility
+        imageUrl: imageUrl || song.imageUrl, // Dynamically generated image URL
         thumbnailUrl: imageUrl || song.thumbnailUrl // Use imageUrl if available, fallback to thumbnailUrl
       };
     }));
@@ -105,7 +105,7 @@ const getSongs = async (req, res) => {
 const getSongById = async (req, res) => {
   try {
     const song = await Song.findById(req.params.id)
-      .select('title artist duration thumbnailUrl genre _id isActive createdAt usageCount uploadDate storageKey cloudinaryKey s3Key imageStorageKey')
+      .select('title artist duration thumbnailUrl genre _id isActive createdAt usageCount uploadDate storageKey cloudinaryKey s3Key imageStorageKey s3Url cloudinaryUrl')
       .lean();
     
     if (!song) {
@@ -145,9 +145,9 @@ const getSongById = async (req, res) => {
     }
     
     // Add dynamically generated URLs
-    song.s3Url = signedUrl;
-    song.cloudinaryUrl = signedUrl; // Backward compatibility
-    song.imageUrl = imageUrl; // Dynamically generated image URL
+    song.s3Url = signedUrl || song.s3Url || song.cloudinaryUrl;
+    song.cloudinaryUrl = signedUrl || song.cloudinaryUrl || song.s3Url; // Backward compatibility
+    song.imageUrl = imageUrl || song.imageUrl; // Dynamically generated image URL
     song.thumbnailUrl = imageUrl || song.thumbnailUrl; // Use imageUrl if available, fallback to thumbnailUrl
 
     return sendSuccess(res, 200, 'Song fetched successfully', { song });

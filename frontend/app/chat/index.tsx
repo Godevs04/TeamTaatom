@@ -2739,9 +2739,9 @@ export default function ChatModal() {
             // Let the stack pop naturally
             return;
           }
-          // Fallback if we cannot go back: redirect to Home Page instead of null state
+          // Fallback if we cannot go back: redirect to Chat List instead of Home Page
           e.preventDefault();
-          router.replace('/(tabs)/home');
+          router.replace('/chat');
           unsubscribe?.();
           return;
         }
@@ -3180,8 +3180,8 @@ export default function ChatModal() {
           if (navigation.canGoBack()) {
             router.back();
           } else {
-            // Fallback if no back stack: redirect to Home Page
-            router.replace('/(tabs)/home');
+            // Fallback if no back stack: redirect to Chat List
+            router.replace('/chat');
           }
         } else {
           // If we entered from Chat Main Page (Inbox), return to Chat Main Page

@@ -43,6 +43,7 @@ import LottieSplashScreen from '../components/LottieSplashScreen';
 import { testAPIConnectivity } from '../utils/connectivity';
 import Constants from 'expo-constants';
 import { runStartupDiagnostics } from '../utils/startupDiagnostics';
+import { getCachedAuthToken } from '../utils/authTokenCache';
 
 const extra = Constants.expoConfig?.extra || {};
 const parseSampleRate = (value: unknown, fallback: number) => {
@@ -381,13 +382,16 @@ function RootLayoutInner() {
   useEffect(() => {
     const initialize = async () => {
       try {
-        // Initialize analytics, feature flags, crash reporting, service worker first (critical path)
-        await Promise.all([
+        // Keep launch focused on auth. These services can warm in parallel
+        // without holding the splash screen or first route render hostage.
+        const backgroundStartup = Promise.all([
           analyticsService.initialize(),
           featureFlagsService.initialize(),
           crashReportingService.initialize(),
           registerServiceWorker(), // Register service worker for offline support (web only)
-        ]);
+        ]).catch((error) => {
+          logger.warn('[RootLayout] Background startup services failed:', error);
+        });
 
         // Populate image cache from disk so cached R2 images load instantly
         imageCacheManager.populateCacheFromDisk().catch(() => {});
@@ -464,19 +468,20 @@ function RootLayoutInner() {
         }
 
         const user = await initializeAuth();
+        backgroundStartup.catch(() => {});
         
         // Set user for analytics and crash reporting
         if (user && user !== 'network-error') {
-          await analyticsService.setUser(user._id);
+          analyticsService.setUser(user._id).catch(() => {});
           crashReportingService.setUser(user._id, {
             username: user.username,
             email: user.email,
           });
-          
+
           // Track user login/retention
-          await analyticsService.trackRetention('app_open', {
+          analyticsService.trackRetention('app_open', {
             is_new_user: false,
-          });
+          }).catch(() => {});
         }
         logger.debug('[RootLayoutInner] initializeAuth returned:', user);
         const lastAuthError = getLastAuthError();
@@ -487,7 +492,7 @@ function RootLayoutInner() {
           const storedUser = await getUserFromStorage();
           if (storedUser) {
             // Set user for analytics even on network error
-            await analyticsService.setUser(storedUser._id);
+            analyticsService.setUser(storedUser._id).catch(() => {});
             crashReportingService.setUser(storedUser._id, {
               username: storedUser.username,
               email: storedUser.email,
@@ -519,7 +524,7 @@ function RootLayoutInner() {
         logger.error('Auth initialization error:', error);
         // Fallback: check if we have stored user data
         try {
-          const token = await AsyncStorage.getItem('authToken');
+          const token = await getCachedAuthToken();
           const userData = await AsyncStorage.getItem('userData');
           logger.debug('[RootLayoutInner] Fallback', { hasToken: !!token, hasUserData: !!userData });
           
@@ -586,7 +591,7 @@ function RootLayoutInner() {
     // Check auth state periodically to detect signout
     const checkAuthState = async () => {
       try {
-        const token = await AsyncStorage.getItem('authToken');
+        const token = await getCachedAuthToken();
         const userData = await AsyncStorage.getItem('userData');
         
         // If we think we're authenticated but storage is cleared, user signed out
@@ -731,7 +736,7 @@ function RootLayoutInner() {
       
       // Double-check storage before trusting isAuthenticated state
       // This ensures we detect signout even if state hasn't updated yet
-      const token = await AsyncStorage.getItem('authToken');
+      const token = await getCachedAuthToken();
       const userData = await AsyncStorage.getItem('userData');
       const hasAuthData = !!(token || userData);
       
@@ -981,7 +986,7 @@ function RootLayoutInner() {
 
     const interval = setInterval(async () => {
       try {
-        const token = await AsyncStorage.getItem('authToken');
+        const token = await getCachedAuthToken();
         const userData = await AsyncStorage.getItem('userData');
         
         if (!token || !userData) {

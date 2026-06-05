@@ -15,6 +15,57 @@ if (typeof global.fetch === 'function') {
 // Bounding box lookup function (mimics coordsToCountry)
 const { lookupByCoords } = require('./coordsToCountry');
 
+const CANONICAL_LANDMARKS = {
+  'big ben': {
+    lat: 51.5007,
+    lng: -0.1246,
+    formattedAddress: 'Big Ben, Westminster, London SW1A 0AA, UK',
+    city: 'London',
+    country: 'United Kingdom',
+    countryCode: 'GB',
+    stateProvince: 'England',
+    continent: 'EUROPE'
+  },
+  'bigben': {
+    lat: 51.5007,
+    lng: -0.1246,
+    formattedAddress: 'Big Ben, Westminster, London SW1A 0AA, UK',
+    city: 'London',
+    country: 'United Kingdom',
+    countryCode: 'GB',
+    stateProvince: 'England',
+    continent: 'EUROPE'
+  },
+  'elizabeth tower': {
+    lat: 51.5007,
+    lng: -0.1246,
+    formattedAddress: 'Elizabeth Tower, Westminster, London SW1A 0AA, UK',
+    city: 'London',
+    country: 'United Kingdom',
+    countryCode: 'GB',
+    stateProvince: 'England',
+    continent: 'EUROPE'
+  },
+  'london eye': {
+    lat: 51.503324,
+    lng: -0.119543,
+    formattedAddress: 'London Eye, Riverside Building, County Hall, London SE1 7PB, UK',
+    city: 'London',
+    country: 'United Kingdom',
+    countryCode: 'GB',
+    stateProvince: 'England',
+    continent: 'EUROPE'
+  }
+};
+
+const normalizeLandmark = (value) => (
+  String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+);
+
 // Helper: infer continent from coordinates (aligned with TripVisit service)
 const getContinentFromCoordinates = (latitude, longitude) => {
   if (latitude >= -10 && latitude <= 80 && longitude >= 25 && longitude <= 180) return 'ASIA';
@@ -35,6 +86,11 @@ const getContinentFromCoordinates = (latitude, longitude) => {
 async function geocodeAddress(address) {
   if (!address || typeof address !== 'string' || address.trim() === '' || address.trim() === 'Unknown Location') {
     return null;
+  }
+
+  const canonical = CANONICAL_LANDMARKS[normalizeLandmark(address)];
+  if (canonical) {
+    return { ...canonical };
   }
 
   const apiKey = process.env.GOOGLE_MAPS_API_KEY || '';
