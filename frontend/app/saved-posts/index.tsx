@@ -57,17 +57,34 @@ const isSavedItemUnavailable = (reason: any): boolean => {
 };
 
 export default function SavedPostsScreen() {
-  const { postId } = useLocalSearchParams();
+  const { postId, postData } = useLocalSearchParams();
   const { theme } = useTheme();
   const router = useRouter();
-  const [posts, setPosts] = useState<PostType[]>([]);
-  const [loading, setLoading] = useState(true);
+  
+  const initialPost = useRef<any>(null);
+  if (postData && !initialPost.current) {
+    try {
+      initialPost.current = JSON.parse(postData as string);
+    } catch (e) {
+      logger.error('Failed to parse postData in SavedPostsScreen:', e);
+    }
+  }
+
+  const [posts, setPosts] = useState<PostType[]>(() => {
+    if (initialPost.current) {
+      return [initialPost.current];
+    }
+    return [];
+  });
+  const [loading, setLoading] = useState(() => !initialPost.current);
   const [refreshing, setRefreshing] = useState(false);
   const flatListRef = useRef<FlatList>(null);
 
   const loadSavedPosts = useCallback(async () => {
     try {
-      setLoading(true);
+      if (posts.length === 0) {
+        setLoading(true);
+      }
       
       const postsArr = await readSavedIds('savedPosts');
       const uniqueIds = Array.from(new Set(postsArr));
@@ -121,30 +138,26 @@ export default function SavedPostsScreen() {
         logger.debug(`Cleaned up ${failedIds.length} unavailable saved posts`);
       }
       
-      // Sort by creation date (newest first)
-      items.sort((a, b) => {
-        const dateA = new Date((a as any).createdAt || (a as any).created_at || 0).getTime();
-        const dateB = new Date((b as any).createdAt || (b as any).created_at || 0).getTime();
-        return dateB - dateA;
-      });
-      
-      setPosts(items);
+      const orderedItems = uniqueIds
+        .map(id => itemMap.get(id))
+        .filter((item): item is PostType => !!item);
+      setPosts(orderedItems);
     } catch (error) {
       logger.error('Error loading saved posts:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [postId]);
 
   useEffect(() => {
     loadSavedPosts();
   }, [loadSavedPosts]);
 
   useEffect(() => {
-    const unsubscribe = realtimePostsService.subscribeToLikes(({ postId, isLiked, likesCount }) => {
+    const unsubscribe = realtimePostsService.subscribeToLikes(({ postId: likedPostId, isLiked, likesCount }) => {
       setPosts(prev => prev.map(post => (
-        post._id === postId
+        post._id === likedPostId
           ? { ...post, isLiked, likesCount } as any
           : post
       )));
@@ -152,26 +165,6 @@ export default function SavedPostsScreen() {
     return unsubscribe;
   }, []);
 
-  // Scroll to specific post if postId is provided
-  useEffect(() => {
-    if (postId && posts.length > 0 && flatListRef.current) {
-      const postIndex = posts.findIndex(post => post._id === postId);
-      if (postIndex !== -1) {
-        // Small delay to ensure FlatList is rendered
-        setTimeout(() => {
-          try {
-            flatListRef.current?.scrollToIndex({
-              index: postIndex,
-              animated: false,
-              viewPosition: 0, // Align post to the top of the view instantly
-            });
-          } catch (error) {
-            logger.debug('Initial scrollToIndex failed:', error);
-          }
-        }, 100);
-      }
-    }
-  }, [postId, posts]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);

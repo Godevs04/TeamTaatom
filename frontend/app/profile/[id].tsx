@@ -31,12 +31,23 @@ import { getUserShorts } from '../../services/posts';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import FastImage from '../../components/ui/FastImage';
 import { FILTER_PREVIEW_OVERLAY, ImageFilterType } from '../../components/ImageEditModal';
+import ShortsCard from '../../components/shorts/ShortsCard';
+import { formatViewCount } from '../../utils/numberFormat';
+
 
 const { width } = Dimensions.get('window');
 // Calculate column width taking into account card margins (0 each side), card content padding (0 each side), and grid gaps (2 between items)
 const columnWidth = Math.floor((width - 4) / 3);
 
 const TRIP_GAP_DAYS = 7;
+
+const sortByCreatedDesc = <T extends { createdAt?: string; created_at?: string; _id?: string }>(items: T[]): T[] =>
+  [...items].sort((a, b) => {
+    const dateA = new Date(a.createdAt || a.created_at || 0).getTime();
+    const dateB = new Date(b.createdAt || b.created_at || 0).getTime();
+    if (dateB !== dateA) return dateB - dateA;
+    return String(b._id || '').localeCompare(String(a._id || ''));
+  });
 
 function countTripsFromLocations(locations: Array<{ date?: string }>): number {
   if (!locations?.length) return 0;
@@ -82,8 +93,7 @@ export default function UserProfileScreen() {
   const [userShorts, setUserShorts] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'posts' | 'shorts'>('posts');
   const [loadingShorts, setLoadingShorts] = useState(false);
-  const failedThumbnailsRef = useRef<Set<string>>(new Set());
-  const [failedThumbnails, setFailedThumbnails] = useState<Set<string>>(new Set());
+
   const [verifiedLocationsCount, setVerifiedLocationsCount] = useState<number | null>(null);
   const [verifiedLocations, setVerifiedLocations] = useState<Array<{ latitude: number; longitude: number; address: string; date?: string }>>([]);
   // Ref to track if we're in the middle of a follow/unfollow action
@@ -379,14 +389,14 @@ export default function UserProfileScreen() {
         
         // Handle posts result
         if (postsResult.status === 'fulfilled') {
-          userProfile.posts = postsResult.value;
+          userProfile.posts = sortByCreatedDesc(postsResult.value);
         } else {
           userProfile.posts = [];
         }
         
         // Handle shorts result
         if (shortsResult.status === 'fulfilled') {
-          const fetchedShorts = shortsResult.value.shorts || [];
+          const fetchedShorts = sortByCreatedDesc(shortsResult.value.shorts || []);
           setUserShorts(fetchedShorts);
           
           // Log for debugging
@@ -1073,7 +1083,13 @@ export default function UserProfileScreen() {
                         styles.postThumbnail,
                         { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor, aspectRatio: 1 },
                       ]}
-                      onPress={() => router.push(`/user-posts/${profile._id}?postId=${item._id}`)}
+                      onPress={() => router.push({
+                        pathname: `/user-posts/${profile._id}`,
+                        params: {
+                          postId: item._id,
+                          postData: JSON.stringify(item),
+                        },
+                      })}
                     >
                       <FastImage source={{ uri: item.imageUrl }} style={styles.postImage as any} contentFit="cover" />
                       {item.filter && FILTER_PREVIEW_OVERLAY[item.filter as ImageFilterType] && (
@@ -1089,9 +1105,7 @@ export default function UserProfileScreen() {
                       <View style={styles.viewCountOverlay}>
                         <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
                         <Text style={styles.viewCountText}>
-                          {((item as any).viewsCount ?? 0) >= 1000
-                            ? `${(((item as any).viewsCount ?? 0) / 1000).toFixed(1)}k`
-                            : String((item as any).viewsCount ?? 0)}
+                          {formatViewCount((item as any).viewsCount)}
                         </Text>
                       </View>
                     </Pressable>
@@ -1111,77 +1125,14 @@ export default function UserProfileScreen() {
               ) : userShorts.length > 0 ? (
                 <View style={styles.postsGrid}>
                   {userShorts.map((s: any, index: number) => {
-                    // Get thumbnail URL - check multiple fields for compatibility (same as own profile)
-                    const uri = (s as any).imageUrl || (s as any).thumbnailUrl || (s as any).mediaUrl || '';
-
-                    // Validate URI and check if this thumbnail already failed
-                    const isValidUri = uri && typeof uri === 'string' && uri.trim() !== '' &&
-                                      (uri.startsWith('http://') || uri.startsWith('https://'));
-                    const hasFailed = failedThumbnails.has(s._id);
-
-                    if (!isValidUri || hasFailed) {
-                      return (
-                        <Pressable
-                          key={s._id}
-                          style={[
-                            styles.postThumbnail,
-                            { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor, aspectRatio: 9/16 },
-                          ]}
-                          onPress={() => router.push(`/user-shorts/${id}?shortId=${s._id}`)}
-                        >
-                          <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
-                            <Ionicons name="videocam-outline" size={32} color={profileTheme.textSecondary} />
-                          </View>
-                          <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-                            <Ionicons name="play" size={24} color="#FFFFFF" />
-                          </View>
-                          {/* View count overlay */}
-                          <View style={styles.viewCountOverlay}>
-                            <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
-                            <Text style={styles.viewCountText}>
-                              {((s as any).viewsCount ?? 0) >= 1000
-                                ? `${(((s as any).viewsCount ?? 0) / 1000).toFixed(1)}k`
-                                : String((s as any).viewsCount ?? 0)}
-                            </Text>
-                          </View>
-                        </Pressable>
-                      );
-                    }
                     return (
-                      <Pressable
+                      <ShortsCard
                         key={s._id}
-                        style={[
-                          styles.postThumbnail,
-                          { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor, aspectRatio: 9/16 },
-                        ]}
+                        item={s}
+                        isThumbnail={true}
                         onPress={() => router.push(`/user-shorts/${id}?shortId=${s._id}`)}
-                      >
-                        <FastImage
-                          source={{ uri }}
-                          style={styles.postImage as any}
-                          contentFit="cover"
-                          onError={() => {
-                            // Only log once per short ID, then show placeholder
-                            if (!failedThumbnailsRef.current.has(s._id)) {
-                              failedThumbnailsRef.current.add(s._id);
-                              logger.warn('Short thumbnail failed to load:', { shortId: s._id });
-                              setFailedThumbnails(new Set(failedThumbnailsRef.current));
-                            }
-                          }}
-                        />
-                        <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-                          <Ionicons name="play" size={24} color="#FFFFFF" />
-                        </View>
-                        {/* View count overlay */}
-                        <View style={styles.viewCountOverlay}>
-                          <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
-                          <Text style={styles.viewCountText}>
-                            {((s as any).viewsCount ?? 0) >= 1000
-                              ? `${(((s as any).viewsCount ?? 0) / 1000).toFixed(1)}k`
-                              : String((s as any).viewsCount ?? 0)}
-                          </Text>
-                        </View>
-                      </Pressable>
+                        profileTheme={profileTheme}
+                      />
                     );
                   })}
                 </View>

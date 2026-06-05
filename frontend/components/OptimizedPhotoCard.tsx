@@ -157,6 +157,7 @@ interface PhotoCardProps {
   isVisible?: boolean; // For lazy loading
   isCurrentlyVisible?: boolean; // Whether this post is currently visible in viewport (for music playback)
   showBookmark?: boolean; // Show/hide bookmark button
+  hideShareCount?: boolean;
 }
 
 function PhotoCard({
@@ -166,6 +167,7 @@ function PhotoCard({
   isVisible = true,
   isCurrentlyVisible = false,
   showBookmark = true,
+  hideShareCount = true,
 }: PhotoCardProps) {
   const isWeb = Platform.OS === 'web';
   const logger = createLogger('OptimizedPhotoCard');
@@ -635,7 +637,7 @@ function PhotoCard({
         const arr = stored ? JSON.parse(stored) : [];
         let next: string[] = Array.isArray(arr) ? arr : [];
         if (newSaveState) {
-          if (!next.includes(post._id)) next.push(post._id);
+          next = [post._id, ...next.filter(id => id !== post._id)];
         } else {
           next = next.filter(id => id !== post._id);
         }
@@ -1008,7 +1010,7 @@ function PhotoCard({
         likesCount={likesCount} 
         postId={post._id}
         commentsCount={comments.length}
-        sharesCount={post.sharesCount || 0}
+        sharesCount={hideShareCount ? undefined : (post.sharesCount || 0)}
         onCommentsPress={handleOpenComments}
         onSharesPress={handleShareClick}
       />
@@ -1297,6 +1299,7 @@ function PhotoCard({
         visible={showEditModal}
         transparent
         animationType="fade"
+        statusBarTranslucent={true}
         onRequestClose={() => {
           if (!isMenuLoading) {
             setShowEditModal(false);
@@ -1307,7 +1310,7 @@ function PhotoCard({
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.editModalOverlay}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          keyboardVerticalOffset={0}
         >
           {/* Overlay background - close modal on press */}
           <TouchableOpacity 

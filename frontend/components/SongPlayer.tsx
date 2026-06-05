@@ -23,7 +23,7 @@ interface SongPlayerProps {
 /**
  * Cache remote audio files locally to eliminate network buffering latency on seeks & loops.
  */
-const cacheSongLocally = async (remoteUrl: string): Promise<string> => {
+const cacheSongLocally = async (remoteUrl: string, forceRefresh: boolean = false): Promise<string> => {
   try {
     const cleanUrl = remoteUrl.trim();
     if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) {
@@ -37,11 +37,26 @@ const cacheSongLocally = async (remoteUrl: string): Promise<string> => {
 
     const localPath = `${cacheDir}songs/${filename}`;
 
+    // If forceRefresh is requested, delete any existing file first
+    if (forceRefresh) {
+      try {
+        const info = await FileSystem.getInfoAsync(localPath);
+        if (info.exists) {
+          await FileSystem.deleteAsync(localPath, { idempotent: true });
+          logger.debug(`[AudioCache] Force refreshed: deleted existing cache for ${filename}`);
+        }
+      } catch (err) {
+        logger.warn(`[AudioCache] Failed to delete existing cache for ${filename}:`, err);
+      }
+    }
+
     // Check if the file is already cached and valid
-    const info = await FileSystem.getInfoAsync(localPath);
-    if (info.exists && info.size && info.size > 0) {
-      logger.debug(`[AudioCache] Cache hit: ${filename}`);
-      return localPath;
+    if (!forceRefresh) {
+      const info = await FileSystem.getInfoAsync(localPath);
+      if (info.exists && info.size && info.size > 0) {
+        logger.debug(`[AudioCache] Cache hit: ${filename}`);
+        return localPath;
+      }
     }
 
     // Ensure directory exists
@@ -54,6 +69,13 @@ const cacheSongLocally = async (remoteUrl: string): Promise<string> => {
     
     if (downloadResult.status === 200) {
       return localPath;
+    }
+    
+    // Clean up bad download (e.g. 403 XML page) so it doesn't corrupt subsequent cache hits
+    try {
+      await FileSystem.deleteAsync(localPath, { idempotent: true });
+    } catch (err) {
+      logger.warn(`[AudioCache] Failed to clean up bad download file for ${filename}:`, err);
     }
     return cleanUrl;
   } catch (error) {
@@ -240,8 +262,9 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
 
       setIsLoading(true);
       
-      // Cache song locally first to eliminate network buffering latency on seeks & loops
-      const localUri = await cacheSongLocally(audioUrlRaw);
+      // Cache song locally first to eliminate network buffering latency on seeks & loops.
+      // If we are retrying, forceRefresh the cache.
+      const localUri = await cacheSongLocally(audioUrlRaw, retryCount > 0);
 
       if (isStale()) {
         setIsLoading(false);
@@ -411,21 +434,20 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
         return; // Don't throw error or log to Sentry
       }
       
-      // Handle signed URL expiry - retry once with fresh URL
-      const isTimeout = errorMessage.includes('timeout') || errorMessage.includes('60');
-      const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
-      const isExpired = errorMessage.includes('expired') || errorMessage.includes('ExpiredRequest');
-      
-      if ((isTimeout || is403 || isExpired) && retryCount === 0) {
-        logger.debug('🔄 URL may be expired, fetching fresh URL and retrying...');
+      // Handle signed URL expiry - retry once with fresh URL for any non-cancellation errors.
+      // On Android, ExoPlayer errors (e.g. "v8.x$b" or "None of the available extractors could read the stream")
+      // are thrown instead of clean 403 Forbidden errors when presigned URLs expire.
+      if (retryCount === 0) {
+        logger.info('🔄 Playback error occurred (first attempt). Fetching fresh URL and retrying...');
         const freshUrl = await fetchFreshSignedUrl();
         if (freshUrl) {
-          // Update song object with fresh URL
+          // Update song object with fresh URL in-memory
           if (song) {
             (song as any).s3Url = freshUrl;
             (song as any).cloudinaryUrl = freshUrl;
           }
-          // Retry once with fresh URL
+          setFetchedUrl(freshUrl);
+          // Retry once with fresh URL, which will trigger forceRefresh on cache Song
           return loadAndPlaySong(forcePlay, 1);
         }
       }

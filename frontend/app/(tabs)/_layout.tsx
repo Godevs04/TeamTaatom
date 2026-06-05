@@ -15,7 +15,7 @@ const isTabPath = (p: string | null) => {
 };
 
 export default function TabsLayout() {
-  const { isDark } = useTheme();
+  const { isDark, theme } = useTheme();
   const pathname = usePathname();
   const router = useRouter();
   const previousPathnameRef = useRef<string | null>(null);
@@ -109,6 +109,7 @@ export default function TabsLayout() {
         headerShown: false,
         lazy: true,
       }}
+      {...({ sceneContainerStyle: { backgroundColor: theme.colors.background } } as any)}
     >
       <Tabs.Screen
         name="home"
@@ -122,7 +123,6 @@ export default function TabsLayout() {
         options={{
           title: 'Shorts',
           tabBarAccessibilityLabel: 'Shorts tab',
-          unmountOnBlur: true,
         } as any}
       />
       <Tabs.Screen

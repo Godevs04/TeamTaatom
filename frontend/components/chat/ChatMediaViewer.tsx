@@ -129,7 +129,10 @@ export default function ChatMediaViewer({
   // Gestures definition
   const pinchGesture = Gesture.Pinch()
     .onUpdate((event) => {
-      scale.value = Math.min(3, Math.max(1, savedScale.value * event.scale));
+      // Only process updates if exactly 2 fingers are touching to prevent focal point jumps on iOS
+      if (event.numberOfPointers === 2) {
+        scale.value = Math.min(3, Math.max(1, savedScale.value * event.scale));
+      }
     })
     .onEnd(() => {
       savedScale.value = scale.value;

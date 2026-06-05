@@ -47,8 +47,8 @@ const processAnalyticsJob = async (job) => {
                   }
                 }
                 if (shouldIncrement) {
-                  post.views = (post.views || 0) + 1;
-                  await post.save();
+                  const viewAggregator = require('../../utils/viewAggregator');
+                  viewAggregator.addView(postId);
                 }
               }
             } catch (err) {

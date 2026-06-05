@@ -27,6 +27,7 @@ export default function UserShortsScreen() {
   const { theme } = useTheme();
   const router = useRouter();
   const [user, setUser] = useState<{ fullName?: string } | null>(null);
+  const [isMuted, setIsMuted] = useState(false);
 
   const uid = normalizeParam(userId as string | string[] | undefined);
   const sid = normalizeParam(shortId as string | string[] | undefined);
@@ -75,6 +76,10 @@ export default function UserShortsScreen() {
       color: '#ffffff',
       flex: 1,
     },
+    muteButton: {
+      padding: theme.spacing.xs,
+      marginLeft: theme.spacing.sm,
+    },
     shortsFlex: {
       flex: 1,
     },
@@ -119,9 +124,21 @@ export default function UserShortsScreen() {
           <Text style={styles.headerTitle} numberOfLines={1}>
             {user?.fullName ? `${user.fullName}'s Shorts` : 'Shorts'}
           </Text>
+          <TouchableOpacity
+            style={styles.muteButton}
+            onPress={() => setIsMuted(prev => !prev)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name={isMuted ? 'volume-mute' : 'volume-high'} size={24} color="#ffffff" />
+          </TouchableOpacity>
         </View>
         <View style={styles.shortsFlex}>
-          <Shorts scopedUserId={uid} initialShortId={sid} />
+          <Shorts 
+            scopedUserId={uid} 
+            initialShortId={sid} 
+            isMuted={isMuted} 
+            onMuteToggle={() => setIsMuted(prev => !prev)} 
+          />
         </View>
       </SafeAreaView>
     </ErrorBoundary>

@@ -27,6 +27,8 @@ import PremiumMapMarker from '../../components/PremiumMapMarker';
 import { useMapStyle } from '../../hooks/useMapStyle';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
+import { sanitizeLatitudeDelta, sanitizeMapRegion } from '../../utils/mapSafety';
 
 const GROWTH_GREEN = '#22C55E';
 const ACTION_BLUE = '#3B82F6';
@@ -71,6 +73,7 @@ export default function TrackingScreen() {
   
   const webViewRef = React.useRef<any>(null);
   const [webViewMapReady, setWebViewMapReady] = useState(false);
+  const [latitudeDelta, setLatitudeDelta] = useState(0.05);
 
   // Compute initial map center once when tracking screen is loaded to prevent map shifting/reloads
   const initialMapCenter = useMemo(() => {
@@ -326,7 +329,12 @@ function initMap(){
         this.div.style.left = pt.x + 'px';
         this.div.style.top = pt.y + 'px';
         this.div.style.position = 'absolute';
-        this.div.style.transform = 'translate(-50%,-50%)';
+        var anchor = this.div.getAttribute('data-anchor') || 'bottom';
+        if (anchor === 'center') {
+          this.div.style.transform = 'translate(-50%, -50%)';
+        } else {
+          this.div.style.transform = 'translate(-50%, -100%)';
+        }
       }
     }
     onRemove() {
@@ -398,6 +406,7 @@ window.updateMapData = function(path, currentLat, currentLng) {
     } else {
       var userDiv = document.createElement('div');
       userDiv.style.cssText = 'position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+      userDiv.setAttribute('data-anchor', 'center');
       userDiv.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
       userMarker = new PhotoOverlay(latLng, userDiv);
     }
@@ -430,6 +439,12 @@ window.updateMapData = function(path, currentLat, currentLng) {
                 longitudeDelta: 0.05,
               }}
               onMapReady={() => setMapReady(true)}
+              onRegionChangeComplete={(region) => {
+                const safeRegion = sanitizeMapRegion(region);
+                if (safeRegion) {
+                  setLatitudeDelta(safeRegion.latitudeDelta);
+                }
+              }}
               showsUserLocation={true}
               followsUserLocation={true}
               zoomEnabled={true}
@@ -444,11 +459,12 @@ window.updateMapData = function(path, currentLat, currentLng) {
                   strokeWidth={4}
                   simplifyDistance={5}
                   applyKalman={false}
+                  latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
                 />
               )}
               {currentLocation && Marker && (
                 <Marker coordinate={currentLocation} title="Current Location" anchor={{ x: 0.5, y: 0.5 }}>
-                  <PremiumMapMarker icon="navigate" active />
+                  <PremiumMapMarker icon="navigate" active latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
                 </Marker>
               )}
             </MapView>
@@ -498,7 +514,7 @@ window.updateMapData = function(path, currentLat, currentLng) {
         <View style={{ flexDirection: 'row', alignItems: 'center', padding: 10 }}>
           <TouchableOpacity
             style={[styles.minimizeButton, { backgroundColor: theme.colors.background }]}
-            onPress={() => router.push('/(tabs)/home')}
+            onPress={() => router.back()}
             accessibilityLabel="Minimize tracking map"
           >
             <Ionicons name="chevron-down" size={22} color={theme.colors.text} />
@@ -632,59 +648,66 @@ window.updateMapData = function(path, currentLat, currentLng) {
           </View>
         </View>
 
-        {/* Action Controls Row */}
-        <View style={styles.controlsRow}>
+        {/* Action Controls and Capture Row */}
+        <View style={styles.consolidatedRow}>
+          <TouchableOpacity
+            style={[styles.circularBtn, { borderColor: ACTION_BLUE }]}
+            onPress={() => openJourneyCapture('photo')}
+            disabled={isLoading}
+            accessibilityLabel="Post photo waypoint"
+          >
+            <Ionicons name="camera" size={18} color={ACTION_BLUE} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.circularBtn, { borderColor: ALERT_RED }]}
+            onPress={() => openJourneyCapture('short')}
+            disabled={isLoading}
+            accessibilityLabel="Post reel waypoint"
+          >
+            <Ionicons name="videocam" size={18} color={ALERT_RED} />
+          </TouchableOpacity>
+
           {isPaused ? (
             <TouchableOpacity
-              style={[styles.controlBtn, { backgroundColor: GROWTH_GREEN }]}
+              style={styles.resumeBtnContainer}
               onPress={handleResumeJourney}
               disabled={isLoading}
               accessibilityLabel="Resume journey"
             >
-              <Ionicons name="play" size={18} color="white" />
-              <Text style={styles.controlBtnText}>Resume</Text>
+              <LinearGradient
+                colors={isDark ? ['rgba(255, 255, 255, 0.14)', 'rgba(255, 255, 255, 0.08)'] : ['#53A7FF', '#2B7FFF']}
+                style={styles.resumeGradient}
+              >
+                {isLoading ? (
+                  <LoadingGlobe color="white" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="play" size={16} color="white" />
+                    <Text style={styles.actionBtnText}>Continue</Text>
+                  </>
+                )}
+              </LinearGradient>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
-              style={[styles.controlBtn, { backgroundColor: ACTION_BLUE }]}
+              style={[styles.pauseBtn, { borderColor: '#F59E0B' }]}
               onPress={handlePauseJourney}
               disabled={isLoading}
               accessibilityLabel="Pause journey"
             >
-              <Ionicons name="pause" size={18} color="white" />
-              <Text style={styles.controlBtnText}>Pause</Text>
+              <Ionicons name="pause" size={16} color="#F59E0B" />
+              <Text style={[styles.pauseBtnText, { color: '#F59E0B' }]}>Pause</Text>
             </TouchableOpacity>
           )}
 
           <TouchableOpacity
-            style={[styles.controlBtn, { backgroundColor: ALERT_RED }]}
+            style={[styles.stopBtn, { borderColor: ALERT_RED }]}
             onPress={handleStopJourney}
             disabled={isLoading}
             accessibilityLabel="Stop and complete journey"
           >
-            <Ionicons name="stop" size={18} color="white" />
-            <Text style={styles.controlBtnText}>End Journey</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Capture Panel Buttons */}
-        <View style={styles.sheetCapturePanel}>
-          <TouchableOpacity
-            style={[styles.sheetCaptureBtn, { borderColor: ACTION_BLUE }]}
-            onPress={() => openJourneyCapture('photo')}
-            accessibilityLabel="Post photo waypoint"
-          >
-            <Ionicons name="camera" size={16} color={ACTION_BLUE} />
-            <Text style={[styles.sheetCaptureText, { color: ACTION_BLUE }]}>Post Photo</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.sheetCaptureBtn, { borderColor: ALERT_RED }]}
-            onPress={() => openJourneyCapture('short')}
-            accessibilityLabel="Post reel waypoint"
-          >
-            <Ionicons name="videocam" size={16} color={ALERT_RED} />
-            <Text style={[styles.sheetCaptureText, { color: ALERT_RED }]}>Post a Reel</Text>
+            <Ionicons name="stop" size={16} color={ALERT_RED} />
+            <Text style={[styles.pauseBtnText, { color: ALERT_RED }]}>End</Text>
           </TouchableOpacity>
         </View>
       </Animated.View>
@@ -823,15 +846,15 @@ const styles = StyleSheet.create({
   },
   downArrowButton: {
     alignSelf: 'center',
-    paddingVertical: 6,
+    paddingVertical: 4,
     paddingHorizontal: 20,
-    marginBottom: 8,
+    marginBottom: 4,
   },
   statsGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12,
     paddingHorizontal: 8,
   },
   statBox: {
@@ -840,9 +863,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   statIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 2,
@@ -862,48 +885,60 @@ const styles = StyleSheet.create({
     height: 36,
     backgroundColor: 'rgba(0, 0, 0, 0.08)',
   },
-  controlsRow: {
+  consolidatedRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
-  },
-  controlBtn: {
-    flex: 1,
-    height: 48,
-    borderRadius: 24,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
     gap: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    alignItems: 'center',
+    marginBottom: 8,
   },
-  controlBtnText: {
-    color: 'white',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  sheetCapturePanel: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  sheetCaptureBtn: {
-    flex: 1,
+  circularBtn: {
+    width: 44,
     height: 44,
     borderRadius: 22,
     borderWidth: 1.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.02)',
+  },
+  pauseBtn: {
+    flex: 1.5,
+    height: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(0, 0, 0, 0.02)',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    gap: 6,
   },
-  sheetCaptureText: {
-    fontSize: 13,
-    fontWeight: '700',
+  stopBtn: {
+    flex: 1.2,
+    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    gap: 6,
+  },
+  resumeBtnContainer: {
+    flex: 1.5,
+  },
+  resumeGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 44,
+    borderRadius: 12,
+    gap: 8,
+  },
+  actionBtnText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  pauseBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,

@@ -13,7 +13,14 @@ export default function NavigateLayout() {
       }}
     >
       <Stack.Screen name="index" />
-      <Stack.Screen name="tracking" />
+      <Stack.Screen 
+        name="tracking" 
+        options={{ 
+          presentation: 'modal',
+          gestureEnabled: true,
+          gestureDirection: 'vertical',
+        }} 
+      />
       <Stack.Screen name="complete" />
       <Stack.Screen name="detail" />
     </Stack>

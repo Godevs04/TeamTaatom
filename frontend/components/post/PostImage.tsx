@@ -396,11 +396,14 @@ export default function PostImage({
       }
     })
     .onUpdate((e) => {
-      // Clamp scale within the UI worklet to prevent crashes (Max 5, Min 1)
-      const currentScale = (e.scale && !isNaN(e.scale) && isFinite(e.scale)) ? e.scale : 1;
-      scale.value = Math.max(1, Math.min(currentScale, 5));
-      focalX.value = (e.focalX && !isNaN(e.focalX) && isFinite(e.focalX)) ? e.focalX : 0;
-      focalY.value = (e.focalY && !isNaN(e.focalY) && isFinite(e.focalY)) ? e.focalY : 0;
+      // Only process pinch updates if 2 fingers are touching to prevent focal jumps on iOS
+      if (e.numberOfPointers === 2) {
+        // Clamp scale within the UI worklet to prevent crashes (Max 5, Min 1)
+        const currentScale = (e.scale && !isNaN(e.scale) && isFinite(e.scale)) ? e.scale : 1;
+        scale.value = Math.max(1, Math.min(currentScale, 5));
+        focalX.value = (e.focalX && !isNaN(e.focalX) && isFinite(e.focalX)) ? e.focalX : 0;
+        focalY.value = (e.focalY && !isNaN(e.focalY) && isFinite(e.focalY)) ? e.focalY : 0;
+      }
     })
     .onEnd(() => {
       // Automatic snap-back feature (BUG-002) using withSpring for smooth reset

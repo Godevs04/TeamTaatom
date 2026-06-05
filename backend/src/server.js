@@ -169,6 +169,15 @@ const gracefulShutdown = async (signal) => {
         logger.debug('Background job workers not running or already stopped');
       }
       
+      // Flush and shutdown view aggregator
+      try {
+        const viewAggregator = require('./utils/viewAggregator');
+        await viewAggregator.shutdown();
+        logger.info('View aggregator shut down and flushed');
+      } catch (error) {
+        logger.error('Error shutting down view aggregator', error);
+      }
+      
       logger.info('Graceful shutdown completed');
       process.exit(0);
     });

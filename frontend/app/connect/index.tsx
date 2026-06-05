@@ -11,6 +11,8 @@ import {
   ScrollView,
   TextInput,
   Alert,
+  KeyboardAvoidingView,
+  Modal,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -44,6 +46,7 @@ import PremiumSegmentedTabs from '../../components/ui/PremiumSegmentedTabs';
 import GradientText from '../../components/ui/GradientText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Location from 'expo-location';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -104,73 +107,88 @@ function PickerModal({
     : items;
 
   return (
-    <View style={[styles.pickerOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-      <View style={[styles.pickerModal, { backgroundColor: theme.colors.surface }]}>
-        <View style={styles.pickerHeader}>
-          <Text style={[styles.pickerTitle, { color: theme.colors.text }]}>{title}</Text>
-          <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Ionicons name="close" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-        </View>
+    <Modal
+      animationType="fade"
+      transparent={true}
+      visible={true}
+      onRequestClose={onClose}
+    >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={[styles.pickerOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}
+      >
+        <TouchableOpacity
+          style={StyleSheet.absoluteFillObject}
+          activeOpacity={1}
+          onPress={onClose}
+        />
+        <View style={[styles.pickerModal, { backgroundColor: theme.colors.surface, width: '100%' }]}>
+          <View style={styles.pickerHeader}>
+            <Text style={[styles.pickerTitle, { color: theme.colors.text }]}>{title}</Text>
+            <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close" size={24} color={theme.colors.text} />
+            </TouchableOpacity>
+          </View>
 
-        {/* Search input */}
-        <View style={[styles.pickerSearchWrap, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
-          <Ionicons name="search" size={16} color={theme.colors.textSecondary} />
-          <TextInput
-            style={[styles.pickerSearchInput, { color: theme.colors.text }]}
-            value={query}
-            onChangeText={setQuery}
-            placeholder="Type to search…"
-            placeholderTextColor={theme.colors.textSecondary}
-            autoCorrect={false}
-            autoCapitalize="none"
-            returnKeyType="search"
-          />
-          {query.length > 0 && (
-            <TouchableOpacity onPress={() => setQuery('')} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
-              <Ionicons name="close-circle" size={16} color={theme.colors.textSecondary} />
-            </TouchableOpacity>
-          )}
-        </View>
+          {/* Search input */}
+          <View style={[styles.pickerSearchWrap, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+            <Ionicons name="search" size={16} color={theme.colors.textSecondary} />
+            <TextInput
+              style={[styles.pickerSearchInput, { color: theme.colors.text }]}
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Type to search…"
+              placeholderTextColor={theme.colors.textSecondary}
+              autoCorrect={false}
+              autoCapitalize="none"
+              returnKeyType="search"
+            />
+            {query.length > 0 && (
+              <TouchableOpacity onPress={() => setQuery('')} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                <Ionicons name="close-circle" size={16} color={theme.colors.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
 
-        <ScrollView style={styles.pickerList} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-          {/* "Any" option always visible (only when not searching) */}
-          {!trimmed && (
-            <TouchableOpacity
-              style={[styles.pickerItem, !selected && { backgroundColor: theme.colors.primary + '15' }]}
-              onPress={() => { onSelect(''); onClose(); }}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.pickerItemText, { color: !selected ? theme.colors.primary : theme.colors.textSecondary }]}>
-                Any
-              </Text>
-            </TouchableOpacity>
-          )}
-          {filtered.map(item => (
-            <TouchableOpacity
-              key={item.code}
-              style={[styles.pickerItem, selected === item.code && { backgroundColor: theme.colors.primary + '15' }]}
-              onPress={() => { onSelect(item.code); onClose(); }}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.pickerItemText, { color: selected === item.code ? theme.colors.primary : theme.colors.text }]}>
-                {item.name}
-              </Text>
-              {selected === item.code && (
-                <Ionicons name="checkmark" size={20} color={theme.colors.primary} />
-              )}
-            </TouchableOpacity>
-          ))}
-          {trimmed && filtered.length === 0 && (
-            <View style={styles.pickerEmpty}>
-              <Text style={[styles.pickerItemText, { color: theme.colors.textSecondary }]}>
-                No matches
-              </Text>
-            </View>
-          )}
-        </ScrollView>
-      </View>
-    </View>
+          <ScrollView style={styles.pickerList} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            {/* "Any" option always visible (only when not searching) */}
+            {!trimmed && (
+              <TouchableOpacity
+                style={[styles.pickerItem, !selected && { backgroundColor: theme.colors.primary + '15' }]}
+                onPress={() => { onSelect(''); onClose(); }}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.pickerItemText, { color: !selected ? theme.colors.primary : theme.colors.textSecondary }]}>
+                  Any
+                </Text>
+              </TouchableOpacity>
+            )}
+            {filtered.map(item => (
+              <TouchableOpacity
+                key={item.code}
+                style={[styles.pickerItem, selected === item.code && { backgroundColor: theme.colors.primary + '15' }]}
+                onPress={() => { onSelect(item.code); onClose(); }}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.pickerItemText, { color: selected === item.code ? theme.colors.primary : theme.colors.text }]}>
+                  {item.name}
+                </Text>
+                {selected === item.code && (
+                  <Ionicons name="checkmark" size={20} color={theme.colors.primary} />
+                )}
+              </TouchableOpacity>
+            ))}
+            {trimmed && filtered.length === 0 && (
+              <View style={styles.pickerEmpty}>
+                <Text style={[styles.pickerItemText, { color: theme.colors.textSecondary }]}>
+                  No matches
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 
@@ -231,6 +249,57 @@ export default function ConnectHubScreen() {
   const [userLocationSuggestions, setUserLocationSuggestions] = useState<string[]>([]);
   const [loadingUserLocation, setLoadingUserLocation] = useState(false);
   const userLocationDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const userLocationOverriddenRef = useRef(false);
+
+  const formatDetectedLocation = useCallback((address: Location.LocationGeocodedAddress) => {
+    return [
+      address.city || address.subregion || address.district,
+      address.region,
+      address.country,
+    ].filter(Boolean).join(', ');
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateCurrentLocation = async () => {
+      if (activeTab !== 'find' || userLocationOverriddenRef.current || userLocationInput.trim()) return;
+      if (Platform.OS === 'web') return;
+      try {
+        setLoadingUserLocation(true);
+        const existingPermission = await Location.getForegroundPermissionsAsync();
+        const permission = existingPermission.status === 'granted'
+          ? existingPermission
+          : await Location.requestForegroundPermissionsAsync();
+
+        if (cancelled || permission.status !== 'granted') return;
+
+        const lastKnown = await Location.getLastKnownPositionAsync();
+        const position = lastKnown || await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (cancelled || userLocationOverriddenRef.current) return;
+
+        const [address] = await Location.reverseGeocodeAsync(position.coords);
+        if (cancelled || userLocationOverriddenRef.current || !address) return;
+
+        const label = formatDetectedLocation(address);
+        if (!label) return;
+        setUserLocation(label);
+        setUserLocationInput(label);
+        setUserLocationSuggestions([]);
+      } catch (error) {
+        logger.debug('Unable to hydrate current location for traveler search:', error);
+      } finally {
+        if (!cancelled) setLoadingUserLocation(false);
+      }
+    };
+
+    hydrateCurrentLocation();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, formatDetectedLocation, userLocationInput]);
 
   // Load countries/languages for Find tab and pre-populate from profile
   useEffect(() => {
@@ -324,7 +393,7 @@ export default function ConnectHubScreen() {
     try {
       if (pNum === 1) {
         if (isRefresh) setConnectRefreshing(true);
-        else setMyPagesLoading(true);
+        else if (myPages.length === 0) setMyPagesLoading(true);
       } else {
         setConnectLoadingMore(true);
       }
@@ -351,7 +420,7 @@ export default function ConnectHubScreen() {
       setConnectRefreshing(false);
       setConnectLoadingMore(false);
     }
-  }, []);
+  }, [myPages]);
 
   const handleLoadMoreConnect = useCallback(() => {
     if (!connectLoadingMore && connectHasMore && !myPagesLoading) {
@@ -365,7 +434,7 @@ export default function ConnectHubScreen() {
     try {
       if (pNum === 1) {
         if (isRefresh) setRefreshing(true);
-        else setLoading(true);
+        else if (pages.length === 0) setLoading(true);
       }
       const response = await getCommunities(pNum, 20);
       if (response) {
@@ -381,7 +450,7 @@ export default function ConnectHubScreen() {
       setRefreshing(false);
       setLoadingMore(false);
     }
-  }, [activeTab]);
+  }, [activeTab, pages]);
 
   useFocusEffect(
     useCallback(() => {
@@ -393,7 +462,7 @@ export default function ConnectHubScreen() {
   const handleTabChange = (tab: TabType) => {
     if (tab === activeTab) return;
     setActiveTab(tab);
-    if (tab === 'community') {
+    if (tab === 'community' && pages.length === 0) {
       setPages([]);
       setPageNum(1);
       setHasMore(true);
@@ -426,6 +495,7 @@ export default function ConnectHubScreen() {
 
   // User's own current location — debounced Places autocomplete.
   const handleUserLocationChange = (text: string) => {
+    userLocationOverriddenRef.current = true;
     setUserLocationInput(text);
     // Typing means the previously selected location is no longer authoritative.
     if (userLocation) setUserLocation('');
@@ -450,6 +520,7 @@ export default function ConnectHubScreen() {
   };
 
   const handleUserLocationSelect = (place: string) => {
+    userLocationOverriddenRef.current = true;
     setUserLocation(place);
     setUserLocationInput(place);
     setUserLocationSuggestions([]);
@@ -625,7 +696,7 @@ export default function ConnectHubScreen() {
   // Connect tab — every user-created (non-admin) page on the platform,
   // followed entries first (global ranking from the backend), paginated.
   const renderConnectTab = () => {
-    if (myPagesLoading) {
+    if (myPagesLoading && myPages.length === 0) {
       return (
         <View style={styles.loadingContainer}>
           <LoadingGlobe size="large" color={theme.colors.primary} />
@@ -785,10 +856,17 @@ export default function ConnectHubScreen() {
   };
 
   const renderFindTab = () => (
+    <KeyboardAvoidingView
+      style={styles.findKeyboardWrapper}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={topBarHeight}
+    >
     <ScrollView
       style={styles.findContainer}
       contentContainerStyle={styles.findContent}
       showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
     >
       {/* Filter Form */}
       <CloudGlassSurface style={styles.filterCard} contentStyle={styles.filterCardContent} borderRadius={20}>
@@ -824,6 +902,7 @@ export default function ConnectHubScreen() {
           ) : userLocationInput.length > 0 ? (
             <TouchableOpacity
               onPress={() => {
+                userLocationOverriddenRef.current = true;
                 setUserLocation('');
                 setUserLocationInput('');
                 setUserLocationSuggestions([]);
@@ -852,9 +931,8 @@ export default function ConnectHubScreen() {
           </View>
         )}
 
-        {/* People-from country */}
         <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>
-          Which country&apos;s people would you like to connect with?
+          Nationality
         </Text>
         <TouchableOpacity
           style={[styles.filterSelect, {
@@ -871,9 +949,8 @@ export default function ConnectHubScreen() {
           <Ionicons name="chevron-down" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
         </TouchableOpacity>
 
-        {/* Where they currently are */}
         <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>
-          Which country should they currently be in?
+          Current Location / Residence
         </Text>
         <TouchableOpacity
           style={[styles.filterSelect, {
@@ -909,7 +986,9 @@ export default function ConnectHubScreen() {
           <Ionicons name="chevron-down" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
         </TouchableOpacity>
 
-        {/* Travel Style Picker */}
+        <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>
+          Travel Style
+        </Text>
         <TouchableOpacity
           style={[styles.filterSelect, {
             backgroundColor: isDark ? '#0A1E35' : '#E6F0FA',
@@ -962,10 +1041,11 @@ export default function ConnectHubScreen() {
 
       {foundUsers.map(user => renderUserItem(user))}
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 
   const renderPageListTab = () => {
-    if (loading) {
+    if (loading && pages.length === 0) {
       return (
         <View style={styles.loadingContainer}>
           <LoadingGlobe size="large" color={theme.colors.primary} />
@@ -1066,7 +1146,15 @@ export default function ConnectHubScreen() {
         <PremiumSegmentedTabs tabs={tabs} value={activeTab} onChange={handleTabChange} style={styles.tabBar} />
 
         {/* Tab Content */}
-        {activeTab === 'connect' ? renderConnectTab() : activeTab === 'find' ? renderFindTab() : renderPageListTab()}
+        <View style={[styles.listSlot, activeTab === 'connect' ? null : styles.hidden]} pointerEvents={activeTab === 'connect' ? 'auto' : 'none'}>
+          {renderConnectTab()}
+        </View>
+        <View style={[styles.listSlot, activeTab === 'find' ? null : styles.hidden]} pointerEvents={activeTab === 'find' ? 'auto' : 'none'}>
+          {renderFindTab()}
+        </View>
+        <View style={[styles.listSlot, activeTab === 'community' ? null : styles.hidden]} pointerEvents={activeTab === 'community' ? 'auto' : 'none'}>
+          {renderPageListTab()}
+        </View>
       </View>
 
       {/* FAB — Create Connect Page (Connect tab only) */}
@@ -1145,6 +1233,12 @@ const styles = StyleSheet.create({
     marginHorizontal: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.md,
     marginBottom: 10,
   },
+  listSlot: {
+    flex: 1,
+  },
+  hidden: {
+    display: 'none',
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -1171,6 +1265,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   // Find Tab
+  findKeyboardWrapper: {
+    flex: 1,
+  },
   findContainer: {
     flex: 1,
   },

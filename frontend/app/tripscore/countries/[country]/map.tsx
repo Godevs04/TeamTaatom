@@ -22,6 +22,11 @@ import logger from '../../../../utils/logger';
 import PremiumMapMarker from '../../../../components/PremiumMapMarker';
 import GlassMapPanel from '../../../../components/GlassMapPanel';
 import { useMapStyle } from '../../../../hooks/useMapStyle';
+import {
+  isValidMapCoordinate,
+  sanitizeLatitudeDelta,
+  sanitizeMapRegion,
+} from '../../../../utils/mapSafety';
 
 const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
 
@@ -62,6 +67,7 @@ export default function CountryMapScreen() {
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
   const [renderedLocation, setRenderedLocation] = useState<Location | null>(null);
   const slideAnim = useRef(new Animated.Value(300)).current;
+  const [latitudeDelta, setLatitudeDelta] = useState(0.1);
 
   useEffect(() => {
     if (selectedLocation) {
@@ -91,15 +97,18 @@ export default function CountryMapScreen() {
   const markersCacheRef = useRef<Array<any>>([]);
 
   const centerMapOnLocation = useCallback((loc: Location) => {
-    if (!loc.coordinates?.latitude || !loc.coordinates?.longitude) return;
+    if (!isValidMapCoordinate(loc.coordinates)) return;
     if (mapRef.current) {
       if (Platform.OS === 'ios') {
-        mapRef.current.animateToRegion({
+        const region = sanitizeMapRegion({
           latitude: loc.coordinates.latitude,
           longitude: loc.coordinates.longitude,
           latitudeDelta: 0.05,
           longitudeDelta: 0.05,
-        }, 350);
+        });
+        if (region) {
+          mapRef.current.animateToRegion(region, 350);
+        }
       } else {
         mapRef.current.animateCamera({
           center: {
@@ -294,16 +303,9 @@ export default function CountryMapScreen() {
     // Create stable markers with deterministic coordinates
     const markers = data.locations.map((loc, i) => {
       const hasValidCoords =
-        typeof loc.coordinates?.latitude === 'number' &&
-        typeof loc.coordinates?.longitude === 'number' &&
-        !Number.isNaN(loc.coordinates.latitude) &&
-        !Number.isNaN(loc.coordinates.longitude) &&
+        isValidMapCoordinate(loc.coordinates) &&
         loc.coordinates.latitude !== 0 &&
-        loc.coordinates.longitude !== 0 &&
-        loc.coordinates.latitude >= -90 &&
-        loc.coordinates.latitude <= 90 &&
-        loc.coordinates.longitude >= -180 &&
-        loc.coordinates.longitude <= 180;
+        loc.coordinates.longitude !== 0;
 
       // Always use stable coordinates - either real ones or deterministic fallback
       const finalCoords = hasValidCoords
@@ -350,16 +352,9 @@ export default function CountryMapScreen() {
     
     // Filter locations to only include those with valid coordinates
     const validMarkers = data.locations.filter(
-      loc => loc.coordinates?.latitude &&
-             loc.coordinates?.longitude &&
+      loc => isValidMapCoordinate(loc.coordinates) &&
              loc.coordinates.latitude !== 0 &&
-             loc.coordinates.longitude !== 0 &&
-             !isNaN(loc.coordinates.latitude) &&
-             !isNaN(loc.coordinates.longitude) &&
-             loc.coordinates.latitude >= -90 &&
-             loc.coordinates.latitude <= 90 &&
-             loc.coordinates.longitude >= -180 &&
-             loc.coordinates.longitude <= 180
+             loc.coordinates.longitude !== 0
     );
 
     // Dedupe by ~11m precision so GPS-noise variants of the same spot collapse
@@ -420,6 +415,7 @@ export default function CountryMapScreen() {
         var isSel = ${!!isSelected};
         if (isSel) {
           var imgHtml = "${photoUrl}" ? '<img class="marker-thumb" src="${photoUrl}" onerror="this.style.display=\'none\'" />' : '<div class="marker-thumb-placeholder">📍</div>';
+          div.setAttribute('data-anchor', 'bottom');
           div.innerHTML = '<div class="glass-marker-card">' +
             imgHtml +
             '<div class="marker-info">' +
@@ -429,7 +425,8 @@ export default function CountryMapScreen() {
           '</div>';
           div.style.zIndex = 99999;
         } else {
-          div.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
+          div.setAttribute('data-anchor', 'bottom');
+          div.innerHTML = '<svg width="30" height="40" viewBox="0 0 30 40" style="filter: drop-shadow(0px 3px 4px rgba(0,0,0,0.35))"><defs><linearGradient id="htmlPinGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#50C878" /><stop offset="100%" stop-color="#1C73B4" /></linearGradient></defs><path d="M15 1C7.27 1 1 7.27 1 15c0 10 14 25 14 25s14-15 14-25c0-7.73-6.27-14-14-14zm0 19c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z" fill="url(#htmlPinGrad)" fill-rule="evenodd" stroke="#FFFFFF" stroke-width="1.5"/></svg>';
           div.style.zIndex = ${i};
         }
         
@@ -501,6 +498,10 @@ export default function CountryMapScreen() {
           .marker-thumb {
             width: 26px;
             height: 26px;
+            min-width: 26px;
+            min-height: 26px;
+            flex-shrink: 0;
+            -webkit-flex-shrink: 0;
             border-radius: 50%;
             object-fit: cover;
             border: 1.5px solid ${isDark ? '#2DD4BF' : '#3B82F6'};
@@ -508,6 +509,10 @@ export default function CountryMapScreen() {
           .marker-thumb-placeholder {
             width: 26px;
             height: 26px;
+            min-width: 26px;
+            min-height: 26px;
+            flex-shrink: 0;
+            -webkit-flex-shrink: 0;
             border-radius: 50%;
             background: ${isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)'};
             display: flex;
@@ -569,7 +574,12 @@ export default function CountryMapScreen() {
                   this.div.style.left = pt.x + 'px';
                   this.div.style.top = pt.y + 'px';
                   this.div.style.position = 'absolute';
-                  this.div.style.transform = 'translate(-50%, -50%)';
+                  var anchor = this.div.getAttribute('data-anchor') || 'bottom';
+                  if (anchor === 'center') {
+                    this.div.style.transform = 'translate(-50%, -50%)';
+                  } else {
+                    this.div.style.transform = 'translate(-50%, -100%)';
+                  }
                 }
               }
               onRemove() {
@@ -681,6 +691,12 @@ export default function CountryMapScreen() {
               latitudeDelta: getCountryDelta(displayCountryName || '').latitudeDelta,
               longitudeDelta: getCountryDelta(displayCountryName || '').longitudeDelta,
             }}
+            onRegionChangeComplete={(region) => {
+              const safeRegion = sanitizeMapRegion(region);
+              if (safeRegion) {
+                setLatitudeDelta(safeRegion.latitudeDelta);
+              }
+            }}
             mapType={mapStyle.mapType}
           >
           {/* Always show a center marker to guarantee at least one visible flag */}
@@ -690,7 +706,7 @@ export default function CountryMapScreen() {
               latitude: getCountryCenter(displayCountryName || '').latitude,
               longitude: getCountryCenter(displayCountryName || '').longitude,
             }}
-            anchor={{ x: 0.5, y: 1 }}
+            anchor={{ x: 0.5, y: 1.0 }}
             onPress={() => {
               const countryParam = Array.isArray(country) ? country[0] : country;
               const center = getCountryCenter(displayCountryName || '');
@@ -721,6 +737,7 @@ export default function CountryMapScreen() {
               activeTitle={displayCountryName} 
               activeSubtitle="Country Center" 
               icon="flag" 
+              latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
             />
           </Marker>
           {/* Markers for visited locations */}
@@ -736,7 +753,7 @@ export default function CountryMapScreen() {
               <Marker
                 key={stableKey}
                 zIndex={isSelected ? 99999 : index}
-                anchor={{ x: 0.5, y: isSelected ? 0.9 : 0.5 }}
+                anchor={{ x: 0.5, y: 1.0 }}
                 coordinate={{
                   latitude: location.coordinates!.latitude,
                   longitude: location.coordinates!.longitude,
@@ -748,6 +765,7 @@ export default function CountryMapScreen() {
                   activeTitle={location.name} 
                   activeSubtitle={location.category?.typeOfSpot || 'Visited spot'} 
                   photo={location.imageUrl} 
+                  latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
                 />
               </Marker>
             );
@@ -926,7 +944,7 @@ const styles = StyleSheet.create({
   previewImage: {
     width: 72,
     height: 72,
-    borderRadius: 16,
+    borderRadius: 36,
     overflow: 'hidden',
   },
   previewFallback: {

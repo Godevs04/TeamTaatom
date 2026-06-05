@@ -7,7 +7,7 @@ const Activity = require('../models/Activity');
 const Hashtag = require('../models/Hashtag');
 const { getOptimizedImageUrl } = require('../config/cloudinary');
 const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
-const { generateSignedUrl, generateSignedUrls, resolveProfilePic } = require('../services/mediaService');
+const { generateSignedUrl, generateSignedUrls, resolveProfilePic, resolveSong } = require('../services/mediaService');
 const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
 const logger = require('../utils/logger');
@@ -566,6 +566,7 @@ const getPostById = async (req, res) => {
               {
                 $project: {
                   fullName: 1,
+                  username: 1,
                   profilePic: 1,
                   profilePicStorageKey: 1,
                   followers: 1, // Include followers for follow status check
@@ -1408,6 +1409,7 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
               { 
                 $project: { 
                   fullName: 1, 
+                  username: 1,
                   profilePic: 1,
                   profilePicStorageKey: 1,
                   followers: currentUserId ? { $cond: [{ $eq: ['$_id', currentUserId] }, '$followers', []] } : []
@@ -1424,7 +1426,7 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
           foreignField: '_id',
           as: 'commentUsers',
           pipeline: [
-            { $project: { fullName: 1, profilePic: 1, profilePicStorageKey: 1 } }
+            { $project: { fullName: 1, username: 1, profilePic: 1, profilePicStorageKey: 1 } }
           ]
         }
       },
@@ -1443,6 +1445,8 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
                 cloudinaryUrl: 1, 
                 s3Url: 1, 
                 thumbnailUrl: 1, 
+                imageUrl: 1,
+                imageStorageKey: 1,
                 storageKey: 1,
                 cloudinaryKey: 1,
                 s3Key: 1,
@@ -1520,18 +1524,7 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
 
       // Generate signed URL for song if present (same logic as getShorts)
       if (short.song?.songId) {
-        const storageKey = short.song.songId.storageKey || short.song.songId.cloudinaryKey || short.song.songId.s3Key;
-        if (storageKey) {
-          try {
-            const songUrl = await generateSignedUrl(storageKey, 'AUDIO');
-            short.song.songId.s3Url = songUrl;
-            short.song.songId.cloudinaryUrl = songUrl;
-          } catch (error) {
-            logger.warn(`Failed to generate song URL for short ${short._id}:`, error.message);
-            short.song.songId.s3Url = null;
-            short.song.songId.cloudinaryUrl = null;
-          }
-        }
+        await resolveSong(short.song.songId);
       }
 
       // Generate signed URLs for short video and thumbnail
@@ -1870,7 +1863,14 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
       nextCursor = Buffer.from(`${lastCreatedAtMs},${lastId}`).toString('base64');
     }
 
-    const totalShorts = await Post.countDocuments({ user: userIdObj, isActive: true, type: 'short' });
+    const totalShorts = await Post.countDocuments({
+      user: userIdObj,
+      isActive: true,
+      isHidden: { $ne: true },
+      isArchived: { $ne: true },
+      type: 'short',
+      $or: [{ status: 'active' }, { status: { $exists: false } }]
+    });
 
     return sendSuccess(res, 200, 'User shorts fetched successfully', {
       shorts: responseShorts,
@@ -1973,7 +1973,7 @@ const getUserPosts = async (req, res) => {
             $or: [{ status: 'active' }, { status: { $exists: false } }]
           }
         },
-        { $sort: { createdAt: -1 } },
+        { $sort: { createdAt: -1, _id: -1 } },
         { $skip: skip },
         { $limit: limit },
         {
@@ -2080,7 +2080,14 @@ const getUserPosts = async (req, res) => {
         }
       ]);
 
-      const totalPosts = await Post.countDocuments({ user: userId, isActive: true, type: 'photo' }).lean();
+      const totalPosts = await Post.countDocuments({
+        user: userIdObj,
+        isActive: true,
+        isHidden: { $ne: true },
+        isArchived: { $ne: true },
+        type: 'photo',
+        $or: [{ status: 'active' }, { status: { $exists: false } }]
+      }).lean();
 
       return { posts, totalPosts };
     }, CACHE_TTL.POST_LIST);
@@ -3095,7 +3102,7 @@ const getShorts = async (req, res) => {
           foreignField: '_id',
           as: 'user',
           pipeline: [
-            { $project: { fullName: 1, profilePic: 1, profilePicStorageKey: 1, followers: 1 } }
+            { $project: { fullName: 1, username: 1, profilePic: 1, profilePicStorageKey: 1, followers: 1 } }
           ]
         }
       },
@@ -3122,7 +3129,7 @@ const getShorts = async (req, res) => {
           foreignField: '_id',
           as: 'commentUsers',
           pipeline: [
-            { $project: { fullName: 1, profilePic: 1, profilePicStorageKey: 1 } }
+            { $project: { fullName: 1, username: 1, profilePic: 1, profilePicStorageKey: 1 } }
           ]
         }
       },
@@ -3141,6 +3148,8 @@ const getShorts = async (req, res) => {
                 s3Url: 1,
                 cloudinaryUrl: 1,
                 thumbnailUrl: 1,
+                imageUrl: 1,
+                imageStorageKey: 1,
                 storageKey: 1,
                 cloudinaryKey: 1,
                 s3Key: 1,
@@ -3229,44 +3238,7 @@ const getShorts = async (req, res) => {
       
       // Generate signed URL for song if present (same logic as getPosts)
       if (short.song?.songId) {
-        console.warn('[SHORTS-SONG] Processing song for short:', {
-          shortId: String(short._id),
-          songId: String(short.song.songId._id || short.song.songId),
-          storageKey: short.song.songId.storageKey || null,
-          cloudinaryKey: short.song.songId.cloudinaryKey || null,
-          s3Key: short.song.songId.s3Key || null,
-          title: short.song.songId.title || null,
-        });
-        const storageKey = short.song.songId.storageKey || short.song.songId.cloudinaryKey || short.song.songId.s3Key;
-        if (storageKey) {
-          try {
-            const songUrl = await generateSignedUrl(storageKey, 'AUDIO');
-            short.song.songId.s3Url = songUrl;
-            short.song.songId.cloudinaryUrl = songUrl; // Backward compatibility
-            console.warn('[SHORTS-SONG] Generated song URL:', {
-              shortId: String(short._id),
-              storageKey,
-              songUrl: songUrl ? (String(songUrl).substring(0, 80) + '...') : 'NULL',
-            });
-          } catch (error) {
-            console.warn('[SHORTS-SONG] Failed to generate song URL:', {
-              shortId: String(short._id),
-              songId: String(short.song.songId._id),
-              error: error.message,
-            });
-            short.song.songId.s3Url = null;
-            short.song.songId.cloudinaryUrl = null;
-          }
-        } else {
-          // No storageKey — keep existing s3Url/cloudinaryUrl from DB (legacy songs)
-          logger.warn('Short song missing storage key, using stored URL if available:', {
-            shortId: short._id,
-            songId: short.song.songId._id,
-            hasS3Url: !!short.song.songId.s3Url,
-            hasCloudinaryUrl: !!short.song.songId.cloudinaryUrl
-          });
-          // Do NOT set to null — legacy songs store the URL directly in the Song document
-        }
+        await resolveSong(short.song.songId);
       } else {
         logger.debug('getShorts - No song data for short:', { shortId: short._id });
       }

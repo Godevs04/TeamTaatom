@@ -30,6 +30,11 @@ import PremiumMapMarker from '../../components/PremiumMapMarker';
 import ShareModal from '../../components/ShareModal';
 import { useMapStyle } from '../../hooks/useMapStyle';
 import logger from '../../utils/logger';
+import {
+  isValidMapCoordinate,
+  sanitizeLatitudeDelta,
+  sanitizeMapRegion,
+} from '../../utils/mapSafety';
 
 const GROWTH_GREEN = '#22C55E';
 const ACTION_BLUE = '#3B82F6';
@@ -87,6 +92,7 @@ export default function JourneyDetailScreen() {
   const [editTitle, setEditTitle] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [latitudeDelta, setLatitudeDelta] = useState(0.1);
 
   useEffect(() => {
     const fetchJourney = async () => {
@@ -386,6 +392,12 @@ function initMap(){
                 latitudeDelta: 0.1,
                 longitudeDelta: 0.1,
               }}
+              onRegionChangeComplete={(region) => {
+                const safeRegion = sanitizeMapRegion(region);
+                if (safeRegion) {
+                  setLatitudeDelta(safeRegion.latitudeDelta);
+                }
+              }}
               mapType={mapStyle.mapType}
               showsCompass={true}
             >
@@ -397,22 +409,23 @@ function initMap(){
                   strokeWidth={4}
                   simplifyDistance={10}
                   applyKalman={false}
+                  latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
                 />
               )}
-              {journey.startCoords?.lat && journey.startCoords?.lng && (
+              {isValidMapCoordinate({ latitude: journey.startCoords?.lat, longitude: journey.startCoords?.lng }) && (
                 <Marker coordinate={{ latitude: journey.startCoords.lat, longitude: journey.startCoords.lng }} title="Start" anchor={{ x: 0.5, y: 0.5 }}>
-                  <PremiumMapMarker icon="play" />
+                  <PremiumMapMarker icon="play" latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
                 </Marker>
               )}
-              {journey.endCoords?.lat && journey.endCoords?.lng && (
-                <Marker coordinate={{ latitude: journey.endCoords.lat, longitude: journey.endCoords.lng }} title="End" anchor={{ x: 0.5, y: 0.5 }}>
-                  <PremiumMapMarker icon="flag" active />
+              {isValidMapCoordinate({ latitude: journey.endCoords?.lat, longitude: journey.endCoords?.lng }) && (
+                <Marker coordinate={{ latitude: journey.endCoords.lat, longitude: journey.endCoords.lng }} title="End" anchor={{ x: 0.5, y: 1.0 }}>
+                  <PremiumMapMarker icon="flag" active latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
                 </Marker>
               )}
               {journey.waypoints?.map((w: any, i: number) => (
-                w.lat && w.lng && (
-                  <Marker key={`wp-${i}`} coordinate={{ latitude: w.lat, longitude: w.lng }} title={`${w.contentType || 'Photo'} #${i + 1}`} anchor={{ x: 0.5, y: 0.5 }}>
-                    <PremiumMapMarker icon={w.contentType === 'video' ? 'videocam' : 'camera'} />
+                isValidMapCoordinate({ latitude: w.lat, longitude: w.lng }) && (
+                  <Marker key={`wp-${i}`} coordinate={{ latitude: w.lat, longitude: w.lng }} title={`${w.contentType || 'Photo'} #${i + 1}`} anchor={{ x: 0.5, y: 1.0 }}>
+                    <PremiumMapMarker icon={w.contentType === 'video' ? 'videocam' : 'camera'} latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
                   </Marker>
                 )
               ))}
@@ -502,7 +515,13 @@ function initMap(){
                   <TouchableOpacity
                     key={`post-${index}`}
                     style={[styles.postCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
-                    onPress={() => router.push(`/post/${post._id}`)}
+                    onPress={() => {
+                      if (waypoint.contentType === 'video' || waypoint.contentType === 'short' || post.type === 'short') {
+                        router.push(`/user-shorts/${journey.user}?shortId=${post._id}`);
+                      } else {
+                        router.push(`/post/${post._id}`);
+                      }
+                    }}
                     activeOpacity={0.7}
                   >
                     {imageUrl && (

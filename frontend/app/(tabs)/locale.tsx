@@ -465,6 +465,98 @@ const filterReducer = (state: FilterState, action: FilterAction): FilterState =>
   }
 };
 
+interface ExpoImageWithShimmerProps {
+  source: any;
+  style: any;
+  contentFit?: 'cover' | 'contain' | 'fill' | 'none' | 'scale-down';
+  cachePolicy?: 'none' | 'disk' | 'memory-disk' | 'memory';
+  transition?: number;
+}
+
+const ExpoImageWithShimmer = React.memo(({ source, style, contentFit = 'cover', cachePolicy = 'memory-disk', transition = 0 }: ExpoImageWithShimmerProps) => {
+  const [loading, setLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+  const shimmerAnim = useRef(new Animated.Value(0.3)).current;
+
+  useEffect(() => {
+    let animation: Animated.CompositeAnimation | null = null;
+    if (loading) {
+      animation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(shimmerAnim, {
+            toValue: 0.7,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(shimmerAnim, {
+            toValue: 0.3,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      animation.start();
+    } else {
+      shimmerAnim.setValue(0);
+    }
+    return () => {
+      if (animation) {
+        animation.stop();
+      }
+    };
+  }, [loading, shimmerAnim]);
+
+  // Handle source changes - reset loading state and error state
+  const sourceUri = typeof source === 'object' ? source.uri : source;
+  useEffect(() => {
+    setLoading(true);
+    setHasError(false);
+  }, [sourceUri]);
+
+  return (
+    <View style={[style, { overflow: 'hidden' }]}>
+      {loading && (
+        <Animated.View
+          style={[
+            StyleSheet.absoluteFillObject,
+            {
+              backgroundColor: 'rgba(255, 255, 255, 0.12)',
+              opacity: shimmerAnim,
+              borderRadius: style?.borderRadius || 0,
+              zIndex: 1,
+            },
+          ]}
+        />
+      )}
+      {hasError ? (
+        <LinearGradient
+          colors={['#D4EDDA', '#A8DADC']}
+          style={StyleSheet.absoluteFillObject}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <View style={styles.mapPlaceholder}>
+            <Ionicons name="location" size={40} color="#2C5530" />
+          </View>
+        </LinearGradient>
+      ) : (
+        <ExpoImage
+          source={source}
+          style={[style, { width: '100%', height: '100%' }]}
+          contentFit={contentFit}
+          cachePolicy={cachePolicy}
+          transition={transition}
+          onLoad={() => setLoading(false)}
+          onError={() => {
+            setLoading(false);
+            setHasError(true);
+          }}
+        />
+      )}
+    </View>
+  );
+});
+
 export default function LocaleScreen() {
   const { showSuccess, showError, showInfo } = useAlert();
   const { handleScroll } = useScrollToHideNav();
@@ -548,6 +640,7 @@ export default function LocaleScreen() {
   const scrollY = useRef(new Animated.Value(0)).current;
   const savedScrollOffsetRef = useRef<number>(0);
   const flatListRef = useRef<any>(null);
+  const filterScrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     const id = scrollY.addListener(({ value }) => {
@@ -1084,7 +1177,7 @@ export default function LocaleScreen() {
   const drivingDistanceCalculatedRef = useRef<Set<string>>(new Set());
   
   // Generate location snapshot key - used to gate sorting
-  // Returns null if location is not stable (missing lat/lon or countryCode)
+  // Returns null if location is not stable (missing lat/lon)
   const getLocationSnapshotKey = useCallback((): string | null => {
     if (!userLocation || !locationPermissionGranted) {
       return null;
@@ -1093,9 +1186,9 @@ export default function LocaleScreen() {
     const lat = userLocation.latitude;
     const lon = userLocation.longitude;
     
-    // Location snapshot is stable only if we have coordinates AND countryCode
-    // city and region are optional but included in key for proper re-sorting when they become available
-    if (lat != null && lon != null && !isNaN(lat) && !isNaN(lon) && userCountryCode) {
+    // Location snapshot is stable if we have coordinates
+    // city, region, and countryCode are optional but included in key for proper re-sorting when they become available
+    if (lat != null && lon != null && !isNaN(lat) && !isNaN(lon)) {
       return `${lat.toFixed(4)}-${lon.toFixed(4)}-${userCity || 'x'}-${userState || 'x'}-${userCountryCode || 'x'}`;
     }
     
@@ -1247,7 +1340,9 @@ export default function LocaleScreen() {
           BACKEND_LIMIT,
           baseParams.includeInactive,
           currentFilters.stateProvince || '',
-          searchAbortControllerRef.current?.signal
+          searchAbortControllerRef.current?.signal,
+          currentUserLocation?.latitude ?? undefined,
+          currentUserLocation?.longitude ?? undefined
         );
 
         if (!isMountedRef.current) return;
@@ -1265,12 +1360,26 @@ export default function LocaleScreen() {
             const bgStateProvince = currentFilters.stateProvince || '';
             const bgSpotTypes = spotTypesParam;
             const bgIncludeInactive = baseParams.includeInactive;
+            const uLat = currentUserLocation?.latitude;
+            const uLon = currentUserLocation?.longitude;
             ;(async () => {
               const moreLocales: Locale[] = [];
               for (let page = 2; page <= totalPagesCount; page++) {
                 if (!isMountedRef.current || lastFetchKeyRef.current !== bgFetchKey) return;
                 try {
-                  const res = await getLocales(bgSearch, bgCountry, bgState, bgSpotTypes, page, BACKEND_LIMIT, bgIncludeInactive, bgStateProvince);
+                  const res = await getLocales(
+                    bgSearch,
+                    bgCountry,
+                    bgState,
+                    bgSpotTypes,
+                    page,
+                    BACKEND_LIMIT,
+                    bgIncludeInactive,
+                    bgStateProvince,
+                    undefined,
+                    uLat ?? undefined,
+                    uLon ?? undefined
+                  );
                   if (res?.locales?.length > 0) moreLocales.push(...res.locales);
                   else break;
                 } catch { break; }
@@ -1281,11 +1390,11 @@ export default function LocaleScreen() {
               const novel = moreLocales.filter(l => !existingIds.has(l._id));
               if (novel.length === 0) return;
               const snapshot = createLocationSnapshot();
-              const uLat = currentUserLocation?.latitude;
-              const uLon = currentUserLocation?.longitude;
+              const uLatVal = currentUserLocation?.latitude;
+              const uLonVal = currentUserLocation?.longitude;
               const novelWithDist = novel.map(l => {
-                if (l.latitude && l.longitude && uLat && uLon) {
-                  return { ...l, distanceKm: calculateDistance(uLat, uLon, l.latitude, l.longitude) };
+                if (l.latitude && l.longitude && uLatVal && uLonVal) {
+                  return { ...l, distanceKm: calculateDistance(uLatVal, uLonVal, l.latitude, l.longitude) };
                 }
                 return { ...l, distanceKm: null as number | null };
               });
@@ -1311,8 +1420,10 @@ export default function LocaleScreen() {
           20,
           baseParams.includeInactive,
           currentFilters.stateProvince || '',
-          searchAbortControllerRef.current?.signal
-      );
+          searchAbortControllerRef.current?.signal,
+          currentUserLocation?.latitude ?? undefined,
+          currentUserLocation?.longitude ?? undefined
+        );
       
       if (!isMountedRef.current) return;
       
@@ -1733,14 +1844,24 @@ export default function LocaleScreen() {
   // Calculate distance for a locale (with caching and geocoding support)
   // Now uses distanceKm from locale object if available, otherwise calculates it
   const getLocaleDistance = useCallback((locale: Locale & { distanceKm?: number | null }): number | null => {
-    // First check if distanceKm is already stored in locale object (from updated state)
-    if (locale.distanceKm !== undefined && locale.distanceKm !== null) {
-      return locale.distanceKm;
-    }
-
-    // Fallback: Calculate if not stored (for backwards compatibility)
     if (!userLocation) {
       return null;
+    }
+
+    // 1. Check shared distanceCache first for driving distance
+    const userLat = roundCoord(userLocation.latitude);
+    const userLon = roundCoord(userLocation.longitude);
+    const cacheKey = `${locale._id}-${userLat}-${userLon}`;
+    if (distanceCache.has(cacheKey)) {
+      const cached = distanceCache.get(cacheKey);
+      if (cached !== undefined && cached !== null) {
+        return cached;
+      }
+    }
+
+    // 2. First check if distanceKm is already stored in locale object (from updated state)
+    if (locale.distanceKm !== undefined && locale.distanceKm !== null) {
+      return locale.distanceKm;
     }
     
     // Use coordinates from locale (may be geocoded)
@@ -1751,9 +1872,6 @@ export default function LocaleScreen() {
       return null;
     }
     
-    // Use rounded coordinates for stable cache
-    const userLat = roundCoord(userLocation.latitude);
-    const userLon = roundCoord(userLocation.longitude);
     // Note: This is async but we can't make the callback async
     // So we'll calculate synchronously using straight-line as fallback
     // The main distance calculation happens in loadAdminLocales where we await
@@ -1786,8 +1904,8 @@ export default function LocaleScreen() {
     if (hasUserLocation) {
       const INFINITY = Number.POSITIVE_INFINITY;
       sorted.sort((a, b) => {
-        const dA = (a as any).distanceKm;
-        const dB = (b as any).distanceKm;
+        const dA = getLocaleDistance(a);
+        const dB = getLocaleDistance(b);
         const effA = (dA !== null && dA !== undefined && !isNaN(dA)) ? dA : INFINITY;
         const effB = (dB !== null && dB !== undefined && !isNaN(dB)) ? dB : INFINITY;
         return effA - effB;
@@ -1966,23 +2084,25 @@ export default function LocaleScreen() {
     return sorted;
   }, []);
   
-  // Legacy sorting function (kept for backward compatibility, but should not be used)
-  // CRITICAL FIX: This function should NOT be called - use sortLocalesWithSnapshot instead
   const sortLocalesByDistance = useCallback((locales: Locale[]): Locale[] => {
-    // This is a fallback that should not be used in the new flow
-    // It's kept for compatibility with existing code that may still call it
-    const snapshot = createLocationSnapshot();
-    if (snapshot) {
-      return sortLocalesWithSnapshot(locales as (Locale & { distanceKm?: number | null })[], snapshot);
+    if (userLocation) {
+      const INFINITY = Number.POSITIVE_INFINITY;
+      return [...locales].sort((a, b) => {
+        const dA = getLocaleDistance(a);
+        const dB = getLocaleDistance(b);
+        const effA = (dA !== null && dA !== undefined && !isNaN(dA)) ? dA : INFINITY;
+        const effB = (dB !== null && dB !== undefined && !isNaN(dB)) ? dB : INFINITY;
+        return effA - effB;
+      });
     }
     
-    // Fallback: sort by createdAt if no snapshot
+    // Fallback: sort by createdAt if no location
     return [...locales].sort((a, b) => {
       const dateA = new Date(a.createdAt || 0).getTime();
       const dateB = new Date(b.createdAt || 0).getTime();
       return dateB - dateA;
     });
-  }, [createLocationSnapshot, sortLocalesWithSnapshot]);
+  }, [userLocation, getLocaleDistance]);
   
   // Bookmark Stability: Load saved locales with defensive parsing
   const loadSavedLocales = useCallback(async () => {
@@ -2099,7 +2219,7 @@ export default function LocaleScreen() {
         bgRefreshCacheRef.current.set(locale._id, Date.now());
 
         getLocaleById(locale._id)
-          .then((fresh) => {
+          .then(async (fresh) => {
             if (!isMountedRef.current) return;
             if (!fresh || typeof fresh !== 'object') return;
             setSavedLocales((prev) => prev.map((existing) => {
@@ -2117,6 +2237,35 @@ export default function LocaleScreen() {
                 distanceKm: (existing as any).distanceKm,
               } as Locale;
             }));
+
+            // Persist the refreshed image URL back to AsyncStorage cache
+            try {
+              const saved = await AsyncStorage.getItem('savedLocales');
+              if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed)) {
+                  const updated = parsed.map((existing: any) => {
+                    const existingId = typeof existing._id === 'string' ? existing._id : String(existing._id || '');
+                    if (existingId !== locale._id) return existing;
+                    return {
+                      ...existing,
+                      ...fresh,
+                      imageUrl: typeof fresh.imageUrl === 'string' && fresh.imageUrl
+                        ? fresh.imageUrl
+                        : existing.imageUrl,
+                      imageUrls: Array.isArray(fresh.imageUrls) && fresh.imageUrls.length > 0
+                        ? fresh.imageUrls
+                        : existing.imageUrls,
+                      _id: existingId,
+                    };
+                  });
+                  const stripped = updated.map(({ distanceKm, ...rest }: any) => rest);
+                  await AsyncStorage.setItem('savedLocales', JSON.stringify(stripped));
+                }
+              }
+            } catch (err) {
+              logger.warn('Failed to persist background-refreshed locales to AsyncStorage', err);
+            }
           })
           .catch(() => {
             // Drop the cache so we'll retry on next load. Persisted URL
@@ -2535,6 +2684,9 @@ export default function LocaleScreen() {
 
   // Grasp user's country code on location detection to default the country filter
   useEffect(() => {
+    // Disabled defaulting the country filter to the user's country code
+    // so we fetch and sort nearby locales globally based on user location proximity.
+    /*
     if (userCountryCode && userCountryCode.trim() !== '' && !hasDefaultedCountryRef.current) {
       if (!activeLocaleFilters.countryCode) {
         logger.debug('🌍 Grasping country and setting default country filter to user country:', userCountryCode);
@@ -2563,6 +2715,7 @@ export default function LocaleScreen() {
         }, 100);
       }
     }
+    */
   }, [userCountryCode, countries, userCountry, activeLocaleFilters.countryCode]);
 
   // Listen for bookmark changes from detail page.
@@ -2624,15 +2777,11 @@ export default function LocaleScreen() {
         }
       }
 
-      // Only load on initial mount (not loaded yet). The useEffect watching
-      // userLocation handles the "location became available after load" case.
-      if (!loadedOnceRef.current && !isSearchingRef.current) {
+      // Only load on initial mount (not loaded yet)
+      if (!loadedOnceRef.current && !isSearchingRef.current && allLocalesSortedRef.current.length === 0) {
         loadAdminLocalesRef.current(true);
-      } else if (loadedOnceRef.current) {
-        // Background refresh: refresh content behind the scenes but preserve visual scroll position
-        loadAdminLocalesRef.current(true, true);
-
-        // Restore scroll offset
+      } else {
+        // Restore scroll offset when returning to screen
         if (savedScrollOffsetRef.current > 0 && flatListRef.current) {
           const offset = savedScrollOffsetRef.current;
           setTimeout(() => {
@@ -2777,32 +2926,8 @@ export default function LocaleScreen() {
   };
 
   const resolveLocaleDistance = useCallback((locale: Locale): number | null => {
-    // 1. Check shared distanceCache first for driving distance
-    if (userLocation) {
-      const userLat = roundCoord(userLocation.latitude);
-      const userLon = roundCoord(userLocation.longitude);
-      const cacheKey = `${locale._id}-${userLat}-${userLon}`;
-      if (distanceCache.has(cacheKey)) {
-        const cached = distanceCache.get(cacheKey);
-        if (cached !== undefined && cached !== null) {
-          return cached;
-        }
-      }
-    }
-
-    // 2. Fall back to locale.distanceKm
-    const localeWithDistance = locale as Locale & { distanceKm?: number | null };
-    if (localeWithDistance.distanceKm !== undefined && localeWithDistance.distanceKm !== null) {
-      return localeWithDistance.distanceKm;
-    }
-
-    // 3. Fall back to straight-line distance calculation
-    if (userLocation && locationPermissionGranted) {
-      return getLocaleDistance(locale);
-    }
-
-    return null;
-  }, [userLocation, locationPermissionGranted, getLocaleDistance]);
+    return getLocaleDistance(locale);
+  }, [getLocaleDistance]);
 
   const checkIsDrivingDistance = useCallback((locale: Locale): boolean => {
     if (drivingDistanceCalculatedRef.current.has(locale._id)) {
@@ -3440,6 +3565,7 @@ export default function LocaleScreen() {
         visible={showFilterModal}
         animationType="slide"
         presentationStyle="pageSheet"
+        statusBarTranslucent={true}
         onRequestClose={() => {
           setCountrySearchQuery('');
           setStateSearchQuery('');
@@ -3447,8 +3573,9 @@ export default function LocaleScreen() {
         }}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={{ flex: 1 }}
+          keyboardVerticalOffset={0}
         >
           <SafeAreaView style={[styles.filterModalContainer, { backgroundColor: theme.colors.background }]}>
             <StatusBar barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} />
@@ -3485,6 +3612,7 @@ export default function LocaleScreen() {
           </View>
   
           <ScrollView 
+            ref={filterScrollRef}
             style={styles.filterContent} 
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.filterScrollContent}
@@ -3534,6 +3662,11 @@ export default function LocaleScreen() {
                       onChangeText={setCountrySearchQuery}
                       autoCapitalize="none"
                       autoCorrect={false}
+                      onFocus={() => {
+                        setTimeout(() => {
+                          filterScrollRef.current?.scrollTo({ y: 0, animated: true });
+                        }, 100);
+                      }}
                     />
                     {countrySearchQuery.length > 0 && (
                       <TouchableOpacity
@@ -3639,6 +3772,11 @@ export default function LocaleScreen() {
                       onChangeText={setStateSearchQuery}
                       autoCapitalize="none"
                       autoCorrect={false}
+                      onFocus={() => {
+                        setTimeout(() => {
+                          filterScrollRef.current?.scrollTo({ y: 150, animated: true });
+                        }, 100);
+                      }}
                     />
                     {stateSearchQuery.length > 0 && (
                       <TouchableOpacity
@@ -3743,6 +3881,11 @@ export default function LocaleScreen() {
                     }
                   }}
                   keyboardType="numeric"
+                  onFocus={() => {
+                    setTimeout(() => {
+                      filterScrollRef.current?.scrollToEnd({ animated: true });
+                    }, 100);
+                  }}
                 />
                 <Text style={[styles.radiusUnit, { color: theme.colors.textSecondary }]}>km</Text>
               </View>
@@ -3839,12 +3982,12 @@ export default function LocaleScreen() {
               transform: [{ translateY }, { scale: 1.05 }],
             }}
           >
-            <ExpoImage
+            <ExpoImageWithShimmer
               source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: 400, height: 300 }) }}
               style={{ width: '100%', height: '100%' }}
               contentFit="cover"
               cachePolicy="memory-disk"
-              transition={0}
+              transition={200}
             />
           </Animated.View>
         ) : (
@@ -3864,9 +4007,9 @@ export default function LocaleScreen() {
         <View
           style={{
             position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
+            bottom: -1,
+            left: -1,
+            right: -1,
             height: '30%',
             overflow: 'hidden',
             borderBottomLeftRadius: 24,
@@ -3885,6 +4028,9 @@ export default function LocaleScreen() {
               justifyContent: 'space-between',
               paddingHorizontal: 16,
               paddingVertical: 8,
+              borderBottomLeftRadius: 24,
+              borderBottomRightRadius: 24,
+              overflow: 'hidden',
             }}
           >
             {/* Left Column: Primary Title & Location Tag */}
@@ -4065,17 +4211,19 @@ export default function LocaleScreen() {
         accessibilityHint="Opens locale details"
       >
         {safeImageUrl ? (
-          <ExpoImage
-            source={{ uri: optimizeCloudinaryUrl(safeImageUrl, { width: 300, height: 200 }) }}
-            style={styles.cardImage as ImageStyle}
-            contentFit="cover"
-            cachePolicy="memory-disk"
-            transition={0}
-          />
+          <View style={StyleSheet.absoluteFillObject}>
+            <ExpoImageWithShimmer
+              source={{ uri: optimizeCloudinaryUrl(safeImageUrl, { width: 300, height: 200 }) }}
+              style={styles.cardImage as ImageStyle}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={200}
+            />
+          </View>
         ) : (
           <LinearGradient
             colors={['#D4EDDA', '#A8DADC']}
-            style={styles.cardImage}
+            style={StyleSheet.absoluteFillObject}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
           >

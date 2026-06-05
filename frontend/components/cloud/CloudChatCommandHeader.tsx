@@ -55,14 +55,14 @@ export default function CloudChatCommandHeader({
         <BlurView intensity={isDark ? 95 : 80} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
         <View style={styles.topRow}>
           {onBack ? (
-            <TouchableOpacity onPress={onBack} style={[styles.iconBtn, { overflow: 'hidden', borderRadius: 20 }]} hitSlop={10}>
+            <TouchableOpacity onPress={onBack} style={[styles.iconBtn, { overflow: 'hidden', borderRadius: 16 }]} hitSlop={10}>
               <LinearGradient
                 colors={['#1C73B4', '#50C878']}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
                 style={StyleSheet.absoluteFillObject}
               />
-              <Ionicons name="chevron-back" size={24} color="#FFFFFF" />
+              <Ionicons name="chevron-back" size={20} color="#FFFFFF" />
             </TouchableOpacity>
           ) : (
             <View style={styles.iconBtn} />
@@ -115,13 +115,13 @@ const styles = StyleSheet.create({
     zIndex: 100,
   },
   dock: {
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
     borderTopLeftRadius: 0,
     borderTopRightRadius: 0,
     borderBottomWidth: 1,
     overflow: 'hidden',
-    paddingBottom: 8,
+    paddingBottom: 4,
     shadowColor: '#000000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
@@ -132,26 +132,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 8,
-    paddingTop: 8,
-    paddingBottom: 4,
+    paddingTop: 2,
+    paddingBottom: 2,
   },
   iconBtn: {
-    width: 40,
-    height: 40,
+    width: 32,
+    height: 32,
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
     flex: 1,
     textAlign: 'center',
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '800',
     color: cloudDesign.textDark,
   },
   searchInDock: {
-    marginHorizontal: 8,
+    marginHorizontal: 6,
     marginTop: 0,
-    padding: 6,
+    padding: 2,
   },
   menuOverlay: {
     flex: 1,

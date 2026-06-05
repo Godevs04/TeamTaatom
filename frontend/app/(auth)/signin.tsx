@@ -337,8 +337,8 @@ export default function SignInScreen() {
           <View style={styles.header}>
             <View style={styles.logoContainer}>
               <Image
-                source={{ uri: LOGO_IMAGE }}
-                style={[styles.logo, { tintColor: theme.colors.text }]}
+                source={LOGO_IMAGE}
+                style={styles.logo}
                 accessibilityLabel="Taatom Logo"
               />
             </View>
@@ -510,6 +510,7 @@ const getStyles = (theme: any, isDark: boolean) => StyleSheet.create({
     width: isTablet ? 120 : 100,
     height: isTablet ? 120 : 100,
     resizeMode: 'contain' as const,
+    borderRadius: isTablet ? 24 : 20,
   },
   logoText: {
     fontSize: 36,

@@ -121,11 +121,14 @@ export default function AspectImageCropper({
 
   const pinchGesture = Gesture.Pinch()
     .onUpdate((e) => {
-      const next = Math.min(4, Math.max(1, savedScale.value * e.scale));
-      scale.value = next;
-      const { maxX, maxY } = clampPan(next);
-      tx.value = Math.max(-maxX, Math.min(maxX, tx.value));
-      ty.value = Math.max(-maxY, Math.min(maxY, ty.value));
+      // Only process updates if exactly 2 fingers are touching to prevent focal point jumps on iOS
+      if (e.numberOfPointers === 2) {
+        const next = Math.min(4, Math.max(1, savedScale.value * e.scale));
+        scale.value = next;
+        const { maxX, maxY } = clampPan(next);
+        tx.value = Math.max(-maxX, Math.min(maxX, tx.value));
+        ty.value = Math.max(-maxY, Math.min(maxY, ty.value));
+      }
     })
     .onEnd(() => {
       savedScale.value = scale.value;

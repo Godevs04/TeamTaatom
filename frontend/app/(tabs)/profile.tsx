@@ -48,10 +48,13 @@ import { trackScreenView, trackEngagement, trackFeatureUsage } from '../../servi
 import { theme } from '../../constants/theme';
 import { optimizeCloudinaryUrl } from '../../utils/imageCache';
 import { FILTER_PREVIEW_OVERLAY, ImageFilterType } from '../../components/ImageEditModal';
+import { formatViewCount } from '../../utils/numberFormat';
 import { CloudSkyBackground } from '../../components/cloud';
 import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 import { cloudDesign } from '../../constants/cloudDesign';
 import CloudGlassSurface from '../../components/cloud/CloudGlassSurface';
+import ShortsCard from '../../components/shorts/ShortsCard';
+
 
 const logger = createLogger('ProfileScreen');
 
@@ -87,6 +90,14 @@ function ProfilePremiumView(props: React.ComponentProps<typeof OriginalProfilePr
 }
 
 const TRIP_GAP_DAYS = 7;
+
+const sortByCreatedDesc = <T extends { createdAt?: string; created_at?: string; _id?: string }>(items: T[]): T[] =>
+  [...items].sort((a, b) => {
+    const dateA = new Date(a.createdAt || a.created_at || 0).getTime();
+    const dateB = new Date(b.createdAt || b.created_at || 0).getTime();
+    if (dateB !== dateA) return dateB - dateA;
+    return String(b._id || '').localeCompare(String(a._id || ''));
+  });
 
 const readSavedIds = async (key: 'savedShorts' | 'savedPosts', context: string): Promise<string[]> => {
   try {
@@ -227,8 +238,7 @@ export default function ProfileScreen() {
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [posts, setPosts] = useState<PostType[]>([]);
   const [userShorts, setUserShorts] = useState<PostType[]>([]);
-  const failedShortThumbsRef = useRef<Set<string>>(new Set());
-  const [failedShortThumbs, setFailedShortThumbs] = useState<Set<string>>(new Set());
+
   const [savedPosts, setSavedPosts] = useState<PostType[]>([]);
   const [savedShorts, setSavedShorts] = useState<PostType[]>([]);
   const [savedIds, setSavedIds] = useState<string[]>([]);
@@ -405,7 +415,7 @@ export default function ProfileScreen() {
           // 50 min — must stay under the 1h R2/S3 signed URL expiry so cached
           // posts never contain stale URLs that would render blank.
           if (cacheAge < 50 * 60 * 1000) {
-            setPosts(parsed.data);
+            setPosts(sortByCreatedDesc(parsed.data || []));
           }
         }
       } catch (cacheError) {
@@ -464,7 +474,7 @@ export default function ProfileScreen() {
       }
       
       if (userPosts.status === 'fulfilled') {
-        const fetchedPosts = userPosts.value.posts || [];
+        const fetchedPosts = sortByCreatedDesc(userPosts.value.posts || []);
         if (__DEV__) {
           console.log('📸 [Profile] Fetched posts:', fetchedPosts.length);
           if (fetchedPosts.length > 0) {
@@ -507,7 +517,7 @@ export default function ProfileScreen() {
                 const cacheAge = Date.now() - (parsed.timestamp || 0);
                 if (cacheAge < 50 * 60 * 1000) {
                   logger.debug('Loading cached user posts due to network error');
-                  setPosts(parsed.data);
+                  setPosts(sortByCreatedDesc(parsed.data));
                 }
               }
             }
@@ -518,7 +528,7 @@ export default function ProfileScreen() {
       }
       
       if (shortsResp.status === 'fulfilled') {
-        setUserShorts(shortsResp.value.shorts || []);
+        setUserShorts(sortByCreatedDesc(shortsResp.value.shorts || []));
       }
       
       // OPTIMIZATION: Load saved IDs and unread count in parallel (non-blocking)
@@ -932,8 +942,11 @@ export default function ProfileScreen() {
         }
         
         if (isMountedRef.current) {
-          const postsItems = items.filter(item => item.type !== 'short' && !item.videoUrl);
-          const shortsItems = items.filter(item => item.type === 'short' || !!item.videoUrl);
+          const orderedItems = uniqueIds
+            .map(id => itemMap.get(id))
+            .filter((item): item is PostType => !!item);
+          const postsItems = orderedItems.filter(item => item.type !== 'short' && !item.videoUrl);
+          const shortsItems = orderedItems.filter(item => item.type === 'short' || !!item.videoUrl);
           setSavedPosts(postsItems);
           setSavedShorts(shortsItems);
         }
@@ -1574,8 +1587,17 @@ export default function ProfileScreen() {
                           prev.includes(post._id) ? prev.filter(id => id !== post._id) : [...prev, post._id]
                         );
                       } else {
-                        if (user?._id) router.push(`/user-posts/${user._id}?postId=${post._id}`);
+                        if (user?._id) {
+                          router.push({
+                            pathname: `/user-posts/${user._id}`,
+                            params: {
+                              postId: post._id,
+                              postData: JSON.stringify(post),
+                            },
+                          });
+                        }
                       }
+
                     };
                     const handleLongPress = () => {
                       if (!isSelectionMode) {
@@ -1645,9 +1667,7 @@ export default function ProfileScreen() {
                         <View style={styles.viewCountOverlay}>
                           <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
                           <Text style={styles.viewCountText}>
-                            {((post as any).viewsCount ?? 0) >= 1000
-                              ? `${(((post as any).viewsCount ?? 0) / 1000).toFixed(1)}k`
-                              : String((post as any).viewsCount ?? 0)}
+                            {formatViewCount((post as any).viewsCount)}
                           </Text>
                         </View>
                       </Pressable>
@@ -1666,15 +1686,6 @@ export default function ProfileScreen() {
                   scrollEnabled={false}
                   keyExtractor={(item) => item._id}
                   renderItem={({ item: s }) => {
-                    const isVideo = (url: any) => {
-                      if (typeof url !== 'string') return false;
-                      const cleanUrl = url.split('?')[0].toLowerCase();
-                      return cleanUrl.endsWith('.mp4') || cleanUrl.endsWith('.mov') || cleanUrl.endsWith('.m4v') || cleanUrl.endsWith('.webm') || cleanUrl.includes('/videos/') || cleanUrl.includes('/shorts/') || url === (s as any).videoUrl;
-                    };
-                    const rawUri = (s as any).imageUrl && !isVideo((s as any).imageUrl) ? (s as any).imageUrl : 
-                                   (s as any).thumbnailUrl && !isVideo((s as any).thumbnailUrl) ? (s as any).thumbnailUrl : '';
-                    const uri = rawUri ? optimizeCloudinaryUrl(rawUri, { width: 300, height: 300 }) : '';
-                    const hasFailed = failedShortThumbs.has(s._id);
                     const isSelected = selectedItemIds.includes(s._id);
                     const handlePress = () => {
                       if (isSelectionMode) {
@@ -1692,86 +1703,15 @@ export default function ProfileScreen() {
                       }
                     };
 
-                    if (!rawUri || hasFailed) {
-                      return (
-                        <Pressable
-                          style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: isSelected ? theme.colors.primary : profileTheme.gapBorderColor, aspectRatio: 9/16 }]}
-                          onLongPress={handleLongPress}
-                          onPress={handlePress}
-                        >
-                          <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
-                            <Ionicons name="videocam-outline" size={28} color={profileTheme.textSecondary} />
-                          </View>
-                          <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-                            <Ionicons name="play" size={22} color="#FFFFFF" />
-                          </View>
-                          {/* View count overlay */}
-                          <View style={styles.viewCountOverlay}>
-                            <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
-                            <Text style={styles.viewCountText}>
-                              {((s as any).viewsCount ?? 0) >= 1000
-                                ? `${(((s as any).viewsCount ?? 0) / 1000).toFixed(1)}k`
-                                : String((s as any).viewsCount ?? 0)}
-                            </Text>
-                          </View>
-                          {isSelected && (
-                            <View style={[styles.selectionOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.4)' }]}>
-                              <View style={styles.checkmarkCircle}>
-                                <LinearGradient
-                                  colors={['#1C73B4', '#50C878']}
-                                  style={StyleSheet.absoluteFillObject}
-                                  start={{ x: 0, y: 0 }}
-                                  end={{ x: 1, y: 1 }}
-                                />
-                                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                              </View>
-                            </View>
-                          )}
-                        </Pressable>
-                      );
-                    }
                     return (
-                      <Pressable
-                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: isSelected ? theme.colors.primary : profileTheme.gapBorderColor, aspectRatio: 9/16 }]}
-                        onLongPress={handleLongPress}
+                      <ShortsCard
+                        item={s}
+                        isThumbnail={true}
+                        isSelected={isSelected}
                         onPress={handlePress}
-                      >
-                        <Image
-                          source={{ uri }}
-                          style={styles.thumbnailImage as ImageStyle}
-                          onError={() => {
-                            if (!failedShortThumbsRef.current.has(s._id)) {
-                              failedShortThumbsRef.current.add(s._id);
-                              setFailedShortThumbs(new Set(failedShortThumbsRef.current));
-                            }
-                          }}
-                        />
-                        <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.35)' }]}>
-                          <Ionicons name="play" size={22} color="#FFFFFF" />
-                        </View>
-                        {/* View count overlay — bottom-left */}
-                        <View style={styles.viewCountOverlay}>
-                          <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
-                          <Text style={styles.viewCountText}>
-                            {((s as any).viewsCount ?? 0) >= 1000
-                              ? `${(((s as any).viewsCount ?? 0) / 1000).toFixed(1)}k`
-                              : String((s as any).viewsCount ?? 0)}
-                          </Text>
-                        </View>
-                        {isSelected && (
-                          <View style={[styles.selectionOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.4)' }]}>
-                            <View style={styles.checkmarkCircle}>
-                              <LinearGradient
-                                colors={['#1C73B4', '#50C878']}
-                                style={StyleSheet.absoluteFillObject}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 1 }}
-                              />
-                              <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                            </View>
-                          </View>
-                        )}
-                      </Pressable>
+                        onLongPress={handleLongPress}
+                        profileTheme={profileTheme}
+                      />
                     );
                   }}
                   columnWrapperStyle={styles.postsGridWrapper}
@@ -1779,6 +1719,7 @@ export default function ProfileScreen() {
                 />
               ) : null}
             </View>
+
             <View style={activeTab !== 'saved' ? { height: 0, overflow: 'hidden' } : {}}>
               {/* Saved Sub-Tabs Selection */}
               <View style={[styles.savedSubTabsContainer, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', borderColor: profileTheme.cardBorder, borderWidth: StyleSheet.hairlineWidth }]}>
@@ -1838,7 +1779,13 @@ export default function ProfileScreen() {
                         <Pressable 
                           style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor }]}
                           onPress={() => {
-                            router.push(`/saved-posts?postId=${item._id}`);
+                            router.push({
+                              pathname: '/saved-posts',
+                              params: {
+                                postId: item._id,
+                                postData: JSON.stringify(item),
+                              },
+                            });
                           }}
                         >
                           {validImageUrl ? (
@@ -1881,50 +1828,16 @@ export default function ProfileScreen() {
                     scrollEnabled={false}
                     keyExtractor={(item) => item._id}
                     renderItem={({ item }) => {
-                      const rawUri = (item as any).imageUrl && !isVideoUrl((item as any).imageUrl, (item as any).videoUrl) ? (item as any).imageUrl : 
-                                     (item as any).thumbnailUrl && !isVideoUrl((item as any).thumbnailUrl, (item as any).videoUrl) ? (item as any).thumbnailUrl : '';
-                      const uri = rawUri ? optimizeCloudinaryUrl(rawUri, { width: 300, height: 300 }) : '';
-                      const hasFailed = failedShortThumbs.has(item._id);
-                      
                       return (
-                        <Pressable 
-                          style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor, aspectRatio: 9/16 }]}
+                        <ShortsCard
+                          item={item}
+                          isThumbnail={true}
+                          showBookmark={true}
                           onPress={() => {
                             router.push(`/saved-shorts?shortId=${item._id}`);
                           }}
-                        >
-                          {uri && !hasFailed ? (
-                            <Image 
-                              source={{ uri }} 
-                              style={styles.thumbnailImage as ImageStyle}
-                              resizeMode="cover"
-                              onError={() => {
-                                if (!failedShortThumbsRef.current.has(item._id)) {
-                                  failedShortThumbsRef.current.add(item._id);
-                                  setFailedShortThumbs(new Set(failedShortThumbsRef.current));
-                                }
-                              }}
-                            />
-                          ) : (
-                            <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
-                              <Ionicons name="videocam-outline" size={28} color={profileTheme.textSecondary} />
-                            </View>
-                          )}
-                          <View style={[styles.playIconOverlay, { backgroundColor: 'rgba(0,0,0,0.35)' }]}>
-                            <Ionicons name="play" size={22} color="#FFFFFF" />
-                          </View>
-                          <View style={[styles.bookmarkOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-                            <Ionicons name="bookmark" size={16} color="#FFFFFF" />
-                          </View>
-                          <View style={styles.viewCountOverlay}>
-                            <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
-                            <Text style={styles.viewCountText}>
-                              {((item as any).viewsCount ?? 0) >= 1000
-                                ? `${(((item as any).viewsCount ?? 0) / 1000).toFixed(1)}k`
-                                : String((item as any).viewsCount ?? 0)}
-                            </Text>
-                          </View>
-                        </Pressable>
+                          profileTheme={profileTheme}
+                        />
                       );
                     }}
                     columnWrapperStyle={styles.postsGridWrapper}
@@ -1932,6 +1845,7 @@ export default function ProfileScreen() {
                   />
                 ) : null
               )}
+
             </View>
           </View>
           </CloudGlassSurface>
