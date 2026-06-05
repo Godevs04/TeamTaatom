@@ -24,7 +24,7 @@ export default function ContactSupportSettingsPage() {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1], delay: 0.04 }}
-        className="relative overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/85 p-6 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70 md:p-7"
+        className="relative overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/85 p-6 ui-panel shadow-premium dark:border-zinc-800/80 md:p-7"
       >
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-primary/[0.035] via-transparent to-transparent" />
 

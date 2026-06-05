@@ -74,7 +74,7 @@ export function MobileBottomNav() {
               aria-current={active ? "page" : undefined}
             >
               {item.href === "/create" ? (
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-lg shadow-primary/25 sm:h-10 sm:w-10">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg shadow-primary/25 sm:h-10 sm:w-10">
                   <PlusSquare className="h-4 w-4 sm:h-5 sm:w-5" />
                 </span>
               ) : (

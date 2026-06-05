@@ -4,6 +4,7 @@ const nextConfig = {
     remotePatterns: [
       { protocol: "https", hostname: "res.cloudinary.com" },
       { protocol: "https", hostname: "lh3.googleusercontent.com" },
+      { protocol: "https", hostname: "images.unsplash.com" },
     ],
     // Image CDN: for Cloudinary use loader: "cloudinary", images.domains or remotePatterns.
     // For a custom CDN set IMAGE_CDN_BASE_URL and use next/image with a loader in components.

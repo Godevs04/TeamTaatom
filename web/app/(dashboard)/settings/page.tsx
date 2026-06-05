@@ -36,7 +36,7 @@ export default function SettingsPage() {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: easeOut }}
-        className="relative overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/85 p-8 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70 md:p-10"
+        className="relative overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/85 p-8 ui-panel shadow-premium dark:border-zinc-800/80 md:p-10"
       >
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-primary/[0.04] via-transparent to-transparent" />
 
@@ -59,7 +59,7 @@ export default function SettingsPage() {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.08, duration: 0.45, ease: easeOut }}
-            className="relative mt-6 rounded-xl border border-slate-200/80 bg-slate-50/70 p-4 backdrop-blur-sm dark:border-zinc-700/80 dark:bg-zinc-800/50"
+            className="relative mt-6 rounded-xl border border-slate-200/80 ui-panel bg-slate-50 p-4 dark:border-zinc-700/80 dark:bg-zinc-800/50"
           >
             <div className="flex items-center gap-3">
               <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full bg-slate-200 dark:bg-zinc-700">
@@ -95,7 +95,7 @@ export default function SettingsPage() {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, ease: easeOut, delay: 0.06 }}
-        className="rounded-[1.75rem] border border-slate-200/80 bg-white/85 p-6 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70"
+        className="rounded-[1.75rem] border border-slate-200/80 bg-white/85 p-6 ui-panel shadow-premium dark:border-zinc-800/80"
       >
         <div className="flex items-start justify-between gap-4">
           <div>

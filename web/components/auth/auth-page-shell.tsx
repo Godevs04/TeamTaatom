@@ -74,7 +74,7 @@ export function AuthPageShell({ cardEyebrow, cardTitle, cardSubtitle, children }
 
           <motion.div
             variants={itemFadeUp}
-            className="relative w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200/70 bg-white/75 shadow-sm backdrop-blur-sm"
+            className="ui-panel relative w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200/70 shadow-sm"
           >
             <div className="absolute inset-0 bg-gradient-to-br from-primary/[0.06] via-transparent to-violet-500/[0.05]" />
             <iframe
@@ -92,7 +92,7 @@ export function AuthPageShell({ cardEyebrow, cardTitle, cardSubtitle, children }
             initial={{ opacity: 0, y: 24, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: 0.6, ease: easeOut, delay: 0.12 }}
-            className="w-full max-w-md rounded-[1.75rem] border border-slate-200/90 bg-white/95 p-6 shadow-premium backdrop-blur-sm sm:p-8"
+            className="ui-panel w-full max-w-md rounded-[1.75rem] border border-slate-200/90 p-6 shadow-premium sm:p-8"
           >
             <motion.div
               initial={{ opacity: 0, y: 10 }}

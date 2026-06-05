@@ -63,7 +63,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
-            className="rounded-[1.75rem] border border-slate-200/80 bg-white/80 p-2 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70 sm:p-3 lg:p-3"
+            className="rounded-[1.75rem] border border-slate-200/80 ui-panel p-2 shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/70 sm:p-3 lg:p-3"
           >
             <h2 className="mb-3 hidden px-3 text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-400 lg:block">
               Settings

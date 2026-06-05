@@ -126,7 +126,7 @@ export default function AboutSettingsPage() {
       </Link>
 
       {/* App Info */}
-      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-6 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70 md:p-8">
+      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-6 ui-panel shadow-premium dark:border-zinc-800/80 md:p-8">
         <div className="flex flex-col items-center text-center">
           <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-2xl border-2 border-slate-200/80 bg-white dark:border-zinc-700 dark:bg-zinc-800">
             <Image
@@ -147,7 +147,7 @@ export default function AboutSettingsPage() {
       </div>
 
       {/* Account Information */}
-      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-6 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70 md:p-6">
+      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-6 ui-panel shadow-premium dark:border-zinc-800/80 md:p-6">
         <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white">Account Information</h2>
         <div className="mt-4 space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 py-3 dark:border-zinc-700/80">
@@ -181,7 +181,7 @@ export default function AboutSettingsPage() {
       </div>
 
       {/* Support */}
-      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-6 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70 md:p-6">
+      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-6 ui-panel shadow-premium dark:border-zinc-800/80 md:p-6">
         <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white">Support</h2>
         <div className="mt-4 space-y-0">
           <Link
@@ -208,7 +208,7 @@ export default function AboutSettingsPage() {
       </div>
 
       {/* Legal & Policies */}
-      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-6 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70 md:p-6">
+      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-6 ui-panel shadow-premium dark:border-zinc-800/80 md:p-6">
         <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white">Legal & Policies</h2>
         <div className="mt-4 space-y-0">
           {policyLinks.map((link) => {
@@ -231,7 +231,7 @@ export default function AboutSettingsPage() {
       </div>
 
       {/* App Actions */}
-      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-6 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70 md:p-6">
+      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-6 ui-panel shadow-premium dark:border-zinc-800/80 md:p-6">
         <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white">App Actions</h2>
         <div className="mt-4 space-y-0">
           <button
@@ -271,7 +271,7 @@ export default function AboutSettingsPage() {
       </div>
 
       {/* Legal */}
-      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-6 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70 md:p-6">
+      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 p-6 ui-panel shadow-premium dark:border-zinc-800/80 md:p-6">
         <h2 className="font-display text-lg font-semibold text-slate-900 dark:text-white">Legal</h2>
         <div className="mt-4 space-y-4">
           <div className="flex flex-wrap justify-between gap-2 border-b border-slate-200/80 py-3 dark:border-zinc-700/80">

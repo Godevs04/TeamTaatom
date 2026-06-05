@@ -76,7 +76,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           {/* Profile block */}
           <Link
             href={profileHref}
-            className="group flex items-center gap-4 rounded-2xl border border-white/20 dark:border-zinc-800/45 bg-white/45 dark:bg-zinc-900/45 backdrop-blur-md p-4 shadow-premium transition-all duration-300 hover:shadow-premium-hover hover:scale-[1.01] hover:border-white/35 dark:hover:border-zinc-700/50"
+            className="ui-panel group flex items-center gap-4 rounded-2xl border border-slate-200/80 dark:border-zinc-800/80 p-4 shadow-premium transition-all duration-300 hover:shadow-premium-hover hover:scale-[1.01] hover:border-slate-300/80 dark:hover:border-zinc-700/80"
           >
             <div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-gradient-to-br from-primary/20 via-primary/10 to-violet-500/20 ring-1 ring-black/5 dark:ring-white/10">
               {mounted && user?.profilePic ? (
@@ -133,13 +133,13 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             </Link>
           </nav>
 
-          <div className="rounded-2xl border border-white/20 bg-white/45 px-4 py-3 shadow-premium backdrop-blur-md dark:border-zinc-800/40 dark:bg-zinc-900/45 transition-all duration-300">
+          <div className="rounded-2xl border border-white/20 ui-panel px-4 py-3 shadow-premium dark:border-zinc-800/40 dark:bg-zinc-900/45 transition-all duration-300">
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-400">Follow</p>
             <SocialConnect variant="toolbar" className="justify-start" />
           </div>
 
           {/* Download app — show on smaller viewports; hide on xl for desktop web-first feel */}
-          <div className="rounded-2xl border border-white/25 bg-white/40 p-5 shadow-premium backdrop-blur-md dark:border-zinc-800/40 dark:bg-zinc-900/40 transition-all duration-300 xl:hidden">
+          <div className="rounded-2xl border border-white/25 ui-panel p-5 shadow-premium dark:border-zinc-800/40 dark:bg-zinc-900/40 transition-all duration-300 xl:hidden">
             <div className="flex items-center gap-2.5">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
                 <Smartphone className="h-5 w-5 text-primary" />
@@ -206,7 +206,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
       {/* Right sidebar — Suggestions & Recommendations */}
       <aside className={cn("hidden w-[320px] shrink-0 flex-col gap-8 p-6 xl:flex z-10", isShortsRoute && "xl:hidden")}>
-        <section className="rounded-2xl border border-white/20 bg-white/45 p-6 shadow-premium backdrop-blur-md dark:border-zinc-800/40 dark:bg-zinc-900/45 transition-all duration-300">
+        <section className="rounded-2xl border border-white/20 ui-panel p-6 shadow-premium dark:border-zinc-800/40 dark:bg-zinc-900/45 transition-all duration-300">
           <div className="mb-4 flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-amber-500" />
             <h3 className="text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-400">
@@ -229,7 +229,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-white/20 bg-white/45 p-6 shadow-premium backdrop-blur-md dark:border-zinc-800/40 dark:bg-zinc-900/45 transition-all duration-300">
+        <section className="rounded-2xl border border-white/20 ui-panel p-6 shadow-premium dark:border-zinc-800/40 dark:bg-zinc-900/45 transition-all duration-300">
           <h3 className="mb-4 text-xs font-semibold uppercase tracking-widest text-slate-500 dark:text-zinc-400">
             Recommendations
           </h3>

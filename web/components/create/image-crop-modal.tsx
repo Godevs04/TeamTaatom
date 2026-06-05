@@ -182,7 +182,7 @@ export function ImageCropModal({
                         className={cn(
                           "rounded-full px-3.5 py-2 text-xs font-semibold transition-all",
                           aspectId === p.id
-                            ? "bg-primary text-white shadow-lg shadow-primary/30"
+                            ? "bg-primary text-on-primary shadow-lg shadow-primary/30"
                             : "bg-white/5 text-slate-300 ring-1 ring-white/10 hover:bg-white/10"
                         )}
                       >

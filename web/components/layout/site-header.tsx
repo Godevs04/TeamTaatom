@@ -20,6 +20,7 @@ export function SiteHeader() {
   const mounted = useMounted();
   const { user, isLoading, signOut } = useAuth();
   const isLanding = pathname === "/";
+  if (isLanding) return null;
   const isAuthMarketing =
     pathname === "/auth/login" ||
     pathname === "/auth/register" ||
@@ -84,7 +85,7 @@ export function SiteHeader() {
                 <SocialConnect variant="toolbar" />
               </div>
               <Link href="/create">
-                <Button className="gap-2 rounded-xl bg-primary px-3 text-white shadow-lg shadow-primary/20 hover:opacity-95 sm:px-4">
+                <Button className="gap-2 rounded-xl px-3 shadow-lg shadow-primary/20 sm:px-4">
                   <PlusSquare className="h-4 w-4 shrink-0" />
                   <span className="hidden sm:inline">Create</span>
                 </Button>

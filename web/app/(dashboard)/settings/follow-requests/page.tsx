@@ -69,7 +69,7 @@ export default function FollowRequestsSettingsPage() {
       >
         <ArrowLeft className="h-4 w-4" /> Back to Settings
       </Link>
-      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 bg-white/90 shadow-premium backdrop-blur-sm dark:border-zinc-800/80 dark:bg-zinc-900/70">
+      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 ui-panel shadow-premium dark:border-zinc-800/80">
         <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200/70 bg-gradient-to-b from-slate-50/80 to-transparent px-5 py-6 md:px-8 md:py-7 dark:border-zinc-800/70 dark:from-zinc-800/40">
           <div>
             <h2 className="font-display text-2xl font-semibold tracking-tight text-slate-900 dark:text-white md:text-3xl">
@@ -137,7 +137,7 @@ export default function FollowRequestsSettingsPage() {
                       type="button"
                       onClick={() => handleApprove(req._id)}
                       disabled={isActing}
-                      className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm hover:opacity-95 disabled:opacity-60"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary shadow-sm hover:opacity-95 disabled:opacity-60"
                     >
                       {isActing ? "…" : "Approve"}
                     </button>

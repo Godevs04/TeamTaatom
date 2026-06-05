@@ -188,7 +188,7 @@ export function LandingLoginClient({ nextUrl = "/feed" }: { nextUrl?: string }) 
           {/* Lottie sits in hero under the story — balances the sign-in card */}
           <motion.div
             variants={itemFadeUp}
-            className="relative mt-2 w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200/70 bg-white/75 shadow-sm backdrop-blur-sm"
+            className="ui-panel relative mt-2 w-full max-w-lg overflow-hidden rounded-2xl border border-slate-200/70 shadow-sm"
           >
             <div className="absolute inset-0 bg-gradient-to-br from-primary/[0.06] via-transparent to-violet-500/[0.05]" />
             <iframe
@@ -207,7 +207,7 @@ export function LandingLoginClient({ nextUrl = "/feed" }: { nextUrl?: string }) 
             initial={{ opacity: 0, y: 24, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: 0.6, ease: easeOut, delay: 0.15 }}
-            className="w-full max-w-md scroll-mt-28 rounded-[1.75rem] border border-slate-200/90 bg-white/95 p-6 shadow-premium backdrop-blur-sm sm:p-8"
+            className="ui-panel w-full max-w-md scroll-mt-28 rounded-[1.75rem] border border-slate-200/90 p-6 shadow-premium sm:p-8"
           >
             <motion.div
               initial={{ opacity: 0, y: 10 }}
@@ -264,7 +264,7 @@ export function LandingLoginClient({ nextUrl = "/feed" }: { nextUrl?: string }) 
               <Button
                 type="submit"
                 disabled={form.formState.isSubmitting}
-                className="h-12 rounded-xl bg-primary text-base font-semibold text-white shadow-lg shadow-primary/25 hover:opacity-95"
+                className="h-12 rounded-xl text-base font-semibold shadow-lg shadow-primary/25"
               >
                 {form.formState.isSubmitting ? "Signing in…" : "Sign in"}
               </Button>
@@ -290,7 +290,7 @@ export function LandingLoginClient({ nextUrl = "/feed" }: { nextUrl?: string }) 
               viewport={{ once: true, margin: "-40px" }}
               transition={{ duration: 0.5, ease: easeOut, delay: i * 0.08 }}
               whileHover={{ y: -4, transition: { duration: 0.25, ease: easeOut } }}
-              className="relative overflow-hidden rounded-2xl border border-slate-200/80 bg-white/70 p-6 shadow-sm backdrop-blur-sm transition-shadow duration-300 hover:shadow-premium sm:p-7"
+              className="ui-panel relative overflow-hidden rounded-2xl border border-slate-200/80 p-6 shadow-sm transition-shadow duration-300 hover:shadow-premium sm:p-7"
             >
               <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
                 <Icon className="h-5 w-5" strokeWidth={2} aria-hidden />

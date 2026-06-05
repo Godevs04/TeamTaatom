@@ -58,7 +58,7 @@ export default function ForgotPage() {
           <Button
             type="submit"
             disabled={form.formState.isSubmitting}
-            className="h-12 w-full rounded-xl bg-primary text-base font-semibold text-white shadow-lg shadow-primary/25 hover:opacity-95"
+            className="h-12 w-full rounded-xl text-base font-semibold shadow-lg shadow-primary/25"
           >
             {form.formState.isSubmitting ? "Sending…" : "Send reset token"}
           </Button>

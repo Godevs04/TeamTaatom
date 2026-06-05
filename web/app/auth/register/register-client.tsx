@@ -32,14 +32,14 @@ function TermsPopup({ onClose }: { onClose: () => void }) {
       onClick={onClose}
     >
       <motion.div
-        className="relative max-h-[85vh] w-full max-w-lg overflow-hidden rounded-[1.25rem] border border-slate-200/90 bg-white/98 shadow-premium backdrop-blur-md"
+        className="ui-modal relative max-h-[85vh] w-full max-w-lg overflow-hidden rounded-[1.25rem] border border-slate-200/90 shadow-premium"
         initial={{ opacity: 0, y: 16, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 12, scale: 0.98 }}
         transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
         onClick={(e) => e.stopPropagation()}
       >
-          <div className="sticky top-0 flex items-center justify-between border-b border-slate-200/80 bg-white/95 px-5 py-4 backdrop-blur-sm">
+          <div className="sticky top-0 flex items-center justify-between border-b border-slate-200/80 bg-white px-5 py-4 dark:bg-zinc-900">
             <h2 id="terms-title" className="font-display text-lg font-semibold text-slate-900">
               Terms of Service
             </h2>
@@ -52,7 +52,7 @@ function TermsPopup({ onClose }: { onClose: () => void }) {
               <X className="h-5 w-5" />
             </button>
           </div>
-          <div className="max-h-[calc(85vh-4.5rem)] space-y-4 overflow-y-auto px-5 py-4 text-sm text-slate-600">
+          <div className="max-h-[calc(85vh-4.5rem)] space-y-4 overflow-y-auto px-5 py-4 text-sm text-readable">
             <p>By using Taatom you agree to these Terms. If you disagree, you may not use the App.</p>
             <div>
               <h3 className="font-semibold text-slate-900">Account</h3>
@@ -81,13 +81,13 @@ function TermsPopup({ onClose }: { onClose: () => void }) {
               href={TERMS_FULL_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex font-semibold text-primary hover:underline"
+              className="inline-flex font-semibold text-taatom-link hover:underline"
             >
               Read full Terms at taatom.com →
             </a>
           </div>
-          <div className="sticky bottom-0 border-t border-slate-200/80 bg-white/95 px-5 py-4 backdrop-blur-sm">
-            <Button onClick={onClose} className="h-11 w-full rounded-xl font-semibold">
+          <div className="sticky bottom-0 border-t border-slate-200/80 bg-white px-5 py-4 dark:bg-zinc-900">
+            <Button onClick={onClose} className="h-11 w-full rounded-xl font-semibold text-on-primary">
               Close
             </Button>
           </div>
@@ -367,7 +367,7 @@ export default function RegisterClient() {
             <button
               type="button"
               onClick={() => setTermsPopupOpen(true)}
-              className="text-xs font-semibold text-primary hover:underline"
+              className="text-xs font-semibold text-taatom-link hover:underline"
             >
               View full Terms →
             </button>
@@ -377,7 +377,7 @@ export default function RegisterClient() {
             <Button
               type="submit"
               disabled={form.formState.isSubmitting || !canSubmit}
-              className="h-12 w-full rounded-xl bg-slate-950 text-base font-semibold text-white shadow-lg shadow-slate-900/15 hover:bg-slate-900 disabled:opacity-60"
+              className="h-12 w-full rounded-xl text-base font-semibold disabled:opacity-60"
             >
               {form.formState.isSubmitting
                 ? "Creating…"
@@ -389,7 +389,7 @@ export default function RegisterClient() {
 
           <p className="text-center text-sm text-slate-500">
             Already have an account?{" "}
-            <Link href="/auth/login" className="font-semibold text-primary hover:underline">
+            <Link href="/auth/login" className="font-semibold text-taatom-link hover:underline">
               Sign in
             </Link>
           </p>

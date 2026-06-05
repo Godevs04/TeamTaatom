@@ -789,8 +789,8 @@ export default function ConnectPageDetailPage() {
       </div>
 
       {checkoutOpen && selectedItem && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+          <div className="ui-modal w-full max-w-md rounded-2xl p-6 shadow-2xl border border-slate-100 dark:border-zinc-800">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-zinc-800">
               <h3 className="text-lg font-semibold text-slate-950 dark:text-white">Checkout</h3>
               <button
@@ -870,8 +870,8 @@ export default function ConnectPageDetailPage() {
       )}
 
       {bioEditOpen && isOwner && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl dark:bg-zinc-900 border border-slate-100 dark:border-zinc-800">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+          <div className="ui-modal w-full max-w-md rounded-2xl p-6 shadow-2xl border border-slate-100 dark:border-zinc-800">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3 dark:border-zinc-800">
               <h3 className="text-lg font-semibold text-slate-950 dark:text-white">Edit description</h3>
               <button

@@ -1,0 +1,199 @@
+"use client";
+
+import Image from "next/image";
+import { motion } from "framer-motion";
+import { MapPin, Play, UserRound } from "lucide-react";
+import { SectionReveal, RevealItem } from "./section-reveal";
+import { LANDING_IMAGES } from "@/lib/landing-images";
+import { TiltCard } from "./tilt-card";
+
+function AnimatedMap() {
+  return (
+    <div className="relative aspect-[4/3] overflow-hidden rounded-[1.5rem] bg-[#e8ebe8]">
+      <svg className="absolute inset-0 h-full w-full opacity-30" aria-hidden>
+        <pattern id="map-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+          <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#94a3a0" strokeWidth="0.4" />
+        </pattern>
+        <rect width="100%" height="100%" fill="url(#map-grid)" />
+      </svg>
+      <svg viewBox="0 0 360 280" className="absolute inset-0 h-full w-full" aria-hidden>
+        <motion.path
+          d="M 40 200 Q 100 80 180 140 T 300 100"
+          fill="none"
+          stroke="var(--landing-accent)"
+          strokeWidth="2"
+          strokeDasharray="6 8"
+          initial={{ pathLength: 0 }}
+          whileInView={{ pathLength: 1 }}
+          viewport={{ once: true }}
+          transition={{ duration: 2.2 }}
+        />
+      </svg>
+      {[
+        { t: "32%", l: "18%", label: "Shibuya" },
+        { t: "45%", l: "52%", label: "Alfama" },
+        { t: "28%", l: "72%", label: "Reykjavík" },
+      ].map((pin) => (
+        <motion.div
+          key={pin.label}
+          className="absolute z-10"
+          style={{ top: pin.t, left: pin.l }}
+          animate={{ scale: [1, 1.08, 1] }}
+          transition={{ duration: 2.5, repeat: Infinity }}
+        >
+          <span className="flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold shadow-md">
+            <MapPin className="h-3 w-3 text-[var(--landing-accent)]" aria-hidden />
+            {pin.label}
+          </span>
+        </motion.div>
+      ))}
+    </div>
+  );
+}
+
+function ReelsPreview() {
+  return (
+    <div className="flex justify-center gap-3 overflow-x-auto pb-2 sm:gap-4">
+      {LANDING_IMAGES.reels.map((src, i) => (
+        <TiltCard key={src} className="w-[140px] shrink-0 sm:w-[160px]">
+          <motion.div
+            className="relative aspect-[9/16] overflow-hidden rounded-2xl bg-stone-300 shadow-[var(--landing-shadow)]"
+            animate={{ scale: [1, 1.02, 1] }}
+            transition={{ duration: 5 + i, repeat: Infinity, ease: "easeInOut" }}
+          >
+            <Image src={src} alt="Travel reel preview" fill className="object-cover" sizes="160px" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
+            <span className="absolute bottom-3 left-3 text-[10px] font-medium text-white">0:24</span>
+            <span className="absolute left-1/2 top-1/2 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/25 backdrop-blur-sm">
+              <Play className="h-4 w-4 fill-white text-white" aria-hidden />
+            </span>
+          </motion.div>
+        </TiltCard>
+      ))}
+    </div>
+  );
+}
+
+function MusicPlayer() {
+  const bars = 24;
+  return (
+    <div className="rounded-[1.5rem] border border-[var(--landing-border)] bg-[var(--landing-surface)] p-6 shadow-[var(--landing-shadow)]">
+      <p className="text-sm font-semibold text-[var(--landing-ink)]">Coastal Highway — Day 4</p>
+      <p className="text-xs text-[var(--landing-subtle)]">Lisbon · Memory soundtrack</p>
+      <div className="mt-6 flex h-16 items-end justify-center gap-1">
+        {Array.from({ length: bars }).map((_, i) => (
+          <motion.span
+            key={i}
+            className="w-1 rounded-full bg-[var(--landing-accent)]"
+            animate={{ height: [8, 12 + (i % 5) * 6, 10, 20 + (i % 3) * 8, 8] }}
+            transition={{ duration: 1.2 + (i % 4) * 0.15, repeat: Infinity, ease: "easeInOut" }}
+            style={{ height: 12 }}
+          />
+        ))}
+      </div>
+      <div className="mt-4 h-1 overflow-hidden rounded-full bg-stone-200">
+        <motion.div
+          className="h-full rounded-full bg-[var(--landing-accent)]"
+          animate={{ width: ["0%", "62%", "62%"] }}
+          transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
+        />
+      </div>
+    </div>
+  );
+}
+
+const CREATORS = [
+  { name: "Elena Park", style: "Slow travel", cities: "24 cities", img: LANDING_IMAGES.creators[0].img },
+  { name: "Marcus Reid", style: "Food maps", cities: "18 cities", img: LANDING_IMAGES.creators[1].img },
+  { name: "Sofia Reyes", style: "Street light", cities: "31 cities", img: LANDING_IMAGES.creators[2].img },
+];
+
+function CreatorCards() {
+  return (
+    <div className="grid gap-4 sm:grid-cols-3">
+      {CREATORS.map((c) => (
+        <TiltCard key={c.name}>
+          <motion.article
+            whileHover={{ y: -6 }}
+            className="overflow-hidden rounded-2xl border border-[var(--landing-border)] bg-[var(--landing-surface)] shadow-sm transition-shadow hover:shadow-[var(--landing-shadow)]"
+          >
+            <div className="relative aspect-[4/3] bg-stone-200">
+              <Image src={c.img} alt={c.name} fill className="object-cover" sizes="200px" />
+            </div>
+            <div className="p-4">
+              <div className="flex items-center gap-2">
+                <UserRound className="h-4 w-4 text-[var(--landing-accent)]" aria-hidden />
+                <p className="font-semibold text-[var(--landing-ink)]">{c.name}</p>
+              </div>
+              <p className="mt-1 text-xs text-[var(--landing-accent)]">{c.style}</p>
+              <p className="mt-0.5 text-xs text-[var(--landing-subtle)]">{c.cities}</p>
+            </div>
+          </motion.article>
+        </TiltCard>
+      ))}
+    </div>
+  );
+}
+
+type FeatureBlockProps = {
+  title: string;
+  body: string;
+  visual: React.ReactNode;
+  reversed?: boolean;
+};
+
+function FeatureBlock({ title, body, visual, reversed }: FeatureBlockProps) {
+  return (
+    <div className={`grid items-center gap-10 lg:grid-cols-2 lg:gap-16 ${reversed ? "lg:[&>div:first-child]:order-2" : ""}`}>
+      <RevealItem>{visual}</RevealItem>
+      <RevealItem>
+        <h3 className="font-display text-2xl font-semibold tracking-tight text-[var(--landing-ink)] sm:text-3xl">{title}</h3>
+        <p className="mt-4 text-[17px] leading-relaxed text-[var(--landing-muted)]">{body}</p>
+      </RevealItem>
+    </div>
+  );
+}
+
+export function LandingFeatures() {
+  return (
+    <div id="features" className="scroll-mt-24">
+      <SectionReveal className="py-20 sm:py-28">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <RevealItem className="mx-auto max-w-2xl text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--landing-accent)]">How it works</p>
+            <h2 className="mt-4 font-display text-3xl font-semibold tracking-tight sm:text-4xl">
+              Journeys become stories you can return to
+            </h2>
+          </RevealItem>
+
+          <div className="mt-20 space-y-28 sm:space-y-36">
+            <FeatureBlock
+              title="Map memories"
+              body="Every photo, note, and song can live on the map where it happened. Revisit a city and feel the day again — not just scroll past it."
+              visual={<AnimatedMap />}
+            />
+            <FeatureBlock
+              reversed
+              title="Travel reels"
+              body="Vertical stories with pace and place. Share the rhythm of a trip the way you experienced it — short, visual, intentional."
+              visual={<ReelsPreview />}
+            />
+            <FeatureBlock
+              title="Music memories"
+              body="Attach the track that was playing when the moment mattered. Sound becomes part of the memory, not background noise."
+              visual={<MusicPlayer />}
+            />
+            <div id="creators">
+              <FeatureBlock
+                reversed
+                title="Creator discovery"
+                body="Follow travelers by city, style, and taste — not trends. Find people whose journeys you would actually take."
+                visual={<CreatorCards />}
+              />
+            </div>
+          </div>
+        </div>
+      </SectionReveal>
+    </div>
+  );
+}
