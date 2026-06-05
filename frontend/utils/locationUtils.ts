@@ -227,12 +227,31 @@ const calculateSimilarity = (str1: string, str2: string): number => {
 /**
  * Geocode an address to get coordinates using Google Geocoding API
  * PRODUCTION-GRADE: Dynamic location name handling with Places Autocomplete and fuzzy matching
- * No hardcoded corrections - learns and adapts dynamically
+ * Uses canonical coordinates for known ambiguous landmarks, then falls back to dynamic API matching.
  */
+const CANONICAL_LANDMARK_COORDS: Record<string, { latitude: number; longitude: number }> = {
+  'big ben': { latitude: 51.5007, longitude: -0.1246 },
+  bigben: { latitude: 51.5007, longitude: -0.1246 },
+  'elizabeth tower': { latitude: 51.5007, longitude: -0.1246 },
+  'london eye': { latitude: 51.503324, longitude: -0.119543 },
+};
+
+const normalizeLandmarkName = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
 export const geocodeAddress = async (
   address: string, 
   countryCode?: string
 ): Promise<{ latitude: number; longitude: number } | null> => {
+  const canonical = CANONICAL_LANDMARK_COORDS[normalizeLandmarkName(address)];
+  if (canonical) {
+    return canonical;
+  }
+
   if (!address || address.trim() === '') {
     logger.warn('⚠️ Empty address provided for geocoding');
     return null;

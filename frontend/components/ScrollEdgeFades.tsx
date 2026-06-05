@@ -32,57 +32,7 @@ export default function ScrollEdgeFades({
   hideTop = false,
   hideBottom = true,
 }: Props) {
-  const topBottomScreen = isDark
-    ? (['rgba(6,18,31,0)', 'rgba(6,18,31,0.45)', 'rgba(6,18,31,0.82)'] as const)
-    : (['rgba(232,244,255,0)', 'rgba(255,255,255,0.55)', 'rgba(255,255,255,0.94)'] as const);
-
-  const topBottomVideo = ['rgba(0,0,0,0)', 'rgba(0,0,0,0.42)', 'rgba(0,0,0,0.78)'] as const;
-
-  const topBottom = edgeColors === 'video' ? topBottomVideo : topBottomScreen;
-
-  const leftRightScreen = isDark
-    ? (['rgba(6,18,31,0)', 'rgba(6,18,31,0.5)', 'rgba(6,18,31,0.88)'] as const)
-    : (['rgba(232,244,255,0)', 'rgba(255,255,255,0.5)', 'rgba(255,255,255,0.95)'] as const);
-
-  const leftRightVideo = ['rgba(0,0,0,0)', 'rgba(0,0,0,0.45)', 'rgba(0,0,0,0.82)'] as const;
-
-  const leftRight = edgeColors === 'video' ? leftRightVideo : leftRightScreen;
-
-  if (variant === 'horizontal') {
-    return (
-      <View pointerEvents="none" style={[StyleSheet.absoluteFillObject, style]}>
-        <LinearGradient
-          colors={[...leftRight] as [string, string, ...string[]]}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-          style={[styles.hEdge, { left: 0, width: horizontalFadeSize }]}
-        />
-        <LinearGradient
-          colors={[...leftRight].reverse() as [string, string, ...string[]]}
-          start={{ x: 0, y: 0.5 }}
-          end={{ x: 1, y: 0.5 }}
-          style={[styles.hEdge, { right: 0, width: horizontalFadeSize }]}
-        />
-      </View>
-    );
-  }
-
-  return (
-    <View pointerEvents="none" style={[StyleSheet.absoluteFillObject, style]}>
-      {!hideTop && (
-        <LinearGradient
-          colors={[...topBottom] as [string, string, ...string[]]}
-          style={[styles.vEdge, { top: 0, height: fadeSize }]}
-        />
-      )}
-      {!hideBottom && (
-        <LinearGradient
-          colors={[...topBottom].reverse() as [string, string, ...string[]]}
-          style={[styles.vEdge, { bottom: 0, height: fadeSize + 8 }]}
-        />
-      )}
-    </View>
-  );
+  return null;
 }
 
 const styles = StyleSheet.create({

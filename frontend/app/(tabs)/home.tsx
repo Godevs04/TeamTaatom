@@ -19,6 +19,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { Ionicons } from '@expo/vector-icons';
 import { getPosts, getPostById, toggleLike } from '../../services/posts';
+import { listChats } from '../../services/chat';
 import { PostType } from '../../types/post';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import { getUserFromStorage } from '../../services/auth';
@@ -325,9 +326,75 @@ export default function HomeScreen() {
       });
     });
 
+    const unsubscribeLocalActions = savedEvents.addPostActionListener((postId, action, data) => {
+      if (action === 'like' || action === 'unlike') {
+        const isLiked = action === 'like';
+        const likesCount = data?.likesCount ?? 0;
+
+        // Sync local likedPostIdsRef Set
+        const set = likedPostIdsRef.current;
+        if (isLiked) set.add(postId);
+        else set.delete(postId);
+        AsyncStorage.setItem(LIKED_POSTS_STORAGE_KEY, JSON.stringify([...set])).catch(() => {});
+
+        // Update posts state
+        setPosts(prev => prev.map(post => {
+          if (post._id === postId) {
+            if (post.isLiked === isLiked && post.likesCount === likesCount) {
+              return post;
+            }
+            return { ...post, isLiked, likesCount } as any;
+          }
+          return post;
+        }));
+
+        // Update tab caches
+        const modes: FeedMode[] = ['recents', 'friends', 'popular'];
+        modes.forEach(mode => {
+          const cache = feedCacheRef.current[mode];
+          if (cache && cache.posts) {
+            cache.posts = cache.posts.map(post => {
+              if (post._id === postId) {
+                return { ...post, isLiked, likesCount } as any;
+              }
+              return post;
+            });
+          }
+        });
+      } else if (action === 'save' || action === 'unsave') {
+        const isSaved = action === 'save';
+
+        // Update posts state
+        setPosts(prev => prev.map(post => {
+          if (post._id === postId) {
+            if (post.isSaved === isSaved) {
+              return post;
+            }
+            return { ...post, isSaved } as any;
+          }
+          return post;
+        }));
+
+        // Update tab caches
+        const modes: FeedMode[] = ['recents', 'friends', 'popular'];
+        modes.forEach(mode => {
+          const cache = feedCacheRef.current[mode];
+          if (cache && cache.posts) {
+            cache.posts = cache.posts.map(post => {
+              if (post._id === postId) {
+                return { ...post, isSaved } as any;
+              }
+              return post;
+            });
+          }
+        });
+      }
+    });
+
     return () => {
       unsubscribeViews();
       unsubscribeLikes();
+      unsubscribeLocalActions();
     };
   }, [setPosts]);
   const [loading, setLoading] = useState(true);
@@ -697,35 +764,15 @@ export default function HomeScreen() {
     lastMessageFetchRef.current = now;
     
     try {
-      const token = await AsyncStorage.getItem('authToken');
-      const userData = await AsyncStorage.getItem('userData');
-      let myUserId = '';
-      if (userData) {
-        try {
-          myUserId = JSON.parse(userData)._id;
-        } catch {}
-      }
+      const user = await getUserFromStorage();
+      const myUserId = user?._id || '';
       
-      if (!token || !myUserId) {
+      if (!myUserId) {
         isFetchingMessagesRef.current = false;
         return;
       }
       
-      // Use dynamic API URL detection for web
-      const { getApiBaseUrl } = require('../../utils/config');
-      const API_BASE_URL = getApiBaseUrl();
-      const response = await fetch(`${API_BASE_URL}/chat`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Accept': 'application/json'
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Failed to fetch chats: ${response.status} ${response.statusText}`);
-      }
-      
-      const data = await response.json();
+      const data = await listChats();
       const chats = data.chats || [];
       
       // Normalize myUserId for comparison

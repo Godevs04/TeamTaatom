@@ -2,9 +2,7 @@
 // Metro will automatically use mapsWrapper.web.ts for web builds
 //
 // Strategy:
-//   iOS ........................ native MapView (Apple Maps)
-//   Android dev/prod build .... native MapView (Google Maps)
-//   Android Expo Go ........... WebView fallback (react-native-maps not bundled)
+//   iOS / Android .............. WebView fallback (stable under zoom with custom markers)
 //   Web ....................... handled by mapsWrapper.web.ts
 
 import { Platform } from 'react-native';
@@ -17,10 +15,10 @@ let Polyline: any = null;
 let PROVIDER_GOOGLE: any = null;
 let PROVIDER_DEFAULT: any = null;
 
-// Expo Go on Android doesn't bundle react-native-maps — require() hard-crashes.
-// Development builds and production builds include the native module.
-const isExpoGo = Constants.appOwnership === 'expo';
-const skipNativeMaps = Platform.OS === 'android' && isExpoGo;
+// On Android, we always use the WebView fallback to ensure:
+// 1. Consistent premium HTML glassmorphic marker card designs (native react-native-maps custom markers on Android have resizing/clipping bugs)
+// 2. Maximum reliability (no Google Play Services / API key build configuration failures on Android devices)
+const skipNativeMaps = Platform.OS === 'android';
 
 /**
  * True when native MapView is NOT available and screens should

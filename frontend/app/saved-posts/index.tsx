@@ -20,6 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createLogger } from '../../utils/logger';
 import { PostType } from '../../types/post';
 import { realtimePostsService } from '../../services/realtimePosts';
+import { savedEvents } from '../../utils/savedEvents';
 
 const logger = createLogger('SavedPostsScreen');
 
@@ -46,18 +47,21 @@ const readSavedIds = async (key: 'savedShorts' | 'savedPosts'): Promise<string[]
 
 const isSavedItemUnavailable = (reason: any): boolean => {
   const status = reason?.response?.status;
+  const errorCode = reason?.response?.data?.error?.code || reason?.response?.data?.code;
   const message = reason?.response?.data?.error?.message || reason?.response?.data?.message || reason?.message || '';
 
+  // Only delete saved items if we get an explicit application error indicating the item is gone/private
+  if (status === 403 && errorCode === 'AUTH_1006') return true;
+  if (status === 404 && errorCode === 'RES_3001') return true;
+  if (status === 410) return true;
+
   return (
-    status === 403 ||
-    status === 404 ||
-    status === 410 ||
     (status === 401 && typeof message === 'string' && message.toLowerCase().includes('not available'))
   );
 };
 
 export default function SavedPostsScreen() {
-  const { postId, postData } = useLocalSearchParams();
+  const { postId, postData, index } = useLocalSearchParams();
   const { theme } = useTheme();
   const router = useRouter();
   
@@ -70,15 +74,18 @@ export default function SavedPostsScreen() {
     }
   }
 
-  const [posts, setPosts] = useState<PostType[]>(() => {
-    if (initialPost.current) {
-      return [initialPost.current];
-    }
-    return [];
-  });
-  const [loading, setLoading] = useState(() => !initialPost.current);
+  const [posts, setPosts] = useState<PostType[]>([]);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+
+  const initialIndex = index ? parseInt(index as string, 10) : 0;
+
+  const getItemLayout = useCallback((_data: any, index: number) => ({
+    length: 580,
+    offset: 580 * index,
+    index,
+  }), []);
 
   const loadSavedPosts = useCallback(async () => {
     try {
@@ -155,14 +162,37 @@ export default function SavedPostsScreen() {
   }, [loadSavedPosts]);
 
   useEffect(() => {
-    const unsubscribe = realtimePostsService.subscribeToLikes(({ postId: likedPostId, isLiked, likesCount }) => {
+    const unsubscribeLikes = realtimePostsService.subscribeToLikes(({ postId: likedPostId, isLiked, likesCount }) => {
       setPosts(prev => prev.map(post => (
         post._id === likedPostId
           ? { ...post, isLiked, likesCount } as any
           : post
       )));
     });
-    return unsubscribe;
+
+    const unsubscribeLocalActions = savedEvents.addPostActionListener((likedPostId, action, data) => {
+      if (action === 'like' || action === 'unlike') {
+        const isLiked = action === 'like';
+        const likesCount = data?.likesCount ?? 0;
+        setPosts(prev => prev.map(post => (
+          post._id === likedPostId
+            ? { ...post, isLiked, likesCount } as any
+            : post
+        )));
+      } else if (action === 'save' || action === 'unsave') {
+        const isBookmarked = action === 'save';
+        setPosts(prev => prev.map(post => (
+          post._id === likedPostId
+            ? { ...post, isSaved: isBookmarked } as any
+            : post
+        )));
+      }
+    });
+
+    return () => {
+      unsubscribeLikes();
+      unsubscribeLocalActions();
+    };
   }, []);
 
 
@@ -212,6 +242,8 @@ export default function SavedPostsScreen() {
           data={posts}
           keyExtractor={(item) => item._id}
           renderItem={renderPost}
+          initialScrollIndex={initialIndex}
+          getItemLayout={getItemLayout}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

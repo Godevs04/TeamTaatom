@@ -238,14 +238,11 @@ const resolveSong = async (song) => {
   if (audioKey) {
     try {
       const songUrl = await generateSignedUrl(audioKey, 'AUDIO');
-      if (songUrl) {
-        song.s3Url = songUrl;
-        song.cloudinaryUrl = songUrl; // Backward compatibility
-      }
+      song.s3Url = songUrl || song.s3Url || song.cloudinaryUrl;
+      song.cloudinaryUrl = songUrl || song.cloudinaryUrl || song.s3Url; // Backward compatibility
     } catch (error) {
       logger.warn('resolveSong: Failed to generate audio URL:', { songId: song._id, error: error.message });
-      song.s3Url = null;
-      song.cloudinaryUrl = null;
+      // Do not set to null, keep existing URLs as fallback
     }
   }
 

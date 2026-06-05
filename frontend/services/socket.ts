@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { getApiBaseUrl, WS_PATH } from '../utils/config';
 import logger from '../utils/logger';
+import { getCachedAuthToken } from '../utils/authTokenCache';
 
 // Suppress WebSocket errors in console for development (both web and mobile)
 if (typeof window !== 'undefined' || typeof global !== 'undefined') {
@@ -86,7 +87,7 @@ const getToken = async () => {
   // The token should be stored in AsyncStorage during sign-in (for socket.io compatibility)
   // For mobile: Get from AsyncStorage
   try {
-    const token = await AsyncStorage.getItem('authToken');
+    const token = await getCachedAuthToken();
     return token;
   } catch (e) {
     // AsyncStorage might not be available

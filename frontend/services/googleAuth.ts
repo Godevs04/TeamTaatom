@@ -6,6 +6,7 @@ import { UserType } from '../types/user';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI } from '../utils/config';
 import logger from '../utils/logger';
+import { clearCachedAuthToken, setCachedAuthToken } from '../utils/authTokenCache';
 
 const isWeb = Platform.OS === 'web';
 
@@ -66,7 +67,7 @@ export const signInWithGoogle = async (): Promise<GoogleAuthResponse> => {
       // For web: Backend should set httpOnly cookie, but store in AsyncStorage for socket.io compatibility
       // For mobile: Store in AsyncStorage
       if (token) {
-        await AsyncStorage.setItem('authToken', token);
+        await setCachedAuthToken(token);
       }
       
       if (user) {
@@ -86,7 +87,7 @@ export const signInWithGoogle = async (): Promise<GoogleAuthResponse> => {
 
 export const signOutGoogle = async (): Promise<void> => {
   try {
-    await AsyncStorage.removeItem('authToken');
+    await clearCachedAuthToken();
     await AsyncStorage.removeItem('userData');
   } catch (error) {
     logger.error('Error signing out:', error);

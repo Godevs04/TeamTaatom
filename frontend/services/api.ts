@@ -7,6 +7,7 @@ import logger from '../utils/logger';
 import { parseError } from '../utils/errorCodes';
 import * as Sentry from '@sentry/react-native';
 import NetInfo from '@react-native-community/netinfo';
+import { clearCachedAuthToken, getCachedAuthToken, setCachedAuthToken } from '../utils/authTokenCache';
 
 // Request throttling to prevent rate limiting
 const requestQueue = new Map();
@@ -133,8 +134,8 @@ api.interceptors.request.use(
       // For web: httpOnly cookies are sent automatically with withCredentials: true
       // For mobile: Get token from AsyncStorage
       if (Platform.OS !== 'web') {
-        // Mobile: Get from AsyncStorage
-        const token = await AsyncStorage.getItem('authToken');
+        // Mobile: read token from memory after the first AsyncStorage load.
+        const token = await getCachedAuthToken();
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
@@ -256,7 +257,7 @@ api.interceptors.response.use(
       if (originalRequest.url?.includes('/auth/refresh')) {
         // Refresh endpoint failed - clear auth
         // Clear token from AsyncStorage (mobile) or rely on backend to clear httpOnly cookie (web)
-        await AsyncStorage.removeItem('authToken');
+        await clearCachedAuthToken();
         await AsyncStorage.removeItem('userData');
         return Promise.reject(error);
       }
@@ -301,7 +302,7 @@ api.interceptors.response.use(
             // Update token in storage
             // For web: Backend should set httpOnly cookie, but store in AsyncStorage for socket.io compatibility
             // For mobile: Store in AsyncStorage
-            await AsyncStorage.setItem('authToken', token);
+            await setCachedAuthToken(token);
             
             // Update socket token if connected
             try {
@@ -336,7 +337,7 @@ api.interceptors.response.use(
           // Refresh failed - clear auth
           // For web: Backend should clear httpOnly cookie, but also clear AsyncStorage
           // For mobile: Clear AsyncStorage
-          await AsyncStorage.removeItem('authToken');
+          await clearCachedAuthToken();
           await AsyncStorage.removeItem('userData');
           
           // Disconnect socket
@@ -524,7 +525,7 @@ api.interceptors.response.use(
       // Token expired or invalid, clear storage
       // For web: Backend should clear httpOnly cookie, but also clear AsyncStorage
       // For mobile: Clear AsyncStorage
-      await AsyncStorage.removeItem('authToken');
+      await clearCachedAuthToken();
       await AsyncStorage.removeItem('userData');
     }
     return Promise.reject(error);

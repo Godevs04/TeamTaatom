@@ -31,6 +31,7 @@ import { useAlert } from "../../context/AlertContext";
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import MaskedView from '@react-native-masked-view/masked-view';
 import { CloudPostMountainBackground, CloudGlassCard } from "../../components/cloud";
 import {
   PostCreateHeader,
@@ -74,6 +75,30 @@ import { applyFilterToImages } from '../../utils/applyImageFilter';
 import { Image as ExpoImage } from 'expo-image';
 
 const logger = createLogger('PostScreen');
+
+const BLUE_ICON_GRADIENT = ['#38BDF8', '#2563EB'] as const;
+
+const GradientIonicon = ({
+  name,
+  size,
+  style,
+}: {
+  name: React.ComponentProps<typeof Ionicons>['name'];
+  size: number;
+  style?: any;
+}) => (
+  <MaskedView
+    style={[{ width: size, height: size }, style]}
+    maskElement={<Ionicons name={name} size={size} color="#000" />}
+  >
+    <LinearGradient
+      colors={BLUE_ICON_GRADIENT}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={{ flex: 1 }}
+    />
+  </MaskedView>
+);
 
 const MOCK_GALLERY_ASSETS: any[] = [
   {
@@ -264,16 +289,16 @@ export default function PostScreen() {
       try {
         let status = 'denied';
 
-        // 2-second permission timeout to prevent native bridge hangs
+        // 60-second permission timeout to prevent native bridge hangs while giving user time to respond
         const permissionTimeout = new Promise<string>((resolve) => {
-          setTimeout(() => resolve('timeout'), 2000);
+          setTimeout(() => resolve('timeout'), 60000);
         });
 
         const permissionResolver = async (): Promise<string> => {
           try {
             // Check existing first (non-blocking)
             const existing = await MediaLibrary.getPermissionsAsync();
-            if (existing.status === 'granted') {
+            if (existing.granted || existing.status === 'granted') {
               return 'granted';
             }
 
@@ -284,17 +309,17 @@ export default function PostScreen() {
                 console.log("[loadCameraRoll] Android 13+: Requesting granular MediaLibrary permissions...");
                 // Note: avoiding requesting 'audio' granular permission to prevent AndroidManifest audio declaration rejection
                 const permResult = await MediaLibrary.requestPermissionsAsync(false, ['photo', 'video']);
-                return permResult.status;
+                return (permResult.granted || permResult.status === 'granted') ? 'granted' : permResult.status;
               } else {
                 console.log("[loadCameraRoll] Android legacy: Requesting standard MediaLibrary permissions...");
                 const permResult = await MediaLibrary.requestPermissionsAsync(false);
-                return permResult.status;
+                return (permResult.granted || permResult.status === 'granted') ? 'granted' : permResult.status;
               }
             } else {
               // iOS Flow
               console.log("[loadCameraRoll] iOS: Requesting standard MediaLibrary permissions...");
               const permResult = await MediaLibrary.requestPermissionsAsync(false);
-              return permResult.status;
+              return (permResult.granted || permResult.status === 'granted') ? 'granted' : permResult.status;
             }
           } catch (err: any) {
             console.warn("[loadCameraRoll] MediaLibrary request failed, trying fallback:", err);
@@ -319,7 +344,7 @@ export default function PostScreen() {
                 }
               } else {
                 const permResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-                return permResult.status;
+                return (permResult.granted || permResult.status === 'granted') ? 'granted' : permResult.status;
               }
             } catch (rawErr) {
               console.error("[loadCameraRoll] Fallback permission check failed:", rawErr);
@@ -331,13 +356,14 @@ export default function PostScreen() {
         status = await Promise.race([permissionResolver(), permissionTimeout]);
         console.log("[loadCameraRoll] Resolved permission status:", status);
 
+        let result: any = null;
+
         if (status === 'granted') {
           console.log("[loadCameraRoll] Requesting assets from MediaLibrary...");
-          let result;
           try {
-            // 2-second assets fetch timeout to prevent native bridge hangs
+            // 30-second assets fetch timeout to prevent native bridge hangs
             const assetsTimeout = new Promise<any>((_, reject) =>
-              setTimeout(() => reject(new Error("Assets fetch timeout")), 2000)
+              setTimeout(() => reject(new Error("Assets fetch timeout")), 30000)
             );
 
             const assetsFetch = async () => {
@@ -369,10 +395,16 @@ export default function PostScreen() {
           }
         }
 
-        // If status was not granted, or if result was empty/timed out, fallback to mock assets
-        console.log("[loadCameraRoll] Media library empty or not granted (Expo Go / Simulator). Loading mock travel placeholder assets...");
-        setCameraRollAssets(MOCK_GALLERY_ASSETS);
-        setLatestAssetUri(MOCK_GALLERY_ASSETS[0].uri);
+        // If status was not granted, or if result was empty/timed out, fallback to mock assets only in dev mode
+        if (status !== 'granted' || (__DEV__ && (!result || !result.assets || result.assets.length === 0))) {
+          console.log("[loadCameraRoll] Loading mock travel placeholder assets...");
+          setCameraRollAssets(MOCK_GALLERY_ASSETS);
+          setLatestAssetUri(MOCK_GALLERY_ASSETS[0].uri);
+        } else {
+          console.log("[loadCameraRoll] Rendering empty gallery.");
+          setCameraRollAssets([]);
+          setLatestAssetUri(null);
+        }
       } catch (err: any) {
         console.error("[loadCameraRoll] CRITICAL EXCEPTION, falling back to mock assets:", err);
         logger.error('Error loading camera roll:', err?.message || err);
@@ -381,8 +413,10 @@ export default function PostScreen() {
         setLatestAssetUri(MOCK_GALLERY_ASSETS[0].uri);
       }
     }
-    loadCameraRoll();
-  }, []);
+    if (isFocused) {
+      loadCameraRoll();
+    }
+  }, [isFocused]);
 
   const [selectedImages, setSelectedImages] = useState<Array<{ uri: string; type: string; name: string }>>([]);
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null);
@@ -2901,7 +2935,7 @@ export default function PostScreen() {
   return (
     <ErrorBoundary level="route">
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : isWeb ? undefined : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       style={{ flex: 1, backgroundColor: theme.colors.background || '#000000' }}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
@@ -3459,7 +3493,7 @@ export default function PostScreen() {
                       </View>
                       <View style={{ marginBottom: theme.spacing.lg }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.xs }}>
-                          <Ionicons name="location-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
+                          <GradientIonicon name="location-outline" size={18} style={{ marginRight: theme.spacing.xs }} />
                           <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Place Name</Text>
                           <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                         </View>
@@ -3605,7 +3639,7 @@ export default function PostScreen() {
                           alignItems: 'center',
                           marginRight: theme.spacing.xs
                         }}>
-                          <Ionicons name="leaf" size={18} color={theme.colors.primary} />
+                          <GradientIonicon name="leaf" size={18} />
                         </View>
                         <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Spot Type</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
@@ -3651,7 +3685,7 @@ export default function PostScreen() {
                           alignItems: 'center',
                           marginRight: theme.spacing.xs
                         }}>
-                          <Ionicons name="car" size={18} color={theme.colors.primary} />
+                          <GradientIonicon name="car" size={18} />
                         </View>
                         <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Travel Info</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
@@ -3736,12 +3770,11 @@ export default function PostScreen() {
                         }}
                         onPress={() => setShowSongSelector(true)}
                       >
-                        <Ionicons
-                          name="musical-notes-outline"
-                          size={20}
-                          color={theme.colors.textSecondary}
-                          style={{ marginRight: theme.spacing.xs }}
-                        />
+                          <GradientIonicon
+                            name="musical-notes-outline"
+                            size={20}
+                            style={{ marginRight: theme.spacing.xs }}
+                          />
                         <Text style={{
                           color: theme.colors.textSecondary,
                           fontSize: theme.typography.body.fontSize,
@@ -4065,7 +4098,7 @@ export default function PostScreen() {
                     </View>
                     <View style={{ marginBottom: theme.spacing.lg }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.xs }}>
-                        <Ionicons name="location-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
+                        <GradientIonicon name="location-outline" size={18} style={{ marginRight: theme.spacing.xs }} />
                         <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Place Name</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
                       </View>
@@ -4192,7 +4225,7 @@ export default function PostScreen() {
                           alignItems: 'center',
                           marginRight: theme.spacing.sm
                         }}>
-                          <Ionicons name="location" size={18} color={theme.colors.primary} />
+                          <GradientIonicon name="location" size={18} />
                         </View>
                         <Text style={{ color: theme.colors.text, fontSize: theme.typography.body.fontSize, flex: 1, fontWeight: '500' }}>{address}</Text>
                       </View>
@@ -4209,7 +4242,7 @@ export default function PostScreen() {
                           alignItems: 'center',
                           marginRight: theme.spacing.xs
                         }}>
-                          <Ionicons name="leaf" size={18} color={theme.colors.primary} />
+                          <GradientIonicon name="leaf" size={18} />
                         </View>
                         <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Spot Type</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
@@ -4255,7 +4288,7 @@ export default function PostScreen() {
                           alignItems: 'center',
                           marginRight: theme.spacing.xs
                         }}>
-                          <Ionicons name="car" size={18} color={theme.colors.primary} />
+                          <GradientIonicon name="car" size={18} />
                         </View>
                         <Text style={{ fontSize: theme.typography.h3.fontSize, fontWeight: "600", color: theme.colors.text }}>Travel Info</Text>
                         <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginLeft: theme.spacing.xs }}>(Optional)</Text>
@@ -4353,10 +4386,9 @@ export default function PostScreen() {
                           alignItems: 'center',
                           marginRight: theme.spacing.sm
                         }}>
-                          <Ionicons
+                          <GradientIonicon
                             name="musical-notes-outline"
                             size={20}
-                            color={theme.colors.textSecondary}
                           />
                         </View>
                         <View style={{ flex: 1 }}>

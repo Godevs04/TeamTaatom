@@ -888,32 +888,34 @@ function AllLocationsMapInner() {
         let lat: number | null = null;
         let lng: number | null = null;
 
-        // 1. Try to get device's live/last known location first (even if not own page)
-        try {
-          const currentPerm = await ExpoLocation.getForegroundPermissionsAsync();
-          let status = currentPerm.status;
-          if (status === 'undetermined') {
-            const requested = await ExpoLocation.requestForegroundPermissionsAsync();
-            status = requested.status;
-          }
-
-          if (status === 'granted') {
-            // Get last known location first ("last used of the app" - instant)
-            const lastKnown = await ExpoLocation.getLastKnownPositionAsync();
-            if (lastKnown) {
-              lat = lastKnown.coords.latitude;
-              lng = lastKnown.coords.longitude;
-            } else {
-              // Fallback to low accuracy current position
-              const loc = await ExpoLocation.getCurrentPositionAsync({
-                accuracy: ExpoLocation.Accuracy.Low,
-              });
-              lat = loc.coords.latitude;
-              lng = loc.coords.longitude;
+        // 1. Try to get device's live/last known location first (if viewing own page)
+        if (isOwnPage) {
+          try {
+            const currentPerm = await ExpoLocation.getForegroundPermissionsAsync();
+            let status = currentPerm.status;
+            if (status === 'undetermined') {
+              const requested = await ExpoLocation.requestForegroundPermissionsAsync();
+              status = requested.status;
             }
+
+            if (status === 'granted') {
+              // Get last known location first ("last used of the app" - instant)
+              const lastKnown = await ExpoLocation.getLastKnownPositionAsync();
+              if (lastKnown) {
+                lat = lastKnown.coords.latitude;
+                lng = lastKnown.coords.longitude;
+              } else {
+                // Fallback to low accuracy current position
+                const loc = await ExpoLocation.getCurrentPositionAsync({
+                  accuracy: ExpoLocation.Accuracy.Low,
+                });
+                lat = loc.coords.latitude;
+                lng = loc.coords.longitude;
+              }
+            }
+          } catch (locErr) {
+            logger.debug('[AllLocations] Live location check failed, using target location fallback:', locErr);
           }
-        } catch (locErr) {
-          logger.debug('[AllLocations] Live location check failed, using target location fallback:', locErr);
         }
 
         // 2. Fall back to the first location in validLocations if live location is unavailable
@@ -941,7 +943,7 @@ function AllLocationsMapInner() {
       }
     };
     detectCountry();
-  }, [validLocations.length]);
+  }, [validLocations.length, isOwnPage]);
 
   // Load locations + journeys
   useEffect(() => {
@@ -1341,9 +1343,9 @@ function initMap(){
         map:map,
         title:j.startCity||'Start',
         icon:{
-          url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="14" fill="${GROWTH_GREEN}" stroke="white" stroke-width="2"/></svg>'),
-          scaledSize:new google.maps.Size(32,32),
-          anchor:new google.maps.Point(16,16)
+          url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><circle cx="11" cy="11" r="9" fill="${GROWTH_GREEN}" stroke="white" stroke-width="1.5"/></svg>'),
+          scaledSize:new google.maps.Size(22,22),
+          anchor:new google.maps.Point(11,11)
         }
       });
     }
@@ -1354,9 +1356,9 @@ function initMap(){
         map:map,
         title:j.endCity||'End',
         icon:{
-          url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><circle cx="16" cy="16" r="14" fill="${ALERT_RED}" stroke="white" stroke-width="2"/></svg>'),
-          scaledSize:new google.maps.Size(32,32),
-          anchor:new google.maps.Point(16,16)
+          url:'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><circle cx="11" cy="11" r="9" fill="${ALERT_RED}" stroke="white" stroke-width="1.5"/></svg>'),
+          scaledSize:new google.maps.Size(22,22),
+          anchor:new google.maps.Point(11,11)
         }
       });
     }
@@ -1722,7 +1724,7 @@ function initMap(){
             const city = location.address ? location.address.split(',')[0].trim() : `Post #${location.number}`;
             return (
               <OptimizedMarker
-                key={cluster.id}
+                key={`${cluster.id}-${isActive ? 'active' : 'inactive'}`}
                 coordinate={{ latitude: location.latitude, longitude: location.longitude }}
                 title={location.address || `Location #${location.number}`}
                 description={`Visit #${location.number}`}

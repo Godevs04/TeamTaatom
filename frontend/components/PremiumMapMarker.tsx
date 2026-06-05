@@ -44,6 +44,9 @@ const getScaleFromDelta = (delta?: number) => {
   const safeDelta = sanitizeLatitudeDelta(delta, 1);
   const zoom = Math.log2(360 / safeDelta);
   if (!Number.isFinite(zoom)) return 1.0;
+  if (zoom <= 8) return 0.55;
+  if (zoom <= 11) return 0.7;
+  if (zoom <= 14) return 0.85;
   if (zoom <= 15) return 1.0;
   if (zoom >= 18) return 0.5;
   return 1.0 - ((zoom - 15) / 3) * 0.5;
@@ -359,12 +362,12 @@ const styles = StyleSheet.create({
     }),
   },
   journeyBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
+    borderWidth: 1.5,
     borderColor: '#FFFFFF',
   },
   journeyBadgeText: {

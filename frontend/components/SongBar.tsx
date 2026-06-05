@@ -7,6 +7,8 @@ import {
   Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import MaskedView from '@react-native-masked-view/masked-view';
 import { Audio } from 'expo-av';
 import { useIsFocused } from '@react-navigation/native';
 import { useTheme } from '../context/ThemeContext';
@@ -21,6 +23,28 @@ interface SongBarProps {
   onOpenSelector: () => void;
   onRemove: () => void;
 }
+
+const BLUE_ICON_GRADIENT = ['#38BDF8', '#2563EB'] as const;
+
+const GradientIonicon = ({
+  name,
+  size,
+}: {
+  name: React.ComponentProps<typeof Ionicons>['name'];
+  size: number;
+}) => (
+  <MaskedView
+    style={{ width: size, height: size }}
+    maskElement={<Ionicons name={name} size={size} color="#000" />}
+  >
+    <LinearGradient
+      colors={BLUE_ICON_GRADIENT}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={{ flex: 1 }}
+    />
+  </MaskedView>
+);
 
 export const SongBar: React.FC<SongBarProps> = ({
   song,
@@ -130,7 +154,7 @@ export const SongBar: React.FC<SongBarProps> = ({
               style={styles.artwork}
             />
           ) : (
-            <Ionicons name="musical-notes" size={18} color={theme.colors.primary} />
+            <GradientIonicon name="musical-notes" size={18} />
           )}
         </View>
 
@@ -147,27 +171,49 @@ export const SongBar: React.FC<SongBarProps> = ({
         {/* Duration toggle: 30s / 60s */}
         <View style={styles.durationToggle}>
           <TouchableOpacity
-            style={[styles.durationChip, is30 && { backgroundColor: theme.colors.primary }]}
+            style={styles.durationChip}
             onPress={() => toggleDuration(30)}
             activeOpacity={0.7}
           >
+            {is30 && (
+              <LinearGradient
+                colors={BLUE_ICON_GRADIENT}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFillObject}
+              />
+            )}
             <Text style={[styles.durationChipText, { color: is30 ? '#fff' : theme.colors.textSecondary }]}>30s</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.durationChip, !is30 && { backgroundColor: theme.colors.primary }]}
+            style={styles.durationChip}
             onPress={() => toggleDuration(60)}
             activeOpacity={0.7}
           >
+            {!is30 && (
+              <LinearGradient
+                colors={BLUE_ICON_GRADIENT}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFillObject}
+              />
+            )}
             <Text style={[styles.durationChipText, { color: !is30 ? '#fff' : theme.colors.textSecondary }]}>60s</Text>
           </TouchableOpacity>
         </View>
 
         {/* Play/Pause */}
         <TouchableOpacity
-          style={[styles.playButton, { backgroundColor: theme.colors.primary }]}
+          style={styles.playButton}
           onPress={togglePlay}
           activeOpacity={0.8}
         >
+          <LinearGradient
+            colors={BLUE_ICON_GRADIENT}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFillObject}
+          />
           <Ionicons name={isPlaying ? "pause" : "play"} size={16} color="white" />
         </TouchableOpacity>
 
@@ -177,7 +223,7 @@ export const SongBar: React.FC<SongBarProps> = ({
           onPress={onOpenSelector}
           activeOpacity={0.7}
         >
-          <Ionicons name="swap-horizontal" size={14} color={theme.colors.textSecondary} />
+          <GradientIonicon name="swap-horizontal" size={14} />
         </TouchableOpacity>
 
         {/* Remove */}
@@ -236,6 +282,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
   },
   durationToggle: {
     flexDirection: 'row',
@@ -246,6 +293,7 @@ const styles = StyleSheet.create({
   durationChip: {
     paddingHorizontal: 8,
     paddingVertical: 4,
+    overflow: 'hidden',
   },
   durationChipText: {
     fontSize: 11,

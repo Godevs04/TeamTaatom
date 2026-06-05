@@ -5,6 +5,7 @@ import logger from '../utils/logger';
 import { Platform } from 'react-native';
 import { isRateLimitError, handleRateLimitError } from '../utils/rateLimitHandler';
 import { parseError } from '../utils/errorCodes';
+import { clearCachedAuthToken, getCachedAuthToken, setCachedAuthToken } from '../utils/authTokenCache';
 
 const isWeb = Platform.OS === 'web';
 
@@ -138,7 +139,7 @@ export const signIn = async (data: SignInData): Promise<AuthResponse> => {
     if (token) {
       if (!isWeb) {
         // Mobile: Store in AsyncStorage
-        await AsyncStorage.setItem('authToken', token);
+        await setCachedAuthToken(token);
       }
       // Web: Token is stored in httpOnly cookie by backend, no client-side storage needed
     }
@@ -168,7 +169,7 @@ export const getCurrentUser = async (): Promise<UserType | null | 'network-error
     // For mobile: Check AsyncStorage
     if (!isWeb) {
       // Mobile: Check AsyncStorage
-      const token = await AsyncStorage.getItem('authToken');
+      const token = await getCachedAuthToken();
       if (!token) {
         return null;
       }
@@ -256,7 +257,7 @@ export const isAuthenticated = async (): Promise<boolean> => {
     }
     
     // Mobile: Check AsyncStorage
-    const token = await AsyncStorage.getItem('authToken');
+    const token = await getCachedAuthToken();
     if (!token) {
       return false;
     }
@@ -293,7 +294,7 @@ export const initializeAuth = async (): Promise<UserType | null | 'network-error
       return await getCurrentUser();
     }
     
-    const token = await AsyncStorage.getItem('authToken');
+    const token = await getCachedAuthToken();
     if (process.env.NODE_ENV === 'development') {
       logger.debug('[initializeAuth] Token in storage:', token ? 'exists' : 'missing');
     }
@@ -370,7 +371,7 @@ export const signOut = async (): Promise<void> => {
     }
     
     // Clear local storage (mobile) or as fallback (web)
-    await AsyncStorage.removeItem('authToken');
+    await clearCachedAuthToken();
     await AsyncStorage.removeItem('userData');
     
     // Clear any other auth-related data
@@ -409,7 +410,7 @@ export const signOut = async (): Promise<void> => {
     logger.error('signOut error:', error);
     // Still try to clear storage even if other operations fail
     try {
-      await AsyncStorage.removeItem('authToken');
+      await clearCachedAuthToken();
       await AsyncStorage.removeItem('userData');
       await AsyncStorage.removeItem('onboarding_completed');
       await AsyncStorage.removeItem('taatom_shorts_liked_ids');
@@ -467,7 +468,7 @@ export const refreshAuthState = async (): Promise<UserType | null> => {
     }
     
     // Mobile: Check AsyncStorage
-    const token = await AsyncStorage.getItem('authToken');
+    const token = await getCachedAuthToken();
     if (!token) {
       // No token found
       return null;
