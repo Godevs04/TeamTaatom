@@ -187,6 +187,7 @@ export default function ConnectPageDetailScreen() {
   const [followers, setFollowers] = useState<ConnectFollowerUser[]>([]);
   const [followersLoading, setFollowersLoading] = useState(false);
   const [subscriptionStatus, setSubscriptionStatus] = useState<SubscriptionStatus | null>(null);
+  const [showSubscriptionManagementModal, setShowSubscriptionManagementModal] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
   const [isRevealed, setIsRevealed] = useState(false);
   // Stores the pending subscription response so onVerify can optimistically
@@ -375,6 +376,18 @@ export default function ConnectPageDetailScreen() {
       loadPageDetail();
     }
   }, [subscription_return, page, isOwner, loadSubscriptionStatus, loadPageDetail]);
+
+  const getNextBillingDate = () => {
+    if (subscriptionStatus?.subscription?.currentPeriodEnd) {
+      return new Date(subscriptionStatus.subscription.currentPeriodEnd).toLocaleDateString();
+    }
+    if (subscriptionStatus?.subscription?.activatedAt) {
+      const activated = new Date(subscriptionStatus.subscription.activatedAt);
+      activated.setMonth(activated.getMonth() + 1);
+      return activated.toLocaleDateString();
+    }
+    return '4/7/2026';
+  };
 
   const handleSubscribe = async () => {
     if (!page || subscribing) return;
@@ -889,36 +902,61 @@ export default function ConnectPageDetailScreen() {
     <View
       style={[styles.container, { backgroundColor: theme.colors.background }]}
     >
+      {/* Background Depth Layer */}
+      {page.bannerImage ? (
+        <Image
+          source={{ uri: optimizeCloudinaryUrl(page.bannerImage, { width: 200, height: 200 }) }}
+          style={[StyleSheet.absoluteFillObject, { opacity: isDark ? 0.12 : 0.22 }]}
+          resizeMode="cover"
+          blurRadius={Platform.OS === 'android' ? 25 : 50}
+        />
+      ) : page.profileImage ? (
+        <Image
+          source={{ uri: optimizeCloudinaryUrl(page.profileImage, { width: 200, height: 200 }) }}
+          style={[StyleSheet.absoluteFillObject, { opacity: isDark ? 0.12 : 0.22 }]}
+          resizeMode="cover"
+          blurRadius={Platform.OS === 'android' ? 25 : 50}
+        />
+      ) : null}
+      <LinearGradient
+        colors={
+          isDark
+            ? ['rgba(13, 17, 23, 0.92)', 'rgba(6, 8, 12, 0.98)']
+            : ['rgba(248, 250, 252, 0.85)', 'rgba(241, 245, 249, 0.95)']
+        }
+        style={StyleSheet.absoluteFillObject}
+      />
+
       {/* Floating Glass Header */}
       <View
         style={[
           styles.headerContainer,
           {
-            backgroundColor: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(28, 115, 180, 0.15)',
+            position: 'absolute',
+            left: 0,
+            right: 0,
             top: 0,
+            zIndex: 100,
             paddingTop: insets.top,
             height: 52 + insets.top,
-            marginTop: 0,
-            marginHorizontal: 0,
-            borderBottomLeftRadius: 24,
-            borderBottomRightRadius: 24,
-            borderTopLeftRadius: 0,
-            borderTopRightRadius: 0,
             borderWidth: 0,
             borderBottomWidth: 1,
-            shadowOpacity: isDark ? 0.3 : 0.1,
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+            backgroundColor: 'transparent',
           }
         ]}
       >
         <BlurView
-          intensity={80}
+          intensity={75}
           tint={isDark ? 'dark' : 'light'}
           style={StyleSheet.absoluteFillObject}
+          {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
         />
-        <LinearGradient
-          colors={isDark ? ['rgba(255, 255, 255, 0.1)', 'transparent'] : ['rgba(255, 255, 255, 0.5)', 'transparent']}
-          style={StyleSheet.absoluteFillObject}
+        <View
+          style={[
+            StyleSheet.absoluteFillObject,
+            { backgroundColor: isDark ? 'rgba(15, 15, 15, 0.35)' : 'rgba(255, 255, 255, 0.35)' }
+          ]}
         />
         <View style={styles.headerInner}>
           <TouchableOpacity
@@ -927,9 +965,9 @@ export default function ConnectPageDetailScreen() {
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             activeOpacity={0.7}
           >
-            <Ionicons name="arrow-back" size={isTablet ? 28 : 24} color={theme.colors.text} />
+            <Ionicons name="arrow-back" size={isTablet ? 28 : 24} color={isDark ? '#FFFFFF' : '#000000'} />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.colors.text }]} numberOfLines={1}>
+          <Text style={[styles.headerTitle, { color: isDark ? '#FFFFFF' : '#000000' }]} numberOfLines={1}>
             {page.name}
           </Text>
           {isOwner ? (
@@ -952,7 +990,7 @@ export default function ConnectPageDetailScreen() {
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               activeOpacity={0.7}
             >
-              <Ionicons name="ellipsis-horizontal" size={isTablet ? 26 : 22} color={theme.colors.text} />
+              <Ionicons name="ellipsis-horizontal" size={isTablet ? 26 : 22} color={isDark ? '#FFFFFF' : '#000000'} />
             </TouchableOpacity>
           ) : (
             <View style={styles.headerRight} />
@@ -960,11 +998,15 @@ export default function ConnectPageDetailScreen() {
         </View>
       </View>
 
-      <ScrollView style={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView
+        style={styles.scrollContent}
+        contentContainerStyle={{ paddingTop: 0 }}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Banner */}
         {page.bannerImage ? (
           <Image
-            source={{ uri: optimizeCloudinaryUrl(page.bannerImage, { width: 800, height: 300, quality: 'auto' }) }}
+            source={{ uri: optimizeCloudinaryUrl(page.bannerImage, { width: 800, height: 400, quality: 'auto' }) }}
             style={styles.bannerImage}
             resizeMode="cover"
           />
@@ -997,26 +1039,68 @@ export default function ConnectPageDetailScreen() {
               intensity={50}
               tint={isDark ? 'dark' : 'light'}
               style={StyleSheet.absoluteFillObject}
+              {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
             />
             <Ionicons name="people-outline" size={32} color={isDark ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)'} />
           </View>
         )}
 
+        {/* Profile Image Wrapper (rendered as sibling, positioned above/overlapping the profile section card) */}
+        <View style={[styles.profileImageWrapper, { position: 'relative', zIndex: 20, top: 0, marginBottom: -(isTablet ? 44 : 38) }]}>
+          {page.profileImage ? (
+            <Image
+              source={{ uri: optimizeCloudinaryUrl(page.profileImage, { width: 160, height: 160 }) }}
+              style={[styles.pageProfileImage, { borderColor: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.8)' }]}
+            />
+          ) : (
+            <View style={[styles.pageProfileImagePlaceholder, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)', borderColor: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.8)' }]}>
+              <Ionicons name="people" size={36} color={theme.colors.primary + '60'} />
+            </View>
+          )}
+        </View>
+
         {/* Profile Section */}
-        <View style={[styles.profileSection, { backgroundColor: theme.colors.surface }]}>
-          {/* Profile image overlapping banner */}
-          <View style={styles.profileImageWrapper}>
-            {page.profileImage ? (
-              <Image
-                source={{ uri: optimizeCloudinaryUrl(page.profileImage, { width: 160, height: 160 }) }}
-                style={[styles.pageProfileImage, { borderColor: theme.colors.surface }]}
-              />
-            ) : (
-              <View style={[styles.pageProfileImagePlaceholder, { backgroundColor: theme.colors.background, borderColor: theme.colors.surface }]}>
-                <Ionicons name="people" size={36} color={theme.colors.primary + '60'} />
-              </View>
-            )}
-          </View>
+        <View
+          style={[
+            styles.profileSection,
+            {
+              overflow: 'hidden',
+              backgroundColor: 'transparent',
+              borderWidth: 1,
+              borderTopColor: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.75)',
+              borderLeftColor: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.75)',
+              borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.2)',
+              borderRightColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(255, 255, 255, 0.2)',
+              marginTop: 0,
+              paddingTop: isTablet ? 52 : 46,
+              ...Platform.select({
+                ios: {
+                  shadowColor: isDark ? '#000000' : '#1f2687',
+                  shadowOffset: { width: 0, height: 8 },
+                  shadowOpacity: isDark ? 0.12 : 0.07,
+                  shadowRadius: 32,
+                },
+                android: {
+                  elevation: 1,
+                },
+              }),
+            }
+          ]}
+        >
+          <BlurView
+            intensity={50}
+            tint={isDark ? 'dark' : 'light'}
+            style={StyleSheet.absoluteFillObject}
+            {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
+          />
+          <View
+            style={[
+              StyleSheet.absoluteFillObject,
+              {
+                backgroundColor: isDark ? 'rgba(15, 20, 30, 0.45)' : 'rgba(255, 255, 255, 0.45)',
+              }
+            ]}
+          />
 
           {/* Name & bio centered */}
           <View style={styles.profileInfo}>
@@ -1164,16 +1248,45 @@ export default function ConnectPageDetailScreen() {
             style={[
               styles.section,
               {
-                backgroundColor: isDark ? 'rgba(56, 189, 248, 0.04)' : 'rgba(28, 115, 180, 0.03)',
-                borderColor: isDark ? 'rgba(56, 189, 248, 0.15)' : 'rgba(28, 115, 180, 0.12)',
+                overflow: 'hidden',
+                backgroundColor: 'transparent',
                 borderWidth: 1,
+                borderTopColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.7)',
+                borderLeftColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.7)',
+                borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.2)',
+                borderRightColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.2)',
                 paddingBottom: isTablet ? themeConstants.spacing.md : 12,
                 marginTop: isTablet ? 14 : 12,
+                ...Platform.select({
+                  ios: {
+                    shadowColor: isDark ? '#000000' : '#1f2687',
+                    shadowOffset: { width: 0, height: 8 },
+                    shadowOpacity: isDark ? 0.12 : 0.07,
+                    shadowRadius: 32,
+                  },
+                  android: {
+                    elevation: 1,
+                  },
+                }),
               }
             ]}
             onPress={() => router.push(`/connect/preview?pageId=${id}&section=website&pageName=${encodeURIComponent(page.name)}`)}
             activeOpacity={0.7}
           >
+            <BlurView
+              intensity={45}
+              tint={isDark ? 'dark' : 'light'}
+              style={StyleSheet.absoluteFillObject}
+              {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
+            />
+            <View
+              style={[
+                StyleSheet.absoluteFillObject,
+                {
+                  backgroundColor: isDark ? 'rgba(15, 20, 30, 0.45)' : 'rgba(255, 255, 255, 0.45)',
+                }
+              ]}
+            />
             <View style={[styles.sectionHeader, { marginBottom: 0 }]}>
               <View style={styles.sectionTitleRow}>
                 <View style={[styles.sectionIconWrap, { backgroundColor: isDark ? 'rgba(56, 189, 248, 0.15)' : 'rgba(28, 115, 180, 0.08)' }]}>
@@ -1199,16 +1312,45 @@ export default function ConnectPageDetailScreen() {
             style={[
               styles.section,
               {
-                backgroundColor: isDark ? 'rgba(80, 200, 120, 0.04)' : 'rgba(80, 200, 120, 0.03)',
-                borderColor: isDark ? 'rgba(80, 200, 120, 0.15)' : 'rgba(80, 200, 120, 0.12)',
+                overflow: 'hidden',
+                backgroundColor: 'transparent',
                 borderWidth: 1,
+                borderTopColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.7)',
+                borderLeftColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.7)',
+                borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.2)',
+                borderRightColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.2)',
                 paddingBottom: isTablet ? themeConstants.spacing.md : 12,
-                marginTop: !page.features?.website ? (isTablet ? 14 : 12) : 0,
+                marginTop: !page.features?.website ? (isTablet ? 14 : 12) : 10,
+                ...Platform.select({
+                  ios: {
+                    shadowColor: isDark ? '#000000' : '#1f2687',
+                    shadowOffset: { width: 0, height: 8 },
+                    shadowOpacity: isDark ? 0.12 : 0.07,
+                    shadowRadius: 32,
+                  },
+                  android: {
+                    elevation: 1,
+                  },
+                }),
               }
             ]}
             onPress={handleOpenChat}
             activeOpacity={0.7}
           >
+            <BlurView
+              intensity={45}
+              tint={isDark ? 'dark' : 'light'}
+              style={StyleSheet.absoluteFillObject}
+              {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
+            />
+            <View
+              style={[
+                StyleSheet.absoluteFillObject,
+                {
+                  backgroundColor: isDark ? 'rgba(15, 20, 30, 0.45)' : 'rgba(255, 255, 255, 0.45)',
+                }
+              ]}
+            />
             <View style={[styles.sectionHeader, { marginBottom: 0 }]}>
               <View style={styles.sectionTitleRow}>
                 <View style={[styles.sectionIconWrap, { backgroundColor: isDark ? 'rgba(80, 200, 120, 0.15)' : 'rgba(80, 200, 120, 0.08)' }]}>
@@ -1235,20 +1377,51 @@ export default function ConnectPageDetailScreen() {
             style={[
               styles.section,
               {
-                backgroundColor: isCommunity
-                  ? (isDark ? 'rgba(245, 158, 11, 0.04)' : 'rgba(217, 119, 6, 0.03)')
-                  : (isDark ? 'rgba(56, 189, 248, 0.04)' : 'rgba(28, 115, 180, 0.03)'),
-                borderColor: isCommunity
-                  ? (isDark ? 'rgba(245, 158, 11, 0.15)' : 'rgba(217, 119, 6, 0.12)')
-                  : (isDark ? 'rgba(56, 189, 248, 0.15)' : 'rgba(28, 115, 180, 0.12)'),
+                overflow: 'hidden',
+                backgroundColor: 'transparent',
                 borderWidth: 1,
+                borderTopColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.7)',
+                borderLeftColor: isDark ? 'rgba(255, 255, 255, 0.18)' : 'rgba(255, 255, 255, 0.7)',
+                borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.2)',
+                borderRightColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.2)',
                 paddingBottom: isTablet ? themeConstants.spacing.md : 12,
-                marginTop: (!page.features?.website && !page.features?.groupChat) ? (isTablet ? 14 : 12) : 0,
+                marginTop: (!page.features?.website && !page.features?.groupChat) ? (isTablet ? 14 : 12) : 10,
+                ...Platform.select({
+                  ios: {
+                    shadowColor: isDark ? '#000000' : '#1f2687',
+                    shadowOffset: { width: 0, height: 8 },
+                    shadowOpacity: isDark ? 0.12 : 0.07,
+                    shadowRadius: 32,
+                  },
+                  android: {
+                    elevation: 1,
+                  },
+                }),
               }
             ]}
-            onPress={() => router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`)}
+            onPress={() => {
+              if (subscriptionStatus?.isSubscribed) {
+                setShowSubscriptionManagementModal(true);
+              } else {
+                router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`);
+              }
+            }}
             activeOpacity={0.7}
           >
+            <BlurView
+              intensity={45}
+              tint={isDark ? 'dark' : 'light'}
+              style={StyleSheet.absoluteFillObject}
+              {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
+            />
+            <View
+              style={[
+                StyleSheet.absoluteFillObject,
+                {
+                  backgroundColor: isDark ? 'rgba(15, 20, 30, 0.45)' : 'rgba(255, 255, 255, 0.45)',
+                }
+              ]}
+            />
             <View style={[styles.sectionHeader, { marginBottom: 0 }]}>
               <View style={styles.sectionTitleRow}>
                 <View
@@ -1802,6 +1975,84 @@ export default function ConnectPageDetailScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Subscription Management Bottom Sheet Modal */}
+      <Modal
+        visible={showSubscriptionManagementModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowSubscriptionManagementModal(false)}
+      >
+        <View style={styles.bottomSheetOverlay}>
+          <Pressable style={StyleSheet.absoluteFillObject} onPress={() => setShowSubscriptionManagementModal(false)} />
+          <View style={[styles.bottomSheetContent, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            <View style={styles.bottomSheetDragHandle} />
+            
+            <View style={styles.bottomSheetHeader}>
+              <Text style={[styles.bottomSheetTitle, { color: theme.colors.text }]}>
+                {isCommunity ? 'Purchase Details' : 'Subscription Status'}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setShowSubscriptionManagementModal(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={24} color={theme.colors.text} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.bottomSheetStatusContainer}>
+              <View style={[styles.statusBadge, { backgroundColor: (theme.colors as any).success + '15' }]}>
+                <Ionicons name="checkmark-circle" size={20} color={(theme.colors as any).success} />
+                <Text style={[styles.statusBadgeText, { color: (theme.colors as any).success }]}>
+                  {subscriptionStatus?.subscription?.status === 'cancelled'
+                    ? 'Ending Soon'
+                    : (isCommunity ? 'Purchased' : 'Active')}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.bottomSheetInfoContainer}>
+              <Text style={[styles.billingDateText, { color: theme.colors.textSecondary }]}>
+                {subscriptionStatus?.subscription?.status === 'cancelled'
+                  ? 'Access expires: ' + getNextBillingDate()
+                  : (isCommunity ? 'Next payment date: ' : 'Next billing date: ') + getNextBillingDate()}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.viewContentButton, { overflow: 'hidden' }]}
+              onPress={() => {
+                setShowSubscriptionManagementModal(false);
+                router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`);
+              }}
+              activeOpacity={0.7}
+            >
+              <LinearGradient
+                colors={['#50C878', '#1C73B4']}
+                style={StyleSheet.absoluteFillObject}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              />
+              <Text style={styles.viewContentButtonText}>View Premium Content</Text>
+            </TouchableOpacity>
+
+            {subscriptionStatus?.subscription?.status !== 'cancelled' && (
+              <TouchableOpacity
+                style={styles.cancelSubscriptionButton}
+                onPress={() => {
+                  setShowSubscriptionManagementModal(false);
+                  handleCancelSubscription();
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.cancelSubscriptionButtonText}>
+                  {isCommunity ? 'Cancel Purchase' : 'Cancel Subscription'}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1823,11 +2074,11 @@ const styles = StyleSheet.create({
   },
   bannerImage: {
     width: '100%',
-    height: isTablet ? 200 : 150,
+    height: isTablet ? 320 : 250,
   },
   bannerPlaceholder: {
     width: '100%',
-    height: isTablet ? 200 : 150,
+    height: isTablet ? 320 : 250,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1880,17 +2131,13 @@ const styles = StyleSheet.create({
   // Profile Section
   profileSection: {
     marginHorizontal: isTablet ? themeConstants.spacing.lg : themeConstants.spacing.md,
-    marginTop: -(isTablet ? 44 : 38),
+    marginTop: 0,
     paddingTop: isTablet ? 52 : 46,
     paddingHorizontal: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.lg,
     paddingBottom: isTablet ? themeConstants.spacing.xl : themeConstants.spacing.lg,
     borderRadius: isTablet ? 16 : 14,
   },
   profileImageWrapper: {
-    position: 'absolute',
-    top: -(isTablet ? 44 : 38),
-    left: 0,
-    right: 0,
     alignItems: 'center',
     zIndex: 10,
   },
@@ -2747,6 +2994,93 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  bottomSheetOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  bottomSheetContent: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: Platform.OS === 'ios' ? 40 : 30,
+    alignItems: 'center',
+    width: '100%',
+  },
+  bottomSheetDragHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  bottomSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 20,
+  },
+  bottomSheetTitle: {
+    fontSize: 18,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+  },
+  bottomSheetStatusContainer: {
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  statusBadgeText: {
+    fontSize: 15,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+  },
+  bottomSheetInfoContainer: {
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  billingDateText: {
+    fontSize: 15,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
+  },
+  viewContentButton: {
+    width: '100%',
+    height: 52,
+    borderRadius: themeConstants.borderRadius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  viewContentButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+  },
+  cancelSubscriptionButton: {
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelSubscriptionButtonText: {
+    color: '#EF4444',
+    fontSize: 14,
+    fontFamily: getFontFamily('500'),
+    fontWeight: '500',
   },
 });
 

@@ -1311,9 +1311,9 @@ export default function LocationDetailScreen() {
             {/* Quick Info Cards */}
             <View style={styles.quickInfoContainer}>
               <BlurView
-                intensity={65}
+                intensity={95}
                 tint={isDark ? 'dark' : 'light'}
-                style={[styles.quickInfoCard, { overflow: 'hidden', backgroundColor: isDark ? 'rgba(10, 18, 32, 0.45)' : 'rgba(255, 255, 255, 0.45)', borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
+                style={[styles.quickInfoCard, { overflow: 'hidden', backgroundColor: isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.4)', borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.6)', borderWidth: 1 }]}
               >
                 <View style={styles.quickInfoHeader}>
                   <Ionicons name="navigate" size={18} color={theme.colors.primary} />
@@ -1340,9 +1340,9 @@ export default function LocationDetailScreen() {
               </BlurView>
 
               <BlurView
-                intensity={65}
+                intensity={95}
                 tint={isDark ? 'dark' : 'light'}
-                style={[styles.quickInfoCard, { overflow: 'hidden', backgroundColor: isDark ? 'rgba(10, 18, 32, 0.45)' : 'rgba(255, 255, 255, 0.45)', borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
+                style={[styles.quickInfoCard, { overflow: 'hidden', backgroundColor: isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.4)', borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.6)', borderWidth: 1 }]}
               >
                 <View style={styles.quickInfoHeader}>
                   <Ionicons name="leaf" size={18} color="#4CAF50" />
@@ -1362,9 +1362,9 @@ export default function LocationDetailScreen() {
             <View style={styles.quickInfoContainer}>
                 {/* Left Box - Travel Info */}
                 <BlurView
-                  intensity={65}
+                  intensity={95}
                   tint={isDark ? 'dark' : 'light'}
-                  style={[styles.quickInfoCard, { overflow: 'hidden', backgroundColor: isDark ? 'rgba(10, 18, 32, 0.45)' : 'rgba(255, 255, 255, 0.45)', borderColor: theme.colors.border || 'rgba(0,0,0,0.08)' }]}
+                  style={[styles.quickInfoCard, { flex: 2, overflow: 'hidden', backgroundColor: isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.4)', borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.6)', borderWidth: 1 }]}
                 >
                   <View style={styles.quickInfoHeader}>
                     <Ionicons name="car" size={18} color={theme.colors.primary} />
@@ -1381,7 +1381,7 @@ export default function LocationDetailScreen() {
 
                 {/* Right Box - Explore on Map */}
                 <TouchableOpacity
-                  style={[styles.quickInfoCard, styles.clickableCard, { overflow: 'hidden', padding: 0, borderWidth: 0, backgroundColor: 'transparent' }]}
+                  style={[styles.quickInfoCard, styles.clickableCard, { flex: 3, overflow: 'hidden', padding: 0, borderWidth: 0, backgroundColor: 'transparent' }]}
                   activeOpacity={0.7}
                   disabled={navigatingToMap}
                   onPress={async () => {
@@ -1584,25 +1584,37 @@ export default function LocationDetailScreen() {
                   }}
                 >
                   <BlurView
-                    intensity={65}
+                    intensity={95}
                     tint={isDark ? 'dark' : 'light'}
-                    style={{ flex: 1, padding: 16, width: '100%', height: '100%', justifyContent: 'space-between', borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border || 'rgba(0,0,0,0.08)', borderRadius: 16, overflow: 'hidden', backgroundColor: isDark ? 'rgba(10, 18, 32, 0.45)' : 'rgba(255, 255, 255, 0.45)' }}
+                    style={{ flex: 1, padding: 16, width: '100%', height: '100%', justifyContent: 'space-between', borderWidth: 1, borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.6)', borderRadius: 16, overflow: 'hidden', backgroundColor: isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.4)' }}
                   >
                     <View style={styles.quickInfoHeader}>
                       <View style={styles.headerLeft}>
                         <Ionicons name="globe-outline" size={18} color="#4CAF50" />
                         <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Explore on Map</Text>
                       </View>
-                      <View style={styles.clickableIndicator}>
-                        {navigatingToMap ? (
-                          <LoadingGlobe size="small" color="#4CAF50" />
-                        ) : (
-                          <Ionicons name="chevron-forward" size={16} color="#4CAF50" />
-                        )}
-                      </View>
                     </View>
                     <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>{navigatingToMap ? 'Opening…' : 'Navigate'}</Text>
                     <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>View {data.name} location</Text>
+                    
+                    <View style={{
+                      position: 'absolute',
+                      bottom: 16,
+                      right: 16,
+                      backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                      borderRadius: 16,
+                      padding: 5,
+                      width: 28,
+                      height: 28,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                    }}>
+                      {navigatingToMap ? (
+                        <LoadingGlobe size="small" color="#4CAF50" />
+                      ) : (
+                        <Ionicons name="chevron-forward" size={16} color="#4CAF50" />
+                      )}
+                    </View>
                   </BlurView>
                 </TouchableOpacity>
               </View>

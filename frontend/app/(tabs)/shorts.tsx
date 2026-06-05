@@ -18,6 +18,7 @@ import {
   Pressable,
   RefreshControl,
   ActivityIndicator,
+  Easing,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -54,6 +55,7 @@ import Constants from 'expo-constants';
 import { savedEvents } from '../../utils/savedEvents';
 import { triggerHaptic } from '../../utils/hapticFeedback';
 import { shortsEvents } from '../../utils/shortsEvents';
+import { preloadVideoAsync, getLocalVideoUri, removeCachedVideo } from '../../src/utils/videoCache';
 
 /** Shorts list item: either a reel (PostType) or a full-screen native ad slot. */
 export type ShortsItem = PostType | { type: 'ad'; adIndex: number };
@@ -152,6 +154,8 @@ export type ShortsScreenProps = {
   scopedUserId?: string;
   initialShortId?: string;
   isSavedShorts?: boolean;
+  isMuted?: boolean;
+  onMuteToggle?: () => void;
 };
 
 const videoSourceCache = new Map<string, { uri: string; overrideFileExtensionAndroid?: string }>();
@@ -164,6 +168,220 @@ const getVideoSource = (uri: string | null | undefined) => {
   }
   return videoSourceCache.get(uri);
 };
+
+interface MarqueeTextProps {
+  text: string;
+  style?: any;
+  containerStyle?: any;
+  icon?: React.ReactNode;
+}
+
+const MarqueeText = React.memo(({ text, style, containerStyle, icon }: MarqueeTextProps) => {
+  const animatedValue = useRef(new Animated.Value(0)).current;
+  const [textWidth, setTextWidth] = useState(0);
+  const [containerWidth, setContainerWidth] = useState(0);
+
+  useEffect(() => {
+    animatedValue.setValue(0);
+    if (textWidth > 0 && containerWidth > 0 && textWidth > containerWidth) {
+      const offset = textWidth - containerWidth + 24; // 24px extra buffer
+      
+      const startAnimation = () => {
+        Animated.loop(
+          Animated.sequence([
+            Animated.delay(1500),
+            Animated.timing(animatedValue, {
+              toValue: -offset,
+              duration: offset * 30, // 30ms per pixel
+              useNativeDriver: true,
+            }),
+            Animated.delay(1500),
+            Animated.timing(animatedValue, {
+              toValue: 0,
+              duration: offset * 30,
+              useNativeDriver: true,
+            }),
+          ])
+        ).start();
+      };
+
+      startAnimation();
+    }
+    return () => {
+      animatedValue.stopAnimation();
+    };
+  }, [textWidth, containerWidth, text]);
+
+  const onTextLayout = (e: any) => {
+    const { width } = e.nativeEvent.layout;
+    setTextWidth(width);
+  };
+
+  const onContainerLayout = (e: any) => {
+    const { width } = e.nativeEvent.layout;
+    setContainerWidth(width);
+  };
+
+  return (
+    <View 
+      style={[{ flexDirection: 'row', alignItems: 'center', overflow: 'hidden' }, containerStyle]}
+      onLayout={onContainerLayout}
+    >
+      {icon}
+      <View style={{ overflow: 'hidden', flex: 1, marginLeft: icon ? 6 : 0 }}>
+        <Animated.View
+          style={{
+            flexDirection: 'row',
+            transform: [{ translateX: animatedValue }],
+            alignSelf: 'flex-start',
+          }}
+        >
+          <Text
+            style={[style, { flexShrink: 0, flexGrow: 0 }]}
+            onLayout={onTextLayout}
+            numberOfLines={1}
+          >
+            {text}
+          </Text>
+        </Animated.View>
+      </View>
+    </View>
+  );
+});
+
+MarqueeText.displayName = 'MarqueeText';
+
+interface CyclingMetadataProps {
+  song?: {
+    songId?: {
+      title?: string;
+      artist?: string;
+    } | string | null;
+  } | null;
+  location?: {
+    address?: string;
+  } | null;
+  onLocationPress: (e: any) => void;
+}
+
+const CyclingMetadata = React.memo(({ song, location, onLocationPress }: CyclingMetadataProps) => {
+  const songIdObj = typeof song?.songId === 'object' ? song?.songId : null;
+  const songTitle = songIdObj?.title;
+  const songArtist = songIdObj?.artist;
+  const hasSong = !!(songTitle || songArtist);
+  const hasLocation = !!location?.address;
+
+  // If neither is present, show nothing
+  if (!hasSong && !hasLocation) return null;
+
+  // If only one is present, show it statically without animation
+  if (hasSong && !hasLocation) {
+    const displayText = `${songTitle || 'Unknown Song'} · ${songArtist || 'Unknown Artist'}`;
+    return (
+      <View style={styles.cyclingContainer}>
+        <Ionicons name="musical-notes" size={12} color="#38BDF8" />
+        <Text style={styles.cyclingText} numberOfLines={1}>
+          {displayText}
+        </Text>
+      </View>
+    );
+  }
+
+  if (!hasSong && hasLocation) {
+    return (
+      <TouchableOpacity 
+        style={styles.cyclingContainer} 
+        onPress={onLocationPress}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="location" size={12} color="#38BDF8" />
+        <Text style={styles.cyclingText} numberOfLines={1}>
+          {location.address}
+        </Text>
+      </TouchableOpacity>
+    );
+  }
+
+  // Both song and location are present -> cycle every 2 seconds
+  const [showLocation, setShowLocation] = useState(false);
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const translateAnim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      // Step 1: Fade out & Slide up
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(translateAnim, {
+          toValue: -10,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        // Step 2: Toggle content and position text below
+        setShowLocation(prev => !prev);
+        translateAnim.setValue(10);
+        
+        // Step 3: Fade in & Slide back to center
+        Animated.parallel([
+          Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+          Animated.timing(translateAnim, {
+            toValue: 0,
+            duration: 300,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      });
+    }, 2000); // 2 seconds delay
+
+    return () => clearInterval(interval);
+  }, []);
+
+  const songText = `${songTitle || 'Unknown Song'} · ${songArtist || 'Unknown Artist'}`;
+
+  return (
+    <Animated.View
+      style={[
+        styles.cyclingAnimatedWrapper,
+        {
+          opacity: fadeAnim,
+          transform: [{ translateY: translateAnim }],
+        }
+      ]}
+    >
+      {showLocation ? (
+        <TouchableOpacity 
+          style={styles.cyclingContainer} 
+          onPress={onLocationPress}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="location" size={12} color="#38BDF8" />
+          <Text style={styles.cyclingText} numberOfLines={1}>
+            {location.address}
+          </Text>
+        </TouchableOpacity>
+      ) : (
+        <View style={styles.cyclingContainer}>
+          <Ionicons name="musical-notes" size={12} color="#38BDF8" />
+          <Text style={styles.cyclingText} numberOfLines={1}>
+            {songText}
+          </Text>
+        </View>
+      )}
+    </Animated.View>
+  );
+});
+
+CyclingMetadata.displayName = 'CyclingMetadata';
+
 
 /**
  * Memo wrapper around a single shorts cell. The parent computes a small
@@ -197,10 +415,11 @@ const MemoizedVideo = React.memo(
     const nextUri = next.source && typeof next.source === 'object' && 'uri' in next.source ? (next.source as any).uri : null;
 
     // Native expo-av players are fragile when parent UI state changes. Only
-    // playback, mute, or source changes are allowed to reach the native Video.
+    // playback, mute, volume, or source changes are allowed to reach the native Video.
     return (
       prev.shouldPlay === next.shouldPlay &&
       prev.isMuted === next.isMuted &&
+      prev.volume === next.volume &&
       prevUri === nextUri
     );
   }
@@ -306,14 +525,22 @@ const ShortsProgressBar = ({
     const performSeek = () => {
       const video = getVideoRef();
       if (video) {
-        // Enforce frame-accurate seeking using precise tolerance options in expo-av
-        video.setPositionAsync(targetMs, {
-          toleranceMillisBefore: 0,
-          toleranceMillisAfter: 0,
-        }).catch(() => {});
+        if (forceSeek) {
+          // Enforce frame-accurate seeking using precise tolerance options on touch start/end
+          video.setPositionAsync(targetMs, {
+            toleranceMillisBefore: 0,
+            toleranceMillisAfter: 0,
+          }).catch(() => {});
+        } else {
+          // Fast seek during active drag to avoid UI stuttering
+          video.setPositionAsync(targetMs).catch(() => {});
+        }
       }
-      if (hasMusic && currentPlayerRef.current) {
+      if (forceSeek && hasMusic && currentPlayerRef.current) {
         // Audio seek does not use tolerance parameters (to prevent codec rejection errors)
+        // We only seek the background audio player on initial touch (forceSeek = true)
+        // because the final seek is handled separately on touch end.
+        // This avoids audio thread clogging during active drag.
         currentPlayerRef.current.setPositionAsync(finalAudioMs).catch(() => {});
       }
       // Update lastVideoPosition immediately to prevent false loop detection triggers
@@ -329,7 +556,7 @@ const ShortsProgressBar = ({
       performSeek();
     } else {
       const timeSinceLastSeek = now - lastSeekTimeRef.current;
-      const throttleDelay = velocity > 0.5 ? 150 : 40;
+      const throttleDelay = 80; // Fixed 80ms throttle window for continuous seeks
       
       if (timeSinceLastSeek > throttleDelay) {
         if (pendingSeekTimeoutRef.current) {
@@ -536,12 +763,14 @@ interface LocalShortsActionRailProps {
   onSharePress: (short: PostType) => void;
   onSavePress: (shortId: string) => void;
   isScopedView?: boolean;
+  isPlaying: boolean;
 }
 
 function GradientIcon({ name, size }: { name: any; size: number }) {
   return (
     <MaskedView
       style={{ width: size, height: size }}
+      pointerEvents="none"
       maskElement={
         <Ionicons name={name} size={size} color="#000000" />
       }
@@ -575,6 +804,7 @@ const LocalShortsActionRail = React.memo(({
   onSharePress,
   onSavePress,
   isScopedView,
+  isPlaying,
 }: LocalShortsActionRailProps) => {
   const [localIsLiked, setLocalIsLiked] = useState(initialIsLiked);
   const [localLikesCount, setLocalLikesCount] = useState(initialLikesCount);
@@ -584,6 +814,47 @@ const LocalShortsActionRail = React.memo(({
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [likers, setLikers] = useState<any[]>([]);
+
+  // 360-degree rotation animation setup for the album art disc
+  const spinValue = useRef(new Animated.Value(0)).current;
+  const spinAnimRef = useRef<Animated.CompositeAnimation | null>(null);
+
+  useEffect(() => {
+    if (isPlaying) {
+      // Smooth linear looping rotation
+      spinValue.setValue(0);
+      spinAnimRef.current = Animated.loop(
+        Animated.timing(spinValue, {
+          toValue: 1,
+          duration: 4000, // 4 seconds for one full loop
+          useNativeDriver: true,
+          easing: Easing.linear,
+        })
+      );
+      spinAnimRef.current.start();
+    } else {
+      if (spinAnimRef.current) {
+        spinAnimRef.current.stop();
+        spinAnimRef.current = null;
+      }
+    }
+    return () => {
+      if (spinAnimRef.current) {
+        spinAnimRef.current.stop();
+      }
+    };
+  }, [isPlaying]);
+
+  const spin = spinValue.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
+  const albumArtSource = useMemo(() => {
+    const DEFAULT_ALBUM_ART = 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=120&auto=format&fit=crop';
+    const thumbnailUrl = short.song?.songId?.thumbnailUrl || (typeof short.song?.songId === 'object' && short.song?.songId?.thumbnailUrl);
+    return thumbnailUrl ? { uri: thumbnailUrl } : { uri: DEFAULT_ALBUM_ART };
+  }, [short.song]);
 
   useEffect(() => {
     setLocalIsLiked(initialIsLiked);
@@ -660,6 +931,7 @@ const LocalShortsActionRail = React.memo(({
   }, [onSharePress, short]);
 
   const handleOptionsPress = useCallback(() => {
+    logger.debug('Options menu pressed for short:', shortId);
     showOptions(
       'Reel Options',
       [
@@ -694,45 +966,21 @@ const LocalShortsActionRail = React.memo(({
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       {/* Vertical actions rail (moved higher, containing Profile, Like, Comment, Share) */}
       <View style={[styles.rightActions, isScopedView && { bottom: Platform.OS === 'ios' ? 94 : 88 }]} pointerEvents="box-none">
-        <TouchableOpacity
-          style={styles.profileButton}
-          onPress={handleProfilePressLocal}
-          activeOpacity={0.8}
-          accessibilityLabel={`View ${username || 'user'}'s profile`}
-          accessibilityRole="button"
-        >
-          <View style={styles.actionsAvatarContainer}>
-            <LinearGradient
-              colors={['#1C73B4', '#50C878']}
-              style={styles.actionsGradientBorder}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            >
+        <View style={styles.profileButton}>
+          <Animated.View style={[styles.actionsAvatarContainer, { transform: [{ rotate: spin }] }]}>
+            <View style={styles.albumArtContainer}>
               <ExpoImage
-                source={profileSource}
-                style={styles.actionsProfileImage as ImageStyle}
+                source={albumArtSource}
+                style={styles.albumArtImage as ImageStyle}
                 cachePolicy="memory-disk"
-                placeholder={require('../../assets/avatars/male_avatar.png')}
+                placeholder={{ uri: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=120&auto=format&fit=crop' }}
                 contentFit="cover"
                 transition={200}
-                onError={(e: any) => logger.warn('[shorts profile avatar] load failed', {
-                  userId,
-                  url: profilePic?.substring(0, 120),
-                  error: e?.error || e?.nativeEvent?.error || String(e),
-                })}
               />
-            </LinearGradient>
-            {currentUserLoaded && !isOwn && (
-              <View style={[styles.followButton, isFollowing && styles.followingButton]}>
-                <Ionicons
-                  name={isFollowing ? "checkmark" : "add"}
-                  size={12}
-                  color="white"
-                />
-              </View>
-            )}
-          </View>
-        </TouchableOpacity>
+              <View style={styles.albumArtInnerRing} />
+            </View>
+          </Animated.View>
+        </View>
 
         <View style={styles.actionButton}>
           <Pressable
@@ -783,20 +1031,18 @@ const LocalShortsActionRail = React.memo(({
             <GradientIcon name="paper-plane-outline" size={28} />
           </View>
         </Pressable>
-      </View>
 
-      {/* Options Button (Three dots - placed next to the username row at the bottom) */}
-      <View style={[styles.optionsActionContainer, isScopedView && { bottom: Platform.OS === 'ios' ? 20 : 16 }]} pointerEvents="box-none">
-        <Pressable
+        <TouchableOpacity
           style={styles.actionButton}
           onPress={handleOptionsPress}
           accessibilityLabel="More options"
           accessibilityRole="button"
+          activeOpacity={0.7}
         >
           <View style={styles.actionIconContainer}>
             <GradientIcon name="ellipsis-vertical" size={28} />
           </View>
-        </Pressable>
+        </TouchableOpacity>
       </View>
 
       {/* Likes Detail View Modal */}
@@ -888,6 +1134,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [showSwipeHint, setShowSwipeHint] = useState(true);
   const [videoQuality, setVideoQuality] = useState<'low' | 'medium' | 'high'>('high');
   const [expandedCaptions, setExpandedCaptions] = useState<{ [key: string]: boolean }>({});
+  const [localVideoUris, setLocalVideoUris] = useState<Record<string, string>>({});
+  const activeStartedWithRemoteRef = useRef<Record<string, boolean>>({});
 
   useEffect(() => {
     const unsubscribeViews = realtimePostsService.subscribeToViews(({ postId, viewsCount }) => {
@@ -1552,21 +1800,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     return () => clearInterval(interval);
   }, []);
 
-  // Cleanup videos that are far from viewport
-  // Uses centralized stopAndUnloadVideo helper
-  useEffect(() => {
-    const cleanupDistance = 2; // Cleanup videos more than 1 position away (since we keep prev/current/next)
-    Object.keys(videoRefs.current).forEach((videoId) => {
-      const videoIndex = shorts.findIndex(s => s._id === videoId);
-      if (videoIndex === -1) return;
-      
-      const distance = Math.abs(videoIndex - currentVisibleIndex);
-      if (distance > cleanupDistance) {
-        // Use centralized helper to ensure proper cleanup
-        stopAndUnloadVideo(videoId);
-      }
-    });
-  }, [currentVisibleIndex, shorts, stopAndUnloadVideo]);
+  // Note: Cleanup, preloading, and remote URL tracking effects moved lower (after shortsData declaration)
 
   // Video cache for offline support
   const videoCacheRef = useRef<Map<string, { url: string; timestamp: number }>>(new Map());
@@ -1576,9 +1810,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // Priority: videoUrl > mediaUrl > imageUrl (for shorts, videoUrl should always be present)
   // CRITICAL: Signed URLs expire after 15 minutes, so cache is limited to 10 minutes
   const getVideoUrl = useCallback((item: PostType) => {
+    const videoId = item._id;
+
+    // Return local URI if available and we didn't start playing with a remote URL
+    if (localVideoUris[videoId] && !activeStartedWithRemoteRef.current[videoId]) {
+      return localVideoUris[videoId];
+    }
+
     // Prioritize videoUrl for shorts, fallback to mediaUrl or imageUrl
     const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
-    const videoId = item._id;
     
     // DETAILED LOGGING: Track URL resolution for first 2 shorts
     const isFirstTwoShorts = shorts.length > 0 && shorts.indexOf(item) < 2;
@@ -1680,7 +1920,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     }
     logger.debug(`Video URL for ${videoId} (fresh):`, url.substring(0, 100) + '...');
     return url;
-  }, [videoQuality, shorts]);
+  }, [videoQuality, shorts, localVideoUris]);
   
   // Track previous visible index to detect actual scroll changes
   const previousVisibleIndexRef = useRef<number>(-1);
@@ -2831,6 +3071,97 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     return result;
   }, [shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots, failedAdIndices]);
 
+  // Cleanup videos that are far from viewport
+  // Uses centralized stopAndUnloadVideo helper
+  useEffect(() => {
+    const cleanupDistance = 2; // Cleanup videos more than 2 positions away (since we keep 5 mounted)
+    Object.keys(videoRefs.current).forEach((videoId) => {
+      const videoIndex = shortsData.findIndex(s => !isAdItem(s) && s._id === videoId);
+      if (videoIndex === -1) return;
+      
+      const distance = Math.abs(videoIndex - currentVisibleIndex);
+      if (distance > cleanupDistance) {
+        // Use centralized helper to ensure proper cleanup
+        stopAndUnloadVideo(videoId);
+        // Clean up from tracking refs to free memory
+        delete activeStartedWithRemoteRef.current[videoId];
+      }
+    });
+  }, [currentVisibleIndex, shortsData, stopAndUnloadVideo]);
+
+  // Sliding-Window Preloading and Local Cache Resolution Effect
+  useEffect(() => {
+    if (!shortsData || shortsData.length === 0) return;
+
+    const minIndex = Math.max(0, currentVisibleIndex - 2);
+    const maxIndex = Math.min(shortsData.length - 1, currentVisibleIndex + 2);
+
+    // 1. Trigger background preloading for all videos in the sliding window
+    for (let i = minIndex; i <= maxIndex; i++) {
+      const item = shortsData[i];
+      if (item && !isAdItem(item)) {
+        const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
+        if (baseUrl) {
+          preloadVideoAsync(item._id, baseUrl);
+        }
+      }
+    }
+
+    // 2. Poll/check file existence for the sliding window to update localVideoUris state
+    let active = true;
+    const checkCachedVideos = async () => {
+      const newUris: Record<string, string> = {};
+      for (let i = minIndex; i <= maxIndex; i++) {
+        const item = shortsData[i];
+        if (item && !isAdItem(item)) {
+          const localUri = await getLocalVideoUri(item._id);
+          if (localUri) {
+            newUris[item._id] = localUri;
+          }
+        }
+      }
+      if (active) {
+        setLocalVideoUris(prev => {
+          let changed = false;
+          const merged = { ...prev };
+          for (const id of Object.keys(newUris)) {
+            if (prev[id] !== newUris[id]) {
+              merged[id] = newUris[id];
+              changed = true;
+            }
+          }
+          if (changed) {
+            return merged;
+          }
+          return prev;
+        });
+      }
+    };
+
+    checkCachedVideos();
+    const interval = setInterval(checkCachedVideos, 1000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [currentVisibleIndex, shortsData]);
+
+  // Track if active video started with a remote URL when it became visible.
+  // This prevents reload stuttering / black flashes mid-playback when download finishes.
+  useEffect(() => {
+    if (!shortsData || shortsData.length === 0) return;
+    const visibleItem = shortsData[currentVisibleIndex];
+    if (visibleItem && !isAdItem(visibleItem)) {
+      const videoId = visibleItem._id;
+      // If it became visible and we don't have a cached local URI for it yet,
+      // it must have started playing with a remote URL. Mark it as such.
+      if (!localVideoUris[videoId]) {
+        activeStartedWithRemoteRef.current[videoId] = true;
+      }
+    }
+  }, [currentVisibleIndex, shortsData, localVideoUris]);
+
   // Deep link: scroll to specific short when effectiveShortId is set (URL or props). dataIndex accounts for ad slots when showShortsAds.
   useEffect(() => {
     if (!effectiveShortId || shorts.length === 0) return;
@@ -3116,7 +3447,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // three concurrent decoders (prev + current + next) is the sweet spot.
     // The cleanup effect at distance > 2 unloads anything further out, and
     // the blur handler unloads ALL decoders when the user leaves the tab.
-    const shouldRenderVideo = Math.abs(distanceFromVisible) <= 1;
+    const shouldRenderVideo = Math.abs(distanceFromVisible) <= 2;
 
     const videoState = videoStates[item._id];
     // Only treat the video as "playing" once it has actually reported playback
@@ -3129,6 +3460,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const isFollowing = followStates[item.user._id] || false;
     const isSaved = savedShorts.has(item._id);
     const isLiked = item.isLiked || false;
+    
+    const isScopedView = !!effectiveUserId || props.isSavedShorts;
+    const progressBottom = isScopedView ? (isWeb ? 8 : 20) : (isWeb ? 8 : 77);
+    const progressHeight = 24;
+    const videoContainerBottom = progressBottom + progressHeight;
+    const clearance = 16;
+    const bottomContentOffset = progressBottom + progressHeight + clearance;
     
     // Calculate pause button visibility and icon - isolated from like state to prevent flexing
     // Don't show pause button if like animation is showing
@@ -3154,9 +3492,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // to build and compare; deliberately avoiding JSON.stringify per cell.
     const isOwn = item.user._id === currentUser?._id;
     const isVisibleNow = index === currentVisibleIndex;
+    const isMutedByUser = props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id);
     const cacheKey =
       `${item._id}|${index}|${isVisibleNow ? 1 : 0}|` +
-      `${isCellVideoPlaying ? 1 : 0}|${mutedShorts.has(item._id) ? 1 : 0}|` +
+      `${isCellVideoPlaying ? 1 : 0}|${isMutedByUser ? 1 : 0}|` +
       `${isSaved ? 1 : 0}|${isFollowing ? 1 : 0}|` +
       `${shouldShowPauseButton ? 1 : 0}|${shouldShowLikeAnimation ? 1 : 0}|` +
       `${sourceVersions[item._id] ?? 0}|` +
@@ -3167,10 +3506,19 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
     return (
       <ShortCellMemo cacheKey={cacheKey} render={() => (
-      <View style={[styles.shortItem, { height: containerHeight }]}>
+      <View style={[
+        styles.shortItem, 
+        { 
+          height: containerHeight,
+          paddingBottom: isScopedView ? 0 : TAB_BAR_HEIGHT,
+        }
+      ]}>
           {/* Video Player with Gesture Handling */}
           <View
-            style={styles.videoContainer}
+            style={[
+              styles.videoContainer,
+              { bottom: isScopedView ? 100 : 0 }
+            ]}
             onTouchStart={handlersRef.current.handleTouchStart}
             onTouchMove={handlersRef.current.handleTouchMove}
             onTouchEnd={(event) => handlersRef.current.handleTouchEnd(event, item.user._id)}
@@ -3195,11 +3543,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   the parent so taps still hit anywhere. */}
               <View style={[
                 styles.shortVideo,
-                {
-                  width: videoDim.width,
-                  height: videoDim.height,
-                  alignSelf: 'center',
-                }
+                StyleSheet.absoluteFillObject
               ]}>
               {/* Always show thumbnail backdrop so there's never a black surface.
                   The Video layers on top; once its first frame decodes, it
@@ -3246,10 +3590,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 shouldPlay={index === currentVisibleIndex && isVideoPlaying && !userPausedShortIdsRef.current.has(item._id)}
                 isLooping
                 progressUpdateIntervalMillis={100}
-                isMuted={index !== currentVisibleIndex || !!(item.song?.songId?._id || item.song?.songId) || mutedShorts.has(item._id)}
+                isMuted={index !== currentVisibleIndex || !!(item.song?.songId?._id || item.song?.songId) || (props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id))}
                 volume={(() => {
                   const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                  const isMutedByUser = mutedShorts.has(item._id);
+                  const isMutedByUser = props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id);
                   return (hasMusic || isMutedByUser) ? 0.0 : 1.0;
                 })()}
                 onLoadStart={() => {
@@ -3264,7 +3608,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     const video = videoRefs.current[item._id];
                     if (video) {
                       const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                      const isMutedByUser = mutedShorts.has(item._id);
+                      const isMutedByUser = props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id);
                       if (hasMusic || isMutedByUser) {
                         video.setIsMutedAsync(true).catch(() => {});
                         video.setVolumeAsync(0.0).catch(() => {});
@@ -3284,6 +3628,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   // unmounts the old player and remounts a clean one with the new URL.
                   logger.error(`Video ${item._id} failed to load:`, error);
                   videoCacheRef.current.delete(item._id);
+                  if (localVideoUris[item._id]) {
+                    const pathToRemove = localVideoUris[item._id];
+                    setLocalVideoUris(prev => {
+                      const updated = { ...prev };
+                      delete updated[item._id];
+                      return updated;
+                    });
+                    removeCachedVideo(pathToRemove).catch(() => {});
+                  }
+                  delete activeStartedWithRemoteRef.current[item._id];
                   updateKeyedBool(setVideoStates, item._id, false);
 
                   const errorMessage = typeof error === 'string' ? error : (error as any)?.message || '';
@@ -3340,7 +3694,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     
                     // CRITICAL: If music exists, or if user muted this short, ensure video stays muted
                     const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                    const isMutedByUser = mutedShorts.has(item._id);
+                    const isMutedByUser = props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id);
                     if ((hasMusic || isMutedByUser) && index === currentVisibleIndex) {
                       const video = videoRefs.current[item._id];
                       if (video && !status.isMuted) {
@@ -3418,6 +3772,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     // Clear cache and retry if this is the current visible video
                     if (index === currentVisibleIndex) {
                       videoCacheRef.current.delete(item._id);
+                      if (localVideoUris[item._id]) {
+                        const pathToRemove = localVideoUris[item._id];
+                        setLocalVideoUris(prev => {
+                          const updated = { ...prev };
+                          delete updated[item._id];
+                          return updated;
+                        });
+                        removeCachedVideo(pathToRemove).catch(() => {});
+                      }
+                      delete activeStartedWithRemoteRef.current[item._id];
                     }
                   }
                 }}
@@ -3575,13 +3939,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             onSharePress={handlersRef.current.handleShare}
             onSavePress={handlersRef.current.handleSave}
             isScopedView={!!effectiveUserId || props.isSavedShorts}
+            isPlaying={isCellVideoPlaying}
           />
 
           {/* Bottom Content with Elegant Design */}
           <View 
             style={[
               styles.bottomContent, 
-              (!!effectiveUserId || props.isSavedShorts) && { bottom: isWeb ? 30 : 38, paddingBottom: 0 }
+              { bottom: bottomContentOffset }
             ]}
           >
             <LinearGradient
@@ -3590,60 +3955,65 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             />
             
             <View style={styles.bottomContentInner}>
-              <TouchableOpacity
-                style={styles.userProfileSection}
-                onPress={(e) => {
-                  e.stopPropagation?.(); // Prevent event from bubbling
-                  handlersRef.current.handleProfilePress(item.user._id);
-                }}
-                activeOpacity={0.7}
-                accessibilityLabel={`View ${item.user.username || 'user'}'s profile`}
-                accessibilityRole="button"
-              >
-                <View style={styles.avatarContainer}>
-                <ExpoImage
-                  source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                  style={styles.userAvatar as ImageStyle}
-                  cachePolicy="memory-disk"
-                  placeholder={require('../../assets/avatars/male_avatar.png')}
-                  contentFit="cover"
-                  transition={200}
-                  onError={(e: any) => logger.warn('[shorts bottom avatar] load failed', {
-                    userId: item.user._id,
-                    url: item.user.profilePic?.substring(0, 120),
-                    error: e?.error || e?.nativeEvent?.error || String(e),
-                  })}
-                />
-                  <View style={styles.avatarRing} />
-                </View>
+              <View style={styles.userProfileSection}>
+                <TouchableOpacity
+                  style={styles.bottomAvatarContainer}
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    handlersRef.current.handleProfilePress(item.user._id);
+                  }}
+                  activeOpacity={0.7}
+                  accessibilityLabel={`View ${item.user.username || 'user'}'s profile`}
+                  accessibilityRole="button"
+                >
+                  <LinearGradient
+                    colors={['#50C878', '#1C73B4']}
+                    style={styles.bottomGradientBorder}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                  >
+                    <ExpoImage
+                      source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
+                      style={styles.bottomProfileImage as ImageStyle}
+                      cachePolicy="memory-disk"
+                      placeholder={require('../../assets/avatars/male_avatar.png')}
+                      contentFit="cover"
+                      transition={200}
+                      onError={(e: any) => logger.warn('[shorts bottom avatar] load failed', {
+                        userId: item.user._id,
+                        url: item.user.profilePic?.substring(0, 120),
+                        error: e?.error || e?.nativeEvent?.error || String(e),
+                      })}
+                    />
+                  </LinearGradient>
+                </TouchableOpacity>
+
                 <View style={styles.userDetails}>
+                  {/* Row 1 (Identity): A horizontal flex row containing the Username */}
                   <View style={styles.usernameRow}>
-                  <Text style={styles.username}>{item.user.fullName}</Text>
+                    <TouchableOpacity
+                      onPress={(e) => {
+                        e.stopPropagation?.();
+                        handlersRef.current.handleProfilePress(item.user._id);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={styles.username}>@{item.user.username || item.user._id}</Text>
+                    </TouchableOpacity>
+                    
                     {isFollowing && (
                       <View style={styles.followingBadge}>
                         <Text style={styles.followingText}>Following</Text>
                       </View>
                     )}
                   </View>
-                  
-                  {/* Song - Instagram style inline */}
-                  {item.song?.songId && (() => {
-                    const song = item.song.songId;
-                    const songTitle = song.title || 'Unknown Song';
-                    const songArtist = song.artist || 'Unknown Artist';
-                    return (
-                      <View style={styles.inlineSong}>
-                        <Ionicons name="musical-notes" size={12} color="#38BDF8" />
-                        <Text style={styles.inlineSongText} numberOfLines={1}>
-                          {songTitle} · {songArtist}
-                        </Text>
-                      </View>
-                    );
-                  })()}
-                  
-                  {/* Location - Instagram style inline */}
-                  {item.location?.address && (() => {
-                    const handleLocationPress = async () => {
+
+                  {/* Row 2 (Music & Location Cycling Carousel): Alternates every 2 seconds */}
+                  <CyclingMetadata
+                    song={item.song}
+                    location={item.location}
+                    onLocationPress={async (e) => {
+                      e.stopPropagation?.();
                       try {
                         const address = item.location?.address;
                         if (address) {
@@ -3665,70 +4035,31 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                         logger.warn('Failed to geocode location:', error);
                         router.push('/map/current-location');
                       }
-                    };
-                    
-                    return (
-                      <TouchableOpacity 
-                        style={styles.inlineLocation} 
-                        onPress={handleLocationPress}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name="location-outline" size={12} color="#38BDF8" />
-                        <Text style={styles.inlineLocationText} numberOfLines={1}>
-                          {item.location.address}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })()}
-                  
-                  {item.caption ? (() => {
-                    const isExpanded = !!expandedCaptions[item._id];
-                    const canExpand = item.caption.length > 80;
-                    const showTags = isExpanded;
-                    return (
-                      <TouchableOpacity 
-                        activeOpacity={0.9}
-                        onPress={(e) => {
-                          e.stopPropagation?.();
-                          setExpandedCaptions(prev => ({
-                            ...prev,
-                            [item._id]: !prev[item._id]
-                          }));
-                        }}
-                      >
-                        <Text 
-                          style={styles.caption} 
-                          numberOfLines={isExpanded ? undefined : 2}
-                        >
-                          {item.caption}
-                          {canExpand && !isExpanded && (
-                            <Text style={styles.moreText}> ...more</Text>
-                          )}
-                          {canExpand && isExpanded && (
-                            <Text style={styles.moreText}>  less</Text>
-                          )}
-                        </Text>
-                        
-                        {showTags && item.tags && item.tags.length > 0 && (
-                          <View style={styles.tagsContainer}>
-                            {item.tags.slice(0, 3).map((tag, tagIndex) => (
-                              <LinearGradient
-                                key={tagIndex}
-                                colors={['#1C73B4', '#50C878']}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 0 }}
-                                style={styles.tagBadgeGradient}
-                              >
-                                <Text style={styles.tagTextGradient}>#{tag}</Text>
-                              </LinearGradient>
-                            ))}
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })() : null}
+                    }}
+                  />
                 </View>
-              </TouchableOpacity>
+              </View>
+
+              {/* Row 3 (Caption Constraint): Toggles between 2 lines and expanded on press */}
+              {item.caption ? (
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    setExpandedCaptions(prev => ({
+                      ...prev,
+                      [item._id]: !prev[item._id]
+                    }));
+                  }}
+                >
+                  <Text 
+                    style={styles.caption} 
+                    numberOfLines={expandedCaptions[item._id] ? undefined : 2}
+                  >
+                    {item.caption}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
               
               {/* Song Player - Hidden but active for audio playback */}
               {/* CRITICAL: Only render SongPlayer if song exists with valid s3Url */}
@@ -3740,7 +4071,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                       post={item}
                       isVisible={isScreenFocused && index === currentVisibleIndex}
                       autoPlay={isCellVideoPlaying}
-                      externalMuted={mutedShorts.has(item._id)}
+                      externalMuted={props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id)}
                       onPlayingChange={handleSongPlayingChange}
                     />
                   </View>
@@ -3768,7 +4099,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // swipeAnimation / fadeAnimation are Animated.Value refs from useRef ---
     // their identity never changes, so they don't belong in the deps array.
     // Including them was harmless but signaled false volatility.
-  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions, containerHeight, expandedCaptions, isVideoPlaying]);
+  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions, containerHeight, expandedCaptions, isVideoPlaying, localVideoUris, props.isMuted]);
 
   const keyExtractor = useCallback((item: ShortsItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;
@@ -3880,29 +4211,30 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
       {/* Premium Top Bar Overlay */}
       {(() => {
+        // If it's a scoped view, we do NOT want to render the topBar overlay at all because the parent page renders its own header!
+        if (effectiveUserId || props.isSavedShorts) {
+          return null;
+        }
+
         const currentShort = shorts[currentVisibleIndex] as PostType | undefined;
         const hasSong = !!(currentShort?.song?.songId && (currentShort.song.songId._id || typeof currentShort.song.songId === 'string'));
-        const isMuted = currentShort ? mutedShorts.has(currentShort._id) : false;
+        const isMuted = currentShort ? (props.isMuted !== undefined ? props.isMuted : mutedShorts.has(currentShort._id)) : false;
         
         return (
-          <View style={[styles.topBar, (effectiveUserId || props.isSavedShorts) && { height: 60, backgroundColor: 'transparent' }]}>
-            <View style={[styles.topBarContent, (effectiveUserId || props.isSavedShorts) && { paddingTop: 10, height: 60 }]}>
+          <View style={styles.topBar}>
+            <View style={styles.topBarContent}>
               {/* Left Back Button */}
-              {!effectiveUserId && !props.isSavedShorts ? (
-                <TouchableOpacity
-                  style={styles.topBarButton}
-                  onPress={handleBack}
-                  accessibilityLabel="Go back"
-                  accessibilityRole="button"
-                >
-                  <Ionicons name="arrow-back" size={24} color="#fff" />
-                </TouchableOpacity>
-              ) : (
-                <View style={styles.topBarButtonEmpty} />
-              )}
+              <TouchableOpacity
+                style={styles.topBarButton}
+                onPress={handleBack}
+                accessibilityLabel="Go back"
+                accessibilityRole="button"
+              >
+                <Ionicons name="arrow-back" size={24} color="#fff" />
+              </TouchableOpacity>
 
               {/* Centered Shorts Title */}
-              {!effectiveUserId && !props.isSavedShorts && <Text style={styles.topBarTitle}>Shorts</Text>}
+              <Text style={styles.topBarTitle}>Shorts</Text>
 
               {/* Right Mute Button - Always Visible for every Short */}
               {currentShort ? (
@@ -3910,12 +4242,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   style={styles.topBarButton}
                   onPress={() => {
                     if (!currentShort) return;
-                    setMutedShorts(prev => {
-                      const next = new Set(prev);
-                      if (next.has(currentShort._id)) next.delete(currentShort._id);
-                      else next.add(currentShort._id);
-                      return next;
-                    });
+                    if (props.onMuteToggle) {
+                      props.onMuteToggle();
+                    } else {
+                      setMutedShorts(prev => {
+                        const next = new Set(prev);
+                        if (next.has(currentShort._id)) next.delete(currentShort._id);
+                        else next.add(currentShort._id);
+                        return next;
+                      });
+                    }
                   }}
                   accessibilityLabel={isMuted ? 'Unmute' : 'Mute'}
                   accessibilityRole="button"
@@ -4128,7 +4464,8 @@ const styles = StyleSheet.create({
   },
   shortItem: {
     width: '100%',
-    height: SHORTS_ITEM_HEIGHT,
+    flex: 1,
+    height: (isWeb ? '100vh' : Dimensions.get('window').height) as any,
     position: 'relative',
     backgroundColor: 'black',
   },
@@ -4137,12 +4474,13 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   videoContainer: {
-    width: '100%',
-    height: '100%',
-    position: 'relative',
-    backgroundColor: 'black',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#000000',
     display: 'flex',
-    justifyContent: 'flex-start',
+    justifyContent: 'center',
     alignItems: 'center',
   },
   shortVideo: {
@@ -4238,15 +4576,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 5,
   },
-  optionsActionContainer: {
-    position: 'absolute',
-    right: isTablet ? theme.spacing.lg : 12,
-    bottom: Platform.OS === 'ios' ? (isWeb ? 36 : 32) : (isWeb ? 32 : 32),
-    alignItems: 'center',
-    zIndex: 5,
-  },
   profileButton: {
-    marginBottom: isTablet ? theme.spacing.xl : 20,
+    marginBottom: 16,
     position: 'relative',
   },
   actionsAvatarContainer: {
@@ -4302,17 +4633,11 @@ const styles = StyleSheet.create({
   actionIconContainer: {
     width: 48,
     height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 0.5,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
     marginBottom: isTablet ? 6 : 4,
   },
   likedContainer: {
-    borderColor: 'rgba(80, 200, 120, 0.25)',
-    backgroundColor: 'rgba(28, 115, 180, 0.08)',
   },
   actionText: {
     color: 'white',
@@ -4348,28 +4673,58 @@ const styles = StyleSheet.create({
   userProfileSection: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 16,
+    marginBottom: 8,
   },
-  avatarContainer: {
-    position: 'relative',
+  bottomAvatarContainer: {
+    width: 48,
+    height: 48,
     marginRight: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  userAvatar: {
+  bottomGradientBorder: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    borderWidth: 2.5,
-    borderColor: 'rgba(255,255,255,0.9)',
+    padding: 2.5,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  avatarRing: {
+  bottomProfileImage: {
+    width: 43,
+    height: 43,
+    borderRadius: 21.5,
+    backgroundColor: '#333',
+  },
+  albumArtContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#000',
+    borderWidth: 2,
+    borderColor: '#222',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  albumArtImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  albumArtInnerRing: {
     position: 'absolute',
-    top: -2,
-    left: -2,
-    right: -2,
-    bottom: -2,
-    borderRadius: 26,
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.3)',
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2.5,
+    borderColor: 'rgba(0,0,0,0.8)',
+    backgroundColor: 'transparent',
+    opacity: 0,
   },
   userDetails: {
     flex: 1,
@@ -4378,8 +4733,8 @@ const styles = StyleSheet.create({
   usernameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 4, // Reduced from 6 to move text up slightly
-    flexWrap: 'wrap',
+    marginBottom: 4,
+    flexWrap: 'nowrap',
   },
   username: {
     color: 'white',
@@ -4389,10 +4744,33 @@ const styles = StyleSheet.create({
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
-    marginRight: isTablet ? theme.spacing.sm : 8,
+    marginRight: 6,
+    flexShrink: 1,
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),
+  },
+  cyclingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 20,
+  },
+  cyclingText: {
+    color: '#38BDF8',
+    fontSize: 14,
+    marginLeft: 6,
+    fontFamily: getFontFamily('400'),
+    textShadowColor: 'rgba(0,0,0,0.6)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+    ...(isWeb && {
+      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
+    } as any),
+  },
+  cyclingAnimatedWrapper: {
+    height: 20,
+    justifyContent: 'center',
+    marginVertical: 4,
   },
   followingBadge: {
     backgroundColor: 'rgba(255,255,255,0.2)',
@@ -4416,8 +4794,8 @@ const styles = StyleSheet.create({
     fontSize: isTablet ? theme.typography.body.fontSize : 14,
     fontFamily: getFontFamily('400'),
     lineHeight: isTablet ? 22 : 20,
-    marginTop: 2, // Small margin to separate from location
-    marginBottom: isTablet ? theme.spacing.md : 8, // Reduced from 10 to move text up
+    marginTop: 6,
+    marginBottom: 0,
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
@@ -4518,7 +4896,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: Platform.OS === 'ios' ? 100 : 80,
+    height: Platform.OS === 'ios' ? 80 : 64,
     zIndex: 100,
   },
   topBarContent: {
@@ -4526,7 +4904,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: Platform.OS === 'ios' ? 50 : 36,
+    paddingTop: Platform.OS === 'ios' ? 36 : 20,
     height: '100%',
     width: '100%',
   },
@@ -4534,7 +4912,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
   },

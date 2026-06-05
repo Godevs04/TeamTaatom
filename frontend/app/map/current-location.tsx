@@ -223,28 +223,8 @@ const resolvePhotoUrl = (url?: string | null): string | undefined => {
 };
 
 export default function CurrentLocationMap() {
-  const [location, setLocation] = useState<Location.LocationObject | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [isWatching, setIsWatching] = useState(false);
-  const [userCoords, setUserCoords] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [latitudeDelta, setLatitudeDelta] = useState(0.1);
   const router = useRouter();
   const params = useLocalSearchParams();
-  const { theme, isDark } = useTheme();
-  const styles = useMemo(() => createStyles(isDark), [isDark]);
-  const insets = useSafeAreaInsets();
-  const mapStyle = useMapStyle();
-  const [route, setRoute] = useState<DirectionsRoute | null>(null);
-  const [routeLoading, setRouteLoading] = useState(false);
-  const [headerCardHeight, setHeaderCardHeight] = useState(60);
-  const hasLoggedParamsRef = useRef<string>('');
-  const mapRef = useRef<any>(null);
-
-  // Journey tracking UI (start / active / paused / instructions popup) was
-  // moved to /map/all-locations so it lives alongside past journeys, post
-  // pins and travel stats. This screen now focuses on showing the current
-  // location (or a post pin passed via params) with the directions button.
 
   // Check if we have location parameters (from locale or post)
   const postLatitude = params.latitude ? parseFloat(params.latitude as string) : null;
@@ -264,6 +244,39 @@ export default function CurrentLocationMap() {
                                postLatitude !== 0 && postLongitude !== 0;
   
   const isPostLocation = hasValidCoordinates; // Use valid coordinates check
+
+  const [location, setLocation] = useState<Location.LocationObject | null>(() => {
+    if (hasValidCoordinates) {
+      return {
+        coords: {
+          latitude: postLatitude!,
+          longitude: postLongitude!,
+          accuracy: 0,
+          altitude: null,
+          altitudeAccuracy: null,
+          heading: null,
+          speed: null,
+        },
+        timestamp: Date.now(),
+      } as Location.LocationObject;
+    }
+    return null;
+  });
+  const [loading, setLoading] = useState(!hasValidCoordinates);
+  const [error, setError] = useState<string | null>(null);
+  const [isWatching, setIsWatching] = useState(false);
+  const [userCoords, setUserCoords] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [latitudeDelta, setLatitudeDelta] = useState(0.1);
+  const { theme, isDark } = useTheme();
+  const styles = useMemo(() => createStyles(isDark), [isDark]);
+  const insets = useSafeAreaInsets();
+  const mapStyle = useMapStyle();
+  const [route, setRoute] = useState<DirectionsRoute | null>(null);
+  const [routeLoading, setRouteLoading] = useState(false);
+  const [isRoutingActive, setIsRoutingActive] = useState(false);
+  const [headerCardHeight, setHeaderCardHeight] = useState(60);
+  const hasLoggedParamsRef = useRef<string>('');
+  const mapRef = useRef<any>(null);
 
   const [tracksViewChanges, setTracksViewChanges] = useState(true);
 
@@ -449,12 +462,34 @@ export default function CurrentLocationMap() {
   };
 
   const handleRefresh = () => {
-    getCurrentLocation();
+    if (isPostLocation && postLatitude && postLongitude) {
+      if (mapRef.current) {
+        if (useWebViewFallback) {
+          const jsCode = `
+            if (window.map) {
+              window.map.panTo({ lat: ${postLatitude}, lng: ${postLongitude} });
+              window.map.setZoom(15);
+            }
+          `;
+          mapRef.current.injectJavaScript(jsCode);
+        } else {
+          mapRef.current.animateToRegion({
+            latitude: postLatitude,
+            longitude: postLongitude,
+            latitudeDelta: 0.01,
+            longitudeDelta: 0.01,
+          }, 1000);
+        }
+      }
+    } else {
+      getCurrentLocation();
+    }
   };
 
   const loadRoute = async () => {
     if (!hasValidCoordinates || !postLatitude || !postLongitude) return;
     try {
+      setIsRoutingActive(true);
       setRouteLoading(true);
       let coords = userCoords;
       if (!coords) {
@@ -492,13 +527,15 @@ export default function CurrentLocationMap() {
   };
 
   useEffect(() => {
-    if (route?.coordinates && route.coordinates.length > 0 && mapRef.current) {
-      mapRef.current.fitToCoordinates(route.coordinates, {
-        edgePadding: { top: 120, right: 50, bottom: 50, left: 50 },
-        animated: true,
-      });
+    if (route?.coordinates && route.coordinates.length > 0 && mapRef.current && !useWebViewFallback) {
+      if (typeof mapRef.current.fitToCoordinates === 'function') {
+        mapRef.current.fitToCoordinates(route.coordinates, {
+          edgePadding: { top: 120, right: 50, bottom: 50, left: 50 },
+          animated: true,
+        });
+      }
     }
-  }, [route]);
+  }, [route, useWebViewFallback]);
 
   const renderMap = () => {
     if (loading) {
@@ -597,6 +634,10 @@ html,body,#map{height:100%;margin:0;padding:0}
 .marker-thumb-placeholder {
   width: 26px;
   height: 26px;
+  min-width: 26px;
+  min-height: 26px;
+  flex-shrink: 0;
+  -webkit-flex-shrink: 0;
   border-radius: 50%;
   background: ${isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)'};
   display: flex;
@@ -631,7 +672,8 @@ html,body,#map{height:100%;margin:0;padding:0}
 </style>
 <script>
 function initMap(){
-  var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${lat},lng:${lng}},zoom:15,mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true});
+  window.map=new google.maps.Map(document.getElementById('map'),{center:{lat:${lat},lng:${lng}},zoom:15,mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true});
+  var map=window.map;
   
   // Custom OverlayView class
   class PhotoOverlay extends google.maps.OverlayView {
@@ -700,6 +742,7 @@ function initMap(){
 </body></html>`;
       return (
         <WebView
+          ref={mapRef}
           style={styles.map}
           source={{ html }}
           javaScriptEnabled={true}
@@ -936,7 +979,7 @@ function initMap(){
                     </Text>
                   </View>
                 )}
-                {isPostLocation && userCoords && (
+                {isRoutingActive && isPostLocation && userCoords && (
                   <View style={styles.locationRow}>
                     <Ionicons name="navigate" size={18} color={theme.colors.primary} />
                     <Text style={[styles.locationText, { color: theme.colors.text }]} numberOfLines={1}>

@@ -522,7 +522,7 @@ const createTripVisitFromPost = async (post, metadata = {}) => {
       user: post.user,
       post: post._id,
       posts: [post._id], // Track all posts at this location
-      contentType: 'post',
+      contentType: metadata.contentType || (post.type === 'short' ? 'short' : 'post'),
       lat,
       lng,
       continent: continent === 'Unknown' ? 'Unknown' : continent.toUpperCase(),
@@ -782,6 +782,7 @@ const updateTripVisitFromPost = async (post, metadata = {}, existingVisitId = nu
     tripVisit.verificationReason = verificationReason;
     tripVisit.uploadedAt = post.createdAt;
     tripVisit.isActive = post.isActive !== false;
+    tripVisit.contentType = metadata.contentType || (post.type === 'short' ? 'short' : 'post');
     
     if (metadata.takenAt) {
       tripVisit.takenAt = metadata.takenAt;

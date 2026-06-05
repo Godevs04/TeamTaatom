@@ -5,6 +5,7 @@ const Journey = require('../models/Journey');
 const Post = require('../models/Post');
 const User = require('../models/User');
 const { MAX_REALISTIC_SPEED_KMH } = require('../config/tripScoreConfig');
+const { matchTrajectory } = require('../utils/mapMatcher');
 
 // ─── Road Snap ──────────────────────────────────────────────────────
 // Uses internal OSRM Match API to snap raw GPS points to the nearest road.
@@ -18,49 +19,24 @@ const { MAX_REALISTIC_SPEED_KMH } = require('../config/tripScoreConfig');
 const snapToRoads = async (polyline) => {
   if (polyline.length < 2) return polyline;
 
-  const osrmServer = process.env.OSRM_SERVER_URL || 'http://localhost:5000';
-  const coordinates = polyline.map(p => `${p.lng},${p.lat}`).join(';');
-  const radiuses = polyline.map(p => p.accuracy || 20).join(';');
-  const timestamps = polyline.map(p => Math.floor(new Date(p.timestamp).getTime() / 1000)).join(';');
-
-  const osrmUrl = `${osrmServer}/match/v1/driving/${coordinates}?radiuses=${radiuses}&timestamps=${timestamps}&geometries=geojson&overview=full`;
-
   try {
-    const response = await fetch(osrmUrl);
-    if (!response.ok) {
-      logger.warn(`OSRM Match returned status ${response.status} — falling back to raw polyline`);
-      return polyline;
-    }
+    const formattedPoints = polyline.map(p => ({
+      lat: p.lat ?? p.latitude,
+      lng: p.lng ?? p.longitude,
+      timestamp: p.timestamp ? new Date(p.timestamp) : new Date(),
+      segmentBreak: p.segmentBreak || false
+    }));
 
-    const data = await response.json();
-    if (data.code === 'Ok' && data.matchings && data.matchings.length > 0) {
-      const bestMatch = data.matchings[0];
-      const originalLength = polyline.length;
-      const matchedCoords = bestMatch.geometry.coordinates;
-
-      return matchedCoords.map((coord, idx) => {
-        let origIdx = 0;
-        if (matchedCoords.length > 1) {
-          origIdx = Math.min(
-            Math.floor((idx / (matchedCoords.length - 1)) * (originalLength - 1)),
-            originalLength - 1
-          );
-        }
-        const originalPoint = polyline[origIdx];
-        return {
-          lat: coord[1],
-          lng: coord[0],
-          timestamp: originalPoint.timestamp ? new Date(originalPoint.timestamp) : new Date(),
-          accuracy: originalPoint.accuracy || 0,
-          segmentBreak: originalPoint.segmentBreak || false
-        };
-      });
-    } else {
-      logger.warn(`OSRM Match returned code: ${data.code} — falling back to raw polyline`);
-      return polyline;
-    }
+    const snapped = await matchTrajectory(formattedPoints);
+    return snapped.map(p => ({
+      lat: p.lat,
+      lng: p.lng,
+      timestamp: p.timestamp,
+      accuracy: 0,
+      segmentBreak: p.segmentBreak
+    }));
   } catch (err) {
-    logger.warn('OSRM snap failed (non-blocking), keeping raw polyline:', err.message);
+    logger.warn('Custom HMM road snap failed (non-blocking), keeping raw polyline:', err.message);
     return polyline;
   }
 };
@@ -406,40 +382,22 @@ const updateLocation = async (req, res) => {
       });
     }
 
-    // Call OSRM Match API to snap coordinates to road network
+    // Call custom map matcher to snap coordinates to road network
     let snappedPoints = [];
     let matchSucceeded = false;
 
-    const osrmServer = process.env.OSRM_SERVER_URL || 'http://localhost:5000';
-
     if (filteredCoords.length >= 2) {
-      const coordinatesParam = filteredCoords.map(p => `${p.lng},${p.lat}`).join(';');
-      const radiusesParam = filteredCoords.map(p => p.accuracy || 20).join(';');
-      const timestampsParam = filteredCoords.map(p => Math.floor(new Date(p.timestamp).getTime() / 1000)).join(';');
-
-      const osrmUrl = `${osrmServer}/match/v1/driving/${coordinatesParam}?radiuses=${radiusesParam}&timestamps=${timestampsParam}&geometries=geojson&overview=full`;
-
       try {
-        const response = await fetch(osrmUrl);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.code === 'Ok' && data.matchings && data.matchings.length > 0) {
-            const bestMatch = data.matchings[0];
-            const matchedCoords = bestMatch.geometry.coordinates;
-
-            snappedPoints = matchedCoords.map(coord => ({
-              lat: coord[1],
-              lng: coord[0]
-            }));
-            matchSucceeded = true;
-          } else {
-            logger.warn(`OSRM Match returned code: ${data.code} — falling back to raw coords`);
-          }
-        } else {
-          logger.warn(`OSRM Match API returned status: ${response.status} — falling back to raw coords`);
+        const snapped = await matchTrajectory(filteredCoords);
+        if (snapped && snapped.length > 0) {
+          snappedPoints = snapped.map(p => ({
+            lat: p.lat,
+            lng: p.lng
+          }));
+          matchSucceeded = true;
         }
       } catch (err) {
-        logger.warn(`OSRM Match call failed — falling back to raw coords: ${err.message}`);
+        logger.warn(`Custom map matcher failed — falling back to raw coords: ${err.message}`);
       }
     }
 

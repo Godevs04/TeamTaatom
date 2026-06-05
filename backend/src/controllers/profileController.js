@@ -2409,7 +2409,7 @@ const getTravelMapData = async (req, res) => {
         const visitDate = visit.takenAt || visit.uploadedAt || new Date();
         const postDoc = visit.post;
         const postId = postDoc ? postDoc._id.toString() : null;
-        const contentType = visit.contentType || (postDoc ? postDoc.type : 'post');
+        const contentType = (postDoc && postDoc.type) || visit.contentType || 'post';
 
         let photo = null;
         let needsSignedUrl = null;

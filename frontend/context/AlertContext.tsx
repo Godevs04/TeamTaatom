@@ -87,7 +87,7 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     setAlertState(prev => ({ ...prev, visible: false }));
   };
 
-  const showOptions = (config: Partial<OptionsState>) => {
+  const triggerShowOptions = (config: Partial<OptionsState>) => {
     setOptionsState({
       visible: true,
       options: [],
@@ -204,7 +204,7 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       showCancel?: boolean,
       cancelText?: string
     ) => {
-      showOptions({
+      triggerShowOptions({
         title,
         message,
         options,

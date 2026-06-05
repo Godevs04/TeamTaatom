@@ -475,6 +475,7 @@ interface ExpoImageWithShimmerProps {
 
 const ExpoImageWithShimmer = React.memo(({ source, style, contentFit = 'cover', cachePolicy = 'memory-disk', transition = 0 }: ExpoImageWithShimmerProps) => {
   const [loading, setLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
   const shimmerAnim = useRef(new Animated.Value(0.3)).current;
 
   useEffect(() => {
@@ -505,10 +506,11 @@ const ExpoImageWithShimmer = React.memo(({ source, style, contentFit = 'cover', 
     };
   }, [loading, shimmerAnim]);
 
-  // Handle source changes - reset loading state
+  // Handle source changes - reset loading state and error state
   const sourceUri = typeof source === 'object' ? source.uri : source;
   useEffect(() => {
     setLoading(true);
+    setHasError(false);
   }, [sourceUri]);
 
   return (
@@ -526,14 +528,31 @@ const ExpoImageWithShimmer = React.memo(({ source, style, contentFit = 'cover', 
           ]}
         />
       )}
-      <ExpoImage
-        source={source}
-        style={[style, { width: '100%', height: '100%' }]}
-        contentFit={contentFit}
-        cachePolicy={cachePolicy}
-        transition={transition}
-        onLoad={() => setLoading(false)}
-      />
+      {hasError ? (
+        <LinearGradient
+          colors={['#D4EDDA', '#A8DADC']}
+          style={StyleSheet.absoluteFillObject}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <View style={styles.mapPlaceholder}>
+            <Ionicons name="location" size={40} color="#2C5530" />
+          </View>
+        </LinearGradient>
+      ) : (
+        <ExpoImage
+          source={source}
+          style={[style, { width: '100%', height: '100%' }]}
+          contentFit={contentFit}
+          cachePolicy={cachePolicy}
+          transition={transition}
+          onLoad={() => setLoading(false)}
+          onError={() => {
+            setLoading(false);
+            setHasError(true);
+          }}
+        />
+      )}
     </View>
   );
 });
@@ -1158,7 +1177,7 @@ export default function LocaleScreen() {
   const drivingDistanceCalculatedRef = useRef<Set<string>>(new Set());
   
   // Generate location snapshot key - used to gate sorting
-  // Returns null if location is not stable (missing lat/lon or countryCode)
+  // Returns null if location is not stable (missing lat/lon)
   const getLocationSnapshotKey = useCallback((): string | null => {
     if (!userLocation || !locationPermissionGranted) {
       return null;
@@ -1167,9 +1186,9 @@ export default function LocaleScreen() {
     const lat = userLocation.latitude;
     const lon = userLocation.longitude;
     
-    // Location snapshot is stable only if we have coordinates AND countryCode
-    // city and region are optional but included in key for proper re-sorting when they become available
-    if (lat != null && lon != null && !isNaN(lat) && !isNaN(lon) && userCountryCode) {
+    // Location snapshot is stable if we have coordinates
+    // city, region, and countryCode are optional but included in key for proper re-sorting when they become available
+    if (lat != null && lon != null && !isNaN(lat) && !isNaN(lon)) {
       return `${lat.toFixed(4)}-${lon.toFixed(4)}-${userCity || 'x'}-${userState || 'x'}-${userCountryCode || 'x'}`;
     }
     
@@ -1825,14 +1844,24 @@ export default function LocaleScreen() {
   // Calculate distance for a locale (with caching and geocoding support)
   // Now uses distanceKm from locale object if available, otherwise calculates it
   const getLocaleDistance = useCallback((locale: Locale & { distanceKm?: number | null }): number | null => {
-    // First check if distanceKm is already stored in locale object (from updated state)
-    if (locale.distanceKm !== undefined && locale.distanceKm !== null) {
-      return locale.distanceKm;
-    }
-
-    // Fallback: Calculate if not stored (for backwards compatibility)
     if (!userLocation) {
       return null;
+    }
+
+    // 1. Check shared distanceCache first for driving distance
+    const userLat = roundCoord(userLocation.latitude);
+    const userLon = roundCoord(userLocation.longitude);
+    const cacheKey = `${locale._id}-${userLat}-${userLon}`;
+    if (distanceCache.has(cacheKey)) {
+      const cached = distanceCache.get(cacheKey);
+      if (cached !== undefined && cached !== null) {
+        return cached;
+      }
+    }
+
+    // 2. First check if distanceKm is already stored in locale object (from updated state)
+    if (locale.distanceKm !== undefined && locale.distanceKm !== null) {
+      return locale.distanceKm;
     }
     
     // Use coordinates from locale (may be geocoded)
@@ -1843,9 +1872,6 @@ export default function LocaleScreen() {
       return null;
     }
     
-    // Use rounded coordinates for stable cache
-    const userLat = roundCoord(userLocation.latitude);
-    const userLon = roundCoord(userLocation.longitude);
     // Note: This is async but we can't make the callback async
     // So we'll calculate synchronously using straight-line as fallback
     // The main distance calculation happens in loadAdminLocales where we await
@@ -1878,8 +1904,8 @@ export default function LocaleScreen() {
     if (hasUserLocation) {
       const INFINITY = Number.POSITIVE_INFINITY;
       sorted.sort((a, b) => {
-        const dA = (a as any).distanceKm;
-        const dB = (b as any).distanceKm;
+        const dA = getLocaleDistance(a);
+        const dB = getLocaleDistance(b);
         const effA = (dA !== null && dA !== undefined && !isNaN(dA)) ? dA : INFINITY;
         const effB = (dB !== null && dB !== undefined && !isNaN(dB)) ? dB : INFINITY;
         return effA - effB;
@@ -2058,23 +2084,25 @@ export default function LocaleScreen() {
     return sorted;
   }, []);
   
-  // Legacy sorting function (kept for backward compatibility, but should not be used)
-  // CRITICAL FIX: This function should NOT be called - use sortLocalesWithSnapshot instead
   const sortLocalesByDistance = useCallback((locales: Locale[]): Locale[] => {
-    // This is a fallback that should not be used in the new flow
-    // It's kept for compatibility with existing code that may still call it
-    const snapshot = createLocationSnapshot();
-    if (snapshot) {
-      return sortLocalesWithSnapshot(locales as (Locale & { distanceKm?: number | null })[], snapshot);
+    if (userLocation) {
+      const INFINITY = Number.POSITIVE_INFINITY;
+      return [...locales].sort((a, b) => {
+        const dA = getLocaleDistance(a);
+        const dB = getLocaleDistance(b);
+        const effA = (dA !== null && dA !== undefined && !isNaN(dA)) ? dA : INFINITY;
+        const effB = (dB !== null && dB !== undefined && !isNaN(dB)) ? dB : INFINITY;
+        return effA - effB;
+      });
     }
     
-    // Fallback: sort by createdAt if no snapshot
+    // Fallback: sort by createdAt if no location
     return [...locales].sort((a, b) => {
       const dateA = new Date(a.createdAt || 0).getTime();
       const dateB = new Date(b.createdAt || 0).getTime();
       return dateB - dateA;
     });
-  }, [createLocationSnapshot, sortLocalesWithSnapshot]);
+  }, [userLocation, getLocaleDistance]);
   
   // Bookmark Stability: Load saved locales with defensive parsing
   const loadSavedLocales = useCallback(async () => {
@@ -2191,7 +2219,7 @@ export default function LocaleScreen() {
         bgRefreshCacheRef.current.set(locale._id, Date.now());
 
         getLocaleById(locale._id)
-          .then((fresh) => {
+          .then(async (fresh) => {
             if (!isMountedRef.current) return;
             if (!fresh || typeof fresh !== 'object') return;
             setSavedLocales((prev) => prev.map((existing) => {
@@ -2209,6 +2237,35 @@ export default function LocaleScreen() {
                 distanceKm: (existing as any).distanceKm,
               } as Locale;
             }));
+
+            // Persist the refreshed image URL back to AsyncStorage cache
+            try {
+              const saved = await AsyncStorage.getItem('savedLocales');
+              if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed)) {
+                  const updated = parsed.map((existing: any) => {
+                    const existingId = typeof existing._id === 'string' ? existing._id : String(existing._id || '');
+                    if (existingId !== locale._id) return existing;
+                    return {
+                      ...existing,
+                      ...fresh,
+                      imageUrl: typeof fresh.imageUrl === 'string' && fresh.imageUrl
+                        ? fresh.imageUrl
+                        : existing.imageUrl,
+                      imageUrls: Array.isArray(fresh.imageUrls) && fresh.imageUrls.length > 0
+                        ? fresh.imageUrls
+                        : existing.imageUrls,
+                      _id: existingId,
+                    };
+                  });
+                  const stripped = updated.map(({ distanceKm, ...rest }: any) => rest);
+                  await AsyncStorage.setItem('savedLocales', JSON.stringify(stripped));
+                }
+              }
+            } catch (err) {
+              logger.warn('Failed to persist background-refreshed locales to AsyncStorage', err);
+            }
           })
           .catch(() => {
             // Drop the cache so we'll retry on next load. Persisted URL
@@ -2627,6 +2684,9 @@ export default function LocaleScreen() {
 
   // Grasp user's country code on location detection to default the country filter
   useEffect(() => {
+    // Disabled defaulting the country filter to the user's country code
+    // so we fetch and sort nearby locales globally based on user location proximity.
+    /*
     if (userCountryCode && userCountryCode.trim() !== '' && !hasDefaultedCountryRef.current) {
       if (!activeLocaleFilters.countryCode) {
         logger.debug('🌍 Grasping country and setting default country filter to user country:', userCountryCode);
@@ -2655,6 +2715,7 @@ export default function LocaleScreen() {
         }, 100);
       }
     }
+    */
   }, [userCountryCode, countries, userCountry, activeLocaleFilters.countryCode]);
 
   // Listen for bookmark changes from detail page.
@@ -2865,32 +2926,8 @@ export default function LocaleScreen() {
   };
 
   const resolveLocaleDistance = useCallback((locale: Locale): number | null => {
-    // 1. Check shared distanceCache first for driving distance
-    if (userLocation) {
-      const userLat = roundCoord(userLocation.latitude);
-      const userLon = roundCoord(userLocation.longitude);
-      const cacheKey = `${locale._id}-${userLat}-${userLon}`;
-      if (distanceCache.has(cacheKey)) {
-        const cached = distanceCache.get(cacheKey);
-        if (cached !== undefined && cached !== null) {
-          return cached;
-        }
-      }
-    }
-
-    // 2. Fall back to locale.distanceKm
-    const localeWithDistance = locale as Locale & { distanceKm?: number | null };
-    if (localeWithDistance.distanceKm !== undefined && localeWithDistance.distanceKm !== null) {
-      return localeWithDistance.distanceKm;
-    }
-
-    // 3. Fall back to straight-line distance calculation
-    if (userLocation && locationPermissionGranted) {
-      return getLocaleDistance(locale);
-    }
-
-    return null;
-  }, [userLocation, locationPermissionGranted, getLocaleDistance]);
+    return getLocaleDistance(locale);
+  }, [getLocaleDistance]);
 
   const checkIsDrivingDistance = useCallback((locale: Locale): boolean => {
     if (drivingDistanceCalculatedRef.current.has(locale._id)) {
@@ -4174,17 +4211,19 @@ export default function LocaleScreen() {
         accessibilityHint="Opens locale details"
       >
         {safeImageUrl ? (
-          <ExpoImageWithShimmer
-            source={{ uri: optimizeCloudinaryUrl(safeImageUrl, { width: 300, height: 200 }) }}
-            style={styles.cardImage as ImageStyle}
-            contentFit="cover"
-            cachePolicy="memory-disk"
-            transition={200}
-          />
+          <View style={StyleSheet.absoluteFillObject}>
+            <ExpoImageWithShimmer
+              source={{ uri: optimizeCloudinaryUrl(safeImageUrl, { width: 300, height: 200 }) }}
+              style={styles.cardImage as ImageStyle}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={200}
+            />
+          </View>
         ) : (
           <LinearGradient
             colors={['#D4EDDA', '#A8DADC']}
-            style={styles.cardImage}
+            style={StyleSheet.absoluteFillObject}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
           >

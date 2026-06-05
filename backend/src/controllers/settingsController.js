@@ -39,7 +39,6 @@ const updateSettings = async (req, res) => {
     
     // Privacy settings
     if (settings.privacy) {
-      validSettings['settings.privacy'] = {};
       if (settings.privacy.profileVisibility && ['public', 'followers', 'private'].includes(settings.privacy.profileVisibility)) {
         validSettings['settings.privacy.profileVisibility'] = settings.privacy.profileVisibility;
       }
@@ -58,6 +57,9 @@ const updateSettings = async (req, res) => {
       if (typeof settings.privacy.allowFollowRequests === 'boolean') {
         validSettings['settings.privacy.allowFollowRequests'] = settings.privacy.allowFollowRequests;
       }
+      if (typeof settings.privacy.shareActivity === 'boolean') {
+        validSettings['settings.privacy.shareActivity'] = settings.privacy.shareActivity;
+      }
       if (settings.privacy.routeVisibility && ['everyone', 'approved_only', 'private'].includes(settings.privacy.routeVisibility)) {
         validSettings['settings.privacy.routeVisibility'] = settings.privacy.routeVisibility;
       }
@@ -65,7 +67,6 @@ const updateSettings = async (req, res) => {
 
     // Notification settings
     if (settings.notifications) {
-      validSettings['settings.notifications'] = {};
       if (typeof settings.notifications.pushNotifications === 'boolean') {
         validSettings['settings.notifications.pushNotifications'] = settings.notifications.pushNotifications;
       }
@@ -84,11 +85,30 @@ const updateSettings = async (req, res) => {
       if (typeof settings.notifications.messagesNotifications === 'boolean') {
         validSettings['settings.notifications.messagesNotifications'] = settings.notifications.messagesNotifications;
       }
+      if (typeof settings.notifications.followRequestNotifications === 'boolean') {
+        validSettings['settings.notifications.followRequestNotifications'] = settings.notifications.followRequestNotifications;
+      }
+      if (typeof settings.notifications.followApprovalNotifications === 'boolean') {
+        validSettings['settings.notifications.followApprovalNotifications'] = settings.notifications.followApprovalNotifications;
+      }
+      if (settings.notifications.quietHours && typeof settings.notifications.quietHours === 'object') {
+        if (typeof settings.notifications.quietHours.enabled === 'boolean') {
+          validSettings['settings.notifications.quietHours.enabled'] = settings.notifications.quietHours.enabled;
+        }
+        if (typeof settings.notifications.quietHours.startTime === 'string') {
+          validSettings['settings.notifications.quietHours.startTime'] = settings.notifications.quietHours.startTime;
+        }
+        if (typeof settings.notifications.quietHours.endTime === 'string') {
+          validSettings['settings.notifications.quietHours.endTime'] = settings.notifications.quietHours.endTime;
+        }
+        if (Array.isArray(settings.notifications.quietHours.days)) {
+          validSettings['settings.notifications.quietHours.days'] = settings.notifications.quietHours.days;
+        }
+      }
     }
 
     // Account settings
     if (settings.account) {
-      validSettings['settings.account'] = {};
       if (settings.account.language && typeof settings.account.language === 'string') {
         validSettings['settings.account.language'] = settings.account.language;
       }
@@ -107,6 +127,24 @@ const updateSettings = async (req, res) => {
       if (settings.account.fontSize && ['small', 'medium', 'large'].includes(settings.account.fontSize)) {
         validSettings['settings.account.fontSize'] = settings.account.fontSize;
       }
+    }
+
+    // If validSettings is empty, return early to prevent MongoDB $set empty object error
+    if (Object.keys(validSettings).length === 0) {
+      const currentUser = await User.findById(userId).select('settings');
+      if (!currentUser) {
+        return sendError(res, 'RES_3001', 'User does not exist');
+      }
+      return sendSuccess(res, 200, 'Settings unchanged', { settings: currentUser.settings });
+    }
+
+    // If shareActivity is being updated, also update all user's activities
+    if (settings.privacy && 'shareActivity' in settings.privacy) {
+      const shareActivity = settings.privacy.shareActivity !== false;
+      await Activity.updateMany(
+        { user: userId },
+        { isPublic: shareActivity }
+      ).catch(err => logger.error('Error updating activity privacy in updateSettings:', err));
     }
 
     const updatedUser = await User.findByIdAndUpdate(

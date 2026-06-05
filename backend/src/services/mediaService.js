@@ -223,6 +223,68 @@ const resolveProfilePic = async (user) => {
   return '';
 };
 
+/**
+ * Resolve song audio and artwork URLs to fresh, loadable URLs.
+ * Mutates the song object in-place (same style as resolveProfilePic's caller).
+ *
+ * @param {Object} song - plain song object
+ * @returns {Promise<void>}
+ */
+const resolveSong = async (song) => {
+  if (!song || typeof song !== 'object') return;
+
+  // 1. Audio URL resolution
+  const audioKey = song.storageKey || song.cloudinaryKey || song.s3Key;
+  if (audioKey) {
+    try {
+      const songUrl = await generateSignedUrl(audioKey, 'AUDIO');
+      if (songUrl) {
+        song.s3Url = songUrl;
+        song.cloudinaryUrl = songUrl; // Backward compatibility
+      }
+    } catch (error) {
+      logger.warn('resolveSong: Failed to generate audio URL:', { songId: song._id, error: error.message });
+      song.s3Url = null;
+      song.cloudinaryUrl = null;
+    }
+  }
+
+  // 2. Artwork image URL resolution
+  const imageKey = song.imageStorageKey;
+  if (imageKey) {
+    try {
+      const artworkUrl = await generateSignedUrl(imageKey, 'IMAGE');
+      if (artworkUrl) {
+        song.thumbnailUrl = artworkUrl;
+        song.imageUrl = artworkUrl;
+      }
+    } catch (err) {
+      logger.warn('resolveSong: Failed to generate artwork URL from key:', { songId: song._id, error: err.message });
+    }
+  } else {
+    // Check if either imageUrl or thumbnailUrl has a signed URL
+    const targetUrl = song.imageUrl || song.thumbnailUrl;
+    if (targetUrl && typeof targetUrl === 'string') {
+      if (isSignedUrl(targetUrl)) {
+        const key = extractStorageKeyFromUrl(targetUrl);
+        if (key) {
+          try {
+            const artworkUrl = await generateSignedUrl(key, 'IMAGE');
+            if (artworkUrl) {
+              song.thumbnailUrl = artworkUrl;
+              song.imageUrl = artworkUrl;
+            }
+          } catch (_) {}
+        }
+      } else {
+        // Fallback for permanent URLs
+        song.thumbnailUrl = targetUrl;
+        song.imageUrl = targetUrl;
+      }
+    }
+  }
+};
+
 module.exports = {
   generateSignedUrl,
   generateSignedUrls,
@@ -230,6 +292,8 @@ module.exports = {
   isSignedUrl,
   getStorageKeyFromDocument,
   resolveProfilePic,
+  resolveSong,
   EXPIRY_TIMES
 };
+
 

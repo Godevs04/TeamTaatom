@@ -23,6 +23,7 @@ import {
 } from '../services/journey';
 import { Journey, Coordinate } from '../types/journey';
 import { calculateCoordinateDistance } from '../components/PolylineRenderer';
+import { KalmanFilter } from '../utils/kalmanFilter';
 
 // Simple logger fallback (uses console if no logger util exists)
 const logger = {
@@ -247,6 +248,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   const appStateRef = useRef(AppState.currentState);
   const startTimeRef = useRef<number | null>(null);
   const pendingSegmentBreakRef = useRef(false);
+  const kalmanFilterRef = useRef<KalmanFilter | null>(null);
   // Tracks whether this hook instance is still mounted. Async paths (API
   // awaits, location callbacks fired after subscription removal on some
   // Android OEMs, late timer ticks) check this before calling setState so
@@ -311,9 +313,15 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           return;
         }
 
+        // Apply Kalman Filter smoothing
+        if (!kalmanFilterRef.current) {
+          kalmanFilterRef.current = new KalmanFilter(lat, lng, accuracy, location.timestamp);
+        }
+        const smoothed = kalmanFilterRef.current.update(lat, lng, accuracy, location.timestamp);
+
         const coord: Coordinate = {
-          latitude: lat,
-          longitude: lng,
+          latitude: smoothed.latitude,
+          longitude: smoothed.longitude,
           timestamp: location.timestamp,
           accuracy,
         };
@@ -574,6 +582,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           startTimeRef.current = null;
           lastCoordinateRef.current = null;
           pendingSegmentBreakRef.current = false;
+          kalmanFilterRef.current = null;
           batchCoordinatesRef.current = [];
           setIsTracking(false);
           setIsPaused(false);
@@ -789,6 +798,21 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         !isDuplicateTimestamp(c.timestamp)
       );
 
+      // Smooth background coordinate batch sequentially
+      const smoothedCoords = valid.map((c) => {
+        const acc = c.accuracy || 10;
+        const ts = typeof c.timestamp === 'number' ? c.timestamp : Date.now();
+        if (!kalmanFilterRef.current) {
+          kalmanFilterRef.current = new KalmanFilter(c.latitude, c.longitude, acc, ts);
+        }
+        const smoothed = kalmanFilterRef.current.update(c.latitude, c.longitude, acc, ts);
+        return {
+          ...c,
+          latitude: smoothed.latitude,
+          longitude: smoothed.longitude,
+        };
+      });
+
       // Apply the same MIN_LOCATION_DISTANCE filter the foreground watcher
       // uses, walking from the last known polyline tail forward, so a row
       // of background coords doesn't introduce a denser-than-foreground
@@ -796,7 +820,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       let lastCoord = lastCoordinateRef.current;
       const accepted: Coordinate[] = [];
       let addedDistance = 0;
-      for (const c of valid) {
+      for (const c of smoothedCoords) {
         if (!lastCoord) {
           accepted.push(c);
           lastCoord = c;
@@ -945,6 +969,12 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           timestamp: Date.now(),
           accuracy: location.coords.accuracy || 0,
         };
+        kalmanFilterRef.current = new KalmanFilter(
+          initialCoord.latitude,
+          initialCoord.longitude,
+          initialCoord.accuracy,
+          initialCoord.timestamp
+        );
         lastCoordinateRef.current = initialCoord;
         pendingSegmentBreakRef.current = false;
         setPolyline([initialCoord]);
@@ -1065,6 +1095,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       setDuration(resumedDuration);
       lastCoordinateRef.current = null; // Clear to guarantee first location fix starts a new segment
       pendingSegmentBreakRef.current = true;
+      kalmanFilterRef.current = null; // Reset Kalman Filter on resume to avoid velocity projection jump from pause gap
 
       // Restart location watcher via the centralized helper.
       await startLocationWatcher();
@@ -1245,6 +1276,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       startTimeRef.current = null;
       lastCoordinateRef.current = null;
       pendingSegmentBreakRef.current = false;
+      kalmanFilterRef.current = null;
       batchCoordinatesRef.current = [];
       setIsTracking(false);
       setIsPaused(false);

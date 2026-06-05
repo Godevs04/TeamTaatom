@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, Dimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -15,6 +15,7 @@ export default function SavedShortsScreen() {
   const { shortId } = useLocalSearchParams();
   const { theme } = useTheme();
   const router = useRouter();
+  const [isMuted, setIsMuted] = useState(false);
 
   const sid = typeof shortId === 'string' ? shortId : Array.isArray(shortId) ? shortId[0] : undefined;
 
@@ -48,6 +49,10 @@ export default function SavedShortsScreen() {
       color: '#ffffff',
       flex: 1,
     },
+    muteButton: {
+      padding: theme.spacing.xs,
+      marginLeft: theme.spacing.sm,
+    },
     shortsFlex: {
       flex: 1,
     },
@@ -68,9 +73,21 @@ export default function SavedShortsScreen() {
           <Text style={styles.headerTitle} numberOfLines={1}>
             Saved Shorts
           </Text>
+          <TouchableOpacity
+            style={styles.muteButton}
+            onPress={() => setIsMuted(prev => !prev)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name={isMuted ? 'volume-mute' : 'volume-high'} size={24} color="#ffffff" />
+          </TouchableOpacity>
         </View>
         <View style={styles.shortsFlex}>
-          <Shorts isSavedShorts={true} initialShortId={sid} />
+          <Shorts 
+            isSavedShorts={true} 
+            initialShortId={sid} 
+            isMuted={isMuted}
+            onMuteToggle={() => setIsMuted(prev => !prev)}
+          />
         </View>
       </SafeAreaView>
     </ErrorBoundary>

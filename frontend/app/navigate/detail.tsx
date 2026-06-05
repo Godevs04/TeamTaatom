@@ -515,7 +515,13 @@ function initMap(){
                   <TouchableOpacity
                     key={`post-${index}`}
                     style={[styles.postCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
-                    onPress={() => router.push(`/post/${post._id}`)}
+                    onPress={() => {
+                      if (waypoint.contentType === 'video' || waypoint.contentType === 'short' || post.type === 'short') {
+                        router.push(`/user-shorts/${journey.user}?shortId=${post._id}`);
+                      } else {
+                        router.push(`/post/${post._id}`);
+                      }
+                    }}
                     activeOpacity={0.7}
                   >
                     {imageUrl && (

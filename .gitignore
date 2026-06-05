@@ -73,3 +73,4 @@ CHANGES_LOGGED.txt
 # Do NOT ignore frontend/app.json — EAS must receive it (use skip-worktree locally instead; see comment above)
 migrate_theme.js
 ag_knowledge_graph.md
+MAP_MATCHING_GUIDE.md
