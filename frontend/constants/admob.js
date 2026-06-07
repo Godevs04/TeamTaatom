@@ -36,10 +36,10 @@ export const ADMOB = {
     interstitial: __DEV__
       ? 'ca-app-pub-3940256099942544/1033173712'
       : liveUnit(env.EXPO_PUBLIC_ADMOB_ANDROID_INTERSTITIAL_UNIT_ID, 'ca-app-pub-6362359854606661/XXXXXXXXXX'),
-    /** Native Advanced (in-feed) ad unit. Production: ca-app-pub-6362359854606661/7027944948 */
+    /** Native Advanced (in-feed) ad unit. Production: ca-app-pub-6362359854606661/2564972909 */
     native: __DEV__
       ? 'ca-app-pub-3940256099942544/2247696110'
-      : liveUnit(env.EXPO_PUBLIC_ADMOB_ANDROID_NATIVE_UNIT_ID, 'ca-app-pub-6362359854606661/7027944948'),
+      : liveUnit(env.EXPO_PUBLIC_ADMOB_ANDROID_NATIVE_UNIT_ID, 'ca-app-pub-6362359854606661/2564972909'),
   },
 
   /**
@@ -53,9 +53,9 @@ export const ADMOB = {
     interstitial: __DEV__
       ? 'ca-app-pub-3940256099942544/4411468910'
       : liveUnit(env.EXPO_PUBLIC_ADMOB_IOS_INTERSTITIAL_UNIT_ID, 'ca-app-pub-6362359854606661/XXXXXXXXXX'),
-    /** Native Advanced (in-feed) ad unit. Production: ca-app-pub-6362359854606661/2303221559 */
+    /** Native Advanced (in-feed) ad unit. Production: ca-app-pub-6362359854606661/3257756403 */
     native: __DEV__
       ? 'ca-app-pub-3940256099942544/3986624511'
-      : liveUnit(env.EXPO_PUBLIC_ADMOB_IOS_NATIVE_UNIT_ID, 'ca-app-pub-6362359854606661/2303221559'),
+      : liveUnit(env.EXPO_PUBLIC_ADMOB_IOS_NATIVE_UNIT_ID, 'ca-app-pub-6362359854606661/3257756403'),
   },
 };
