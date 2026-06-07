@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { SectionReveal, RevealItem } from "./section-reveal";
 import { LANDING_IMAGES } from "@/lib/landing-images";
+import { HoverLiftCard, MotionImageWrap } from "./motion-primitives";
 import { TiltCard } from "./tilt-card";
 
 const FEATURED = {
@@ -44,14 +45,15 @@ const SMALL = [
 
 export function LandingTestimonials() {
   return (
-    <SectionReveal className="py-20 sm:py-28">
+    <SectionReveal className="landing-section">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <RevealItem>
+          <HoverLiftCard>
           <TiltCard maxTilt={4}>
             <article className="grid overflow-hidden rounded-[1.75rem] border border-[var(--landing-border)] bg-[var(--landing-surface)] lg:grid-cols-[1.1fr_1fr]">
-              <div className="relative min-h-[280px] bg-stone-200 lg:min-h-full">
+              <MotionImageWrap className="relative min-h-[280px] bg-stone-200 lg:min-h-full">
                 <Image src={FEATURED.photo} alt={FEATURED.name} fill className="object-cover" sizes="(max-width:1024px) 100vw, 50vw" />
-              </div>
+              </MotionImageWrap>
               <div className="flex flex-col justify-center p-8 sm:p-12">
                 <p className="font-display text-2xl leading-relaxed text-[var(--landing-ink)] sm:text-3xl">
                   &ldquo;{FEATURED.quote}&rdquo;
@@ -68,11 +70,13 @@ export function LandingTestimonials() {
               </div>
             </article>
           </TiltCard>
+          </HoverLiftCard>
         </RevealItem>
 
         <div className="mt-6 grid gap-4 sm:grid-cols-3">
           {SMALL.map((t) => (
             <RevealItem key={t.name}>
+              <HoverLiftCard className="h-full">
               <article className="flex h-full flex-col rounded-2xl border border-[var(--landing-border)] bg-[var(--landing-surface)] p-5 shadow-sm">
                 <div className="relative h-12 w-12 overflow-hidden rounded-full bg-stone-200">
                   <Image src={t.photo} alt={t.name} fill className="object-cover" sizes="48px" />
@@ -85,6 +89,7 @@ export function LandingTestimonials() {
                   </p>
                 </div>
               </article>
+              </HoverLiftCard>
             </RevealItem>
           ))}
         </div>

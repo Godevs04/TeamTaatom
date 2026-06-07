@@ -43,7 +43,7 @@ export function LandingProductShowcase() {
   }, []);
 
   return (
-    <SectionReveal id="product" className="bg-[var(--landing-surface)] py-20 sm:py-28">
+    <SectionReveal id="product" className="landing-section landing-section-glow bg-[var(--landing-surface)]">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <RevealItem className="mx-auto max-w-2xl text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--landing-accent)]">Product</p>

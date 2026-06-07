@@ -5,11 +5,12 @@ import { motion } from "framer-motion";
 import { MapPin, Play, UserRound } from "lucide-react";
 import { SectionReveal, RevealItem } from "./section-reveal";
 import { LANDING_IMAGES } from "@/lib/landing-images";
+import { HoverLiftCard, MotionImageWrap } from "./motion-primitives";
 import { TiltCard } from "./tilt-card";
 
 function AnimatedMap() {
   return (
-    <div className="relative aspect-[4/3] overflow-hidden rounded-[1.5rem] bg-[#e8ebe8]">
+    <HoverLiftCard className="relative aspect-[4/3] overflow-hidden rounded-[1.5rem] bg-[#e8ebe8]">
       <svg className="absolute inset-0 h-full w-full opacity-30" aria-hidden>
         <pattern id="map-grid" width="24" height="24" patternUnits="userSpaceOnUse">
           <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#94a3a0" strokeWidth="0.4" />
@@ -47,27 +48,25 @@ function AnimatedMap() {
           </span>
         </motion.div>
       ))}
-    </div>
+    </HoverLiftCard>
   );
 }
 
 function ReelsPreview() {
   return (
     <div className="flex justify-center gap-3 overflow-x-auto pb-2 sm:gap-4">
-      {LANDING_IMAGES.reels.map((src, i) => (
+      {LANDING_IMAGES.reels.map((src) => (
         <TiltCard key={src} className="w-[140px] shrink-0 sm:w-[160px]">
-          <motion.div
-            className="relative aspect-[9/16] overflow-hidden rounded-2xl bg-stone-300 shadow-[var(--landing-shadow)]"
-            animate={{ scale: [1, 1.02, 1] }}
-            transition={{ duration: 5 + i, repeat: Infinity, ease: "easeInOut" }}
-          >
+          <HoverLiftCard>
+          <MotionImageWrap className="relative aspect-[9/16] overflow-hidden rounded-2xl bg-stone-300 shadow-[var(--landing-shadow)]">
             <Image src={src} alt="Travel reel preview" fill className="object-cover" sizes="160px" />
             <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
             <span className="absolute bottom-3 left-3 text-[10px] font-medium text-white">0:24</span>
             <span className="absolute left-1/2 top-1/2 flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-white/25 backdrop-blur-sm">
               <Play className="h-4 w-4 fill-white text-white" aria-hidden />
             </span>
-          </motion.div>
+          </MotionImageWrap>
+          </HoverLiftCard>
         </TiltCard>
       ))}
     </div>
@@ -77,7 +76,7 @@ function ReelsPreview() {
 function MusicPlayer() {
   const bars = 24;
   return (
-    <div className="rounded-[1.5rem] border border-[var(--landing-border)] bg-[var(--landing-surface)] p-6 shadow-[var(--landing-shadow)]">
+    <HoverLiftCard className="rounded-[1.5rem] border border-[var(--landing-border)] bg-[var(--landing-surface)] p-6 shadow-[var(--landing-shadow)]">
       <p className="text-sm font-semibold text-[var(--landing-ink)]">Coastal Highway — Day 4</p>
       <p className="text-xs text-[var(--landing-subtle)]">Lisbon · Memory soundtrack</p>
       <div className="mt-6 flex h-16 items-end justify-center gap-1">
@@ -98,7 +97,7 @@ function MusicPlayer() {
           transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
         />
       </div>
-    </div>
+    </HoverLiftCard>
   );
 }
 
@@ -117,9 +116,9 @@ function CreatorCards() {
             whileHover={{ y: -6 }}
             className="overflow-hidden rounded-2xl border border-[var(--landing-border)] bg-[var(--landing-surface)] shadow-sm transition-shadow hover:shadow-[var(--landing-shadow)]"
           >
-            <div className="relative aspect-[4/3] bg-stone-200">
+            <MotionImageWrap className="relative aspect-[4/3] bg-stone-200">
               <Image src={c.img} alt={c.name} fill className="object-cover" sizes="200px" />
-            </div>
+            </MotionImageWrap>
             <div className="p-4">
               <div className="flex items-center gap-2">
                 <UserRound className="h-4 w-4 text-[var(--landing-accent)]" aria-hidden />
@@ -157,12 +156,12 @@ function FeatureBlock({ title, body, visual, reversed }: FeatureBlockProps) {
 export function LandingFeatures() {
   return (
     <div id="features" className="scroll-mt-24">
-      <SectionReveal className="py-20 sm:py-28">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <SectionReveal className="landing-section landing-section-glow">
+        <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <RevealItem className="mx-auto max-w-2xl text-center">
-            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--landing-accent)]">How it works</p>
-            <h2 className="mt-4 font-display text-3xl font-semibold tracking-tight sm:text-4xl">
-              Journeys become stories you can return to
+            <p className="landing-eyebrow text-[var(--landing-accent)]">Stories</p>
+            <h2 className="landing-h2 font-display mt-6 text-[var(--landing-ink)]">
+              Journeys you can return to
             </h2>
           </RevealItem>
 

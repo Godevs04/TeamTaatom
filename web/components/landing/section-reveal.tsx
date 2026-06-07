@@ -1,22 +1,8 @@
 "use client";
 
-import { motion, type Variants } from "framer-motion";
+import { motion } from "framer-motion";
 import { cn } from "@/lib/utils";
-
-const ease = [0.22, 1, 0.36, 1] as const;
-
-export const staggerContainer: Variants = {
-  hidden: { opacity: 0 },
-  show: {
-    opacity: 1,
-    transition: { staggerChildren: 0.1, delayChildren: 0.06 },
-  },
-};
-
-export const fadeUpItem: Variants = {
-  hidden: { opacity: 0, y: 32 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.65, ease } },
-};
+import { fadeUpItem, staggerContainer } from "./landing-motion";
 
 type SectionRevealProps = {
   children: React.ReactNode;
@@ -46,3 +32,5 @@ export function RevealItem({ children, className }: { children: React.ReactNode;
     </motion.div>
   );
 }
+
+export { staggerContainer, fadeUpItem } from "./landing-motion";

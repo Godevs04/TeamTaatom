@@ -8,10 +8,181 @@
   --landing-accent-soft: #2d8a8a;
   --landing-border: rgba(20, 20, 20, 0.08);
   --landing-shadow: 0 2px 8px rgba(20, 20, 20, 0.04), 0 24px 64px rgba(20, 20, 20, 0.08);
+  --landing-shadow-hover: 0 8px 24px rgba(20, 20, 20, 0.07), 0 32px 80px rgba(20, 20, 20, 0.1);
+  --ambient-indigo: rgba(91, 108, 255, 0.06);
+  --ambient-violet: rgba(99, 102, 241, 0.04);
+  --ambient-center: rgba(255, 255, 255, 0.8);
+  --landing-body-size: 1.125rem;
+  --landing-body-leading: 1.75;
+  --landing-hero-size: 5rem;
+  position: relative;
+  isolation: isolate;
   background-color: var(--landing-bg);
   color: var(--landing-ink);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  font-size: var(--landing-body-size);
+  line-height: var(--landing-body-leading);
+  letter-spacing: -0.011em;
+  -webkit-font-smoothing: antialiased;
+}
+
+.landing-page .font-display,
+.landing-page h1,
+.landing-page h2,
+.landing-page h3 {
+  font-family: var(--font-landing-display), ui-serif, "Playfair Display", Georgia, serif;
+  font-feature-settings: "liga" 1, "kern" 1;
+}
+
+.landing-eyebrow {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.landing-hero-title {
+  font-size: clamp(2.65rem, 6.5vw, var(--landing-hero-size));
+  font-weight: 500;
+  line-height: 1.06;
+  letter-spacing: -0.028em;
+}
+
+.landing-h2 {
+  font-size: clamp(2rem, 4vw, 3rem);
+  font-weight: 500;
+  line-height: 1.12;
+  letter-spacing: -0.02em;
+}
+
+.landing-h3 {
+  font-size: clamp(1.625rem, 2.5vw, 2.125rem);
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.018em;
+}
+
+.landing-body {
+  font-size: var(--landing-body-size);
+  line-height: var(--landing-body-leading);
+  color: var(--landing-muted);
+}
+
+.landing-section {
+  padding-top: 6rem;
+  padding-bottom: 6rem;
+}
+
+@media (min-width: 640px) {
+  .landing-section {
+    padding-top: 7.5rem;
+    padding-bottom: 7.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .landing-section {
+    padding-top: 9rem;
+    padding-bottom: 9rem;
+  }
+}
+
+/* Subtle film grain — felt, not seen */
+.landing-grain {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  opacity: 0.028;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Ambient lighting — almost invisible */
+.landing-ambient {
+  pointer-events: none;
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.landing-ambient__tl,
+.landing-ambient__tr,
+.landing-ambient__center {
+  position: absolute;
+  pointer-events: none;
+}
+
+.landing-ambient__tl {
+  left: -12%;
+  top: -18%;
+  width: min(72vw, 720px);
+  height: min(58vh, 560px);
+  background: radial-gradient(ellipse 100% 100% at 0% 0%, var(--ambient-indigo) 0%, transparent 68%);
+}
+
+.landing-ambient__tr {
+  right: -10%;
+  top: -14%;
+  width: min(68vw, 680px);
+  height: min(52vh, 520px);
+  background: radial-gradient(ellipse 100% 100% at 100% 0%, var(--ambient-violet) 0%, transparent 66%);
+}
+
+.landing-ambient__center {
+  left: 50%;
+  top: 42%;
+  width: min(88vw, 900px);
+  height: min(70vh, 680px);
+  transform: translate(-50%, -50%);
+  background: radial-gradient(
+    ellipse 42% 38% at 50% 50%,
+    var(--ambient-center) 0%,
+    rgba(255, 255, 255, 0.06) 38%,
+    transparent 68%
+  );
+}
+
+.landing-page__content {
+  position: relative;
+  z-index: 1;
+}
+
+.landing-section-glow {
+  position: relative;
+}
+
+.landing-section-glow::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: -10% -5%;
+  z-index: 0;
+  background: radial-gradient(ellipse 50% 40% at 50% 30%, var(--ambient-indigo), transparent 70%);
+  opacity: 0.55;
 }
 
 .landing-page ::selection {
-  background: rgba(28, 115, 180, 0.18);
+  background: rgba(28, 115, 180, 0.16);
+}
+
+@keyframes landing-activity-glow {
+  0%,
+  100% {
+    box-shadow: 0 4px 20px rgba(20, 20, 20, 0.04);
+  }
+  50% {
+    box-shadow: 0 6px 28px rgba(28, 115, 180, 0.08);
+  }
+}
+
+.landing-activity-row--live {
+  animation: landing-activity-glow 5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-activity-row--live {
+    animation: none;
+  }
 }

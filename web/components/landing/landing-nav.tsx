@@ -3,83 +3,97 @@
 import * as React from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { motion } from "framer-motion";
+import { motion, useMotionValueEvent, useScroll } from "framer-motion";
 import { cn } from "@/lib/utils";
 
 const SECTIONS = [
   { id: "explore", label: "Explore" },
-  { id: "features", label: "Stories" },
+  { id: "stories", label: "Stories" },
+  { id: "features", label: "Journeys" },
   { id: "product", label: "Product" },
   { id: "community", label: "Community" },
-  { id: "creators", label: "Creators" },
 ] as const;
+
+const spring = { type: "spring" as const, stiffness: 420, damping: 36 };
 
 export function LandingNav() {
   const [active, setActive] = React.useState<string>("explore");
   const [scrolled, setScrolled] = React.useState(false);
   const [open, setOpen] = React.useState(false);
+  const { scrollY } = useScroll();
+
+  useMotionValueEvent(scrollY, "change", (y) => {
+    setScrolled(y > 20);
+  });
 
   React.useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 32);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
-
-  React.useEffect(() => {
-    const ids = SECTIONS.map((s) => s.id);
     const observers: IntersectionObserver[] = [];
-
-    ids.forEach((id) => {
+    SECTIONS.forEach(({ id }) => {
       const el = document.getElementById(id);
       if (!el) return;
       const obs = new IntersectionObserver(
         ([entry]) => {
           if (entry.isIntersecting) setActive(id);
         },
-        { rootMargin: "-40% 0px -50% 0px", threshold: 0 }
+        { rootMargin: "-42% 0px -48% 0px", threshold: 0 }
       );
       obs.observe(el);
       observers.push(obs);
     });
-
     return () => observers.forEach((o) => o.disconnect());
   }, []);
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-4 pt-4 sm:pt-5">
+    <div
+      className={cn(
+        "pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-4 transition-[padding] duration-500 ease-out",
+        scrolled ? "pt-3" : "pt-4 sm:pt-5"
+      )}
+    >
       <motion.header
         layout
-        initial={{ opacity: 0, y: -12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+        initial={{ opacity: 0, y: -14 }}
+        animate={{ opacity: 1, y: 0, scale: scrolled ? 0.965 : 1 }}
+        transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1], scale: spring }}
         className={cn(
-          "pointer-events-auto flex w-full max-w-4xl items-center justify-between gap-3 rounded-2xl border px-3 py-2.5 transition-all duration-500 sm:px-4",
-          scrolled
-            ? "border-[var(--landing-border)] bg-white/75 shadow-[0_16px_48px_rgba(20,20,20,0.08)] backdrop-blur-xl"
-            : "border-white/40 bg-white/55 shadow-[0_8px_32px_rgba(20,20,20,0.05)] backdrop-blur-md"
+          "pointer-events-auto relative flex w-full max-w-4xl items-center justify-between gap-3 rounded-2xl border px-3 sm:px-4",
+          "border-white/25 bg-transparent shadow-[0_12px_40px_rgba(15,23,42,0.07)]",
+          "backdrop-blur-[20px] supports-[backdrop-filter]:bg-white/[0.04]",
+          scrolled &&
+            "border-white/35 shadow-[0_16px_48px_rgba(15,23,42,0.1)] supports-[backdrop-filter]:bg-white/[0.08]",
+          scrolled ? "py-2" : "py-2.5 sm:py-3"
         )}
+        style={{ WebkitBackdropFilter: "blur(20px)" }}
       >
-        <Link href="/" className="flex shrink-0 items-center gap-2 pl-1">
-          <Image src="/icon.png" alt="Taatom" width={28} height={28} className="rounded-lg object-contain" priority />
-          <span className="hidden text-sm font-semibold tracking-tight sm:inline">Taatom</span>
+        <span className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-inset ring-white/40" aria-hidden />
+
+        <Link href="/" className="relative z-10 flex shrink-0 items-center gap-2 pl-0.5">
+          <motion.div animate={{ scale: scrolled ? 0.92 : 1 }} transition={spring}>
+            <Image src="/icon.png" alt="Taatom" width={28} height={28} className="rounded-lg object-contain" priority />
+          </motion.div>
+          <span className="font-display hidden text-[0.9375rem] font-medium tracking-tight text-[var(--landing-ink)] sm:inline">
+            Taatom
+          </span>
         </Link>
 
-        <nav className="hidden items-center gap-1 md:flex" aria-label="Sections">
+        <nav className="relative z-10 hidden items-center gap-0.5 md:flex" aria-label="Sections">
           {SECTIONS.map((s) => {
             const isActive = active === s.id;
             return (
               <a
                 key={s.id}
                 href={`#${s.id}`}
-                className="relative px-3 py-2 text-[13px] font-medium text-[var(--landing-muted)] transition-colors hover:text-[var(--landing-ink)]"
+                className={cn(
+                  "relative rounded-lg px-3 py-2 text-[13px] font-medium transition-colors duration-200",
+                  isActive ? "text-[var(--landing-ink)]" : "text-[var(--landing-muted)] hover:text-[var(--landing-ink)]"
+                )}
               >
                 {s.label}
                 {isActive ? (
                   <motion.span
                     layoutId="nav-underline"
                     className="absolute inset-x-2 -bottom-0.5 h-0.5 rounded-full bg-[var(--landing-ink)]"
-                    transition={{ type: "spring", stiffness: 380, damping: 32 }}
+                    transition={spring}
                   />
                 ) : null}
               </a>
@@ -87,18 +101,21 @@ export function LandingNav() {
           })}
         </nav>
 
-        <div className="flex items-center gap-2 pr-1">
+        <div className="relative z-10 flex items-center gap-2 pr-0.5">
           <Link
             href="/auth/login"
-            className="hidden text-[13px] font-medium text-[var(--landing-muted)] hover:text-[var(--landing-ink)] sm:inline"
+            className="hidden text-[13px] font-medium text-[var(--landing-muted)] transition-colors hover:text-[var(--landing-ink)] sm:inline"
           >
             Log in
           </Link>
           <Link
             href="/auth/register"
-            className="rounded-full bg-[var(--landing-ink)] px-4 py-2 text-[13px] font-semibold text-white transition-transform hover:-translate-y-0.5"
+            className={cn(
+              "rounded-full bg-[var(--landing-ink)] font-semibold text-white transition-all duration-300 hover:-translate-y-0.5 hover:shadow-[0_8px_24px_rgba(20,20,20,0.18)]",
+              scrolled ? "px-3.5 py-1.5 text-[12px]" : "px-4 py-2 text-[13px]"
+            )}
           >
-            Sign up
+            Join
           </Link>
           <button
             type="button"
@@ -115,14 +132,9 @@ export function LandingNav() {
       </motion.header>
 
       {open ? (
-        <div className="pointer-events-auto absolute left-4 right-4 top-[4.5rem] rounded-2xl border border-[var(--landing-border)] bg-white/95 p-4 shadow-lg backdrop-blur-xl md:hidden">
+        <div className="pointer-events-auto absolute left-4 right-4 top-[4.5rem] rounded-2xl border border-[var(--landing-border)] bg-white/95 p-4 shadow-lg backdrop-blur-[20px] md:hidden">
           {SECTIONS.map((s) => (
-            <a
-              key={s.id}
-              href={`#${s.id}`}
-              className="block py-2.5 text-sm font-medium"
-              onClick={() => setOpen(false)}
-            >
+            <a key={s.id} href={`#${s.id}`} className="block py-2.5 text-sm font-medium" onClick={() => setOpen(false)}>
               {s.label}
             </a>
           ))}

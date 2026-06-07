@@ -48,7 +48,7 @@ export function MagneticButton({ href, onClick, children, className, variant = "
       whileTap={{ scale: 0.98 }}
       transition={{ type: "spring", stiffness: 400, damping: 28 }}
       className={cn(
-        "inline-flex h-12 items-center justify-center rounded-2xl px-7 text-[15px] font-semibold transition-colors",
+        "inline-flex h-12 items-center justify-center rounded-full px-8 text-[15px] font-semibold transition-[box-shadow,filter] duration-300",
         base,
         className
       )}

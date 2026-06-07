@@ -13,6 +13,12 @@ export const LANDING_IMAGES = {
     city: unsplash("1523906834658-6e24ef2386f9", 480, 85),
     creatorAvatar: unsplash("1534528741775-53994a69daeb", 96, 80),
   },
+  stories: {
+    iceland: unsplash("1506905925346-21bda4d32df4", 900, 88),
+    japan: unsplash("1523906834658-6e24ef2386f9", 900, 88),
+    kerala: unsplash("1469474968028-56623f02e42e", 900, 88),
+    coast: unsplash("1507525428034-b723cf961d3e", 900, 88),
+  },
   avatars: [
     unsplash("1507003211169-0a1dd7228f2d", 96, 80),
     unsplash("1494790108377-be9c29b29330", 96, 80),
