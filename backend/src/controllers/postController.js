@@ -3136,7 +3136,7 @@ const getShorts = async (req, res) => {
       }
     }
 
-    const matchQuery = {
+    const baseConditions = {
       isActive: true,
       isArchived: { $ne: true },
       isHidden: { $ne: true },
@@ -3146,17 +3146,10 @@ const getShorts = async (req, res) => {
       ]
     };
 
-    if (viewedPostIds.length > 0) {
-      matchQuery._id = { $nin: viewedPostIds };
-    }
-
     if (allowedFiltered.length > 0) {
-      matchQuery.user = { $in: allowedFiltered };
+      baseConditions.user = { $in: allowedFiltered.map(id => new mongoose.Types.ObjectId(id)) };
     } else {
-      matchQuery.user = { $in: [new mongoose.Types.ObjectId()] };
-    }
-    if (dateCursorFilter) {
-      matchQuery.$and.push(dateCursorFilter);
+      baseConditions.user = { $in: [new mongoose.Types.ObjectId()] };
     }
 
     const spotTypeBranches = [];
@@ -3174,8 +3167,55 @@ const getShorts = async (req, res) => {
       creatorBranches.push({ case: { $eq: [{ $toString: '$user' }, key] }, then: val });
     });
 
-    const pipeline = [
-      { $match: matchQuery },
+    // Match user's onboarding interests to boost scoring
+    const interestScores = [];
+    if (req.user?.interests && Array.isArray(req.user.interests) && req.user.interests.length > 0) {
+      req.user.interests.forEach(interest => {
+        const lowerInterest = interest.toLowerCase();
+        
+        let spotMatch = null;
+        if (lowerInterest === 'beach') spotMatch = 'Beach';
+        else if (lowerInterest === 'mountains') spotMatch = 'Mountain';
+        else if (lowerInterest === 'city') spotMatch = 'City';
+        else if (lowerInterest === 'nature') spotMatch = 'Natural spots';
+        else if (lowerInterest === 'culture') spotMatch = 'Cultural';
+        else if (lowerInterest === 'art') spotMatch = 'Cultural';
+        else if (lowerInterest === 'history') spotMatch = 'Cultural';
+        
+        let travelMatch = null;
+        if (lowerInterest === 'adventure') travelMatch = 'Hiking';
+
+        const conds = [];
+        if (spotMatch) {
+          conds.push({ $eq: ['$spotType', spotMatch] });
+        }
+        if (travelMatch) {
+          conds.push({ $eq: ['$travelInfo', travelMatch] });
+        }
+        conds.push({
+          $in: [
+            lowerInterest,
+            {
+              $map: {
+                input: { $ifNull: ['$tags', []] },
+                as: 't',
+                in: { $toLower: '$$t' }
+              }
+            }
+          ]
+        });
+
+        interestScores.push({
+          $cond: {
+            if: { $or: conds },
+            then: 10,
+            else: 0
+          }
+        });
+      });
+    }
+
+    const scoringStages = [
       {
         $addFields: {
           baseScore: {
@@ -3199,31 +3239,23 @@ const getShorts = async (req, res) => {
           spotAffinity: spotTypeBranches.length > 0 ? { $switch: { branches: spotTypeBranches, default: 0 } } : 0,
           travelAffinity: travelInfoBranches.length > 0 ? { $switch: { branches: travelInfoBranches, default: 0 } } : 0,
           creatorAffinity: creatorBranches.length > 0 ? { $switch: { branches: creatorBranches, default: 0 } } : 0,
+          interestAffinity: interestScores.length > 0 ? { $add: interestScores } : 0,
         }
       },
       {
         $addFields: {
-          totalScore: { $add: ["$baseScore", "$spotAffinity", "$travelAffinity", "$creatorAffinity"] }
+          totalScore: {
+            $add: [
+              "$baseScore",
+              "$spotAffinity",
+              "$travelAffinity",
+              "$creatorAffinity",
+              "$interestAffinity"
+            ]
+          }
         }
       }
     ];
-
-    if (scoreCursorFilter) {
-      pipeline.push({
-        $match: {
-          $or: [
-            { totalScore: { $lt: scoreCursorFilter.score } },
-            { totalScore: scoreCursorFilter.score, _id: { $lt: scoreCursorFilter.id } }
-          ]
-        }
-      });
-    }
-
-    pipeline.push(
-      { $sort: { totalScore: -1, _id: -1 } },
-      // Fetch 3x limit to allow for diversity control drops
-      { $limit: (safeLimit * 3) + 1 }
-    );
 
     const projectionPipeline = [
       {
@@ -3337,47 +3369,149 @@ const getShorts = async (req, res) => {
         $project: {
           commentUsers: 0,
           songData: 0
-          // Note: All other fields are included by default (storageKey, storageKeys, videoUrl, imageUrl, etc.)
         }
       }
     ];
 
-    const shorts = await Post.aggregate(pipeline.concat(projectionPipeline));
+    const collectedShorts = [];
+    const skippedShorts = [];
+    const seenShortIds = new Set();
+    const recentCreators = new Set();
 
-    // Infinite scroll fallback: If we run out of unviewed/scored shorts, fetch random allowed shorts
-    if (shorts.length < safeLimit && viewedPostIds.length > 0) {
-      try {
-        const needed = safeLimit - shorts.length;
-        const existingIds = shorts.map(s => s._id);
+    const addShortsWithDiversity = (shortsList) => {
+      for (const short of shortsList) {
+        const idStr = short._id.toString();
+        if (seenShortIds.has(idStr)) continue;
 
-        const fallbackQuery = {
-          isActive: true,
-          isArchived: { $ne: true },
-          isHidden: { $ne: true },
-          type: 'short',
-          _id: { $nin: existingIds },
-          $and: [
-            { $or: [{ status: 'active' }, { status: { $exists: false } }] }
-          ]
-        };
-
-        if (allowedFiltered.length > 0) {
-          fallbackQuery.user = { $in: allowedFiltered };
-        } else {
-          fallbackQuery.user = { $in: [new mongoose.Types.ObjectId()] };
+        // Skip if short has absolutely no media fields
+        const hasMedia = short.videoUrl || short.imageUrl || short.storageKey || (short.storageKeys && short.storageKeys.length > 0);
+        if (!hasMedia) {
+          logger.warn(`Short ${short._id} missing media fields completely, skipping`);
+          continue;
         }
 
-        const fallbackShorts = await Post.aggregate([
-          { $match: fallbackQuery },
-          { $sample: { size: needed + 1 } },
-          ...projectionPipeline
-        ]);
+        const creatorId = short.user && short.user._id ? short.user._id.toString() : null;
+        if (creatorId && recentCreators.has(creatorId)) {
+          skippedShorts.push(short);
+          continue;
+        }
 
-        shorts.push(...fallbackShorts);
-      } catch (err) {
-        logger.error('Error fetching fallback shorts:', err);
+        if (creatorId) {
+          recentCreators.add(creatorId);
+          if (recentCreators.size > 3) {
+            const firstItem = recentCreators.values().next().value;
+            recentCreators.delete(firstItem);
+          }
+        }
+
+        collectedShorts.push(short);
+        seenShortIds.add(idStr);
+        if (collectedShorts.length >= safeLimit + 1) {
+          return true; // We are full
+        }
+      }
+      return false; // Not full yet
+    };
+
+    // Phase 1: Fetch unviewed allowed shorts matching the cursor filter
+    const phase1Match = { ...baseConditions };
+    
+    if (viewedPostIds.length > 0) {
+      phase1Match._id = { $nin: viewedPostIds.map(id => new mongoose.Types.ObjectId(id)) };
+    }
+
+    if (dateCursorFilter) {
+      if (!phase1Match.$and) phase1Match.$and = [];
+      phase1Match.$and.push(dateCursorFilter);
+    }
+
+    const phase1Pipeline = [
+      { $match: phase1Match },
+      ...scoringStages
+    ];
+
+    if (scoreCursorFilter) {
+      phase1Pipeline.push({
+        $match: {
+          $or: [
+            { totalScore: { $lt: scoreCursorFilter.score } },
+            { totalScore: scoreCursorFilter.score, _id: { $lt: scoreCursorFilter.id } }
+          ]
+        }
+      });
+    }
+
+    phase1Pipeline.push(
+      { $sort: { totalScore: -1, _id: -1 } },
+      { $limit: safeLimit * 3 },
+      ...projectionPipeline
+    );
+
+    const phase1Shorts = await Post.aggregate(phase1Pipeline);
+    let isFull = addShortsWithDiversity(phase1Shorts);
+
+    // Phase 2: Fallback to other unviewed allowed shorts (without cursor filter)
+    if (!isFull) {
+      const excludeIds = [
+        ...viewedPostIds.map(id => new mongoose.Types.ObjectId(id)),
+        ...Array.from(seenShortIds).map(id => new mongoose.Types.ObjectId(id))
+      ];
+
+      const phase2Match = {
+        ...baseConditions,
+        _id: { $nin: excludeIds }
+      };
+
+      const phase2Pipeline = [
+        { $match: phase2Match },
+        ...scoringStages,
+        { $sort: { totalScore: -1, _id: -1 } },
+        { $limit: (safeLimit + 1) * 2 },
+        ...projectionPipeline
+      ];
+
+      const phase2Shorts = await Post.aggregate(phase2Pipeline);
+      isFull = addShortsWithDiversity(phase2Shorts);
+    }
+
+    // Phase 3: Fallback to already viewed allowed shorts to guarantee infinite scrolling
+    if (!isFull) {
+      const excludeIds = Array.from(seenShortIds).map(id => new mongoose.Types.ObjectId(id));
+
+      const phase3Match = {
+        ...baseConditions,
+        _id: { $nin: excludeIds }
+      };
+
+      const phase3Pipeline = [
+        { $match: phase3Match },
+        ...scoringStages,
+        { $sort: { totalScore: -1, _id: -1 } },
+        { $limit: (safeLimit + 1) * 2 },
+        ...projectionPipeline
+      ];
+
+      const phase3Shorts = await Post.aggregate(phase3Pipeline);
+      isFull = addShortsWithDiversity(phase3Shorts);
+    }
+
+    // Phase 4: Fallback to skipped shorts if diversity control made us return too few items
+    if (collectedShorts.length < safeLimit + 1 && skippedShorts.length > 0) {
+      for (const short of skippedShorts) {
+        const idStr = short._id.toString();
+        if (!seenShortIds.has(idStr)) {
+          collectedShorts.push(short);
+          seenShortIds.add(idStr);
+          if (collectedShorts.length >= safeLimit + 1) {
+            break;
+          }
+        }
       }
     }
+
+    const hasNextPage = collectedShorts.length > safeLimit;
+    const responseShorts = hasNextPage ? collectedShorts.slice(0, safeLimit) : collectedShorts;
+    const shorts = responseShorts;
 
     // Generate signed URLs for profile pictures and add isLiked field
     // Defensive guards: validate media URLs and handle missing data gracefully
@@ -3520,49 +3654,18 @@ const getShorts = async (req, res) => {
     }));
 
     // Filter out null entries (shorts without media)
-    const validShorts = shortsWithLikeStatus.filter(short => short !== null);
-
-    // Apply Diversity Control (Creator Cooldown)
-    const diverseShorts = [];
-    const recentCreators = new Set();
-
-    for (const short of validShorts) {
-      const creatorId = short.user && short.user._id ? short.user._id.toString() : null;
-      
-      if (creatorId && recentCreators.has(creatorId)) {
-        continue; // Skip consecutive/recent creator videos
-      }
-      
-      if (creatorId) {
-        recentCreators.add(creatorId);
-        // keep recent creators set small to allow them again later in the feed
-        if (recentCreators.size > 3) {
-           const firstItem = recentCreators.values().next().value;
-           recentCreators.delete(firstItem);
-        }
-      }
-      
-      diverseShorts.push(short);
-      if (diverseShorts.length > safeLimit) { // We want safeLimit + 1 to determine hasNextPage
-        break;
-      }
-    }
-
-    let hasNextPage = diverseShorts.length > safeLimit;
-    let responseShorts = hasNextPage ? diverseShorts.slice(0, safeLimit) : diverseShorts;
-
-
+    const finalShorts = shortsWithLikeStatus.filter(short => short !== null);
 
     let nextCursor = null;
-    if (responseShorts.length > 0) {
-      const lastItem = responseShorts[responseShorts.length - 1];
+    if (finalShorts.length > 0) {
+      const lastItem = finalShorts[finalShorts.length - 1];
       const cursorVal = lastItem.totalScore !== undefined ? lastItem.totalScore : new Date(lastItem.createdAt || Date.now()).getTime();
       const lastId = lastItem._id ? lastItem._id.toString() : new mongoose.Types.ObjectId().toString();
       nextCursor = Buffer.from(`${cursorVal},${lastId}`).toString('base64');
     }
 
     res.status(200).json({
-      shorts: responseShorts,
+      shorts: finalShorts,
       pagination: {
         nextCursor,
         hasNextPage,

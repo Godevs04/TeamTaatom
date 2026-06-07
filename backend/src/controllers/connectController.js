@@ -889,7 +889,7 @@ const searchByName = async (req, res) => {
  */
 const findUsers = async (req, res) => {
   try {
-    const { target_country, current_country, city, lang, travel_style } = req.query;
+    const { target_country, current_country, lang, travel_style } = req.query;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
@@ -976,14 +976,15 @@ const findUsers = async (req, res) => {
       }
     }
 
-    // Filter by current_country using dynamic location tracking or fallback to nationality
+    // Filter by current_country — same approach as target_country but
+    // checks where the user currently is. Since User doesn't have a
+    // dedicated currentCountry field, we fall back to nationality if
+    // different from target_country (i.e. skip if same filter already applied).
     if (current_country && current_country !== target_country) {
       const countryName = codeToName[current_country.toUpperCase()] || current_country;
       const escaped = countryName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const codeEscaped = current_country.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const currentConditions = [
-        { currentCountry: { $regex: escaped, $options: 'i' } },
-        { currentCountry: { $regex: codeEscaped, $options: 'i' } },
         { nationality: { $regex: escaped, $options: 'i' } },
         { nationality: { $regex: codeEscaped, $options: 'i' } }
       ];
@@ -1001,29 +1002,9 @@ const findUsers = async (req, res) => {
       }
     }
 
-    // Filter by city using dynamic location tracking
-    if (city) {
-      const cityEscaped = city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const cityConditions = [
-        { currentLocation: { $regex: cityEscaped, $options: 'i' } }
-      ];
-      if (userQuery.$and) {
-        userQuery.$and.push({ $or: cityConditions });
-      } else if (userQuery.$or) {
-        const existingOr = userQuery.$or;
-        delete userQuery.$or;
-        userQuery.$and = [
-          { $or: existingOr },
-          { $or: cityConditions }
-        ];
-      } else {
-        userQuery.$or = cityConditions;
-      }
-    }
-
     const [users, total] = await Promise.all([
       User.find(userQuery)
-        .select('username fullName profilePic bio interests travelStyle nationality currentLocation currentCountry languagesKnown settings.account.language followers')
+        .select('username fullName profilePic bio interests travelStyle nationality languagesKnown settings.account.language followers')
         .sort({ lastLogin: -1 })
         .skip(skip)
         .limit(limit)

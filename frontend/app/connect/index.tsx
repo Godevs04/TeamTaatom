@@ -359,7 +359,6 @@ export default function ConnectHubScreen() {
               setFindLoading(true);
               findUsers({
                 target_country: initialCountry || undefined,
-                city: userLocation || undefined,
                 lang: initialLang,
                 travel_style: initialTravelStyle || undefined,
                 page: 1,
@@ -479,7 +478,6 @@ export default function ConnectHubScreen() {
       const response = await findUsers({
         target_country: selectedCountry || undefined,
         current_country: selectedCurrentCountry || undefined,
-        city: userLocation || userLocationInput || undefined,
         travel_style: selectedTravelStyle || undefined,
         lang: selectedLanguage,
         page: 1,
@@ -1112,17 +1110,13 @@ export default function ConnectHubScreen() {
             borderWidth: 1,
             borderTopWidth: 0,
             borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)',
-            backgroundColor: isDark ? 'rgba(13, 27, 42, 0.65)' : 'rgba(255, 255, 255, 0.65)',
+            backgroundColor: isDark ? 'rgba(13, 27, 42, 0.85)' : 'rgba(255, 255, 255, 0.85)',
           }
         ]}
       >
         <BlurView
           intensity={80}
           tint={isDark ? 'dark' : 'light'}
-          style={StyleSheet.absoluteFillObject}
-        />
-        <LinearGradient
-          colors={isDark ? ['rgba(255, 255, 255, 0.1)', 'transparent'] : ['rgba(255, 255, 255, 0.5)', 'transparent']}
           style={StyleSheet.absoluteFillObject}
         />
         <View style={styles.topBarContent}>

@@ -151,13 +151,27 @@ export default function ChatModal() {
   const markAllAsReadTimeRef = React.useRef<number>(0);
 
   // Intercept query params userId / chatId and redirect immediately to thread view
-  useEffect(() => {
+  const redirectInfoRef = React.useRef<{ checked: boolean; willRedirect: boolean; chatId?: string }>({
+    checked: false,
+    willRedirect: false,
+  });
+
+  if (!redirectInfoRef.current.checked) {
     const { consumePendingChatRoomId } = require('../../utils/connectChatBridge');
     const pendingChatId = consumePendingChatRoomId();
-    if (params.userId || params.chatId || pendingChatId) {
+    const willRedirect = Boolean(params.userId || params.chatId || pendingChatId);
+    redirectInfoRef.current = {
+      checked: true,
+      willRedirect,
+      chatId: pendingChatId || undefined,
+    };
+  }
+
+  useEffect(() => {
+    if (redirectInfoRef.current.willRedirect) {
       const redirectParams = { ...params };
-      if (pendingChatId && !params.chatId) {
-        redirectParams.chatId = pendingChatId;
+      if (redirectInfoRef.current.chatId && !params.chatId) {
+        redirectParams.chatId = redirectInfoRef.current.chatId;
       }
       logger.debug('[CHAT LIST] Redirecting parameters to thread view:', redirectParams);
       router.replace({ pathname: '/chat/thread', params: redirectParams });
@@ -404,8 +418,33 @@ export default function ChatModal() {
 
       const loadFollowers = async () => {
         try {
-          const res = await api.get('/profile/following-followers');
-          setUsers(res.data.following || []);
+          const userData = await AsyncStorage.getItem('userData');
+          let myUserId = '';
+          if (userData) {
+            try {
+              myUserId = JSON.parse(userData)._id;
+            } catch {}
+          }
+          if (!myUserId) return;
+
+          const [followingRes, followersRes] = await Promise.all([
+            api.get(`/api/v1/profile/${myUserId}/following`),
+            api.get(`/api/v1/profile/${myUserId}/followers`)
+          ]);
+
+          const followingList = followingRes.data?.users || [];
+          const followersList = followersRes.data?.users || [];
+
+          // Merge lists and deduplicate by _id
+          const combined = [...followingList, ...followersList];
+          const uniqueUsersMap = new Map();
+          combined.forEach((u: any) => {
+            if (u && u._id) {
+              uniqueUsersMap.set(u._id.toString(), u);
+            }
+          });
+
+          setUsers(Array.from(uniqueUsersMap.values()));
         } catch (err: any) {
           logger.error('Error loading followers:', err?.message || err);
         }
@@ -569,6 +608,12 @@ export default function ChatModal() {
       ]
     );
   }, [conversations]);
+
+  if (redirectInfoRef.current.willRedirect) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} />
+    );
+  }
 
   if (loading) {
     return (
