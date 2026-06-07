@@ -29,7 +29,7 @@ import { initializeAds } from '../../services/admob';
 
 const isWeb = Platform.OS === 'web';
 const isExpoGo = Constants.appOwnership === 'expo';
-const NATIVE_AD_LOAD_TIMEOUT_MS = 5000;
+const NATIVE_AD_LOAD_TIMEOUT_MS = 12000;
 
 // Do NOT require('react-native-google-mobile-ads') at module load. It triggers
 // TurboModuleRegistry and crashes in Expo Go / when native module isn't linked.
@@ -90,10 +90,14 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
 
   // Lazy-load the native ads module only on mount. Never require() in Expo Go — native module is not registered and require() throws.
   useEffect(() => {
-    if (isWeb || isExpoGo) {
+    if (isWeb) {
       setLoading(false);
       setModuleError(true);
       fireLoadFailed();
+      return;
+    }
+    if (isExpoGo) {
+      setLoading(false);
       return;
     }
     try {
@@ -208,6 +212,25 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
   }, [adsModule, unitId, adIndex]);
 
   if (isWeb || moduleError) {
+    return null;
+  }
+
+  if (isExpoGo && __DEV__) {
+    return (
+      <View style={[styles.wrapper, styles.expoGoPreview, { backgroundColor: theme.colors.surface }]}>
+        <Text style={[styles.sponsoredLabel, { color: theme.colors.textSecondary }]}>Sponsored</Text>
+        <Text style={[styles.headline, { color: theme.colors.text, marginTop: 8 }]}>
+          Native ad slot #{adIndex + 1}
+        </Text>
+        <Text style={[styles.body, { color: theme.colors.textSecondary, marginTop: 4 }]}>
+          Expo Go cannot load AdMob. Use an EAS development build to see live or test ads.
+        </Text>
+        <Text style={[styles.cta, { color: theme.colors.primary, marginTop: 12 }]}>Learn more</Text>
+      </View>
+    );
+  }
+
+  if (isExpoGo) {
     return null;
   }
 
@@ -357,6 +380,12 @@ const styles = StyleSheet.create({
     minHeight: 120,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  expoGoPreview: {
+    padding: 16,
+    minHeight: 140,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(28, 115, 180, 0.35)',
   },
 });
 

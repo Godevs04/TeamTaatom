@@ -49,19 +49,23 @@ import { BlurView } from 'expo-blur';
 import { CloudSkyBackground, CloudSegmentedControl } from '../../components/cloud';
 import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 import { NativeAdCard } from '../../components/ads/NativeAdCard';
-import { useAdCap, recordGoogleAdImpression, logContentView, injectAds } from '../../services/adCap';
+import {
+  useAdCap,
+  recordGoogleAdImpression,
+  logContentView,
+  injectHomeFeedAds,
+  HOME_AD_EVERY_N_POSTS,
+} from '../../services/adCap';
 import { flushPendingLikes } from '../../utils/likePersistence';
 import { realtimePostsService } from '../../services/realtimePosts';
 import type { FeedMode } from '../../services/posts';
 
-/** Feed list item: either a post or a native ad placeholder (inserted every ADS_AFTER_EVERY posts). */
+/** Feed list item: either a post or a native ad placeholder (inserted every 5 posts). */
 export type FeedItem = PostType | { type: 'ad'; adIndex: number };
 
 function isAdItem(item: FeedItem): item is { type: 'ad'; adIndex: number } {
   return 'type' in item && item.type === 'ad';
 }
-
-const ADS_AFTER_EVERY = 6;
 const POST_VIEW_DWELL_MS = 2500;
 const HOME_AD_START_DELAY_MS = __DEV__ ? 1000 : 30000;
 
@@ -1100,7 +1104,9 @@ export default function HomeScreen() {
     }
     hasScrolledToPostIdRef.current = params.postId;
     const showAds = !isWeb && hasScrolledPastFifthPost && adsAllowedAfter30s;
-    const dataIndex = showAds ? postIndex + Math.floor(postIndex / ADS_AFTER_EVERY) : postIndex;
+    const dataIndex = showAds
+      ? postIndex + Math.floor(postIndex / HOME_AD_EVERY_N_POSTS)
+      : postIndex;
     const attemptScroll = (attempt: number = 0) => {
       if (attempt > 8) {
         logger.warn(`Failed to scroll to post ${params.postId} after 8 attempts`);
@@ -1401,7 +1407,7 @@ export default function HomeScreen() {
     if (isWeb || posts.length === 0) return posts as FeedItem[];
     const showAds = hasScrolledPastFifthPost && adsAllowedAfter30s && !adCap.isCapped;
     if (!showAds) return posts as FeedItem[];
-    const rawFeed = injectAds(posts, adCap) as FeedItem[];
+    const rawFeed = injectHomeFeedAds(posts, adCap) as FeedItem[];
     return rawFeed.filter(item => {
       if (isAdItem(item)) {
         return !failedAdIndices.includes(item.adIndex);

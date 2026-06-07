@@ -36,10 +36,10 @@ export const ADMOB = {
     interstitial: __DEV__
       ? 'ca-app-pub-3940256099942544/1033173712'
       : liveUnit(env.EXPO_PUBLIC_ADMOB_ANDROID_INTERSTITIAL_UNIT_ID, 'ca-app-pub-6362359854606661/XXXXXXXXXX'),
-    /** Native Advanced (in-feed) ad unit. Production: ca-app-pub-6362359854606661/2564972909 */
+    /** Native Advanced (in-feed) ad unit. Production: ca-app-pub-6362359854606661/7027944948 */
     native: __DEV__
       ? 'ca-app-pub-3940256099942544/2247696110'
-      : liveUnit(env.EXPO_PUBLIC_ADMOB_ANDROID_NATIVE_UNIT_ID, 'ca-app-pub-6362359854606661/2564972909'),
+      : liveUnit(env.EXPO_PUBLIC_ADMOB_ANDROID_NATIVE_UNIT_ID, 'ca-app-pub-6362359854606661/7027944948'),
   },
 
   /**

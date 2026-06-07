@@ -307,8 +307,39 @@ export async function logContentView(
   return { incremented, ignored: isIgnored };
 }
 
+/** Home feed: insert one native ad slot after every N posts (max 5 slots per 8h cap). */
+export const HOME_AD_EVERY_N_POSTS = 5;
+
 /**
- * Dynamic unified ad intersperser.
+ * Simple positional ad injection for the home feed.
+ * Inserts ad slots after posts 5, 10, 15, 20, 25 — independent of view telemetry.
+ */
+export function injectHomeFeedAds<T>(
+  items: T[],
+  options: { isCapped: boolean; count: number }
+): (T | { type: 'ad'; adIndex: number })[] {
+  if (options.isCapped || options.count >= MAX_GOOGLE_ADS || items.length === 0) {
+    return items;
+  }
+
+  const result: (T | { type: 'ad'; adIndex: number })[] = [];
+  let postCount = 0;
+  let adIndex = 0;
+
+  for (const item of items) {
+    result.push(item);
+    postCount += 1;
+    if (postCount % HOME_AD_EVERY_N_POSTS === 0 && adIndex < MAX_GOOGLE_ADS) {
+      result.push({ type: 'ad', adIndex });
+      adIndex += 1;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Dynamic unified ad intersperser (shorts / cross-feature view sequencing).
  * Intersperse ads into a list of items based on sequence indices 6, 12, 18, 24, 30.
  * If the user has reached the 5-ad limit, no ads are injected.
  */

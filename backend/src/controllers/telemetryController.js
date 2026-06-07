@@ -24,7 +24,7 @@ const recordInteraction = async (req, res) => {
     const MAX_VIEWED_POSTS = 500;
 
     for (const item of interactions) {
-      const { postId, watchDurationMs, completionRate, action } = item;
+      const { postId, completionRate, action } = item;
       
       if (!postId) continue;
 
