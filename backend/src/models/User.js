@@ -148,6 +148,18 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  currentLocation: {
+    type: String,
+    default: null
+  },
+  currentCountry: {
+    type: String,
+    default: null
+  },
+  locationUpdatedAt: {
+    type: Date,
+    default: null
+  },
   code: {
       type: String,
       required: false

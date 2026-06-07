@@ -362,7 +362,10 @@ api.interceptors.response.use(
     const isRefresh401 = error.response?.status === 401 && error.config?.url?.includes('/auth/refresh');
     const isAuth401 = error.response?.status === 401 && error.config?.url?.includes('/auth/');
     
-    if (error.response?.status !== 400 && error.response?.status !== 409 && !isRefresh401) {
+    const isTimeout = error.code === 'ECONNABORTED' || (error.message && error.message.toLowerCase().includes('timeout'));
+    const isNetworkError = !error.response && error.request;
+    
+    if (error.response?.status !== 400 && error.response?.status !== 409 && !isRefresh401 && !isNetworkError && !isTimeout) {
       const parsedError = parseError(error);
       // Only log as error if it's not an expected auth error
       if (!isAuth401) {
@@ -447,9 +450,6 @@ api.interceptors.response.use(
     }
     
     // Handle network errors (no response) or timeouts (ECONNABORTED)
-    const isTimeout = error.code === 'ECONNABORTED' || (error.message && error.message.toLowerCase().includes('timeout'));
-    const isNetworkError = !error.response && error.request;
-
     if ((isNetworkError || isTimeout) && originalRequest) {
       // Check network status to see if we're offline
       let isOffline = false;

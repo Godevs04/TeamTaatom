@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const Post = require('../models/Post');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
+const UserInteraction = require('../models/UserInteraction');
 const Activity = require('../models/Activity');
 const Hashtag = require('../models/Hashtag');
 const { getOptimizedImageUrl } = require('../config/cloudinary');
@@ -116,14 +117,23 @@ const handleHLSProxy = async (req, res) => {
  * - Logged in: self + public authors + authors with 'followers'/'private' who have viewer in their followers
  */
 async function getAllowedPostAuthorIds(viewerId) {
+  const publicQuery = {
+    $or: [
+      { 'settings.privacy.profileVisibility': 'public' },
+      { 'settings.privacy.profileVisibility': { $exists: false } },
+      { 'settings.privacy': { $exists: false } },
+      { 'settings': { $exists: false } }
+    ]
+  };
+
   if (!viewerId) {
-    const users = await User.find({ 'settings.privacy.profileVisibility': 'public' }).select('_id').lean();
+    const users = await User.find(publicQuery).select('_id').lean();
     return users.map(u => u._id);
   }
   const viewerObjId = mongoose.Types.ObjectId.isValid(viewerId) ? new mongoose.Types.ObjectId(viewerId) : null;
   if (!viewerObjId) return [];
 
-  const publicUsers = await User.find({ 'settings.privacy.profileVisibility': 'public' }).select('_id').lean();
+  const publicUsers = await User.find(publicQuery).select('_id').lean();
   const publicIds = publicUsers.map(u => u._id);
 
   const restrictedAuthors = await User.find({
@@ -3080,27 +3090,53 @@ const getShorts = async (req, res) => {
       ? allowedAuthorIds.filter(id => !blockedIds.includes(id.toString()))
       : allowedAuthorIds;
 
-    let cursorFilter = {};
+    let viewedPostIds = [];
+    let spotTypeAffinities = new Map();
+    let travelInfoAffinities = new Map();
+    let creatorAffinities = new Map();
+    
+    if (viewerId) {
+      try {
+        const ui = await UserInteraction.findOne({ user: req.user._id });
+        if (ui) {
+          viewedPostIds = (ui.viewedPosts || []).map(vp => vp.postId);
+          spotTypeAffinities = ui.spotTypeAffinities || new Map();
+          travelInfoAffinities = ui.travelInfoAffinities || new Map();
+          creatorAffinities = ui.creatorAffinities || new Map();
+        }
+      } catch (err) {
+        logger.error('Error fetching UserInteraction', err);
+      }
+    }
+
+    let dateCursorFilter = null;
+    let scoreCursorFilter = null;
+    
     if (cursor) {
       try {
         const decoded = Buffer.from(cursor, 'base64').toString('ascii');
-        const [createdAtStr, idStr] = decoded.split(',');
-        if (createdAtStr && idStr && mongoose.Types.ObjectId.isValid(idStr)) {
-          const cursorDate = new Date(parseInt(createdAtStr));
+        const [scoreOrDateStr, idStr] = decoded.split(',');
+        if (scoreOrDateStr && idStr && mongoose.Types.ObjectId.isValid(idStr)) {
+          const cursorVal = parseFloat(scoreOrDateStr);
           const cursorId = new mongoose.Types.ObjectId(idStr);
-          cursorFilter = {
-            $or: [
-              { createdAt: { $lt: cursorDate } },
-              { createdAt: cursorDate, _id: { $lt: cursorId } }
-            ]
-          };
+          
+          if (cursorVal > 1000000000000) { // Old date cursor
+            dateCursorFilter = {
+              $or: [
+                { createdAt: { $lt: new Date(cursorVal) } },
+                { createdAt: new Date(cursorVal), _id: { $lt: cursorId } }
+              ]
+            };
+          } else { // New score cursor
+            scoreCursorFilter = { score: cursorVal, id: cursorId };
+          }
         }
       } catch (err) {
         logger.warn('Failed to parse cursor, using empty filter:', err);
       }
     }
 
-    const matchQuery = {
+    const baseConditions = {
       isActive: true,
       isArchived: { $ne: true },
       isHidden: { $ne: true },
@@ -3109,19 +3145,119 @@ const getShorts = async (req, res) => {
         { $or: [{ status: 'active' }, { status: { $exists: false } }] }
       ]
     };
+
     if (allowedFiltered.length > 0) {
-      matchQuery.user = { $in: allowedFiltered };
+      baseConditions.user = { $in: allowedFiltered.map(id => new mongoose.Types.ObjectId(id)) };
     } else {
-      matchQuery.user = { $in: [new mongoose.Types.ObjectId()] };
-    }
-    if (cursorFilter.$or) {
-      matchQuery.$and.push({ $or: cursorFilter.$or });
+      baseConditions.user = { $in: [new mongoose.Types.ObjectId()] };
     }
 
-    const shorts = await Post.aggregate([
-      { $match: matchQuery },
-      { $sort: { createdAt: -1, _id: -1 } },
-      { $limit: safeLimit + 1 },
+    const spotTypeBranches = [];
+    spotTypeAffinities.forEach((val, key) => {
+      spotTypeBranches.push({ case: { $eq: ['$spotType', key] }, then: val });
+    });
+    
+    const travelInfoBranches = [];
+    travelInfoAffinities.forEach((val, key) => {
+      travelInfoBranches.push({ case: { $eq: ['$travelInfo', key] }, then: val });
+    });
+    
+    const creatorBranches = [];
+    creatorAffinities.forEach((val, key) => {
+      creatorBranches.push({ case: { $eq: [{ $toString: '$user' }, key] }, then: val });
+    });
+
+    // Match user's onboarding interests to boost scoring
+    const interestScores = [];
+    if (req.user?.interests && Array.isArray(req.user.interests) && req.user.interests.length > 0) {
+      req.user.interests.forEach(interest => {
+        const lowerInterest = interest.toLowerCase();
+        
+        let spotMatch = null;
+        if (lowerInterest === 'beach') spotMatch = 'Beach';
+        else if (lowerInterest === 'mountains') spotMatch = 'Mountain';
+        else if (lowerInterest === 'city') spotMatch = 'City';
+        else if (lowerInterest === 'nature') spotMatch = 'Natural spots';
+        else if (lowerInterest === 'culture') spotMatch = 'Cultural';
+        else if (lowerInterest === 'art') spotMatch = 'Cultural';
+        else if (lowerInterest === 'history') spotMatch = 'Cultural';
+        
+        let travelMatch = null;
+        if (lowerInterest === 'adventure') travelMatch = 'Hiking';
+
+        const conds = [];
+        if (spotMatch) {
+          conds.push({ $eq: ['$spotType', spotMatch] });
+        }
+        if (travelMatch) {
+          conds.push({ $eq: ['$travelInfo', travelMatch] });
+        }
+        conds.push({
+          $in: [
+            lowerInterest,
+            {
+              $map: {
+                input: { $ifNull: ['$tags', []] },
+                as: 't',
+                in: { $toLower: '$$t' }
+              }
+            }
+          ]
+        });
+
+        interestScores.push({
+          $cond: {
+            if: { $or: conds },
+            then: 10,
+            else: 0
+          }
+        });
+      });
+    }
+
+    const scoringStages = [
+      {
+        $addFields: {
+          baseScore: {
+            $add: [
+              { $multiply: [{ $size: { $ifNull: ['$likes', []] } }, 2] },
+              { $multiply: [{ $size: { $ifNull: ['$comments', []] } }, 2] },
+              { $multiply: [{ $ifNull: ['$sharesCount', 0] }, 3] },
+              {
+                $max: [
+                  0,
+                  {
+                    $subtract: [
+                      100,
+                      { $divide: [{ $subtract: [new Date(), "$createdAt"] }, 1000 * 60 * 60 * 24] }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          spotAffinity: spotTypeBranches.length > 0 ? { $switch: { branches: spotTypeBranches, default: 0 } } : 0,
+          travelAffinity: travelInfoBranches.length > 0 ? { $switch: { branches: travelInfoBranches, default: 0 } } : 0,
+          creatorAffinity: creatorBranches.length > 0 ? { $switch: { branches: creatorBranches, default: 0 } } : 0,
+          interestAffinity: interestScores.length > 0 ? { $add: interestScores } : 0,
+        }
+      },
+      {
+        $addFields: {
+          totalScore: {
+            $add: [
+              "$baseScore",
+              "$spotAffinity",
+              "$travelAffinity",
+              "$creatorAffinity",
+              "$interestAffinity"
+            ]
+          }
+        }
+      }
+    ];
+
+    const projectionPipeline = [
       {
         $lookup: {
           from: 'users',
@@ -3233,10 +3369,149 @@ const getShorts = async (req, res) => {
         $project: {
           commentUsers: 0,
           songData: 0
-          // Note: All other fields are included by default (storageKey, storageKeys, videoUrl, imageUrl, etc.)
         }
       }
-    ]);
+    ];
+
+    const collectedShorts = [];
+    const skippedShorts = [];
+    const seenShortIds = new Set();
+    const recentCreators = new Set();
+
+    const addShortsWithDiversity = (shortsList) => {
+      for (const short of shortsList) {
+        const idStr = short._id.toString();
+        if (seenShortIds.has(idStr)) continue;
+
+        // Skip if short has absolutely no media fields
+        const hasMedia = short.videoUrl || short.imageUrl || short.storageKey || (short.storageKeys && short.storageKeys.length > 0);
+        if (!hasMedia) {
+          logger.warn(`Short ${short._id} missing media fields completely, skipping`);
+          continue;
+        }
+
+        const creatorId = short.user && short.user._id ? short.user._id.toString() : null;
+        if (creatorId && recentCreators.has(creatorId)) {
+          skippedShorts.push(short);
+          continue;
+        }
+
+        if (creatorId) {
+          recentCreators.add(creatorId);
+          if (recentCreators.size > 3) {
+            const firstItem = recentCreators.values().next().value;
+            recentCreators.delete(firstItem);
+          }
+        }
+
+        collectedShorts.push(short);
+        seenShortIds.add(idStr);
+        if (collectedShorts.length >= safeLimit + 1) {
+          return true; // We are full
+        }
+      }
+      return false; // Not full yet
+    };
+
+    // Phase 1: Fetch unviewed allowed shorts matching the cursor filter
+    const phase1Match = { ...baseConditions };
+    
+    if (viewedPostIds.length > 0) {
+      phase1Match._id = { $nin: viewedPostIds.map(id => new mongoose.Types.ObjectId(id)) };
+    }
+
+    if (dateCursorFilter) {
+      if (!phase1Match.$and) phase1Match.$and = [];
+      phase1Match.$and.push(dateCursorFilter);
+    }
+
+    const phase1Pipeline = [
+      { $match: phase1Match },
+      ...scoringStages
+    ];
+
+    if (scoreCursorFilter) {
+      phase1Pipeline.push({
+        $match: {
+          $or: [
+            { totalScore: { $lt: scoreCursorFilter.score } },
+            { totalScore: scoreCursorFilter.score, _id: { $lt: scoreCursorFilter.id } }
+          ]
+        }
+      });
+    }
+
+    phase1Pipeline.push(
+      { $sort: { totalScore: -1, _id: -1 } },
+      { $limit: safeLimit * 3 },
+      ...projectionPipeline
+    );
+
+    const phase1Shorts = await Post.aggregate(phase1Pipeline);
+    let isFull = addShortsWithDiversity(phase1Shorts);
+
+    // Phase 2: Fallback to other unviewed allowed shorts (without cursor filter)
+    if (!isFull) {
+      const excludeIds = [
+        ...viewedPostIds.map(id => new mongoose.Types.ObjectId(id)),
+        ...Array.from(seenShortIds).map(id => new mongoose.Types.ObjectId(id))
+      ];
+
+      const phase2Match = {
+        ...baseConditions,
+        _id: { $nin: excludeIds }
+      };
+
+      const phase2Pipeline = [
+        { $match: phase2Match },
+        ...scoringStages,
+        { $sort: { totalScore: -1, _id: -1 } },
+        { $limit: (safeLimit + 1) * 2 },
+        ...projectionPipeline
+      ];
+
+      const phase2Shorts = await Post.aggregate(phase2Pipeline);
+      isFull = addShortsWithDiversity(phase2Shorts);
+    }
+
+    // Phase 3: Fallback to already viewed allowed shorts to guarantee infinite scrolling
+    if (!isFull) {
+      const excludeIds = Array.from(seenShortIds).map(id => new mongoose.Types.ObjectId(id));
+
+      const phase3Match = {
+        ...baseConditions,
+        _id: { $nin: excludeIds }
+      };
+
+      const phase3Pipeline = [
+        { $match: phase3Match },
+        ...scoringStages,
+        { $sort: { totalScore: -1, _id: -1 } },
+        { $limit: (safeLimit + 1) * 2 },
+        ...projectionPipeline
+      ];
+
+      const phase3Shorts = await Post.aggregate(phase3Pipeline);
+      isFull = addShortsWithDiversity(phase3Shorts);
+    }
+
+    // Phase 4: Fallback to skipped shorts if diversity control made us return too few items
+    if (collectedShorts.length < safeLimit + 1 && skippedShorts.length > 0) {
+      for (const short of skippedShorts) {
+        const idStr = short._id.toString();
+        if (!seenShortIds.has(idStr)) {
+          collectedShorts.push(short);
+          seenShortIds.add(idStr);
+          if (collectedShorts.length >= safeLimit + 1) {
+            break;
+          }
+        }
+      }
+    }
+
+    const hasNextPage = collectedShorts.length > safeLimit;
+    const responseShorts = hasNextPage ? collectedShorts.slice(0, safeLimit) : collectedShorts;
+    const shorts = responseShorts;
 
     // Generate signed URLs for profile pictures and add isLiked field
     // Defensive guards: validate media URLs and handle missing data gracefully
@@ -3379,21 +3654,18 @@ const getShorts = async (req, res) => {
     }));
 
     // Filter out null entries (shorts without media)
-    const validShorts = shortsWithLikeStatus.filter(short => short !== null);
-
-    const hasNextPage = validShorts.length > safeLimit;
-    const responseShorts = hasNextPage ? validShorts.slice(0, safeLimit) : validShorts;
+    const finalShorts = shortsWithLikeStatus.filter(short => short !== null);
 
     let nextCursor = null;
-    if (responseShorts.length > 0) {
-      const lastItem = responseShorts[responseShorts.length - 1];
-      const lastCreatedAtMs = new Date(lastItem.createdAt).getTime();
-      const lastId = lastItem._id.toString();
-      nextCursor = Buffer.from(`${lastCreatedAtMs},${lastId}`).toString('base64');
+    if (finalShorts.length > 0) {
+      const lastItem = finalShorts[finalShorts.length - 1];
+      const cursorVal = lastItem.totalScore !== undefined ? lastItem.totalScore : new Date(lastItem.createdAt || Date.now()).getTime();
+      const lastId = lastItem._id ? lastItem._id.toString() : new mongoose.Types.ObjectId().toString();
+      nextCursor = Buffer.from(`${cursorVal},${lastId}`).toString('base64');
     }
 
     res.status(200).json({
-      shorts: responseShorts,
+      shorts: finalShorts,
       pagination: {
         nextCursor,
         hasNextPage,

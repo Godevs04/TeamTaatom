@@ -89,7 +89,7 @@ export const SongBar: React.FC<SongBarProps> = ({
   const togglePlay = useCallback(async () => {
     try {
       if (isPlaying && soundRef.current) {
-        await soundRef.current.pauseAsync();
+        await soundRef.current?.pauseAsync().catch(() => {});
         setIsPlaying(false);
         if (statusIntervalRef.current) clearInterval(statusIntervalRef.current);
         return;
@@ -112,8 +112,8 @@ export const SongBar: React.FC<SongBarProps> = ({
         );
         soundRef.current = sound;
       } else {
-        await soundRef.current.setPositionAsync(0);
-        await soundRef.current.playAsync();
+        await soundRef.current?.setPositionAsync(0).catch(() => {});
+        await soundRef.current?.playAsync().catch(() => {});
       }
 
       setIsPlaying(true);
@@ -122,8 +122,8 @@ export const SongBar: React.FC<SongBarProps> = ({
       statusIntervalRef.current = setInterval(async () => {
         if (!soundRef.current || !isMountedRef.current) return;
         try {
-          const status = await soundRef.current.getStatusAsync();
-          if (status.isLoaded && !status.isPlaying && status.didJustFinish) {
+          const status = await soundRef.current?.getStatusAsync();
+          if (status && status.isLoaded && !status.isPlaying && status.didJustFinish) {
             setIsPlaying(false);
             if (statusIntervalRef.current) clearInterval(statusIntervalRef.current);
           }

@@ -36,13 +36,13 @@ export default function CloudChatConversationHeader({
   const displayUsername = username || `@${title.toLowerCase().replace(/[^a-z0-9_.]/g, '')}`;
 
   return (
-    <View style={styles.wrap}>
+    <View style={[styles.wrap, { borderBottomColor: theme.colors.border }]}>
       <LinearGradient
-        colors={isDark ? ['#102236', '#07111C'] : ['#FFFFFF', '#F5F7FA']}
+        colors={[theme.colors.surface, theme.colors.background]}
         style={StyleSheet.absoluteFillObject}
       />
       <BlurView intensity={isDark ? 40 : 20} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
-      <View style={styles.border} />
+      <View style={[styles.border, { backgroundColor: theme.colors.border }]} />
       <View style={styles.row}>
         <TouchableOpacity onPress={onBack} style={[styles.back, { overflow: 'hidden', borderRadius: 16 }]} hitSlop={10}>
           <LinearGradient

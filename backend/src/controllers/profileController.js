@@ -3497,9 +3497,46 @@ const getApprovedUsers = async (req, res) => {
   }
 };
 
+const updateLocation = async (req, res) => {
+  try {
+    const { city, country } = req.body;
+    const userId = req.user._id;
+
+    if (!city && !country) {
+      return sendError(res, 'VAL_2001', 'City or country must be provided');
+    }
+
+    const updateData = {
+      locationUpdatedAt: new Date(),
+    };
+    
+    if (city !== undefined) updateData.currentLocation = city;
+    if (country !== undefined) updateData.currentCountry = country;
+
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      updateData,
+      { new: true }
+    );
+
+    if (!updatedUser) {
+      return sendError(res, 'RES_3001', 'User not found');
+    }
+
+    return sendSuccess(res, 200, 'Location updated successfully', {
+      currentLocation: updatedUser.currentLocation,
+      currentCountry: updatedUser.currentCountry
+    });
+  } catch (error) {
+    logger.error('Update location error:', error);
+    return sendError(res, 'SRV_6001', 'Error updating location');
+  }
+};
+
 module.exports = {
   getProfile,
   updateProfile,
+  updateLocation,
   toggleFollow,
   searchUsers,
   getFollowersList,

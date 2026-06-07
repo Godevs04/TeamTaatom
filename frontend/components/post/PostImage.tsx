@@ -377,20 +377,21 @@ export default function PostImage({
   const aspectRatioValue = getAspectRatio();
 
   // Pinch-to-zoom shared values
+  // Pinch-to-zoom shared values
   const scale = useSharedValue<number>(1);
+  const originX = useSharedValue<number>(0);
+  const originY = useSharedValue<number>(0);
   const focalX = useSharedValue<number>(0);
   const focalY = useSharedValue<number>(0);
 
-  // Pan shared values for dragging zoomed image
-  const panX = useSharedValue<number>(0);
-  const panY = useSharedValue<number>(0);
-  const prevPanX = useSharedValue<number>(0);
-  const prevPanY = useSharedValue<number>(0);
-
   const pinchGesture = Gesture.Pinch()
-    .onStart(() => {
+    .onStart((e) => {
       runOnJS(setIsZoomed)(true);
       runOnJS(setScrollEnabled)(false);
+      originX.value = (e.focalX && !isNaN(e.focalX) && isFinite(e.focalX)) ? e.focalX : 0;
+      originY.value = (e.focalY && !isNaN(e.focalY) && isFinite(e.focalY)) ? e.focalY : 0;
+      focalX.value = originX.value;
+      focalY.value = originY.value;
       if (onZoomStateChange) {
         runOnJS(onZoomStateChange)(true);
       }
@@ -398,22 +399,16 @@ export default function PostImage({
     .onUpdate((e) => {
       // Only process pinch updates if 2 fingers are touching to prevent focal jumps on iOS
       if (e.numberOfPointers === 2) {
-        // Clamp scale within the UI worklet to prevent crashes (Max 5, Min 1)
         const currentScale = (e.scale && !isNaN(e.scale) && isFinite(e.scale)) ? e.scale : 1;
         scale.value = Math.max(1, Math.min(currentScale, 5));
-        focalX.value = (e.focalX && !isNaN(e.focalX) && isFinite(e.focalX)) ? e.focalX : 0;
-        focalY.value = (e.focalY && !isNaN(e.focalY) && isFinite(e.focalY)) ? e.focalY : 0;
+        focalX.value = (e.focalX && !isNaN(e.focalX) && isFinite(e.focalX)) ? e.focalX : originX.value;
+        focalY.value = (e.focalY && !isNaN(e.focalY) && isFinite(e.focalY)) ? e.focalY : originY.value;
       }
     })
     .onEnd(() => {
-      // Automatic snap-back feature (BUG-002) using withSpring for smooth reset
       scale.value = withSpring(1);
-      focalX.value = withSpring(0);
-      focalY.value = withSpring(0);
-      panX.value = withSpring(0);
-      panY.value = withSpring(0);
-      prevPanX.value = 0;
-      prevPanY.value = 0;
+      focalX.value = withSpring(originX.value);
+      focalY.value = withSpring(originY.value);
       runOnJS(setIsZoomed)(false);
       runOnJS(setScrollEnabled)(true);
       if (onZoomStateChange) {
@@ -421,36 +416,9 @@ export default function PostImage({
       }
     });
 
-  const panGesture = Gesture.Pan()
-    .enabled(isZoomed)
-    .onStart(() => {
-      prevPanX.value = panX.value;
-      prevPanY.value = panY.value;
-      runOnJS(setScrollEnabled)(false);
-    })
-    .onUpdate((e) => {
-      if (scale.value > 1.01) {
-        const translationX = (e.translationX && !isNaN(e.translationX) && isFinite(e.translationX)) ? e.translationX : 0;
-        const translationY = (e.translationY && !isNaN(e.translationY) && isFinite(e.translationY)) ? e.translationY : 0;
-        panX.value = prevPanX.value + translationX;
-        panY.value = prevPanY.value + translationY;
-      }
-    })
-    .onEnd(() => {
-      if (scale.value <= 1.01) {
-        panX.value = withSpring(0);
-        panY.value = withSpring(0);
-        prevPanX.value = 0;
-        prevPanY.value = 0;
-        runOnJS(setIsZoomed)(false);
-      }
-      runOnJS(setScrollEnabled)(true);
-    });
-
   // Composed Gestures
   const composedGesture = Gesture.Simultaneous(
     pinchGesture,
-    panGesture,
     Gesture.Exclusive(doubleTapGesture, singleTapGesture)
   );
 
@@ -459,33 +427,35 @@ export default function PostImage({
   const animatedImageStyle = useAnimatedStyle(() => {
     // Null reference and bounds guard
     const s = (scale.value && !isNaN(scale.value) && isFinite(scale.value)) ? scale.value : 1;
+    const ox = (originX.value && !isNaN(originX.value) && isFinite(originX.value)) ? originX.value : 0;
+    const oy = (originY.value && !isNaN(originY.value) && isFinite(originY.value)) ? originY.value : 0;
     const fx = (focalX.value && !isNaN(focalX.value) && isFinite(focalX.value)) ? focalX.value : 0;
     const fy = (focalY.value && !isNaN(focalY.value) && isFinite(focalY.value)) ? focalY.value : 0;
-    const px = (panX.value && !isNaN(panX.value) && isFinite(panX.value)) ? panX.value : 0;
-    const py = (panY.value && !isNaN(panY.value) && isFinite(panY.value)) ? panY.value : 0;
 
     const width = containerWidth;
     const height = aspectRatioValue ? (containerWidth / aspectRatioValue) : containerWidth;
     const safeHeight = (height && !isNaN(height) && isFinite(height)) ? height : containerWidth;
 
-    // Translation to center-relative focal point
-    const rawFocalXOffset = width / 2 - fx;
-    const rawFocalYOffset = safeHeight / 2 - fy;
+    // The shift caused by moving your fingers
+    const px = fx - ox;
+    const py = fy - oy;
+
+    // Center-relative focal point offset
+    const rawFocalXOffset = width / 2 - ox;
+    const rawFocalYOffset = safeHeight / 2 - oy;
 
     const focalXOffset = (!isNaN(rawFocalXOffset) && isFinite(rawFocalXOffset)) ? rawFocalXOffset : 0;
     const focalYOffset = (!isNaN(rawFocalYOffset) && isFinite(rawFocalYOffset)) ? rawFocalYOffset : 0;
-    const safePanX = (!isNaN(px) && isFinite(px)) ? px : 0;
-    const safePanY = (!isNaN(py) && isFinite(py)) ? py : 0;
 
     return {
       transform: [
+        { translateX: px },
+        { translateY: py },
         { translateX: focalXOffset },
         { translateY: focalYOffset },
         { scale: s },
         { translateX: -focalXOffset },
         { translateY: -focalYOffset },
-        { translateX: safePanX },
-        { translateY: safePanY },
       ] as any,
     };
   });

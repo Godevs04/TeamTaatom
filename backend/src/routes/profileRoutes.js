@@ -6,6 +6,7 @@ const { authMiddleware, optionalAuth } = require('../middleware/authMiddleware')
 const {
   getProfile,
   updateProfile,
+  updateLocation,
   toggleFollow,
   searchUsers,
   getFollowersList,
@@ -238,6 +239,33 @@ router.get('/suggested-users', authMiddleware, getSuggestedUsers);
  */
 router.post('/interests', authMiddleware, saveInterests);
 router.post('/onboarding/complete', authMiddleware, completeProfileOnboarding);
+
+/**
+ * @swagger
+ * /api/v1/profile/me/location:
+ *   put:
+ *     summary: Update dynamic user location
+ *     description: Updates the current dynamic location (city, country) of the authenticated user
+ *     tags: [Profile]
+ *     security:
+ *       - bearerAuth: []
+ *       - cookieAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               city:
+ *                 type: string
+ *               country:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Location updated successfully
+ */
+router.put('/me/location', authMiddleware, updateLocation);
 /**
  * @swagger
  * /api/v1/profile/follow-requests:

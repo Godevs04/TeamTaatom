@@ -25,7 +25,7 @@ import { calculateDistance } from '../../utils/locationUtils';
 import GlassMapPanel from '../../components/GlassMapPanel';
 import PremiumMapMarker from '../../components/PremiumMapMarker';
 import PolylineRenderer from '../../components/PolylineRenderer';
-import { DirectionsRoute, fetchDirectionsRoute, getManeuverIcon } from '../../services/directions';
+import { DirectionsRoute, getManeuverIcon } from '../../services/directions';
 import { useMapStyle } from '../../hooks/useMapStyle';
 import logger from '../../utils/logger';
 import { BlurView } from 'expo-blur';
@@ -514,14 +514,18 @@ export default function CurrentLocationMap() {
         return;
       }
 
-      const nextRoute = await fetchDirectionsRoute(
-        coords,
-        { latitude: postLatitude, longitude: postLongitude }
-      );
-      setRoute(nextRoute);
+      // Route calculation is now delegated to the Maps JS SDK inside the WebView
+      // Trigger calculation dynamically without reloading the WebView
+      if (mapRef.current && useWebViewFallback) {
+        mapRef.current.injectJavaScript(`
+          if (typeof window.calculateRoute === 'function') {
+            window.calculateRoute();
+          }
+          true;
+        `);
+      }
     } catch (err) {
-      logger.error('Failed to load in-app route:', err);
-    } finally {
+      logger.error('Failed to init route state:', err);
       setRouteLoading(false);
     }
   };
@@ -585,7 +589,7 @@ export default function CurrentLocationMap() {
       const rawTitle = isPostLocation ? (postAddress || 'Post Location') : (locationName || 'Your Current Location');
       const htmlEsc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
       const html = `<!DOCTYPE html><html><head>
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <style>
 html,body,#map{height:100%;margin:0;padding:0}
 .glowing-dot-container {
@@ -683,7 +687,7 @@ html,body,#map{height:100%;margin:0;padding:0}
 </style>
 <script>
 function initMap(){
-  window.map=new google.maps.Map(document.getElementById('map'),{center:{lat:${lat},lng:${lng}},zoom:15,mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true});
+  window.map=new google.maps.Map(document.getElementById('map'),{center:{lat:${lat},lng:${lng}},zoom:15,mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true,gestureHandling:'greedy',isFractionalZoomEnabled:true});
   var map=window.map;
   
   // Custom OverlayView class
@@ -718,47 +722,111 @@ function initMap(){
     }
   }
 
-  var routePath=${JSON.stringify(route?.coordinates.map((coord) => ({ lat: coord.latitude, lng: coord.longitude })) || [])};
-  if(routePath.length>1){
-    new google.maps.Polyline({path:routePath,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:14,map:map});
-    new google.maps.Polyline({path:routePath,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:5,map:map});
-    var bounds=new google.maps.LatLngBounds();routePath.forEach(function(p){bounds.extend(p);});map.fitBounds(bounds,64);
+  var isPostLoc = ${isPostLocation};
+  var userCoords = ${userCoordsJson};
+  var destination = new google.maps.LatLng(${lat}, ${lng});
+
+  function drawRoute(path) {
+    if (path.length > 1) {
+      new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:14,map:map});
+      new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:5,map:map});
+      var bounds=new google.maps.LatLngBounds();
+      path.forEach(function(p){bounds.extend(p);});
+      map.fitBounds(bounds,64);
+    }
   }
-  
-  var userCoords=${userCoordsJson};
-  if(routePath.length>1 && userCoords){
+
+  function drawUserDot(pos) {
     var userDiv=document.createElement('div');
     userDiv.style.cssText='position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
     userDiv.setAttribute('data-anchor', 'center');
     userDiv.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
-    new PhotoOverlay(new google.maps.LatLng(userCoords.latitude, userCoords.longitude), userDiv);
+    new PhotoOverlay(pos, userDiv);
   }
-  
-  var div=document.createElement('div');
-  div.style.cssText='position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
-  
-  var isPostLoc = ${isPostLocation};
-  if (isPostLoc) {
-    var titleText = ${JSON.stringify(htmlEsc(locationName || postAddress || 'Location'))};
-    var subtitleText = ${JSON.stringify(htmlEsc(params.spotTypes as string || params.description as string || 'Visited place'))};
-    var photoUrl = ${JSON.stringify(params.imageUrl ? resolvePhotoUrl(params.imageUrl as string) : '')};
-    var imgHtml = photoUrl ? '<img src="' + photoUrl + '" class="marker-thumb" onerror="this.style.display=\\'none\\'" />' : '<div class="marker-thumb-placeholder">📍</div>';
-    div.setAttribute('data-anchor', 'bottom');
-    div.innerHTML = '<div class="glass-marker-card">' +
-      imgHtml +
-      '<div class="marker-info">' +
-        '<div class="marker-title">' + titleText + '</div>' +
-        '<div class="marker-subtitle">' + subtitleText + '</div>' +
-      '</div>' +
-    '</div>';
-  } else if (routePath.length > 1) {
-    div.setAttribute('data-anchor', 'bottom');
-    div.innerHTML = '<svg width="30" height="40" viewBox="0 0 30 40" style="filter: drop-shadow(0px 3px 4px rgba(0,0,0,0.35))"><defs><linearGradient id="htmlPinGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#50C878" /><stop offset="100%" stop-color="#1C73B4" /></linearGradient></defs><path d="M15 1C7.27 1 1 7.27 1 15c0 10 14 25 14 25s14-15 14-25c0-7.73-6.27-14-14-14zm0 19c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z" fill="url(#htmlPinGrad)" fill-rule="evenodd" stroke="#FFFFFF" stroke-width="1.5"/></svg>';
+
+  function drawDestinationMarker(hasRoute) {
+    var div=document.createElement('div');
+    div.style.cssText='position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+    
+    if (isPostLoc) {
+      var titleText = ${JSON.stringify(htmlEsc(locationName || postAddress || 'Location'))};
+      var subtitleText = ${JSON.stringify(htmlEsc(params.spotTypes as string || params.description as string || 'Visited place'))};
+      var photoUrl = ${JSON.stringify(params.imageUrl ? resolvePhotoUrl(params.imageUrl as string) : '')};
+      var imgHtml = photoUrl ? '<img src="' + photoUrl + '" class="marker-thumb" onerror="this.style.display=\\'none\\'" />' : '<div class="marker-thumb-placeholder">📍</div>';
+      div.setAttribute('data-anchor', 'bottom');
+      div.innerHTML = '<div class="glass-marker-card">' +
+        imgHtml +
+        '<div class="marker-info">' +
+          '<div class="marker-title">' + titleText + '</div>' +
+          '<div class="marker-subtitle">' + subtitleText + '</div>' +
+        '</div>' +
+      '</div>';
+    } else if (hasRoute) {
+      div.setAttribute('data-anchor', 'bottom');
+      div.innerHTML = '<svg width="30" height="40" viewBox="0 0 30 40" style="filter: drop-shadow(0px 3px 4px rgba(0,0,0,0.35))"><defs><linearGradient id="htmlPinGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#50C878" /><stop offset="100%" stop-color="#1C73B4" /></linearGradient></defs><path d="M15 1C7.27 1 1 7.27 1 15c0 10 14 25 14 25s14-15 14-25c0-7.73-6.27-14-14-14zm0 19c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z" fill="url(#htmlPinGrad)" fill-rule="evenodd" stroke="#FFFFFF" stroke-width="1.5"/></svg>';
+    } else {
+      div.setAttribute('data-anchor', 'center');
+      div.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
+    }
+    var overlay = new PhotoOverlay(destination, div);
+    return overlay;
+  }
+
+  window.calculateRoute = function() {
+    if (userCoords && isPostLoc) {
+      // Remove the existing standalone destination marker before drawing the route one
+      if (window.destinationOverlay) {
+        window.destinationOverlay.onRemove();
+      }
+      
+      var directionsService = new google.maps.DirectionsService();
+      var origin = new google.maps.LatLng(userCoords.latitude, userCoords.longitude);
+      
+      directionsService.route({
+        origin: origin,
+        destination: destination,
+        travelMode: google.maps.TravelMode.DRIVING
+      }, function(response, status) {
+        if (status === 'OK') {
+          var path = response.routes[0].overview_path;
+          drawRoute(path);
+          drawUserDot(origin);
+          drawDestinationMarker(true);
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'ROUTE_LOADED',
+              distanceText: response.routes[0].legs[0].distance.text,
+              distanceValue: response.routes[0].legs[0].distance.value,
+              durationText: response.routes[0].legs[0].duration.text,
+              durationValue: response.routes[0].legs[0].duration.value
+            }));
+          }
+        } else {
+          var fallbackPath = [origin, destination];
+          drawRoute(fallbackPath);
+          drawUserDot(origin);
+          drawDestinationMarker(true);
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_ERROR' }));
+          }
+        }
+      });
+    }
+  };
+
+  if (${isRoutingActive} && userCoords && isPostLoc) {
+    window.calculateRoute();
   } else {
-    div.setAttribute('data-anchor', 'center');
-    div.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
+    window.destinationOverlay = drawDestinationMarker(false);
+    if (userCoords && !isPostLoc) {
+      var origin = new google.maps.LatLng(userCoords.latitude, userCoords.longitude);
+      drawUserDot(origin);
+    } else if (userCoords && isPostLoc) {
+      // Just show the user dot as well without routing
+      var origin = new google.maps.LatLng(userCoords.latitude, userCoords.longitude);
+      drawUserDot(origin);
+    }
   }
-  new PhotoOverlay(new google.maps.LatLng(${lat}, ${lng}), div);
 }
 </script></head><body>
 <div id="map"></div>
@@ -776,6 +844,22 @@ function initMap(){
           onShouldStartLoadWithRequest={(req) => req.url.startsWith('http') || req.url.startsWith('data:') || req.url.startsWith('about:')}
           {...(Platform.OS === 'android' && { mixedContentMode: 'compatibility' as const, setSupportMultipleWindows: false })}
           onError={(e) => logger.error('WebView error:', e.nativeEvent)}
+          onMessage={(event) => {
+            try {
+              const data = JSON.parse(event.nativeEvent.data);
+              if (data.type === 'ROUTE_LOADED') {
+                setRoute({
+                  distance: { text: data.distanceText, value: data.distanceValue },
+                  duration: { text: data.durationText, value: data.durationValue },
+                  coordinates: [], 
+                  steps: []
+                } as any);
+                setRouteLoading(false);
+              } else if (data.type === 'ROUTE_ERROR') {
+                setRouteLoading(false);
+              }
+            } catch (e) {}
+          }}
         />
       );
     }
