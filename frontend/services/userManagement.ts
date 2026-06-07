@@ -154,3 +154,13 @@ export const exportUserData = async (): Promise<any> => {
   }
 };
 
+// Update user's dynamic location for search/filtering
+export const updateDynamicLocation = async (city?: string, country?: string): Promise<any> => {
+  try {
+    const response = await api.put('/api/v1/profile/me/location', { city, country });
+    return response.data;
+  } catch (error: any) {
+    const parsedError = parseError(error);
+    throw new Error(parsedError.userMessage);
+  }
+};

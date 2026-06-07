@@ -569,8 +569,10 @@ export default function ConnectPageDetailScreen() {
       pageName: page.name,
       chatRoomId: page.chatRoomId,
     });
-    setPendingChatRoomId(page.chatRoomId);
-    router.push('/chat');
+    router.push({
+      pathname: '/chat/thread',
+      params: { chatId: page.chatRoomId }
+    });
   };
 
   const handleSaveBio = async () => {
@@ -871,10 +873,6 @@ export default function ConnectPageDetailScreen() {
             tint={isDark ? 'dark' : 'light'}
             style={StyleSheet.absoluteFillObject}
           />
-          <LinearGradient
-            colors={isDark ? ['rgba(255, 255, 255, 0.1)', 'transparent'] : ['rgba(255, 255, 255, 0.5)', 'transparent']}
-            style={StyleSheet.absoluteFillObject}
-          />
           <View style={styles.headerInner}>
             <TouchableOpacity style={styles.backButton} onPress={() => router.back()} activeOpacity={0.7}>
               <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
@@ -955,7 +953,7 @@ export default function ConnectPageDetailScreen() {
         <View
           style={[
             StyleSheet.absoluteFillObject,
-            { backgroundColor: isDark ? 'rgba(15, 15, 15, 0.35)' : 'rgba(255, 255, 255, 0.35)' }
+            { backgroundColor: isDark ? 'rgba(15, 15, 15, 0.35)' : 'rgba(255, 255, 255, 0.1)' }
           ]}
         />
         <View style={styles.headerInner}>

@@ -62,6 +62,8 @@ try {
       dsn: SENTRY_DSN,
       sendDefaultPii: true,
       enableLogs: true,
+      // @ts-ignore - Sentry requires 8.5.0+ for tombstone collection
+      enableTombstone: true,
       replaysSessionSampleRate: parseSampleRate(
         process.env.EXPO_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE || extra.EXPO_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE,
         0.1
@@ -1102,7 +1104,7 @@ function RootLayoutInner() {
           <Stack.Screen name="notifications" options={{ presentation: 'card' }} />
           {/* Nested routes with index files */}
           <Stack.Screen name="activity/index" options={{ presentation: 'card' }} />
-          <Stack.Screen name="chat/index" options={{ presentation: 'card' }} />
+          <Stack.Screen name="chat" options={{ headerShown: false }} />
           <Stack.Screen name="saved-posts/index" options={{ presentation: 'card' }} />
           <Stack.Screen name="saved-shorts/index" options={{ presentation: 'card' }} />
           {/* Collections routes */}

@@ -27,7 +27,7 @@ import { initializeAds } from '../../services/admob';
 
 const isWeb = Platform.OS === 'web';
 const isExpoGo = Constants.appOwnership === 'expo';
-const NATIVE_AD_LOAD_TIMEOUT_MS = 12000;
+const NATIVE_AD_LOAD_TIMEOUT_MS = 5000;
 
 type AdsModule = {
   NativeAd: typeof import('react-native-google-mobile-ads').NativeAd;
@@ -104,7 +104,11 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
         NativeAssetType: ads.NativeAssetType,
         AdEventType: ads.AdEventType,
       });
-    } catch {
+    } catch (err) {
+      logger.error('[AdMob] Failed to load react-native-google-mobile-ads module in Shorts', err, {
+        platform: Platform.OS,
+        isExpoGo,
+      });
       setModuleError(true);
       setLoading(false);
       fireLoadFailed();
@@ -174,11 +178,10 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
       .catch((loadError) => {
         if (timeoutId) clearTimeout(timeoutId);
         if (!destroyedRef.current) {
-          logger.warn('[AdMob] Shorts native ad failed to load', {
+          logger.error('[AdMob] Shorts native ad failed to load', loadError, {
             platform: Platform.OS,
             unitId: maskAdUnitId(unitId),
             adIndex,
-            message: loadError instanceof Error ? loadError.message : String(loadError),
           });
           setError(true);
           setLoading(false);

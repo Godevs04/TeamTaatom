@@ -15,7 +15,7 @@ import logger from './logger';
 const getGoogleMapsApiKeyFromMaps = (): string | null => {
   try {
     const mapsUtils = require('./maps');
-    return mapsUtils.getGoogleMapsApiKey();
+    return mapsUtils.getGoogleMapsWebApiKey();
   } catch (e) {
     // Fallback to old method if maps.ts not available
     if (process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY) {

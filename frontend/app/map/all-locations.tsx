@@ -265,47 +265,27 @@ const OptimizedClusterMarker = React.memo(({
             end={{ x: 1, y: 1 }}
             style={[StyleSheet.absoluteFillObject, { borderRadius: 20 }]}
           />
-          {Platform.OS === 'ios' ? (
-            <BlurView intensity={40} tint={isDark ? 'dark' : 'light'} style={markerStyles.clusterBlur}>
-              <LinearGradient
-                colors={isDark ? ['rgba(15, 23, 42, 0.75)', 'rgba(30, 41, 59, 0.75)'] : ['rgba(255, 255, 255, 0.85)', 'rgba(241, 245, 249, 0.85)']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={[markerStyles.clusterContent, { borderRadius: 18.5 }]}
-              >
-                {photoUrl ? (
-                  <ExpoImage
-                    source={{ uri: resolvePhotoUrl(photoUrl) }}
-                    style={markerStyles.clusterPhoto}
-                    contentFit="cover"
-                    onLoad={handleImageLoad}
-                  />
-                ) : (
-                  <Ionicons name="location" size={16} color={isDark ? '#2DD4BF' : '#3B82F6'} />
-                )}
-              </LinearGradient>
-            </BlurView>
-          ) : (
-            <View style={[markerStyles.clusterBlur, { backgroundColor: isDark ? '#1E293B' : '#FFFFFF' }]}>
-              <LinearGradient
-                colors={isDark ? ['#0F172A', '#1E293B'] : ['#FFFFFF', '#F1F5F9']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={[markerStyles.clusterContent, { borderRadius: 18.5 }]}
-              >
-                {photoUrl ? (
-                  <ExpoImage
-                    source={{ uri: resolvePhotoUrl(photoUrl) }}
-                    style={markerStyles.clusterPhoto}
-                    contentFit="cover"
-                    onLoad={handleImageLoad}
-                  />
-                ) : (
-                  <Ionicons name="location" size={16} color={isDark ? '#2DD4BF' : '#3B82F6'} />
-                )}
-              </LinearGradient>
-            </View>
-          )}
+          <View style={[markerStyles.clusterBlur, { backgroundColor: isDark ? 'rgba(30, 41, 59, 0.85)' : 'rgba(255, 255, 255, 0.85)' }]}>
+            <LinearGradient
+              colors={isDark ? ['#0F172A', '#1E293B'] : ['#FFFFFF', '#F1F5F9']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[markerStyles.clusterContent, { borderRadius: 18.5 }]}
+            >
+              {photoUrl ? (
+                <ExpoImage
+                  source={{ uri: resolvePhotoUrl(photoUrl) }}
+                  style={markerStyles.clusterPhoto}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={200}
+                  onLoad={handleImageLoad}
+                />
+              ) : (
+                <Ionicons name="location" size={16} color={isDark ? '#2DD4BF' : '#3B82F6'} />
+              )}
+            </LinearGradient>
+          </View>
         </View>
       </View>
     </Marker>
@@ -1180,7 +1160,7 @@ function AllLocationsMapInner() {
 
     return `<!DOCTYPE html>
 <html><head>
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <style>
 html,body,#map{height:100%;margin:0;padding:0}
 .glowing-dot-container {
@@ -1321,7 +1301,7 @@ window.bounds = null;
 function initMap(){
   window.map = new google.maps.Map(document.getElementById('map'),{
     center:{lat:${centerLat},lng:${centerLng}},
-    zoom:${zoomLevelVal},minZoom:3,mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true
+    zoom:${zoomLevelVal},minZoom:3,mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true,gestureHandling:'greedy',isFractionalZoomEnabled:true
   });
   var map = window.map;
   window.bounds = new google.maps.LatLngBounds();

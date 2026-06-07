@@ -37,6 +37,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import MaskedView from '@react-native-masked-view/masked-view';
 import { getCountries, getStatesByCountry, Country, State } from '../../services/location';
 import { getLocales, getLocaleById, Locale } from '../../services/locale';
+import { updateDynamicLocation } from '../../services/userManagement';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
@@ -943,6 +944,12 @@ export default function LocaleScreen() {
                       if (detectedCountry) setUserCountry(detectedCountry);
                       if (detectedState) setUserState(detectedState);
                       if (detectedCity) setUserCity(detectedCity);
+                      // Update backend dynamically
+                      if (detectedCity || detectedCountryCode) {
+                        updateDynamicLocation(detectedCity || undefined, detectedCountryCode || undefined).catch((err) => {
+                          logger.debug('Failed to sync dynamic location to backend', err);
+                        });
+                      }
                     }
                     
                     if (__DEV__) {
@@ -987,6 +994,12 @@ export default function LocaleScreen() {
                       if (expoCountry) setUserCountry(expoCountry);
                       if (expoCountryCode) setUserCountryCode(expoCountryCode);
                       if (expoState) setUserState(expoState);
+                      // Update backend dynamically
+                      if (expoCity || expoCountryCode) {
+                        updateDynamicLocation(expoCity || undefined, expoCountryCode || undefined).catch((err) => {
+                          logger.debug('Failed to sync dynamic location to backend', err);
+                        });
+                      }
                     }
                     
                     if (__DEV__) {

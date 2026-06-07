@@ -20,6 +20,7 @@ import {
   Image,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
+import { PostSkeleton } from '../LoadingSkeleton';
 import Constants from 'expo-constants';
 import { useTheme } from '../../context/ThemeContext';
 import { ADMOB } from '../../constants/admob';
@@ -28,7 +29,7 @@ import { initializeAds } from '../../services/admob';
 
 const isWeb = Platform.OS === 'web';
 const isExpoGo = Constants.appOwnership === 'expo';
-const NATIVE_AD_LOAD_TIMEOUT_MS = 12000;
+const NATIVE_AD_LOAD_TIMEOUT_MS = 5000;
 
 // Do NOT require('react-native-google-mobile-ads') at module load. It triggers
 // TurboModuleRegistry and crashes in Expo Go / when native module isn't linked.
@@ -104,7 +105,11 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
         NativeAsset: ads.NativeAsset,
         NativeAssetType: ads.NativeAssetType,
       });
-    } catch {
+    } catch (err) {
+      logger.error('[AdMob] Failed to load react-native-google-mobile-ads module', err, {
+        platform: Platform.OS,
+        isExpoGo,
+      });
       setModuleError(true);
       setLoading(false);
       fireLoadFailed();
@@ -174,11 +179,10 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
       .catch((loadError) => {
         if (timeoutId) clearTimeout(timeoutId);
         if (!destroyedRef.current) {
-          logger.warn('[AdMob] Home native ad failed to load', {
+          logger.error('[AdMob] Home native ad failed to load', loadError, {
             platform: Platform.OS,
             unitId: maskAdUnitId(unitId),
             adIndex,
-            message: loadError instanceof Error ? loadError.message : String(loadError),
           });
           setError(true);
           setLoading(false);
@@ -213,10 +217,8 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
 
   if (loading) {
     return (
-      <View style={[styles.wrapper, { backgroundColor: theme.colors.surface }]}>
-        <View style={styles.placeholder}>
-          <LoadingGlobe size="small" color={theme.colors.primary} />
-        </View>
+      <View style={[styles.wrapper, { padding: 16 }]}>
+        <PostSkeleton />
       </View>
     );
   }

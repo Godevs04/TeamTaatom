@@ -445,7 +445,7 @@ export default function CountryMapScreen() {
       <!DOCTYPE html>
       <html>
       <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <style>
           html, body, #map { 
             height: 100%; 
@@ -554,7 +554,9 @@ export default function CountryMapScreen() {
               mapTypeId: 'roadmap',
               styles: ${JSON.stringify(mapStyle.customMapStyle)},
               disableDefaultUI: true,
-              zoomControl: true
+              zoomControl: false,
+              gestureHandling: 'greedy',
+              isFractionalZoomEnabled: true
             });
             
             // Custom OverlayView class

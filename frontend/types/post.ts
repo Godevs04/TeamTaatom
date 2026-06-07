@@ -24,6 +24,8 @@ export interface PostType {
       longitude: number;
     };
   };
+  spotType?: string;
+  travelInfo?: string;
   likes: string[];
   comments: CommentType[];
   isActive: boolean;

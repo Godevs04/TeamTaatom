@@ -480,7 +480,9 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
 
           if (soundRef.current) {
             try {
-              const status = await soundRef.current.getStatusAsync();
+              const status = await soundRef.current?.getStatusAsync();
+              if (!status) return; // component unmounted
+
               if (!status.isLoaded) {
                 logger.debug('[SONGPLAYER] soundRef exists but is not loaded. Reloading.');
                 soundRef.current = null;
@@ -491,21 +493,21 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
 
               // Sound is loaded. Explicitly set native muted and volume states before play/resume.
               logger.debug('[SONGPLAYER] soundRef is loaded. Applying explicit muted state:', effectiveMuted);
-              await soundRef.current.setIsMutedAsync(effectiveMuted).catch(() => {});
-              await soundRef.current.setVolumeAsync(effectiveMuted ? 0 : volume).catch(() => {});
+              await soundRef.current?.setIsMutedAsync(effectiveMuted).catch(() => {});
+              await soundRef.current?.setVolumeAsync(effectiveMuted ? 0 : volume).catch(() => {});
 
               if (wasPreloaded && post._id) {
                 logger.debug('[SONGPLAYER] Playing preloaded audio immediately for sync');
-                await soundRef.current.playAsync();
-                await audioManager.playSound(soundRef.current, post._id.toString()).catch(() => {});
+                await soundRef.current?.playAsync().catch(() => {});
+                if (soundRef.current) await audioManager.playSound(soundRef.current, post._id.toString()).catch(() => {});
               } else if (post._id && currentPostId === post._id.toString()) {
                 logger.debug('[SONGPLAYER] Resuming same post audio immediately');
-                await soundRef.current.playAsync();
+                await soundRef.current?.playAsync().catch(() => {});
               } else if (post._id) {
                 logger.debug('[SONGPLAYER] Playing audio via audioManager');
-                await audioManager.playSound(soundRef.current, post._id.toString());
+                if (soundRef.current) await audioManager.playSound(soundRef.current, post._id.toString());
               } else {
-                await soundRef.current.playAsync();
+                await soundRef.current?.playAsync().catch(() => {});
               }
               setIsPlaying(true);
               onPlayingChange?.(soundRef.current);
@@ -581,23 +583,25 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
     }
 
     try {
-      const status = await soundRef.current.getStatusAsync();
+      const status = await soundRef.current?.getStatusAsync();
+      if (!status) return;
+
       logger.debug('Current playback status:', status);
       
       if (status.isLoaded) {
         const isCurrentlyPlaying = 'isPlaying' in status && status.isPlaying;
         if (isCurrentlyPlaying) {
           logger.debug('Pausing playback...');
-          await soundRef.current.pauseAsync();
+          await soundRef.current?.pauseAsync().catch(() => {});
           setIsPlaying(false);
           onPlayingChange?.(null);
         } else {
           logger.debug('Starting playback...');
           const effectiveMuted = externalMuted !== undefined ? externalMuted : isMuted;
-          await soundRef.current.setIsMutedAsync(effectiveMuted).catch(() => {});
-          await soundRef.current.setVolumeAsync(effectiveMuted ? 0 : volume).catch(() => {});
+          await soundRef.current?.setIsMutedAsync(effectiveMuted).catch(() => {});
+          await soundRef.current?.setVolumeAsync(effectiveMuted ? 0 : volume).catch(() => {});
           // Use audioManager.playSound to ensure previous audio stops
-          if (post._id) {
+          if (post._id && soundRef.current) {
             await audioManager.playSound(soundRef.current, post._id.toString());
           }
           setIsPlaying(true);
@@ -625,15 +629,17 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
 
     try {
       // Check if sound is loaded before attempting to set volume
-      const status = await soundRef.current.getStatusAsync();
+      const status = await soundRef.current?.getStatusAsync();
+      if (!status) return;
+
       if (!status.isLoaded) {
         logger.warn('Cannot toggle mute: sound is not loaded');
         return;
       }
 
       const newMutedState = !isMuted;
-      await soundRef.current.setIsMutedAsync(newMutedState).catch(() => {});
-      await soundRef.current.setVolumeAsync(newMutedState ? 0 : volume).catch(() => {});
+      await soundRef.current?.setIsMutedAsync(newMutedState).catch(() => {});
+      await soundRef.current?.setVolumeAsync(newMutedState ? 0 : volume).catch(() => {});
       setIsMuted(newMutedState);
 
       // Animate mute icon
@@ -657,8 +663,8 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
   const stopSong = useCallback(async () => {
     if (soundRef.current) {
       try {
-        await soundRef.current.stopAsync();
-        await soundRef.current.unloadAsync();
+        await soundRef.current?.stopAsync().catch(() => {});
+        await soundRef.current?.unloadAsync().catch(() => {});
         soundRef.current = null;
         setSound(null);
         setIsPlaying(false);

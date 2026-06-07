@@ -275,7 +275,7 @@ export default function TrackingScreen() {
             const WV_KEY = getGoogleMapsApiKeyForWebView();
             if (!WV_KEY) return <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}><Ionicons name="map-outline" size={48} color="#9CA3AF" /></View>;
             const polyCoords = JSON.stringify(polyline.filter(p => p.latitude && p.longitude).map(p => ({ lat: p.latitude, lng: p.longitude, timestamp: p.timestamp, segmentBreak: p.segmentBreak })));
-            const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>
+            const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"><style>
 html,body,#map{height:100%;margin:0;padding:0}
 .glowing-dot-container {
   position: relative;
@@ -350,7 +350,9 @@ function initMap(){
     mapTypeId:'roadmap',
     styles:${JSON.stringify(mapStyle.customMapStyle)},
     disableDefaultUI:true,
-    zoomControl:true
+    zoomControl:true,
+    gestureHandling:'greedy',
+    isFractionalZoomEnabled:true
   });
 
   if (window.initialUpdateData) {

@@ -28,7 +28,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Locale, getLocaleById, getLocales } from '../../../../../services/locale';
 import { savedEvents } from '../../../../../utils/savedEvents';
 import logger from '../../../../../utils/logger';
-import { fetchDirectionsRoute } from '../../../../../services/directions';
+
 
 interface LocationDetail {
   name: string;
@@ -494,29 +494,8 @@ export default function LocationDetailScreen() {
           }
         }
         
-        // First try to fetch routing distance using Google Directions API
+        // Try to calculate Google Distance Matrix driving distance
         let calculatedDistance = null;
-        try {
-          const route = await fetchDirectionsRoute(
-            { latitude: currentLat, longitude: currentLng },
-            { latitude: targetLat, longitude: targetLng }
-          );
-          if (route && route.distanceValue !== undefined) {
-            calculatedDistance = route.distanceValue / 1000; // convert to km
-          } else if (route && route.distanceText) {
-            // fallback: parse distanceText if distanceValue is missing (e.g. "12.3 km")
-            const match = route.distanceText.match(/([\d.]+)\s*(km|m)/i);
-            if (match) {
-              const val = parseFloat(match[1]);
-              const unit = match[2].toLowerCase();
-              calculatedDistance = unit === 'm' ? val / 1000 : val;
-            }
-          }
-        } catch (routeError) {
-          logger.warn('Failed to fetch directions route from Google API:', routeError);
-        }
-
-        // Fallback to Google Distance Matrix driving distance if Google Directions fails
         if (calculatedDistance === null || isNaN(calculatedDistance) || calculatedDistance < 0) {
           try {
             calculatedDistance = await calculateDrivingDistanceKm(

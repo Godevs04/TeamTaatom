@@ -28,7 +28,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaskedView from '@react-native-masked-view/masked-view';
 import { useTheme } from '../../context/ThemeContext';
-import { getShorts, getUserShorts, toggleLike, addComment, getPostById, deleteShort } from '../../services/posts';
+import { getShorts, getUserShorts, toggleLike, addComment, getPostById, deleteShort, sendInteractionTelemetry } from '../../services/posts';
 import { toggleFollow, getProfile } from '../../services/profile';
 import { PostType } from '../../types/post';
 import { getUserFromStorage } from '../../services/auth';
@@ -1286,6 +1286,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // Ref to store loadShorts function for socket handlers (prevents stale closure)
   const loadShortsRef = useRef<(() => Promise<void>) | null>(null);
   const currentPageRef = useRef(1);
+  const cursorRef = useRef<string | null>(null);
+  const currentViewStartTimeRef = useRef<number>(Date.now());
   const hasMoreRef = useRef(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   // Persisted liked short IDs so likes survive app restart (server is source of truth; this merges when API omits isLiked)
@@ -2054,6 +2056,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     try {
       setLoading(true);
       currentPageRef.current = 1;
+      cursorRef.current = null;
       hasMoreRef.current = true;
 
       logger.info(`[LOAD_SHORTS] Starting to load shorts`, {
@@ -2187,6 +2190,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           });
           setFollowStates(followStatesMap);
           hasMoreRef.current = (response.shorts || []).length >= 10;
+          cursorRef.current = response.pagination?.nextCursor || null;
         } catch (e) {
           logger.warn('Failed to load full feed in background:', e);
         }
@@ -2232,6 +2236,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       setShorts(merged);
       if (!shouldFilterByUser) {
         hasMoreRef.current = (response.shorts || []).length >= 10;
+        cursorRef.current = response.pagination?.nextCursor || null;
       }
 
       const followStatesMap: { [key: string]: boolean } = {};
@@ -2288,7 +2293,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     try {
       setIsLoadingMore(true);
       const nextPage = currentPageRef.current + 1;
-      const response = await getShorts(nextPage, 10);
+      const response = await getShorts(cursorRef.current || nextPage, 10);
       const newShorts: PostType[] = response.shorts || [];
       if (newShorts.length === 0) {
         hasMoreRef.current = false;
@@ -2296,6 +2301,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
       currentPageRef.current = nextPage;
       hasMoreRef.current = newShorts.length >= 10;
+      cursorRef.current = response.pagination?.nextCursor || null;
       const mapped = newShorts.map((s) => {
         const fromStorage = likedShortIdsRef.current.has(s._id);
         const isLiked = s.isLiked || fromStorage;
@@ -2678,6 +2684,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       showLikeAnimationTemporarily(shortId);
     }
 
+    if (newIsLiked && !originalIsLiked) {
+      sendInteractionTelemetry({
+        postId: shortId,
+        interactionType: 'like',
+        spotType: currentShort.spotType,
+        travelInfo: currentShort.travelInfo,
+      });
+    }
+
     // Keep persisted liked IDs in sync
     const newPersistSet = new Set(likedShortIdsRef.current);
     if (newIsLiked) newPersistSet.add(shortId);
@@ -2799,6 +2814,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           showSuccess('Saved to favorites!');
           savedEvents.emitChanged();
           savedEvents.emitPostAction(shortId, 'save', { isBookmarked: true });
+          
+          const currentShort = shortsRef.current.find(s => s._id === shortId);
+          if (currentShort) {
+            sendInteractionTelemetry({
+              postId: shortId,
+              interactionType: 'save',
+              spotType: currentShort.spotType,
+              travelInfo: currentShort.travelInfo,
+            });
+          }
         } else {
           // Already saved (race condition handled)
           setSavedShorts(new Set(currentIds));
@@ -2818,6 +2843,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       
       // Track share engagement
       trackEngagement('share', 'short', short._id);
+      sendInteractionTelemetry({
+        postId: short._id,
+        interactionType: 'share',
+        spotType: short.spotType,
+        travelInfo: short.travelInfo,
+      });
     } catch (error) {
       logger.error('Error opening share modal', error);
       showError('Failed to open share options');
@@ -2863,6 +2894,18 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         ? { ...short, commentsCount: short.commentsCount + 1 }
         : short
     ));
+    
+    if (selectedShortId) {
+      const currentShort = shortsRef.current.find(s => s._id === selectedShortId);
+      if (currentShort) {
+        sendInteractionTelemetry({
+          postId: currentShort._id,
+          interactionType: 'comment',
+          spotType: currentShort.spotType,
+          travelInfo: currentShort.travelInfo,
+        });
+      }
+    }
   };
 
   const handleProfilePress = (userId: string) => {
@@ -3565,11 +3608,30 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   contentFit="contain"
                   cachePolicy="memory-disk"
                   transition={0}
-                  onError={(e: any) => logger.warn('[shorts thumbnail] load failed', {
-                    shortId: item._id,
-                    url: item.imageUrl?.substring(0, 120),
-                    error: e?.error || e?.nativeEvent?.error || String(e),
-                  })}
+                  onError={(e: any) => {
+                    const errMsg = String(e?.error || e?.nativeEvent?.error || e);
+                    logger.debug('[shorts thumbnail] load failed', {
+                      shortId: item._id,
+                      url: item.imageUrl?.substring(0, 120),
+                      error: errMsg,
+                    });
+                    
+                    const isExpiredUrl = /(403|404|Forbidden|expired|ExpiredRequest)/.test(errMsg);
+                    if (isExpiredUrl) {
+                      handlersRef.current
+                        .refetchShortWithFreshUrl(item._id)
+                        .then((freshShort: PostType | null) => {
+                          if (freshShort && freshShort.imageUrl) {
+                            setShorts(prev => prev.map(s =>
+                              s._id === item._id
+                                ? { ...s, mediaUrl: freshShort.mediaUrl, videoUrl: freshShort.videoUrl || s.videoUrl, imageUrl: freshShort.imageUrl || s.imageUrl }
+                                : s
+                            ));
+                          }
+                        })
+                        .catch(() => {});
+                    }
+                  }}
                 />
               ) : (
                 <View style={[styles.shortVideo, StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }]}>
@@ -4150,6 +4212,22 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
     const previousIndex = currentVisibleIndex;
     const previousItem = shortsData[previousIndex] as ShortsItem | undefined;
+    const now = Date.now();
+
+    // Track view duration telemetry
+    if (previousItem && !isAdItem(previousItem)) {
+      const durationSec = (now - currentViewStartTimeRef.current) / 1000;
+      if (durationSec > 0.5) {
+        sendInteractionTelemetry({
+          postId: previousItem._id,
+          interactionType: 'view',
+          watchDuration: durationSec,
+          spotType: previousItem.spotType,
+          travelInfo: previousItem.travelInfo,
+        });
+      }
+    }
+    currentViewStartTimeRef.current = now;
 
     setCurrentVisibleIndex(newVisibleIndex);
     setCurrentIndex(newVisibleIndex);

@@ -91,7 +91,7 @@ const normalizeJourneyPolyline = (journey?: Journey | null): Coordinate[] => {
   });
 };
 
-const BATCH_SEND_INTERVAL = 30000; // Send coordinates every 30 seconds
+const BATCH_SEND_INTERVAL = 10000; // Send coordinates every 10 seconds
 const MIN_LOCATION_DISTANCE = 5; // Minimum 5 meters between tracked points (denser paths)
 const WALKING_SPEED_MPS = 2.2; // ~8 km/h
 const DRIVING_SPEED_MPS = 8; // ~29 km/h
@@ -889,6 +889,17 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   useEffect(() => { isTrackingRef.current = isTracking; }, [isTracking]);
   useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
 
+  // Manage background task lifecycle based on tracking state.
+  // This ensures the Foreground Service is started while the app is in the
+  // foreground (required for Android 12+) and remains active.
+  useEffect(() => {
+    if (isTracking && !isPaused) {
+      startBackgroundUpdates().catch(() => {});
+    } else {
+      stopBackgroundUpdates().catch(() => {});
+    }
+  }, [isTracking, isPaused, startBackgroundUpdates, stopBackgroundUpdates]);
+
   const handleAppStateChange = useCallback(
     async (nextAppState: any) => {
       const currentAppState = appStateRef.current;
@@ -897,15 +908,8 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       // App went to background
       if (currentAppState.match(/active/) && nextAppState === 'background') {
         if (isTrackingRef.current && !isPausedRef.current) {
-          logger.debug('[Journey] App backgrounded — handing off to TaskManager');
-          // Start the background task FIRST. If it succeeds, only then tear
-          // down the foreground watcher. If the bg start fails (Expo Go,
-          // permission denied, OS suspended us mid-flight), keep the
-          // foreground watcher running — it'll continue firing for a few
-          // seconds in background on most devices, which is better than
-          // having no source at all during the handoff window.
-          const bgStarted = await startBackgroundUpdates();
-          if (bgStarted && locationWatcherRef.current) {
+          logger.debug('[Journey] App backgrounded — tearing down foreground watcher');
+          if (locationWatcherRef.current) {
             try { locationWatcherRef.current.remove(); } catch { /* noop */ }
             locationWatcherRef.current = null;
           }
@@ -916,7 +920,6 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       if (nextAppState === 'active' && currentAppState.match(/inactive|background/)) {
         if (isTrackingRef.current && !isPausedRef.current) {
           logger.debug('[Journey] App foregrounded — draining bg queue, restarting watcher');
-          await stopBackgroundUpdates();
           await drainBackgroundQueue();
           // Restart the foreground watcher so live UI updates resume.
           try { await startLocationWatcher(); } catch (e) {
@@ -925,10 +928,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         }
       }
     },
-    // Deps are intentionally only the (stable) helper callbacks. State
-    // values are read through refs above so the handler identity stays
-    // stable across pause/resume — no listener tear-down/rebind churn.
-    [startBackgroundUpdates, stopBackgroundUpdates, drainBackgroundQueue, startLocationWatcher]
+    [drainBackgroundQueue, startLocationWatcher]
   );
 
   // Listen to app state changes. handleAppStateChange identity is now

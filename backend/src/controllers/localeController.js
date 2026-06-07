@@ -80,7 +80,7 @@ async function deleteAllLocaleStorageObjects(locale) {
 const getLocales = async (req, res) => {
   try {
     // Backend Defensive Guards: Validate and sanitize query params
-    let { search, countryCode, stateCode, stateProvince, page = 1, limit = 50, includeInactive, spotType, spotTypes } = req.query;
+    let { search, countryCode, stateCode, stateProvince, page = 1, limit = 50, includeInactive, spotType, spotTypes, lat, long, sort } = req.query;
     
     // Validate and cap limit (max 50)
     const parsedLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 50);
@@ -216,13 +216,56 @@ const getLocales = async (req, res) => {
     // OPTIMIZATION: Use lean() and select only required fields to reduce payload size
     // Exclude large fields that aren't needed: description (can be long), full country name
     // Note: country field removed from select to reduce payload (countryCode is sufficient)
-    const locales = await Locale.find(query)
-      .select('name countryCode stateProvince stateCode city isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys')
-      .sort({ displayOrder: 1, createdAt: -1 })
-      .skip(skip)
-      .limit(parsedLimit)
-      .lean()
-      .maxTimeMS(5000); // Prevent slow queries from hanging (>5s = timeout)
+    
+    let locales;
+    
+    if (sort === 'nearest' && lat !== undefined && long !== undefined) {
+      const uLat = parseFloat(lat);
+      const uLon = parseFloat(long);
+      
+      if (!isNaN(uLat) && !isNaN(uLon)) {
+        // Fetch ALL matching locales for in-memory sorting
+        const allLocales = await Locale.find(query)
+          .select('name countryCode stateProvince stateCode city isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys')
+          .lean()
+          .maxTimeMS(5000);
+          
+        // Haversine distance formula
+        const calculateDistance = (lat1, lon1, lat2, lon2) => {
+          if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return Number.MAX_VALUE;
+          const R = 6371; // Radius of Earth in km
+          const dLat = (lat2 - lat1) * Math.PI / 180;
+          const dLon = (lon2 - lon1) * Math.PI / 180;
+          const a = 
+            Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+          return R * c;
+        };
+
+        // Add distance and sort
+        allLocales.forEach(loc => {
+          loc.distanceKm = calculateDistance(uLat, uLon, loc.latitude, loc.longitude);
+        });
+        
+        allLocales.sort((a, b) => a.distanceKm - b.distanceKm);
+        
+        // Paginate manually
+        locales = allLocales.slice(skip, skip + parsedLimit);
+      }
+    }
+    
+    if (!locales) {
+      // Fallback: Default sorting
+      locales = await Locale.find(query)
+        .select('name countryCode stateProvince stateCode city isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys')
+        .sort({ displayOrder: 1, createdAt: -1 })
+        .skip(skip)
+        .limit(parsedLimit)
+        .lean()
+        .maxTimeMS(5000); // Prevent slow queries from hanging (>5s = timeout)
+    }
     
     const mappedLocales = await Promise.all(locales.map(async (locale) => {
       const copy = { ...locale };
