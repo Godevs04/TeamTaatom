@@ -359,6 +359,7 @@ export default function ConnectHubScreen() {
               setFindLoading(true);
               findUsers({
                 target_country: initialCountry || undefined,
+                city: userLocation || undefined,
                 lang: initialLang,
                 travel_style: initialTravelStyle || undefined,
                 page: 1,
@@ -478,6 +479,7 @@ export default function ConnectHubScreen() {
       const response = await findUsers({
         target_country: selectedCountry || undefined,
         current_country: selectedCurrentCountry || undefined,
+        city: userLocation || userLocationInput || undefined,
         travel_style: selectedTravelStyle || undefined,
         lang: selectedLanguage,
         page: 1,

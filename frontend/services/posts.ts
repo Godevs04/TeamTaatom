@@ -614,9 +614,10 @@ export const deleteShort = async (shortId: string): Promise<{ message: string }>
 };
 
 // Get shorts
-export const getShorts = async (page: number = 1, limit: number = 20): Promise<ShortsResponse> => {
+export const getShorts = async (cursorOrPage: string | number = 1, limit: number = 20): Promise<ShortsResponse> => {
   try {
-    const response = await api.get(`/api/v1/shorts?page=${page}&limit=${limit}`);
+    const queryParam = typeof cursorOrPage === 'string' ? `cursor=${encodeURIComponent(cursorOrPage)}` : `page=${cursorOrPage}`;
+    const response = await api.get(`/api/v1/shorts?${queryParam}&limit=${limit}`);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
@@ -632,6 +633,24 @@ export const getUserShorts = async (userId: string, page: number = 1, limit: num
   } catch (error: any) {
     const parsedError = parseError(error);
     throw new Error(parsedError.userMessage);
+  }
+};
+
+// Send telemetry data
+export const sendInteractionTelemetry = async (data: {
+  postId: string;
+  interactionType: 'view' | 'like' | 'comment' | 'share' | 'save';
+  watchDuration?: number;
+  spotType?: string;
+  travelInfo?: string;
+}): Promise<void> => {
+  try {
+    // Fire and forget
+    api.post('/api/v1/telemetry/interaction', data).catch(e => {
+      logger.debug('Telemetry error (ignored):', e.message);
+    });
+  } catch (error) {
+    // Ignore synchronous errors
   }
 };
 

@@ -27,18 +27,17 @@ export default function CloudInputDock({
   bottomInset = 12,
   canSend: canSendProp,
 }: CloudInputDockProps) {
-  const { theme, mode } = useTheme();
-  const isDark = mode === 'dark';
+  const { theme } = useTheme();
   const canSend = canSendProp ?? Boolean(value.trim());
 
   return (
-    <View style={[styles.outer, { paddingBottom: bottomInset }, style]}>
+    <View style={[styles.outer, { paddingBottom: bottomInset, backgroundColor: theme.colors.background }, style]}>
       <View
         style={[
           styles.dock,
           {
-            backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.9)',
-            borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0, 0, 0, 0.08)',
+            backgroundColor: theme.colors.surface,
+            borderColor: theme.colors.border,
           },
           cloudDesign.shadowCard,
         ]}
@@ -55,11 +54,12 @@ export default function CloudInputDock({
             styles.input,
             {
               color: theme.colors.text,
-              backgroundColor: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(0, 0, 0, 0.03)',
+              backgroundColor: theme.colors.background,
+              borderColor: theme.colors.border,
             },
           ]}
           placeholder={placeholder}
-          placeholderTextColor={isDark ? theme.colors.textSecondary : cloudDesign.textMuted}
+          placeholderTextColor={theme.colors.textSecondary}
           value={value}
           onChangeText={onChangeText}
           multiline

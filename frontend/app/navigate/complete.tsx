@@ -142,12 +142,12 @@ export default function CompleteScreen() {
             const WV_KEY = getGoogleMapsApiKeyForWebView();
             if (!WV_KEY) return <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}><Ionicons name="map-outline" size={48} color="#9CA3AF" /></View>;
             const polyCoords = JSON.stringify(polyline.filter(p => p.latitude && p.longitude).map(p => ({ lat: p.latitude, lng: p.longitude })));
-            const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0"><style>
+            const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"><style>
 html,body,#map{height:100%;margin:0;padding:0}
 </style>
 <script>
 function initMap(){
-  var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${initialRegion.latitude},lng:${initialRegion.longitude}},zoom:13,mapTypeId:'roadmap',styles:${JSON.stringify(mapStyle.customMapStyle)},gestureHandling:'none',zoomControl:false,disableDefaultUI:true});
+  var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${initialRegion.latitude},lng:${initialRegion.longitude}},zoom:13,mapTypeId:'roadmap',styles:${JSON.stringify(mapStyle.customMapStyle)},gestureHandling:'greedy',zoomControl:true,isFractionalZoomEnabled:true,disableDefaultUI:true});
   var path=${polyCoords};
   if(path.length>1){
     new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});

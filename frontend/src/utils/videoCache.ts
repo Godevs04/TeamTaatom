@@ -3,7 +3,7 @@ import { createLogger } from '../../utils/logger';
 
 const logger = createLogger('VideoCache');
 
-const MAX_CACHED_VIDEOS = 8;
+const MAX_CACHED_VIDEOS = 50;
 const cacheQueue: string[] = []; // ordered oldest → newest
 
 // Deduplicate active downloads to prevent concurrent requests for the same video
@@ -28,7 +28,8 @@ async function validateCachedFile(localPath: string): Promise<boolean> {
   try {
     const info = await FileSystem.getInfoAsync(localPath);
     if (!info.exists) {
-      logger.warn(`[VideoCache] Validation failed: file does not exist: ${localPath}`);
+      // Use debug instead of warn to prevent Metro Bundler OOM crashes from excessive log spam
+      logger.debug(`[VideoCache] Validation failed: file does not exist: ${localPath}`);
       return false;
     }
     if (!info.size || info.size === 0) {

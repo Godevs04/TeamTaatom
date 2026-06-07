@@ -49,7 +49,7 @@
           "tel",
           "sms"
         ],
-        "NSPrivacyPolicyURL": "https://taatom.com/privacy"
+        "NSPrivacyPolicyURL": "http://10.11.198.180:3001/policies/privacy"
       },
       "config": {
         "usesNonExemptEncryption": false,
@@ -150,7 +150,8 @@
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location.",
-          "locationAlwaysPermission": "Allow $(PRODUCT_NAME) to always use your location for journey tracking."
+          "locationAlwaysPermission": "Allow $(PRODUCT_NAME) to always use your location for journey tracking.",
+          "isAndroidBackgroundLocationEnabled": true
         }
       ],
       [
@@ -215,6 +216,14 @@
       ],
       "expo-asset",
       "expo-web-browser",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "proguardRules": "./proguard-rules.pro"
+          }
+        }
+      ],
       "./plugins/withCashfreeSubscriptionAndroid.js",
       "./plugins/withFfmpegKitIos.js"
     ],
@@ -224,8 +233,8 @@
       "fallbackToCacheTimeout": 0
     },
     "extra": {
-      "API_BASE_URL": "https://api.taatom.com",
-      "WEB_SHARE_URL": "https://taatom.com",
+      "API_BASE_URL": "http://10.11.198.180:5000",
+      "WEB_SHARE_URL": "http://10.11.198.180:3001",
       "GOOGLE_MAPS_API_KEY": "AIzaSyDPPZ2YVRvuQXpn2mB_mjp1Z1s133gqNhU",
       "LOGO_IMAGE": "https://res.cloudinary.com/dcvdqhqzc/image/upload/v1766525159/aefbv7kr261jzp4sptel.png",
       "EXPO_PROJECT_ID": "c3b80b3d-23d8-4948-abfa-80963e4192d0",
@@ -233,9 +242,9 @@
       "GOOGLE_CLIENT_ID_IOS": "139138195988-kclhcnave5urmm7ob2o2erkebp9o4f90.apps.googleusercontent.com",
       "GOOGLE_CLIENT_ID_ANDROID": "139138195988-kclhcnave5urmm7ob2o2erkebp9o4f90.apps.googleusercontent.com",
       "GOOGLE_REDIRECT_URI": "https://auth.expo.io/@taatom/taatom",
-      "PRIVACY_POLICY_URL": "https://taatom.com/privacy",
-      "TERMS_OF_SERVICE_URL": "https://taatom.com/terms",
-      "SUPPORT_URL": "https://taatom.com/contact",
+      "PRIVACY_POLICY_URL": "http://10.11.198.180:3001/policies/privacy",
+      "TERMS_OF_SERVICE_URL": "http://10.11.198.180:3001/policies/terms",
+      "SUPPORT_URL": "http://10.11.198.180:3001/support/contact",
       "router": {},
       "eas": {
         "projectId": "c3b80b3d-23d8-4948-abfa-80963e4192d0"

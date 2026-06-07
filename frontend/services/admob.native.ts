@@ -69,8 +69,7 @@ export async function initializeAds(): Promise<void> {
       isInitialized = true;
       logger.info('[AdMob] SDK initialized successfully', { mode: __DEV__ ? 'test' : 'prod' });
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.error('[AdMob] Init failed (non-blocking):', message);
+      logger.error('[AdMob] Init failed (non-blocking)', error);
     } finally {
       consentFlowPromise = null;
       initializeAdsPromise = null;

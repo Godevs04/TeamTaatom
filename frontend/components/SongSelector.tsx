@@ -494,7 +494,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   const loadAudio = async (song: Song) => {
     try {
       if (soundRef.current) {
-        await soundRef.current.unloadAsync();
+        await soundRef.current?.unloadAsync().catch(() => {});
       }
 
       const { sound, status } = await Audio.Sound.createAsync(
@@ -571,13 +571,13 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
 
     try {
       if (isPlaying) {
-        await soundRef.current.pauseAsync();
+        await soundRef.current?.pauseAsync().catch(() => {});
         setIsPlaying(false);
       } else {
         // Always start playback from startTime to ensure it loops within selected range
-        await soundRef.current.setPositionAsync(startTime * 1000);
+        await soundRef.current?.setPositionAsync(startTime * 1000).catch(() => {});
         setCurrentTime(startTime);
-        await soundRef.current.playAsync();
+        await soundRef.current?.playAsync().catch(() => {});
         setIsPlaying(true);
 
         logger.debug('Playback started:', {
@@ -599,15 +599,15 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     if (soundRef.current) {
       try {
         // Check if sound is still valid before attempting to stop/unload
-        const status = await soundRef.current.getStatusAsync();
-        if (status.isLoaded) {
+        const status = await soundRef.current?.getStatusAsync();
+        if (status && status.isLoaded) {
           // Only stop if sound is currently playing
           if (status.isPlaying) {
-            await soundRef.current.stopAsync();
+            await soundRef.current?.stopAsync().catch(() => {});
           }
           // Unload the sound to release resources
-          if (typeof soundRef.current.unloadAsync === 'function') {
-            await soundRef.current.unloadAsync();
+          if (soundRef.current && typeof soundRef.current.unloadAsync === 'function') {
+            await soundRef.current.unloadAsync().catch(() => {});
           }
         }
         soundRef.current = null;

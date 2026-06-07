@@ -1444,7 +1444,14 @@ export default function PostScreen() {
         clearUploadState();
         // Ensure URI is not empty before setting
         if (asset.uri && asset.uri.trim()) {
-          setSelectedVideo(asset.uri);
+          // Explicitly extract the absolute file:// path for the video player
+          let parsedUri = asset.uri;
+          if (!parsedUri.startsWith('file://') && !parsedUri.startsWith('http') && !parsedUri.startsWith('content://') && !parsedUri.startsWith('ph://')) {
+            parsedUri = `file://${parsedUri.startsWith('/') ? '' : '/'}${parsedUri}`;
+          } else if (parsedUri.startsWith('/')) {
+            parsedUri = `file://${parsedUri}`;
+          }
+          setSelectedVideo(parsedUri);
           setSelectedImages([]);
           setPostType('short');
 
@@ -1810,7 +1817,14 @@ export default function PostScreen() {
 
         // Ensure URI is not empty before setting
         if (asset.uri && asset.uri.trim()) {
-          setSelectedVideo(asset.uri);
+          // Explicitly extract the absolute file:// path for the video player
+          let parsedUri = asset.uri;
+          if (!parsedUri.startsWith('file://') && !parsedUri.startsWith('http') && !parsedUri.startsWith('content://') && !parsedUri.startsWith('ph://')) {
+            parsedUri = `file://${parsedUri.startsWith('/') ? '' : '/'}${parsedUri}`;
+          } else if (parsedUri.startsWith('/')) {
+            parsedUri = `file://${parsedUri}`;
+          }
+          setSelectedVideo(parsedUri);
           setSelectedImages([]);
           setPostType('short');
           
@@ -2261,11 +2275,13 @@ export default function PostScreen() {
             'Your post has been shared.\n\nThis post is under verification. We\'ll notify you shortly.',
             'Success!',
             () => {
-              // Reset all form state
-              resetFormState();
-              // Update existing posts state
-              setHasExistingPosts(true);
-              router.replace('/(tabs)/home');
+              // Execute strict navigation command first to unmount safely
+              router.push('/(tabs)/home');
+              // Run state cleanup after navigation is initiated
+              setTimeout(() => {
+                resetFormState();
+                setHasExistingPosts(true);
+              }, 500);
             }
           );
         } else {
@@ -2273,11 +2289,13 @@ export default function PostScreen() {
             'Your post has been shared.',
             'Success!',
             () => {
-              // Reset all form state
-              resetFormState();
-              // Update existing posts state
-              setHasExistingPosts(true);
-              router.replace('/(tabs)/home');
+              // Execute strict navigation command first to unmount safely
+              router.push('/(tabs)/home');
+              // Run state cleanup after navigation is initiated
+              setTimeout(() => {
+                resetFormState();
+                setHasExistingPosts(true);
+              }, 500);
             }
           );
         }
@@ -2644,12 +2662,14 @@ export default function PostScreen() {
           'Your short has been uploaded.\n\nThis post is under verification. We\'ll notify you shortly.',
           'Success!',
           () => {
-            // Reset all form state
-            resetFormState();
-            setVideoDuration(null); // Clear video duration when video is removed
-            // Update existing shorts state
-            setHasExistingShorts(true);
-            router.replace('/(tabs)/home');
+            // Execute strict navigation command first to unmount safely
+            router.push('/(tabs)/home');
+            // Run state cleanup after navigation is initiated
+            setTimeout(() => {
+              resetFormState();
+              setVideoDuration(null); // Clear video duration when video is removed
+              setHasExistingShorts(true);
+            }, 500);
           }
         );
       } else {
@@ -2657,12 +2677,14 @@ export default function PostScreen() {
           'Your short has been uploaded.',
           'Success!',
           () => {
-            // Reset all form state
-            resetFormState();
-            setVideoDuration(null); // Clear video duration when video is removed
-            // Update existing shorts state
-            setHasExistingShorts(true);
-            router.replace('/(tabs)/home');
+            // Execute strict navigation command first to unmount safely
+            router.push('/(tabs)/home');
+            // Run state cleanup after navigation is initiated
+            setTimeout(() => {
+              resetFormState();
+              setVideoDuration(null); // Clear video duration when video is removed
+              setHasExistingShorts(true);
+            }, 500);
           }
         );
       }
@@ -2815,21 +2837,23 @@ export default function PostScreen() {
           'Your short has been uploaded.\n\nThis post is under verification. We\'ll notify you shortly.',
           'Success!',
           () => {
-            clearUploadState();
-            setSelectedVideo(null);
-            setVideoDuration(null);
-            setVideoThumbnail(null);
-            setLocation(null);
-            setLocationMetadata(null);
-            setSelectedSong(null);
-            setAudioChoice(null);
-            setSongStartTime(0);
-            setSongEndTime(60);
-            setPendingShortData(null);
-            setCopyrightAccepted(false);
-            setHasExistingShorts(true);
-            setAddress('');
-            router.replace('/(tabs)/home');
+            router.push('/(tabs)/home');
+            setTimeout(() => {
+              clearUploadState();
+              setSelectedVideo(null);
+              setVideoDuration(null);
+              setVideoThumbnail(null);
+              setLocation(null);
+              setLocationMetadata(null);
+              setSelectedSong(null);
+              setAudioChoice(null);
+              setSongStartTime(0);
+              setSongEndTime(60);
+              setPendingShortData(null);
+              setCopyrightAccepted(false);
+              setHasExistingShorts(true);
+              setAddress('');
+            }, 500);
           }
         );
       } else {
@@ -2837,21 +2861,23 @@ export default function PostScreen() {
           'Your short has been uploaded.',
           'Success!',
           () => {
-            clearUploadState();
-            setSelectedVideo(null);
-            setVideoDuration(null);
-            setVideoThumbnail(null);
-            setLocation(null);
-            setLocationMetadata(null);
-            setSelectedSong(null);
-            setAudioChoice(null);
-            setSongStartTime(0);
-            setSongEndTime(60);
-            setPendingShortData(null);
-            setCopyrightAccepted(false);
-            setHasExistingShorts(true);
-            setAddress('');
-            router.replace('/(tabs)/home');
+            router.push('/(tabs)/home');
+            setTimeout(() => {
+              clearUploadState();
+              setSelectedVideo(null);
+              setVideoDuration(null);
+              setVideoThumbnail(null);
+              setLocation(null);
+              setLocationMetadata(null);
+              setSelectedSong(null);
+              setAudioChoice(null);
+              setSongStartTime(0);
+              setSongEndTime(60);
+              setPendingShortData(null);
+              setCopyrightAccepted(false);
+              setHasExistingShorts(true);
+              setAddress('');
+            }, 500);
           }
         );
       }
@@ -3224,6 +3250,7 @@ export default function PostScreen() {
                 {/* Video preview */}
                 <View style={{ width: "100%", aspectRatio: 9 / 16, borderRadius: theme.borderRadius.lg, overflow: 'hidden', backgroundColor: theme.colors.surface }}>
                   <Video
+                    key={selectedVideo}
                     ref={videoRef}
                     source={{
                       uri: selectedVideo,

@@ -127,6 +127,27 @@ export async function getMapConfig(
 }
 
 /**
+ * Get API key for REST/Web API requests (fetch)
+ * Mobile-restricted keys cannot be used with fetch() to Google REST endpoints.
+ * This explicitly returns the web/legacy key.
+ */
+export function getGoogleMapsWebApiKey(): string | null {
+  const webKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || 
+                 Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY ||
+                 null;
+  if (webKey) {
+    if (__DEV__) {
+      logger.debug(`[Maps] Using Web API key for REST requests: ${webKey.substring(0, 20)}...`);
+    }
+    return webKey;
+  }
+  
+  // Fallback to platform-specific key (might fail if restricted)
+  logger.warn('[Maps] Web API key not found, falling back to platform key for REST requests');
+  return getGoogleMapsApiKey();
+}
+
+/**
  * Get API key for WebView/Google Maps JavaScript API
  * Prefers extra.GOOGLE_MAPS_API_KEY (typically has Maps JavaScript API enabled)
  * Falls back to platform-specific key

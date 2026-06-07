@@ -230,92 +230,47 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
       <View style={isDark ? styles.shadowDark : styles.shadowLight}>
         {/* Glassmorphic card body (clips inner contents like blur/image) */}
         <View style={styles.cardWrapper}>
-          {Platform.OS === 'ios' ? (
-            <BlurView
-              intensity={40}
-              tint={isDark ? 'dark' : 'light'}
-              style={[
-                styles.markerCard,
-                {
-                  backgroundColor: outerBg,
-                  borderColor: borderCol,
-                }
-              ]}
-            >
-              <View style={styles.markerContentRow}>
-                {resolvedPhoto ? (
-                  <ExpoImage
-                    source={{ uri: resolvedPhoto }}
-                    style={[styles.markerPhoto, { borderColor: isDark ? '#2DD4BF' : '#3B82F6' }]}
-                    contentFit="cover"
-                    cachePolicy="memory-disk"
-                    onLoad={handleImageLoad}
+          <View
+            style={[
+              styles.markerCard,
+              {
+                backgroundColor: isDark ? 'rgba(30, 41, 59, 0.85)' : 'rgba(255, 255, 255, 0.85)',
+                borderColor: borderCol,
+                borderRadius: 14,
+              }
+            ]}
+          >
+            <View style={styles.markerContentRow}>
+              {resolvedPhoto ? (
+                <ExpoImage
+                  source={{ uri: resolvedPhoto }}
+                  style={[styles.markerPhoto, { borderColor: isDark ? '#2DD4BF' : '#3B82F6' }]}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  onLoad={handleImageLoad}
+                />
+              ) : (
+                <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)' }]}>
+                  <Ionicons
+                    name={icon}
+                    size={14}
+                    color={isDark ? '#2DD4BF' : '#3B82F6'}
                   />
-                ) : (
-                  <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)' }]}>
-                    <Ionicons
-                      name={icon}
-                      size={14}
-                      color={isDark ? '#2DD4BF' : '#3B82F6'}
-                    />
-                  </View>
-                )}
-                
-                <View style={styles.textColumn}>
-                  {showLabel ? (
-                    <Text style={[styles.markerLabelText, { color: textColor }]} numberOfLines={1}>
-                      {showLabel}
-                    </Text>
-                  ) : null}
-                  <Text style={[styles.activeSubtitleText, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
-                    {displaySubtitle}
-                  </Text>
                 </View>
-              </View>
-            </BlurView>
-          ) : (
-            <View
-              style={[
-                styles.markerCard,
-                {
-                  backgroundColor: isDark ? '#1E293B' : '#FFFFFF',
-                  borderColor: borderCol,
-                  borderRadius: 14,
-                }
-              ]}
-            >
-              <View style={styles.markerContentRow}>
-                {resolvedPhoto ? (
-                  <ExpoImage
-                    source={{ uri: resolvedPhoto }}
-                    style={[styles.markerPhoto, { borderColor: isDark ? '#2DD4BF' : '#3B82F6' }]}
-                    contentFit="cover"
-                    cachePolicy="memory-disk"
-                    onLoad={handleImageLoad}
-                  />
-                ) : (
-                  <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)' }]}>
-                    <Ionicons
-                      name={icon}
-                      size={14}
-                      color={isDark ? '#2DD4BF' : '#3B82F6'}
-                    />
-                  </View>
-                )}
-                
-                <View style={styles.textColumn}>
-                  {showLabel ? (
-                    <Text style={[styles.markerLabelText, { color: textColor }]} numberOfLines={1}>
-                      {showLabel}
-                    </Text>
-                  ) : null}
-                  <Text style={[styles.activeSubtitleText, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
-                    {displaySubtitle}
+              )}
+              
+              <View style={styles.textColumn}>
+                {showLabel ? (
+                  <Text style={[styles.markerLabelText, { color: textColor }]} numberOfLines={1}>
+                    {showLabel}
                   </Text>
-                </View>
+                ) : null}
+                <Text style={[styles.activeSubtitleText, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
+                  {displaySubtitle}
+                </Text>
               </View>
             </View>
-          )}
+          </View>
         </View>
       </View>
 

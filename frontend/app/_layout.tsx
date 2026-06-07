@@ -62,6 +62,8 @@ try {
       dsn: SENTRY_DSN,
       sendDefaultPii: true,
       enableLogs: true,
+      // @ts-ignore - Sentry requires 8.5.0+ for tombstone collection
+      enableTombstone: true,
       replaysSessionSampleRate: parseSampleRate(
         process.env.EXPO_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE || extra.EXPO_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE,
         0.1
