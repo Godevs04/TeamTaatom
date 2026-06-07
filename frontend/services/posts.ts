@@ -91,6 +91,7 @@ export interface PostsResponse {
     hasNextPage: boolean;
     hasPrevPage: boolean;
     limit: number;
+    nextCursor?: string | null;
   };
 }
 
@@ -115,6 +116,7 @@ export interface ShortsResponse {
     hasNextPage: boolean;
     hasPrevPage: boolean;
     limit: number;
+    nextCursor?: string | null;
   };
 }
 
