@@ -515,7 +515,15 @@ export default function CurrentLocationMap() {
       }
 
       // Route calculation is now delegated to the Maps JS SDK inside the WebView
-      // The WebView will post a message back when the route is loaded
+      // Trigger calculation dynamically without reloading the WebView
+      if (mapRef.current && useWebViewFallback) {
+        mapRef.current.injectJavaScript(`
+          if (typeof window.calculateRoute === 'function') {
+            window.calculateRoute();
+          }
+          true;
+        `);
+      }
     } catch (err) {
       logger.error('Failed to init route state:', err);
       setRouteLoading(false);
@@ -760,45 +768,61 @@ function initMap(){
       div.setAttribute('data-anchor', 'center');
       div.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
     }
-    new PhotoOverlay(destination, div);
+    var overlay = new PhotoOverlay(destination, div);
+    return overlay;
   }
 
-  if (userCoords && isPostLoc) {
-    var directionsService = new google.maps.DirectionsService();
-    var origin = new google.maps.LatLng(userCoords.latitude, userCoords.longitude);
-    
-    directionsService.route({
-      origin: origin,
-      destination: destination,
-      travelMode: google.maps.TravelMode.DRIVING
-    }, function(response, status) {
-      if (status === 'OK') {
-        var path = response.routes[0].overview_path;
-        drawRoute(path);
-        drawUserDot(origin);
-        drawDestinationMarker(true);
-        if (window.ReactNativeWebView) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({
-            type: 'ROUTE_LOADED',
-            distanceText: response.routes[0].legs[0].distance.text,
-            distanceValue: response.routes[0].legs[0].distance.value,
-            durationText: response.routes[0].legs[0].duration.text,
-            durationValue: response.routes[0].legs[0].duration.value
-          }));
-        }
-      } else {
-        var fallbackPath = [origin, destination];
-        drawRoute(fallbackPath);
-        drawUserDot(origin);
-        drawDestinationMarker(true);
-        if (window.ReactNativeWebView) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_ERROR' }));
-        }
+  window.calculateRoute = function() {
+    if (userCoords && isPostLoc) {
+      // Remove the existing standalone destination marker before drawing the route one
+      if (window.destinationOverlay) {
+        window.destinationOverlay.onRemove();
       }
-    });
+      
+      var directionsService = new google.maps.DirectionsService();
+      var origin = new google.maps.LatLng(userCoords.latitude, userCoords.longitude);
+      
+      directionsService.route({
+        origin: origin,
+        destination: destination,
+        travelMode: google.maps.TravelMode.DRIVING
+      }, function(response, status) {
+        if (status === 'OK') {
+          var path = response.routes[0].overview_path;
+          drawRoute(path);
+          drawUserDot(origin);
+          drawDestinationMarker(true);
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'ROUTE_LOADED',
+              distanceText: response.routes[0].legs[0].distance.text,
+              distanceValue: response.routes[0].legs[0].distance.value,
+              durationText: response.routes[0].legs[0].duration.text,
+              durationValue: response.routes[0].legs[0].duration.value
+            }));
+          }
+        } else {
+          var fallbackPath = [origin, destination];
+          drawRoute(fallbackPath);
+          drawUserDot(origin);
+          drawDestinationMarker(true);
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_ERROR' }));
+          }
+        }
+      });
+    }
+  };
+
+  if (${isRoutingActive} && userCoords && isPostLoc) {
+    window.calculateRoute();
   } else {
-    drawDestinationMarker(false);
+    window.destinationOverlay = drawDestinationMarker(false);
     if (userCoords && !isPostLoc) {
+      var origin = new google.maps.LatLng(userCoords.latitude, userCoords.longitude);
+      drawUserDot(origin);
+    } else if (userCoords && isPostLoc) {
+      // Just show the user dot as well without routing
       var origin = new google.maps.LatLng(userCoords.latitude, userCoords.longitude);
       drawUserDot(origin);
     }

@@ -1104,7 +1104,7 @@ function RootLayoutInner() {
           <Stack.Screen name="notifications" options={{ presentation: 'card' }} />
           {/* Nested routes with index files */}
           <Stack.Screen name="activity/index" options={{ presentation: 'card' }} />
-          <Stack.Screen name="chat/index" options={{ presentation: 'card' }} />
+          <Stack.Screen name="chat" options={{ headerShown: false }} />
           <Stack.Screen name="saved-posts/index" options={{ presentation: 'card' }} />
           <Stack.Screen name="saved-shorts/index" options={{ presentation: 'card' }} />
           {/* Collections routes */}
