@@ -463,7 +463,7 @@ api.interceptors.response.use(
       const isGetRequest = originalRequest.method?.toUpperCase() === 'GET';
 
       // If offline or timeout and it's a non-GET request, queue the request for replaying when network is restored
-      if ((isOffline || isTimeout) && !isGetRequest) {
+      if ((isOffline || isTimeout) && !isGetRequest && !(originalRequest as any).skipQueue) {
         logger.debug(`[API] Request failed due to offline/timeout. Queuing non-GET: ${originalRequest.url}`);
         return new Promise((resolve, reject) => {
           offlineQueue.push({
