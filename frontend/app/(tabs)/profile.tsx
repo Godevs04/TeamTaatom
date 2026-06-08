@@ -660,6 +660,34 @@ export default function ProfileScreen() {
       socketService.unsubscribe('notification', onNotification);
     };
   }, []);
+
+  // Real-time profile invalidation and short transcode updates via socket
+  useEffect(() => {
+    if (!user?._id) return;
+    
+    const handleInvalidateProfile = () => {
+      logger.debug('Invalidate profile event received, refreshing profile data');
+      if (isMountedRef.current && user?._id && !isFetchingRef.current) {
+        loadUserData(true);
+      }
+    };
+    
+    const handleShortTranscoded = (payload: any) => {
+      logger.debug('Short transcoded event received on profile, refreshing profile data', payload);
+      // If the transcoded short belongs to the user, refresh
+      if (isMountedRef.current && user?._id && !isFetchingRef.current) {
+        loadUserData(true);
+      }
+    };
+    
+    socketService.subscribe(`invalidate:profile:${user._id}`, handleInvalidateProfile);
+    socketService.subscribe('short:transcoded', handleShortTranscoded);
+    
+    return () => {
+      socketService.unsubscribe(`invalidate:profile:${user._id}`, handleInvalidateProfile);
+      socketService.unsubscribe('short:transcoded', handleShortTranscoded);
+    };
+  }, [user?._id, loadUserData]);
   
   // Navigation Lifecycle Safety: Clear state on screen blur
   // Privacy & Settings Propagation: Refresh profile when screen is focused (e.g., after settings changes)
@@ -699,24 +727,27 @@ export default function ProfileScreen() {
       // Refresh profile data when screen is focused to ensure privacy settings are reflected
       // This ensures profile header, visibility, and dependent UI reflect latest settings
       // BUT: Don't refresh if we're on saved tab to avoid clearing saved items
-      if (user?._id && !isFetchingRef.current && activeTab !== 'saved') {
-        // Small delay to avoid race conditions with navigation
-        const refreshTimer = setTimeout(() => {
+      const refreshTimer = setTimeout(async () => {
+        let needsRefresh = false;
+        try {
+          const flag = await AsyncStorage.getItem('profile_shorts_needs_refresh');
+          if (flag === 'true') {
+            needsRefresh = true;
+            await AsyncStorage.removeItem('profile_shorts_needs_refresh');
+          }
+        } catch (err) {
+          logger.error('Failed to read profile_shorts_needs_refresh from AsyncStorage', err);
+        }
+
+        if (user?._id && (!isFetchingRef.current || needsRefresh) && activeTab !== 'saved') {
           if (isMountedRef.current && user?._id) {
             loadUserData(true);
           }
-        }, 100);
-        
-        return () => {
-          clearTimeout(refreshTimer);
-          // Screen blurred - cancel pending requests
-          if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-          }
-        };
-      }
+        }
+      }, 100);
       
       return () => {
+        clearTimeout(refreshTimer);
         // Screen blurred - cancel pending requests
         if (abortControllerRef.current) {
           abortControllerRef.current.abort();
@@ -1570,7 +1601,7 @@ export default function ProfileScreen() {
                   numColumns={3}
                   scrollEnabled={false}
                   keyExtractor={(item) => item._id}
-                  renderItem={({ item: post }) => {
+                  renderItem={({ item: post, index }) => {
                     // Try multiple possible image URL fields
                     const imageUrl = post.imageUrl 
                       || (post as any).image_url 
@@ -1596,6 +1627,7 @@ export default function ProfileScreen() {
                             params: {
                               postId: post._id,
                               postData: JSON.stringify(post),
+                              index: String(index),
                             },
                           });
                         }
@@ -1688,7 +1720,7 @@ export default function ProfileScreen() {
                   numColumns={3}
                   scrollEnabled={false}
                   keyExtractor={(item) => item._id}
-                  renderItem={({ item: s }) => {
+                  renderItem={({ item: s, index }) => {
                     const isSelected = selectedItemIds.includes(s._id);
                     const handlePress = () => {
                       if (isSelectionMode) {
@@ -1696,7 +1728,7 @@ export default function ProfileScreen() {
                           prev.includes(s._id) ? prev.filter(id => id !== s._id) : [...prev, s._id]
                         );
                       } else {
-                        router.push(`/user-shorts/${user?._id || ''}?shortId=${s._id}`);
+                        router.push(`/user-shorts/${user?._id || ''}?shortId=${s._id}&index=${index}`);
                       }
                     };
                     const handleLongPress = () => {

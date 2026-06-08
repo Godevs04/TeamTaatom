@@ -49,7 +49,7 @@ export default function UserPostsScreen() {
   const scrollOffsetRef = useRef(0);
   const shouldRestoreScrollRef = useRef(false);
 
-  const initialIndex = index ? parseInt(index as string, 10) : 0;
+  const [initialIndex, setInitialIndex] = useState(0);
 
   const getItemLayout = useCallback((_data: any, index: number) => ({
     length: 580,
@@ -74,6 +74,17 @@ export default function UserPostsScreen() {
         const dateB = new Date(b.createdAt || b.created_at || 0).getTime();
         return dateB - dateA;
       });
+      
+      let targetIndex = 0;
+      if (postId) {
+        const foundIndex = fetchedPosts.findIndex((p: any) => p._id === postId);
+        if (foundIndex !== -1) {
+          targetIndex = foundIndex;
+        }
+      } else if (index) {
+        targetIndex = parseInt(index as string, 10);
+      }
+      setInitialIndex(targetIndex);
       setPosts(fetchedPosts);
       
     } catch (error) {
@@ -82,7 +93,7 @@ export default function UserPostsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [userId, postId]);
+  }, [userId, postId, index]);
 
   useEffect(() => {
     fetchUserPosts();

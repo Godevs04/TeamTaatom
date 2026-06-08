@@ -63,6 +63,9 @@ import { savedEvents } from '../../utils/savedEvents';
 import { triggerHaptic } from '../../utils/hapticFeedback';
 import { shortsEvents } from '../../utils/shortsEvents';
 import { preloadVideoAsync, getLocalVideoUri, removeCachedVideo } from '../../src/utils/videoCache';
+import { FlashList, FlashListRef } from '@shopify/flash-list';
+
+const AnyFlashList = FlashList as any;
 
 /** Shorts list item: either a reel (PostType) or a full-screen native ad slot. */
 export type ShortsItem = PostType | { type: 'ad'; adIndex: number };
@@ -1111,6 +1114,11 @@ LocalShortsActionRail.displayName = 'LocalShortsActionRail';
 
 export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const params = useLocalSearchParams();
+  const effectiveUserId =
+    props.scopedUserId ?? normalizeSearchParam(params.userId as string | string[] | undefined);
+  const effectiveShortId =
+    props.initialShortId ?? normalizeSearchParam(params.shortId as string | string[] | undefined);
+
   const initialIndex = props.initialIndex ?? (params.index ? parseInt(params.index as string, 10) : 0);
 
   const [shorts, setShorts] = useState<PostType[]>([]);
@@ -1121,7 +1129,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [currentVisibleIndex, setCurrentVisibleIndex] = useState(initialIndex);
 
   const targetInitialIndexRef = useRef<number>(initialIndex);
-  const isInitialScrollDoneRef = useRef(initialIndex === 0);
+  const isInitialScrollDoneRef = useRef(!effectiveShortId && initialIndex === 0);
   const [isVideoPlaying, setIsVideoPlaying] = useState(true);
   const [isScreenFocused, setIsScreenFocused] = useState(true);
   const isScreenFocusedRef = useRef(true);
@@ -1234,7 +1242,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [failedAdIndices, setFailedAdIndices] = useState<number[]>([]);
   const consecutiveAdFailuresRef = useRef(0);
 
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<FlashListRef<ShortsItem>>(null);
   const videoRefs = useRef<{ [key: string]: Video | null }>({});
   // Two timeout namespaces. Previously a single `pauseTimeoutRefs[id]` slot was
   // shared by the pause-button hide timer AND the like-animation hide timer,
@@ -1321,10 +1329,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const router = useRouter();
   const segments = useSegments();
 
-  const effectiveUserId =
-    props.scopedUserId ?? normalizeSearchParam(params.userId as string | string[] | undefined);
-  const effectiveShortId =
-    props.initialShortId ?? normalizeSearchParam(params.shortId as string | string[] | undefined);
   const lastEffectiveUserIdRef = useRef<string | undefined>(effectiveUserId);
 
   const isOnTabShorts = segments.includes('(tabs)') && segments.includes('shorts');
@@ -1580,12 +1584,25 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         router.replace('/(tabs)/shorts');
       }
 
-      const refreshTimer = setTimeout(() => {
+      const refreshTimer = setTimeout(async () => {
         const shouldFilterByUser = !!effectiveUserId;
-        if (!shouldFilterByUser && shortsRef.current.length === 0) {
+        let needsRefresh = false;
+        try {
+          const flag = await AsyncStorage.getItem('shorts_feed_needs_refresh');
+          if (flag === 'true') {
+            needsRefresh = true;
+            await AsyncStorage.removeItem('shorts_feed_needs_refresh');
+          }
+        } catch (err) {
+          logger.error('Failed to read shorts_feed_needs_refresh from AsyncStorage', err);
+        }
+
+        const isOwnProfile = shouldFilterByUser && currentUser?._id && effectiveUserId === currentUser._id;
+        
+        if (needsRefresh || ((!shouldFilterByUser || isOwnProfile) && shortsRef.current.length === 0)) {
           logger.debug('Shorts screen focused - refreshing feed for real-time updates');
           const loadFn = loadShortsRef.current;
-          if (loadFn) loadFn();
+          if (loadFn) await loadFn();
         }
       }, 300);
 
@@ -2356,13 +2373,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   }, []);
 
   // CRITICAL: Subscribe to Socket.IO events for real-time feed updates after loadShorts is defined
-  // Listen for 'short:created' and 'invalidate:feed' events to refresh feed immediately
+  // Listen for 'short:created', 'short:transcoded', and 'invalidate:feed' events to refresh feed immediately
   useEffect(() => {
     const handleShortCreated = (payload: { shortId?: string }) => {
       logger.debug('Short created event received, refreshing feed:', payload);
-      // Only refresh if we're not filtering by a specific user (general feed)
       const shouldFilterByUser = !!effectiveUserId;
-      if (!shouldFilterByUser) {
+      const isOwnProfile = shouldFilterByUser && currentUser?._id && effectiveUserId === currentUser._id;
+      if (!shouldFilterByUser || isOwnProfile) {
         // Refresh feed to show new short immediately using ref to avoid stale closure
         const loadFn = loadShortsRef.current;
         if (loadFn) {
@@ -2373,10 +2390,23 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     
     const handleInvalidateFeed = () => {
       logger.debug('Feed invalidation event received, refreshing shorts feed');
-      // Only refresh if we're not filtering by a specific user (general feed)
       const shouldFilterByUser = !!effectiveUserId;
-      if (!shouldFilterByUser) {
+      const isOwnProfile = shouldFilterByUser && currentUser?._id && effectiveUserId === currentUser._id;
+      if (!shouldFilterByUser || isOwnProfile) {
         // Refresh feed to show updated content using ref to avoid stale closure
+        const loadFn = loadShortsRef.current;
+        if (loadFn) {
+          loadFn();
+        }
+      }
+    };
+
+    const handleShortTranscoded = (payload: { shortId?: string }) => {
+      logger.debug('Short transcoded event received, refreshing shorts feed:', payload);
+      const shouldFilterByUser = !!effectiveUserId;
+      const isOwnProfile = shouldFilterByUser && currentUser?._id && effectiveUserId === currentUser._id;
+      if (!shouldFilterByUser || isOwnProfile) {
+        // Refresh feed to show updated content (HLS URL & thumbnail) using ref to avoid stale closure
         const loadFn = loadShortsRef.current;
         if (loadFn) {
           loadFn();
@@ -2392,13 +2422,18 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     socketService.subscribe('invalidate:feed', handleInvalidateFeed).catch(err => {
       logger.warn('Error subscribing to invalidate:feed event:', err);
     });
+
+    socketService.subscribe('short:transcoded', handleShortTranscoded).catch(err => {
+      logger.warn('Error subscribing to short:transcoded event:', err);
+    });
     
     // Cleanup: Unsubscribe from socket events when component unmounts or params change
     return () => {
       socketService.unsubscribe('short:created', handleShortCreated);
       socketService.unsubscribe('invalidate:feed', handleInvalidateFeed);
+      socketService.unsubscribe('short:transcoded', handleShortTranscoded);
     };
-  }, [effectiveUserId]); // Only depend on scoped user, not loadShorts (use ref instead)
+  }, [effectiveUserId, currentUser?._id]); // Depend on effectiveUserId and currentUser._id
 
   // Pause all videos except the specified one to ensure only one plays at a time
   const pauseAllVideosExcept = useCallback(async (activeVideoId: string | null) => {
@@ -3117,7 +3152,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // Cleanup videos that are far from viewport
   // Uses centralized stopAndUnloadVideo helper
   useEffect(() => {
-    const cleanupDistance = 2; // Cleanup videos more than 2 positions away (since we keep 5 mounted)
+    const cleanupDistance = 1; // Cleanup videos more than 1 position away (since we keep 3 mounted)
     Object.keys(videoRefs.current).forEach((videoId) => {
       const videoIndex = shortsData.findIndex(s => !isAdItem(s) && s._id === videoId);
       if (videoIndex === -1) return;
@@ -3136,22 +3171,29 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   useEffect(() => {
     if (!shortsData || shortsData.length === 0) return;
 
-    const minIndex = Math.max(0, currentVisibleIndex - 2);
-    const maxIndex = Math.min(shortsData.length - 1, currentVisibleIndex + 2);
-
-    // 1. Trigger background preloading for all videos in the sliding window
-    for (let i = minIndex; i <= maxIndex; i++) {
-      const item = shortsData[i];
-      if (item && !isAdItem(item)) {
-        const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
-        if (baseUrl) {
-          preloadVideoAsync(item._id, baseUrl);
+    // 1. Debounced background preloading for the next 2 upcoming videos
+    // Prevents parallel downloads and network congestion during rapid scrolls
+    const preloadTimer = setTimeout(() => {
+      const nextIndex1 = currentVisibleIndex + 1;
+      const nextIndex2 = currentVisibleIndex + 2;
+      [nextIndex1, nextIndex2].forEach(idx => {
+        if (idx >= 0 && idx < shortsData.length) {
+          const item = shortsData[idx];
+          if (item && !isAdItem(item)) {
+            const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
+            if (baseUrl) {
+              preloadVideoAsync(item._id, baseUrl);
+            }
+          }
         }
-      }
-    }
+      });
+    }, 300);
 
-    // 2. Poll/check file existence for the sliding window to update localVideoUris state
+    // 2. Poll/check file existence for the immediate neighbors to update localVideoUris state
     let active = true;
+    const minIndex = Math.max(0, currentVisibleIndex - 1);
+    const maxIndex = Math.min(shortsData.length - 1, currentVisibleIndex + 1);
+
     const checkCachedVideos = async () => {
       const newUris: Record<string, string> = {};
       for (let i = minIndex; i <= maxIndex; i++) {
@@ -3186,6 +3228,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
     return () => {
       active = false;
+      clearTimeout(preloadTimer);
       clearInterval(interval);
     };
   }, [currentVisibleIndex, shortsData]);
@@ -3213,6 +3256,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const dataIndex = showShortsAds
       ? reelIndex + Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY)
       : reelIndex;
+    targetInitialIndexRef.current = dataIndex;
+    isInitialScrollDoneRef.current = false;
     setCurrentIndex(dataIndex);
     setCurrentVisibleIndex(dataIndex);
     const attemptScroll = (attempt: number = 0) => {
@@ -3489,7 +3534,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // three concurrent decoders (prev + current + next) is the sweet spot.
     // The cleanup effect at distance > 2 unloads anything further out, and
     // the blur handler unloads ALL decoders when the user leaves the tab.
-    const shouldRenderVideo = Math.abs(distanceFromVisible) <= 2;
+    const shouldRenderVideo = Math.abs(distanceFromVisible) <= 1;
 
     const videoState = videoStates[item._id];
     // Only treat the video as "playing" once it has actually reported playback
@@ -4267,6 +4312,27 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     minimumViewTime: 50, // Reduced from 100ms — faster visibility detection after snap
   }).current;
 
+  if (loading && shorts.length === 0) {
+    return (
+      <View style={[styles.container, styles.loadingContainer]}>
+        <StatusBar 
+          barStyle="light-content" 
+          backgroundColor="transparent" 
+          translucent={true}
+        />
+        <View style={styles.loadingContent}>
+          <View style={styles.loadingSpinner}>
+            <LoadingGlobe size="large" color="#ffffff" />
+          </View>
+          <Text style={styles.loadingTitle}>Loading Shorts</Text>
+          <Text style={styles.loadingSubtitle}>
+            Preparing your personalized feed...
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
   if (!loading && shorts.length === 0) {
     return null;
   }
@@ -4351,7 +4417,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         );
       })()}
 
-      <FlatList
+      <AnyFlashList
         ref={flatListRef}
         scrollEnabled={!isSwipeActive}
         refreshControl={
@@ -4364,7 +4430,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         data={shortsData}
         renderItem={renderShortItem}
         keyExtractor={keyExtractor}
-        getItemLayout={getItemLayout}
+        estimatedItemSize={containerHeight}
         initialScrollIndex={(() => {
           if (!effectiveShortId || shorts.length === 0) return undefined;
           const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
@@ -4390,11 +4456,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
           });
         }}
-        removeClippedSubviews={true}
-        initialNumToRender={2}
-        maxToRenderPerBatch={2}
-        windowSize={5}
-        updateCellsBatchingPeriod={10}
         onEndReached={loadMoreShorts}
         onEndReachedThreshold={0.3}
         onScroll={handleScroll}

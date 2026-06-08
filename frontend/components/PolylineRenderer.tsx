@@ -327,39 +327,39 @@ export default function PolylineRenderer({
   try {
     const { Polyline } = require('react-native-maps');
 
-    return (
-      <>
-        {processedSegments.map((segment, index) => {
-          if (segment.length < 2) return null;
-          return (
-            <React.Fragment key={`segment-${index}`}>
-              {glowColor ? (
-                <Polyline
-                  coordinates={segment}
-                  strokeColor={glowColor}
-                  strokeWidth={Math.max(strokeWidth + 8, 10)}
-                  lineCap="round"
-                  lineJoin="round"
-                  geodesic={true}
-                  tappable={!!onPress}
-                  onPress={onPress}
-                />
-              ) : null}
-              <Polyline
-                coordinates={segment}
-                strokeColor={color}
-                strokeWidth={strokeWidth}
-                lineCap="round"
-                lineJoin="round"
-                geodesic={true}
-                tappable={!!onPress}
-                onPress={onPress}
-              />
-            </React.Fragment>
-          );
-        })}
-      </>
-    );
+    return processedSegments.flatMap((segment, index) => {
+      if (segment.length < 2) return [];
+      const polylines = [];
+      if (glowColor) {
+        polylines.push(
+          <Polyline
+            key={`segment-glow-${index}`}
+            coordinates={segment}
+            strokeColor={glowColor}
+            strokeWidth={Math.max(strokeWidth + 8, 10)}
+            lineCap="round"
+            lineJoin="round"
+            geodesic={true}
+            tappable={!!onPress}
+            onPress={onPress}
+          />
+        );
+      }
+      polylines.push(
+        <Polyline
+          key={`segment-main-${index}`}
+          coordinates={segment}
+          strokeColor={color}
+          strokeWidth={strokeWidth}
+          lineCap="round"
+          lineJoin="round"
+          geodesic={true}
+          tappable={!!onPress}
+          onPress={onPress}
+        />
+      );
+      return polylines;
+    }) as any;
   } catch (error) {
     return null;
   }

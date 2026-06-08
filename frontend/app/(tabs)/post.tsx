@@ -2653,6 +2653,12 @@ export default function PostScreen() {
       
       // Clear draft on successful post
       await clearDraft();
+      try {
+        await AsyncStorage.setItem('shorts_feed_needs_refresh', 'true');
+        await AsyncStorage.setItem('profile_shorts_needs_refresh', 'true');
+      } catch (err) {
+        logger.error('Failed to set shorts refresh flags', err);
+      }
       trackFeatureUsage('short_created', {});
       // Check if short requires verification (pending review)
       const requiresVerification = source === 'gallery_no_exif' || source === 'manual_only';
@@ -2828,6 +2834,12 @@ export default function PostScreen() {
       
       // Clear draft on successful post
       await clearDraft();
+      try {
+        await AsyncStorage.setItem('shorts_feed_needs_refresh', 'true');
+        await AsyncStorage.setItem('profile_shorts_needs_refresh', 'true');
+      } catch (err) {
+        logger.error('Failed to set shorts refresh flags', err);
+      }
       trackFeatureUsage('short_created', {});
       // Check if short requires verification (pending review)
       const requiresVerification = pendingShortData.source === 'gallery_no_exif' || pendingShortData.source === 'manual_only';

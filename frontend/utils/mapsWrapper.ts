@@ -5,6 +5,7 @@
 //   iOS / Android .............. WebView fallback (stable under zoom with custom markers)
 //   Web ....................... handled by mapsWrapper.web.ts
 
+import React from 'react';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import logger from './logger';
@@ -54,4 +55,42 @@ const getMapProvider = () => {
   return PROVIDER_DEFAULT || undefined;
 };
 
-export { MapView, Marker, Polyline, PROVIDER_GOOGLE, getMapProvider, useWebViewFallback };
+// Safe wrapper for MapView to filter out null/boolean children and recursively flatten Fragments.
+// This prevents the native AIRMap / AIRGoogleMap component from crashing on iOS when receiving nil subviews.
+const SafeMapView = React.forwardRef((props: any, ref: any) => {
+  if (!MapView) return null;
+
+  const sanitizeChildren = (childrenToSanitize: any): any[] => {
+    const flattened: any[] = [];
+    
+    React.Children.forEach(childrenToSanitize, (child) => {
+      if (child === null || child === undefined || typeof child === 'boolean') {
+        return;
+      }
+      
+      if (child.type === React.Fragment) {
+        if (child.props && child.props.children) {
+          flattened.push(...sanitizeChildren(child.props.children));
+        }
+      } else {
+        flattened.push(child);
+      }
+    });
+    
+    return flattened;
+  };
+
+  const cleanChildren = props.children ? sanitizeChildren(props.children) : [];
+
+  return React.createElement(MapView, { ...props, ref }, ...cleanChildren);
+});
+
+// Copy static properties of original MapView if any (e.g. Marker, Polyline, etc.)
+if (MapView) {
+  Object.keys(MapView).forEach((key) => {
+    (SafeMapView as any)[key] = MapView[key];
+  });
+}
+
+export { SafeMapView as MapView, Marker, Polyline, PROVIDER_GOOGLE, getMapProvider, useWebViewFallback };
+

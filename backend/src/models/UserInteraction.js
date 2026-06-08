@@ -35,6 +35,12 @@ const userInteractionSchema = new mongoose.Schema({
     type: Map,
     of: Number,
     default: {}
+  },
+  // Affinities for tags/interests
+  tagAffinities: {
+    type: Map,
+    of: Number,
+    default: {}
   }
 }, {
   timestamps: true

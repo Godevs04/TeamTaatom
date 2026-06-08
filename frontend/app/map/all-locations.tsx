@@ -1644,42 +1644,46 @@ function initMap(){
         }}
       >
         {/* Journey polylines + start/end markers — hidden when filter is 'posts' */}
-        {(mapFilter === 'journeys') && journeys.map((j) => {
-          if (!j.polyline || j.polyline.length < 2) return null;
+        {(mapFilter === 'journeys') && journeys.flatMap((j) => {
+          if (!j.polyline || j.polyline.length < 2) return [];
           const coords = getJourneyPolylineCoords(j);
-          return (
-            <React.Fragment key={`journey-${j._id}`}>
-              <PolylineRenderer
-                coordinates={coords}
-                color={mapStyle.routeColor}
-                glowColor={mapStyle.routeGlowColor}
-                strokeWidth={4}
-                simplifyDistance={10}
-                applyKalman={false}
-                latitudeDelta={safeLatitudeDelta}
-              />
-              {/* Start marker */}
-              {isValidMapCoordinate({ latitude: j.startCoords?.lat, longitude: j.startCoords?.lng }) && (
-                <Marker
-                  coordinate={{ latitude: j.startCoords.lat, longitude: j.startCoords.lng }}
-                  title={j.startCity || 'Start'}
-                  anchor={{ x: 0.5, y: 0.5 }}
-                >
-                  <PremiumMapMarker pointType="start" isActive={false} />
-                </Marker>
-              )}
-              {/* End marker */}
-              {isValidMapCoordinate({ latitude: j.endCoords?.lat, longitude: j.endCoords?.lng }) && (
-                <Marker
-                  coordinate={{ latitude: j.endCoords.lat, longitude: j.endCoords.lng }}
-                  title={j.endCity || 'End'}
-                  anchor={{ x: 0.5, y: 0.5 }}
-                >
-                  <PremiumMapMarker pointType="end" isActive={false} />
-                </Marker>
-              )}
-            </React.Fragment>
-          );
+          const elements = [
+            <PolylineRenderer
+              key={`polyline-${j._id}`}
+              coordinates={coords}
+              color={mapStyle.routeColor}
+              glowColor={mapStyle.routeGlowColor}
+              strokeWidth={4}
+              simplifyDistance={10}
+              applyKalman={false}
+              latitudeDelta={safeLatitudeDelta}
+            />
+          ];
+          if (isValidMapCoordinate({ latitude: j.startCoords?.lat, longitude: j.startCoords?.lng })) {
+            elements.push(
+              <Marker
+                key={`start-${j._id}`}
+                coordinate={{ latitude: j.startCoords.lat, longitude: j.startCoords.lng }}
+                title={j.startCity || 'Start'}
+                anchor={{ x: 0.5, y: 0.5 }}
+              >
+                <PremiumMapMarker pointType="start" isActive={false} />
+              </Marker>
+            );
+          }
+          if (isValidMapCoordinate({ latitude: j.endCoords?.lat, longitude: j.endCoords?.lng })) {
+            elements.push(
+              <Marker
+                key={`end-${j._id}`}
+                coordinate={{ latitude: j.endCoords.lat, longitude: j.endCoords.lng }}
+                title={j.endCity || 'End'}
+                anchor={{ x: 0.5, y: 0.5 }}
+              >
+                <PremiumMapMarker pointType="end" isActive={false} />
+              </Marker>
+            );
+          }
+          return elements;
         })}
 
         {/* Post location markers — hidden when filter is 'journeys' */}
