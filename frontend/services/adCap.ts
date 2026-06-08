@@ -307,35 +307,62 @@ export async function logContentView(
   return { incremented, ignored: isIgnored };
 }
 
-/** Home feed: insert one native ad slot after every N posts (max 5 slots per 8h cap). */
+/** Home feed: one native ad after every N posts. */
 export const HOME_AD_EVERY_N_POSTS = 5;
 
-/**
- * Simple positional ad injection for the home feed.
- * Inserts ad slots after posts 5, 10, 15, 20, 25 — independent of view telemetry.
- */
-export function injectHomeFeedAds<T>(
+/** Shorts feed: one native ad after every N reels. */
+export const SHORTS_AD_EVERY_N_REELS = 5;
+
+type FeedAdCapOptions = {
+  isCapped: boolean;
+  count?: number;
+  remainingSlots?: number;
+};
+
+function injectPositionalFeedAds<T>(
   items: T[],
-  options: { isCapped: boolean; count: number }
+  everyN: number,
+  options: FeedAdCapOptions
 ): (T | { type: 'ad'; adIndex: number })[] {
-  if (options.isCapped || options.count >= MAX_GOOGLE_ADS || items.length === 0) {
+  const slotsLeft =
+    typeof options.remainingSlots === 'number'
+      ? Math.max(0, options.remainingSlots)
+      : Math.max(0, MAX_GOOGLE_ADS - (options.count ?? 0));
+
+  if (options.isCapped || slotsLeft <= 0 || items.length === 0) {
     return items;
   }
 
   const result: (T | { type: 'ad'; adIndex: number })[] = [];
-  let postCount = 0;
+  let contentCount = 0;
   let adIndex = 0;
 
   for (const item of items) {
     result.push(item);
-    postCount += 1;
-    if (postCount % HOME_AD_EVERY_N_POSTS === 0 && adIndex < MAX_GOOGLE_ADS) {
+    contentCount += 1;
+    if (contentCount % everyN === 0 && adIndex < slotsLeft && contentCount < items.length) {
       result.push({ type: 'ad', adIndex });
       adIndex += 1;
     }
   }
 
   return result;
+}
+
+/** Inserts ad slots after posts 5, 10, 15, 20, 25 (shared 5-per-8h impression cap). */
+export function injectHomeFeedAds<T>(
+  items: T[],
+  options: FeedAdCapOptions
+): (T | { type: 'ad'; adIndex: number })[] {
+  return injectPositionalFeedAds(items, HOME_AD_EVERY_N_POSTS, options);
+}
+
+/** Inserts ad slots after reels 5, 10, 15, 20, 25 (shared 5-per-8h impression cap). */
+export function injectShortsFeedAds<T>(
+  items: T[],
+  options: FeedAdCapOptions
+): (T | { type: 'ad'; adIndex: number })[] {
+  return injectPositionalFeedAds(items, SHORTS_AD_EVERY_N_REELS, options);
 }
 
 /**

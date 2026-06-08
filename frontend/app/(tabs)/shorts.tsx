@@ -49,7 +49,14 @@ import { socketService } from '../../services/socket';
 import ShareModal from '../../components/ShareModal';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { ShortsNativeAd } from '../../components/ads/ShortsNativeAd';
-import { useAdCap, recordGoogleAdImpression, logContentView } from '../../services/adCap';
+import {
+  useAdCap,
+  recordGoogleAdImpression,
+  logContentView,
+  injectShortsFeedAds,
+  SHORTS_AD_EVERY_N_REELS,
+  AD_CAP_MAX,
+} from '../../services/adCap';
 import { realtimePostsService } from '../../services/realtimePosts';
 import Constants from 'expo-constants';
 import { savedEvents } from '../../utils/savedEvents';
@@ -64,9 +71,8 @@ function isAdItem(item: ShortsItem): item is { type: 'ad'; adIndex: number } {
   return 'type' in item && item.type === 'ad';
 }
 
-const SHORTS_ADS_AFTER_EVERY = 5;
-const MAX_SHORTS_ADS = 3;
-const SHORTS_ADS_SESSION_DELAY_MS = 20000;
+const SHORTS_ADS_AFTER_EVERY = SHORTS_AD_EVERY_N_REELS;
+const SHORTS_ADS_SESSION_DELAY_MS = __DEV__ ? 1000 : 20000;
 const SHORT_VIEW_DWELL_MS = 2500;
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -1202,7 +1208,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // is bridge churn that has been correlated with native crashes on Android).
   const lastMuteEnforceAtRef = useRef<Record<string, number>>({});
 
-  // Frequency control: no ad before 5 reels watched, no ad before 20s session, max 3 ads per Shorts session
+  // Frequency control: no ad before 5 reels watched, session warmup delay, shared 5-per-8h cap
   const [hasWatchedFiveReels, setHasWatchedFiveReels] = useState(false);
   const [adsAllowedAfter20s, setAdsAllowedAfter20s] = useState(false);
   useEffect(() => {
@@ -1210,7 +1216,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     return () => clearTimeout(t);
   }, []);
 
-  // Hard cap: track ads shown this session; never insert more than 3 ad slots total
   const adsShownThisSessionRef = useRef(0);
   const [adsShownThisSession, setAdsShownThisSession] = useState(0);
   // Persistent 5-per-8h Google AdMob cap, shared with the home feed. The
@@ -3100,25 +3105,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const showShortsAds = !isWeb && !isExpoGo && hasWatchedFiveReels && adsAllowedAfter20s && !adCap.isCapped && !shortsAdsBroken;
   const shortsData = useMemo((): ShortsItem[] => {
     if (!showShortsAds || shorts.length === 0) return shorts as ShortsItem[];
-    const maxSlots = Math.min(
-      MAX_SHORTS_ADS,
-      Math.max(0, 3 - adsShownThisSession),
-      adCap.remainingSlots,
-    );
-    if (maxSlots <= 0) return shorts as ShortsItem[];
-    const result: ShortsItem[] = [];
-    let adCount = 0;
-    shorts.forEach((reel, i) => {
-      result.push(reel);
-      if (adCount < maxSlots && (i + 1) % SHORTS_ADS_AFTER_EVERY === 0 && i < shorts.length - 1) {
-        const currentAdIndex = adCount++;
-        if (!failedAdIndices.includes(currentAdIndex)) {
-          result.push({ type: 'ad', adIndex: currentAdIndex });
-        }
+    const rawFeed = injectShortsFeedAds(shorts, adCap) as ShortsItem[];
+    return rawFeed.filter((item) => {
+      if (isAdItem(item)) {
+        return !failedAdIndices.includes(item.adIndex);
       }
+      return true;
     });
-    return result;
-  }, [shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots, failedAdIndices]);
+  }, [shorts, showShortsAds, adCap, failedAdIndices]);
 
   // Cleanup videos that are far from viewport
   // Uses centralized stopAndUnloadVideo helper
@@ -3216,13 +3210,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     if (!effectiveShortId || shorts.length === 0) return;
     const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
     if (reelIndex === -1) return;
-    const maxSlots = Math.min(
-      MAX_SHORTS_ADS,
-      Math.max(0, 3 - adsShownThisSession),
-      adCap.remainingSlots,
-    );
     const dataIndex = showShortsAds
-      ? reelIndex + Math.min(Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY), maxSlots)
+      ? reelIndex + Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY)
       : reelIndex;
     setCurrentIndex(dataIndex);
     setCurrentVisibleIndex(dataIndex);
@@ -3245,7 +3234,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }, 100 * (attempt + 1));
     };
     attemptScroll();
-  }, [effectiveShortId, shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots]);
+  }, [effectiveShortId, shorts, showShortsAds]);
 
   // Enhanced: Ensure video playback syncs with currentVisibleIndex (uses shortsData; ad = pause all, reel = play)
   useEffect(() => {
@@ -3462,7 +3451,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             onImpression={() => {
               consecutiveAdFailuresRef.current = 0; // Reset on successful impression
               adsShownThisSessionRef.current += 1;
-              setAdsShownThisSession((prev) => Math.min(3, prev + 1));
+              setAdsShownThisSession((prev) => Math.min(AD_CAP_MAX, prev + 1));
               // Persistent 5-per-8h cap, shared with the home feed. Fire-and-forget;
               // adCap handles AsyncStorage write + listener notification internally.
               recordGoogleAdImpression();
@@ -4380,8 +4369,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           if (!effectiveShortId || shorts.length === 0) return undefined;
           const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
           if (reelIndex === -1) return undefined;
-          const maxSlots = Math.min(MAX_SHORTS_ADS, Math.max(0, 3 - adsShownThisSession));
-          const dataIndex = showShortsAds ? reelIndex + Math.min(Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY), maxSlots) : reelIndex;
+          const dataIndex = showShortsAds
+            ? reelIndex + Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY)
+            : reelIndex;
           return dataIndex;
         })()}
         pagingEnabled

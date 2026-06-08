@@ -2,7 +2,7 @@
   "expo": {
     "name": "taatom",
     "slug": "taatom",
-    "version": "26.3.14",
+    "version": "26.3.15",
     "orientation": "portrait",
     "icon": "./assets/icon-1024.png",
     "userInterfaceStyle": "automatic",
@@ -20,7 +20,7 @@
       "supportsTablet": true,
       "icon": "./assets/icon-1024.png",
       "bundleIdentifier": "com.taatom.app",
-      "buildNumber": "28",
+      "buildNumber": "29",
       "associatedDomains": [
         "applinks:taatom.com",
         "applinks:*.taatom.com"
@@ -60,7 +60,7 @@
     "android": {
       "icon": "./assets/icon-1024.png",
       "package": "com.taatom.app",
-      "versionCode": 28,
+      "versionCode": 29,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
@@ -169,6 +169,9 @@
         }
       ],
       "expo-font",
+      "expo-image",
+      "expo-clipboard",
+      "expo-task-manager",
       [
         "react-native-google-mobile-ads",
         {
@@ -249,8 +252,14 @@
       "eas": {
         "projectId": "c3b80b3d-23d8-4948-abfa-80963e4192d0"
       },
-      "GOOGLE_MAPS_IOS_KEY": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co"
+      "GOOGLE_MAPS_IOS_KEY": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co",
+      "ADMOB_ANDROID_APP_ID": "ca-app-pub-6362359854606661~6880786152",
+      "ADMOB_IOS_APP_ID": "ca-app-pub-6362359854606661~9610954911",
+      "EXPO_PUBLIC_ADMOB_ANDROID_NATIVE_UNIT_ID": "ca-app-pub-6362359854606661/8141104654",
+      "EXPO_PUBLIC_ADMOB_IOS_NATIVE_UNIT_ID": "ca-app-pub-6362359854606661/3239601539",
+      "EXPO_PUBLIC_ADMOB_ANDROID_BANNER_UNIT_ID": "ca-app-pub-6362359854606661/7027944948",
+      "EXPO_PUBLIC_ADMOB_IOS_BANNER_UNIT_ID": "ca-app-pub-6362359854606661/2303221559"
     },
-    "owner": "taatom-technologies" 
+    "owner": "taatom-technologies"
   }
 }
