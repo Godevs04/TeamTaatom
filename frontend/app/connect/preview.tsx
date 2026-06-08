@@ -144,7 +144,6 @@ export default function ContentPreviewScreen() {
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [buyerName, setBuyerName] = useState('');
   const [buyerPhone, setBuyerPhone] = useState('');
-  const [payPhone, setPayPhone] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [checkingOut, setCheckingOut] = useState(false);
 
@@ -247,7 +246,6 @@ export default function ContentPreviewScreen() {
             setCheckoutModalVisible(false);
             setBuyerName('');
             setBuyerPhone('');
-            setPayPhone('');
             setDeliveryAddress('');
             showSuccess('Your payment is complete. Order placed!', 'Order confirmed');
             return;
@@ -377,22 +375,6 @@ export default function ContentPreviewScreen() {
     setCheckoutModalVisible(true);
   };
 
-  const copyToClipboard = async (text: string) => {
-    try {
-      if (Platform.OS === 'web') {
-        if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(text);
-          Alert.alert('Copied', 'UPI ID copied to clipboard!');
-        }
-      } else {
-        await Clipboard.setStringAsync(text);
-        Alert.alert('Copied', 'UPI ID copied to clipboard!');
-      }
-    } catch (err) {
-      logger.error('Failed to copy UPI:', err);
-    }
-  };
-
    const handleBuyItem = async () => {
     if (!selectedItem || !pageId) return;
     if (!buyerName.trim()) {
@@ -401,10 +383,6 @@ export default function ContentPreviewScreen() {
     }
     if (!buyerPhone.trim()) {
       Alert.alert('Error', 'Please enter your phone number.');
-      return;
-    }
-    if (!payPhone.trim()) {
-      Alert.alert('Error', 'Please enter your payment phone number.');
       return;
     }
     if (!deliveryAddress.trim()) {
@@ -984,40 +962,16 @@ export default function ContentPreviewScreen() {
             )}
 
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-              {pageData?.creatorPayoutInfo?.upiId ? (
-                <View style={[styles.upiInfoCard, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)', borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)' }]}>
-                  <View style={styles.upiInfoRow}>
-                    <Ionicons name="information-circle" size={20} color={theme.colors.primary} />
-                    <Text style={[styles.upiInfoTitle, { color: textColor, fontFamily: getFontFamily('600') }]}>Payment Instructions</Text>
-                  </View>
-                  <Text style={[styles.upiInfoText, { color: isDark ? '#A1A1AA' : '#71717A', fontFamily: getFontFamily('400') }]}>
-                    To place this order, please pay ₹{selectedItem?.price} to the creator's UPI ID below.
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => copyToClipboard(pageData.creatorPayoutInfo.upiId || '')}
-                    style={[styles.upiIdRow, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(255, 255, 255, 0.8)', borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)' }]}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[styles.upiIdText, { color: theme.colors.primary, fontFamily: getFontFamily('600') }]}>
-                      {pageData.creatorPayoutInfo.upiId}
-                    </Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                      <Text style={{ fontSize: 12, color: theme.colors.primary, fontFamily: getFontFamily('500') }}>Copy</Text>
-                      <Ionicons name="copy-outline" size={16} color={theme.colors.primary} />
-                    </View>
-                  </TouchableOpacity>
+              {/* Cashfree payment info banner */}
+              <View style={[styles.upiInfoCard, { backgroundColor: isDark ? 'rgba(56,189,248,0.08)' : 'rgba(56,189,248,0.06)', borderColor: isDark ? 'rgba(56,189,248,0.25)' : 'rgba(56,189,248,0.2)' }]}>
+                <View style={styles.upiInfoRow}>
+                  <Ionicons name="shield-checkmark" size={20} color="#38BDF8" />
+                  <Text style={[styles.upiInfoTitle, { color: textColor, fontFamily: getFontFamily('600') }]}>Secure Payment via Cashfree</Text>
                 </View>
-              ) : (
-                <View style={[styles.upiInfoCard, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)', borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)' }]}>
-                  <View style={styles.upiInfoRow}>
-                    <Ionicons name="information-circle" size={20} color={theme.colors.primary} />
-                    <Text style={[styles.upiInfoTitle, { color: textColor, fontFamily: getFontFamily('600') }]}>Payment Details</Text>
-                  </View>
-                  <Text style={[styles.upiInfoText, { color: isDark ? '#A1A1AA' : '#71717A', fontFamily: getFontFamily('400') }]}>
-                    Payment must be done to place this order. Please enter your payment phone number below so the creator can verify your payment.
-                  </Text>
-                </View>
-              )}
+                <Text style={[styles.upiInfoText, { color: isDark ? '#A1A1AA' : '#71717A', fontFamily: getFontFamily('400') }]}>
+                  Fill in your details and tap the Pay button. You will be taken to the secure Cashfree payment screen.
+                </Text>
+              </View>
 
               <Text style={[styles.inputLabel, { color: textColor, fontFamily: getFontFamily('500') }]}>Your Name</Text>
               <TextInput
@@ -1050,24 +1004,6 @@ export default function ContentPreviewScreen() {
                 value={buyerPhone}
                 onChangeText={setBuyerPhone}
                 placeholder="Enter your phone number"
-                placeholderTextColor={isDark ? '#71717A' : '#A1A1AA'}
-                keyboardType="phone-pad"
-              />
-
-              <Text style={[styles.inputLabel, { color: textColor, fontFamily: getFontFamily('500') }]}>UPI / Payment Phone Number</Text>
-              <TextInput
-                style={[
-                  styles.checkoutInput,
-                  {
-                    color: textColor,
-                    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
-                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                    fontFamily: getFontFamily('400')
-                  }
-                ]}
-                value={payPhone}
-                onChangeText={setPayPhone}
-                placeholder="Enter UPI-linked phone number"
                 placeholderTextColor={isDark ? '#71717A' : '#A1A1AA'}
                 keyboardType="phone-pad"
               />
