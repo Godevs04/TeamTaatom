@@ -360,8 +360,8 @@ function initMap(){
     new google.maps.Polyline({path:segment,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});
     new google.maps.Polyline({path:segment,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});
   });
-  if(path.length>0)new google.maps.Marker({position:path[0],map:map,title:'Start',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#10B981" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="13" font-weight="800" font-family="Arial" fill="white">S</text></svg>'),scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
-  if(path.length>1)new google.maps.Marker({position:path[path.length-1],map:map,title:'End',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#EF4444" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="13" font-weight="800" font-family="Arial" fill="white">E</text></svg>'),scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
+  if(path.length>0)new google.maps.Marker({position:path[0],map:map,title:'Start',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#10B981" stroke="white" stroke-width="2"/></svg>'),scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
+  if(path.length>1)new google.maps.Marker({position:path[path.length-1],map:map,title:'End',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#EF4444" stroke="white" stroke-width="2"/></svg>'),scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
   ${wpMarkers}
   var bounds=new google.maps.LatLngBounds();path.forEach(function(p){bounds.extend(p);});map.fitBounds(bounds,40);
 }
@@ -373,7 +373,7 @@ function initMap(){
               <WebView
                 style={styles.map}
                 source={{ html }}
-                scrollEnabled={false}
+                scrollEnabled={true}
                 javaScriptEnabled={true}
                 domStorageEnabled={true}
                 originWhitelist={['https://*', 'http://*', 'data:*', 'about:*']}
