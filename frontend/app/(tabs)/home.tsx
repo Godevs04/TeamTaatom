@@ -492,11 +492,16 @@ export default function HomeScreen() {
     popular: { posts: [], page: 1, hasMore: true },
   });
 
-  // Tracks the currently-active feed tab so in-flight fetches can detect tab switches
-  // and discard stale responses (prevents writing recents data into friends cache, etc).
   const feedModeRef = useRef<FeedMode>(feedMode);
   useEffect(() => {
     feedModeRef.current = feedMode;
+  }, [feedMode]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
+    }, 50);
+    return () => clearTimeout(timer);
   }, [feedMode]);
 
   const feedTabs: Array<{ id: FeedMode; label: string; icon: keyof typeof Ionicons.glyphMap; activeIcon: keyof typeof Ionicons.glyphMap }> = useMemo(
@@ -1597,7 +1602,6 @@ export default function HomeScreen() {
         <View style={[styles.feedClip, { zIndex: 1 }]}>
           <View style={StyleSheet.absoluteFillObject}>
             <AnyFlashList
-              key={feedMode}
               ref={flatListRef}
               data={feedData}
               keyExtractor={keyExtractor}

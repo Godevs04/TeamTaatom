@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo } from 'react';
 // Strike 20: Initial Audio Mount & Viewability Mandate integration.
 import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,7 +17,7 @@ interface PostHeaderProps {
   showReportButton?: boolean;
 }
 
-export default function PostHeader({ post, onMenuPress, onReportPress, showReportButton }: PostHeaderProps) {
+function PostHeader({ post, onMenuPress, onReportPress, showReportButton }: PostHeaderProps) {
   const { theme, mode } = useTheme();
   const isDark = mode === 'dark' || theme.colors.background === '#0B1A2B' || theme.colors.background === '#000000';
   const router = useRouter();
@@ -145,5 +145,20 @@ const styles = StyleSheet.create({
   menuButton: {
     padding: 4,
   },
+});
+
+export default memo(PostHeader, (prevProps, nextProps) => {
+  return (
+    prevProps.showReportButton === nextProps.showReportButton &&
+    prevProps.onMenuPress === nextProps.onMenuPress &&
+    prevProps.onReportPress === nextProps.onReportPress &&
+    prevProps.post._id === nextProps.post._id &&
+    prevProps.post.user?._id === nextProps.post.user?._id &&
+    prevProps.post.user?.fullName === nextProps.post.user?.fullName &&
+    prevProps.post.user?.profilePic === nextProps.post.user?.profilePic &&
+    prevProps.post.song?.songId?.title === nextProps.post.song?.songId?.title &&
+    prevProps.post.song?.songId?.artist === nextProps.post.song?.songId?.artist &&
+    prevProps.post.location?.address === nextProps.post.location?.address
+  );
 });
 
