@@ -2,7 +2,7 @@
   "expo": {
     "name": "taatom",
     "slug": "taatom",
-    "version": "26.3.14",
+    "version": "26.3.15",
     "orientation": "portrait",
     "icon": "./assets/icon-1024.png",
     "userInterfaceStyle": "automatic",
@@ -20,7 +20,7 @@
       "supportsTablet": true,
       "icon": "./assets/icon-1024.png",
       "bundleIdentifier": "com.taatom.app",
-      "buildNumber": "28",
+      "buildNumber": "29",
       "associatedDomains": [
         "applinks:taatom.com",
         "applinks:*.taatom.com"
@@ -60,7 +60,7 @@
     "android": {
       "icon": "./assets/icon-1024.png",
       "package": "com.taatom.app",
-      "versionCode": 28,
+      "versionCode": 29,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
@@ -251,6 +251,6 @@
       },
       "GOOGLE_MAPS_IOS_KEY": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co"
     },
-    "owner": "taatom-technologies" 
+    "owner": "taatom-technologies"
   }
 }
