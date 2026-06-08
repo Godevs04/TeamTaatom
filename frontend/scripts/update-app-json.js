@@ -210,6 +210,32 @@ appJson.expo.extra = {
   PRIVACY_POLICY_URL: getPrivacyPolicyUrl(),
   TERMS_OF_SERVICE_URL: getTermsOfServiceUrl(),
   SUPPORT_URL: getSupportUrl(),
+  ADMOB_ANDROID_APP_ID:
+    process.env.ADMOB_ANDROID_APP_ID ||
+    process.env.EXPO_PUBLIC_ADMOB_ANDROID_APP_ID ||
+    existingExtra.ADMOB_ANDROID_APP_ID ||
+    'ca-app-pub-6362359854606661~6880786152',
+  ADMOB_IOS_APP_ID:
+    process.env.ADMOB_IOS_APP_ID ||
+    process.env.EXPO_PUBLIC_ADMOB_IOS_APP_ID ||
+    existingExtra.ADMOB_IOS_APP_ID ||
+    'ca-app-pub-6362359854606661~9610954911',
+  EXPO_PUBLIC_ADMOB_ANDROID_NATIVE_UNIT_ID:
+    process.env.EXPO_PUBLIC_ADMOB_ANDROID_NATIVE_UNIT_ID ||
+    existingExtra.EXPO_PUBLIC_ADMOB_ANDROID_NATIVE_UNIT_ID ||
+    'ca-app-pub-6362359854606661/8141104654',
+  EXPO_PUBLIC_ADMOB_IOS_NATIVE_UNIT_ID:
+    process.env.EXPO_PUBLIC_ADMOB_IOS_NATIVE_UNIT_ID ||
+    existingExtra.EXPO_PUBLIC_ADMOB_IOS_NATIVE_UNIT_ID ||
+    'ca-app-pub-6362359854606661/3239601539',
+  EXPO_PUBLIC_ADMOB_ANDROID_BANNER_UNIT_ID:
+    process.env.EXPO_PUBLIC_ADMOB_ANDROID_BANNER_UNIT_ID ||
+    existingExtra.EXPO_PUBLIC_ADMOB_ANDROID_BANNER_UNIT_ID ||
+    'ca-app-pub-6362359854606661/7027944948',
+  EXPO_PUBLIC_ADMOB_IOS_BANNER_UNIT_ID:
+    process.env.EXPO_PUBLIC_ADMOB_IOS_BANNER_UNIT_ID ||
+    existingExtra.EXPO_PUBLIC_ADMOB_IOS_BANNER_UNIT_ID ||
+    'ca-app-pub-6362359854606661/2303221559',
   // Preserve router config used by expo-router when present
   router: existingExtra.router || {},
   eas: {
@@ -302,6 +328,16 @@ if (googleServicesJson) {
       console.warn('   Firebase features may not work. Set GOOGLE_SERVICES_JSON in EAS secrets for builds.');
     }
   }
+}
+
+// Keep react-native-google-mobile-ads plugin App IDs in sync with extra
+const admobPluginIndex = (appJson.expo.plugins || []).findIndex(
+  (plugin) => Array.isArray(plugin) && plugin[0] === 'react-native-google-mobile-ads',
+);
+if (admobPluginIndex >= 0) {
+  const [, admobConfig] = appJson.expo.plugins[admobPluginIndex];
+  admobConfig.androidAppId = appJson.expo.extra.ADMOB_ANDROID_APP_ID;
+  admobConfig.iosAppId = appJson.expo.extra.ADMOB_IOS_APP_ID;
 }
 
 // Write updated app.json

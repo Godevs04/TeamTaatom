@@ -27,7 +27,7 @@ import { initializeAds } from '../../services/admob';
 
 const isWeb = Platform.OS === 'web';
 const isExpoGo = Constants.appOwnership === 'expo';
-const NATIVE_AD_LOAD_TIMEOUT_MS = 5000;
+const NATIVE_AD_LOAD_TIMEOUT_MS = 12000;
 
 type AdsModule = {
   NativeAd: typeof import('react-native-google-mobile-ads').NativeAd;

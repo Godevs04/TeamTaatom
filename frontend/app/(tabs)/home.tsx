@@ -1407,7 +1407,11 @@ export default function HomeScreen() {
     if (isWeb || posts.length === 0) return posts as FeedItem[];
     const showAds = hasScrolledPastFifthPost && adsAllowedAfter30s && !adCap.isCapped;
     if (!showAds) return posts as FeedItem[];
-    const rawFeed = injectHomeFeedAds(posts, adCap) as FeedItem[];
+    const rawFeed = injectHomeFeedAds(posts, {
+      isCapped: adCap.isCapped,
+      count: adCap.count,
+      remainingSlots: adCap.remainingSlots,
+    }) as FeedItem[];
     return rawFeed.filter(item => {
       if (isAdItem(item)) {
         return !failedAdIndices.includes(item.adIndex);

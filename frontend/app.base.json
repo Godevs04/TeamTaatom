@@ -166,6 +166,9 @@
         }
       ],
       "expo-font",
+      "expo-image",
+      "expo-clipboard",
+      "expo-task-manager",
       [
         "react-native-google-mobile-ads",
         {
@@ -238,7 +241,13 @@
       "eas": {
         "projectId": "c3b80b3d-23d8-4948-abfa-80963e4192d0"
       },
-      "GOOGLE_MAPS_IOS_KEY": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co"
+      "GOOGLE_MAPS_IOS_KEY": "AIzaSyBV-jFFSI6o--8SiXjzPYon8WH4slor9Co",
+      "ADMOB_ANDROID_APP_ID": "ca-app-pub-6362359854606661~6880786152",
+      "ADMOB_IOS_APP_ID": "ca-app-pub-6362359854606661~9610954911",
+      "EXPO_PUBLIC_ADMOB_ANDROID_NATIVE_UNIT_ID": "ca-app-pub-6362359854606661/8141104654",
+      "EXPO_PUBLIC_ADMOB_IOS_NATIVE_UNIT_ID": "ca-app-pub-6362359854606661/3239601539",
+      "EXPO_PUBLIC_ADMOB_ANDROID_BANNER_UNIT_ID": "ca-app-pub-6362359854606661/7027944948",
+      "EXPO_PUBLIC_ADMOB_IOS_BANNER_UNIT_ID": "ca-app-pub-6362359854606661/2303221559"
     },
     "owner": "taatom-technologies"
   }
