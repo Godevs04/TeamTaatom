@@ -730,6 +730,11 @@ export default function LocaleScreen() {
   const [userState, setUserState] = useState<string | null>(null);
   const [userStateCode, setUserStateCode] = useState<string | null>(null);
   
+  // State and ref to track if user's location is currently being resolved
+  const [isLocationResolving, setIsLocationResolving] = useState(true);
+  const isLocationResolvingRef = useRef(true);
+  isLocationResolvingRef.current = isLocationResolving;
+  
   // Bookmark Stability: Track in-flight bookmark operations
   const bookmarkingKeysRef = useRef<Set<string>>(new Set());
 
@@ -1112,6 +1117,8 @@ export default function LocaleScreen() {
     // This ensures locales can be sorted by distance immediately
     const initializeData = async () => {
       try {
+        isLocationResolvingRef.current = true;
+        setIsLocationResolving(true);
         // First, try to get user location (with retry)
         let locationRetries = 0;
         const maxLocationRetries = 2;
@@ -1133,22 +1140,22 @@ export default function LocaleScreen() {
           }
         }
         
-        // Call via ref so the closure with the just-set userLocation is used;
-        // calling loadAdminLocales directly captures the userLocation=null version.
-        // If we already have locales (e.g. restored from cache), load in the background
-        const hasData = allLocalesSortedRef.current && allLocalesSortedRef.current.length > 0;
-        loadAdminLocalesRef.current(true, hasData);
+        if (isMountedRef.current) {
+          isLocationResolvingRef.current = false;
+          setIsLocationResolving(false);
+        }
+        
+        // Then load other data
+        await loadCountries();
 
-        // Then load other data in parallel
-        await Promise.allSettled([
-      loadCountries(),
-          loadSavedLocales()
-        ]);
-
-      const loadTime = Date.now() - startTime;
+        const loadTime = Date.now() - startTime;
         logger.debug(`[PERF] Locale screen initial data loaded in ${loadTime}ms`);
       } catch (error) {
         logger.error('Error initializing data:', error);
+        if (isMountedRef.current) {
+          isLocationResolvingRef.current = false;
+          setIsLocationResolving(false);
+        }
       }
     };
 
@@ -1166,6 +1173,16 @@ export default function LocaleScreen() {
       }
     };
   }, [getUserCurrentLocation]);
+
+  // Trigger fetches when location resolving is done or location updates
+  useEffect(() => {
+    if (!isLocationResolving) {
+      logger.debug('🌍 Location resolving completed or updated. userLocation:', userLocation);
+      const hasData = allLocalesSortedRef.current && allLocalesSortedRef.current.length > 0;
+      loadAdminLocalesRef.current(true, hasData);
+      loadSavedLocalesRef.current();
+    }
+  }, [userLocation, isLocationResolving]);
 
   // Fetch key tracking to prevent duplicate fetches
   const lastFetchKeyRef = useRef<string | null>(null);
@@ -1239,6 +1256,12 @@ export default function LocaleScreen() {
     const currentUserLocation = userLocationRef.current;
     const currentLocationPermissionGranted = locationPermissionGrantedRef.current;
     const currentApplyFilters = applyFiltersRef.current || applyFilters;
+
+    // Guard: Do not fetch anything until location has finished resolving
+    if (isLocationResolvingRef.current) {
+      logger.debug('loadAdminLocales skipped: location is resolving');
+      return;
+    }
 
     // Request Guard: Prevent duplicate calls
     if (isSearchingRef.current || isPaginatingRef.current) {
@@ -2121,6 +2144,12 @@ export default function LocaleScreen() {
   const loadSavedLocales = useCallback(async () => {
     if (!isMountedRef.current) return;
 
+    // Guard: Do not load saved locales until location has finished resolving
+    if (isLocationResolvingRef.current) {
+      logger.debug('loadSavedLocales skipped: location is resolving');
+      return;
+    }
+
     try {
       const saved = await AsyncStorage.getItem('savedLocales');
 
@@ -2442,11 +2471,12 @@ export default function LocaleScreen() {
   
   // Memoized filtered saved locales for performance
   const filteredSavedLocales = useMemo(() => {
+    if (isLocationResolving) return [];
     if (activeTab === 'saved' && savedLocales.length > 0) {
       return applyFilters(savedLocales, true);
     }
     return savedLocales;
-  }, [savedLocales, activeSavedFilters, searchSavedInput, activeTab, applyFilters, userLocation, locationPermissionGranted, calculatingDistances]);
+  }, [savedLocales, activeSavedFilters, searchSavedInput, activeTab, applyFilters, userLocation, locationPermissionGranted, calculatingDistances, isLocationResolving]);
 
   // Whether any user-applied filter is active (search query or filter modal selection).
   // Lifted out of renderAdminLocales so the list renderer (FlatList) can read it
@@ -2492,9 +2522,9 @@ export default function LocaleScreen() {
   // Always derive display list from sorted data + live filters (search, spot types, radius)
   const localesToShow = useMemo(() => {
     if (activeTab !== 'locale') return [];
-    if (sortedAdminLocales.length === 0) return [];
+    if (isLocationResolving || sortedAdminLocales.length === 0) return [];
     return applyFilters(sortedAdminLocales, false);
-  }, [activeTab, sortedAdminLocales, applyFilters, searchLocaleInput, activeLocaleFilters]);
+  }, [activeTab, sortedAdminLocales, applyFilters, searchLocaleInput, activeLocaleFilters, isLocationResolving]);
 
   // Update filtered locales when adminLocales change (but NOT when filters/searchQuery change - handled in loadAdminLocales)
   // Also apply client-side filters for multiple spot types and search radius which require client-side processing
@@ -4428,7 +4458,7 @@ export default function LocaleScreen() {
           handlers active), so this is also fine for performance. */}
       <View style={[styles.listSlot, activeTab === 'locale' ? null : styles.hidden]} pointerEvents={activeTab === 'locale' ? 'auto' : 'none'}>
         <View style={{ flex: 1 }}>
-          {loadingLocales && (localesToShow || []).length === 0 ? (
+          {isLocationResolving || (loadingLocales && (localesToShow || []).length === 0) ? (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
               <LoadingGlobe size="small" color={theme.colors.primary} />
             </View>
@@ -4523,54 +4553,60 @@ export default function LocaleScreen() {
       </View>
 
       <View style={[styles.listSlot, activeTab === 'saved' ? null : styles.hidden]} pointerEvents={activeTab === 'saved' ? 'auto' : 'none'}>
-        <FlatList
-          data={filteredSavedLocales}
-          renderItem={({ item, index }) => renderSavedLocaleCard({ locale: item, index })}
-          keyExtractor={(item, index) => String(item?._id ?? `saved-${index}`)}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          ItemSeparatorComponent={() => <View style={{ height: 20 }} />}
-          ListHeaderComponent={
-            filteredSavedLocales.length > 0 ? (
-              <Text
-                style={[
-                  styles.sectionTitle,
-                  { color: theme.colors.text, marginBottom: 16, paddingHorizontal: 4, marginTop: 12 },
-                ]}
-              >
-                Saved Locales 🔖
-              </Text>
-            ) : null
-          }
-          ListEmptyComponent={null}
-          onScroll={(e) => {
-            if (e.target !== e.currentTarget) return;
-            handleScroll(e);
-          }}
-          scrollEventThrottle={16}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={async () => {
-                if (!isMountedRef.current) return;
-                setRefreshing(true);
-                try {
-                  await loadSavedLocales();
-                } finally {
-                  if (isMountedRef.current) {
-                    setRefreshing(false);
+        {isLocationResolving ? (
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+            <LoadingGlobe size="small" color={theme.colors.primary} />
+          </View>
+        ) : (
+          <FlatList
+            data={filteredSavedLocales}
+            renderItem={({ item, index }) => renderSavedLocaleCard({ locale: item, index })}
+            keyExtractor={(item, index) => String(item?._id ?? `saved-${index}`)}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            ItemSeparatorComponent={() => <View style={{ height: 20 }} />}
+            ListHeaderComponent={
+              filteredSavedLocales.length > 0 ? (
+                <Text
+                  style={[
+                    styles.sectionTitle,
+                    { color: theme.colors.text, marginBottom: 16, paddingHorizontal: 4, marginTop: 12 },
+                  ]}
+                >
+                  Saved Locales 🔖
+                </Text>
+              ) : null
+            }
+            ListEmptyComponent={null}
+            onScroll={(e) => {
+              if (e.target !== e.currentTarget) return;
+              handleScroll(e);
+            }}
+            scrollEventThrottle={16}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={async () => {
+                  if (!isMountedRef.current) return;
+                  setRefreshing(true);
+                  try {
+                    await loadSavedLocales();
+                  } finally {
+                    if (isMountedRef.current) {
+                      setRefreshing(false);
+                    }
                   }
-                }
-              }}
-            />
-          }
-          showsVerticalScrollIndicator={true}
-          contentContainerStyle={{
-            paddingHorizontal: isTabletLocal ? 24 : 16,
-            paddingTop: headerHeight > 0 ? headerHeight + 12 : 12,
-            paddingBottom: Platform.OS === 'ios' ? 120 : 140,
-          }}
-        />
+                }}
+              />
+            }
+            showsVerticalScrollIndicator={true}
+            contentContainerStyle={{
+              paddingHorizontal: isTabletLocal ? 24 : 16,
+              paddingTop: headerHeight > 0 ? headerHeight + 12 : 12,
+              paddingBottom: Platform.OS === 'ios' ? 120 : 140,
+            }}
+          />
+        )}
       </View>
 
       {/* Filter Modal */}
