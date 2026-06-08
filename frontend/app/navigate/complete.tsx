@@ -159,7 +159,7 @@ function initMap(){
       map:map,
       title:'Start',
       icon:{
-        url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#10B981" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="13" font-weight="800" font-family="Arial" fill="white">S</text></svg>'),
+        url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#10B981" stroke="white" stroke-width="2"/></svg>'),
         scaledSize:new google.maps.Size(30,30),
         anchor:new google.maps.Point(15,15)
       }
@@ -171,7 +171,7 @@ function initMap(){
       map:map,
       title:'End',
       icon:{
-        url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#EF4444" stroke="white" stroke-width="2"/><text x="15" y="20" text-anchor="middle" font-size="13" font-weight="800" font-family="Arial" fill="white">E</text></svg>'),
+        url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#EF4444" stroke="white" stroke-width="2"/></svg>'),
         scaledSize:new google.maps.Size(30,30),
         anchor:new google.maps.Point(15,15)
       }
@@ -186,7 +186,7 @@ function initMap(){
               <WebView
                 style={styles.map}
                 source={{ html }}
-                scrollEnabled={false}
+                scrollEnabled={true}
                 javaScriptEnabled={true}
                 domStorageEnabled={true}
                 originWhitelist={['https://*', 'http://*', 'data:*', 'about:*']}
@@ -205,8 +205,8 @@ function initMap(){
                 longitudeDelta: 0.1,
               }}
               onMapReady={() => setMapReady(true)}
-              scrollEnabled={false}
-              zoomEnabled={false}
+              scrollEnabled={true}
+              zoomEnabled={true}
               mapType={mapStyle.mapType}
             >
               {polyline.length > 1 && (
