@@ -34,6 +34,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { geocodeAddress, calculateDistance, invalidateDistanceCacheIfMoved, distanceCache, placesCache, roundCoord, getLocaleDistanceKm, calculateDrivingDistanceKm } from '../../utils/locationUtils';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
+import { matchGradientLocations } from '../../utils/linearGradient';
 import MaskedView from '@react-native-masked-view/masked-view';
 import { getCountries, getStatesByCountry, Country, State } from '../../services/location';
 import { getLocales, getLocaleById, Locale } from '../../services/locale';
@@ -4359,6 +4360,15 @@ export default function LocaleScreen() {
     );
   }
 
+  const screenGradientColors =
+    mode === 'dark'
+      ? (['#000000', '#000000', '#000000'] as const)
+      : (theme.colors.screenGradient as [string, string, ...string[]]);
+  const screenGradientLocs = matchGradientLocations(
+    screenGradientColors.length,
+    mode === 'dark' ? [0, 0.28, 1] : [0, 0.22, 0.55, 1],
+  );
+
   return (
     <ErrorBoundary level="route">
     <View
@@ -4371,13 +4381,9 @@ export default function LocaleScreen() {
       />
 
       <LinearGradient
-        colors={
-          mode === 'dark'
-            ? ['#000000', '#000000', '#000000']
-            : (theme.colors.screenGradient as [string, string, ...string[]])
-        }
+        colors={screenGradientColors}
         style={StyleSheet.absoluteFillObject}
-        locations={mode === 'dark' ? [0, 0.28, 1] : [0, 0.22, 0.55, 1]}
+        locations={screenGradientLocs}
       />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}

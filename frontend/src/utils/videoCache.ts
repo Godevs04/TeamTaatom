@@ -6,6 +6,18 @@ const logger = createLogger('VideoCache');
 const MAX_CACHED_VIDEOS = 50;
 const cacheQueue: string[] = []; // ordered oldest → newest
 
+/** HLS manifests reference remote .ts segments — caching only the .m3u8 breaks iOS AVPlayer (CoreMedia -12865). */
+export function isHlsStreamUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const lower = url.toLowerCase();
+  return (
+    lower.includes('.m3u8') ||
+    lower.includes('hls=master') ||
+    lower.includes('hls=segment') ||
+    (lower.includes('hls') && lower.includes('/api/'))
+  );
+}
+
 // Deduplicate active downloads to prevent concurrent requests for the same video
 const activeDownloads = new Map<string, Promise<string>>();
 
@@ -57,8 +69,10 @@ export async function getLocalVideoUri(videoId: string): Promise<string | null> 
     if (await validateCachedFile(mp4Path)) {
       return mp4Path;
     }
-    if (await validateCachedFile(m3u8Path)) {
-      return m3u8Path;
+    // Purge any legacy HLS manifest cache — local .m3u8 cannot drive segment playback.
+    const m3u8Info = await FileSystem.getInfoAsync(m3u8Path);
+    if (m3u8Info.exists) {
+      await removeCachedVideo(m3u8Path).catch(() => {});
     }
     return null;
   } catch (error) {
@@ -68,6 +82,10 @@ export async function getLocalVideoUri(videoId: string): Promise<string | null> 
 }
 
 export async function cacheVideoLocally(videoId: string, remoteUrl: string): Promise<string> {
+  if (isHlsStreamUrl(remoteUrl)) {
+    throw new Error(`HLS stream ${videoId} cannot be cached locally`);
+  }
+
   // Return active download promise if already in progress to prevent duplicate fetching
   const existingDownload = activeDownloads.get(videoId);
   if (existingDownload) {
@@ -77,9 +95,7 @@ export async function cacheVideoLocally(videoId: string, remoteUrl: string): Pro
 
   const downloadPromise = (async () => {
     try {
-      const lowercaseUrl = remoteUrl.toLowerCase();
-      const ext = (lowercaseUrl.includes('m3u8') || lowercaseUrl.includes('hls')) ? 'm3u8' : 'mp4';
-      const filename = `${videoId}.${ext}`;
+      const filename = `${videoId}.mp4`;
       const cacheDir = getCachePath();
       const localPath = `${cacheDir}shorts/${filename}`;
 
@@ -242,6 +258,9 @@ export async function isCachedVideoValid(localPath: string): Promise<boolean> {
  * @param remoteUrl - CDN URL of the video
  */
 export function preloadVideoAsync(videoId: string, remoteUrl: string): void {
+  if (isHlsStreamUrl(remoteUrl)) {
+    return;
+  }
   cacheVideoLocally(videoId, remoteUrl).catch((err) => {
     logger.warn(`[VideoCache] Preload failed for video ${videoId} (${remoteUrl}):`, err);
   });

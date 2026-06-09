@@ -245,8 +245,8 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
 
         {/* Dark gradient overlay for readability */}
         <LinearGradient
-          colors={['rgba(0,0,0,0.7)', 'transparent', 'transparent', 'rgba(0,0,0,0.85)']}
-          locations={[0, 0.2, 0.6, 1]}
+          colors={['rgba(0,0,0,0.7)', 'transparent', 'rgba(0,0,0,0.85)']}
+          locations={[0, 0.35, 1]}
           style={[StyleSheet.absoluteFill, styles.overlay]}
           pointerEvents="none"
         />
