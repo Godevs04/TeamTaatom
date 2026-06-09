@@ -3487,8 +3487,8 @@ const getShorts = async (req, res) => {
         isLiked: req.user ? (short.likes || []).some(like => 
           (typeof like === 'object' ? like.toString() : like) === req.user._id.toString()
         ) : false,
-        likesCount: short.likesCount || 0,
-        commentsCount: short.commentsCount || 0,
+        likesCount: Math.max(typeof short.likesCount === 'number' ? short.likesCount : 0, Array.isArray(short.likes) ? short.likes.length : 0),
+        commentsCount: Math.max(typeof short.commentsCount === 'number' ? short.commentsCount : 0, Array.isArray(short.comments) ? short.comments.length : 0),
         viewsCount: short.viewsCount || 0,
         user: {
           ...short.user,

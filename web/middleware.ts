@@ -41,7 +41,7 @@ export async function middleware(req: NextRequest) {
     const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
     
     if (isAndroid) {
-      return NextResponse.redirect("https://play.google.com/store/apps/details?id=com.taatom.app");
+      return NextResponse.redirect("https://play.google.com/store/search?q=taatom&c=apps&hl=en");
     } else if (isIOS) {
       return NextResponse.redirect("https://apps.apple.com/app/id6757185352");
     }

@@ -8,7 +8,7 @@ export const metadata = {
 };
 
 export default function DownloadPage() {
-  const googlePlayUrl = "https://play.google.com/store/apps/details?id=com.taatom.app";
+  const googlePlayUrl = "https://play.google.com/store/search?q=taatom&c=apps&hl=en";
   const appStoreUrl = "https://apps.apple.com/app/id6757185352";
 
   return (
