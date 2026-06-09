@@ -20,6 +20,7 @@ import {
   completeJourney,
   updateJourneyLocation,
   getActiveJourney,
+  getJourneyDetail,
 } from '../services/journey';
 import { Journey, Coordinate } from '../types/journey';
 import { calculateCoordinateDistance } from '../components/PolylineRenderer';
@@ -428,6 +429,202 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     };
   }, []);
 
+  // Helper: start background location updates via TaskManager. Idempotent —
+  // safe to call when already running. Returns true on success / already-
+  // running so the caller can decide whether to keep the foreground watcher
+  // running as a fallback.
+  const startBackgroundUpdates = useCallback(async (): Promise<boolean> => {
+    if (Platform.OS === 'web') return false;
+    if (isExpoGo) {
+      logger.debug('[Journey] Skipping background updates in Expo Go (native module unavailable)');
+      return false;
+    }
+    try {
+      const already = await Location.hasStartedLocationUpdatesAsync(BG_LOCATION_TASK).catch(() => false);
+      if (already) return true;
+      await Location.startLocationUpdatesAsync(BG_LOCATION_TASK, {
+        accuracy: Location.Accuracy.High, // Upgraded for high-accuracy path tracking
+        timeInterval: 2000, // Query every 2 seconds for a denser track
+        distanceInterval: 2, // Track every 2 meters
+        showsBackgroundLocationIndicator: true, // Enable indicator to prevent OS suspension
+        foregroundService: {
+          notificationTitle: 'Recording your journey',
+          notificationBody: 'Path is being tracked while the app is in the background',
+          notificationColor: '#22C55E',
+        },
+        pausesUpdatesAutomatically: false,
+      });
+      logger.debug('[Journey] Background location updates started');
+      return true;
+    } catch (e) {
+      logger.warn('[Journey] Failed to start background updates (non-blocking):', e);
+      return false;
+    }
+  }, []);
+
+  const stopBackgroundUpdates = useCallback(async () => {
+    if (Platform.OS === 'web') return;
+    if (isExpoGo) return;
+    try {
+      const running = await Location.hasStartedLocationUpdatesAsync(BG_LOCATION_TASK).catch(() => false);
+      if (running) {
+        await Location.stopLocationUpdatesAsync(BG_LOCATION_TASK);
+        logger.debug('[Journey] Background location updates stopped');
+      }
+    } catch (e) {
+      logger.warn('[Journey] Failed to stop background updates:', e);
+    }
+  }, []);
+
+  // Drain coords accumulated by the background task while the app was
+  // suspended. Called on app-foreground and on hook init for recovery.
+  const drainBackgroundQueue = useCallback(async () => {
+    const id = journeyIdRef.current;
+    if (!id) return;
+    const queueKey = BG_QUEUE_KEY_PREFIX + id;
+    try {
+      const raw = await AsyncStorage.getItem(queueKey);
+      if (!raw) return;
+      let parsed: any;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        await AsyncStorage.removeItem(queueKey).catch(() => {});
+        return;
+      }
+      if (!Array.isArray(parsed) || parsed.length === 0) {
+        await AsyncStorage.removeItem(queueKey).catch(() => {});
+        return;
+      }
+
+      // Validate + dedupe against current polyline by timestamp.
+      // Use a 500ms tolerance window because the OS occasionally replays a
+      // sample on the fg→bg handoff edge with a slightly different
+      // timestamp; an exact-match Set would let it through and double-
+      // count a single physical fix. Sorted-by-timestamp existing list
+      // lets the lookup short-circuit.
+      const TS_TOLERANCE_MS = 500;
+      const existingSorted = polylineRef.current
+        .map(c => c.timestamp)
+        .filter((t): t is number => typeof t === 'number')
+        .sort((a, b) => a - b);
+      const isDuplicateTimestamp = (ts: number): boolean => {
+        if (typeof ts !== 'number' || isNaN(ts)) return false;
+        // Linear scan is fine — polyline is small (<~few thousand even on
+        // a multi-day journey) and we only call this on bg-queue drain.
+        for (const e of existingSorted) {
+          if (Math.abs(e - ts) <= TS_TOLERANCE_MS) return true;
+          if (e > ts + TS_TOLERANCE_MS) break;
+        }
+        return false;
+      };
+      const valid: Coordinate[] = parsed.filter((c: any) =>
+        c &&
+        typeof c === 'object' &&
+        typeof c.latitude === 'number' &&
+        typeof c.longitude === 'number' &&
+        !Number.isNaN(c.latitude) && !Number.isNaN(c.longitude) &&
+        c.latitude >= -90 && c.latitude <= 90 &&
+        c.longitude >= -180 && c.longitude <= 180 &&
+        !isDuplicateTimestamp(c.timestamp)
+      );
+
+      // Smooth background coordinate batch sequentially
+      const smoothedCoords = valid.map((c) => {
+        const acc = c.accuracy || 10;
+        const ts = typeof c.timestamp === 'number' ? c.timestamp : Date.now();
+        if (!kalmanFilterRef.current) {
+          kalmanFilterRef.current = new KalmanFilter(c.latitude, c.longitude, acc, ts);
+        }
+        const smoothed = kalmanFilterRef.current.update(c.latitude, c.longitude, acc, ts);
+        return {
+          ...c,
+          latitude: smoothed.latitude,
+          longitude: smoothed.longitude,
+        };
+      });
+
+      // Apply the same MIN_LOCATION_DISTANCE filter the foreground watcher
+      // uses, walking from the last known polyline tail forward, so a row
+      // of background coords doesn't introduce a denser-than-foreground
+      // segment of the path.
+      let lastCoord = lastCoordinateRef.current;
+      const accepted: Coordinate[] = [];
+      let addedDistance = 0;
+      for (const c of smoothedCoords) {
+        if (!lastCoord) {
+          accepted.push(c);
+          lastCoord = c;
+          continue;
+        }
+        const d = calculateCoordinateDistance(
+          lastCoord.latitude, lastCoord.longitude,
+          c.latitude, c.longitude
+        );
+        if (d >= getAdaptiveMinDistance(c.accuracy ?? 0, null)) {
+          accepted.push(c);
+          addedDistance += d;
+          lastCoord = c;
+        }
+      }
+
+      if (accepted.length > 0) {
+        lastCoordinateRef.current = accepted[accepted.length - 1];
+        setPolyline(prev => [...prev, ...accepted]);
+        setDistance(prev => prev + addedDistance);
+        // Push into the send batch so the next 60s sync ships them.
+        batchCoordinatesRef.current.push(...accepted);
+        persistPendingCoords();
+        // Update accuracy display to the latest sample.
+        const latest = accepted[accepted.length - 1];
+        setAccuracy(latest.accuracy ?? null);
+        setCurrentCoordinate(latest);
+        logger.debug(`[Journey] Drained ${accepted.length} background coords (+${Math.round(addedDistance)}m)`);
+      }
+
+      await AsyncStorage.removeItem(queueKey).catch(() => {});
+    } catch (e) {
+      logger.warn('[Journey] drainBackgroundQueue failed:', e);
+    }
+  }, [persistPendingCoords]);
+
+  const resetTrackingState = useCallback(async () => {
+    try {
+      if (locationWatcherRef.current) {
+        locationWatcherRef.current.remove();
+        locationWatcherRef.current = null;
+      }
+      if (durationTimerRef.current) {
+        clearInterval(durationTimerRef.current);
+        durationTimerRef.current = null;
+      }
+      if (batchSendTimerRef.current) {
+        clearInterval(batchSendTimerRef.current);
+        batchSendTimerRef.current = null;
+      }
+      await stopBackgroundUpdates();
+      journeyIdRef.current = null;
+      startTimeRef.current = null;
+      lastCoordinateRef.current = null;
+      pendingSegmentBreakRef.current = false;
+      kalmanFilterRef.current = null;
+      lastStationaryMarkerUpdateRef.current = 0;
+      batchCoordinatesRef.current = [];
+      setIsTracking(false);
+      setIsPaused(false);
+      setJourney(null);
+      setPolyline([]);
+      setDistance(0);
+      setDuration(0);
+      setAccuracy(null);
+      setCurrentCoordinate(null);
+      setError(null);
+      logger.debug('[Journey] Reset tracking state complete');
+    } catch (e) {
+      logger.error('[Journey] Failed to reset tracking state:', e);
+    }
+  }, [stopBackgroundUpdates]);
+
   // Initialize journey from storage if exists
   useEffect(() => {
     const initializeJourney = async () => {
@@ -551,6 +748,13 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
                 }
               }
               logger.debug('[Journey] Restored active journey from backend:', fetchedJourney._id);
+            } else {
+              logger.debug('[Journey] Backend returned no active journey. Clearing local tracking state.');
+              await resetTrackingState();
+              await AsyncStorage.removeItem('activeJourneyId');
+              await AsyncStorage.removeItem('@active_journey_state');
+              suppressNextSyncRef.current = true;
+              broadcastJourneyStateChanged();
             }
           } catch (err) {
             logger.error('[Journey] Failed to fetch active journey:', err);
@@ -721,164 +925,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     polylineRef.current = polyline;
   }, [polyline]);
 
-  // Helper: start background location updates via TaskManager. Idempotent —
-  // safe to call when already running. Returns true on success / already-
-  // running so the caller can decide whether to keep the foreground watcher
-  // running as a fallback.
-  const startBackgroundUpdates = useCallback(async (): Promise<boolean> => {
-    if (Platform.OS === 'web') return false;
-    if (isExpoGo) {
-      logger.debug('[Journey] Skipping background updates in Expo Go (native module unavailable)');
-      return false;
-    }
-    try {
-      const already = await Location.hasStartedLocationUpdatesAsync(BG_LOCATION_TASK).catch(() => false);
-      if (already) return true;
-      await Location.startLocationUpdatesAsync(BG_LOCATION_TASK, {
-        accuracy: Location.Accuracy.High, // Upgraded for high-accuracy path tracking
-        timeInterval: 2000, // Query every 2 seconds for a denser track
-        distanceInterval: 2, // Track every 2 meters
-        showsBackgroundLocationIndicator: true, // Enable indicator to prevent OS suspension
-        foregroundService: {
-          notificationTitle: 'Recording your journey',
-          notificationBody: 'Path is being tracked while the app is in the background',
-          notificationColor: '#22C55E',
-        },
-        pausesUpdatesAutomatically: false,
-      });
-      logger.debug('[Journey] Background location updates started');
-      return true;
-    } catch (e) {
-      logger.warn('[Journey] Failed to start background updates (non-blocking):', e);
-      return false;
-    }
-  }, []);
 
-  const stopBackgroundUpdates = useCallback(async () => {
-    if (Platform.OS === 'web') return;
-    if (isExpoGo) return;
-    try {
-      const running = await Location.hasStartedLocationUpdatesAsync(BG_LOCATION_TASK).catch(() => false);
-      if (running) {
-        await Location.stopLocationUpdatesAsync(BG_LOCATION_TASK);
-        logger.debug('[Journey] Background location updates stopped');
-      }
-    } catch (e) {
-      logger.warn('[Journey] Failed to stop background updates:', e);
-    }
-  }, []);
 
-  // Drain coords accumulated by the background task while the app was
-  // suspended. Called on app-foreground and on hook init for recovery.
-  const drainBackgroundQueue = useCallback(async () => {
-    const id = journeyIdRef.current;
-    if (!id) return;
-    const queueKey = BG_QUEUE_KEY_PREFIX + id;
-    try {
-      const raw = await AsyncStorage.getItem(queueKey);
-      if (!raw) return;
-      let parsed: any;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        await AsyncStorage.removeItem(queueKey).catch(() => {});
-        return;
-      }
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        await AsyncStorage.removeItem(queueKey).catch(() => {});
-        return;
-      }
 
-      // Validate + dedupe against current polyline by timestamp.
-      // Use a 500ms tolerance window because the OS occasionally replays a
-      // sample on the fg→bg handoff edge with a slightly different
-      // timestamp; an exact-match Set would let it through and double-
-      // count a single physical fix. Sorted-by-timestamp existing list
-      // lets the lookup short-circuit.
-      const TS_TOLERANCE_MS = 500;
-      const existingSorted = polylineRef.current
-        .map(c => c.timestamp)
-        .filter((t): t is number => typeof t === 'number')
-        .sort((a, b) => a - b);
-      const isDuplicateTimestamp = (ts: number): boolean => {
-        if (typeof ts !== 'number') return false;
-        // Linear scan is fine — polyline is small (<~few thousand even on
-        // a multi-day journey) and we only call this on bg-queue drain.
-        for (const e of existingSorted) {
-          if (Math.abs(e - ts) <= TS_TOLERANCE_MS) return true;
-          if (e > ts + TS_TOLERANCE_MS) break;
-        }
-        return false;
-      };
-      const valid: Coordinate[] = parsed.filter((c: any) =>
-        c &&
-        typeof c === 'object' &&
-        typeof c.latitude === 'number' &&
-        typeof c.longitude === 'number' &&
-        !Number.isNaN(c.latitude) && !Number.isNaN(c.longitude) &&
-        c.latitude >= -90 && c.latitude <= 90 &&
-        c.longitude >= -180 && c.longitude <= 180 &&
-        !isDuplicateTimestamp(c.timestamp)
-      );
-
-      // Smooth background coordinate batch sequentially
-      const smoothedCoords = valid.map((c) => {
-        const acc = c.accuracy || 10;
-        const ts = typeof c.timestamp === 'number' ? c.timestamp : Date.now();
-        if (!kalmanFilterRef.current) {
-          kalmanFilterRef.current = new KalmanFilter(c.latitude, c.longitude, acc, ts);
-        }
-        const smoothed = kalmanFilterRef.current.update(c.latitude, c.longitude, acc, ts);
-        return {
-          ...c,
-          latitude: smoothed.latitude,
-          longitude: smoothed.longitude,
-        };
-      });
-
-      // Apply the same MIN_LOCATION_DISTANCE filter the foreground watcher
-      // uses, walking from the last known polyline tail forward, so a row
-      // of background coords doesn't introduce a denser-than-foreground
-      // segment of the path.
-      let lastCoord = lastCoordinateRef.current;
-      const accepted: Coordinate[] = [];
-      let addedDistance = 0;
-      for (const c of smoothedCoords) {
-        if (!lastCoord) {
-          accepted.push(c);
-          lastCoord = c;
-          continue;
-        }
-        const d = calculateCoordinateDistance(
-          lastCoord.latitude, lastCoord.longitude,
-          c.latitude, c.longitude
-        );
-        if (d >= getAdaptiveMinDistance(c.accuracy ?? 0, null)) {
-          accepted.push(c);
-          addedDistance += d;
-          lastCoord = c;
-        }
-      }
-
-      if (accepted.length > 0) {
-        lastCoordinateRef.current = accepted[accepted.length - 1];
-        setPolyline(prev => [...prev, ...accepted]);
-        setDistance(prev => prev + addedDistance);
-        // Push into the send batch so the next 60s sync ships them.
-        batchCoordinatesRef.current.push(...accepted);
-        persistPendingCoords();
-        // Update accuracy display to the latest sample.
-        const latest = accepted[accepted.length - 1];
-        setAccuracy(latest.accuracy ?? null);
-        setCurrentCoordinate(latest);
-        logger.debug(`[Journey] Drained ${accepted.length} background coords (+${Math.round(addedDistance)}m)`);
-      }
-
-      await AsyncStorage.removeItem(queueKey).catch(() => {});
-    } catch (e) {
-      logger.warn('[Journey] drainBackgroundQueue failed:', e);
-    }
-  }, [persistPendingCoords]);
 
   // Hold the latest isTracking/isPaused in refs so handleAppStateChange's
   // identity stays stable across pause/resume. Without this, the AppState
@@ -1238,8 +1287,27 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
       // Call API with snapToRoads option
       const snapToRoads = options?.snapToRoads !== false;
-      const { journey: completedJourney } = await completeJourney(completingJourneyId, { snapToRoads });
-      setJourney(completedJourney);
+      let completedJourney = null;
+      try {
+        const { journey: resJourney } = await completeJourney(completingJourneyId, { snapToRoads });
+        completedJourney = resJourney;
+      } catch (err: any) {
+        if (err.message && err.message.includes('not active or paused')) {
+          logger.warn('[Journey] Journey was already completed or cancelled on the server. Fetching completed details.');
+          try {
+            const res = await getJourneyDetail(completingJourneyId);
+            completedJourney = res.journey;
+          } catch (fetchErr) {
+            logger.error('[Journey] Failed to fetch completed journey details:', fetchErr);
+          }
+        } else {
+          throw err;
+        }
+      }
+
+      if (completedJourney) {
+        setJourney(completedJourney);
+      }
       setIsTracking(false);
       setIsPaused(false);
 
@@ -1283,42 +1351,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     }
   }, [isTracking, isPaused, journey, polyline, distance, duration, initialized]);
 
-  const resetTrackingState = useCallback(async () => {
-    try {
-      if (locationWatcherRef.current) {
-        locationWatcherRef.current.remove();
-        locationWatcherRef.current = null;
-      }
-      if (durationTimerRef.current) {
-        clearInterval(durationTimerRef.current);
-        durationTimerRef.current = null;
-      }
-      if (batchSendTimerRef.current) {
-        clearInterval(batchSendTimerRef.current);
-        batchSendTimerRef.current = null;
-      }
-      await stopBackgroundUpdates();
-      journeyIdRef.current = null;
-      startTimeRef.current = null;
-      lastCoordinateRef.current = null;
-      pendingSegmentBreakRef.current = false;
-      kalmanFilterRef.current = null;
-      lastStationaryMarkerUpdateRef.current = 0;
-      batchCoordinatesRef.current = [];
-      setIsTracking(false);
-      setIsPaused(false);
-      setJourney(null);
-      setPolyline([]);
-      setDistance(0);
-      setDuration(0);
-      setAccuracy(null);
-      setCurrentCoordinate(null);
-      setError(null);
-      logger.debug('[Journey] Reset tracking state complete');
-    } catch (e) {
-      logger.error('[Journey] Failed to reset tracking state:', e);
-    }
-  }, [stopBackgroundUpdates]);
+
 
   useEffect(() => {
     const unregister = registerResetCallback(() => {

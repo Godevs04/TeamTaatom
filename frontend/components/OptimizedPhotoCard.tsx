@@ -87,39 +87,25 @@ const setSavedInCache = (postId: string, saved: boolean) => {
 };
 
 // Helper function to normalize IDs from various formats (string, ObjectId, Buffer)
+const idCache = new Map<any, string | null>();
 const normalizeId = (id: any): string | null => {
   if (!id) return null;
   if (typeof id === 'string') {
     return id;
   }
-  if (id._id) {
-    return normalizeId(id._id);
+  if (idCache.has(id)) {
+    return idCache.get(id)!;
   }
-  if (id.buffer && typeof id.buffer === 'object') {
-    try {
-      const bufferObj = id.buffer;
-      const bytes: number[] = [];
-      for (let i = 0; i < 12; i++) {
-        const byte = bufferObj[i] ?? bufferObj[String(i)];
-        if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
-          bytes.push(byte);
-        }
-      }
-      if (bytes.length === 12) {
-        const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
-        if (/^[0-9a-fA-F]{24}$/.test(hex)) {
-          return hex;
-        }
-      }
-    } catch {}
-  }
-  if (typeof id === 'object' && !Array.isArray(id)) {
-    const keys = Object.keys(id);
-    if (keys.length >= 12 && keys.every(k => /^\d+$/.test(k) && parseInt(k) < 12)) {
+  const result = (() => {
+    if (id._id) {
+      return normalizeId(id._id);
+    }
+    if (id.buffer && typeof id.buffer === 'object') {
       try {
+        const bufferObj = id.buffer;
         const bytes: number[] = [];
         for (let i = 0; i < 12; i++) {
-          const byte = id[i] ?? id[String(i)];
+          const byte = bufferObj[i] ?? bufferObj[String(i)];
           if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
             bytes.push(byte);
           }
@@ -132,22 +118,44 @@ const normalizeId = (id: any): string | null => {
         }
       } catch {}
     }
-  }
-  if (id.toString && typeof id.toString === 'function') {
+    if (typeof id === 'object' && !Array.isArray(id)) {
+      const keys = Object.keys(id);
+      if (keys.length >= 12 && keys.every(k => /^\d+$/.test(k) && parseInt(k) < 12)) {
+        try {
+          const bytes: number[] = [];
+          for (let i = 0; i < 12; i++) {
+            const byte = id[i] ?? id[String(i)];
+            if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
+              bytes.push(byte);
+            }
+          }
+          if (bytes.length === 12) {
+            const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+            if (/^[0-9a-fA-F]{24}$/.test(hex)) {
+              return hex;
+            }
+          }
+        } catch {}
+      }
+    }
+    if (id.toString && typeof id.toString === 'function') {
+      try {
+        const str = id.toString();
+        if (typeof str === 'string' && /^[0-9a-fA-F]{24}$/.test(str)) {
+          return str;
+        }
+      } catch {}
+    }
     try {
-      const str = id.toString();
-      if (typeof str === 'string' && /^[0-9a-fA-F]{24}$/.test(str)) {
+      const str = String(id);
+      if (/^[0-9a-fA-F]{24}$/.test(str)) {
         return str;
       }
     } catch {}
-  }
-  try {
-    const str = String(id);
-    if (/^[0-9a-fA-F]{24}$/.test(str)) {
-      return str;
-    }
-  } catch {}
-  return null;
+    return null;
+  })();
+  idCache.set(id, result);
+  return result;
 };
 
 interface PhotoCardProps {
@@ -751,6 +759,7 @@ function PhotoCard({
             try {
               setIsMenuLoading(true);
               await deletePost(post._id);
+              savedEvents.emitPostAction(post._id, 'delete');
               await audioManager.stopAll();
 
               // Clear AsyncStorage cache (all feed-mode variants) to prevent deleted post
@@ -794,6 +803,7 @@ function PhotoCard({
       setIsMenuLoading(true);
       setShowCustomAlert(false);
       await archivePost(post._id);
+      savedEvents.emitPostAction(post._id, 'archive');
       setShowMenu(false);
       setIsMenuLoading(false);
       if (onRefresh) {
@@ -836,6 +846,7 @@ function PhotoCard({
       setIsMenuLoading(true);
       setShowCustomAlert(false);
       await unarchivePost(post._id);
+      savedEvents.emitPostAction(post._id, 'unarchive');
       setShowMenu(false);
       setIsMenuLoading(false);
       if (onRefresh) onRefresh();
@@ -1482,6 +1493,10 @@ export default memo(PhotoCard, (prevProps, nextProps) => {
     prevProps.post.isLiked === nextProps.post.isLiked &&
     prevProps.post.likesCount === nextProps.post.likesCount &&
     prevProps.post.commentsCount === nextProps.post.commentsCount &&
+    prevProps.post.commentsDisabled === nextProps.post.commentsDisabled &&
+    prevProps.post.caption === nextProps.post.caption &&
+    prevProps.post.imageUrl === nextProps.post.imageUrl &&
+    prevProps.post.user?.profilePic === nextProps.post.user?.profilePic &&
     prevProps.isCurrentlyVisible === nextProps.isCurrentlyVisible
   );
 });

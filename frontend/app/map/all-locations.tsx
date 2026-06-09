@@ -27,7 +27,7 @@ import * as ExpoLocation from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
-import { useJourney } from '../../context/JourneyContext';
+import { useJourney, useJourneyDuration } from '../../context/JourneyContext';
 import { MapView, Marker, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
 import PolylineRenderer from '../../components/PolylineRenderer';
 import GlassMapPanel from '../../components/GlassMapPanel';
@@ -687,12 +687,12 @@ function AllLocationsMapInner() {
     isTracking,
     isPaused,
     distance: journeyDistance,
-    duration: journeyDuration,
     startJourneyRecording,
     pauseJourneyRecording,
     resumeJourneyRecording,
     stopJourneyRecording,
   } = useJourney();
+  const journeyDuration = useJourneyDuration();
   const [journeyTitleInput, setJourneyTitleInput] = useState('');
   const [showJourneyTitle, setShowJourneyTitle] = useState(false);
   const [journeyActionLoading, setJourneyActionLoading] = useState(false);

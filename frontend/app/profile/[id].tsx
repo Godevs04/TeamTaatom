@@ -505,10 +505,8 @@ export default function UserProfileScreen() {
   const tripsCount = useMemo(() => countTripsFromLocations(verifiedLocations), [verifiedLocations]);
   const countriesCount = profile?.tripScore?.countries ? Object.keys(profile.tripScore.countries).length : 0;
   const globeLocations = useMemo(() => {
-    if (verifiedLocations.length > 0) return verifiedLocations.map((l) => ({ latitude: l.latitude, longitude: l.longitude, address: l.address }));
-    if (profile?.canViewLocations && profile?.locations?.length) return profile.locations;
-    return [];
-  }, [verifiedLocations, profile?.canViewLocations, profile?.locations]);
+    return verifiedLocations.map((l) => ({ latitude: l.latitude, longitude: l.longitude, address: l.address }));
+  }, [verifiedLocations]);
 
   useFocusEffect(
     useCallback(() => {
@@ -648,8 +646,8 @@ export default function UserProfileScreen() {
   }
 
   const locationCount =
-    currentUser && (currentUser._id === profile._id || isFollowing) && Array.isArray(profile.locations)
-      ? profile.locations.length
+    currentUser && (currentUser._id === profile._id || isFollowing) && verifiedLocationsCount !== null
+      ? verifiedLocationsCount
       : '-';
 
   const postsCount = profile?.postsCount !== undefined 

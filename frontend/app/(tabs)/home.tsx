@@ -81,6 +81,7 @@ const PENDING_LIKES_STORAGE_KEY = 'taatom_pending_post_likes';
 
 // Helper function to normalize IDs from various formats (string, ObjectId, Buffer)
 // Buffer objects in React Native appear as objects with numeric keys (e.g., { '0': 104, '1': 235, ... })
+const idCache = new Map<any, string | null>();
 const normalizeId = (id: any): string | null => {
   if (!id) return null;
   
@@ -92,56 +93,34 @@ const normalizeId = (id: any): string | null => {
     }
     return id; // Return even if not valid format, let caller handle it
   }
-  
-  // If it's an object with _id property, recurse
-  if (id._id) {
-    return normalizeId(id._id);
+
+  if (idCache.has(id)) {
+    return idCache.get(id)!;
   }
   
-  // If it has a buffer property (serialized Buffer from backend)
-  // This handles: { buffer: { '0': 104, '1': 235, ... } }
-  if (id.buffer && typeof id.buffer === 'object') {
-    try {
-      const bufferObj = id.buffer;
-      const bytes: number[] = [];
-      
-      // Try to extract bytes from buffer object (can have numeric string keys)
-      for (let i = 0; i < 12; i++) {
-        const byte = bufferObj[i] ?? bufferObj[String(i)];
-        if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
-          bytes.push(byte);
-        }
-      }
-      
-      if (bytes.length === 12) {
-        // Convert bytes to hex string (24 characters)
-        const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
-        if (/^[0-9a-fA-F]{24}$/.test(hex)) {
-          return hex;
-        }
-      }
-    } catch (error) {
-      if (__DEV__) {
-        logger.debug('Error converting buffer to hex', { error, id });
-      }
+  const result = (() => {
+    // If it's an object with _id property, recurse
+    if (id._id) {
+      return normalizeId(id._id);
     }
-  }
-  
-  // If the object itself looks like a buffer (has numeric keys directly)
-  // This handles: { '0': 104, '1': 235, ... } (direct buffer serialization)
-  if (typeof id === 'object' && !Array.isArray(id)) {
-    const keys = Object.keys(id);
-    // Check if it looks like a buffer (has numeric keys 0-11)
-    if (keys.length >= 12 && keys.every(k => /^\d+$/.test(k) && parseInt(k) < 12)) {
+    
+    // If it has a buffer property (serialized Buffer from backend)
+    // This handles: { buffer: { '0': 104, '1': 235, ... } }
+    if (id.buffer && typeof id.buffer === 'object') {
       try {
+        const bufferObj = id.buffer;
         const bytes: number[] = [];
+        
+        // Try to extract bytes from buffer object (can have numeric string keys)
         for (let i = 0; i < 12; i++) {
-          const byte = id[i] ?? id[String(i)];
+          const byte = bufferObj[i] ?? bufferObj[String(i)];
           if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
             bytes.push(byte);
           }
         }
+        
         if (bytes.length === 12) {
+          // Convert bytes to hex string (24 characters)
           const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
           if (/^[0-9a-fA-F]{24}$/.test(hex)) {
             return hex;
@@ -149,39 +128,70 @@ const normalizeId = (id: any): string | null => {
         }
       } catch (error) {
         if (__DEV__) {
-          logger.debug('Error converting direct buffer to hex', { error, id });
+          logger.debug('Error converting buffer to hex', { error, id });
         }
       }
     }
-  }
-  
-  // If it has toString method
-  if (id.toString && typeof id.toString === 'function') {
+    
+    // If the object itself looks like a buffer (has numeric keys directly)
+    // This handles: { '0': 104, '1': 235, ... } (direct buffer serialization)
+    if (typeof id === 'object' && !Array.isArray(id)) {
+      const keys = Object.keys(id);
+      // Check if it looks like a buffer (has numeric keys 0-11)
+      if (keys.length >= 12 && keys.every(k => /^\d+$/.test(k) && parseInt(k) < 12)) {
+        try {
+          const bytes: number[] = [];
+          for (let i = 0; i < 12; i++) {
+            const byte = id[i] ?? id[String(i)];
+            if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
+              bytes.push(byte);
+            }
+          }
+          if (bytes.length === 12) {
+            const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+            if (/^[0-9a-fA-F]{24}$/.test(hex)) {
+              return hex;
+            }
+          }
+        } catch (error) {
+          if (__DEV__) {
+            logger.debug('Error converting direct buffer to hex', { error, id });
+          }
+        }
+      }
+    }
+    
+    // If it has toString method
+    if (id.toString && typeof id.toString === 'function') {
+      try {
+        const str = id.toString();
+        if (typeof str === 'string' && /^[0-9a-fA-F]{24}$/.test(str)) {
+          return str;
+        }
+      } catch (error) {
+        if (__DEV__) {
+          logger.debug('Error calling toString on ID:', error);
+        }
+      }
+    }
+    
+    // Last resort: try to convert to string
     try {
-      const str = id.toString();
-      if (typeof str === 'string' && /^[0-9a-fA-F]{24}$/.test(str)) {
+      const str = String(id);
+      if (/^[0-9a-fA-F]{24}$/.test(str)) {
         return str;
       }
     } catch (error) {
       if (__DEV__) {
-        logger.debug('Error calling toString on ID:', error);
+        logger.debug('Error converting ID to string:', error);
       }
     }
-  }
-  
-  // Last resort: try to convert to string
-  try {
-    const str = String(id);
-    if (/^[0-9a-fA-F]{24}$/.test(str)) {
-      return str;
-    }
-  } catch (error) {
-    if (__DEV__) {
-      logger.debug('Error converting ID to string:', error);
-    }
-  }
-  
-  return null;
+    
+    return null;
+  })();
+
+  idCache.set(id, result);
+  return result;
 };
 
 // Elegant font families for each platform
@@ -1627,7 +1637,10 @@ export default function HomeScreen() {
                 <RefreshControl
                   refreshing={refreshing}
                   onRefresh={onRefresh}
-                  tintColor={theme.colors.primary}
+                  tintColor={theme.colors.secondary}
+                  colors={[theme.colors.secondary]}
+                  progressBackgroundColor={theme.colors.surface}
+                  progressViewOffset={headerHeight}
                 />
               }
               onEndReached={handleLoadMore}

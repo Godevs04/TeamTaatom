@@ -34,6 +34,19 @@ function isProtected(pathname: string) {
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
+  // Intercept download requests for smart redirection
+  if (pathname === "/download" || pathname.startsWith("/download/")) {
+    const userAgent = req.headers.get("user-agent") || "";
+    const isAndroid = /Android/i.test(userAgent);
+    const isIOS = /iPhone|iPad|iPod/i.test(userAgent);
+    
+    if (isAndroid) {
+      return NextResponse.redirect("https://play.google.com/store/apps/details?id=com.taatom.app");
+    } else if (isIOS) {
+      return NextResponse.redirect("https://apps.apple.com/app/id6757185352");
+    }
+  }
+
   // Intercept short URLs
   if (pathname.startsWith("/s/")) {
     const match = pathname.match(/^\/s\/([^\/]+)$/);
@@ -130,6 +143,8 @@ export async function middleware(req: NextRequest) {
 // Keep in sync with PROTECTED_PREFIXES and AUTH_ROUTES (Next.js requires static matcher)
 export const config = {
   matcher: [
+    "/download",
+    "/download/:path*",
     "/s/:path*",
     "/post/:path*",
     "/journey/:path*",

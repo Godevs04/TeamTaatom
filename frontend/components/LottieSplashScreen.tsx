@@ -55,8 +55,8 @@ const styles = StyleSheet.create({
     zIndex: 9999,
   },
   icon: {
-    width: 120,
-    height: 120,
+    width: 240,
+    height: 240,
   },
 });
 

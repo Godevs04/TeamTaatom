@@ -727,7 +727,7 @@ export default function NotificationsSettingsScreen() {
                         styles.dayButtonText,
                         {
                           color: quietHoursConfig.days.includes(day)
-                            ? '#FFFFFF'
+                            ? '#000000'
                             : theme.colors.text
                         }
                       ]}
@@ -750,7 +750,7 @@ export default function NotificationsSettingsScreen() {
                 style={[styles.modalButton, { backgroundColor: theme.colors.primary }]}
                 onPress={saveQuietHours}
               >
-                <Text style={[styles.modalButtonText, { color: '#FFFFFF' }]}>Save</Text>
+                <Text style={[styles.modalButtonText, { color: '#000000' }]}>Save</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -866,7 +866,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   permissionButtonText: {
-    color: '#FFFFFF',
+    color: '#000000',
     fontSize: 12,
     fontFamily: getFontFamily('600'),
     fontWeight: '600',

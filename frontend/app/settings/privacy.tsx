@@ -61,6 +61,7 @@ export default function PrivacySettingsScreen() {
   
   // Toggle Interaction Safety: Per-toggle guards to prevent multiple API calls
   const updatingKeysRef = useRef<Set<string>>(new Set());
+  const [updatingKeys, setUpdatingKeys] = useState<Set<string>>(new Set());
   
   const router = useRouter();
   const { theme } = useTheme();
@@ -103,6 +104,7 @@ export default function PrivacySettingsScreen() {
     }
     
     updatingKeysRef.current.add(key);
+    setUpdatingKeys(new Set(updatingKeysRef.current));
     
     // Cache the previous value of this setting
     const previousValue = localPrivacy[key as keyof UserSettings['privacy']];
@@ -120,9 +122,11 @@ export default function PrivacySettingsScreen() {
         logger.error(`Failed to update setting ${key}`, error);
         // Rollback: Revert to the cached previous value on failure
         setLocalPrivacy((prev: any) => prev ? { ...prev, [key]: previousValue } : null);
+        AlertService.showError('Update Failed', error.message || 'Failed to update setting');
       }
     } finally {
       updatingKeysRef.current.delete(key);
+      setUpdatingKeys(new Set(updatingKeysRef.current));
     }
   }, [settings, localPrivacy, updateSetting]);
 
@@ -142,6 +146,7 @@ export default function PrivacySettingsScreen() {
     }
     
     updatingKeysRef.current.add(key);
+    setUpdatingKeys(new Set(updatingKeysRef.current));
     
     // Cache the previous visibility state
     const previousVisibility = localPrivacy.profileVisibility;
@@ -197,6 +202,7 @@ export default function PrivacySettingsScreen() {
       }
     } finally {
       updatingKeysRef.current.delete(key);
+      setUpdatingKeys(new Set(updatingKeysRef.current));
     }
   }, [settings, localPrivacy, updateAllSettings]);
 
@@ -344,7 +350,7 @@ export default function PrivacySettingsScreen() {
           <TouchableOpacity 
             style={styles.settingItem}
             onPress={handleProfileVisibilityChange}
-            disabled={updatingKeysRef.current.has('profileVisibility')}
+            disabled={updatingKeys.has('profileVisibility')}
           >
             <View style={styles.settingContent}>
               <Ionicons name="eye-outline" size={20} color={theme.colors.text} />
@@ -390,7 +396,7 @@ export default function PrivacySettingsScreen() {
             <Switch
               value={localPrivacy?.showEmail || false}
               onValueChange={(value) => handleUpdateSetting('showEmail', value)}
-              disabled={updatingKeysRef.current.has('showEmail')}
+              disabled={updatingKeys.has('showEmail')}
               trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
               thumbColor="#FFFFFF"
             />
@@ -411,7 +417,7 @@ export default function PrivacySettingsScreen() {
             <Switch
               value={localPrivacy?.showLocation !== false}
               onValueChange={(value) => handleUpdateSetting('showLocation', value)}
-              disabled={updatingKeysRef.current.has('showLocation')}
+              disabled={updatingKeys.has('showLocation')}
               trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
               thumbColor="#FFFFFF"
             />
@@ -420,7 +426,7 @@ export default function PrivacySettingsScreen() {
           <TouchableOpacity 
             style={styles.settingItem}
             onPress={handleRouteVisibilityChange}
-            disabled={updatingKeysRef.current.has('routeVisibility')}
+            disabled={updatingKeys.has('routeVisibility')}
           >
             <View style={styles.settingContent}>
               <Ionicons name="map-outline" size={20} color={theme.colors.text} />
@@ -458,7 +464,7 @@ export default function PrivacySettingsScreen() {
           <TouchableOpacity 
             style={styles.settingItem}
             onPress={handleAllowMessagesChange}
-            disabled={updatingKeysRef.current.has('allowMessages')}
+            disabled={updatingKeys.has('allowMessages')}
           >
             <View style={styles.settingContent}>
               <Ionicons name="chatbubbles-outline" size={20} color={theme.colors.text} />
@@ -495,7 +501,7 @@ export default function PrivacySettingsScreen() {
             <Switch
               value={localPrivacy?.shareActivity !== false}
               onValueChange={(value) => handleUpdateSetting('shareActivity', value)}
-              disabled={updatingKeysRef.current.has('shareActivity')}
+              disabled={updatingKeys.has('shareActivity')}
               trackColor={{ false: 'rgba(28, 115, 180, 0.20)', true: '#50C878' }}
               thumbColor="#FFFFFF"
             />

@@ -19,7 +19,7 @@ import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
-import { useJourney } from '../../context/JourneyContext';
+import { useJourney, useJourneyDuration } from '../../context/JourneyContext';
 import JourneyCard from '../../components/JourneyCard';
 import { getUserJourneys, deleteJourney } from '../../services/journey';
 import NavBar from '../../components/NavBar';
@@ -47,10 +47,10 @@ export default function NavigateIndexScreen() {
     isPaused,
     journey,
     distance,
-    duration,
     resumeJourneyRecording,
     stopJourneyRecording,
   } = useJourney();
+  const duration = useJourneyDuration();
 
   const [userId, setUserId] = useState<string>('');
   const [journeys, setJourneys] = useState<any[]>([]);

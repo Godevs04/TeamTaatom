@@ -3187,6 +3187,8 @@ export default function LocaleScreen() {
       return;
     }
     
+    setLoadingMore(true);
+    
     // CRITICAL: Always paginate from single source of truth
     if (allLocalesSortedRef.current.length > 0 && userLocation && locationPermissionGranted) {
       const nextPage = displayedPage + 1;
@@ -3200,8 +3202,6 @@ export default function LocaleScreen() {
       );
       
       if (needsDrivingDistance.length > 0) {
-        setCalculatingDistances(true);
-        
         // Calculate driving distance sequentially for newly revealed locales to avoid rate limits
         for (let i = 0; i < needsDrivingDistance.length; i++) {
           if (!isMountedRef.current) break;
@@ -3298,7 +3298,7 @@ export default function LocaleScreen() {
         }
         
         if (!isMountedRef.current) {
-          setCalculatingDistances(false);
+          setLoadingMore(false);
           return;
         }
         
@@ -3306,14 +3306,13 @@ export default function LocaleScreen() {
         setDisplayedPage(nextPage);
         setHasMore(endIndex < allLocalesSortedRef.current.length);
         setTotalPages(Math.ceil(allLocalesSortedRef.current.length / ITEMS_PER_PAGE));
-        setCalculatingDistances(false);
+        setLoadingMore(false);
         
         if (__DEV__) {
           logger.debug('✅ STAGE 3 complete: Driving distances calculated for newly revealed range');
         }
       } else {
         // No need to calculate - just paginate
-        setLoadingMore(true);
         await new Promise(resolve => setTimeout(resolve, 300));
         
         const visibleLocales = allLocalesSortedRef.current.slice(0, endIndex);
@@ -3333,11 +3332,11 @@ export default function LocaleScreen() {
     // Fallback: Server-side pagination (when no location or all locales not loaded)
     if (currentPageRef.current >= totalPages) {
       setHasMore(false);
+      setLoadingMore(false);
       return;
     }
     
     isPaginatingRef.current = true;
-    setLoadingMore(true);
     
     try {
       currentPageRef.current += 1;
@@ -4474,6 +4473,8 @@ export default function LocaleScreen() {
                 scrollEventThrottle={16}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
+                onEndReached={handleLoadMore}
+                onEndReachedThreshold={0.5}
                 contentContainerStyle={{
                   paddingHorizontal: isTabletLocal ? 24 : 16,
                   paddingTop: headerHeight > 0 ? headerHeight + 12 : 12,
@@ -4503,37 +4504,24 @@ export default function LocaleScreen() {
                 ListFooterComponent={
                   (localesToShow || []).length > 0 ? (
                     <View style={{ paddingTop: 20, paddingBottom: 16 }}>
-                      {hasMore && !loadingMore && !loadingLocales && (
-                        <View style={styles.loadMoreButtonContainer}>
-                          <TouchableOpacity
-                            style={[styles.loadMoreButton, { overflow: 'hidden' }]}
-                            onPress={handleLoadMore}
-                            activeOpacity={0.7}
-                          >
-                            <LinearGradient
-                              colors={['#50C878', '#1C73B4']}
-                              style={StyleSheet.absoluteFillObject}
-                              start={{ x: 0, y: 0 }}
-                              end={{ x: 1, y: 1 }}
-                            />
-                            <Text style={[styles.loadMoreText, { color: '#FFFFFF' }]}>Load More</Text>
-                            <Ionicons 
-                              name="chevron-down" 
-                              size={20} 
-                              color="#FFFFFF" 
-                              style={{ marginLeft: 8 }} 
-                            />
-                          </TouchableOpacity>
-                        </View>
-                      )}
-                      {loadingMore && (
+                      {loadingMore ? (
                         <View style={styles.loadMoreContainer}>
-                          <LoadingGlobe size="small" color={theme.colors.primary} />
+                          <LoadingGlobe size="small" color={theme.colors.secondary} />
                           <Text style={[styles.loadMoreText, { color: theme.colors.textSecondary, marginLeft: 8 }]}>
                             Loading more locales...
                           </Text>
                         </View>
-                      )}
+                      ) : !hasMore ? (
+                        <View style={styles.loadMoreContainer}>
+                          <Text style={{
+                            color: theme.colors.textPassive,
+                            fontSize: theme.typography.small.fontSize,
+                            textAlign: 'center',
+                          }}>
+                            End of Results
+                          </Text>
+                        </View>
+                      ) : null}
                     </View>
                   ) : null
                 }
@@ -4541,8 +4529,10 @@ export default function LocaleScreen() {
                   <RefreshControl
                     refreshing={refreshing}
                     onRefresh={handleRefresh}
-                    colors={[isDark ? '#FFFFFF' : '#121212']}
-                    tintColor={isDark ? '#FFFFFF' : '#121212'}
+                    tintColor={theme.colors.secondary}
+                    colors={[theme.colors.secondary]}
+                    progressBackgroundColor={theme.colors.surface}
+                    progressViewOffset={headerHeight}
                   />
                 }
                 style={{ flex: 1 }}
@@ -4597,6 +4587,10 @@ export default function LocaleScreen() {
                     }
                   }
                 }}
+                tintColor={theme.colors.secondary}
+                colors={[theme.colors.secondary]}
+                progressBackgroundColor={theme.colors.surface}
+                progressViewOffset={headerHeight}
               />
             }
             showsVerticalScrollIndicator={true}

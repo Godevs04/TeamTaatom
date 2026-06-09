@@ -48,6 +48,7 @@ const clearChatNotifications = () => {
 };
 
 // Helper function to normalize IDs from various formats (string, ObjectId, Buffer)
+const idCache = new Map<any, string | null>();
 const normalizeId = (id: any): string | null => {
   if (!id) return null;
   
@@ -57,41 +58,22 @@ const normalizeId = (id: any): string | null => {
     }
     return id;
   }
-  
-  if (id._id) {
-    return normalizeId(id._id);
+
+  if (idCache.has(id)) {
+    return idCache.get(id)!;
   }
   
-  if (id.buffer && typeof id.buffer === 'object') {
-    try {
-      const bufferObj = id.buffer;
-      const bytes: number[] = [];
-      for (let i = 0; i < 12; i++) {
-        const byte = bufferObj[i] ?? bufferObj[String(i)];
-        if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
-          bytes.push(byte);
-        }
-      }
-      if (bytes.length === 12) {
-        const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
-        if (/^[0-9a-fA-F]{24}$/.test(hex)) {
-          return hex;
-        }
-      }
-    } catch (error) {
-      if (__DEV__) {
-        logger.debug('Error converting buffer to hex', { error, id });
-      }
+  const result = (() => {
+    if (id._id) {
+      return normalizeId(id._id);
     }
-  }
-  
-  if (typeof id === 'object' && !Array.isArray(id)) {
-    const keys = Object.keys(id);
-    if (keys.length >= 12 && keys.every(k => /^\d+$/.test(k) && parseInt(k) < 12)) {
+    
+    if (id.buffer && typeof id.buffer === 'object') {
       try {
+        const bufferObj = id.buffer;
         const bytes: number[] = [];
         for (let i = 0; i < 12; i++) {
-          const byte = id[i] ?? id[String(i)];
+          const byte = bufferObj[i] ?? bufferObj[String(i)];
           if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
             bytes.push(byte);
           }
@@ -104,37 +86,65 @@ const normalizeId = (id: any): string | null => {
         }
       } catch (error) {
         if (__DEV__) {
-          logger.debug('Error converting direct buffer to hex', { error, id });
+          logger.debug('Error converting buffer to hex', { error, id });
         }
       }
     }
-  }
-  
-  if (id.toString && typeof id.toString === 'function') {
+    
+    if (typeof id === 'object' && !Array.isArray(id)) {
+      const keys = Object.keys(id);
+      if (keys.length >= 12 && keys.every(k => /^\d+$/.test(k) && parseInt(k) < 12)) {
+        try {
+          const bytes: number[] = [];
+          for (let i = 0; i < 12; i++) {
+            const byte = id[i] ?? id[String(i)];
+            if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
+              bytes.push(byte);
+            }
+          }
+          if (bytes.length === 12) {
+            const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+            if (/^[0-9a-fA-F]{24}$/.test(hex)) {
+              return hex;
+            }
+          }
+        } catch (error) {
+          if (__DEV__) {
+            logger.debug('Error converting direct buffer to hex', { error, id });
+          }
+        }
+      }
+    }
+    
+    if (id.toString && typeof id.toString === 'function') {
+      try {
+        const str = id.toString();
+        if (typeof str === 'string' && /^[0-9a-fA-F]{24}$/.test(str)) {
+          return str;
+        }
+      } catch (error) {
+        if (__DEV__) {
+          logger.debug('Error calling toString on ID:', error);
+        }
+      }
+    }
+    
     try {
-      const str = id.toString();
-      if (typeof str === 'string' && /^[0-9a-fA-F]{24}$/.test(str)) {
+      const str = String(id);
+      if (/^[0-9a-fA-F]{24}$/.test(str)) {
         return str;
       }
     } catch (error) {
       if (__DEV__) {
-        logger.debug('Error calling toString on ID:', error);
+        logger.debug('Error converting ID to string:', error);
       }
     }
-  }
-  
-  try {
-    const str = String(id);
-    if (/^[0-9a-fA-F]{24}$/.test(str)) {
-      return str;
-    }
-  } catch (error) {
-    if (__DEV__) {
-      logger.debug('Error converting ID to string:', error);
-    }
-  }
-  
-  return null;
+    
+    return null;
+  })();
+
+  idCache.set(id, result);
+  return result;
 };
 
 // Responsive dimensions
@@ -2264,7 +2274,7 @@ export default function ChatThreadScreen() {
         minWidth: 140,
       },
       errorButtonText: {
-        color: '#FFFFFF',
+        color: '#000000',
         fontSize: theme.typography.body.fontSize,
         fontWeight: '600',
         textAlign: 'center',

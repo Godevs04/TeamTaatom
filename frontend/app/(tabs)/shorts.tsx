@@ -62,7 +62,7 @@ import Constants from 'expo-constants';
 import { savedEvents } from '../../utils/savedEvents';
 import { triggerHaptic } from '../../utils/hapticFeedback';
 import { shortsEvents } from '../../utils/shortsEvents';
-import { preloadVideoAsync, getLocalVideoUri, removeCachedVideo } from '../../src/utils/videoCache';
+import { preloadVideoAsync, getLocalVideoUri, removeCachedVideo, cacheVideoLocally } from '../../src/utils/videoCache';
 import { FlashList, FlashListRef } from '@shopify/flash-list';
 
 const AnyFlashList = FlashList as any;
@@ -1140,7 +1140,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [likeAnimationParticles, setLikeAnimationParticles] = useState<{ [key: string]: Array<{ id: string; x: number; y: number }> }>({});
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [savedShorts, setSavedShorts] = useState<Set<string>>(new Set());
-  const [mutedShorts, setMutedShorts] = useState<Set<string>>(new Set());
+  const [isFeedMuted, setIsFeedMuted] = useState(audioManager.getSessionMuted());
+  useEffect(() => {
+    const unsub = audioManager.addSessionMuteListener((muted) => {
+      setIsFeedMuted(muted);
+    });
+    return unsub;
+  }, []);
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [selectedShortId, setSelectedShortId] = useState<string | null>(null);
   const [selectedShortComments, setSelectedShortComments] = useState<any[]>([]);
@@ -1157,6 +1163,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [expandedCaptions, setExpandedCaptions] = useState<{ [key: string]: boolean }>({});
   const [localVideoUris, setLocalVideoUris] = useState<Record<string, string>>({});
   const activeStartedWithRemoteRef = useRef<Record<string, boolean>>({});
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     const unsubscribeViews = realtimePostsService.subscribeToViews(({ postId, viewsCount }) => {
@@ -1644,21 +1657,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         logger.error('Error setting audio mode for shorts:', err);
       });
 
-      // Screen focused - resume current video if it exists
+      // Screen focused - reload and play current video if it exists by incrementing its key version
       if (activeVideoIdRef.current && shortsRef.current[currentVisibleIndex]) {
         const currentVideoId = shortsRef.current[currentVisibleIndex]._id;
-        if (currentVideoId === activeVideoIdRef.current && !userPausedShortIdsRef.current.has(currentVideoId)) {
-          const video = videoRefs.current[currentVideoId];
-          if (video) {
-            const hasSong = !!(shortsRef.current[currentVisibleIndex].song?.songId?._id || shortsRef.current[currentVisibleIndex].song?.songId);
-            const expectedMute = hasSong || false;
-            video.setIsMutedAsync(expectedMute).catch(() => {});
-            video.setVolumeAsync(expectedMute ? 0.0 : 1.0).catch(() => {});
-            video.playAsync().catch((error) => {
-              logger.warn(`Error resuming video on focus:`, error);
-            });
-          }
-        }
+        setSourceVersions(prev => ({
+          ...prev,
+          [currentVideoId]: (prev[currentVideoId] || 0) + 1
+        }));
       }
 
       return () => {
@@ -1679,6 +1684,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
         // Pause video and audio
         pauseCurrentVideo();
+        // Unload all active video players to release decoders immediately
+        Object.keys(videoRefs.current).forEach((key) => {
+          const video = videoRefs.current[key];
+          if (video) {
+            video.unloadAsync().catch(() => {});
+          }
+        });
         if (currentPlayerRef.current) {
           currentPlayerRef.current.pauseAsync?.().catch(() => {});
           currentPlayerRef.current = null;
@@ -1696,6 +1708,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       setIsScreenFocused(false);
       setIsVideoPlaying(false);
       pauseCurrentVideo();
+      Object.keys(videoRefs.current).forEach((key) => {
+        const video = videoRefs.current[key];
+        if (video) {
+          video.unloadAsync().catch(() => {});
+        }
+      });
       if (currentPlayerRef.current) {
         currentPlayerRef.current.pauseAsync?.().catch(() => {});
         currentPlayerRef.current = null;
@@ -1711,30 +1729,28 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       if (nextAppState === 'background' || nextAppState === 'inactive') {
-        // App going to background - pause current video and audio
+        // App going to background - pause and unload current video and audio
         pauseCurrentVideo();
+        Object.keys(videoRefs.current).forEach((key) => {
+          const video = videoRefs.current[key];
+          if (video) {
+            video.unloadAsync().catch(() => {});
+          }
+        });
         if (currentPlayerRef.current) {
           currentPlayerRef.current.pauseAsync?.().catch(() => {});
           currentPlayerRef.current = null;
         }
         audioManager.stopAll().catch(() => {});
-        logger.debug('App backgrounded, paused current video and audio');
+        logger.debug('App backgrounded, paused/unloaded current video and audio');
       } else if (nextAppState === 'active') {
-        // App coming to foreground - resume current video if screen is focused
+        // App coming to foreground - reload current video if screen is focused
         if (activeVideoIdRef.current && shortsRef.current[currentVisibleIndex] && isScreenFocusedRef.current) {
           const currentVideoId = shortsRef.current[currentVisibleIndex]._id;
-          if (currentVideoId === activeVideoIdRef.current && !userPausedShortIdsRef.current.has(currentVideoId)) {
-            const video = videoRefs.current[currentVideoId];
-            if (video) {
-              const hasSong = !!(shortsRef.current[currentVisibleIndex].song?.songId?._id || shortsRef.current[currentVisibleIndex].song?.songId);
-              const expectedMute = hasSong || false;
-              video.setIsMutedAsync(expectedMute).catch(() => {});
-              video.setVolumeAsync(expectedMute ? 0.0 : 1.0).catch(() => {});
-              video.playAsync().catch((error) => {
-                logger.warn(`Error resuming video on foreground:`, error);
-              });
-            }
-          }
+          setSourceVersions(prev => ({
+            ...prev,
+            [currentVideoId]: (prev[currentVideoId] || 0) + 1
+          }));
         }
       }
     });
@@ -3171,29 +3187,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   useEffect(() => {
     if (!shortsData || shortsData.length === 0) return;
 
-    // 1. Debounced background preloading for the next 2 upcoming videos
-    // Prevents parallel downloads and network congestion during rapid scrolls
-    const preloadTimer = setTimeout(() => {
-      const nextIndex1 = currentVisibleIndex + 1;
-      const nextIndex2 = currentVisibleIndex + 2;
-      [nextIndex1, nextIndex2].forEach(idx => {
-        if (idx >= 0 && idx < shortsData.length) {
-          const item = shortsData[idx];
-          if (item && !isAdItem(item)) {
-            const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
-            if (baseUrl) {
-              preloadVideoAsync(item._id, baseUrl);
-            }
-          }
-        }
-      });
-    }, 300);
-
-    // 2. Poll/check file existence for the immediate neighbors to update localVideoUris state
     let active = true;
     const minIndex = Math.max(0, currentVisibleIndex - 1);
     const maxIndex = Math.min(shortsData.length - 1, currentVisibleIndex + 1);
 
+    // 1. Check file existence for the immediate neighbors immediately
     const checkCachedVideos = async () => {
       const newUris: Record<string, string> = {};
       for (let i = minIndex; i <= maxIndex; i++) {
@@ -3205,7 +3203,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           }
         }
       }
-      if (active) {
+      if (active && isMountedRef.current) {
         setLocalVideoUris(prev => {
           let changed = false;
           const merged = { ...prev };
@@ -3224,12 +3222,39 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     };
 
     checkCachedVideos();
-    const interval = setInterval(checkCachedVideos, 1000);
+
+    // 2. Debounced background preloading for the next 2 upcoming videos
+    // Prevents parallel downloads and network congestion during rapid scrolls
+    // Also reactively resolves local path and updates state upon download completion.
+    const preloadTimer = setTimeout(() => {
+      const nextIndex1 = currentVisibleIndex + 1;
+      const nextIndex2 = currentVisibleIndex + 2;
+      [nextIndex1, nextIndex2].forEach(async (idx) => {
+        if (idx >= 0 && idx < shortsData.length) {
+          const item = shortsData[idx];
+          if (item && !isAdItem(item)) {
+            const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
+            if (baseUrl) {
+              try {
+                const localUri = await cacheVideoLocally(item._id, baseUrl);
+                if (localUri && isMountedRef.current) {
+                  setLocalVideoUris(prev => {
+                    if (prev[item._id] === localUri) return prev;
+                    return { ...prev, [item._id]: localUri };
+                  });
+                }
+              } catch (err) {
+                // Ignore preload error
+              }
+            }
+          }
+        }
+      });
+    }, 300);
 
     return () => {
       active = false;
       clearTimeout(preloadTimer);
-      clearInterval(interval);
     };
   }, [currentVisibleIndex, shortsData]);
 
@@ -3579,7 +3604,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // to build and compare; deliberately avoiding JSON.stringify per cell.
     const isOwn = item.user._id === currentUser?._id;
     const isVisibleNow = index === currentVisibleIndex;
-    const isMutedByUser = props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id);
+    const isMutedByUser = props.isMuted !== undefined ? props.isMuted : isFeedMuted;
     const cacheKey =
       `${item._id}|${index}|${isVisibleNow ? 1 : 0}|` +
       `${isCellVideoPlaying ? 1 : 0}|${isMutedByUser ? 1 : 0}|` +
@@ -3677,9 +3702,18 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 <MemoizedVideo
                 key={`video-${item._id}-${sourceVersions[item._id] ?? 0}`}
                 ref={(ref) => {
-                  videoRefs.current[item._id] = ref;
+                  if (ref) {
+                    videoRefs.current[item._id] = ref;
+                  } else {
+                    const oldRef = videoRefs.current[item._id];
+                    if (oldRef) {
+                      logger.debug(`[CLEANUP] Unloading video player for ${item._id}`);
+                      oldRef.unloadAsync().catch(() => {});
+                      delete videoRefs.current[item._id];
+                    }
+                  }
                   if (index < 2) {
-                    logger.info(`[RENDER_VIDEO] Video component mounted for short at index ${index}:`, {
+                    logger.info(`[RENDER_VIDEO] Video component mounted/unmounted for short at index ${index}:`, {
                       shortId: item._id,
                       shouldRenderVideo,
                       sourceVersion: sourceVersions[item._id] ?? 0,
@@ -3696,10 +3730,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 shouldPlay={index === currentVisibleIndex && isVideoPlaying && !userPausedShortIdsRef.current.has(item._id)}
                 isLooping
                 progressUpdateIntervalMillis={100}
-                isMuted={index !== currentVisibleIndex || !!(item.song?.songId?._id || item.song?.songId) || (props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id))}
+                isMuted={index !== currentVisibleIndex || !!(item.song?.songId?._id || item.song?.songId) || (props.isMuted !== undefined ? props.isMuted : isFeedMuted)}
                 volume={(() => {
                   const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                  const isMutedByUser = props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id);
+                  const isMutedByUser = props.isMuted !== undefined ? props.isMuted : isFeedMuted;
                   return (hasMusic || isMutedByUser) ? 0.0 : 1.0;
                 })()}
                 onLoadStart={() => {
@@ -3714,7 +3748,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     const video = videoRefs.current[item._id];
                     if (video) {
                       const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                      const isMutedByUser = props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id);
+                      const isMutedByUser = props.isMuted !== undefined ? props.isMuted : isFeedMuted;
                       if (hasMusic || isMutedByUser) {
                         video.setIsMutedAsync(true).catch(() => {});
                         video.setVolumeAsync(0.0).catch(() => {});
@@ -3800,7 +3834,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     
                     // CRITICAL: If music exists, or if user muted this short, ensure video stays muted
                     const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                    const isMutedByUser = props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id);
+                    const isMutedByUser = props.isMuted !== undefined ? props.isMuted : isFeedMuted;
                     if ((hasMusic || isMutedByUser) && index === currentVisibleIndex) {
                       const video = videoRefs.current[item._id];
                       if (video && !status.isMuted) {
@@ -4177,7 +4211,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                       post={item}
                       isVisible={isScreenFocused && index === currentVisibleIndex}
                       autoPlay={isCellVideoPlaying}
-                      externalMuted={props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id)}
+                      externalMuted={props.isMuted !== undefined ? props.isMuted : isFeedMuted}
                       onPlayingChange={handleSongPlayingChange}
                     />
                   </View>
@@ -4205,7 +4239,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // swipeAnimation / fadeAnimation are Animated.Value refs from useRef ---
     // their identity never changes, so they don't belong in the deps array.
     // Including them was harmless but signaled false volatility.
-  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions, containerHeight, expandedCaptions, isVideoPlaying, localVideoUris, props.isMuted]);
+  }, [currentVisibleIndex, videoStates, followStates, savedShorts, isFeedMuted, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions, containerHeight, expandedCaptions, isVideoPlaying, localVideoUris, props.isMuted]);
 
   const keyExtractor = useCallback((item: ShortsItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;
@@ -4368,8 +4402,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         }
 
         const currentShort = shorts[currentVisibleIndex] as PostType | undefined;
-        const hasSong = !!(currentShort?.song?.songId && (currentShort.song.songId._id || typeof currentShort.song.songId === 'string'));
-        const isMuted = currentShort ? (props.isMuted !== undefined ? props.isMuted : mutedShorts.has(currentShort._id)) : false;
+        const isMuted = props.isMuted !== undefined ? props.isMuted : isFeedMuted;
         
         return (
           <View style={styles.topBar}>
@@ -4392,17 +4425,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 <TouchableOpacity
                   style={styles.topBarButton}
                   onPress={() => {
-                    if (!currentShort) return;
-                    if (props.onMuteToggle) {
-                      props.onMuteToggle();
-                    } else {
-                      setMutedShorts(prev => {
-                        const next = new Set(prev);
-                        if (next.has(currentShort._id)) next.delete(currentShort._id);
-                        else next.add(currentShort._id);
-                        return next;
-                      });
-                    }
+                    audioManager.setSessionMuted(!isFeedMuted);
                   }}
                   accessibilityLabel={isMuted ? 'Unmute' : 'Mute'}
                   accessibilityRole="button"
@@ -4424,7 +4447,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={theme.colors.primary}
+            tintColor={theme.colors.secondary}
+            colors={[theme.colors.secondary]}
+            progressBackgroundColor={theme.colors.surface}
+            progressViewOffset={Platform.OS === 'ios' ? 80 : 64}
           />
         }
         data={shortsData}

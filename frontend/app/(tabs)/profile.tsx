@@ -277,7 +277,7 @@ export default function ProfileScreen() {
   const isFetchingRef = useRef(false);
   
   // Scroll position persistence: Store scroll position when navigating away
-  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollViewRef = useRef<FlatList>(null);
   const scrollPositionRef = useRef<number>(0);
   // True when we're returning to the screen and owe the ScrollView a scrollTo.
   // Set in useFocusEffect; cleared by the loading-aware effect below once the
@@ -337,9 +337,8 @@ export default function ProfileScreen() {
   const tripsCount = useMemo(() => countTripsFromLocations(verifiedLocations), [verifiedLocations]);
   const countriesCount = useMemo(() => (profileData?.tripScore?.countries ? Object.keys(profileData.tripScore.countries).length : 0), [profileData?.tripScore?.countries]);
   const globeLocations = useMemo(() => {
-    if (verifiedLocations.length > 0) return verifiedLocations.map((l) => ({ latitude: l.latitude, longitude: l.longitude, address: l.address }));
-    return profileData?.locations || [];
-  }, [verifiedLocations, profileData?.locations]);
+    return verifiedLocations.map((l) => ({ latitude: l.latitude, longitude: l.longitude, address: l.address }));
+  }, [verifiedLocations]);
 
   const screenGradientLocations = useMemo(() => {
     const colors = theme.colors.screenGradient;
@@ -772,8 +771,8 @@ export default function ProfileScreen() {
         if (!isMountedRef.current) return;
         if (!scrollViewRef.current) return;
         if (scrollPositionRef.current <= 0) return;
-        scrollViewRef.current.scrollTo({
-          y: scrollPositionRef.current,
+        scrollViewRef.current.scrollToOffset({
+          offset: scrollPositionRef.current,
           animated: false,
         });
       });
@@ -829,6 +828,37 @@ export default function ProfileScreen() {
       unsubscribe(); 
     };
   }, []);
+
+  // Listen for archive, unarchive, and delete actions on posts to synchronize local lists/grid and counters
+  useEffect(() => {
+    const unsubscribe = savedEvents.addPostActionListener((postId, action) => {
+      if (!isMountedRef.current) return;
+      
+      if (action === 'delete' || action === 'archive') {
+        // Remove from posts and savedPosts arrays
+        setPosts(prev => {
+          const filtered = prev.filter(p => p._id !== postId);
+          if (filtered.length !== prev.length) {
+            // Decrement count aggregate to stay synchronized
+            setProfileData(cur => cur ? {
+              ...cur,
+              postsCount: Math.max(0, (cur.postsCount || 0) - (prev.length - filtered.length))
+            } : null);
+          }
+          return filtered;
+        });
+        setSavedPosts(prev => prev.filter(p => p._id !== postId));
+        setUserShorts(prev => prev.filter(s => s._id !== postId));
+        setSavedShorts(prev => prev.filter(s => s._id !== postId));
+      } else if (action === 'unarchive') {
+        // Since it's restored, let's trigger a full background refresh of user data/posts to pull it back in
+        void loadUserData(true);
+      }
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [loadUserData]);
 
   // Saved Content Stability: Load saved IDs when switching to saved tab (defensive parsing)
   useEffect(() => {
@@ -1333,6 +1363,219 @@ export default function ProfileScreen() {
     return CardContent;
   };
 
+  const activeListData = useMemo(() => {
+    if (activeTab === 'posts') return posts;
+    if (activeTab === 'shorts') return userShorts;
+    if (activeTab === 'saved') {
+      return activeSavedSubTab === 'posts' ? savedPosts : savedShorts;
+    }
+    return [];
+  }, [activeTab, activeSavedSubTab, posts, userShorts, savedPosts, savedShorts]);
+
+  const renderProfileItem = ({ item, index }: { item: PostType; index: number }) => {
+    if (activeTab === 'posts') {
+      const post = item;
+      const imageUrl = post.imageUrl 
+        || (post as any).image_url 
+        || (post as any).mediaUrl 
+        || (post as any).images?.[0]
+        || (post as any).thumbnailUrl;
+      
+      const rawUrl = imageUrl && String(imageUrl).trim() && String(imageUrl).trim().length > 0
+        ? String(imageUrl).trim()
+        : null;
+      const validImageUrl = rawUrl ? optimizeCloudinaryUrl(rawUrl, { width: 300, height: 300 }) : null;
+      
+      const isSelected = selectedItemIds.includes(post._id);
+      const handlePress = () => {
+        if (isSelectionMode) {
+          setSelectedItemIds(prev => 
+            prev.includes(post._id) ? prev.filter(id => id !== post._id) : [...prev, post._id]
+          );
+        } else {
+          if (user?._id) {
+            router.push({
+              pathname: `/user-posts/${user._id}`,
+              params: {
+                postId: post._id,
+                postData: JSON.stringify(post),
+                index: String(index),
+              },
+            });
+          }
+        }
+      };
+      const handleLongPress = () => {
+        if (!isSelectionMode) {
+          setIsSelectionMode(true);
+          setSelectedItemIds([post._id]);
+        }
+      };
+
+      return (
+        <Pressable 
+          style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: isSelected ? theme.colors.primary : profileTheme.gapBorderColor }]}
+          onLongPress={handleLongPress}
+          onPress={handlePress}
+        >
+          {validImageUrl ? (
+            <>
+              <Image 
+                source={{ uri: validImageUrl }} 
+                style={styles.thumbnailImage as ImageStyle}
+                resizeMode="cover"
+                onError={(error) => {
+                  const errorMessage = error?.nativeEvent?.error?.message || '';
+                  const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
+                  if (__DEV__ && !is403) {
+                    console.warn('⚠️ [Profile] Image failed:', { postId: post._id, url: validImageUrl.substring(0, 80), error: errorMessage || 'Unknown' });
+                  }
+                  if (!is403) {
+                    logger.warn('Image failed to load', { postId: post._id, imageUrl: validImageUrl.substring(0, 100), error: errorMessage || 'Unknown error' });
+                  }
+                }}
+              />
+              {post.filter && FILTER_PREVIEW_OVERLAY[post.filter as ImageFilterType] && (
+                <View
+                  pointerEvents="none"
+                  style={[
+                    StyleSheet.absoluteFillObject,
+                    {
+                      backgroundColor: FILTER_PREVIEW_OVERLAY[post.filter as ImageFilterType]!,
+                    }
+                  ]}
+                />
+              )}
+            </>
+          ) : (
+            <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
+              <Ionicons name="image-outline" size={28} color={profileTheme.textSecondary} />
+            </View>
+          )}
+          {isSelected && (
+            <View style={[styles.selectionOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.4)' }]}>
+              <View style={styles.checkmarkCircle}>
+                <LinearGradient
+                  colors={['#1C73B4', '#50C878']}
+                  style={StyleSheet.absoluteFillObject}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                />
+                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+              </View>
+            </View>
+          )}
+          {(post as any).images?.length > 1 && (
+            <View style={styles.multiImageBadge}>
+              <Ionicons name="copy-outline" size={12} color="#FFFFFF" />
+            </View>
+          )}
+          <View style={styles.viewCountOverlay}>
+            <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
+            <Text style={styles.viewCountText}>
+              {formatViewCount((post as any).viewsCount)}
+            </Text>
+          </View>
+        </Pressable>
+      );
+    } else if (activeTab === 'shorts') {
+      const s = item;
+      const isSelected = selectedItemIds.includes(s._id);
+      const handlePress = () => {
+        if (isSelectionMode) {
+          setSelectedItemIds(prev => 
+            prev.includes(s._id) ? prev.filter(id => id !== s._id) : [...prev, s._id]
+          );
+        } else {
+          router.push(`/user-shorts/${user?._id || ''}?shortId=${s._id}&index=${index}`);
+        }
+      };
+      const handleLongPress = () => {
+        if (!isSelectionMode) {
+          setIsSelectionMode(true);
+          setSelectedItemIds([s._id]);
+        }
+      };
+
+      return (
+        <ShortsCard
+          item={s}
+          isThumbnail={true}
+          isSelected={isSelected}
+          onPress={handlePress}
+          onLongPress={handleLongPress}
+          profileTheme={profileTheme}
+        />
+      );
+    } else if (activeTab === 'saved') {
+      if (activeSavedSubTab === 'posts') {
+        const imageUrl = (item as any).imageUrl && !isVideoUrl((item as any).imageUrl, (item as any).videoUrl) ? (item as any).imageUrl : 
+                         (item as any).image_url && !isVideoUrl((item as any).image_url, (item as any).videoUrl) ? (item as any).image_url : 
+                         (item as any).thumbnailUrl && !isVideoUrl((item as any).thumbnailUrl, (item as any).videoUrl) ? (item as any).thumbnailUrl : 
+                         (item as any).images?.[0] && !isVideoUrl((item as any).images?.[0], (item as any).videoUrl) ? (item as any).images?.[0] : '';
+        
+        const rawUrl = imageUrl && String(imageUrl).trim() && String(imageUrl).trim().length > 0
+          ? String(imageUrl).trim()
+          : null;
+        const validImageUrl = rawUrl ? optimizeCloudinaryUrl(rawUrl, { width: 300, height: 300 }) : null;
+        
+        return (
+          <Pressable 
+            style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor }]}
+            onPress={() => {
+              router.push({
+                pathname: '/saved-posts',
+                params: {
+                  postId: item._id,
+                  postData: JSON.stringify(item),
+                },
+              });
+            }}
+          >
+            {validImageUrl ? (
+              <Image 
+                source={{ uri: validImageUrl }} 
+                style={styles.thumbnailImage as ImageStyle}
+                resizeMode="cover"
+                onError={(error) => {
+                  const errorMessage = error?.nativeEvent?.error?.message || '';
+                  const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
+                  if (!is403) {
+                    logger.warn('Saved item image failed to load', {
+                      postId: item._id,
+                      imageUrl: validImageUrl.substring(0, 100),
+                      error: errorMessage || 'Unknown error'
+                    });
+                  }
+                }}
+              />
+            ) : (
+              <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
+                <Ionicons name="image-outline" size={32} color={profileTheme.textSecondary} />
+              </View>
+            )}
+            <View style={[styles.bookmarkOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+              <Ionicons name="bookmark" size={16} color="#FFFFFF" />
+            </View>
+          </Pressable>
+        );
+      } else {
+        return (
+          <ShortsCard
+            item={item}
+            isThumbnail={true}
+            showBookmark={true}
+            onPress={() => {
+              router.push(`/saved-shorts?shortId=${item._id}`);
+            }}
+            profileTheme={profileTheme}
+          />
+        );
+      }
+    }
+    return null;
+  };
+
   return (
     <ErrorBoundary level="route">
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -1455,12 +1698,187 @@ export default function ProfileScreen() {
           </View>
         </View>
       </View>
-
       <View style={styles.scrollClip}>
-      <ScrollView
+      <FlatList
         ref={scrollViewRef}
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 80 }]}
+        data={activeListData}
+        numColumns={3}
+        key={`${activeTab}_${activeSavedSubTab}`}
+        keyExtractor={(item) => item._id}
+        renderItem={renderProfileItem}
+        ListHeaderComponent={
+          <>
+            {/* Spacer to reserve space for the absolute header */}
+            <View style={{ height: 56 + insets.top }} />
+
+            {profileData && (
+              <ProfilePremiumView
+                profilePic={profileData.profilePic}
+                fullName={profileData.fullName}
+                username={profileData.username}
+                bio={profileData.bio}
+                createdAt={profileData.createdAt}
+                tripScore={profileData.tripScore?.totalScore ?? 0}
+                postCount={profileData.postsCount || 0}
+                followersCount={profileData.followersCount || 0}
+                verifiedCount={verifiedLocationsCount}
+                tripsCount={tripsCount}
+                countriesCount={countriesCount}
+                verifiedLocations={verifiedLocations}
+                userId={user?._id ?? profileData._id}
+                isDark={isDark}
+                accent={profileTheme.accent}
+                textPrimary={profileTheme.textPrimary}
+                textSecondary={profileTheme.textSecondary}
+                onEditProfile={() => setShowEditProfile(true)}
+                onAvatarLongPress={(source) => setEnlargedPhotoSource(source)}
+                onAvatarPressOut={() => setEnlargedPhotoSource(null)}
+                onOpenMap={() => {
+                  const id = user?._id ?? profileData?._id;
+                  const userId = id != null ? String(id) : undefined;
+                  if (userId) router.push(`/map/all-locations?userId=${encodeURIComponent(userId)}`);
+                }}
+                onOpenTripScore={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
+                onOpenJourneys={() => {
+                  const name = user?.fullName || profileData?.fullName || user?.username || '';
+                  router.push(`/journeys?userId=${user?._id}&userName=${encodeURIComponent(name)}`);
+                }}
+                onOpenConnect={() => router.push('/connect')}
+                followingCount={profileData.followingCount || 0}
+                onOpenFollowers={() => {
+                  if (profileData?._id) {
+                    router.push(`/followers?userId=${profileData._id}&type=followers`);
+                  }
+                }}
+                onOpenFollowing={() => {
+                  if (profileData?._id) {
+                    router.push(`/followers?userId=${profileData._id}&type=following`);
+                  }
+                }}
+              />
+            )}
+
+            <View style={[styles.unifiedCardHeader, { backgroundColor: profileTheme.glassCardBg }]}>
+              {/* Posts/Shorts/Saved Tabs - Pill Style (padded row) */}
+              <View
+                style={styles.postsTabsSection}
+                onLayout={(event) => {
+                  tabsOffsetRef.current = event.nativeEvent.layout.y;
+                }}
+              >
+                <View style={[styles.pillTabsContainer, { backgroundColor: profileTheme.pillTabsBg, borderColor: isDark ? 'rgba(255,255,255,0.08)' : profileTheme.cardBorder, borderWidth: StyleSheet.hairlineWidth }]}>
+                  {(['posts','shorts','saved'] as const).map(tab => (
+                    <Pressable 
+                      key={tab} 
+                      style={[
+                        styles.pillTab, 
+                        activeTab===tab && styles.activePillTab
+                      ]} 
+                      onPress={() => {
+                        // Profile Tabs Lifecycle Safety: Prevent rapid tab switching from causing duplicate API calls
+                        if (isFetchingRef.current && activeTab !== tab) {
+                          logger.debug('Tab switch blocked - fetch in progress');
+                          return;
+                        }
+                        setIsSelectionMode(false);
+                        setSelectedItemIds([]);
+                        setActiveTab(tab);
+                      }}
+                    >
+                      {activeTab === tab && (
+                        <LinearGradient
+                          colors={['#1C73B4', '#50C878']}
+                          style={StyleSheet.absoluteFillObject}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                        />
+                      )}
+                      <Ionicons 
+                        name={tab==='posts' ? 'images-outline' : tab==='shorts' ? 'videocam-outline' : 'bookmark-outline'} 
+                        size={18} 
+                        color={activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary} 
+                        style={{ zIndex: 1 }}
+                      />
+                      <Text style={[
+                        styles.pillTabText, 
+                        { color: activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary, zIndex: 1 }
+                      ]}>
+                        {tab === 'posts' ? 'Posts' : tab === 'shorts' ? 'Shorts' : 'Saved'}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+
+              {activeTab === 'saved' && (
+                <View style={[styles.savedSubTabsContainer, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', borderColor: profileTheme.cardBorder, borderWidth: StyleSheet.hairlineWidth, marginBottom: 8 }]}>
+                  {(['posts', 'shorts'] as const).map(subTab => (
+                    <Pressable
+                      key={subTab}
+                      style={[
+                        styles.savedSubTab,
+                        activeSavedSubTab === subTab && { overflow: 'hidden' }
+                      ]}
+                      onPress={() => setActiveSavedSubTab(subTab)}
+                    >
+                      {activeSavedSubTab === subTab && (
+                        <LinearGradient
+                          colors={['#1C73B4', '#50C878']}
+                          style={StyleSheet.absoluteFillObject}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                        />
+                      )}
+                      <Text
+                        style={[
+                          styles.savedSubTabText,
+                          {
+                            color: activeSavedSubTab === subTab ? '#FFFFFF' : profileTheme.textSecondary,
+                            fontWeight: activeSavedSubTab === subTab ? '700' : '500',
+                            zIndex: 1,
+                          }
+                        ]}
+                      >
+                        {subTab === 'posts' ? 'Posts' : 'Shorts'}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
+          </>
+        }
+        columnWrapperStyle={[styles.postsGridWrapper, { backgroundColor: profileTheme.glassCardBg }]}
+        ListFooterComponent={
+          <>
+            <View style={[styles.unifiedCardFooter, { backgroundColor: profileTheme.glassCardBg }]} />
+            
+            {/* Edit Profile Modal */}
+            {showEditProfile && user && (
+              <EditProfile
+                visible={showEditProfile}
+                user={{
+                  ...user,
+                  fullName: profileData?.fullName ?? user.fullName,
+                  bio: profileData?.bio ?? user.bio,
+                  profilePic: profileData?.profilePic ?? user.profilePic,
+                }}
+                onClose={() => setShowEditProfile(false)}
+                onSuccess={handleProfileUpdate}
+              />
+            )}
+          </>
+        }
+        ListEmptyComponent={
+          <View style={{ backgroundColor: profileTheme.glassCardBg, paddingVertical: 40, alignItems: 'center' }}>
+            <Ionicons name="images-outline" size={48} color={profileTheme.textSecondary} style={{ marginBottom: 12, opacity: 0.5 }} />
+            <Text style={{ color: profileTheme.textSecondary, fontSize: 15, fontFamily: getFontFamily('500') }}>
+              {activeTab === 'posts' ? 'No posts yet' : activeTab === 'shorts' ? 'No shorts yet' : 'No saved items'}
+            </Text>
+          </View>
+        }
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={false}
@@ -1475,433 +1893,14 @@ export default function ProfileScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            colors={[theme.colors.primary]}
-            tintColor={theme.colors.primary}
+            colors={[theme.colors.secondary]}
+            tintColor={theme.colors.secondary}
+            progressBackgroundColor={theme.colors.surface}
             progressViewOffset={56 + insets.top}
           />
         }
-      >
-        {/* Spacer to reserve space for the absolute header */}
-        <View style={{ height: 56 + insets.top }} />
-
-        {profileData && (
-          <>
-            <ProfilePremiumView
-              profilePic={profileData.profilePic}
-              fullName={profileData.fullName}
-              username={profileData.username}
-              bio={profileData.bio}
-              createdAt={profileData.createdAt}
-              tripScore={profileData.tripScore?.totalScore ?? 0}
-              postCount={profileData.postsCount || 0}
-              followersCount={profileData.followersCount || 0}
-              verifiedCount={verifiedLocationsCount}
-              tripsCount={tripsCount}
-              countriesCount={countriesCount}
-              verifiedLocations={verifiedLocations}
-              userId={user?._id ?? profileData._id}
-              isDark={isDark}
-              accent={profileTheme.accent}
-              textPrimary={profileTheme.textPrimary}
-              textSecondary={profileTheme.textSecondary}
-              onEditProfile={() => setShowEditProfile(true)}
-              onAvatarLongPress={(source) => setEnlargedPhotoSource(source)}
-              onAvatarPressOut={() => setEnlargedPhotoSource(null)}
-              onOpenMap={() => {
-                const id = user?._id ?? profileData?._id;
-                const userId = id != null ? String(id) : undefined;
-                if (userId) router.push(`/map/all-locations?userId=${encodeURIComponent(userId)}`);
-              }}
-              onOpenTripScore={() => router.push(`/tripscore/continents?userId=${user?._id}`)}
-              onOpenJourneys={() => {
-                const name = user?.fullName || profileData?.fullName || user?.username || '';
-                router.push(`/journeys?userId=${user?._id}&userName=${encodeURIComponent(name)}`);
-              }}
-              onOpenConnect={() => router.push('/connect')}
-              followingCount={profileData.followingCount || 0}
-              onOpenFollowers={() => {
-                if (profileData?._id) {
-                  router.push(`/followers?userId=${profileData._id}&type=followers`);
-                }
-              }}
-              onOpenFollowing={() => {
-                if (profileData?._id) {
-                  router.push(`/followers?userId=${profileData._id}&type=following`);
-                }
-              }}
-            />
-
-          <CloudGlassSurface
-            style={[
-              styles.unifiedCard,
-              isDark && { shadowColor: theme.colors.glowBlue || theme.colors.primary },
-            ]}
-            contentStyle={styles.unifiedCardInner}
-            blur={false}
-            borderRadius={28}
-          >
-            {/* Posts/Shorts/Saved Tabs - Pill Style (padded row) */}
-            <View
-              style={styles.postsTabsSection}
-              onLayout={(event) => {
-                tabsOffsetRef.current = event.nativeEvent.layout.y;
-              }}
-            >
-              <View style={[styles.pillTabsContainer, { backgroundColor: profileTheme.pillTabsBg, borderColor: isDark ? 'rgba(255,255,255,0.08)' : profileTheme.cardBorder, borderWidth: StyleSheet.hairlineWidth }]}>
-                {(['posts','shorts','saved'] as const).map(tab => (
-                  <Pressable 
-                    key={tab} 
-                    style={[
-                      styles.pillTab, 
-                      activeTab===tab && styles.activePillTab
-                    ]} 
-                    onPress={() => {
-                      // Profile Tabs Lifecycle Safety: Prevent rapid tab switching from causing duplicate API calls
-                      if (isFetchingRef.current && activeTab !== tab) {
-                        logger.debug('Tab switch blocked - fetch in progress');
-                        return;
-                      }
-                      setIsSelectionMode(false);
-                      setSelectedItemIds([]);
-                      setActiveTab(tab);
-                    }}
-                  >
-                    {activeTab === tab && (
-                      <LinearGradient
-                        colors={['#1C73B4', '#50C878']}
-                        style={StyleSheet.absoluteFillObject}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                      />
-                    )}
-                    <Ionicons 
-                      name={tab==='posts' ? 'images-outline' : tab==='shorts' ? 'videocam-outline' : 'bookmark-outline'} 
-                      size={18} 
-                      color={activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary} 
-                      style={{ zIndex: 1 }}
-                    />
-                    <Text style={[
-                      styles.pillTabText, 
-                      { color: activeTab===tab ? '#FFFFFF' : profileTheme.textSecondary, zIndex: 1 }
-                    ]}>
-                      {tab === 'posts' ? 'Posts' : tab === 'shorts' ? 'Shorts' : 'Saved'}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-            
-            {/* Grid content area — full card width, no horizontal padding */}
-            <View style={styles.contentArea}>
-            {/* Profile Tabs Lifecycle Safety: Always render all tabs but hide inactive - prevents scroll reset */}
-            <View style={activeTab !== 'posts' ? { height: 0, overflow: 'hidden' } : {}}>
-              {posts.length > 0 ? (
-                <FlatList
-                  data={posts}
-                  numColumns={3}
-                  scrollEnabled={false}
-                  keyExtractor={(item) => item._id}
-                  renderItem={({ item: post, index }) => {
-                    // Try multiple possible image URL fields
-                    const imageUrl = post.imageUrl 
-                      || (post as any).image_url 
-                      || (post as any).mediaUrl 
-                      || (post as any).images?.[0]
-                      || (post as any).thumbnailUrl;
-                    
-                    const rawUrl = imageUrl && String(imageUrl).trim() && String(imageUrl).trim().length > 0
-                      ? String(imageUrl).trim()
-                      : null;
-                    const validImageUrl = rawUrl ? optimizeCloudinaryUrl(rawUrl, { width: 300, height: 300 }) : null;
-                    
-                    const isSelected = selectedItemIds.includes(post._id);
-                    const handlePress = () => {
-                      if (isSelectionMode) {
-                        setSelectedItemIds(prev => 
-                          prev.includes(post._id) ? prev.filter(id => id !== post._id) : [...prev, post._id]
-                        );
-                      } else {
-                        if (user?._id) {
-                          router.push({
-                            pathname: `/user-posts/${user._id}`,
-                            params: {
-                              postId: post._id,
-                              postData: JSON.stringify(post),
-                              index: String(index),
-                            },
-                          });
-                        }
-                      }
-
-                    };
-                    const handleLongPress = () => {
-                      if (!isSelectionMode) {
-                        setIsSelectionMode(true);
-                        setSelectedItemIds([post._id]);
-                      }
-                    };
-
-                    return (
-                      <Pressable 
-                        style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: isSelected ? theme.colors.primary : profileTheme.gapBorderColor }]}
-                        onLongPress={handleLongPress}
-                        onPress={handlePress}
-                      >
-                        {validImageUrl ? (
-                          <>
-                            <Image 
-                              source={{ uri: validImageUrl }} 
-                              style={styles.thumbnailImage as ImageStyle}
-                              resizeMode="cover"
-                              onError={(error) => {
-                                const errorMessage = error?.nativeEvent?.error?.message || '';
-                                const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
-                                if (__DEV__ && !is403) {
-                                  console.warn('⚠️ [Profile] Image failed:', { postId: post._id, url: validImageUrl.substring(0, 80), error: errorMessage || 'Unknown' });
-                                }
-                                if (!is403) {
-                                  logger.warn('Image failed to load', { postId: post._id, imageUrl: validImageUrl.substring(0, 100), error: errorMessage || 'Unknown error' });
-                                }
-                              }}
-                            />
-                            {post.filter && FILTER_PREVIEW_OVERLAY[post.filter as ImageFilterType] && (
-                              <View
-                                pointerEvents="none"
-                                style={[
-                                  StyleSheet.absoluteFillObject,
-                                  { backgroundColor: FILTER_PREVIEW_OVERLAY[post.filter as ImageFilterType]! },
-                                ]}
-                              />
-                            )}
-                          </>
-                        ) : (
-                          <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
-                            <Ionicons name="image-outline" size={28} color={profileTheme.textSecondary} />
-                          </View>
-                        )}
-                        {isSelected && (
-                          <View style={[styles.selectionOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.4)' }]}>
-                            <View style={styles.checkmarkCircle}>
-                              <LinearGradient
-                                colors={['#1C73B4', '#50C878']}
-                                style={StyleSheet.absoluteFillObject}
-                                start={{ x: 0, y: 0 }}
-                                end={{ x: 1, y: 1 }}
-                              />
-                              <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                            </View>
-                          </View>
-                        )}
-                        {/* Multi-image indicator */}
-                        {(post as any).images?.length > 1 && (
-                          <View style={styles.multiImageBadge}>
-                            <Ionicons name="copy-outline" size={12} color="#FFFFFF" />
-                          </View>
-                        )}
-                        {/* View count overlay */}
-                        <View style={styles.viewCountOverlay}>
-                          <Ionicons name="eye-outline" size={11} color="#FFFFFF" />
-                          <Text style={styles.viewCountText}>
-                            {formatViewCount((post as any).viewsCount)}
-                          </Text>
-                        </View>
-                      </Pressable>
-                    );
-                  }}
-                  columnWrapperStyle={styles.postsGridWrapper}
-                  contentContainerStyle={styles.postsGridContainer}
-                />
-              ) : null}
-            </View>
-            <View style={activeTab !== 'shorts' ? { height: 0, overflow: 'hidden' } : {}}>
-              {userShorts.length > 0 ? (
-                <FlatList
-                  data={userShorts}
-                  numColumns={3}
-                  scrollEnabled={false}
-                  keyExtractor={(item) => item._id}
-                  renderItem={({ item: s, index }) => {
-                    const isSelected = selectedItemIds.includes(s._id);
-                    const handlePress = () => {
-                      if (isSelectionMode) {
-                        setSelectedItemIds(prev => 
-                          prev.includes(s._id) ? prev.filter(id => id !== s._id) : [...prev, s._id]
-                        );
-                      } else {
-                        router.push(`/user-shorts/${user?._id || ''}?shortId=${s._id}&index=${index}`);
-                      }
-                    };
-                    const handleLongPress = () => {
-                      if (!isSelectionMode) {
-                        setIsSelectionMode(true);
-                        setSelectedItemIds([s._id]);
-                      }
-                    };
-
-                    return (
-                      <ShortsCard
-                        item={s}
-                        isThumbnail={true}
-                        isSelected={isSelected}
-                        onPress={handlePress}
-                        onLongPress={handleLongPress}
-                        profileTheme={profileTheme}
-                      />
-                    );
-                  }}
-                  columnWrapperStyle={styles.postsGridWrapper}
-                  contentContainerStyle={styles.postsGridContainer}
-                />
-              ) : null}
-            </View>
-
-            <View style={activeTab !== 'saved' ? { height: 0, overflow: 'hidden' } : {}}>
-              {/* Saved Sub-Tabs Selection */}
-              <View style={[styles.savedSubTabsContainer, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', borderColor: profileTheme.cardBorder, borderWidth: StyleSheet.hairlineWidth }]}>
-                {(['posts', 'shorts'] as const).map(subTab => (
-                  <Pressable
-                    key={subTab}
-                    style={[
-                      styles.savedSubTab,
-                      activeSavedSubTab === subTab && { overflow: 'hidden' }
-                    ]}
-                    onPress={() => setActiveSavedSubTab(subTab)}
-                  >
-                    {activeSavedSubTab === subTab && (
-                      <LinearGradient
-                        colors={['#1C73B4', '#50C878']}
-                        style={StyleSheet.absoluteFillObject}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                      />
-                    )}
-                    <Text
-                      style={[
-                        styles.savedSubTabText,
-                        {
-                          color: activeSavedSubTab === subTab ? '#FFFFFF' : profileTheme.textSecondary,
-                          fontWeight: activeSavedSubTab === subTab ? '700' : '500',
-                          zIndex: 1,
-                        }
-                      ]}
-                    >
-                      {subTab === 'posts' ? 'Posts' : 'Shorts'}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              {/* Render Saved Posts or Saved Shorts depending on active sub-tab */}
-              {activeSavedSubTab === 'posts' ? (
-                savedPosts.length > 0 ? (
-                  <FlatList
-                    data={savedPosts}
-                    numColumns={3}
-                    scrollEnabled={false}
-                    keyExtractor={(item) => item._id}
-                    renderItem={({ item }) => {
-                      const imageUrl = (item as any).imageUrl && !isVideoUrl((item as any).imageUrl, (item as any).videoUrl) ? (item as any).imageUrl : 
-                                       (item as any).image_url && !isVideoUrl((item as any).image_url, (item as any).videoUrl) ? (item as any).image_url : 
-                                       (item as any).thumbnailUrl && !isVideoUrl((item as any).thumbnailUrl, (item as any).videoUrl) ? (item as any).thumbnailUrl : 
-                                       (item as any).images?.[0] && !isVideoUrl((item as any).images?.[0], (item as any).videoUrl) ? (item as any).images?.[0] : '';
-                      
-                      const rawUrl = imageUrl && String(imageUrl).trim() && String(imageUrl).trim().length > 0
-                        ? String(imageUrl).trim()
-                        : null;
-                      const validImageUrl = rawUrl ? optimizeCloudinaryUrl(rawUrl, { width: 300, height: 300 }) : null;
-                      
-                      return (
-                        <Pressable 
-                          style={[styles.postThumbnail, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.gapBorderColor }]}
-                          onPress={() => {
-                            router.push({
-                              pathname: '/saved-posts',
-                              params: {
-                                postId: item._id,
-                                postData: JSON.stringify(item),
-                              },
-                            });
-                          }}
-                        >
-                          {validImageUrl ? (
-                            <Image 
-                              source={{ uri: validImageUrl }} 
-                              style={styles.thumbnailImage as ImageStyle}
-                              resizeMode="cover"
-                              onError={(error) => {
-                                const errorMessage = error?.nativeEvent?.error?.message || '';
-                                const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
-                                if (!is403) {
-                                  logger.warn('Saved item image failed to load', {
-                                    postId: item._id,
-                                    imageUrl: validImageUrl.substring(0, 100),
-                                    error: errorMessage || 'Unknown error'
-                                  });
-                                }
-                              }}
-                            />
-                          ) : (
-                            <View style={[styles.placeholderThumbnail, { backgroundColor: profileTheme.cardBg + '80' }]}>
-                              <Ionicons name="image-outline" size={32} color={profileTheme.textSecondary} />
-                            </View>
-                          )}
-                          <View style={[styles.bookmarkOverlay, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
-                            <Ionicons name="bookmark" size={16} color="#FFFFFF" />
-                          </View>
-                        </Pressable>
-                      );
-                    }}
-                    columnWrapperStyle={styles.postsGridWrapper}
-                    contentContainerStyle={styles.postsGridContainer}
-                  />
-                ) : null
-              ) : (
-                savedShorts.length > 0 ? (
-                  <FlatList
-                    data={savedShorts}
-                    numColumns={3}
-                    scrollEnabled={false}
-                    keyExtractor={(item) => item._id}
-                    renderItem={({ item }) => {
-                      return (
-                        <ShortsCard
-                          item={item}
-                          isThumbnail={true}
-                          showBookmark={true}
-                          onPress={() => {
-                            router.push(`/saved-shorts?shortId=${item._id}`);
-                          }}
-                          profileTheme={profileTheme}
-                        />
-                      );
-                    }}
-                    columnWrapperStyle={styles.postsGridWrapper}
-                    contentContainerStyle={styles.postsGridContainer}
-                  />
-                ) : null
-              )}
-
-            </View>
-          </View>
-          </CloudGlassSurface>
-          </>
-        )}
-        
-        {/* Edit Profile Modal */}
-        {showEditProfile && user && (
-          <EditProfile
-            visible={showEditProfile}
-            user={{
-              ...user,
-              fullName: profileData?.fullName ?? user.fullName,
-              bio: profileData?.bio ?? user.bio,
-              profilePic: profileData?.profilePic ?? user.profilePic,
-            }}
-            onClose={() => setShowEditProfile(false)}
-            onSuccess={handleProfileUpdate}
-          />
-        )}
-      </ScrollView>
+      />
+      </View>
       <ScrollEdgeFades isDark={isDark} variant="vertical" hideTop={true} />
 
       {isSelectionMode && selectedItemIds.length > 0 && (
@@ -1964,7 +1963,6 @@ export default function ProfileScreen() {
       )}
 
       </View>
-    </View>
     </ErrorBoundary>
   );
 }
@@ -2349,6 +2347,22 @@ const styles = StyleSheet.create({
     paddingTop: isTablet ? theme.spacing.xl : 20,
     paddingBottom: isTablet ? theme.spacing.lg : 16,
     paddingHorizontal: 0,
+  },
+  unifiedCardHeader: {
+    marginHorizontal: 0,
+    marginTop: -16,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: 'hidden',
+    paddingTop: isTablet ? theme.spacing.xl : 20,
+  },
+  unifiedCardFooter: {
+    marginHorizontal: 0,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+    overflow: 'hidden',
+    height: isTablet ? theme.spacing.lg : 28,
+    marginBottom: isTablet ? theme.spacing.md : 12,
   },
   travelAccentStrip: {
     position: 'absolute',
