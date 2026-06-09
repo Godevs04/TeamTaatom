@@ -9,9 +9,6 @@ import * as Sentry from '@sentry/react-native';
 import NetInfo from '@react-native-community/netinfo';
 import { clearCachedAuthToken, getCachedAuthToken, setCachedAuthToken } from '../utils/authTokenCache';
 
-// Request throttling to prevent rate limiting
-const requestQueue = new Map();
-const REQUEST_DELAY = 100; // 100ms delay between requests
 
 // Store CSRF token in memory (updated from response headers)
 let csrfToken: string | null = null;
@@ -118,18 +115,7 @@ api.interceptors.request.use(
         data: { baseURL: config.baseURL },
       });
       
-      // Add throttling to prevent rate limiting
-      const requestKey = `${config.method}-${config.url}`;
-      const lastRequestTime = requestQueue.get(requestKey) || 0;
-      const timeSinceLastRequest = Date.now() - lastRequestTime;
-      
-      if (timeSinceLastRequest < REQUEST_DELAY) {
-        const delay = REQUEST_DELAY - timeSinceLastRequest;
-        logger.debug(`Throttling request to ${config.url}, waiting ${delay}ms`);
-        await new Promise(resolve => setTimeout(resolve, delay));
-      }
-      
-      requestQueue.set(requestKey, Date.now());
+
       
       // For web: httpOnly cookies are sent automatically with withCredentials: true
       // For mobile: Get token from AsyncStorage
@@ -463,7 +449,7 @@ api.interceptors.response.use(
       const isGetRequest = originalRequest.method?.toUpperCase() === 'GET';
 
       // If offline or timeout and it's a non-GET request, queue the request for replaying when network is restored
-      if ((isOffline || isTimeout) && !isGetRequest) {
+      if ((isOffline || isTimeout) && !isGetRequest && !(originalRequest as any).skipQueue) {
         logger.debug(`[API] Request failed due to offline/timeout. Queuing non-GET: ${originalRequest.url}`);
         return new Promise((resolve, reject) => {
           offlineQueue.push({

@@ -87,39 +87,25 @@ const setSavedInCache = (postId: string, saved: boolean) => {
 };
 
 // Helper function to normalize IDs from various formats (string, ObjectId, Buffer)
+const idCache = new Map<any, string | null>();
 const normalizeId = (id: any): string | null => {
   if (!id) return null;
   if (typeof id === 'string') {
     return id;
   }
-  if (id._id) {
-    return normalizeId(id._id);
+  if (idCache.has(id)) {
+    return idCache.get(id)!;
   }
-  if (id.buffer && typeof id.buffer === 'object') {
-    try {
-      const bufferObj = id.buffer;
-      const bytes: number[] = [];
-      for (let i = 0; i < 12; i++) {
-        const byte = bufferObj[i] ?? bufferObj[String(i)];
-        if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
-          bytes.push(byte);
-        }
-      }
-      if (bytes.length === 12) {
-        const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
-        if (/^[0-9a-fA-F]{24}$/.test(hex)) {
-          return hex;
-        }
-      }
-    } catch {}
-  }
-  if (typeof id === 'object' && !Array.isArray(id)) {
-    const keys = Object.keys(id);
-    if (keys.length >= 12 && keys.every(k => /^\d+$/.test(k) && parseInt(k) < 12)) {
+  const result = (() => {
+    if (id._id) {
+      return normalizeId(id._id);
+    }
+    if (id.buffer && typeof id.buffer === 'object') {
       try {
+        const bufferObj = id.buffer;
         const bytes: number[] = [];
         for (let i = 0; i < 12; i++) {
-          const byte = id[i] ?? id[String(i)];
+          const byte = bufferObj[i] ?? bufferObj[String(i)];
           if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
             bytes.push(byte);
           }
@@ -132,22 +118,44 @@ const normalizeId = (id: any): string | null => {
         }
       } catch {}
     }
-  }
-  if (id.toString && typeof id.toString === 'function') {
+    if (typeof id === 'object' && !Array.isArray(id)) {
+      const keys = Object.keys(id);
+      if (keys.length >= 12 && keys.every(k => /^\d+$/.test(k) && parseInt(k) < 12)) {
+        try {
+          const bytes: number[] = [];
+          for (let i = 0; i < 12; i++) {
+            const byte = id[i] ?? id[String(i)];
+            if (byte !== undefined && typeof byte === 'number' && byte >= 0 && byte <= 255) {
+              bytes.push(byte);
+            }
+          }
+          if (bytes.length === 12) {
+            const hex = bytes.map(b => b.toString(16).padStart(2, '0')).join('');
+            if (/^[0-9a-fA-F]{24}$/.test(hex)) {
+              return hex;
+            }
+          }
+        } catch {}
+      }
+    }
+    if (id.toString && typeof id.toString === 'function') {
+      try {
+        const str = id.toString();
+        if (typeof str === 'string' && /^[0-9a-fA-F]{24}$/.test(str)) {
+          return str;
+        }
+      } catch {}
+    }
     try {
-      const str = id.toString();
-      if (typeof str === 'string' && /^[0-9a-fA-F]{24}$/.test(str)) {
+      const str = String(id);
+      if (/^[0-9a-fA-F]{24}$/.test(str)) {
         return str;
       }
     } catch {}
-  }
-  try {
-    const str = String(id);
-    if (/^[0-9a-fA-F]{24}$/.test(str)) {
-      return str;
-    }
-  } catch {}
-  return null;
+    return null;
+  })();
+  idCache.set(id, result);
+  return result;
 };
 
 interface PhotoCardProps {
@@ -194,6 +202,10 @@ function PhotoCard({
   // first paint. The async loader below seeds the cache the first time
   // the app starts.
   const [isSaved, setIsSaved] = useState<boolean>(() => isSavedSync(post._id));
+  const isSavedRef = useRef(isSaved);
+  React.useEffect(() => {
+    isSavedRef.current = isSaved;
+  }, [isSaved]);
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [showCustomAlert, setShowCustomAlert] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -458,14 +470,37 @@ function PhotoCard({
     post.imageUrl
   ]);
 
-  const handleLike = () => {
+  const showCustomAlertMessage = useCallback((
+    title: string, 
+    message: string, 
+    type: 'success' | 'error' | 'warning' | 'info',
+    onConfirm?: () => void
+  ) => {
+    setAlertConfig({
+      title,
+      message,
+      type,
+      onConfirm: onConfirm || (() => {}),
+    });
+    setShowCustomAlert(true);
+    
+    // Auto-close success messages after 2 seconds
+    if (type === 'success') {
+      setTimeout(() => {
+        setShowCustomAlert(false);
+      }, 2000);
+    }
+  }, []);
+
+  const handleLike = useCallback(() => {
     if (!currentUser) {
       Alert.alert('Error', 'You must be signed in to like posts.');
       return;
     }
 
-    const newLiked = !isLiked;
-    const newCount = newLiked ? likesCount + 1 : Math.max(0, likesCount - 1);
+    const { isLiked: currentIsLiked, likesCount: currentLikesCount } = stateRef.current;
+    const newLiked = !currentIsLiked;
+    const newCount = newLiked ? currentLikesCount + 1 : Math.max(0, currentLikesCount - 1);
     likeTargetRef.current = newLiked;
 
     triggerLikeHaptic(newLiked);
@@ -483,7 +518,11 @@ function PhotoCard({
       const previousLiked = stateRef.current.isLiked;
       const previousCount = stateRef.current.likesCount;
       const actionKey = `like-${post._id}`;
-      setActionLoading(prev => new Set(prev).add(actionKey));
+      setActionLoading(prev => {
+        const next = new Set(prev);
+        next.add(actionKey);
+        return next;
+      });
 
       try {
         try {
@@ -537,28 +576,28 @@ function PhotoCard({
         });
       }
     }, 280);
-  };
+  }, [currentUser, post._id, setIsLikedWithRef, setLikesCountWithRef]);
 
-  const handleDoubleTap = () => {
+  const handleDoubleTap = useCallback(() => {
     if (!currentUser) {
       Alert.alert('Error', 'You must be signed in to like posts.');
       return;
     }
 
-    if (isLiked) {
+    if (stateRef.current.isLiked) {
       // Double tap on already liked post should not remove the like
       triggerLikeHaptic(true);
       return;
     }
 
     handleLike();
-  };
+  }, [currentUser, handleLike]);
 
-  const handleShareClick = () => {
+  const handleShareClick = useCallback(() => {
     setShowShareModal(true);
-  };
+  }, []);
 
-  const handleShare = async () => {
+  const handleShare = useCallback(async () => {
     try {
       const blocked = await shouldBlockDownload(settings?.account?.wifiOnlyDownloads ?? false);
       if (blocked) {
@@ -619,12 +658,12 @@ function PhotoCard({
       logger.error('Error sharing post', error);
       showCustomAlertMessage('Error', 'Failed to share post. Please try again.', 'error');
     }
-  };
+  }, [post._id, post.caption, post.imageUrl, postUser.fullName, settings?.account?.wifiOnlyDownloads, showCustomAlertMessage]);
 
-  const handleSave = () => {
+  const handleSave = useCallback(() => {
     // Store previous state for revert
-    const previousSaveState = isSaved;
-    const newSaveState = !isSaved;
+    const previousSaveState = isSavedRef.current;
+    const newSaveState = !previousSaveState;
 
     // Toggle local + module cache immediately and synchronously
     setIsSaved(newSaveState);
@@ -664,40 +703,19 @@ function PhotoCard({
         showCustomAlertMessage('Error', 'Failed to save post', 'error');
       }
     })();
-  };
+  }, [post._id, showCustomAlertMessage]);
 
-  const showCustomAlertMessage = (
-    title: string, 
-    message: string, 
-    type: 'success' | 'error' | 'warning' | 'info',
-    onConfirm?: () => void
-  ) => {
-    setAlertConfig({
-      title,
-      message,
-      type,
-      onConfirm: onConfirm || (() => {}),
-    });
-    setShowCustomAlert(true);
-    
-    // Auto-close success messages after 2 seconds
-    if (type === 'success') {
-      setTimeout(() => {
-        setShowCustomAlert(false);
-      }, 2000);
-    }
-  };
-
-  const handleCommentAdded = (newComment: any) => {
+  const handleCommentAdded = useCallback((newComment: any) => {
     triggerCommentHaptic();
     upsertComment(newComment);
-  };
+  }, [upsertComment]);
 
-  const handleCommentDeleted = async (commentId: string) => {
-    const originalComments = [...comments];
-    
-    // Optimistic UI Update: immediately filter out the deleted comment
-    setComments(prev => prev.filter(c => c._id !== commentId));
+  const handleCommentDeleted = useCallback(async (commentId: string) => {
+    let originalComments: any[] = [];
+    setComments(prev => {
+      originalComments = prev;
+      return prev.filter(c => c._id !== commentId);
+    });
     
     try {
       await deleteComment(post._id, commentId);
@@ -708,17 +726,17 @@ function PhotoCard({
       setComments(originalComments);
       Alert.alert('Error', 'Failed to delete comment. Please try again.');
     }
-  };
+  }, [post._id]);
 
-  const handleOpenComments = () => {
+  const handleOpenComments = useCallback(() => {
     if (!currentUser) {
       showCustomAlertMessage('Error', 'You must be signed in to view comments.', 'error');
       return;
     }
     setShowCommentModal(true);
-  };
+  }, [currentUser, showCustomAlertMessage]);
 
-  const handleDeletePost = async () => {
+  const handleDeletePost = useCallback(async () => {
     if (!currentUser) {
       Alert.alert('Error', 'You must be signed in to delete posts.');
       return;
@@ -741,6 +759,7 @@ function PhotoCard({
             try {
               setIsMenuLoading(true);
               await deletePost(post._id);
+              savedEvents.emitPostAction(post._id, 'delete');
               await audioManager.stopAll();
 
               // Clear AsyncStorage cache (all feed-mode variants) to prevent deleted post
@@ -777,13 +796,14 @@ function PhotoCard({
         },
       ]
     );
-  };
+  }, [currentUser, post._id, postUser._id, onRefresh, showCustomAlertMessage]);
 
-  const handleArchivePost = async () => {
+  const handleArchivePost = useCallback(async () => {
     try {
       setIsMenuLoading(true);
       setShowCustomAlert(false);
       await archivePost(post._id);
+      savedEvents.emitPostAction(post._id, 'archive');
       setShowMenu(false);
       setIsMenuLoading(false);
       if (onRefresh) {
@@ -798,9 +818,9 @@ function PhotoCard({
       setShowMenu(false);
       showCustomAlertMessage('Error', sanitizeErrorForDisplay(error, 'PhotoCard.archivePost') || 'Failed to archive post.', 'error');
     }
-  };
+  }, [post._id, onRefresh, showCustomAlertMessage]);
 
-  const handleHidePost = async () => {
+  const handleHidePost = useCallback(async () => {
     try {
       setIsMenuLoading(true);
       setShowCustomAlert(false);
@@ -819,13 +839,14 @@ function PhotoCard({
       setShowMenu(false);
       showCustomAlertMessage('Error', sanitizeErrorForDisplay(error, 'PhotoCard.hidePost') || 'Failed to hide post.', 'error');
     }
-  };
+  }, [post._id, onRefresh, showCustomAlertMessage]);
 
-  const handleUnarchivePost = async () => {
+  const handleUnarchivePost = useCallback(async () => {
     try {
       setIsMenuLoading(true);
       setShowCustomAlert(false);
       await unarchivePost(post._id);
+      savedEvents.emitPostAction(post._id, 'unarchive');
       setShowMenu(false);
       setIsMenuLoading(false);
       if (onRefresh) onRefresh();
@@ -838,9 +859,9 @@ function PhotoCard({
       setShowMenu(false);
       showCustomAlertMessage('Error', sanitizeErrorForDisplay(error, 'PhotoCard.unarchivePost') || 'Failed to unarchive post.', 'error');
     }
-  };
+  }, [post._id, onRefresh, showCustomAlertMessage]);
 
-  const handleUnhidePost = async () => {
+  const handleUnhidePost = useCallback(async () => {
     try {
       setIsMenuLoading(true);
       setShowCustomAlert(false);
@@ -857,9 +878,9 @@ function PhotoCard({
       setShowMenu(false);
       showCustomAlertMessage('Error', sanitizeErrorForDisplay(error, 'PhotoCard.unhidePost') || 'Failed to unhide post.', 'error');
     }
-  };
+  }, [post._id, onRefresh, showCustomAlertMessage]);
 
-  const handleToggleComments = async () => {
+  const handleToggleComments = useCallback(async () => {
     try {
       setIsMenuLoading(true);
       const response = await toggleComments(post._id);
@@ -876,9 +897,9 @@ function PhotoCard({
       setIsMenuLoading(false);
       setShowMenu(false);
     }
-  };
+  }, [post._id, showCustomAlertMessage]);
 
-  const handleEditPost = async () => {
+  const handleEditPost = useCallback(async () => {
     if (!editCaption.trim()) {
       showCustomAlertMessage('Error', 'Caption cannot be empty.', 'error');
       return;
@@ -896,7 +917,7 @@ function PhotoCard({
       setShowEditModal(false);
       setShowMenu(false);
     }
-  };
+  }, [post._id, editCaption, onRefresh, showCustomAlertMessage]);
 
   const handlePress = useCallback(() => {
     try {
@@ -929,6 +950,52 @@ function PhotoCard({
   const handleImageRetry = useCallback(() => {
     // Toggling the error flag remounts the ExpoImage and lets it try again.
     setImageError(false);
+  }, []);
+
+  const handleMenuPress = useCallback(() => {
+    setShowMenu(true);
+  }, []);
+
+  const handleReportPress = useCallback(() => {
+    setShowReportModal(true);
+  }, []);
+
+  const handleCloseComments = useCallback(() => {
+    setShowCommentModal(false);
+  }, []);
+
+  const handleCloseReportModal = useCallback(() => {
+    setShowReportModal(false);
+  }, []);
+
+  const handleReportSelect = useCallback(async (reason: ReportReasonType) => {
+    try {
+      await createReport({
+        type: reason,
+        reportedUserId: postUser._id,
+        postId: post._id,
+        reason,
+      });
+      showCustomAlertMessage('Success', 'Post reported successfully! Thank you for helping keep our community safe.', 'success');
+    } catch (err: any) {
+      showCustomAlertMessage('Error', sanitizeErrorForDisplay(err, 'OptimizedPhotoCard.report') || 'Failed to submit report', 'error');
+    }
+  }, [post._id, postUser._id, showCustomAlertMessage]);
+
+  const handleCloseShareModal = useCallback(() => {
+    setShowShareModal(false);
+  }, []);
+
+  const handleCloseAddToCollectionModal = useCallback(() => {
+    setShowAddToCollectionModal(false);
+  }, []);
+
+  const handleAddToCollectionSuccess = useCallback(() => {
+    if (onRefresh) onRefresh();
+  }, [onRefresh]);
+
+  const handleCustomAlertClose = useCallback(() => {
+    setShowCustomAlert(false);
   }, []);
 
   return (
@@ -970,9 +1037,9 @@ function PhotoCard({
       <View pointerEvents="box-none">
         <PostHeader
           post={post}
-          onMenuPress={() => setShowMenu(true)}
+          onMenuPress={handleMenuPress}
           showReportButton={!!currentUser && normalizeId(postUser._id) !== normalizeId(currentUser._id)}
-          onReportPress={() => setShowReportModal(true)}
+          onReportPress={handleReportPress}
         />
       </View>
 
@@ -1378,7 +1445,7 @@ function PhotoCard({
         visible={showCommentModal}
         postId={post._id}
         comments={comments}
-        onClose={() => setShowCommentModal(false)}
+        onClose={handleCloseComments}
         onCommentAdded={handleCommentAdded}
         onCommentDeleted={handleCommentDeleted}
         commentsDisabled={commentsDisabled}
@@ -1391,31 +1458,19 @@ function PhotoCard({
         message={alertConfig.message}
         type={alertConfig.type}
         onConfirm={alertConfig.onConfirm}
-        onClose={() => setShowCustomAlert(false)}
+        onClose={handleCustomAlertClose}
       />
 
       {/* Share Modal */}
       <ReportReasonModal
         visible={showReportModal}
-        onClose={() => setShowReportModal(false)}
+        onClose={handleCloseReportModal}
         title="Report Post"
-        onSelect={async (reason: ReportReasonType) => {
-          try {
-            await createReport({
-              type: reason,
-              reportedUserId: postUser._id,
-              postId: post._id,
-              reason,
-            });
-            showCustomAlertMessage('Success', 'Post reported successfully! Thank you for helping keep our community safe.', 'success');
-          } catch (err: any) {
-            showCustomAlertMessage('Error', sanitizeErrorForDisplay(err, 'OptimizedPhotoCard.report') || 'Failed to submit report', 'error');
-          }
-        }}
+        onSelect={handleReportSelect}
       />
       <ShareModal
         visible={showShareModal}
-        onClose={() => setShowShareModal(false)}
+        onClose={handleCloseShareModal}
         post={post}
       />
 
@@ -1423,10 +1478,8 @@ function PhotoCard({
       <AddToCollectionModal
         visible={showAddToCollectionModal}
         postId={post._id}
-        onClose={() => setShowAddToCollectionModal(false)}
-        onSuccess={() => {
-          if (onRefresh) onRefresh();
-        }}
+        onClose={handleCloseAddToCollectionModal}
+        onSuccess={handleAddToCollectionSuccess}
       />
     </View>
   );
@@ -1440,6 +1493,10 @@ export default memo(PhotoCard, (prevProps, nextProps) => {
     prevProps.post.isLiked === nextProps.post.isLiked &&
     prevProps.post.likesCount === nextProps.post.likesCount &&
     prevProps.post.commentsCount === nextProps.post.commentsCount &&
+    prevProps.post.commentsDisabled === nextProps.post.commentsDisabled &&
+    prevProps.post.caption === nextProps.post.caption &&
+    prevProps.post.imageUrl === nextProps.post.imageUrl &&
+    prevProps.post.user?.profilePic === nextProps.post.user?.profilePic &&
     prevProps.isCurrentlyVisible === nextProps.isCurrentlyVisible
   );
 });

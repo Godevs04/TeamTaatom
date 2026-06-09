@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
@@ -34,7 +34,7 @@ function GradientIcon({ name, size }: { name: any; size: number }) {
   );
 }
 
-export default function PostActions({
+function PostActions({
   isLiked: initialIsLiked,
   isSaved,
   onLike,
@@ -164,6 +164,19 @@ export default function PostActions({
     </View>
   );
 }
+
+export default memo(PostActions, (prevProps, nextProps) => {
+  return (
+    prevProps.isLiked === nextProps.isLiked &&
+    prevProps.isSaved === nextProps.isSaved &&
+    prevProps.isLoading === nextProps.isLoading &&
+    prevProps.showBookmark === nextProps.showBookmark &&
+    prevProps.onLike === nextProps.onLike &&
+    prevProps.onComment === nextProps.onComment &&
+    prevProps.onShare === nextProps.onShare &&
+    prevProps.onSave === nextProps.onSave
+  );
+});
 
 const styles = StyleSheet.create({
   actions: {

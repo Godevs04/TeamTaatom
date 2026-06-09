@@ -125,7 +125,6 @@ function RootLayoutInner() {
     isTracking,
     isPaused,
     distance,
-    duration,
     pauseJourneyRecording,
     resumeJourneyRecording,
     stopJourneyRecording,

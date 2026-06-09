@@ -174,7 +174,7 @@ export default function ContactSupport() {
             style={[styles.sendButton, { backgroundColor: activeTheme.colors.primary }]}
             onPress={handleSendEmail}
           >
-            <Ionicons name="mail-outline" size={20} color="#FFFFFF" />
+            <Ionicons name="mail-outline" size={20} color="#000000" />
             <Text style={styles.sendButtonText}>Send Email</Text>
           </TouchableOpacity>
         </View>
@@ -325,7 +325,7 @@ const styles = StyleSheet.create({
     marginTop: theme.spacing.sm,
   },
   sendButtonText: {
-    color: '#FFFFFF',
+    color: '#000000',
     fontSize: 16,
     fontWeight: '600',
     marginLeft: theme.spacing.sm,

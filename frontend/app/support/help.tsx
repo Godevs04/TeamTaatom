@@ -148,7 +148,7 @@ export default function HelpCenter() {
             style={[styles.actionButton, { backgroundColor: activeTheme.colors.primary }]}
             onPress={handleContactSupport}
           >
-            <Ionicons name="mail-outline" size={20} color="#FFFFFF" />
+            <Ionicons name="mail-outline" size={20} color="#000000" />
             <Text style={styles.actionButtonText}>Contact Support</Text>
           </TouchableOpacity>
 
@@ -287,7 +287,7 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.sm,
   },
   actionButtonText: {
-    color: '#FFFFFF',
+    color: '#000000',
     fontSize: 16,
     fontWeight: '600',
     marginLeft: theme.spacing.sm,

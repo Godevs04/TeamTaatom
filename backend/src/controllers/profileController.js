@@ -171,108 +171,49 @@ const getProfile = async (req, res) => {
       .lean()
       .limit(1000); // Limit for performance
 
-    // Extract unique locations for the map (only posts with valid coordinates)
-    const locations = posts
-      .filter(post => post.location && post.location.coordinates && 
-               (post.location.coordinates.latitude !== 0 || post.location.coordinates.longitude !== 0))
-      .map(post => ({
-        latitude: post.location.coordinates.latitude,
-        longitude: post.location.coordinates.longitude,
-        address: post.location.address,
-        date: post.createdAt
-      }));
+    // Group visits by country and place using database aggregation pipeline
+    const stats = await TripVisit.aggregate([
+      {
+        $match: {
+          user: new mongoose.Types.ObjectId(id),
+          isActive: true,
+          verificationStatus: { $in: VERIFIED_STATUSES }
+        }
+      },
+      {
+        $facet: {
+          countries: [
+            { $group: { _id: '$country' } }
+          ],
+          places: [
+            {
+              $group: {
+                _id: {
+                  lat: { $round: ['$lat', 2] },
+                  lng: { $round: ['$lng', 2] }
+                }
+              }
+            },
+            { $count: 'count' }
+          ]
+        }
+      }
+    ]);
 
-    // Calculate TripScore v2.1 based on TripVisit (unique, verified visits)
-    // Only TripVisits with verificationStatus in ['auto_verified','approved'] contribute to TripScore.
-    // Pending/rejected visits are excluded from scoring.
-    const trustedVisits = await TripVisit.find({
-      user: id,
-      isActive: true,
-      verificationStatus: { $in: VERIFIED_STATUSES }
-    })
-    .select('lat lng continent country address uploadedAt')
-    .lean()
-    .limit(1000); // Limit for performance
+    const countries = {};
+    if (stats[0]?.countries) {
+      stats[0].countries.forEach(c => {
+        if (c._id) countries[c._id] = true;
+      });
+    }
+    const totalScore = stats[0]?.places[0]?.count || 0;
 
-    // Group visits by continent/country for TripScore v2
-    // TripScore v2 counts unique places visited, not raw post count
     const tripScoreData = {
-      totalScore: 0,
+      totalScore,
       continents: {},
-      countries: {},
+      countries,
       areas: []
     };
-
-    // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
-    // This ensures multiple posts at the same location are grouped together
-    const roundCoordinate = (coord, _precision = 2) => {
-      // Round to 2 decimal places (≈ 1.1km precision)
-      return Math.round(coord * 100) / 100;
-    };
-    
-    const getLocationKey = (lat, lng) => {
-      // Use rounded coordinates to group nearby locations together
-      return `${roundCoordinate(lat)},${roundCoordinate(lng)}`;
-    };
-
-    // Helper function to normalize continent name to standard format (same as getTripScoreContinents)
-    const normalizeContinentName = (continent) => {
-      if (!continent) return 'UNKNOWN';
-      const normalized = continent.toUpperCase().trim();
-      // Map common variations to standard names
-      const continentMap = {
-        'ASIA': 'ASIA',
-        'AFRICA': 'AFRICA',
-        'NORTH AMERICA': 'NORTH AMERICA',
-        'SOUTH AMERICA': 'SOUTH AMERICA',
-        'AUSTRALIA': 'AUSTRALIA',
-        'EUROPE': 'EUROPE',
-        'ANTARCTICA': 'ANTARCTICA',
-        'OCEANIA': 'AUSTRALIA', // Map Oceania to Australia
-        'AMERICA': 'NORTH AMERICA', // Default America to North America
-      };
-      return continentMap[normalized] || normalized;
-    };
-
-    // Track unique locations (deduplicate by rounded lat/lng to match deduplication tolerance)
-    const uniqueLocations = new Set();
-
-    // Process visits to calculate TripScore (unique places only)
-    trustedVisits.forEach(visit => {
-      // Skip visits with invalid coordinates
-      if (!visit.lat || !visit.lng || visit.lat === 0 || visit.lng === 0 || 
-          isNaN(visit.lat) || isNaN(visit.lng)) {
-        return;
-      }
-
-      // Use rounded coordinates to group nearby locations (same as deduplication logic)
-      const locationKey = getLocationKey(visit.lat, visit.lng);
-      
-      // Only count each unique location once (groups nearby locations together)
-      if (!uniqueLocations.has(locationKey)) {
-        uniqueLocations.add(locationKey);
-        
-        // Normalize continent name to ensure consistent matching
-        const continentKey = normalizeContinentName(visit.continent);
-
-        // Add to continent score (unique locations only)
-        if (!tripScoreData.continents[continentKey]) {
-          tripScoreData.continents[continentKey] = 0;
-        }
-        tripScoreData.continents[continentKey] += 1;
-
-        // Add to total score (unique places visited)
-        tripScoreData.totalScore += 1;
-
-        // Add to areas list
-        tripScoreData.areas.push({
-          address: visit.address || 'Unknown Location',
-          continent: continentKey,
-          likes: 0, // Likes are post-specific, not visit-specific
-          date: visit.uploadedAt
-        });
-      }
-    });
 
     // Check if current user is following this profile (requester is in profile's followers)
     const isFollowing = req.user && user.followers ?
@@ -412,7 +353,7 @@ const getProfile = async (req, res) => {
       postsCount: posts.length,
       followersCount,
       followingCount,
-      locations: canViewLocations ? locations : [],
+      locations: [],
       tripScore: tripScore,
       isFollowing,
       isOwnProfile,

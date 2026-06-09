@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, memo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
@@ -10,7 +10,7 @@ interface PostCaptionProps {
   post: PostType;
 }
 
-export default function PostCaption({ post }: PostCaptionProps) {
+function PostCaption({ post }: PostCaptionProps) {
   const { theme } = useTheme();
   const router = useRouter();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -141,5 +141,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '600',
   },
+});
+
+export default memo(PostCaption, (prevProps, nextProps) => {
+  return (
+    prevProps.post._id === nextProps.post._id &&
+    prevProps.post.caption === nextProps.post.caption &&
+    prevProps.post.user?.fullName === nextProps.post.user?.fullName
+  );
 });
 

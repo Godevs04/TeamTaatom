@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, memo } from 'react';
 import { View, StyleSheet, TouchableOpacity, Text, Image, FlatList, ActivityIndicator } from 'react-native';
 import GradientText from '../ui/GradientText';
 import { GlassModal } from '../ui/GlassModal';
@@ -17,7 +17,7 @@ interface PostLikesCountProps {
   onSharesPress?: () => void;
 }
 
-export default function PostLikesCount({
+function PostLikesCount({
   likesCount,
   postId,
   onPress,
@@ -240,4 +240,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
     marginTop: 2,
   },
+});
+
+export default memo(PostLikesCount, (prevProps, nextProps) => {
+  return (
+    prevProps.likesCount === nextProps.likesCount &&
+    prevProps.postId === nextProps.postId &&
+    prevProps.commentsCount === nextProps.commentsCount &&
+    prevProps.sharesCount === nextProps.sharesCount &&
+    prevProps.onPress === nextProps.onPress &&
+    prevProps.onCommentsPress === nextProps.onCommentsPress &&
+    prevProps.onSharesPress === nextProps.onSharesPress
+  );
 });

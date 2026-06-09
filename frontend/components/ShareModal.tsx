@@ -32,6 +32,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as FileSystem from 'expo-file-system/legacy';
 import { showGlobalAlert } from '../utils/globalAlertHandler';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as Sharing from 'expo-sharing';
 
 interface ShareModalProps {
   visible: boolean;
@@ -254,24 +255,35 @@ export default function ShareModal({
   // Share to Instagram
   const handleInstagramShare = async () => {
     try {
-      const hasInstagram = await Linking.canOpenURL('instagram://');
+      let finalImageUrl = post?.imageUrl || '';
       
-      if (hasInstagram) {
-        let finalImageUrl = post?.imageUrl || '';
-        
-        if (finalImageUrl && (finalImageUrl.startsWith('http://') || finalImageUrl.startsWith('https://'))) {
-          // Download to local cache directory first
-          const filename = finalImageUrl.split('/').pop()?.split('?')[0] || 'instagram_share.jpg';
-          const localUri = `${FileSystem.cacheDirectory}${filename}`;
-          const downloadResult = await FileSystem.downloadAsync(finalImageUrl, localUri);
-          finalImageUrl = downloadResult.uri;
+      if (finalImageUrl && (finalImageUrl.startsWith('http://') || finalImageUrl.startsWith('https://'))) {
+        // Download to local cache directory first
+        const filename = finalImageUrl.split('/').pop()?.split('?')[0] || 'instagram_share.jpg';
+        const localUri = `${FileSystem.cacheDirectory}${filename}`;
+        const downloadResult = await FileSystem.downloadAsync(finalImageUrl, localUri);
+        finalImageUrl = downloadResult.uri;
+      }
+
+      if (Platform.OS === 'android') {
+        // On Android, route the media asset through FileProvider via Sharing.shareAsync
+        // which grants FLAG_GRANT_READ_URI_PERMISSION so Instagram can read it.
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(finalImageUrl, {
+            mimeType: 'image/jpeg',
+            dialogTitle: 'Share to Instagram',
+          });
+        } else {
+          await Linking.openURL('https://www.instagram.com/');
         }
-        
-        const url = `instagram://library?AssetPath=${encodeURIComponent(finalImageUrl)}`;
-        await Linking.openURL(url);
       } else {
-        // Fallback to web
-        await Linking.openURL('https://www.instagram.com/');
+        const hasInstagram = await Linking.canOpenURL('instagram://');
+        if (hasInstagram) {
+          const url = `instagram://library?AssetPath=${encodeURIComponent(finalImageUrl)}`;
+          await Linking.openURL(url);
+        } else {
+          await Linking.openURL('https://www.instagram.com/');
+        }
       }
       await trackShare();
       handleClose();
@@ -456,92 +468,19 @@ export default function ShareModal({
       });
 
       if (trimmedQuery.length > 0) {
-        // Search query: search users via API
-        let searchResults: RecipientItem[] = [];
-        try {
-          const response = await searchUsers(trimmedQuery, 1, 100);
-          searchResults = (response.users || []).map((u: any): RecipientItem => ({
-            _id: u._id,
-            fullName: u.fullName || u.username || 'User',
-            profilePic: u.profilePic,
-            username: u.username,
-            isGroup: false,
-          }));
-        } catch (err) {
-          logger.error('Search failed', err);
-        }
-
-        // Also search within active chats and prepend them if they match the query
+        // Search query: search ONLY within user's private communication history (active chats)
         const matchingActive = activeRecipients.filter(r => 
           r.fullName.toLowerCase().includes(trimmedQuery) || 
           (r.username && r.username.toLowerCase().includes(trimmedQuery))
         );
-
-        // Deduplicate: merge matching active and search results
-        const mergedResults = [...matchingActive];
-        const mergedIds = new Set(matchingActive.map(r => r._id));
-
-        searchResults.forEach(r => {
-          if (!mergedIds.has(r._id)) {
-            mergedResults.push(r);
-            mergedIds.add(r._id);
-          }
-        });
-
-        setRecipients(mergedResults);
+        setRecipients(matchingActive);
         setMostInteracted([]);
         setOtherRecipients([]);
       } else {
-        // No search query: load suggested users and split into horizontal (most interacted) & vertical (others)
-        let suggestedUsers: RecipientItem[] = [];
-        try {
-          const suggestedResponse = await getSuggestedUsers(50);
-          if (suggestedResponse.users && suggestedResponse.users.length > 0) {
-            suggestedUsers = suggestedResponse.users.map((u: any): RecipientItem => ({
-              _id: u._id,
-              fullName: u.fullName || u.username || 'User',
-              profilePic: u.profilePic,
-              username: u.username,
-              isGroup: false,
-            }));
-          }
-        } catch {
-          // Fallback: following users
-          try {
-            const userData = await AsyncStorage.getItem('userData');
-            if (userData) {
-              const parsed = JSON.parse(userData);
-              const response = await api.get(`/api/v1/profile/${parsed._id}/following`);
-              suggestedUsers = (response.data.users || []).map((u: any): RecipientItem => ({
-                _id: u._id,
-                fullName: u.fullName || u.username || 'User',
-                profilePic: u.profilePic,
-                username: u.username,
-                isGroup: false,
-              }));
-            }
-          } catch {}
-        }
-
-        // Horizontal Row (Most Interacted):
-        // 1. All activeRecipients (which are user's actual chats)
-        // 2. If activeRecipients has < 12 items, fill up with suggested users
-        const horizontalItems = [...activeRecipients];
-        const horizontalIds = new Set(activeRecipients.map(r => r._id));
-
-        suggestedUsers.forEach(u => {
-          if (horizontalItems.length < 12 && !horizontalIds.has(u._id)) {
-            horizontalItems.push(u);
-            horizontalIds.add(u._id);
-          }
-        });
-
-        // Vertical List (Others):
-        // Suggested users that are NOT in the horizontal list
-        const verticalItems = suggestedUsers.filter(u => !horizontalIds.has(u._id));
-
-        setMostInteracted(horizontalItems);
-        setOtherRecipients(verticalItems);
+        // No search query: display ONLY the user's actual direct messaging history (Recent Chats)
+        // This guarantees zero cross-contamination with un-scoped/stranger users.
+        setMostInteracted(activeRecipients);
+        setOtherRecipients([]);
         setRecipients([]);
       }
     } catch (error: any) {

@@ -96,7 +96,7 @@ export const startJourney = async (
     if (title) payload.title = title;
     if (sourceUserId) payload.sourceUserId = sourceUserId;
 
-    const response = await api.post('/api/v1/journey/start', payload);
+    const response = await api.post('/api/v1/journey/start', payload, { skipQueue: true } as any);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
@@ -111,7 +111,7 @@ export const startJourney = async (
  */
 export const pauseJourney = async (journeyId: string): Promise<{ journey: Journey }> => {
   try {
-    const response = await api.post(`/api/v1/journey/${journeyId}/pause`);
+    const response = await api.post(`/api/v1/journey/${journeyId}/pause`, {}, { skipQueue: true } as any);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
@@ -126,7 +126,7 @@ export const pauseJourney = async (journeyId: string): Promise<{ journey: Journe
  */
 export const resumeJourney = async (journeyId: string): Promise<{ journey: Journey }> => {
   try {
-    const response = await api.post(`/api/v1/journey/${journeyId}/resume`);
+    const response = await api.post(`/api/v1/journey/${journeyId}/resume`, {}, { skipQueue: true } as any);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
@@ -155,7 +155,7 @@ export const updateJourneyLocation = async (
     }));
     const response = await api.put(`/api/v1/journey/${journeyId}/location`, {
       coordinates: mappedCoords,
-    });
+    }, { skipQueue: true } as any);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
@@ -175,7 +175,7 @@ export const completeJourney = async (
 ): Promise<{ journey: Journey }> => {
   try {
     const payload = options ? { snapToRoads: options.snapToRoads } : {};
-    const response = await api.post(`/api/v1/journey/${journeyId}/complete`, payload);
+    const response = await api.post(`/api/v1/journey/${journeyId}/complete`, payload, { skipQueue: true } as any);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
@@ -247,7 +247,7 @@ export const updateJourneyTitle = async (
   title: string
 ): Promise<{ journey: Journey }> => {
   try {
-    const response = await api.patch(`/api/v1/journey/${journeyId}/title`, { title });
+    const response = await api.patch(`/api/v1/journey/${journeyId}/title`, { title }, { skipQueue: true } as any);
     return response.data;
   } catch (error: any) {
     const parsedError = parseError(error);
@@ -261,7 +261,7 @@ export const updateJourneyTitle = async (
  */
 export const deleteJourney = async (journeyId: string): Promise<void> => {
   try {
-    await api.delete(`/api/v1/journey/${journeyId}`);
+    await api.delete(`/api/v1/journey/${journeyId}`, { skipQueue: true } as any);
   } catch (error: any) {
     const parsedError = parseError(error);
     logger.error('deleteJourney', parsedError);

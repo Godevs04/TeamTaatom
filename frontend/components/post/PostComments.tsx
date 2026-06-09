@@ -476,7 +476,7 @@ export default function PostComments({
                       <Ionicons
                         name="send"
                         size={20}
-                        color={newComment.trim() ? 'white' : theme.colors.textSecondary}
+                        color={newComment.trim() ? 'black' : theme.colors.textSecondary}
                       />
                     )}
                   </TouchableOpacity>

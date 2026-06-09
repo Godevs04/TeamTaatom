@@ -265,6 +265,25 @@ function extractThumbnail(inputPath, outputPath) {
   });
 }
 
+async function emitTranscodeComplete(postId, userId) {
+  try {
+    const { getIO } = require('../socket');
+    const { getFollowers } = require('../utils/socketBus');
+    const io = getIO();
+    if (io) {
+      const nsp = io.of('/app');
+      const followers = await getFollowers(userId).catch(() => []);
+      const audience = [userId.toString(), ...followers];
+      nsp.emitInvalidateFeed(audience);
+      nsp.emitInvalidateProfile(userId.toString());
+      nsp.emitEvent('short:transcoded', audience, { shortId: postId.toString() });
+      logger.info(`[transcodeWorker] Emitted transcoding completion events for post ${postId}`);
+    }
+  } catch (err) {
+    logger.error('[transcodeWorker] Error emitting transcode complete event:', err);
+  }
+}
+
 async function processJob(job, Post) {
   const { GetObjectCommand } = require('@aws-sdk/client-s3');
   const { s3Client, BUCKET_NAME, uploadObject, deleteObject } = require('./storage');
@@ -423,6 +442,8 @@ async function processJob(job, Post) {
         storageKeys: uploadedKeys
       });
 
+      emitTranscodeComplete(postId, postDoc.user);
+
       logger.debug(`[transcodeWorker] Deleting S3 raw file: ${rawKey}`);
       await deleteObject(rawKey);
     } else {
@@ -461,6 +482,8 @@ async function processJob(job, Post) {
         storageKeys: uploadedKeys
       });
       logger.info(`[transcodeWorker] Completed compliant video passthrough for post ${postId}`);
+
+      emitTranscodeComplete(postId, postDoc.user);
     }
 
   } finally {
@@ -480,25 +503,20 @@ async function processJob(job, Post) {
 let workerRunning = false;
 let workerIntervalId = null;
 
-function startTranscodeWorker() {
-  if (process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined) {
-    logger.info('[transcodeWorker] Running in test environment - skipping background interval');
-    return;
-  }
-  if (workerIntervalId) return;
-  logger.info('[transcodeWorker] Initializing background MongoDB transcode worker');
+async function runWorkerOnce() {
+  if (workerRunning) return;
+  workerRunning = true;
 
-  workerIntervalId = setInterval(async () => {
-    if (workerRunning) return;
-    workerRunning = true;
+  try {
+    const mongoose = require('mongoose');
+    require('../models/Post');
+    const TranscodeJob = mongoose.model('TranscodeJob');
+    const Post = mongoose.model('Post');
 
-    try {
-      const mongoose = require('mongoose');
-      require('../models/Post');
-      const TranscodeJob = mongoose.model('TranscodeJob');
-      const Post = mongoose.model('Post');
-
-      const job = await TranscodeJob.findOneAndUpdate(
+    // Process all pending jobs sequentially
+    let job;
+    do {
+      job = await TranscodeJob.findOneAndUpdate(
         { status: 'pending', attempts: { $lt: 3 } },
         { status: 'processing' },
         { sort: { createdAt: 1 }, new: true }
@@ -526,15 +544,34 @@ function startTranscodeWorker() {
           }
         }
       }
-    } catch (err) {
-      logger.error('[transcodeWorker] Worker poll error:', err);
-    } finally {
-      workerRunning = false;
-    }
+    } while (job);
+  } catch (err) {
+    logger.error('[transcodeWorker] Worker poll error:', err);
+  } finally {
+    workerRunning = false;
+  }
+}
+
+function triggerTranscode() {
+  // Execute immediately in the background without blocking the caller
+  runWorkerOnce().catch(err => logger.error('[transcodeWorker] Error in triggered runWorkerOnce:', err));
+}
+
+function startTranscodeWorker() {
+  if (process.env.NODE_ENV === 'test' || process.env.JEST_WORKER_ID !== undefined) {
+    logger.info('[transcodeWorker] Running in test environment - skipping background interval');
+    return;
+  }
+  if (workerIntervalId) return;
+  logger.info('[transcodeWorker] Initializing background MongoDB transcode worker');
+
+  workerIntervalId = setInterval(async () => {
+    await runWorkerOnce();
   }, 5000);
 }
 
 module.exports = {
   transcodeIfNeeded,
   startTranscodeWorker,
+  triggerTranscode,
 };

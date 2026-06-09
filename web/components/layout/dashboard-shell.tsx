@@ -165,7 +165,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
                 Download for iOS
               </a>
               <a
-                href="https://play.google.com/store/apps/details?id=com.taatom.app"
+                href="https://play.google.com/store/search?q=taatom&c=apps&hl=en"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center gap-2.5 rounded-xl border border-white/25 bg-white/50 px-4 py-3 text-sm font-semibold text-slate-800 shadow-sm transition-all duration-200 hover:border-primary/30 hover:bg-white/80 hover:shadow-md dark:border-zinc-700/50 dark:bg-zinc-800/50 dark:text-zinc-100 dark:hover:border-primary/40 dark:hover:bg-zinc-700/60"
@@ -184,7 +184,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
           <p className="hidden text-xs text-slate-500 dark:text-zinc-400 xl:block">
             <a href="https://apps.apple.com/app/id6757185352" target="_blank" rel="noopener noreferrer" className="hover:text-primary hover:underline">iOS</a>
             {" · "}
-            <a href="https://play.google.com/store/apps/details?id=com.taatom.app" target="_blank" rel="noopener noreferrer" className="hover:text-primary hover:underline">Android</a>
+            <a href="https://play.google.com/store/search?q=taatom&c=apps&hl=en" target="_blank" rel="noopener noreferrer" className="hover:text-primary hover:underline">Android</a>
           </p>
         </div>
       </aside>

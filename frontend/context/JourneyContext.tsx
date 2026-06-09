@@ -27,7 +27,6 @@ interface JourneyContextValue {
   journey: Journey | null;
   polyline: Coordinate[];
   distance: number;
-  duration: number;
   accuracy: number | null;
   currentCoordinate: Coordinate | null;
   error: string | null;
@@ -38,15 +37,50 @@ interface JourneyContextValue {
 }
 
 const JourneyContext = createContext<JourneyContextValue | null>(null);
+const JourneyDurationContext = createContext<number | null>(null);
 
 export const JourneyProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // Single call site. All other screens read from useJourney() below.
   // Note: useJourneyTracking internally handles saving/rehydrating state
   // from AsyncStorage to ensure active journeys survive app termination.
   const value = useJourneyTracking();
+  const { duration, ...stableValues } = value;
+
+  const memoizedStableValues = React.useMemo(() => ({
+    initialized: stableValues.initialized,
+    isTracking: stableValues.isTracking,
+    isPaused: stableValues.isPaused,
+    journey: stableValues.journey,
+    polyline: stableValues.polyline,
+    distance: stableValues.distance,
+    accuracy: stableValues.accuracy,
+    currentCoordinate: stableValues.currentCoordinate,
+    error: stableValues.error,
+    startJourneyRecording: stableValues.startJourneyRecording,
+    pauseJourneyRecording: stableValues.pauseJourneyRecording,
+    resumeJourneyRecording: stableValues.resumeJourneyRecording,
+    stopJourneyRecording: stableValues.stopJourneyRecording,
+  }), [
+    stableValues.initialized,
+    stableValues.isTracking,
+    stableValues.isPaused,
+    stableValues.journey,
+    stableValues.polyline,
+    stableValues.distance,
+    stableValues.accuracy,
+    stableValues.currentCoordinate,
+    stableValues.error,
+    stableValues.startJourneyRecording,
+    stableValues.pauseJourneyRecording,
+    stableValues.resumeJourneyRecording,
+    stableValues.stopJourneyRecording,
+  ]);
+
   return (
-    <JourneyContext.Provider value={value}>
-      {children}
+    <JourneyContext.Provider value={memoizedStableValues}>
+      <JourneyDurationContext.Provider value={duration}>
+        {children}
+      </JourneyDurationContext.Provider>
     </JourneyContext.Provider>
   );
 };
@@ -61,6 +95,18 @@ export const useJourney = (): JourneyContextValue => {
   const ctx = useContext(JourneyContext);
   if (!ctx) {
     throw new Error('useJourney must be used inside <JourneyProvider> (mounted in app/_layout.tsx)');
+  }
+  return ctx;
+};
+
+/**
+ * Read the highly volatile duration ticker. Replaces reading duration from
+ * useJourney() to avoid triggering full context re-renders on every tick.
+ */
+export const useJourneyDuration = (): number => {
+  const ctx = useContext(JourneyDurationContext);
+  if (ctx === null) {
+    throw new Error('useJourneyDuration must be used inside <JourneyProvider>');
   }
   return ctx;
 };

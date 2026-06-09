@@ -58,6 +58,7 @@ export default function AccountSettingsScreen() {
   
   // Toggle Interaction Safety: Per-toggle guards
   const updatingKeysRef = useRef<Set<string>>(new Set());
+  const [updatingKeys, setUpdatingKeys] = useState<Set<string>>(new Set());
   
   const router = useRouter();
   const { theme } = useTheme();
@@ -124,6 +125,7 @@ export default function AccountSettingsScreen() {
     }
     
     updatingKeysRef.current.add(key);
+    setUpdatingKeys(new Set(updatingKeysRef.current));
     
     try {
       await updateSetting('account', key, value);
@@ -137,6 +139,7 @@ export default function AccountSettingsScreen() {
       }
     } finally {
       updatingKeysRef.current.delete(key);
+      setUpdatingKeys(new Set(updatingKeysRef.current));
     }
   }, [settings, updateSetting, showError]);
 
@@ -329,7 +332,7 @@ export default function AccountSettingsScreen() {
           <TouchableOpacity 
             style={styles.settingItem}
             onPress={handleDataUsageChange}
-            disabled={updatingKeysRef.current.has('dataUsage')}
+            disabled={updatingKeys.has('dataUsage')}
           >
             <View style={styles.settingContent}>
               <Ionicons name="cellular-outline" size={20} color={theme.colors.text} />
@@ -338,7 +341,7 @@ export default function AccountSettingsScreen() {
               </Text>
             </View>
             <View style={styles.settingRight}>
-              {updatingKeysRef.current.has('dataUsage') ? (
+              {updatingKeys.has('dataUsage') ? (
                 <LoadingGlobe size="small" color={theme.colors.primary} />
               ) : (
                 <>

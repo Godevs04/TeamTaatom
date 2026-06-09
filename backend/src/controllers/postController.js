@@ -18,7 +18,7 @@ const { sendError, sendSuccess } = require('../utils/errorCodes');
 const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } = require('../utils/cache');
 const { cascadeDeletePost } = require('../utils/cascadeDelete');
 const { sendNotificationToUser } = require('../utils/sendNotification');
-const { startTranscodeWorker } = require('../services/videoTranscode');
+const { startTranscodeWorker, triggerTranscode } = require('../services/videoTranscode');
 
 // Start MongoDB-backed transcoding worker
 startTranscodeWorker();
@@ -3075,11 +3075,25 @@ const getShorts = async (req, res) => {
   }
 
   try {
-    const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.page)) ? req.query.page : null);
+    const rawCursor = req.query.cursor;
     const limit = parseInt(req.query.limit) || 20;
-
-    // Defensive guard: ensure limit is reasonable
     const safeLimit = Math.min(Math.max(limit, 1), 50); // Cap at 50
+
+    // Parse session cursor
+    let page = 1;
+    let sessionSeenIds = [];
+    if (rawCursor) {
+      try {
+        const decoded = Buffer.from(rawCursor, 'base64').toString('ascii');
+        const parsed = JSON.parse(decoded);
+        if (parsed && typeof parsed === 'object') {
+          page = parsed.page || 1;
+          sessionSeenIds = parsed.sessionSeenIds || [];
+        }
+      } catch (err) {
+        logger.warn('Failed to parse cursor, using defaults:', err);
+      }
+    }
 
     const viewerId = req.user?._id?.toString();
     const allowedAuthorIds = await getAllowedPostAuthorIds(viewerId);
@@ -3090,60 +3104,52 @@ const getShorts = async (req, res) => {
       ? allowedAuthorIds.filter(id => !blockedIds.includes(id.toString()))
       : allowedAuthorIds;
 
+    // Fetch user viewed post IDs from DB UserInteraction
     let viewedPostIds = [];
-    let spotTypeAffinities = new Map();
-    let travelInfoAffinities = new Map();
-    let creatorAffinities = new Map();
-    
+    let userInterests = new Set();
+    let userTagAffinities = new Map();
+    let userSpotAffinities = new Map();
+    let userTravelAffinities = new Map();
+    let userCreatorAffinities = new Map();
+
     if (viewerId) {
+      if (req.user && Array.isArray(req.user.interests)) {
+        req.user.interests.forEach(interest => {
+          if (interest) userInterests.add(interest.toLowerCase().trim());
+        });
+      }
+
       try {
         const ui = await UserInteraction.findOne({ user: req.user._id });
         if (ui) {
-          viewedPostIds = (ui.viewedPosts || []).map(vp => vp.postId);
-          spotTypeAffinities = ui.spotTypeAffinities || new Map();
-          travelInfoAffinities = ui.travelInfoAffinities || new Map();
-          creatorAffinities = ui.creatorAffinities || new Map();
+          viewedPostIds = (ui.viewedPosts || []).map(vp => vp.postId.toString());
+          userTagAffinities = ui.tagAffinities || new Map();
+          userSpotAffinities = ui.spotTypeAffinities || new Map();
+          userTravelAffinities = ui.travelInfoAffinities || new Map();
+          userCreatorAffinities = ui.creatorAffinities || new Map();
         }
       } catch (err) {
-        logger.error('Error fetching UserInteraction', err);
+        logger.error('Error fetching UserInteraction in getShorts:', err);
       }
     }
 
-    let dateCursorFilter = null;
-    let scoreCursorFilter = null;
-    
-    if (cursor) {
-      try {
-        const decoded = Buffer.from(cursor, 'base64').toString('ascii');
-        const [scoreOrDateStr, idStr] = decoded.split(',');
-        if (scoreOrDateStr && idStr && mongoose.Types.ObjectId.isValid(idStr)) {
-          const cursorVal = parseFloat(scoreOrDateStr);
-          const cursorId = new mongoose.Types.ObjectId(idStr);
-          
-          if (cursorVal > 1000000000000) { // Old date cursor
-            dateCursorFilter = {
-              $or: [
-                { createdAt: { $lt: new Date(cursorVal) } },
-                { createdAt: new Date(cursorVal), _id: { $lt: cursorId } }
-              ]
-            };
-          } else { // New score cursor
-            scoreCursorFilter = { score: cursorVal, id: cursorId };
-          }
-        }
-      } catch (err) {
-        logger.warn('Failed to parse cursor, using empty filter:', err);
-      }
-    }
+    // Determine Cold Start status (less than 20 viewed shorts in database)
+    const isColdStart = !viewerId || viewedPostIds.length < 20;
 
+    // Combine viewed post IDs from DB + current scroll session to prevent duplicates
+    const excludeIds = new Set([...sessionSeenIds, ...viewedPostIds]);
+    const excludeObjIds = Array.from(excludeIds)
+      .filter(id => mongoose.Types.ObjectId.isValid(id))
+      .map(id => new mongoose.Types.ObjectId(id));
+
+    // Base conditions for active shorts
     const baseConditions = {
       isActive: true,
       isArchived: { $ne: true },
       isHidden: { $ne: true },
       type: 'short',
-      $and: [
-        { $or: [{ status: 'active' }, { status: { $exists: false } }] }
-      ]
+      status: 'active',
+      _id: { $nin: excludeObjIds }
     };
 
     if (allowedFiltered.length > 0) {
@@ -3152,373 +3158,242 @@ const getShorts = async (req, res) => {
       baseConditions.user = { $in: [new mongoose.Types.ObjectId()] };
     }
 
-    const spotTypeBranches = [];
-    spotTypeAffinities.forEach((val, key) => {
-      spotTypeBranches.push({ case: { $eq: ['$spotType', key] }, then: val });
-    });
-    
-    const travelInfoBranches = [];
-    travelInfoAffinities.forEach((val, key) => {
-      travelInfoBranches.push({ case: { $eq: ['$travelInfo', key] }, then: val });
-    });
-    
-    const creatorBranches = [];
-    creatorAffinities.forEach((val, key) => {
-      creatorBranches.push({ case: { $eq: [{ $toString: '$user' }, key] }, then: val });
-    });
+    // Retrieve up to 200 candidate unseen shorts sorted by date (indexed query)
+    const candidateShorts = await Post.find(baseConditions)
+      .populate('user', 'fullName username profilePic profilePicStorageKey followers')
+      .populate('comments.user', 'fullName username profilePic profilePicStorageKey')
+      .populate('song.songId')
+      .sort({ createdAt: -1 })
+      .limit(200)
+      .lean();
 
-    // Match user's onboarding interests to boost scoring
-    const interestScores = [];
-    if (req.user?.interests && Array.isArray(req.user.interests) && req.user.interests.length > 0) {
-      req.user.interests.forEach(interest => {
-        const lowerInterest = interest.toLowerCase();
+    // Scoring function in-memory
+    const scoreShort = (short) => {
+      // 1. Freshness (decay over 7 days half-life)
+      const ageInDays = (Date.now() - new Date(short.createdAt).getTime()) / (1000 * 60 * 60 * 24);
+      const freshness = Math.exp(-ageInDays / 7);
+
+      // 2. Interest Match
+      let interestMatch = 0;
+      if (viewerId) {
+        const shortTags = (short.tags || []).map(t => t.toLowerCase().trim());
         
-        let spotMatch = null;
-        if (lowerInterest === 'beach') spotMatch = 'Beach';
-        else if (lowerInterest === 'mountains') spotMatch = 'Mountain';
-        else if (lowerInterest === 'city') spotMatch = 'City';
-        else if (lowerInterest === 'nature') spotMatch = 'Natural spots';
-        else if (lowerInterest === 'culture') spotMatch = 'Cultural';
-        else if (lowerInterest === 'art') spotMatch = 'Cultural';
-        else if (lowerInterest === 'history') spotMatch = 'Cultural';
+        let overlapCount = 0;
+        shortTags.forEach(tag => {
+          if (userInterests.has(tag)) overlapCount++;
+        });
+        const overlapRatio = shortTags.length > 0 ? (overlapCount / shortTags.length) : 0;
         
-        let travelMatch = null;
-        if (lowerInterest === 'adventure') travelMatch = 'Hiking';
-
-        const conds = [];
-        if (spotMatch) {
-          conds.push({ $eq: ['$spotType', spotMatch] });
-        }
-        if (travelMatch) {
-          conds.push({ $eq: ['$travelInfo', travelMatch] });
-        }
-        conds.push({
-          $in: [
-            lowerInterest,
-            {
-              $map: {
-                input: { $ifNull: ['$tags', []] },
-                as: 't',
-                in: { $toLower: '$$t' }
-              }
-            }
-          ]
+        let affinitySum = 0;
+        shortTags.forEach(tag => {
+          const aff = userTagAffinities.get ? userTagAffinities.get(tag) : userTagAffinities[tag];
+          affinitySum += aff || 0;
         });
-
-        interestScores.push({
-          $cond: {
-            if: { $or: conds },
-            then: 10,
-            else: 0
-          }
-        });
-      });
-    }
-
-    const scoringStages = [
-      {
-        $addFields: {
-          baseScore: {
-            $add: [
-              { $multiply: [{ $size: { $ifNull: ['$likes', []] } }, 2] },
-              { $multiply: [{ $size: { $ifNull: ['$comments', []] } }, 2] },
-              { $multiply: [{ $ifNull: ['$sharesCount', 0] }, 3] },
-              {
-                $max: [
-                  0,
-                  {
-                    $subtract: [
-                      100,
-                      { $divide: [{ $subtract: [new Date(), "$createdAt"] }, 1000 * 60 * 60 * 24] }
-                    ]
-                  }
-                ]
-              }
-            ]
-          },
-          spotAffinity: spotTypeBranches.length > 0 ? { $switch: { branches: spotTypeBranches, default: 0 } } : 0,
-          travelAffinity: travelInfoBranches.length > 0 ? { $switch: { branches: travelInfoBranches, default: 0 } } : 0,
-          creatorAffinity: creatorBranches.length > 0 ? { $switch: { branches: creatorBranches, default: 0 } } : 0,
-          interestAffinity: interestScores.length > 0 ? { $add: interestScores } : 0,
+        
+        if (short.spotType) {
+          const aff = userSpotAffinities.get ? userSpotAffinities.get(short.spotType) : userSpotAffinities[short.spotType];
+          affinitySum += aff || 0;
         }
-      },
-      {
-        $addFields: {
-          totalScore: {
-            $add: [
-              "$baseScore",
-              "$spotAffinity",
-              "$travelAffinity",
-              "$creatorAffinity",
-              "$interestAffinity"
-            ]
-          }
+        
+        if (short.travelInfo) {
+          const aff = userTravelAffinities.get ? userTravelAffinities.get(short.travelInfo) : userTravelAffinities[short.travelInfo];
+          affinitySum += aff || 0;
         }
+        
+        if (short.user) {
+          const creatorIdStr = short.user._id ? short.user._id.toString() : short.user.toString();
+          const aff = userCreatorAffinities.get ? userCreatorAffinities.get(creatorIdStr) : userCreatorAffinities[creatorIdStr];
+          affinitySum += aff || 0;
+        }
+        
+        const normalizedAffinity = Math.min(1.0, Math.max(0, affinitySum / 20));
+        interestMatch = (0.5 * overlapRatio) + (0.5 * normalizedAffinity);
       }
-    ];
 
-    const projectionPipeline = [
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'user',
-          foreignField: '_id',
-          as: 'user',
-          pipeline: [
-            { $project: { fullName: 1, username: 1, profilePic: 1, profilePicStorageKey: 1, followers: 1 } }
-          ]
-        }
-      },
-      { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
-      {
-        $addFields: {
-          user: {
-            $cond: {
-              if: { $eq: ['$user', null] },
-              then: {
-                fullName: 'Unknown User',
-                profilePic: '',
-                followers: []
-              },
-              else: '$user'
-            }
-          }
-        }
-      },
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'comments.user',
-          foreignField: '_id',
-          as: 'commentUsers',
-          pipeline: [
-            { $project: { fullName: 1, username: 1, profilePic: 1, profilePicStorageKey: 1 } }
-          ]
-        }
-      },
-      {
-        $lookup: {
-          from: 'songs',
-          localField: 'song.songId',
-          foreignField: '_id',
-          as: 'songData',
-          pipeline: [
-            {
-              $project: {
-                title: 1,
-                artist: 1,
-                duration: 1,
-                s3Url: 1,
-                cloudinaryUrl: 1,
-                thumbnailUrl: 1,
-                imageUrl: 1,
-                imageStorageKey: 1,
-                storageKey: 1,
-                cloudinaryKey: 1,
-                s3Key: 1,
-                _id: 1
-              }
-            }
-          ]
-        }
-      },
-      {
-        $addFields: {
-          comments: {
-            $map: {
-              input: { $ifNull: ['$comments', []] },
-              as: 'comment',
-              in: {
-                $mergeObjects: [
-                  '$$comment',
-                  {
-                    user: {
-                      $arrayElemAt: [
-                        {
-                          $filter: {
-                            input: '$commentUsers',
-                            cond: { $eq: ['$$this._id', '$$comment.user'] }
-                          }
-                        },
-                        0
-                      ]
-                    }
-                  }
-                ]
-              }
-            }
-          },
-          song: {
-            $cond: {
-              if: { $and: [{ $ne: ['$song.songId', null] }, { $gt: [{ $size: '$songData' }, 0] }] },
-              then: {
-                songId: { $arrayElemAt: ['$songData', 0] },
-                startTime: '$song.startTime',
-                endTime: '$song.endTime',
-                volume: '$song.volume'
-              },
-              else: null
-            }
-          },
-          likesCount: { $size: { $ifNull: ['$likes', []] } },
-          commentsCount: { $size: { $ifNull: ['$comments', []] } },
-          viewsCount: { $ifNull: ['$views', 0] }
-        }
-      },
-      {
-        $project: {
-          commentUsers: 0,
-          songData: 0
-        }
-      }
-    ];
+      // 3. Engagement Quality
+      const completions = short.completionsCount || 0;
+      const rewatches = short.rewatchesCount || 0;
+      const shares = short.sharesCount || 0;
+      const saves = short.savesCount || 0;
+      const likes = short.likes ? short.likes.length : 0;
+      const views = short.views || 0;
+      
+      const totalEngagementWeight = (completions * 4) + (rewatches * 3) + (shares * 2) + (saves * 2) + likes;
+      const engagementQuality = Math.min(1.0, totalEngagementWeight / Math.max(1, views * 5));
 
-    const collectedShorts = [];
-    const skippedShorts = [];
-    const seenShortIds = new Set();
-    const recentCreators = new Set();
+      // 4. Exploration Bonus
+      const explorationBonus = viewerId ? (1.0 - interestMatch) : 1.0;
 
-    const addShortsWithDiversity = (shortsList) => {
-      for (const short of shortsList) {
-        const idStr = short._id.toString();
-        if (seenShortIds.has(idStr)) continue;
+      // FINAL_SCORE formula
+      const finalScore = (40 * freshness) + (35 * interestMatch) + (15 * engagementQuality) + (10 * explorationBonus);
 
-        // Skip if short has absolutely no media fields
-        const hasMedia = short.videoUrl || short.imageUrl || short.storageKey || (short.storageKeys && short.storageKeys.length > 0);
-        if (!hasMedia) {
-          logger.warn(`Short ${short._id} missing media fields completely, skipping`);
-          continue;
-        }
-
-        const creatorId = short.user && short.user._id ? short.user._id.toString() : null;
-        if (creatorId && recentCreators.has(creatorId)) {
-          skippedShorts.push(short);
-          continue;
-        }
-
-        if (creatorId) {
-          recentCreators.add(creatorId);
-          if (recentCreators.size > 3) {
-            const firstItem = recentCreators.values().next().value;
-            recentCreators.delete(firstItem);
-          }
-        }
-
-        collectedShorts.push(short);
-        seenShortIds.add(idStr);
-        if (collectedShorts.length >= safeLimit + 1) {
-          return true; // We are full
-        }
-      }
-      return false; // Not full yet
+      return {
+        ...short,
+        freshness,
+        interestMatch,
+        engagementQuality,
+        explorationBonus,
+        finalScore
+      };
     };
 
-    // Phase 1: Fetch unviewed allowed shorts matching the cursor filter
-    const phase1Match = { ...baseConditions };
-    
-    if (viewedPostIds.length > 0) {
-      phase1Match._id = { $nin: viewedPostIds.map(id => new mongoose.Types.ObjectId(id)) };
-    }
+    const scoredCandidates = candidateShorts.map(scoreShort);
 
-    if (dateCursorFilter) {
-      if (!phase1Match.$and) phase1Match.$and = [];
-      phase1Match.$and.push(dateCursorFilter);
-    }
+    // Setup candidate pools
+    const recentPool = [...scoredCandidates].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const personalizedPool = [...scoredCandidates].sort((a, b) => b.finalScore - a.finalScore);
+    const explorationPool = [...scoredCandidates]
+      .filter(c => c.interestMatch < 0.15)
+      .sort((a, b) => b.finalScore - a.finalScore);
 
-    const phase1Pipeline = [
-      { $match: phase1Match },
-      ...scoringStages
-    ];
+    const trendingPool = [...scoredCandidates].sort((a, b) => {
+      const scoreA = (a.likesCount || 0) + (a.commentsCount || 0) * 2 + (a.sharesCount || 0) * 3;
+      const scoreB = (b.likesCount || 0) + (b.commentsCount || 0) * 2 + (b.sharesCount || 0) * 3;
+      return scoreB - scoreA;
+    });
 
-    if (scoreCursorFilter) {
-      phase1Pipeline.push({
-        $match: {
-          $or: [
-            { totalScore: { $lt: scoreCursorFilter.score } },
-            { totalScore: scoreCursorFilter.score, _id: { $lt: scoreCursorFilter.id } }
-          ]
-        }
-      });
-    }
+    const selectedShorts = [];
+    const selectedIds = new Set();
 
-    phase1Pipeline.push(
-      { $sort: { totalScore: -1, _id: -1 } },
-      { $limit: safeLimit * 3 },
-      ...projectionPipeline
-    );
-
-    const phase1Shorts = await Post.aggregate(phase1Pipeline);
-    let isFull = addShortsWithDiversity(phase1Shorts);
-
-    // Phase 2: Fallback to other unviewed allowed shorts (without cursor filter)
-    if (!isFull) {
-      const excludeIds = [
-        ...viewedPostIds.map(id => new mongoose.Types.ObjectId(id)),
-        ...Array.from(seenShortIds).map(id => new mongoose.Types.ObjectId(id))
-      ];
-
-      const phase2Match = {
-        ...baseConditions,
-        _id: { $nin: excludeIds }
-      };
-
-      const phase2Pipeline = [
-        { $match: phase2Match },
-        ...scoringStages,
-        { $sort: { totalScore: -1, _id: -1 } },
-        { $limit: (safeLimit + 1) * 2 },
-        ...projectionPipeline
-      ];
-
-      const phase2Shorts = await Post.aggregate(phase2Pipeline);
-      isFull = addShortsWithDiversity(phase2Shorts);
-    }
-
-    // Phase 3: Fallback to already viewed allowed shorts to guarantee infinite scrolling
-    if (!isFull) {
-      const excludeIds = Array.from(seenShortIds).map(id => new mongoose.Types.ObjectId(id));
-
-      const phase3Match = {
-        ...baseConditions,
-        _id: { $nin: excludeIds }
-      };
-
-      const phase3Pipeline = [
-        { $match: phase3Match },
-        ...scoringStages,
-        { $sort: { totalScore: -1, _id: -1 } },
-        { $limit: (safeLimit + 1) * 2 },
-        ...projectionPipeline
-      ];
-
-      const phase3Shorts = await Post.aggregate(phase3Pipeline);
-      isFull = addShortsWithDiversity(phase3Shorts);
-    }
-
-    // Phase 4: Fallback to skipped shorts if diversity control made us return too few items
-    if (collectedShorts.length < safeLimit + 1 && skippedShorts.length > 0) {
-      for (const short of skippedShorts) {
-        const idStr = short._id.toString();
-        if (!seenShortIds.has(idStr)) {
-          collectedShorts.push(short);
-          seenShortIds.add(idStr);
-          if (collectedShorts.length >= safeLimit + 1) {
-            break;
-          }
+    const drawFromPool = (pool, count) => {
+      let drawn = 0;
+      for (const item of pool) {
+        if (drawn >= count) break;
+        const idStr = item._id.toString();
+        if (!selectedIds.has(idStr)) {
+          selectedShorts.push(item);
+          selectedIds.add(idStr);
+          drawn++;
         }
       }
+      return drawn;
+    };
+
+    // Calculate slots for categories
+    let recentTarget, personalizedTarget, explorationTarget, trendingTarget;
+    if (isColdStart) {
+      recentTarget = Math.round(safeLimit * 0.7);
+      trendingTarget = Math.round(safeLimit * 0.2);
+      explorationTarget = safeLimit - recentTarget - trendingTarget;
+      personalizedTarget = 0;
+    } else {
+      recentTarget = Math.round(safeLimit * 0.4);
+      personalizedTarget = Math.round(safeLimit * 0.4);
+      explorationTarget = safeLimit - recentTarget - personalizedTarget;
+      trendingTarget = 0;
     }
 
-    const hasNextPage = collectedShorts.length > safeLimit;
-    const responseShorts = hasNextPage ? collectedShorts.slice(0, safeLimit) : collectedShorts;
-    const shorts = responseShorts;
+    // Blend pools (Priority 1, 2, 3)
+    if (recentTarget > 0) drawFromPool(recentPool, recentTarget);
+    if (personalizedTarget > 0) drawFromPool(personalizedPool, personalizedTarget);
+    if (trendingTarget > 0) drawFromPool(trendingPool, trendingTarget);
+    if (explorationTarget > 0) drawFromPool(explorationPool, explorationTarget);
 
-    // Generate signed URLs for profile pictures and add isLiked field
-    // Defensive guards: validate media URLs and handle missing data gracefully
-    const shortsWithLikeStatus = await Promise.all(shorts.map(async (short) => {
+    // Backfill with remaining unseen candidates if limit not met
+    if (selectedShorts.length < safeLimit) {
+      const allUnseenSorted = [...scoredCandidates].sort((a, b) => b.finalScore - a.finalScore);
+      drawFromPool(allUnseenSorted, safeLimit - selectedShorts.length);
+    }
+
+    // Priority 4 Fallback: Seen pool sorted by viewedAt ASC (oldest viewed first)
+    if (selectedShorts.length < safeLimit && viewerId && viewedPostIds.length > 0) {
+      const seenExcludeIds = new Set([...selectedIds]);
+      const seenExcludeObjIds = Array.from(seenExcludeIds)
+        .filter(id => mongoose.Types.ObjectId.isValid(id))
+        .map(id => new mongoose.Types.ObjectId(id));
+      
+      const seenPostObjIds = viewedPostIds
+        .filter(id => mongoose.Types.ObjectId.isValid(id))
+        .map(id => new mongoose.Types.ObjectId(id));
+
+      const seenConditions = {
+        isActive: true,
+        isArchived: { $ne: true },
+        isHidden: { $ne: true },
+        type: 'short',
+        status: 'active',
+        _id: { $in: seenPostObjIds, $nin: seenExcludeObjIds }
+      };
+
+      if (allowedFiltered.length > 0) {
+        seenConditions.user = { $in: allowedFiltered.map(id => new mongoose.Types.ObjectId(id)) };
+      } else {
+        seenConditions.user = { $in: [new mongoose.Types.ObjectId()] };
+      }
+
+      const seenShortsFromDb = await Post.find(seenConditions)
+        .populate('user', 'fullName username profilePic profilePicStorageKey followers')
+        .populate('comments.user', 'fullName username profilePic profilePicStorageKey')
+        .populate('song.songId')
+        .lean();
+
+      // Sort by order in viewedPostIds (oldest viewed first)
+      const viewedAtMap = new Map();
+      viewedPostIds.forEach((id, index) => {
+        viewedAtMap.set(id, index);
+      });
+
+      seenShortsFromDb.sort((a, b) => {
+        const idxA = viewedAtMap.has(a._id.toString()) ? viewedAtMap.get(a._id.toString()) : 9999;
+        const idxB = viewedAtMap.has(b._id.toString()) ? viewedAtMap.get(b._id.toString()) : 9999;
+        return idxA - idxB;
+      });
+
+      const scoredSeen = seenShortsFromDb.map(scoreShort);
+      drawFromPool(scoredSeen, safeLimit - selectedShorts.length);
+    }
+
+    // Priority 5 Fallback: Repeated recently seen shorts (guarantee infinite scroll)
+    if (selectedShorts.length < safeLimit && viewerId && viewedPostIds.length > 0) {
+      const seenExcludeIds = new Set([...selectedIds]);
+      const seenExcludeObjIds = Array.from(seenExcludeIds)
+        .filter(id => mongoose.Types.ObjectId.isValid(id))
+        .map(id => new mongoose.Types.ObjectId(id));
+      
+      const repeatedPostObjIds = viewedPostIds
+        .filter(id => mongoose.Types.ObjectId.isValid(id))
+        .map(id => new mongoose.Types.ObjectId(id));
+
+      const repeatedConditions = {
+        isActive: true,
+        isArchived: { $ne: true },
+        isHidden: { $ne: true },
+        type: 'short',
+        status: 'active',
+        _id: { $in: repeatedPostObjIds, $nin: seenExcludeObjIds }
+      };
+
+      if (allowedFiltered.length > 0) {
+        repeatedConditions.user = { $in: allowedFiltered.map(id => new mongoose.Types.ObjectId(id)) };
+      } else {
+        repeatedConditions.user = { $in: [new mongoose.Types.ObjectId()] };
+      }
+
+      const repeatedShortsFromDb = await Post.find(repeatedConditions)
+        .populate('user', 'fullName username profilePic profilePicStorageKey followers')
+        .populate('comments.user', 'fullName username profilePic profilePicStorageKey')
+        .populate('song.songId')
+        .lean();
+
+      const viewedAtMap = new Map();
+      viewedPostIds.forEach((id, index) => {
+        viewedAtMap.set(id, index);
+      });
+
+      repeatedShortsFromDb.sort((a, b) => {
+        const idxA = viewedAtMap.has(a._id.toString()) ? viewedAtMap.get(a._id.toString()) : 9999;
+        const idxB = viewedAtMap.has(b._id.toString()) ? viewedAtMap.get(b._id.toString()) : 9999;
+        return idxA - idxB;
+      });
+
+      const scoredRepeated = repeatedShortsFromDb.map(scoreShort);
+      drawFromPool(scoredRepeated, safeLimit - selectedShorts.length);
+    }
+
+    // Generate signed URLs and resolve assets for client delivery
+    const shortsWithLikeStatus = await Promise.all(selectedShorts.map(async (short) => {
       let isFollowing = false;
       
-      // Check if current user is following the post author
       if (req.user && short.user) {
         if (short.user.followers && Array.isArray(short.user.followers)) {
           isFollowing = short.user.followers.some(follower => 
@@ -3538,16 +3413,12 @@ const getShorts = async (req, res) => {
         }
       }
       
-      // Generate signed URL for song if present (same logic as getPosts)
       if (short.song?.songId) {
         await resolveSong(short.song.songId);
-      } else {
-        logger.debug('getShorts - No song data for short:', { shortId: short._id });
       }
       
-      // Generate fresh signed URL for video if storageKey exists (CRITICAL: Videos expire after 15 minutes)
-      let videoUrl = short.videoUrl || null; // Start with stored URL as fallback
-      let imageUrl = short.imageUrl || null; // Start with stored URL as fallback
+      let videoUrl = short.videoUrl || null;
+      let imageUrl = short.imageUrl || null;
       
       const hlsProxyUrl = getVideoUrlForShort(short, req);
       if (hlsProxyUrl) {
@@ -3569,30 +3440,21 @@ const getShorts = async (req, res) => {
           if (freshVideoUrl) {
             videoUrl = freshVideoUrl;
           }
-          // For shorts, also generate thumbnail URL (use same storageKey or separate one)
           if (short.storageKeys && short.storageKeys.length > 1) {
-            // Second key might be thumbnail
             const freshImageUrl = await generateSignedUrl(short.storageKeys[1], 'IMAGE');
             if (freshImageUrl) {
               imageUrl = freshImageUrl;
             }
           } else {
-            // Use same key for thumbnail (CDN can generate thumbnails)
             const freshImageUrl = await generateSignedUrl(short.storageKey, 'IMAGE');
             if (freshImageUrl) {
               imageUrl = freshImageUrl;
             }
           }
-          logger.debug(`Generated fresh signed URLs for short ${short._id}`);
         } catch (error) {
           logger.warn(`Failed to generate signed URL for short ${short._id}:`, error.message);
-          // Use stored URLs as fallback (already set above)
-          if (!videoUrl && !imageUrl) {
-            logger.error(`Short ${short._id} has no stored URLs and signed URL generation failed - this short will be skipped`);
-          }
         }
       } else if (short.storageKeys && short.storageKeys.length > 0) {
-        // Try storageKeys array (backward compatibility)
         try {
           const freshVideoUrl = await generateSignedUrl(short.storageKeys[0], 'VIDEO');
           if (freshVideoUrl) {
@@ -3609,42 +3471,24 @@ const getShorts = async (req, res) => {
               imageUrl = freshImageUrl;
             }
           }
-          logger.debug(`Generated fresh signed URLs from storageKeys for short ${short._id}`);
         } catch (error) {
           logger.warn(`Failed to generate signed URL from storageKeys for short ${short._id}:`, error.message);
-          // Use stored URLs as fallback (already set above)
-          if (!videoUrl && !imageUrl) {
-            logger.error(`Short ${short._id} has no stored URLs and signed URL generation failed - this short will be skipped`);
-          }
-        }
-      } else {
-        // Use stored URLs (legacy support) - no storageKey found
-        logger.debug(`Using stored URLs for short ${short._id} (no storageKey found)`);
-        if (!videoUrl && !imageUrl) {
-          logger.warn(`Short ${short._id} has no storageKey and no stored URLs`);
         }
       }
       
-      // Defensive: ensure mediaUrl exists (required for shorts)
-      // Use stored URLs if fresh URLs failed, or fresh URLs if available
       const mediaUrl = videoUrl || imageUrl || short.videoUrl || short.imageUrl || '';
-      if (!mediaUrl) {
-        logger.warn(`Short ${short._id} missing mediaUrl completely (no storageKey, no stored URLs), skipping`);
-        return null; // Filter out shorts without any media URL
-      }
       
       return {
         ...short,
         _id: short._id,
-        // Use fresh signed URLs if available, otherwise use stored URLs as fallback
         videoUrl: videoUrl || short.videoUrl || null,
         imageUrl: imageUrl || short.imageUrl || null,
-        mediaUrl, // Include virtual field with fresh signed URL or fallback
+        mediaUrl,
         isLiked: req.user ? (short.likes || []).some(like => 
           (typeof like === 'object' ? like.toString() : like) === req.user._id.toString()
         ) : false,
-        likesCount: short.likesCount || 0,
-        commentsCount: short.commentsCount || 0,
+        likesCount: Math.max(typeof short.likesCount === 'number' ? short.likesCount : 0, Array.isArray(short.likes) ? short.likes.length : 0),
+        commentsCount: Math.max(typeof short.commentsCount === 'number' ? short.commentsCount : 0, Array.isArray(short.comments) ? short.comments.length : 0),
         viewsCount: short.viewsCount || 0,
         user: {
           ...short.user,
@@ -3653,16 +3497,19 @@ const getShorts = async (req, res) => {
       };
     }));
 
-    // Filter out null entries (shorts without media)
     const finalShorts = shortsWithLikeStatus.filter(short => short !== null);
 
-    let nextCursor = null;
-    if (finalShorts.length > 0) {
-      const lastItem = finalShorts[finalShorts.length - 1];
-      const cursorVal = lastItem.totalScore !== undefined ? lastItem.totalScore : new Date(lastItem.createdAt || Date.now()).getTime();
-      const lastId = lastItem._id ? lastItem._id.toString() : new mongoose.Types.ObjectId().toString();
-      nextCursor = Buffer.from(`${cursorVal},${lastId}`).toString('base64');
-    }
+    // Build the next cursor
+    const returnedIds = finalShorts.map(s => s._id.toString());
+    const nextSessionSeenIds = [...new Set([...sessionSeenIds, ...returnedIds])].slice(-500); // cap to 500 items
+    
+    const nextPage = page + 1;
+    const nextCursor = Buffer.from(JSON.stringify({
+      page: nextPage,
+      sessionSeenIds: nextSessionSeenIds
+    })).toString('base64');
+
+    const hasNextPage = finalShorts.length >= safeLimit;
 
     res.status(200).json({
       shorts: finalShorts,
@@ -3799,11 +3646,11 @@ const createShort = async (req, res) => {
         parsedTags = [];
       }
     }
-
-    // Extract hashtags from caption
-    const extractedHashtags = extractHashtags(caption || '');
-    // Merge extracted hashtags with provided tags (remove duplicates)
-    const allHashtags = [...new Set([...parsedTags, ...extractedHashtags])];
+    // Extract tags from caption using AI tag extractor
+    const { extractAITags } = require('../utils/aiTagExtractor');
+    const extractedAITags = extractAITags(caption || '');
+    // Merge extracted tags with provided tags (remove duplicates)
+    const allHashtags = [...new Set([...parsedTags, ...extractedAITags])];
 
     // Create short
     // If user provided a custom thumbnail image, upload it
@@ -3910,6 +3757,11 @@ const createShort = async (req, res) => {
     });
     await job.save();
     logger.info(`Enqueued background transcoding job for post ${short._id}`);
+    
+    // Trigger transcoding immediately in the background
+    if (typeof triggerTranscode === 'function') {
+      triggerTranscode();
+    }
     
     // Log saved short data for debugging - use logger.info for visibility
     logger.info('createShort - Short saved successfully:', {

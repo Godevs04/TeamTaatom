@@ -1,6 +1,6 @@
 type SavedListener = () => void;
 type FeedInvalidateListener = () => void;
-type PostActionListener = (postId: string, action: 'like' | 'unlike' | 'save' | 'unsave' | 'comment', data?: any) => void;
+type PostActionListener = (postId: string, action: 'like' | 'unlike' | 'save' | 'unsave' | 'comment' | 'archive' | 'unarchive' | 'delete', data?: any) => void;
 
 class SavedEvents {
   private savedListeners: Set<SavedListener> = new Set();
@@ -40,7 +40,7 @@ class SavedEvents {
     });
   }
 
-  emitPostAction(postId: string, action: 'like' | 'unlike' | 'save' | 'unsave' | 'comment', data?: any) {
+  emitPostAction(postId: string, action: 'like' | 'unlike' | 'save' | 'unsave' | 'comment' | 'archive' | 'unarchive' | 'delete', data?: any) {
     this.postActionListeners.forEach((l) => {
       try { l(postId, action, data); } catch {}
     });
