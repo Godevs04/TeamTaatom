@@ -16,6 +16,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import NavBar from '../../components/NavBar';
 import { LinearGradient } from 'expo-linear-gradient';
+import { matchGradientLocations } from '../../utils/linearGradient';
 import {
   CloudSkyBackground,
   CloudGlassSurface,
@@ -254,16 +255,20 @@ export default function SettingsScreen() {
     );
   }
 
+  const screenGradientColors = isDark
+    ? (['#000000', '#000000', '#000000'] as const)
+    : (theme.colors.screenGradient as [string, string, ...string[]]);
+  const screenGradientLocs = matchGradientLocations(
+    screenGradientColors.length,
+    isDark ? [0, 0.3, 1] : [0, 0.22, 0.55, 1],
+  );
+
   return (
     <View style={[styles.container, { backgroundColor: isDark ? '#000000' : '#FFFFFF' }]}>
       <LinearGradient
-        colors={
-          isDark
-            ? ['#000000', '#000000', '#000000']
-            : (theme.colors.screenGradient as [string, string, ...string[]])
-        }
+        colors={screenGradientColors}
         style={StyleSheet.absoluteFillObject}
-        locations={isDark ? [0, 0.3, 1] : [0, 0.22, 0.55, 1]}
+        locations={screenGradientLocs}
       />
       <View style={styles.safeFill}>
       <NavBar 

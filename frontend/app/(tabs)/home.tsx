@@ -48,6 +48,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { CloudSkyBackground, CloudSegmentedControl } from '../../components/cloud';
 import ScrollEdgeFades from '../../components/ScrollEdgeFades';
+import { matchGradientLocations } from '../../utils/linearGradient';
 import { NativeAdCard } from '../../components/ads/NativeAdCard';
 import {
   useAdCap,
@@ -1531,17 +1532,22 @@ export default function HomeScreen() {
     );
   }, [handleRefresh, handleAdLoadFailed]);
 
+  const screenGradientColors =
+    mode === 'dark'
+      ? (['#000000', '#000000', '#000000'] as const)
+      : (theme.colors.screenGradient as [string, string, ...string[]]);
+  const screenGradientLocs = matchGradientLocations(
+    screenGradientColors.length,
+    mode === 'dark' ? [0, 0.22, 1] : [0, 0.22, 0.55, 1],
+  );
+
   const screenBg = (
     <>
       <CloudSkyBackground heightRatio={0.28} />
       <LinearGradient
-        colors={
-          mode === 'dark'
-            ? ['#000000', '#000000', '#000000']
-            : (theme.colors.screenGradient as [string, string, ...string[]])
-        }
+        colors={screenGradientColors}
         style={StyleSheet.absoluteFillObject}
-        locations={mode === 'dark' ? [0, 0.22, 1] : [0, 0.22, 0.55, 1]}
+        locations={screenGradientLocs}
       />
     </>
   );

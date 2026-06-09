@@ -62,7 +62,7 @@ import Constants from 'expo-constants';
 import { savedEvents } from '../../utils/savedEvents';
 import { triggerHaptic } from '../../utils/hapticFeedback';
 import { shortsEvents } from '../../utils/shortsEvents';
-import { preloadVideoAsync, getLocalVideoUri, removeCachedVideo } from '../../src/utils/videoCache';
+import { preloadVideoAsync, getLocalVideoUri, removeCachedVideo, isHlsStreamUrl } from '../../src/utils/videoCache';
 
 /** Shorts list item: either a reel (PostType) or a full-screen native ad slot. */
 export type ShortsItem = PostType | { type: 'ad'; adIndex: number };
@@ -1314,6 +1314,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     getVideoUrl: null as any,
     refetchShortWithFreshUrl: null as any,
     retryVideoLoad: null as any,
+    recoverVideoWithFreshUrl: null as any,
     handleVideoTap: null as any,
   });
   
@@ -1825,13 +1826,19 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const getVideoUrl = useCallback((item: PostType) => {
     const videoId = item._id;
 
-    // Return local URI if available and we didn't start playing with a remote URL
-    if (localVideoUris[videoId] && !activeStartedWithRemoteRef.current[videoId]) {
-      return localVideoUris[videoId];
-    }
-
     // Prioritize videoUrl for shorts, fallback to mediaUrl or imageUrl
     const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
+
+    // Return local MP4 URI if available (never use cached .m3u8 — breaks HLS segment resolution on iOS).
+    const localUri = localVideoUris[videoId];
+    if (
+      localUri &&
+      !localUri.toLowerCase().includes('.m3u8') &&
+      !isHlsStreamUrl(baseUrl) &&
+      !activeStartedWithRemoteRef.current[videoId]
+    ) {
+      return localUri;
+    }
     
     // DETAILED LOGGING: Track URL resolution for first 2 shorts
     const isFirstTwoShorts = shorts.length > 0 && shorts.indexOf(item) < 2;
@@ -2056,6 +2063,51 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
     }, delay);
   }, [shorts, getVideoUrl]);
+
+  const recoverVideoWithFreshUrl = useCallback((videoId: string, reason?: string) => {
+    logger.debug(`Recovering video ${videoId}${reason ? `: ${reason}` : ''}`);
+    videoCacheRef.current.delete(videoId);
+    const cachedLocalPath = localVideoUris[videoId];
+    if (cachedLocalPath) {
+      setLocalVideoUris((prev) => {
+        if (!prev[videoId]) return prev;
+        const updated = { ...prev };
+        delete updated[videoId];
+        return updated;
+      });
+      removeCachedVideo(cachedLocalPath).catch(() => {});
+    }
+    delete activeStartedWithRemoteRef.current[videoId];
+    updateKeyedBool(setVideoStates, videoId, false);
+
+    refetchShortWithFreshUrl(videoId)
+      .then((freshShort: PostType | null) => {
+        const freshVideoUrl = freshShort?.videoUrl || freshShort?.mediaUrl || freshShort?.imageUrl;
+        if (!freshShort || !freshVideoUrl) {
+          retryVideoLoad(videoId, 1000);
+          return;
+        }
+        setShorts((prev) =>
+          prev.map((s) =>
+            s._id === videoId
+              ? {
+                  ...s,
+                  mediaUrl: freshShort.mediaUrl,
+                  videoUrl: freshShort.videoUrl || s.videoUrl,
+                  imageUrl: freshShort.imageUrl || s.imageUrl,
+                }
+              : s
+          )
+        );
+        setSourceVersions((prev) => ({
+          ...prev,
+          [videoId]: (prev[videoId] ?? 0) + 1,
+        }));
+      })
+      .catch(() => {
+        retryVideoLoad(videoId, 1000);
+      });
+  }, [refetchShortWithFreshUrl, localVideoUris, updateKeyedBool, retryVideoLoad]);
 
   const loadShorts = useCallback(async () => {
     try {
@@ -3144,7 +3196,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       const item = shortsData[i];
       if (item && !isAdItem(item)) {
         const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
-        if (baseUrl) {
+        if (baseUrl && !isHlsStreamUrl(baseUrl)) {
           preloadVideoAsync(item._id, baseUrl);
         }
       }
@@ -3158,7 +3210,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         const item = shortsData[i];
         if (item && !isAdItem(item)) {
           const localUri = await getLocalVideoUri(item._id);
-          if (localUri) {
+          if (localUri && !localUri.toLowerCase().includes('.m3u8')) {
             newUris[item._id] = localUri;
           }
         }
@@ -3434,9 +3486,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       getVideoUrl,
       refetchShortWithFreshUrl,
       retryVideoLoad,
+      recoverVideoWithFreshUrl,
       handleVideoTap,
     };
-  }, [handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel, toggleVideoPlayback, showPauseButtonTemporarily, handleDeleteShort, handleProfilePress, handleLike, handleComment, handleShare, handleSave, getVideoUrl, refetchShortWithFreshUrl, retryVideoLoad, handleVideoTap]);
+  }, [handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel, toggleVideoPlayback, showPauseButtonTemporarily, handleDeleteShort, handleProfilePress, handleLike, handleComment, handleShare, handleSave, getVideoUrl, refetchShortWithFreshUrl, retryVideoLoad, recoverVideoWithFreshUrl, handleVideoTap]);
 
   // Memoized video item component to prevent unnecessary re-renders
   // Renders either a reel (PostType) or a full-screen ShortsNativeAd (after every 5 reels, max 3).
@@ -3681,27 +3734,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                   logger.debug(`Video ${item._id} ready for display`);
                 }}
                 onError={(error) => {
-                  // Handle video loading errors (likely expired signed URL or timeout).
-                  // Strategy: don't manually call unload/load on the native player —
-                  // those calls race with React's lifecycle and have crashed expo-av
-                  // when the user scrolls during the retry. Instead refresh the URL
-                  // via setShorts and bump a per-item key version so React fully
-                  // unmounts the old player and remounts a clean one with the new URL.
                   logger.error(`Video ${item._id} failed to load:`, error);
-                  videoCacheRef.current.delete(item._id);
-                  if (localVideoUris[item._id]) {
-                    const pathToRemove = localVideoUris[item._id];
-                    setLocalVideoUris(prev => {
-                      const updated = { ...prev };
-                      delete updated[item._id];
-                      return updated;
-                    });
-                    removeCachedVideo(pathToRemove).catch(() => {});
-                  }
-                  delete activeStartedWithRemoteRef.current[item._id];
-                  updateKeyedBool(setVideoStates, item._id, false);
 
-                  const errorMessage = typeof error === 'string' ? error : (error as any)?.message || '';
+                  const errorMessage = typeof error === 'string' ? error : (error as any)?.message || String(error || '');
                   const errorCode = (error as any)?.code;
                   const errorDomain = (error as any)?.domain;
                   const isTimeoutError =
@@ -3710,34 +3745,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     errorDomain === 'NSURLErrorDomain' ||
                     /(-1001|NSURLErrorDomain|timeout|Timeout|timed out)/.test(errorMessage);
                   const isExpiredUrl = /(403|404|Forbidden|expired|ExpiredRequest)/.test(errorMessage);
+                  const isNativePlaybackError =
+                    errorDomain === 'CoreMediaErrorDomain' ||
+                    errorDomain === 'AVFoundationErrorDomain' ||
+                    /CoreMediaErrorDomain|AVFoundationErrorDomain|AVPlayerItem instance has failed|-12865/.test(errorMessage);
 
-                  if (isExpiredUrl || isTimeoutError) {
-                    const errorType = isTimeoutError ? 'timeout' : 'expired URL';
-                    logger.debug(`Video ${item._id} ${errorType} — refetching fresh signed URL`, { errorCode, errorDomain, errorMessage });
-                    handlersRef.current
-                      .refetchShortWithFreshUrl(item._id)
-                      .then((freshShort: PostType | null) => {
-                        const freshVideoUrl = freshShort?.videoUrl || freshShort?.mediaUrl || freshShort?.imageUrl;
-                        if (!freshShort || !freshVideoUrl) {
-                          handlersRef.current.retryVideoLoad(item._id, 1000);
-                          return;
-                        }
-                        // Swap the URL in feed state.
-                        setShorts(prev => prev.map(s =>
-                          s._id === item._id
-                            ? { ...s, mediaUrl: freshShort.mediaUrl, videoUrl: freshShort.videoUrl || s.videoUrl, imageUrl: freshShort.imageUrl || s.imageUrl }
-                            : s
-                        ));
-                        // Bump source version → key changes → Video remounts cleanly.
-                        setSourceVersions(prev => ({
-                          ...prev,
-                          [item._id]: (prev[item._id] ?? 0) + 1,
-                        }));
-                      })
-                      .catch((refetchError: any) => {
-                        logger.error(`Failed to refetch fresh URL for video ${item._id}:`, refetchError);
-                        handlersRef.current.retryVideoLoad(item._id, 1000);
-                      });
+                  if (isExpiredUrl || isTimeoutError || isNativePlaybackError) {
+                    handlersRef.current.recoverVideoWithFreshUrl(
+                      item._id,
+                      isNativePlaybackError ? 'native playback error' : isTimeoutError ? 'timeout' : 'expired URL',
+                    );
                   } else {
                     handlersRef.current.retryVideoLoad(item._id, 1000);
                   }
@@ -3828,21 +3845,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                       updateKeyedBool(setVideoStates, item._id, true);
                     }
                   } else if ((status as any).error) {
-                    // Handle playback errors
                     logger.error(`Video ${item._id} playback error:`, (status as any).error);
-                    // Clear cache and retry if this is the current visible video
                     if (index === currentVisibleIndex) {
-                      videoCacheRef.current.delete(item._id);
-                      if (localVideoUris[item._id]) {
-                        const pathToRemove = localVideoUris[item._id];
-                        setLocalVideoUris(prev => {
-                          const updated = { ...prev };
-                          delete updated[item._id];
-                          return updated;
-                        });
-                        removeCachedVideo(pathToRemove).catch(() => {});
-                      }
-                      delete activeStartedWithRemoteRef.current[item._id];
+                      handlersRef.current.recoverVideoWithFreshUrl(item._id, 'playback status error');
                     }
                   }
                 }}

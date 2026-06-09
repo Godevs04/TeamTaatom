@@ -11,6 +11,7 @@ import { socketService } from '../../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
+import { matchGradientLocations } from '../../utils/linearGradient';
 import logger from '../../utils/logger';
 import { getPostById } from '../../services/posts';
 import ChatMediaViewer from '../../components/chat/ChatMediaViewer';
@@ -961,18 +962,19 @@ export default function ChatModal() {
     },
   });
 
+  const chatGradientColors = isDark
+    ? (theme.colors.screenGradient as [string, string, ...string[]])
+    : (['transparent', '#F8FCFF', '#FFFFFF'] as const);
+  const chatGradientLocs = matchGradientLocations(chatGradientColors.length, [0, 0.25, 1]);
+
   return (
     <>
       <View style={styles.container}>
         {!isDark && <CloudSkyBackground heightRatio={0.3} />}
         <LinearGradient
-          colors={
-            isDark
-              ? (theme.colors.screenGradient as [string, string, string])
-              : ['transparent', '#F8FCFF', '#FFFFFF']
-          }
+          colors={chatGradientColors}
           style={StyleSheet.absoluteFillObject}
-          locations={isDark ? undefined : [0, 0.25, 1]}
+          locations={chatGradientLocs}
         />
         <CloudChatCommandHeader
           title="Chats"

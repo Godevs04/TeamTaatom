@@ -18,6 +18,7 @@ import {
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { matchGradientLocations } from '../../utils/linearGradient';
 import MaskedView from '@react-native-masked-view/masked-view';
 import { BlurView } from 'expo-blur';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -344,7 +345,7 @@ export default function ProfileScreen() {
   const screenGradientLocations = useMemo(() => {
     const colors = theme.colors.screenGradient;
     const preferred: readonly [number, number, ...number[]] = isDark ? [0, 0.45, 1] : [0, 0.22, 0.55, 1];
-    return colors.length === preferred.length ? preferred : undefined;
+    return matchGradientLocations(colors.length, preferred);
   }, [isDark, theme.colors.screenGradient]);
 
   const loadUnreadCount = useCallback(async () => {
