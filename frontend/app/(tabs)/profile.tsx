@@ -346,6 +346,15 @@ export default function ProfileScreen() {
     return colors.length === preferred.length ? preferred : undefined;
   }, [isDark, theme.colors.screenGradient]);
 
+  const activeListData = useMemo(() => {
+    if (activeTab === 'posts') return posts;
+    if (activeTab === 'shorts') return userShorts;
+    if (activeTab === 'saved') {
+      return activeSavedSubTab === 'posts' ? savedPosts : savedShorts;
+    }
+    return [];
+  }, [activeTab, activeSavedSubTab, posts, userShorts, savedPosts, savedShorts]);
+
   const loadUnreadCount = useCallback(async () => {
     try {
       const response = await getUnreadCount();
@@ -1292,85 +1301,6 @@ export default function ProfileScreen() {
       </View>
     );
   }
-
-  // Animation for stat cards with enhanced glass effect
-  const StatCard = ({ 
-    icon, 
-    value, 
-    label, 
-    onPress, 
-    iconName 
-  }: { 
-    icon: string; 
-    value: number; 
-    label: string; 
-    onPress?: () => void; 
-    iconName: keyof typeof Ionicons.glyphMap;
-  }) => {
-    const scaleAnim = useRef(new Animated.Value(1)).current;
-    
-    const handlePressIn = () => {
-      Animated.spring(scaleAnim, {
-        toValue: 0.97,
-        useNativeDriver: true,
-      }).start();
-    };
-    
-    const handlePressOut = () => {
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        useNativeDriver: true,
-      }).start();
-    };
-
-    const cardBgColor = isDark ? theme.colors.glassStrong : 'rgba(255, 255, 255, 0.9)';
-    const borderColor = isDark ? theme.colors.glassBorder : 'rgba(148, 163, 184, 0.2)';
-    
-    const CardContent = (
-      <Animated.View 
-        style={[
-          styles.statCard,
-          {
-            backgroundColor: cardBgColor,
-            borderColor: borderColor,
-            transform: [{ scale: scaleAnim }]
-          }
-        ]}
-      >
-        <View style={[styles.statIconContainer, { backgroundColor: profileTheme.accent + '15' }]}>
-          <Ionicons name={iconName} size={18} color={profileTheme.accent} />
-        </View>
-        <Text style={[styles.statValue, { color: profileTheme.textPrimary }]} numberOfLines={1}>
-          {value}
-        </Text>
-        <Text style={[styles.statLabel, { color: profileTheme.textSecondary }]} numberOfLines={1}>
-          {label.toUpperCase()}
-        </Text>
-      </Animated.View>
-    );
-
-    if (onPress) {
-      return (
-        <Pressable
-          onPress={onPress}
-          onPressIn={handlePressIn}
-          onPressOut={handlePressOut}
-        >
-          {CardContent}
-        </Pressable>
-      );
-    }
-    return CardContent;
-  };
-
-  const activeListData = useMemo(() => {
-    if (activeTab === 'posts') return posts;
-    if (activeTab === 'shorts') return userShorts;
-    if (activeTab === 'saved') {
-      return activeSavedSubTab === 'posts' ? savedPosts : savedShorts;
-    }
-    return [];
-  }, [activeTab, activeSavedSubTab, posts, userShorts, savedPosts, savedShorts]);
 
   const renderProfileItem = ({ item, index }: { item: PostType; index: number }) => {
     if (activeTab === 'posts') {
