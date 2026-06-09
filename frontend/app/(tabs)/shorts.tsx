@@ -62,7 +62,10 @@ import Constants from 'expo-constants';
 import { savedEvents } from '../../utils/savedEvents';
 import { triggerHaptic } from '../../utils/hapticFeedback';
 import { shortsEvents } from '../../utils/shortsEvents';
-import { preloadVideoAsync, getLocalVideoUri, removeCachedVideo, isHlsStreamUrl } from '../../src/utils/videoCache';
+import { FlashList, FlashListRef } from '@shopify/flash-list';
+import { preloadVideoAsync, getLocalVideoUri, removeCachedVideo, isHlsStreamUrl, cacheVideoLocally } from '../../src/utils/videoCache';
+
+const AnyFlashList = FlashList as any;
 
 /** Shorts list item: either a reel (PostType) or a full-screen native ad slot. */
 export type ShortsItem = PostType | { type: 'ad'; adIndex: number };
@@ -3303,11 +3306,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   useEffect(() => {
     if (!shortsData || shortsData.length === 0) return;
 
-    const minIndex = Math.max(0, currentVisibleIndex - 2);
-    const maxIndex = Math.min(shortsData.length - 1, currentVisibleIndex + 2);
+    const preloadMinIndex = Math.max(0, currentVisibleIndex - 2);
+    const preloadMaxIndex = Math.min(shortsData.length - 1, currentVisibleIndex + 2);
 
     // 1. Trigger background preloading for all videos in the sliding window
-    for (let i = minIndex; i <= maxIndex; i++) {
+    for (let i = preloadMinIndex; i <= preloadMaxIndex; i++) {
       const item = shortsData[i];
       if (item && !isAdItem(item)) {
         const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
@@ -3317,15 +3320,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
     }
 
-    // 2. Poll/check file existence for the sliding window to update localVideoUris state
+    // 2. Poll/check file existence for immediate neighbors to update localVideoUris state
     let active = true;
-    const minIndex = Math.max(0, currentVisibleIndex - 1);
-    const maxIndex = Math.min(shortsData.length - 1, currentVisibleIndex + 1);
+    const cacheMinIndex = Math.max(0, currentVisibleIndex - 1);
+    const cacheMaxIndex = Math.min(shortsData.length - 1, currentVisibleIndex + 1);
 
-    // 1. Check file existence for the immediate neighbors immediately
     const checkCachedVideos = async () => {
       const newUris: Record<string, string> = {};
-      for (let i = minIndex; i <= maxIndex; i++) {
+      for (let i = cacheMinIndex; i <= cacheMaxIndex; i++) {
         const item = shortsData[i];
         if (item && !isAdItem(item)) {
           const localUri = await getLocalVideoUri(item._id);
@@ -3365,7 +3367,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           const item = shortsData[idx];
           if (item && !isAdItem(item)) {
             const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
-            if (baseUrl) {
+            if (baseUrl && !isHlsStreamUrl(baseUrl)) {
               try {
                 const localUri = await cacheVideoLocally(item._id, baseUrl);
                 if (localUri && isMountedRef.current) {
