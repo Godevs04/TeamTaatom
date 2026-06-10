@@ -462,7 +462,9 @@ const updateLocation = async (req, res) => {
         lng: parseFloat(coord.lng),
         timestamp: coord.timestamp ? new Date(coord.timestamp) : new Date(),
         accuracy: accuracy,
-        segmentBreak: coord.segmentBreak === true || coord.segmentBreak === 'true'
+        segmentBreak: coord.segmentBreak === true || coord.segmentBreak === 'true',
+        speed: coord.speed !== undefined && coord.speed !== null ? parseFloat(coord.speed) : null,
+        heading: coord.heading !== undefined && coord.heading !== null ? parseFloat(coord.heading) : null
       };
 
       const lastExisting = journey.raw_polyline.length > 0

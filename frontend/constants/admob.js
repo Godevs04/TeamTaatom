@@ -20,9 +20,13 @@ const liveUnit = (envValue, fallback) => {
   return value || fallback;
 };
 
+// Set to true to enforce Test Ad Unit IDs globally (even in production builds) until the AdMob account is fully approved.
+const FORCE_TEST_ADS = false;
+
 export const ADMOB = {
   /** Publisher ID (used in app-ads.txt) */
   publisherId: 'pub-6362359854606661',
+  forceTestAds: FORCE_TEST_ADS,
 
   /**
    * Android ad unit IDs.
@@ -30,14 +34,14 @@ export const ADMOB = {
    * In __DEV__ we use test IDs (see NativeAdCard for native test ID).
    */
   android: {
-    banner: __DEV__
+    banner: (__DEV__ || FORCE_TEST_ADS)
       ? 'ca-app-pub-3940256099942544/6300978111'
       : liveUnit(env.EXPO_PUBLIC_ADMOB_ANDROID_BANNER_UNIT_ID, 'ca-app-pub-6362359854606661/7027944948'),
-    interstitial: __DEV__
+    interstitial: (__DEV__ || FORCE_TEST_ADS)
       ? 'ca-app-pub-3940256099942544/1033173712'
       : liveUnit(env.EXPO_PUBLIC_ADMOB_ANDROID_INTERSTITIAL_UNIT_ID, 'ca-app-pub-6362359854606661/XXXXXXXXXX'),
     /** Native Advanced (home + shorts). Production: ca-app-pub-6362359854606661/8141104654 */
-    native: __DEV__
+    native: (__DEV__ || FORCE_TEST_ADS)
       ? 'ca-app-pub-3940256099942544/2247696110'
       : liveUnit(env.EXPO_PUBLIC_ADMOB_ANDROID_NATIVE_UNIT_ID, 'ca-app-pub-6362359854606661/8141104654'),
   },
@@ -47,14 +51,14 @@ export const ADMOB = {
    * Get these from AdMob → Your iOS app → Ad units.
    */
   ios: {
-    banner: __DEV__
+    banner: (__DEV__ || FORCE_TEST_ADS)
       ? 'ca-app-pub-3940256099942544/2934735716'
       : liveUnit(env.EXPO_PUBLIC_ADMOB_IOS_BANNER_UNIT_ID, 'ca-app-pub-6362359854606661/2303221559'),
-    interstitial: __DEV__
+    interstitial: (__DEV__ || FORCE_TEST_ADS)
       ? 'ca-app-pub-3940256099942544/4411468910'
       : liveUnit(env.EXPO_PUBLIC_ADMOB_IOS_INTERSTITIAL_UNIT_ID, 'ca-app-pub-6362359854606661/XXXXXXXXXX'),
     /** Native Advanced (in-feed + shorts). Production: ca-app-pub-6362359854606661/3239601539 */
-    native: __DEV__
+    native: (__DEV__ || FORCE_TEST_ADS)
       ? 'ca-app-pub-3940256099942544/3986624511'
       : liveUnit(env.EXPO_PUBLIC_ADMOB_IOS_NATIVE_UNIT_ID, 'ca-app-pub-6362359854606661/3239601539'),
   },

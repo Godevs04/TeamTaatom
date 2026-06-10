@@ -80,12 +80,13 @@ async function deleteAllLocaleStorageObjects(locale) {
 const getLocales = async (req, res) => {
   try {
     // Backend Defensive Guards: Validate and sanitize query params
-    let { search, countryCode, stateCode, stateProvince, page = 1, limit = 50, includeInactive, spotType, spotTypes, lat, long, sort } = req.query;
+    let { search, countryCode, stateCode, stateProvince, page = 1, limit = 50, includeInactive, spotType, spotTypes, lat, long, sort, cursor } = req.query;
     
     // Validate and cap limit (max 50)
     const parsedLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 50);
     const parsedPage = Math.max(parseInt(page) || 1, 1);
     const skip = (parsedPage - 1) * parsedLimit;
+    const parsedCursor = parseFloat(cursor) || 0;
 
     // Backend Defensive Guards: Validate search query (prevent injection)
     if (search && typeof search !== 'string') {
@@ -218,6 +219,8 @@ const getLocales = async (req, res) => {
     // Note: country field removed from select to reduce payload (countryCode is sufficient)
     
     let locales;
+    let hasMore = false;
+    let nextCursor = null;
     
     if (sort === 'nearest' && lat !== undefined && long !== undefined) {
       const uLat = parseFloat(lat);
@@ -251,8 +254,19 @@ const getLocales = async (req, res) => {
         
         allLocales.sort((a, b) => a.distanceKm - b.distanceKm);
         
+        // Filter by cursor (distanceKm > parsedCursor)
+        let filteredLocales = allLocales;
+        if (parsedCursor > 0) {
+          filteredLocales = allLocales.filter(loc => loc.distanceKm > parsedCursor);
+        }
+        
         // Paginate manually
-        locales = allLocales.slice(skip, skip + parsedLimit);
+        locales = filteredLocales.slice(0, parsedLimit);
+        
+        hasMore = filteredLocales.length > parsedLimit;
+        if (hasMore && locales.length > 0) {
+          nextCursor = locales[locales.length - 1].distanceKm;
+        }
       }
     }
     
@@ -265,6 +279,8 @@ const getLocales = async (req, res) => {
         .limit(parsedLimit)
         .lean()
         .maxTimeMS(5000); // Prevent slow queries from hanging (>5s = timeout)
+        
+      hasMore = parsedPage < Math.ceil(await Locale.countDocuments(query).maxTimeMS(2000) / parsedLimit);
     }
     
     const mappedLocales = await Promise.all(locales.map(async (locale) => {
@@ -304,7 +320,9 @@ const getLocales = async (req, res) => {
         currentPage: parsedPage,
         totalPages: Math.ceil(total / parsedLimit),
         total,
-        limit: parsedLimit
+        limit: parsedLimit,
+        hasMore,
+        nextCursor
       }
     };
 

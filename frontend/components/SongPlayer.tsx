@@ -18,6 +18,7 @@ interface SongPlayerProps {
   externalMuted?: boolean;
   /** Called when this instance becomes the active player or stops (for Shorts to pause on tab/focus change) */
   onPlayingChange?: (sound: Audio.Sound | null) => void;
+  shouldPreload?: boolean;
 }
 
 /**
@@ -84,7 +85,7 @@ const cacheSongLocally = async (remoteUrl: string, forceRefresh: boolean = false
   }
 };
 
-function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPlayPause = false, externalMuted, onPlayingChange }: SongPlayerProps) {
+function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, autoPlay = false, showPlayPause = false, externalMuted, onPlayingChange }: SongPlayerProps) {
   const isFocused = useIsFocused();
   const isEffectiveVisible = isVisible && isFocused;
 
@@ -177,7 +178,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
   // hands us the new prop — before commit, before child effects run. A
   // useEffect-based sync leaves a brief race window during which an
   // in-flight loadAsync can resolve and decide it's still "visible".
-  isVisibleRef.current = isEffectiveVisible;
+  isVisibleRef.current = isEffectiveVisible || (shouldPreload && isFocused);
 
   // Cleanup on post change or unmount
   useEffect(() => {
@@ -221,6 +222,20 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
       soundRef.current.setIsMutedAsync(externalMuted).catch(() => {});
       soundRef.current.setVolumeAsync(externalMuted ? 0 : volume).catch(() => {});
     }
+  }, [externalMuted, volume]);
+
+  // Sync with global audioManager session mute updates
+  useEffect(() => {
+    const unsub = audioManager.addSessionMuteListener((muted) => {
+      // If externalMuted is controlled, respect it, otherwise fallback to global mute
+      const targetMute = externalMuted !== undefined ? externalMuted : muted;
+      setIsMuted(targetMute);
+      if (soundRef.current) {
+        soundRef.current.setIsMutedAsync(targetMute).catch(() => {});
+        soundRef.current.setVolumeAsync(targetMute ? 0 : volume).catch(() => {});
+      }
+    });
+    return unsub;
   }, [externalMuted, volume]);
 
   // Helper function to fetch fresh signed URL if needed
@@ -355,6 +370,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
           if (isMountedRef.current) setSound(null);
           return;
         }
+        audioManager.unfreeze();
         await audioManager.playSound(newSound, post._id.toString());
         onPlayingChange?.(newSound);
         preloadedRef.current = false;
@@ -468,8 +484,9 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
   useEffect(() => {
     // For shorts and home page: sync with visibility and autoPlay prop
     const audioUrl = song?.s3Url || (song as any)?.cloudinaryUrl || fetchedUrl;
-    if (isEffectiveVisible && !showPlayPause && audioUrl) {
-      if (autoPlay) {
+    const isPreloading = shouldPreload && isFocused;
+    if ((isEffectiveVisible || isPreloading) && !showPlayPause && audioUrl) {
+      if (autoPlay && isEffectiveVisible) {
         // Should play - play song
         const currentPostId = audioManager.getCurrentPostId();
         const wasPreloaded = preloadedRef.current;
@@ -499,12 +516,14 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
               if (wasPreloaded && post._id) {
                 logger.debug('[SONGPLAYER] Playing preloaded audio immediately for sync');
                 await soundRef.current?.playAsync().catch(() => {});
+                audioManager.unfreeze();
                 if (soundRef.current) await audioManager.playSound(soundRef.current, post._id.toString()).catch(() => {});
               } else if (post._id && currentPostId === post._id.toString()) {
                 logger.debug('[SONGPLAYER] Resuming same post audio immediately');
                 await soundRef.current?.playAsync().catch(() => {});
               } else if (post._id) {
                 logger.debug('[SONGPLAYER] Playing audio via audioManager');
+                audioManager.unfreeze();
                 if (soundRef.current) await audioManager.playSound(soundRef.current, post._id.toString());
               } else {
                 await soundRef.current?.playAsync().catch(() => {});
@@ -562,7 +581,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
     }
 
     // Pause (don't unload) when component becomes invisible — keeps audio for resume
-    if (!isEffectiveVisible && (!showPlayPause || !isFocused)) {
+    if (!isEffectiveVisible && !isPreloading && (!showPlayPause || !isFocused)) {
       loadTokenRef.current += 1;
       preloadedRef.current = false;
       if (soundRef.current) {
@@ -571,7 +590,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
         setIsPlaying(false);
       }
     }
-  }, [isEffectiveVisible, isFocused, autoPlay, showPlayPause, song?.s3Url, (song as any)?.cloudinaryUrl, fetchedUrl, loadAndPlaySong, post._id, onPlayingChange, externalMuted, isMuted, volume]);
+  }, [isEffectiveVisible, shouldPreload, isFocused, autoPlay, showPlayPause, song?.s3Url, (song as any)?.cloudinaryUrl, fetchedUrl, loadAndPlaySong, post._id, onPlayingChange, externalMuted, isMuted, volume]);
 
   const togglePlayPause = useCallback(async () => {
     logger.debug('Toggle play/pause - soundRef exists:', !!soundRef.current);
@@ -602,6 +621,7 @@ function SongPlayerComponent({ post, isVisible = true, autoPlay = false, showPla
           await soundRef.current?.setVolumeAsync(effectiveMuted ? 0 : volume).catch(() => {});
           // Use audioManager.playSound to ensure previous audio stops
           if (post._id && soundRef.current) {
+            audioManager.unfreeze();
             await audioManager.playSound(soundRef.current, post._id.toString());
           }
           setIsPlaying(true);

@@ -1464,20 +1464,37 @@ export default function HomeScreen() {
   // Frequency control: allow ads only after user has scrolled past 5th item (set once).
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: any[] }) => {
     if (viewableItems.length > 0) {
-      const visibleItem = viewableItems[0];
-      const newVisibleIndex = visibleItem.index;
-      const item = visibleItem.item as FeedItem;
-      if (newVisibleIndex !== null && newVisibleIndex !== undefined) {
-        setVisibleIndex(newVisibleIndex);
-        if (!hasScrolledRef.current && newVisibleIndex > 0) {
-          hasScrolledRef.current = true;
-        }
-        const threshold = __DEV__ ? 1 : 5;
-        if (!hasSetScrollThresholdRef.current && newVisibleIndex >= threshold) {
-          hasSetScrollThresholdRef.current = true;
-          setHasScrolledPastFifthPost(true);
-        }
+      // Find the most visible non-ad post
+      let bestItemToken = null;
+      let maxPercent = -1;
+
+      for (const token of viewableItems) {
+        const item = token.item;
         if (item && !isAdItem(item)) {
+          const percent = token.percentVisible ?? 0;
+          if (percent > maxPercent) {
+            maxPercent = percent;
+            bestItemToken = token;
+          }
+        }
+      }
+
+      // If we found a valid non-ad post, use it
+      if (bestItemToken) {
+        const item = bestItemToken.item as PostType;
+        const newVisibleIndex = bestItemToken.index;
+
+        if (newVisibleIndex !== null && newVisibleIndex !== undefined) {
+          setVisibleIndex(newVisibleIndex);
+          if (!hasScrolledRef.current && newVisibleIndex > 0) {
+            hasScrolledRef.current = true;
+          }
+          const threshold = __DEV__ ? 1 : 5;
+          if (!hasSetScrollThresholdRef.current && newVisibleIndex >= threshold) {
+            hasSetScrollThresholdRef.current = true;
+            setHasScrolledPastFifthPost(true);
+          }
+          
           const postId = item._id;
           setVisiblePostId(postId);
           
@@ -1510,14 +1527,26 @@ export default function HomeScreen() {
             }
             viewTimerRef.current = null;
           }, POST_VIEW_DWELL_MS);
-        } else {
-          // Clear any active timer if visible item is an ad or empty
-          if (viewTimerRef.current) {
-            clearTimeout(viewTimerRef.current);
-            viewTimerRef.current = null;
-          }
-          setVisiblePostId(null);
         }
+      } else {
+        // No non-ad post is viewable/visible (e.g. only ads on screen)
+        // Set visibleIndex to the first item's index if it exists, for tracking/ads threshold
+        const firstToken = viewableItems[0];
+        if (firstToken && firstToken.index !== null && firstToken.index !== undefined) {
+          setVisibleIndex(firstToken.index);
+          const threshold = __DEV__ ? 1 : 5;
+          if (!hasSetScrollThresholdRef.current && firstToken.index >= threshold) {
+            hasSetScrollThresholdRef.current = true;
+            setHasScrolledPastFifthPost(true);
+          }
+        }
+        
+        // Clear any active timer if visible item is an ad or empty
+        if (viewTimerRef.current) {
+          clearTimeout(viewTimerRef.current);
+          viewTimerRef.current = null;
+        }
+        setVisiblePostId(null);
       }
     } else {
       // Clear timer if no viewable items

@@ -1459,6 +1459,7 @@ export default function ProfileScreen() {
                 params: {
                   postId: item._id,
                   postData: JSON.stringify(item),
+                  index: String(index),
                 },
               });
             }}

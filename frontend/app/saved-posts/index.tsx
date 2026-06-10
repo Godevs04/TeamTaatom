@@ -29,11 +29,11 @@ const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
 const isWeb = Platform.OS === 'web';
 
-const getPostCardHeight = (post: any, isDark: boolean) => {
+const getPostCardHeight = (post: any) => {
   if (!post) return 580;
   
-  // 1. Container margin bottom (20) + glassCard borders (1 for dark, 3 for light)
-  let height = 20 + (isDark ? 1 : 3);
+  // 1. Container margin bottom (20) + glassCard borders (~1.5)
+  let height = 21.5;
   
   // 2. PostHeader
   let userDetailsHeight = 18; // username height
@@ -112,8 +112,7 @@ const isSavedItemUnavailable = (reason: any): boolean => {
 
 export default function SavedPostsScreen() {
   const { postId, postData, index } = useLocalSearchParams();
-  const { theme, mode } = useTheme();
-  const isDark = mode === 'dark' || theme.colors.background === '#0B1A2B' || theme.colors.background === '#000000';
+  const { theme } = useTheme();
   const router = useRouter();
   
   const initialPost = useRef<any>(null);
@@ -133,7 +132,6 @@ export default function SavedPostsScreen() {
   const shouldRestoreScrollRef = useRef(false);
 
   const [scrollIndex, setScrollIndex] = useState(index ? parseInt(index as string, 10) : 0);
-  const [isListReady, setIsListReady] = useState(false);
 
   const [visiblePostId, setVisiblePostId] = useState<string | null>(null);
   const visiblePostIdRef = useRef<string | null>(null);
@@ -190,14 +188,14 @@ export default function SavedPostsScreen() {
     
     let offset = 0;
     for (let i = 0; i < index; i++) {
-      offset += getPostCardHeight(data[i], isDark);
+      offset += getPostCardHeight(data[i]);
     }
     return {
-      length: getPostCardHeight(data[index], isDark),
+      length: getPostCardHeight(data[index]),
       offset,
       index,
     };
-  }, [isDark]);
+  }, []);
 
   const loadSavedPosts = useCallback(async () => {
     try {
@@ -286,17 +284,6 @@ export default function SavedPostsScreen() {
   }, [loadSavedPosts]);
 
   useEffect(() => {
-    if (!loading && posts.length > 0) {
-      const timer = setTimeout(() => {
-        setIsListReady(true);
-      }, 100);
-      return () => clearTimeout(timer);
-    } else {
-      setIsListReady(false);
-    }
-  }, [loading, posts]);
-
-  useEffect(() => {
     const unsubscribeLikes = realtimePostsService.subscribeToLikes(({ postId: likedPostId, isLiked, likesCount }) => {
       setPosts(prev => prev.map(post => (
         post._id === likedPostId
@@ -373,7 +360,7 @@ export default function SavedPostsScreen() {
       {posts.length > 0 ? (
         <FlatList
           ref={flatListRef}
-          style={[styles.postsList, !isListReady && { opacity: 0 }]}
+          style={styles.postsList}
           data={posts}
           keyExtractor={(item) => item._id}
           renderItem={renderPost}

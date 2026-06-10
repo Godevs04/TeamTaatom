@@ -4,6 +4,8 @@ export interface Coordinate {
   timestamp: number;
   accuracy: number;
   segmentBreak?: boolean;
+  speed?: number;
+  heading?: number;
 }
 
 export interface Journey {

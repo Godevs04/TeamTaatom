@@ -470,7 +470,6 @@ export default function ConnectHubScreen() {
     }
   };
 
-  // Find tab: search users
   const handleFindUsers = async () => {
     if (!selectedLanguage) return;
     try {
@@ -480,6 +479,7 @@ export default function ConnectHubScreen() {
         current_country: selectedCurrentCountry || undefined,
         travel_style: selectedTravelStyle || undefined,
         lang: selectedLanguage,
+        user_location: userLocationInput.trim() || undefined,
         page: 1,
         limit: 30,
       });

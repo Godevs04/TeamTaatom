@@ -115,4 +115,50 @@ describe('Map Matching HMM & Viterbi Decoder', () => {
     expect(matched[0].lat).toBe(15.0);
     expect(matched[0].lng).toBe(80.0);
   });
+
+  test('matchTrajectory: selects candidate aligning with GPS heading when intersecting roads are near', async () => {
+    const mockRoads = [
+      {
+        _id: 'road_ns_id',
+        osm_id: '333',
+        name: 'North-South Boulevard',
+        geometry: {
+          type: 'LineString',
+          coordinates: [[77.005, 12.0], [77.005, 12.1]] // Bearing 0 / 180 degrees
+        },
+        oneWay: false
+      },
+      {
+        _id: 'road_ew_id',
+        osm_id: '444',
+        name: 'East-West Highway',
+        geometry: {
+          type: 'LineString',
+          coordinates: [[77.0, 12.005], [77.1, 12.005]] // Bearing 90 / 270 degrees
+        },
+        oneWay: false
+      }
+    ];
+
+    findSpy = jest.spyOn(Road, 'find').mockImplementation(() => {
+      return {
+        limit: jest.fn().mockResolvedValue(mockRoads)
+      };
+    });
+
+    // GPS points moving North (heading: 0) near the intersection, slightly closer to the East-West road
+    // Point 1: slightly closer to EW road (distance ~22m) than NS road (distance ~33m)
+    // But since heading is 0, it should align and choose the NS road.
+    const rawPoints = [
+      { lat: 12.0048, lng: 77.0047, timestamp: new Date(), heading: 0 },
+      { lat: 12.0052, lng: 77.0047, timestamp: new Date(), heading: 0 }
+    ];
+
+    const matched = await matchTrajectory(rawPoints);
+
+    expect(matched.length).toBe(2);
+    // Should snap to North-South Boulevard (road_ns_id) rather than East-West Highway
+    expect(matched[0].roadId).toBe('road_ns_id');
+    expect(matched[1].roadId).toBe('road_ns_id');
+  });
 });

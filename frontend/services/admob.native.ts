@@ -5,6 +5,7 @@
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import logger from '../utils/logger';
+import { ADMOB } from '../constants/admob';
 
 let isInitialized = false;
 let initializeAdsPromise: Promise<void> | null = null;
@@ -32,12 +33,13 @@ export async function initializeAds(): Promise<void> {
 
   initializeAdsPromise = (async () => {
     try {
-      logger.info('[AdMob] Initializing SDK in environment:', { __DEV__ });
+      const isTestMode = __DEV__ || ADMOB.forceTestAds;
+      logger.info('[AdMob] Initializing SDK. Test mode:', { isTestMode, dev: __DEV__, forceTest: ADMOB.forceTestAds });
       const { default: MobileAds, AdsConsent, AdsConsentDebugGeography } = await import(
         'react-native-google-mobile-ads'
       );
 
-      const options = __DEV__
+      const options = isTestMode
         ? {
             debugGeography: AdsConsentDebugGeography.EEA,
             testDeviceIdentifiers: ['EMULATOR'] as string[],
@@ -57,7 +59,7 @@ export async function initializeAds(): Promise<void> {
       await consentFlowPromise;
 
       const mobileAds = MobileAds();
-      if (__DEV__) {
+      if (isTestMode) {
         logger.info('[AdMob] Configuring test device identifiers');
         await mobileAds.setRequestConfiguration({
           testDeviceIdentifiers: ['EMULATOR'],
@@ -67,7 +69,7 @@ export async function initializeAds(): Promise<void> {
       await mobileAds.initialize();
 
       isInitialized = true;
-      logger.info('[AdMob] SDK initialized successfully', { mode: __DEV__ ? 'test' : 'prod' });
+      logger.info('[AdMob] SDK initialized successfully', { mode: isTestMode ? 'test' : 'prod' });
     } catch (error: unknown) {
       logger.error('[AdMob] Init failed (non-blocking)', error);
     } finally {

@@ -26,7 +26,7 @@ export class KalmanFilter {
   ];
 
   // Process noise variance (expected physical velocity deviation in meters/second)
-  private readonly Q_metres_per_sec = 0.08;
+  private Q_metres_per_sec = 0.08;
   
   // Last measurement timestamp in ms
   private lastTimestamp: number = 0;
@@ -51,7 +51,7 @@ export class KalmanFilter {
    * @param timestamp Measurement timestamp in milliseconds.
    * @returns Smoothed latitude and longitude coordinates.
    */
-  public update(lat: number, lng: number, accuracy: number, timestamp: number): { latitude: number; longitude: number } {
+  public update(lat: number, lng: number, accuracy: number, timestamp: number, speed?: number): { latitude: number; longitude: number } {
     if (this.lastTimestamp === 0) {
       this.x = [lat, lng, 0, 0];
       this.lastTimestamp = timestamp;
@@ -63,6 +63,14 @@ export class KalmanFilter {
       return { latitude: this.x[0], longitude: this.x[1] };
     }
     this.lastTimestamp = timestamp;
+
+    // Adaptive process noise scale based on velocity (m/s)
+    let qBase = 0.08;
+    if (typeof speed === 'number' && speed > 0) {
+      // Scale Q quadratically with speed to adapt to higher vehicle accelerations
+      qBase = 0.08 * (1.0 + 0.15 * speed * speed);
+    }
+    this.Q_metres_per_sec = qBase;
 
     // --- 1. PREDICT PHASE ---
     // State transition F: x_pred = x + vel * dt

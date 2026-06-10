@@ -32,30 +32,38 @@ export const midnightGlassMapStyle = [
 ];
 
 export const calmMorningMapStyle = [
-  // Soft light oceans
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#7EAADB' }] },
-  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#4A7BB0' }] },
-  { featureType: 'water', elementType: 'labels.text.stroke', stylers: [{ color: '#F8FAFC' }, { weight: 2 }] },
+  // Landmasses - clean desaturated off-white/light gray (Uber-style)
+  { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#F2F2F2' }] },
+  
+  // Landcover / Natural areas (Forestry, forests, woodlands, vegetation) - soft premium green
+  { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#C2E2C9' }] },
+  { featureType: 'landscape.natural.landcover', elementType: 'geometry', stylers: [{ color: '#C2E2C9' }] },
+  
+  // Water - beautiful dark navy blue
+  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#1D3557' }] },
+  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#A8DAD4' }] },
+  { featureType: 'water', elementType: 'labels.text.stroke', stylers: [{ color: '#1D3557' }, { weight: 2 }] },
 
-  // Landmasses - clean light gray/white
-  { featureType: 'landscape', elementType: 'geometry', stylers: [{ color: '#F1F5F9' }] },
-  { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#D2F1D2' }] },
-  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#A3D9A5' }] },
+  // Parks and green spaces - lush green
+  { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#A3D9B5' }] },
+  { featureType: 'poi.park', elementType: 'labels.text.fill', stylers: [{ color: '#3E5C45' }] },
 
-  // Country Borders - minimal and clean
-  { featureType: 'administrative.country', elementType: 'geometry.stroke', stylers: [{ color: '#E2E8F0' }, { weight: 0.8 }] },
+  // Country and Locality Borders - minimal and desaturated
+  { featureType: 'administrative.country', elementType: 'geometry.stroke', stylers: [{ color: '#E2E8F0' }, { weight: 1.0 }] },
   { featureType: 'administrative.province', elementType: 'geometry.stroke', stylers: [{ visibility: 'off' }] },
 
-  // Typography - soft slate text
-  { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#475569' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#FFFFFF' }, { weight: 2 }] },
-  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#334155' }] },
-
-  // Roads - light, unobtrusive
+  // Roads - clean white with very light desaturated borders
   { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#FFFFFF' }] },
-  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#E2E8F0' }, { weight: 0.5 }] },
+  { featureType: 'road', elementType: 'geometry.stroke', stylers: [{ color: '#E5E9EC' }, { weight: 0.6 }] },
   { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#FFFFFF' }] },
+  { featureType: 'road.highway', elementType: 'geometry.stroke', stylers: [{ color: '#DFE4E8' }, { weight: 0.8 }] },
+  { featureType: 'road.arterial', elementType: 'geometry', stylers: [{ color: '#FFFFFF' }] },
+
+  // Labels & Typography - clean desaturated slate
+  { elementType: 'labels.icon', stylers: [{ visibility: 'off' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#526071' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#FFFFFF' }, { weight: 2 }] },
+  { featureType: 'administrative.locality', elementType: 'labels.text.fill', stylers: [{ color: '#2C3E50' }] },
 
   // Suppress POIs and Transit
   { featureType: 'poi', stylers: [{ visibility: 'off' }] },

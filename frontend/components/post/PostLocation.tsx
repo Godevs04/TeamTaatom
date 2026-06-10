@@ -42,6 +42,7 @@ export default function PostLocation({ post }: PostLocationProps) {
             latitude: storedLat!.toString(),
             longitude: storedLng!.toString(),
             address: address || '',
+            photo: post.imageUrl || '',
           }
         });
         return;
@@ -61,6 +62,7 @@ export default function PostLocation({ post }: PostLocationProps) {
             latitude: coordinates.latitude.toString(),
             longitude: coordinates.longitude.toString(),
             address,
+            photo: post.imageUrl || '',
           }
         });
         return;
@@ -81,6 +83,7 @@ export default function PostLocation({ post }: PostLocationProps) {
               address,
               approximateLabel: broaderQuery,
               isApproximate: 'true',
+              photo: post.imageUrl || '',
             }
           });
           return;

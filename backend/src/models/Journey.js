@@ -63,6 +63,14 @@ const journeySchema = new mongoose.Schema({
       segmentBreak: {
         type: Boolean,
         default: false
+      },
+      speed: {
+        type: Number,
+        required: false
+      },
+      heading: {
+        type: Number,
+        required: false
       }
     }
   ],
@@ -102,6 +110,14 @@ const journeySchema = new mongoose.Schema({
         segmentBreak: {
           type: Boolean,
           default: false
+        },
+        speed: {
+          type: Number,
+          required: false
+        },
+        heading: {
+          type: Number,
+          required: false
         }
       }
     ],
@@ -122,7 +138,9 @@ const journeySchema = new mongoose.Schema({
             lng: p.lng,
             timestamp: rawP ? rawP.timestamp : new Date(),
             accuracy: rawP ? rawP.accuracy : 0,
-            segmentBreak: rawP ? rawP.segmentBreak : false
+            segmentBreak: rawP ? rawP.segmentBreak : false,
+            speed: rawP && rawP.speed !== undefined ? rawP.speed : undefined,
+            heading: rawP && rawP.heading !== undefined ? rawP.heading : undefined
           };
         });
       }

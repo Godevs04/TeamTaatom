@@ -9,6 +9,39 @@ const MAX_SEARCH_RADIUS = 30.0; // Max radius (meters) to query candidate road s
 const MIN_PROBABILITY = 1e-12;
 
 /**
+ * Calculates straight-line compass bearing between two points in degrees (0-360).
+ */
+function calculateSegmentBearing(aLat, aLng, bLat, bLng) {
+  const avgLat = (aLat + bLat) / 2.0;
+  const radLat = (avgLat * Math.PI) / 180.0;
+  const cosLat = Math.cos(radLat);
+
+  const dx = (bLng - aLng) * 111320.0 * cosLat;
+  const dy = (bLat - aLat) * 111320.0;
+
+  let bearing = Math.atan2(dx, dy) * (180.0 / Math.PI);
+  if (bearing < 0) {
+    bearing += 360.0;
+  }
+  return bearing;
+}
+
+/**
+ * Calculates absolute difference between GPS heading and road segment bearing.
+ * Accounts for bidirectional travel on two-way roads.
+ */
+function getHeadingDifference(gpsHeading, roadBearing, isOneWay) {
+  const diff = Math.abs(gpsHeading - roadBearing) % 360;
+  const delta = diff > 180 ? 360 - diff : diff;
+  
+  if (isOneWay) {
+    return delta;
+  } else {
+    return delta > 90 ? 180 - delta : delta;
+  }
+}
+
+/**
  * Estimates driving routing distance between two snapped candidate locations.
  * If candidates reside on the same OSM road segment, it calculates straight-line distance.
  * If they reside on different roads, it approximates routing distance using a Manhattan/topological scale factor.
@@ -28,14 +61,18 @@ function estimateRoutingDistance(cPrev, cCurr) {
   return linearDist * 1.35;
 }
 
-function emissionProbability(distance) {
-  const probability = Math.exp(-0.5 * (distance / SIGMA_Z) ** 2) / (SIGMA_Z * Math.sqrt(2 * Math.PI));
+function emissionProbability(distance, headingDiff) {
+  let probability = Math.exp(-0.5 * (distance / SIGMA_Z) ** 2) / (SIGMA_Z * Math.sqrt(2 * Math.PI));
+  if (headingDiff !== null && headingDiff !== undefined) {
+    const sigmaHeading = 25.0; // Heading tolerance standard deviation
+    probability *= Math.exp(-0.5 * (headingDiff / sigmaHeading) ** 2);
+  }
   return Math.max(probability, MIN_PROBABILITY);
 }
 
-function transitionProbability(greatCircleDistance, routeDistance) {
+function transitionProbability(greatCircleDistance, routeDistance, beta = BETA) {
   const distanceDelta = Math.abs(greatCircleDistance - routeDistance);
-  const probability = Math.exp(-distanceDelta / BETA) / BETA;
+  const probability = Math.exp(-distanceDelta / beta) / beta;
   return Math.max(probability, MIN_PROBABILITY);
 }
 
@@ -76,13 +113,16 @@ async function findCandidates(lat, lng) {
         const bLat = coords[i+1][1];
 
         const projection = projectPointToSegment(lat, lng, aLat, aLng, bLat, bLng);
+        const segmentBearing = calculateSegmentBearing(aLat, aLng, bLat, bLng);
         candidates.push({
           lat: projection.lat,
           lng: projection.lng,
           distance: projection.distance,
           roadId: road._id.toString(),
           osmId: road.osm_id,
-          roadName: road.name || 'Unnamed Road'
+          roadName: road.name || 'Unnamed Road',
+          bearing: segmentBearing,
+          oneWay: road.oneWay === true
         });
       }
     }
@@ -106,7 +146,14 @@ async function matchTrajectory(rawPoints) {
   if (rawPoints.length === 1) {
     const candidates = await findCandidates(rawPoints[0].lat, rawPoints[0].lng);
     return candidates.length > 0 
-      ? [{ lat: candidates[0].lat, lng: candidates[0].lng, timestamp: rawPoints[0].timestamp }] 
+      ? [{
+          lat: candidates[0].lat,
+          lng: candidates[0].lng,
+          timestamp: rawPoints[0].timestamp,
+          segmentBreak: rawPoints[0].segmentBreak || false,
+          speed: rawPoints[0].speed,
+          heading: rawPoints[0].heading
+        }] 
       : [rawPoints[0]];
   }
 
@@ -124,7 +171,9 @@ async function matchTrajectory(rawPoints) {
         roadId: 'fallback',
         osmId: 'fallback',
         roadName: 'Raw Path',
-        source: 'raw'
+        source: 'raw',
+        bearing: null,
+        oneWay: false
       });
     }
     timelineCandidates.push(cands);
@@ -137,7 +186,10 @@ async function matchTrajectory(rawPoints) {
 
   // 2. Base Case: Initialization (t = 0)
   timelineCandidates[0].forEach((cand, idx) => {
-    V[0][idx] = Math.log(emissionProbability(cand.distance));
+    const headingDiff = (rawPoints[0].heading !== undefined && rawPoints[0].heading !== null && cand.bearing !== null && cand.bearing !== undefined)
+      ? getHeadingDifference(rawPoints[0].heading, cand.bearing, cand.oneWay)
+      : null;
+    V[0][idx] = Math.log(emissionProbability(cand.distance, headingDiff));
     backpointers[0][idx] = null;
   });
 
@@ -146,9 +198,13 @@ async function matchTrajectory(rawPoints) {
     const prevCands = timelineCandidates[t - 1];
     const currCands = timelineCandidates[t];
     const dGcd = calculateHaversine(rawPoints[t-1].lat, rawPoints[t-1].lng, rawPoints[t].lat, rawPoints[t].lng);
+    const adaptiveBeta = Math.max(BETA, dGcd * 0.15);
 
     currCands.forEach((curr, currIdx) => {
-      const emissionLog = Math.log(emissionProbability(curr.distance));
+      const headingDiff = (rawPoints[t].heading !== undefined && rawPoints[t].heading !== null && curr.bearing !== null && curr.bearing !== undefined)
+        ? getHeadingDifference(rawPoints[t].heading, curr.bearing, curr.oneWay)
+        : null;
+      const emissionLog = Math.log(emissionProbability(curr.distance, headingDiff));
       let maxScore = Number.NEGATIVE_INFINITY;
       let bestPrevIdx = 0;
 
@@ -157,7 +213,7 @@ async function matchTrajectory(rawPoints) {
         
         // Compute Transition Probability (exponential distribution matching relative distances)
         const dRoute = estimateRoutingDistance(prev, curr);
-        const transitionLog = Math.log(transitionProbability(dGcd, dRoute));
+        const transitionLog = Math.log(transitionProbability(dGcd, dRoute, adaptiveBeta));
 
         const totalScore = prevScore + transitionLog + emissionLog;
         if (totalScore > maxScore) {
@@ -205,7 +261,9 @@ async function matchTrajectory(rawPoints) {
       osmId: candidate.osmId,
       roadName: candidate.roadName,
       source: candidate.roadId === 'fallback' ? 'raw' : 'matched',
-      confidence: candidateConfidence(candidate)
+      confidence: candidateConfidence(candidate),
+      speed: rawPoints[t].speed,
+      heading: rawPoints[t].heading
     });
     currIdx = backpointers[t][currIdx];
   }

@@ -800,6 +800,12 @@ export default function PostScreen() {
 
   // Enhanced draft recovery: restore all metadata including music selection
   const loadDraft = async () => {
+    // If the user already has media selected in the current session, do not show the restore prompt.
+    if (selectedImages.length > 0 || selectedVideo) {
+      logger.debug('Skipping draft recovery: media already selected in current session');
+      return;
+    }
+
     try {
       const draftJson = await AsyncStorage.getItem(DRAFT_KEY);
       if (!draftJson) return;
@@ -1010,6 +1016,11 @@ export default function PostScreen() {
     };
   }, []);
 
+  const isFocusedRefVal = useRef(isFocused);
+  useEffect(() => {
+    isFocusedRefVal.current = isFocused;
+  }, [isFocused]);
+
   // Navigation lifecycle safety: cancel upload and stop audio/video on screen blur
   useFocusEffect(
     useCallback(() => {
@@ -1023,6 +1034,9 @@ export default function PostScreen() {
 
       // On screen blur, cancel upload if active and clear focus flag
       return () => {
+        // If the screen is still focused, this is a callback recreation, not a real blur.
+        if (isFocusedRefVal.current) return;
+
         isFocusedRef.current = false;
         if (uploadSessionRef.current.isActive) {
           logger.debug('Screen blurred during upload, cancelling');
