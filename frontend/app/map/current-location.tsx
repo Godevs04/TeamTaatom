@@ -25,7 +25,7 @@ import { calculateDistance } from '../../utils/locationUtils';
 import GlassMapPanel from '../../components/GlassMapPanel';
 import PremiumMapMarker from '../../components/PremiumMapMarker';
 import PolylineRenderer from '../../components/PolylineRenderer';
-import { DirectionsRoute, getManeuverIcon } from '../../services/directions';
+import { DirectionsRoute, getManeuverIcon, fetchDirectionsRoute } from '../../services/directions';
 import { useMapStyle } from '../../hooks/useMapStyle';
 import logger from '../../utils/logger';
 import { BlurView } from 'expo-blur';
@@ -516,13 +516,21 @@ export default function CurrentLocationMap() {
 
       // Route calculation is now delegated to the Maps JS SDK inside the WebView
       // Trigger calculation dynamically without reloading the WebView
-      if (mapRef.current && useWebViewFallback) {
-        mapRef.current.injectJavaScript(`
-          if (typeof window.calculateRoute === 'function') {
-            window.calculateRoute();
-          }
-          true;
-        `);
+      if (useWebViewFallback) {
+        if (mapRef.current) {
+          mapRef.current.injectJavaScript(`
+            if (typeof window.calculateRoute === 'function') {
+              window.calculateRoute();
+            }
+            true;
+          `);
+        }
+      } else {
+        const fetchedRoute = await fetchDirectionsRoute(coords, { latitude: postLatitude, longitude: postLongitude });
+        if (fetchedRoute) {
+           setRoute(fetchedRoute);
+        }
+        setRouteLoading(false);
       }
     } catch (err) {
       logger.error('Failed to init route state:', err);

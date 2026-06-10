@@ -71,8 +71,82 @@ export function stripHtmlInstruction(value: string): string {
     .trim();
 }
 
-// Directions API usage has been removed to conserve quota.
-// Routes are now calculated entirely on the client-side within Google Maps JavaScript SDK WebView instances.
+// Directions API usage on Android has been removed to conserve quota (uses WebView JS SDK instead).
+// For iOS (native maps without WebView fallback), this server-side fetch is still required.
+export async function fetchDirectionsRoute(
+  origin: MapCoordinate,
+  destination: MapCoordinate,
+  mode: 'driving' | 'walking' | 'bicycling' | 'transit' = 'driving'
+): Promise<DirectionsRoute | null> {
+  const apiKey = getGoogleMapsWebApiKey();
+  if (!apiKey) return null;
+
+  const cacheKey = [
+    mode,
+    origin.latitude.toFixed(5),
+    origin.longitude.toFixed(5),
+    destination.latitude.toFixed(5),
+    destination.longitude.toFixed(5),
+  ].join(':');
+
+  const cached = directionsCache.get(cacheKey);
+  if (cached) return cached;
+
+  try {
+    const url =
+      `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.latitude},${origin.longitude}` +
+      `&destination=${destination.latitude},${destination.longitude}&mode=${mode}&key=${apiKey}`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.status !== 'OK' || !data.routes?.[0]) {
+      logger.warn('[Directions] Unable to fetch route', { status: data.status, message: data.error_message });
+      return null;
+    }
+
+    const route = data.routes[0];
+    const leg = route.legs?.[0];
+    
+    let coordinates: MapCoordinate[] = [];
+    if (leg?.steps && leg.steps.length > 0) {
+      for (const step of leg.steps) {
+        if (step.polyline?.points) {
+          const stepCoords = decodeGooglePolyline(step.polyline.points);
+          coordinates = coordinates.concat(stepCoords);
+        }
+      }
+    }
+    if (coordinates.length === 0 && route.overview_polyline?.points) {
+      coordinates = decodeGooglePolyline(route.overview_polyline.points);
+    }
+
+    const steps: DirectionStep[] = (leg?.steps || []).map((step: any) => ({
+      instruction: stripHtmlInstruction(step.html_instructions || ''),
+      distanceText: step.distance?.text || '',
+      durationText: step.duration?.text || '',
+      maneuver: step.maneuver || 'straight',
+      endLocation: {
+        latitude: step.end_location?.lat || destination.latitude,
+        longitude: step.end_location?.lng || destination.longitude,
+      },
+    }));
+
+    const parsed: DirectionsRoute = {
+      coordinates,
+      steps,
+      distanceText: leg?.distance?.text || '',
+      durationText: leg?.duration?.text || '',
+      distanceValue: leg?.distance?.value || 0,
+    };
+
+    directionsCache.set(cacheKey, parsed);
+    return parsed;
+  } catch (error) {
+    logger.warn('[Directions] Request failed', error);
+    return null;
+  }
+}
+
 export function getManeuverIcon(maneuver?: string): ComponentProps<typeof Ionicons>['name'] {
   if (!maneuver) return 'arrow-up';
   if (maneuver.includes('left')) return 'arrow-back';
