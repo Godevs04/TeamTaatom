@@ -33,6 +33,36 @@ const getStableCacheKey = (url?: string | null): string | undefined => {
 // aspect — visible as feed jitter, especially when scrolling pauses.
 const naturalAspectCache: Map<string, number> = new Map();
 
+export const getImageAspectRatio = (post: any): number => {
+  if (!post) return 1;
+  if (!post.aspectRatio || post.aspectRatio === 'full') {
+    const key = getStableCacheKey(post.imageUrl);
+    return key ? (naturalAspectCache.get(key) ?? 1) : 1;
+  }
+  if (post.aspectRatio === '1:1') return 1;
+  
+  const rawAspect = post.aspectRatio;
+  if (rawAspect === '1.91:1' || rawAspect === '1.91') return 1.91;
+  
+  if (typeof rawAspect === 'string') {
+    if (rawAspect.includes(':')) {
+      const parts = rawAspect.split(':');
+      const w = parseFloat(parts[0]);
+      const h = parseFloat(parts[1]);
+      if (!isNaN(w) && !isNaN(h) && h !== 0) {
+        return w / h;
+      }
+    }
+    const parsedFloat = parseFloat(rawAspect);
+    if (!isNaN(parsedFloat) && parsedFloat > 0) {
+      return parsedFloat;
+    }
+  } else if (typeof rawAspect === 'number' && rawAspect > 0) {
+    return rawAspect;
+  }
+  return 1;
+};
+
 interface CarouselItemProps {
   item: string;
   index: number;

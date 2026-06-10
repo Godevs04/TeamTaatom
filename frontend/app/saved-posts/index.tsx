@@ -10,7 +10,7 @@ import {
   Dimensions,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import NavBar from '../../components/NavBar';
@@ -21,13 +21,63 @@ import { createLogger } from '../../utils/logger';
 import { PostType } from '../../types/post';
 import { realtimePostsService } from '../../services/realtimePosts';
 import { savedEvents } from '../../utils/savedEvents';
-
-const logger = createLogger('SavedPostsScreen');
+import { audioManager } from '../../utils/audioManager';
+import { getImageAspectRatio } from '../../components/post/PostImage';
 
 // Platform-specific constants
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
 const isWeb = Platform.OS === 'web';
+
+const getPostCardHeight = (post: any) => {
+  if (!post) return 580;
+  
+  // 1. Container margin bottom (20) + glassCard borders (~1.5)
+  let height = 21.5;
+  
+  // 2. PostHeader
+  let userDetailsHeight = 18; // username height
+  if (post.song?.songId) {
+    userDetailsHeight += 22; // song info height
+  }
+  if (post.location?.address) {
+    userDetailsHeight += 18; // location info height
+  }
+  const headerHeight = Math.max(40, userDetailsHeight) + 24;
+  height += headerHeight;
+  
+  // 3. PostImage
+  const containerWidth = screenWidth - 32; // marginHorizontal 16 on each side
+  const aspect = getImageAspectRatio(post);
+  height += containerWidth / aspect;
+  
+  // 4. PostActions
+  height += 48; // 24 icon + 8 button padding + 16 actions padding
+  
+  // 5. PostLikesCount
+  const likesCount = post.likesCount || 0;
+  const commentsCount = Array.isArray(post.comments) ? post.comments.length : 0;
+  if (likesCount > 0 || commentsCount > 0) {
+    height += 22; // 18 height + 4 paddingBottom
+  }
+  
+  // 6. PostCaption
+  if (post.caption) {
+    const text = `${post.user?.fullName || 'Unknown User'} ${post.caption}`;
+    const paragraphs = text.split('\n');
+    const charsPerLine = Math.floor((screenWidth - 64) / 8.2);
+    let lines = 0;
+    for (const para of paragraphs) {
+      lines += Math.max(1, Math.ceil(para.length / charsPerLine));
+    }
+    lines = Math.min(3, lines);
+    height += lines * 20 + 16; // lines * lineHeight (20) + vertical padding (6 paddingTop + 10 paddingBottom)
+  }
+  
+  return height;
+};
+
+const logger = createLogger('SavedPostsScreen');
 
 const readSavedIds = async (key: 'savedShorts' | 'savedPosts'): Promise<string[]> => {
   try {
@@ -78,14 +128,74 @@ export default function SavedPostsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const flatListRef = useRef<FlatList>(null);
+  const scrollOffsetRef = useRef(0);
+  const shouldRestoreScrollRef = useRef(false);
 
-  const initialIndex = index ? parseInt(index as string, 10) : 0;
+  const [scrollIndex, setScrollIndex] = useState(index ? parseInt(index as string, 10) : 0);
 
-  const getItemLayout = useCallback((_data: any, index: number) => ({
-    length: 580,
-    offset: 580 * index,
-    index,
-  }), []);
+  const [visiblePostId, setVisiblePostId] = useState<string | null>(null);
+  const visiblePostIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    visiblePostIdRef.current = visiblePostId;
+  }, [visiblePostId]);
+
+  const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: any[] }) => {
+    if (viewableItems.length > 0) {
+      let maxPercent = -1;
+      let visibleItem = null;
+      for (const token of viewableItems) {
+        const percent = token.percentVisible ?? 0;
+        if (percent > maxPercent) {
+          maxPercent = percent;
+          visibleItem = token.item;
+        }
+      }
+      if (visibleItem) {
+        setVisiblePostId(visibleItem._id);
+      }
+    }
+  }, []);
+
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 50,
+    minimumViewTime: 200,
+  }).current;
+
+  useFocusEffect(
+    useCallback(() => {
+      if (shouldRestoreScrollRef.current && scrollOffsetRef.current > 0) {
+        requestAnimationFrame(() => {
+          flatListRef.current?.scrollToOffset({ offset: scrollOffsetRef.current, animated: false });
+        });
+        shouldRestoreScrollRef.current = false;
+      }
+      
+      // Unfreeze audio on focus
+      audioManager.unfreeze();
+
+      return () => {
+        shouldRestoreScrollRef.current = true;
+        audioManager.freeze(3000);
+        audioManager.stopAll().catch((error) => {
+          logger.error('Error stopping audio on blur:', error);
+        });
+      };
+    }, [])
+  );
+
+  const getItemLayout = useCallback((data: any, index: number) => {
+    if (!data) return { length: 580, offset: 580 * index, index };
+    
+    let offset = 0;
+    for (let i = 0; i < index; i++) {
+      offset += getPostCardHeight(data[i]);
+    }
+    return {
+      length: getPostCardHeight(data[index]),
+      offset,
+      index,
+    };
+  }, []);
 
   const loadSavedPosts = useCallback(async () => {
     try {
@@ -147,15 +257,27 @@ export default function SavedPostsScreen() {
       
       const orderedItems = uniqueIds
         .map(id => itemMap.get(id))
-        .filter((item): item is PostType => !!item);
+        .filter((item): item is PostType => !!item && item.type !== 'short' && !item.videoUrl);
       setPosts(orderedItems);
+
+      // Resolve scroll target index based on clicked postId
+      if (postId) {
+        const foundIdx = orderedItems.findIndex(p => p._id === postId);
+        if (foundIdx !== -1) {
+          setScrollIndex(foundIdx);
+        } else if (index) {
+          setScrollIndex(parseInt(index as string, 10));
+        }
+      } else if (index) {
+        setScrollIndex(parseInt(index as string, 10));
+      }
     } catch (error) {
       logger.error('Error loading saved posts:', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [postId]);
+  }, [postId, index]);
 
   useEffect(() => {
     loadSavedPosts();
@@ -206,7 +328,7 @@ export default function SavedPostsScreen() {
       post={item}
       onRefresh={loadSavedPosts}
       isVisible={true}
-      isCurrentlyVisible={false}
+      isCurrentlyVisible={visiblePostId === item._id}
       showBookmark={true}
     />
   );
@@ -242,8 +364,15 @@ export default function SavedPostsScreen() {
           data={posts}
           keyExtractor={(item) => item._id}
           renderItem={renderPost}
-          initialScrollIndex={initialIndex}
+          initialScrollIndex={scrollIndex}
           getItemLayout={getItemLayout}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
+          onScroll={(e) => {
+            if (e.target !== e.currentTarget) return;
+            scrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={16}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -256,19 +385,25 @@ export default function SavedPostsScreen() {
           contentContainerStyle={{ paddingBottom: 20 }}
           onScrollToIndexFailed={(info) => {
             logger.debug('Scroll to index failed, applying offset fallback:', info);
-            const offset = info.averageItemLength * info.index;
-            flatListRef.current?.scrollToOffset({ offset, animated: false });
-            setTimeout(() => {
-              try {
-                flatListRef.current?.scrollToIndex({
-                  index: info.index,
-                  animated: false,
-                  viewPosition: 0,
-                });
-              } catch (e) {
-                logger.error('Scroll fallback failed:', e);
-              }
-            }, 50);
+            try {
+              const layout = getItemLayout(posts, info.index);
+              flatListRef.current?.scrollToOffset({ offset: layout.offset, animated: false });
+              
+              // Secondary reinforcement within the render frame lifecycle
+              requestAnimationFrame(() => {
+                try {
+                  flatListRef.current?.scrollToIndex({
+                    index: info.index,
+                    animated: false,
+                    viewPosition: 0,
+                  });
+                } catch (err) {
+                  logger.debug('Secondary scrollToIndex failed:', err);
+                }
+              });
+            } catch (e) {
+              logger.error('Scroll fallback failed:', e);
+            }
           }}
         />
       ) : null}
