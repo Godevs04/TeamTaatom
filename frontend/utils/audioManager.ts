@@ -6,7 +6,7 @@ class AudioManager {
   currentSound: Audio.Sound | null = null;
   currentPostId: string | null = null;
   /** Session-wide mute for feed post audio (persists across posts until toggled). */
-  private sessionMuted = true;
+  private sessionMuted = false;
   private sessionMuteListeners: Set<(muted: boolean) => void> = new Set();
   // When frozen, playSound refuses to start playback and unloads the incoming
   // sound instead. Used by screens (e.g. Shorts) during their tab-blur cleanup

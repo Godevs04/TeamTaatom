@@ -207,6 +207,10 @@ export default function ConnectPageDetailScreen() {
   const [buyerPhone, setBuyerPhone] = useState('');
   const [deliveryAddress, setDeliveryAddress] = useState('');
   const [checkingOut, setCheckingOut] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  const [buyerNameTouched, setBuyerNameTouched] = useState(false);
+  const [buyerPhoneTouched, setBuyerPhoneTouched] = useState(false);
+  const [deliveryAddressTouched, setDeliveryAddressTouched] = useState(false);
   // Stores the pending buy order so onVerify can mark it paid
   const pendingBuyOrderRef = useRef<{ orderId: string; cashfreeOrderId: string; pageId: string } | null>(null);
 
@@ -284,6 +288,10 @@ export default function ConnectPageDetailScreen() {
             setBuyerName('');
             setBuyerPhone('');
             setDeliveryAddress('');
+            setCheckoutError(null);
+            setBuyerNameTouched(false);
+            setBuyerPhoneTouched(false);
+            setDeliveryAddressTouched(false);
             showSuccess('Your payment is complete. Order placed!', 'Order confirmed');
             return;
           }
@@ -477,35 +485,45 @@ export default function ConnectPageDetailScreen() {
 
   const handleBuyItem = async () => {
     if (!selectedItem) return;
-    if (!buyerName.trim()) {
-      Alert.alert('Validation Error', 'Please enter your name.');
-      return;
-    }
-    if (!buyerPhone.trim()) {
-      Alert.alert('Validation Error', 'Please enter your phone number.');
-      return;
-    }
-    if (!deliveryAddress.trim()) {
-      Alert.alert('Validation Error', 'Please enter your delivery address.');
+    
+    // Set all fields as touched to trigger any validation indicators
+    setBuyerNameTouched(true);
+    setBuyerPhoneTouched(true);
+    setDeliveryAddressTouched(true);
+
+    const isFormValid = 
+      buyerName.trim().length >= 2 && 
+      buyerPhone.trim().length === 10 && 
+      /^\d{10}$/.test(buyerPhone.trim()) && 
+      deliveryAddress.trim().length >= 10;
+
+    if (!isFormValid) {
+      setCheckoutError('Please resolve the errors below before placing your order.');
       return;
     }
 
     if (!isCashfreeNativeAvailable) {
-      Alert.alert(
-        'Dev build required',
-        'Payments need the Cashfree native module, which is not available in Expo Go. Use a development build to complete purchases.',
-      );
+      setCheckoutError('Payments need the Cashfree native module, which is not available in Expo Go. Use a development build to complete purchases.');
       return;
     }
 
+    setCheckoutError(null);
     try {
       setCheckingOut(true);
-      const result = await createBuyOrder(id, {
-        itemId: selectedItem._id,
-        buyerName: buyerName.trim(),
-        buyerPhone: buyerPhone.trim(),
-        deliveryAddress: deliveryAddress.trim(),
-      });
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Payment gateway timeout. Please try again.')), 15000)
+      );
+
+      const result = (await Promise.race([
+        createBuyOrder(id, {
+          itemId: selectedItem._id,
+          buyerName: buyerName.trim(),
+          buyerPhone: buyerPhone.trim(),
+          deliveryAddress: deliveryAddress.trim(),
+        }),
+        timeoutPromise
+      ])) as any;
 
       // Store pending order ref so onVerify knows to call verifyBuyOrder
       pendingBuyOrderRef.current = {
@@ -523,7 +541,7 @@ export default function ConnectPageDetailScreen() {
       CFPaymentGatewayService.doPayment(session);
     } catch (error: any) {
       logger.error('Failed to initiate buy payment:', error);
-      Alert.alert('Error', error.message || 'Failed to initiate payment. Please try again.');
+      setCheckoutError(error.message || 'Failed to initiate payment. Please try again.');
     } finally {
       setCheckingOut(false);
     }
@@ -889,6 +907,30 @@ export default function ConnectPageDetailScreen() {
       </View>
     );
   }
+
+  const isFormValid = 
+    buyerName.trim().length >= 2 && 
+    buyerPhone.trim().length === 10 && 
+    /^\d{10}$/.test(buyerPhone.trim()) && 
+    deliveryAddress.trim().length >= 10;
+
+  const nameError = buyerNameTouched && buyerName.trim().length === 0
+    ? "Name is required."
+    : buyerNameTouched && buyerName.trim().length < 2
+    ? "Name must be at least 2 characters."
+    : null;
+
+  const phoneError = buyerPhoneTouched && buyerPhone.trim().length === 0
+    ? "Phone number is required."
+    : buyerPhoneTouched && (!/^\d+$/.test(buyerPhone.trim()) || buyerPhone.trim().length !== 10)
+    ? "Please enter a valid 10-digit phone number."
+    : null;
+
+  const addressError = deliveryAddressTouched && deliveryAddress.trim().length === 0
+    ? "Delivery address is required."
+    : deliveryAddressTouched && deliveryAddress.trim().length < 10
+    ? "Address must be at least 10 characters."
+    : null;
 
   const ownerName = typeof page.userId === 'object' && page.userId ? page.userId.fullName : '';
   const currSym = getCurrencySymbol(page.subscriptionCurrency || 'INR');
@@ -1889,6 +1931,19 @@ export default function ConnectPageDetailScreen() {
             </View>
 
             <ScrollView style={styles.modalScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              {checkoutError ? (
+                <View style={{
+                  backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                  borderColor: 'rgba(239, 68, 68, 0.3)',
+                  borderWidth: 1,
+                  borderRadius: 12,
+                  padding: 12,
+                  marginBottom: 16,
+                }}>
+                  <Text style={{ color: '#EF4444', fontSize: 13, fontFamily: getFontFamily('500') }}>{checkoutError}</Text>
+                </View>
+              ) : null}
+
               <Text style={[styles.inputLabel, { color: theme.colors.text, fontFamily: getFontFamily('500') }]}>Your Name</Text>
               <TextInput
                 style={[
@@ -1896,15 +1951,18 @@ export default function ConnectPageDetailScreen() {
                   {
                     color: theme.colors.text,
                     backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
-                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    borderColor: nameError ? '#EF4444' : (isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'),
                     fontFamily: getFontFamily('400')
                   }
                 ]}
                 value={buyerName}
-                onChangeText={setBuyerName}
+                onChangeText={(text) => { setBuyerName(text); setBuyerNameTouched(true); }}
                 placeholder="Enter your full name"
                 placeholderTextColor={isDark ? '#71717A' : '#A1A1AA'}
               />
+              {nameError ? (
+                <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4, fontFamily: getFontFamily('400'), marginLeft: 4 }}>{nameError}</Text>
+              ) : null}
 
               <Text style={[styles.inputLabel, { color: theme.colors.text, fontFamily: getFontFamily('500') }]}>Phone Number</Text>
               <TextInput
@@ -1913,16 +1971,19 @@ export default function ConnectPageDetailScreen() {
                   {
                     color: theme.colors.text,
                     backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
-                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    borderColor: phoneError ? '#EF4444' : (isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'),
                     fontFamily: getFontFamily('400')
                   }
                 ]}
                 value={buyerPhone}
-                onChangeText={setBuyerPhone}
+                onChangeText={(text) => { setBuyerPhone(text); setBuyerPhoneTouched(true); }}
                 placeholder="Enter your phone number"
                 placeholderTextColor={isDark ? '#71717A' : '#A1A1AA'}
                 keyboardType="phone-pad"
               />
+              {phoneError ? (
+                <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4, fontFamily: getFontFamily('400'), marginLeft: 4 }}>{phoneError}</Text>
+              ) : null}
 
               <Text style={[styles.inputLabel, { color: theme.colors.text, fontFamily: getFontFamily('500') }]}>Delivery Address</Text>
               <TextInput
@@ -1932,22 +1993,25 @@ export default function ConnectPageDetailScreen() {
                   {
                     color: theme.colors.text,
                     backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
-                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    borderColor: addressError ? '#EF4444' : (isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'),
                     fontFamily: getFontFamily('400')
                   }
                 ]}
                 value={deliveryAddress}
-                onChangeText={setDeliveryAddress}
+                onChangeText={(text) => { setDeliveryAddress(text); setDeliveryAddressTouched(true); }}
                 placeholder="Enter complete delivery address"
                 placeholderTextColor={isDark ? '#71717A' : '#A1A1AA'}
                 multiline
                 numberOfLines={3}
               />
+              {addressError ? (
+                <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4, fontFamily: getFontFamily('400'), marginLeft: 4 }}>{addressError}</Text>
+              ) : null}
 
               <TouchableOpacity
-                style={styles.checkoutBtn}
+                style={[styles.checkoutBtn, { opacity: (checkingOut || !isFormValid) ? 0.5 : 1 }]}
                 onPress={handleBuyItem}
-                disabled={checkingOut}
+                disabled={checkingOut || !isFormValid}
                 activeOpacity={0.8}
               >
                 <LinearGradient

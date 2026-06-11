@@ -16,16 +16,14 @@ let Polyline: any = null;
 let PROVIDER_GOOGLE: any = null;
 let PROVIDER_DEFAULT: any = null;
 
-// On Android, we always use the WebView fallback to ensure:
-// 1. Consistent premium HTML glassmorphic marker card designs (native react-native-maps custom markers on Android have resizing/clipping bugs)
-// 2. Maximum reliability (no Google Play Services / API key build configuration failures on Android devices)
-const skipNativeMaps = Platform.OS === 'android';
+// Enable native MapView by default on iOS and Android for 60fps native performance (moving, zooming, panning)
+const skipNativeMaps = false;
 
 /**
  * True when native MapView is NOT available and screens should
  * render a WebView-based Google Map instead.
  */
-const useWebViewFallback: boolean = skipNativeMaps || Platform.OS === 'web';
+let useWebViewFallback: boolean = Platform.OS === 'web';
 
 if (Platform.OS !== 'web' && !skipNativeMaps) {
   try {
@@ -35,9 +33,16 @@ if (Platform.OS !== 'web' && !skipNativeMaps) {
     Polyline = mapsModule.Polyline;
     PROVIDER_GOOGLE = mapsModule.PROVIDER_GOOGLE;
     PROVIDER_DEFAULT = mapsModule.PROVIDER_DEFAULT;
+    
+    if (!MapView) {
+      useWebViewFallback = true;
+    }
   } catch (error) {
-    logger.warn('react-native-maps not available:', error);
+    logger.warn('react-native-maps not available, falling back to WebView:', error);
+    useWebViewFallback = true;
   }
+} else if (Platform.OS === 'web') {
+  useWebViewFallback = true;
 }
 
 /**

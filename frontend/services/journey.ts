@@ -8,6 +8,8 @@ export interface Coordinate {
   timestamp: number;
   accuracy: number;
   segmentBreak?: boolean;
+  speed?: number;
+  heading?: number;
 }
 
 export interface Journey {
@@ -152,6 +154,8 @@ export const updateJourneyLocation = async (
       timestamp: c.timestamp,
       accuracy: c.accuracy,
       segmentBreak: c.segmentBreak === true,
+      speed: typeof c.speed === 'number' ? c.speed : null,
+      heading: typeof c.heading === 'number' ? c.heading : null,
     }));
     const response = await api.put(`/api/v1/journey/${journeyId}/location`, {
       coordinates: mappedCoords,

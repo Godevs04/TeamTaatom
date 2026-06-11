@@ -160,11 +160,15 @@ try {
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
         const accuracy = loc.coords?.accuracy || 0;
         if (accuracy > 20) continue; // Drop any coordinate where accuracy > 20
+        const speed = loc.coords?.speed;
+        const heading = loc.coords?.heading;
         valid.push({
           latitude: lat,
           longitude: lng,
           timestamp: loc.timestamp,
           accuracy,
+          speed: typeof speed === 'number' ? speed : undefined,
+          heading: typeof heading === 'number' ? heading : undefined,
         });
       }
       if (valid.length === 0) return;
@@ -332,21 +336,31 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           return;
         }
 
+        const speed = location?.coords?.speed;
+        const heading = location?.coords?.heading;
+
         // Apply Kalman Filter smoothing
         if (!kalmanFilterRef.current) {
           kalmanFilterRef.current = new KalmanFilter(lat, lng, accuracy, location.timestamp);
         }
-        const smoothed = kalmanFilterRef.current.update(lat, lng, accuracy, location.timestamp);
+        const smoothed = kalmanFilterRef.current.update(
+          lat,
+          lng,
+          accuracy,
+          location.timestamp,
+          speed !== null && speed !== undefined ? speed : undefined
+        );
 
         const coord: Coordinate = {
           latitude: smoothed.latitude,
           longitude: smoothed.longitude,
           timestamp: location.timestamp,
           accuracy,
+          speed: speed !== null && speed !== undefined ? speed : undefined,
+          heading: heading !== null && heading !== undefined ? heading : undefined,
         };
         // Stationary user speed filter: if speed is valid and less than 0.4 m/s (approx 1.4 km/h),
         // treat user as stationary/idle and do not append to polyline or accumulate distance.
-        const speed = location?.coords?.speed;
         if (speed !== null && speed !== undefined && speed >= 0 && speed < STATIONARY_SPEED_MPS) {
           const now = Date.now();
           if (now - lastStationaryMarkerUpdateRef.current >= STATIONARY_MARKER_UPDATE_INTERVAL) {
@@ -536,7 +550,13 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         if (!kalmanFilterRef.current) {
           kalmanFilterRef.current = new KalmanFilter(c.latitude, c.longitude, acc, ts);
         }
-        const smoothed = kalmanFilterRef.current.update(c.latitude, c.longitude, acc, ts);
+        const smoothed = kalmanFilterRef.current.update(
+          c.latitude,
+          c.longitude,
+          acc,
+          ts,
+          typeof c.speed === 'number' ? c.speed : undefined
+        );
         return {
           ...c,
           latitude: smoothed.latitude,
@@ -587,6 +607,42 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       logger.warn('[Journey] drainBackgroundQueue failed:', e);
     }
   }, [persistPendingCoords]);
+
+  const syncPendingCompletions = useCallback(async () => {
+    try {
+      const queueRaw = await AsyncStorage.getItem('@pending_journey_completions');
+      if (!queueRaw) return;
+      const queue = JSON.parse(queueRaw);
+      if (!Array.isArray(queue) || queue.length === 0) return;
+
+      logger.debug(`[Journey] Found ${queue.length} pending journey completions to sync.`);
+      const remainingQueue: any[] = [];
+
+      for (const item of queue) {
+        const { journeyId, snapToRoads } = item;
+        try {
+          logger.debug(`[Journey] Retrying completion for journey: ${journeyId}`);
+          await completeJourney(journeyId, { snapToRoads });
+          logger.debug(`[Journey] Successfully synced completion for journey: ${journeyId}`);
+        } catch (err: any) {
+          if (err.message && err.message.includes('not active or paused')) {
+            logger.debug(`[Journey] Journey ${journeyId} was already completed on server.`);
+          } else {
+            logger.error(`[Journey] Failed to sync completion for journey ${journeyId}, will retry:`, err);
+            remainingQueue.push(item);
+          }
+        }
+      }
+
+      if (remainingQueue.length > 0) {
+        await AsyncStorage.setItem('@pending_journey_completions', JSON.stringify(remainingQueue));
+      } else {
+        await AsyncStorage.removeItem('@pending_journey_completions');
+      }
+    } catch (syncErr) {
+      logger.error('[Journey] Error syncing pending completions:', syncErr);
+    }
+  }, []);
 
   const resetTrackingState = useCallback(async () => {
     try {
@@ -830,6 +886,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     };
 
     initializeJourney();
+    syncPendingCompletions();
 
     // One-shot sweep of stale bg-queue entries. If the user ended a
     // journey while the app was force-quit and the activeJourneyId was
@@ -860,7 +917,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     return () => {
       journeyStateListeners.delete(syncFromSource);
     };
-  }, []);
+  }, [syncPendingCompletions]);
 
   // Duration timer - updates every second
   useEffect(() => {
@@ -967,6 +1024,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
       // App came to foreground
       if (nextAppState === 'active' && currentAppState.match(/inactive|background/)) {
+        // Retry any pending journey completions
+        syncPendingCompletions();
+
         if (isTrackingRef.current && !isPausedRef.current) {
           logger.debug('[Journey] App foregrounded — draining bg queue, restarting watcher');
           await drainBackgroundQueue();
@@ -977,7 +1037,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         }
       }
     },
-    [drainBackgroundQueue, startLocationWatcher]
+    [drainBackgroundQueue, startLocationWatcher, syncPendingCompletions]
   );
 
   // Listen to app state changes. handleAppStateChange identity is now
@@ -1285,54 +1345,88 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       // shouldn't happen, but the guard is cheap).
       await AsyncStorage.removeItem(BG_QUEUE_KEY_PREFIX + completingJourneyId).catch(() => {});
 
-      // Call API with snapToRoads option
-      const snapToRoads = options?.snapToRoads !== false;
-      let completedJourney = null;
-      try {
-        const { journey: resJourney } = await completeJourney(completingJourneyId, { snapToRoads });
-        completedJourney = resJourney;
-      } catch (err: any) {
-        if (err.message && err.message.includes('not active or paused')) {
-          logger.warn('[Journey] Journey was already completed or cancelled on the server. Fetching completed details.');
-          try {
-            const res = await getJourneyDetail(completingJourneyId);
-            completedJourney = res.journey;
-          } catch (fetchErr) {
-            logger.error('[Journey] Failed to fetch completed journey details:', fetchErr);
-          }
-        } else {
-          throw err;
-        }
-      }
+      // -------------------------------------------------------------
+      // OPTIMISTIC LOCAL STATE CLEARING (instant UI termination)
+      // -------------------------------------------------------------
+      const localCompletedJourney = journey ? {
+        ...journey,
+        status: 'completed' as const,
+        completedAt: new Date().toISOString(),
+      } : null;
 
-      if (completedJourney) {
-        setJourney(completedJourney);
+      if (localCompletedJourney) {
+        setJourney(localCompletedJourney);
       }
       setIsTracking(false);
       setIsPaused(false);
 
       // Clear from storage
       await AsyncStorage.removeItem('activeJourneyId');
+      await AsyncStorage.removeItem('@active_journey_state');
 
-      logger.debug('[Journey] Completed journey:', completingJourneyId);
+      logger.debug('[Journey] Optimistically completed journey locally:', completingJourneyId);
       journeyIdRef.current = null;
       startTimeRef.current = null;
       lastCoordinateRef.current = null;
       pendingSegmentBreakRef.current = false;
       batchCoordinatesRef.current = [];
-      // Notify other live instances of useJourneyTracking (root layout's
-      // JourneyStatusBar etc.) so they wipe their own copies of the journey
-      // state. Without this the recording popup persisted because the root
-      // instance's isTracking was never updated.
+
+      // Notify other live instances of useJourneyTracking
       suppressNextSyncRef.current = true;
       broadcastJourneyStateChanged();
+
+      // -------------------------------------------------------------
+      // INITIATE END JOURNEY API CALL (Non-blocking background retry)
+      // -------------------------------------------------------------
+      const snapToRoads = options?.snapToRoads !== false;
+      
+      (async () => {
+        try {
+          logger.debug(`[Journey] Sending completion request for ${completingJourneyId}`);
+          const { journey: resJourney } = await completeJourney(completingJourneyId, { snapToRoads });
+          if (resJourney) {
+            setJourney(resJourney);
+          }
+          logger.debug(`[Journey] Successfully completed journey on server: ${completingJourneyId}`);
+        } catch (err: any) {
+          if (err.message && err.message.includes('not active or paused')) {
+            logger.warn('[Journey] Journey was already completed or cancelled on the server. Fetching completed details.');
+            try {
+              const res = await getJourneyDetail(completingJourneyId);
+              if (res && res.journey) {
+                setJourney(res.journey);
+              }
+            } catch (fetchErr) {
+              logger.error('[Journey] Failed to fetch completed journey details:', fetchErr);
+            }
+          } else {
+            logger.error(`[Journey] API completion failed/timed out, queuing retry for ${completingJourneyId}:`, err);
+            try {
+              const queueRaw = await AsyncStorage.getItem('@pending_journey_completions');
+              let queue = [];
+              if (queueRaw) {
+                const parsed = JSON.parse(queueRaw);
+                if (Array.isArray(parsed)) queue = parsed;
+              }
+              // Add if not already in queue
+              if (!queue.some((item: any) => item.journeyId === completingJourneyId)) {
+                queue.push({ journeyId: completingJourneyId, snapToRoads, timestamp: Date.now() });
+                await AsyncStorage.setItem('@pending_journey_completions', JSON.stringify(queue));
+                logger.debug(`[Journey] Saved completion retry to queue for journey: ${completingJourneyId}`);
+              }
+            } catch (storageErr) {
+              logger.error('[Journey] Failed to persist completion retry queue:', storageErr);
+            }
+          }
+        }
+      })();
     } catch (err: any) {
       const errorMsg = err?.message || 'Failed to stop journey';
       setError(errorMsg);
       logger.error('[Journey] stopJourneyRecording failed:', err);
       throw err;
     }
-  }, [stopBackgroundUpdates, drainBackgroundQueue, persistPendingCoords, clearPersistedCoords]);
+  }, [stopBackgroundUpdates, drainBackgroundQueue, persistPendingCoords, clearPersistedCoords, journey]);
 
   // Save active journey state to AsyncStorage whenever it updates to survive app force-closes
   useEffect(() => {

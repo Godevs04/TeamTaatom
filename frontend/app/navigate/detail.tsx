@@ -551,6 +551,7 @@ function initMap(){
                             latitude: String(waypoint.lat),
                             longitude: String(waypoint.lng),
                             address: post.caption || post.location?.address || `Waypoint ${index + 1}`,
+                            photo: post.imageUrl || '',
                           },
                         })}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}

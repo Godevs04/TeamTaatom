@@ -698,6 +698,7 @@ export default function LocaleScreen() {
   const isSearchingRef = useRef(false);
   const isPaginatingRef = useRef(false);
   const currentPageRef = useRef(1);
+  const geospatialCursorRef = useRef<number | null>(null);
   const [totalPages, setTotalPages] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -759,6 +760,7 @@ export default function LocaleScreen() {
   locationPermissionGrantedRef.current = locationPermissionGranted;
   
   const applyFiltersRef = useRef<any>(null);
+  const sortLocalesWithSnapshotRef = useRef<any>(null);
   
   const { theme, mode, isDark } = useTheme();
   const router = useRouter();
@@ -1248,15 +1250,13 @@ export default function LocaleScreen() {
       countryCode: userCountryCode || null,
       snapshotKey
     };
-  }, [getLocationSnapshotKey, userLocation, userCity, userState, userCountryCode]);
-  
-  // Pagination & Filter Race Safety: Load locales with request guards
-  const loadAdminLocales = useCallback(async (forceRefresh = false, isBackground = false) => {
+  }, [getLocationSnapshotKey, userLocation, userCity, userState, userCountryCode]);  const loadAdminLocales = useCallback(async (forceRefresh = false, isBackground = false) => {
     const currentFilters = filtersRef.current;
     const currentSearchQuery = searchQueryRef.current;
     const currentUserLocation = userLocationRef.current;
     const currentLocationPermissionGranted = locationPermissionGrantedRef.current;
-    const currentApplyFilters = applyFiltersRef.current || applyFilters;
+    const currentApplyFilters = applyFiltersRef.current;
+    const currentSortLocalesWithSnapshot = sortLocalesWithSnapshotRef.current;
 
     // Guard: Do not fetch anything until location has finished resolving
     if (isLocationResolvingRef.current) {
@@ -1270,27 +1270,7 @@ export default function LocaleScreen() {
       return;
     }
     
-    // Load guard: If already loaded once and not forcing refresh, skip
-    // BUT: Allow reload if we have locales but no distances (user location became available)
-    const hasLocales = adminLocales.length > 0;
-    const hasDistances = adminLocales.some(locale => {
-      const localeWithDistance = locale as Locale & { distanceKm?: number | null };
-      return localeWithDistance.distanceKm !== undefined && localeWithDistance.distanceKm !== null;
-    });
-    const needsDistanceCalculation = hasLocales && !hasDistances && currentUserLocation && currentLocationPermissionGranted;
-    
-    if (loadedOnceRef.current && !forceRefresh && hasLocales && !needsDistanceCalculation) {
-      logger.debug('Locales already loaded once with distances, skipping unless force refresh');
-      return;
-    }
-    
-    // If we need to calculate distances for existing locales, reset the guard
-    if (needsDistanceCalculation) {
-      logger.debug('Locales loaded but distances missing, recalculating distances');
-      loadedOnceRef.current = false;
-    }
-    
-    // Generate fetch key from params (include stateCode for proper cache invalidation)
+    // Generate fetch key from params
     const fetchKey = `${currentSearchQuery}|${currentFilters.countryCode}|${currentFilters.stateCode}|${currentFilters.spotTypes.join(',')}|${currentPageRef.current}`;
     
     // LAST FETCH KEY LOCK: If same key, return immediately
@@ -1319,466 +1299,167 @@ export default function LocaleScreen() {
       // Reset pagination when filters change or force refresh
       if (forceRefresh) {
         currentPageRef.current = 1;
+        geospatialCursorRef.current = null;
         setHasMore(false);
         setTotalPages(1);
         setDisplayedPage(1);
         if (!isBackground) {
-          setAllLocalesWithDistances([]); // Clear cached sorted locales
-          allLocalesSortedRef.current = []; // Clear single source of truth
-          locationSnapshotRef.current = null; // Reset location snapshot to allow re-sorting
+          setAllLocalesWithDistances([]);
+          allLocalesSortedRef.current = [];
+          locationSnapshotRef.current = null;
         }
-        drivingDistanceCalculatedRef.current.clear(); // Reset tracking
+        drivingDistanceCalculatedRef.current.clear();
       }
       
-      // Build query parameters
-      // CRITICAL FIX: When user location is available, fetch ALL locales by looping pages
-      // Backend caps at 50 per page, so we must paginate client-side to get all locales
-      const shouldFetchAll = currentUserLocation && currentLocationPermissionGranted && (forceRefresh || currentPageRef.current === 1);
-      
-      // Base params for all requests
-      const baseParams: any = {
-        includeInactive: false, // Only show active locales
-      };
-      
-      // Add search query if provided
-      if (currentSearchQuery.trim()) {
-        baseParams.search = currentSearchQuery.trim();
-      }
-      
-      // Add country filter if provided (only if not empty)
-      if (currentFilters.countryCode && currentFilters.countryCode.trim() !== '' && currentFilters.countryCode !== 'all') {
-        baseParams.countryCode = currentFilters.countryCode;
-      }
-      
-      // Add state filter if provided (only if not empty)
-      if (currentFilters.stateCode && currentFilters.stateCode.trim() !== '' && currentFilters.stateCode !== 'all') {
-        baseParams.stateCode = currentFilters.stateCode;
-      }
-      
-      // Add spot type filter if provided (send all selected spot types)
       const spotTypesParam = currentFilters.spotTypes && currentFilters.spotTypes.length > 0 
         ? currentFilters.spotTypes 
         : '';
-      
-      // CRITICAL FIX: Fetch ALL locales by looping pages until exhausted
-      let allFetchedLocales: Locale[] = [];
-      let currentPage = 1;
-      let hasMorePages = true;
-      const BACKEND_LIMIT = 50; // Backend hard caps at 50
-      
-      if (shouldFetchAll) {
-        // Fetch page 1 immediately so Stage 1 can render without waiting for all pages
-        const firstResponse = await getLocales(
-          baseParams.search || '',
-          baseParams.countryCode || '',
-          baseParams.stateCode || '',
-          spotTypesParam,
-          1,
-          BACKEND_LIMIT,
-          baseParams.includeInactive,
-          currentFilters.stateProvince || '',
-          searchAbortControllerRef.current?.signal,
-          currentUserLocation?.latitude ?? undefined,
-          currentUserLocation?.longitude ?? undefined
-        );
 
-        if (!isMountedRef.current) return;
-
-        if (firstResponse?.locales?.length > 0) {
-          allFetchedLocales = firstResponse.locales;
-          const totalPagesCount = firstResponse.pagination?.totalPages || 1;
-
-          // Fetch remaining pages in background without blocking Stage 1 render
-          if (totalPagesCount > 1) {
-            const bgFetchKey = lastFetchKeyRef.current;
-            const bgSearch = baseParams.search || '';
-            const bgCountry = baseParams.countryCode || '';
-            const bgState = baseParams.stateCode || '';
-            const bgStateProvince = currentFilters.stateProvince || '';
-            const bgSpotTypes = spotTypesParam;
-            const bgIncludeInactive = baseParams.includeInactive;
-            const uLat = currentUserLocation?.latitude;
-            const uLon = currentUserLocation?.longitude;
-            ;(async () => {
-              const moreLocales: Locale[] = [];
-              for (let page = 2; page <= totalPagesCount; page++) {
-                if (!isMountedRef.current || lastFetchKeyRef.current !== bgFetchKey) return;
-                try {
-                  const res = await getLocales(
-                    bgSearch,
-                    bgCountry,
-                    bgState,
-                    bgSpotTypes,
-                    page,
-                    BACKEND_LIMIT,
-                    bgIncludeInactive,
-                    bgStateProvince,
-                    undefined,
-                    uLat ?? undefined,
-                    uLon ?? undefined
-                  );
-                  if (res?.locales?.length > 0) moreLocales.push(...res.locales);
-                  else break;
-                } catch { break; }
-              }
-              if (!isMountedRef.current || lastFetchKeyRef.current !== bgFetchKey || moreLocales.length === 0) return;
-              const existing = allLocalesSortedRef.current;
-              const existingIds = new Set(existing.map(l => l._id));
-              const novel = moreLocales.filter(l => !existingIds.has(l._id));
-              if (novel.length === 0) return;
-              const snapshot = createLocationSnapshot();
-              const uLatVal = currentUserLocation?.latitude;
-              const uLonVal = currentUserLocation?.longitude;
-              const novelWithDist = novel.map(l => {
-                if (l.latitude && l.longitude && uLatVal && uLonVal) {
-                  return { ...l, distanceKm: calculateDistance(uLatVal, uLonVal, l.latitude, l.longitude) };
-                }
-                return { ...l, distanceKm: null as number | null };
-              });
-              const merged = [...existing, ...novelWithDist];
-              const resorted = snapshot ? sortLocalesWithSnapshot(merged, snapshot) : merged;
-              allLocalesSortedRef.current = resorted;
-              if (isMountedRef.current) {
-                setAllLocalesWithDistances(resorted);
-                setHasMore(resorted.length > ITEMS_PER_PAGE);
-                setTotalPages(Math.ceil(resorted.length / ITEMS_PER_PAGE));
-              }
-            })().catch(() => {});
-          }
-        }
-      } else {
-        // Regular pagination (no location or subsequent pages)
-        const response = await getLocales(
-          baseParams.search || '',
-          baseParams.countryCode || '',
-          baseParams.stateCode || '',
-          spotTypesParam,
-          currentPageRef.current,
-          20,
-          baseParams.includeInactive,
-          currentFilters.stateProvince || '',
-          searchAbortControllerRef.current?.signal,
-          currentUserLocation?.latitude ?? undefined,
-          currentUserLocation?.longitude ?? undefined
-        );
+      const response = await getLocales(
+        currentSearchQuery.trim(),
+        (currentFilters.countryCode && currentFilters.countryCode !== 'all') ? currentFilters.countryCode : '',
+        (currentFilters.stateCode && currentFilters.stateCode !== 'all') ? currentFilters.stateCode : '',
+        spotTypesParam,
+        currentPageRef.current,
+        20, // ITEMS_PER_PAGE
+        false, // includeInactive
+        currentFilters.stateProvince || '',
+        searchAbortControllerRef.current?.signal,
+        currentUserLocation?.latitude ?? undefined,
+        currentUserLocation?.longitude ?? undefined,
+        geospatialCursorRef.current // cursor
+      );
       
       if (!isMountedRef.current) return;
       
       if (response && response.locales) {
-          allFetchedLocales = response.locales;
-          
-          // Update pagination state
-          if (response.pagination) {
-            setTotalPages(response.pagination.totalPages || 1);
-            setHasMore(currentPageRef.current < (response.pagination.totalPages || 1));
+        const fetched = response.locales;
+        
+        // Append straight line distances to locales if user location is available
+        const fetchedWithStraightLine = fetched.map(locale => {
+          if (locale.latitude && locale.longitude && 
+              currentUserLocation && currentLocationPermissionGranted) {
+            const straightLineDistance = calculateDistance(
+              currentUserLocation.latitude,
+              currentUserLocation.longitude,
+              locale.latitude,
+              locale.longitude
+            );
+            return { ...locale, distanceKm: straightLineDistance };
           }
-        }
-      }
-      
-      if (!isMountedRef.current) return;
-      
-      if (allFetchedLocales.length > 0) {
-        // Deduplicate locales by unique ID
-        const localeMap = new Map<string, Locale>();
-        allFetchedLocales.forEach(locale => {
-          if (!localeMap.has(locale._id)) {
-            localeMap.set(locale._id, locale);
-          }
+          return { ...locale, distanceKm: (locale as any).distanceKm || null };
         });
-        const newLocales = Array.from(localeMap.values());
-        
-        // Guard: Skip distance calculation if no locales (prevents infinite loop on empty search results)
-        // Only clear locales if this is a search query (not initial load)
-        if (newLocales.length === 0) {
-          if (isMountedRef.current) {
-            // Clear if search query OR any filter is active (server returned 0 results deliberately)
-            if (currentSearchQuery.trim() || currentFilters.countryCode || currentFilters.stateCode || currentFilters.spotTypes.length > 0) {
-              setAdminLocales([]);
-              setFilteredLocales([]);
-            }
-            setCalculatingDistances(false);
-            setLoadingLocales(false);
-            setLoading(false);
-            loadedOnceRef.current = true; // Mark as loaded to prevent reload loops
-          }
-          isSearchingRef.current = false;
-          return;
+
+        let updatedList: Locale[];
+        if (currentPageRef.current === 1) {
+          updatedList = fetchedWithStraightLine;
+        } else {
+          // Deduplicate by _id
+          const existingIds = new Set(allLocalesSortedRef.current.map(l => l._id));
+          const novel = fetchedWithStraightLine.filter(l => !existingIds.has(l._id));
+          updatedList = [...allLocalesSortedRef.current, ...novel];
         }
-        
-        // CRITICAL FIX: 3-Stage Distance Strategy for performance
-        // Stage 1: Calculate straight-line distance for ALL locales, sort once, render immediately
-        // Stage 2: Calculate driving distance ONLY for first N locales (background)
-        // Stage 3: Calculate driving distance on-demand when user scrolls
-        if (currentUserLocation && currentLocationPermissionGranted) {
-          // STAGE 1: Calculate straight-line distances synchronously (fast, <300ms)
-          const localesWithStraightLineDistance = newLocales.map((locale) => {
-            if (locale.latitude && locale.longitude && 
-                locale.latitude !== 0 && locale.longitude !== 0 &&
-                !isNaN(locale.latitude) && !isNaN(locale.longitude) &&
-                locale.latitude >= -90 && locale.latitude <= 90 &&
-                locale.longitude >= -180 && locale.longitude <= 180) {
-              const userLat = roundCoord(currentUserLocation.latitude);
-              const userLon = roundCoord(currentUserLocation.longitude);
-              const localeLat = roundCoord(locale.latitude);
-              const localeLon = roundCoord(locale.longitude);
+
+        allLocalesSortedRef.current = updatedList;
+        setAllLocalesWithDistances(updatedList);
+        setAdminLocales(updatedList);
+
+        const filtered = currentApplyFilters ? currentApplyFilters(updatedList, false) : updatedList;
+        setFilteredLocales(filtered);
+
+        if (response.pagination) {
+          setTotalPages(response.pagination.totalPages || 1);
+          setHasMore(response.pagination.hasMore ?? (currentPageRef.current < (response.pagination.totalPages || 1)));
+          geospatialCursorRef.current = response.pagination.nextCursor ?? null;
+        }
+
+        // Start Stage 2 background calculation of driving distance for the newly loaded locales
+        if (currentUserLocation && currentLocationPermissionGranted && fetchedWithStraightLine.length > 0) {
+          setCalculatingDistances(true);
+          const stage2FetchKey = lastFetchKeyRef.current;
+          
+          ;(async () => {
+            for (let i = 0; i < fetchedWithStraightLine.length; i++) {
+              if (!isMountedRef.current || lastFetchKeyRef.current !== stage2FetchKey) break;
               
-              const straightLineDistance = calculateDistance(
-                userLat,
-                userLon,
-                localeLat,
-                localeLon
-              );
-              return {
-                ...locale,
-                distanceKm: straightLineDistance,
-              };
-            }
-            return {
-              ...locale,
-              distanceKm: null,
-            };
-          });
+              const locale = fetchedWithStraightLine[i];
+              if (drivingDistanceCalculatedRef.current.has(locale._id)) continue;
 
-          // Get location snapshot for sorting
-          const snapshot = createLocationSnapshot();
-          
-          if (!snapshot) {
-            // Location snapshot not ready — show results immediately (unsorted) so screen isn't blank.
-            // The single-sort useEffect will re-sort once countryCode arrives from reverse geocode.
-            if (shouldFetchAll) {
-              const firstPage = localesWithStraightLineDistance.slice(0, ITEMS_PER_PAGE);
-              allLocalesSortedRef.current = localesWithStraightLineDistance;
-              setAllLocalesWithDistances(localesWithStraightLineDistance);
-              setAdminLocales(firstPage);
-              setDisplayedPage(1);
-              setHasMore(localesWithStraightLineDistance.length > ITEMS_PER_PAGE);
-              setTotalPages(Math.ceil(localesWithStraightLineDistance.length / ITEMS_PER_PAGE));
-              const filtered = currentApplyFilters(firstPage, false);
-              setFilteredLocales(filtered);
-              setLoadingLocales(false);
-              setLoading(false);
-              loadedOnceRef.current = true;
-            }
-            if (__DEV__) {
-              logger.debug('⏳ Location snapshot not ready, showing unsorted results. Will re-sort when snapshot becomes available.');
-            }
-            return;
-          }
-          
-          // Sort once with straight-line distances (STAGE 1 complete)
-          const sortedByStraightLine = sortLocalesWithSnapshot(localesWithStraightLineDistance, snapshot);
-          
-          // Store in single source of truth ref
-          allLocalesSortedRef.current = sortedByStraightLine;
-          drivingDistanceCalculatedRef.current.clear(); // Reset tracking
-          
-          // Render first page immediately (user sees results instantly)
-          const firstPage = sortedByStraightLine.slice(0, ITEMS_PER_PAGE);
-          setAllLocalesWithDistances(sortedByStraightLine);
-          setAdminLocales(firstPage);
-          setDisplayedPage(1);
-          setHasMore(sortedByStraightLine.length > ITEMS_PER_PAGE);
-          setTotalPages(Math.ceil(sortedByStraightLine.length / ITEMS_PER_PAGE));
-          setLoadingLocales(false);
-          setLoading(false);
-          loadedOnceRef.current = true;
-
-          // Update filtered locales
-          const filtered = currentApplyFilters(firstPage, false);
-          setFilteredLocales(filtered);
-          
-          if (__DEV__) {
-            logger.debug('✅ STAGE 1 complete: Straight-line distances calculated, sorted, first page rendered');
-          }
-
-          // Release search lock after STAGE 1 so filter/search changes aren't dropped
-          // during the STAGE 2 driving-distance batch (which can take 10+ seconds)
-          isSearchingRef.current = false;
-
-          // STAGE 2: Calculate driving distance ONLY for first N locales (background, non-blocking)
-          // N = 20 (Avoid rate-limiting Google Maps API on initial load, matches ITEMS_PER_PAGE)
-          const STAGE2_LIMIT = 20;
-          const localesToCalculate = sortedByStraightLine.slice(0, STAGE2_LIMIT);
-          
-          if (localesToCalculate.length > 0) {
-            setCalculatingDistances(true);
-            const stage2FetchKey = lastFetchKeyRef.current;
-
-            ;(async () => {
-              for (let i = 0; i < localesToCalculate.length; i++) {
-                if (!isMountedRef.current || lastFetchKeyRef.current !== stage2FetchKey) break;
-                
-                const locale = localesToCalculate[i];
-                
-                // Skip if already calculated
-                if (drivingDistanceCalculatedRef.current.has(locale._id)) {
-                  continue;
-                }
-                
-                try {
-                  let updatedLocale: Locale;
-                  
-                  // Use coordinates from database if valid
-                  if (locale.latitude && locale.longitude && 
-                      locale.latitude !== 0 && locale.longitude !== 0 &&
-                      !isNaN(locale.latitude) && !isNaN(locale.longitude) &&
-                      locale.latitude >= -90 && locale.latitude <= 90 &&
-                      locale.longitude >= -180 && locale.longitude <= 180) {
-                    updatedLocale = locale;
+              try {
+                let updatedLocale: Locale = locale;
+                if (!locale.latitude || !locale.longitude || locale.latitude === 0 || locale.longitude === 0) {
+                  const realCoords = await fetchRealCoords(
+                    locale.name, 
+                    locale.countryCode,
+                    googleGeocodeCacheRef.current,
+                    locale.description
+                  );
+                  if (realCoords) {
+                    updatedLocale = {
+                      ...locale,
+                      latitude: realCoords.lat,
+                      longitude: realCoords.lon,
+                    };
                   } else {
-                    // Try to fetch coordinates if missing
-                    const realCoords = await fetchRealCoords(
-                      locale.name, 
-                      locale.countryCode,
-                      googleGeocodeCacheRef.current,
-                      locale.description
-                    );
-                    
-                    if (realCoords) {
-                      updatedLocale = {
-                        ...locale,
-                        latitude: realCoords.lat,
-                        longitude: realCoords.lon,
-                      };
-                    } else {
-                      updatedLocale = await geocodeLocale(locale);
-                    }
+                    updatedLocale = await geocodeLocale(locale);
                   }
+                }
 
-                  const userLat = currentUserLocation.latitude;
-                  const userLon = currentUserLocation.longitude;
-                  const localeLat = updatedLocale.latitude;
-                  const localeLon = updatedLocale.longitude;
-                  
-                  // Validate coordinates
-                  if (!localeLat || !localeLon || localeLat === 0 || localeLon === 0 ||
-                      isNaN(localeLat) || isNaN(localeLon) ||
-                      localeLat < -90 || localeLat > 90 || localeLon < -180 || localeLon > 180) {
-                    continue;
-                  }
-                  
-                  if (!userLat || !userLon || isNaN(userLat) || isNaN(userLon) ||
-                      userLat < -90 || userLat > 90 || userLon < -180 || userLon > 180) {
-                    continue;
-                  }
-                  
-                  // Calculate driving distance
+                if (updatedLocale.latitude && updatedLocale.longitude) {
                   const distanceKm = await getLocaleDistanceKm(
                     updatedLocale._id.toString(),
-                    userLat,
-                    userLon,
-                    localeLat,
-                    localeLon
+                    currentUserLocation.latitude,
+                    currentUserLocation.longitude,
+                    updatedLocale.latitude,
+                    updatedLocale.longitude
                   );
 
                   if (distanceKm !== null && distanceKm !== undefined) {
                     drivingDistanceCalculatedRef.current.add(locale._id);
                     
-                    // Update state in-place for this locale immediately
                     if (isMountedRef.current && lastFetchKeyRef.current === stage2FetchKey) {
                       const finalLocale = {
                         ...updatedLocale,
                         distanceKm,
                       };
                       
-                      const updatedSorted = allLocalesSortedRef.current.map(l => 
+                      const updatedList = allLocalesSortedRef.current.map(l =>
                         l._id === locale._id ? finalLocale : l
                       );
+                      allLocalesSortedRef.current = updatedList;
+                      setAllLocalesWithDistances(updatedList);
                       
-                      const reSorted = sortLocalesWithSnapshot(updatedSorted, snapshot);
-                      allLocalesSortedRef.current = reSorted;
-                      
-                      const currentVisibleCount = displayedPage * ITEMS_PER_PAGE;
-                      const visibleLocales = reSorted.slice(0, currentVisibleCount);
-                      
-                      setAllLocalesWithDistances(reSorted);
-                      setAdminLocales(visibleLocales);
-                      
-                      const filtered = currentApplyFilters(visibleLocales, false);
+                      setAdminLocales(prev => prev.map(l =>
+                        l._id === locale._id ? finalLocale : l
+                      ));
+
+                      const filtered = currentApplyFilters ? currentApplyFilters(updatedList, false) : updatedList;
                       setFilteredLocales(filtered);
                     }
                   }
-                } catch (err) {
-                  logger.error(`Error calculating distance for ${locale.name}:`, err);
                 }
-                
-                // Sequential request spacing to prevent rate limit (300ms)
-                if (i < localesToCalculate.length - 1) {
-                  await new Promise(resolve => setTimeout(resolve, 300));
-                }
+              } catch (err) {
+                logger.error(`Error calculating driving distance in background:`, err);
               }
-              
-              if (isMountedRef.current && lastFetchKeyRef.current === stage2FetchKey) {
-                setCalculatingDistances(false);
-                isSearchingRef.current = false;
-                if (__DEV__) {
-                  logger.debug(`✅ STAGE 2 complete: Driving distances calculated sequentially for top locales`);
-                }
+
+              if (i < fetchedWithStraightLine.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 300));
               }
-            })().catch(err => {
-              logger.error('Error in STAGE 2 loop:', err);
-              if (isMountedRef.current && lastFetchKeyRef.current === stage2FetchKey) {
-                setCalculatingDistances(false);
-                isSearchingRef.current = false;
-              }
-            });
-          }
-          
-          return;
-        } else {
-          // No user location - sort by createdAt (newest first) as fallback
-          const sortedByDate = [...newLocales].sort((a, b) => {
-            const dateA = new Date(a.createdAt || 0).getTime();
-            const dateB = new Date(b.createdAt || 0).getTime();
-            return dateB - dateA;
+            }
+
+            if (isMountedRef.current && lastFetchKeyRef.current === stage2FetchKey) {
+              setCalculatingDistances(false);
+            }
+          })().catch(err => {
+            logger.error('Error in driving distance calculation loop:', err);
+            if (isMountedRef.current && lastFetchKeyRef.current === stage2FetchKey) {
+              setCalculatingDistances(false);
+            }
           });
-
-          let finalLocales: Locale[];
-          if (forceRefresh || currentPageRef.current === 1) {
-            finalLocales = sortedByDate;
-            setAdminLocales(sortedByDate);
-          } else {
-            // Merge with existing locales (pagination)
-            const localeMap = new Map<string, Locale>();
-            adminLocales.forEach(locale => localeMap.set(locale._id, locale));
-            sortedByDate.forEach(locale => localeMap.set(locale._id, locale));
-            finalLocales = Array.from(localeMap.values()).sort((a, b) => {
-              const dateA = new Date(a.createdAt || 0).getTime();
-              const dateB = new Date(b.createdAt || 0).getTime();
-              return dateB - dateA;
-            });
-            setAdminLocales(finalLocales);
-          }
-
-          // Apply client-side filters so filteredLocales stays in sync
-          const filtered = currentApplyFilters(finalLocales, false);
-          setFilteredLocales(filtered);
-          setLoadingLocales(false);
-          setLoading(false);
-          loadedOnceRef.current = true;
         }
       } else {
-        // Response has no locales property or is empty
+        // Fallback for empty results
         if (isMountedRef.current) {
-          // Check if this was an automatic country filter fallback and we got 0 locales
-          if (isCountryDefaultedRef.current && currentFilters.countryCode && currentFilters.countryCode.trim() !== '' && userCountryCode && currentFilters.countryCode.toUpperCase() === userCountryCode.toUpperCase()) {
-            logger.debug('🌍 No locales found in user country (' + userCountryCode + '), falling back to all locales');
-            
-            // Clear country filter
-            isCountryDefaultedRef.current = false;
-            dispatchLocaleFilter({ type: 'RESET' });
-            
-            // Re-run search/load in background/foreground
-            setTimeout(() => {
-              if (isMountedRef.current) {
-                isSearchingRef.current = false;
-                loadAdminLocalesRef.current(true, isBackground);
-              }
-            }, 100);
-            return;
-          }
-
-          // Clear if search query OR any filter is active (server returned 0 results deliberately)
           if (currentSearchQuery.trim() || currentFilters.countryCode || currentFilters.stateCode || currentFilters.spotTypes.length > 0) {
             setAdminLocales([]);
             setFilteredLocales([]);
@@ -1786,7 +1467,7 @@ export default function LocaleScreen() {
           setCalculatingDistances(false);
           setLoadingLocales(false);
           setLoading(false);
-          loadedOnceRef.current = true; // Mark as loaded to prevent reload loops on empty results
+          loadedOnceRef.current = true;
         }
         isSearchingRef.current = false;
       }
@@ -1804,15 +1485,11 @@ export default function LocaleScreen() {
       if (!isMountedRef.current) return;
       logger.error('Failed to load admin locales', error);
       if (isMountedRef.current) {
-        // On network error, only clear if there's an active search query
-        // Otherwise, keep existing locales for offline support
         if (currentSearchQuery.trim()) {
-          // Search failed - clear search results
           setAdminLocales([]);
           setFilteredLocales([]);
         }
-        // If no search query, keep existing locales (don't clear on network errors)
-        setCalculatingDistances(false); // Hide loading overlay on error
+        setCalculatingDistances(false);
         setLoadingLocales(false);
         setLoading(false);
       }
@@ -1820,11 +1497,11 @@ export default function LocaleScreen() {
       if (isMountedRef.current) {
         setLoadingLocales(false);
         setLoading(false);
-        setCalculatingDistances(false); // Ensure loading overlay is hidden
+        setCalculatingDistances(false);
       }
       isSearchingRef.current = false;
     }
-  }, []); 
+  }, [createLocationSnapshot]);
 
   const loadAdminLocalesRef = useRef(loadAdminLocales);
   loadAdminLocalesRef.current = loadAdminLocales;
@@ -2120,6 +1797,8 @@ export default function LocaleScreen() {
     
     return sorted;
   }, []);
+  
+  sortLocalesWithSnapshotRef.current = sortLocalesWithSnapshot;
   
   const sortLocalesByDistance = useCallback((locales: Locale[]): Locale[] => {
     if (userLocation) {
@@ -2461,11 +2140,11 @@ export default function LocaleScreen() {
       }
     }
     
-    // PRODUCTION-GRADE: Sort ONLY by distance (nearest first)
-    // Admin displayOrder is completely ignored - user's location determines order
-    // Use shared sorting function for consistency
-    const sorted = sortLocalesByDistance(filtered);
-    return sorted;
+    // Sort ONLY for the Saved tab (where input list isn't pre-sorted by distance/snapshot)
+    if (isSavedTab) {
+      return sortLocalesByDistance(filtered);
+    }
+    return filtered;
   }, [activeLocaleFilters, activeSavedFilters, searchLocaleInput, searchSavedInput, sortLocalesByDistance, userLocation, locationPermissionGranted, getLocaleDistance]);
   
   applyFiltersRef.current = applyFilters;
@@ -2494,28 +2173,8 @@ export default function LocaleScreen() {
   // This ensures locales are always in the correct order for display
   // CRITICAL: Include userState in dependencies so sorting updates when state is detected
   const sortedAdminLocales = useMemo(() => {
-    if (adminLocales.length === 0) return [];
-    // Always sort adminLocales by distance (nearest first) or createdAt if no location
-    const sorted = sortLocalesByDistance([...adminLocales]);
-    
-    // Debug logging to verify sorting
-    if (__DEV__ && sorted.length > 0 && userState) {
-      const firstFew = sorted.slice(0, 5).map(l => ({
-        name: l.name,
-        state: l.stateProvince,
-        distance: (l as any).distanceKm,
-        country: l.countryCode
-      }));
-      logger.debug('📍 Sorted locales (first 5):', {
-        userState,
-        userCity,
-        userCountryCode,
-        firstFew
-      });
-    }
-    
-    return sorted;
-  }, [adminLocales, sortLocalesByDistance, userState, userCity, userCountryCode]);
+    return adminLocales;
+  }, [adminLocales]);
 
   // The list the locale-tab FlatList actually renders. Lifted from
   // renderAdminLocales() so the FlatList can read it directly and so it
@@ -3182,161 +2841,12 @@ export default function LocaleScreen() {
     }
   };
 
-  // Load More handler for pagination with STAGE 3: On-demand driving distance calculation
   const handleLoadMore = useCallback(async () => {
     if (isPaginatingRef.current || loadingMore || !hasMore || loadingLocales) {
       return;
     }
     
     setLoadingMore(true);
-    
-    // CRITICAL: Always paginate from single source of truth
-    if (allLocalesSortedRef.current.length > 0 && userLocation && locationPermissionGranted) {
-      const nextPage = displayedPage + 1;
-      const startIndex = displayedPage * ITEMS_PER_PAGE; // Current visible end
-      const endIndex = nextPage * ITEMS_PER_PAGE; // New visible end
-      
-      // STAGE 3: Calculate driving distance for newly revealed range (on-demand)
-      const newlyRevealedRange = allLocalesSortedRef.current.slice(startIndex, endIndex);
-      const needsDrivingDistance = newlyRevealedRange.filter(
-        locale => !drivingDistanceCalculatedRef.current.has(locale._id)
-      );
-      
-      if (needsDrivingDistance.length > 0) {
-        // Calculate driving distance sequentially for newly revealed locales to avoid rate limits
-        for (let i = 0; i < needsDrivingDistance.length; i++) {
-          if (!isMountedRef.current) break;
-          
-          const locale = needsDrivingDistance[i];
-          
-          try {
-            let updatedLocale: Locale;
-            
-            if (locale.latitude && locale.longitude && 
-                locale.latitude !== 0 && locale.longitude !== 0 &&
-                !isNaN(locale.latitude) && !isNaN(locale.longitude) &&
-                locale.latitude >= -90 && locale.latitude <= 90 &&
-                locale.longitude >= -180 && locale.longitude <= 180) {
-              updatedLocale = locale;
-            } else {
-              const realCoords = await fetchRealCoords(
-                locale.name, 
-                locale.countryCode,
-                googleGeocodeCacheRef.current,
-                locale.description
-              );
-              
-              if (realCoords) {
-                updatedLocale = {
-                  ...locale,
-                  latitude: realCoords.lat,
-                  longitude: realCoords.lon,
-                };
-              } else {
-                updatedLocale = await geocodeLocale(locale);
-              }
-            }
-
-            const userLat = userLocation.latitude;
-            const userLon = userLocation.longitude;
-            const localeLat = updatedLocale.latitude;
-            const localeLon = updatedLocale.longitude;
-            
-            if (!localeLat || !localeLon || localeLat === 0 || localeLon === 0 ||
-                isNaN(localeLat) || isNaN(localeLon) ||
-                localeLat < -90 || localeLat > 90 || localeLon < -180 || localeLon > 180) {
-              continue;
-            }
-            
-            if (!userLat || !userLon || isNaN(userLat) || isNaN(userLon) ||
-                userLat < -90 || userLat > 90 || userLon < -180 || userLon > 180) {
-              continue;
-            }
-            
-            const distanceKm = await getLocaleDistanceKm(
-              updatedLocale._id.toString(),
-              userLat,
-              userLon,
-              localeLat,
-              localeLon
-            );
-
-            if (distanceKm !== null && distanceKm !== undefined) {
-              drivingDistanceCalculatedRef.current.add(locale._id);
-              
-              // Update state in-place for this locale immediately
-              if (isMountedRef.current) {
-                const finalLocale = {
-                  ...updatedLocale,
-                  distanceKm,
-                };
-                
-                const updatedSorted = allLocalesSortedRef.current.map(l => 
-                  l._id === locale._id ? finalLocale : l
-                );
-                
-                const snapshot = createLocationSnapshot();
-                const reSorted = snapshot ? sortLocalesWithSnapshot(updatedSorted, snapshot) : updatedSorted;
-                allLocalesSortedRef.current = reSorted;
-                
-                // Re-slice visible items from the top
-                const visibleLocales = reSorted.slice(0, endIndex);
-                
-                setAllLocalesWithDistances(reSorted);
-                setAdminLocales(visibleLocales);
-                
-                const filtered = applyFilters(visibleLocales, false);
-                setFilteredLocales(filtered);
-              }
-            }
-          } catch (err) {
-            logger.error(`Error in Stage 3 distance calculation for ${locale.name}:`, err);
-          }
-          
-          if (i < needsDrivingDistance.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 300));
-          }
-        }
-        
-        if (!isMountedRef.current) {
-          setLoadingMore(false);
-          return;
-        }
-        
-        // Final state sync for page/hasMore
-        setDisplayedPage(nextPage);
-        setHasMore(endIndex < allLocalesSortedRef.current.length);
-        setTotalPages(Math.ceil(allLocalesSortedRef.current.length / ITEMS_PER_PAGE));
-        setLoadingMore(false);
-        
-        if (__DEV__) {
-          logger.debug('✅ STAGE 3 complete: Driving distances calculated for newly revealed range');
-        }
-      } else {
-        // No need to calculate - just paginate
-        await new Promise(resolve => setTimeout(resolve, 300));
-        
-        const visibleLocales = allLocalesSortedRef.current.slice(0, endIndex);
-        setAdminLocales(visibleLocales);
-        setDisplayedPage(nextPage);
-        setHasMore(endIndex < allLocalesSortedRef.current.length);
-        
-        const filtered = applyFilters(visibleLocales, false);
-        setFilteredLocales(filtered);
-        
-        setLoadingMore(false);
-      }
-      
-      return;
-    }
-    
-    // Fallback: Server-side pagination (when no location or all locales not loaded)
-    if (currentPageRef.current >= totalPages) {
-      setHasMore(false);
-      setLoadingMore(false);
-      return;
-    }
-    
     isPaginatingRef.current = true;
     
     try {
@@ -3349,7 +2859,7 @@ export default function LocaleScreen() {
       isPaginatingRef.current = false;
       setLoadingMore(false);
     }
-  }, [hasMore, totalPages, loadingMore, loadingLocales, loadAdminLocales, displayedPage, userLocation, locationPermissionGranted, createLocationSnapshot, sortLocalesWithSnapshot, applyFilters]);
+  }, [hasMore, loadingMore, loadingLocales, loadAdminLocales]);
 
   // Pagination & Filter Race Safety: Refresh with guards
   const handleRefresh = useCallback(async () => {
@@ -4210,7 +3720,12 @@ export default function LocaleScreen() {
     [renderAdminLocaleCard],
   );
 
-  const localeKeyExtractor = useCallback((item: Locale, index: number) => String(item?._id ?? `locale-${index}`), []);
+  const localeKeyExtractor = useCallback((item: Locale) => {
+    if (!item || !item._id) {
+      return `invalid-id-${item?.name || 'unknown'}`;
+    }
+    return String(item._id);
+  }, []);
 
   const localeGetItemLayout = useCallback((_data: ArrayLike<Locale> | null | undefined, index: number) => {
     return { length: screenWidth, offset: screenWidth * index, index };
@@ -4517,16 +4032,6 @@ export default function LocaleScreen() {
                             Loading more locales...
                           </Text>
                         </View>
-                      ) : !hasMore ? (
-                        <View style={styles.loadMoreContainer}>
-                          <Text style={{
-                            color: theme.colors.textPassive,
-                            fontSize: theme.typography.small.fontSize,
-                            textAlign: 'center',
-                          }}>
-                            End of Results
-                          </Text>
-                        </View>
                       ) : null}
                     </View>
                   ) : null
@@ -4557,7 +4062,12 @@ export default function LocaleScreen() {
           <FlatList
             data={filteredSavedLocales}
             renderItem={({ item, index }) => renderSavedLocaleCard({ locale: item, index })}
-            keyExtractor={(item, index) => String(item?._id ?? `saved-${index}`)}
+            keyExtractor={(item) => {
+              if (!item || !item._id) {
+                return `invalid-saved-id-${item?.name || 'unknown'}`;
+              }
+              return String(item._id);
+            }}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
             ItemSeparatorComponent={() => <View style={{ height: 20 }} />}

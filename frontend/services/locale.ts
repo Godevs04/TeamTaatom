@@ -35,6 +35,8 @@ export interface LocalesResponse {
     totalPages: number;
     total: number;
     limit: number;
+    hasMore?: boolean;
+    nextCursor?: number | null;
   };
 }
 
@@ -60,7 +62,8 @@ export const getLocales = async (
   stateProvince: string = '',
   signal?: AbortSignal,
   latitude?: number,
-  longitude?: number
+  longitude?: number,
+  cursor?: number | null
 ): Promise<LocalesResponse> => {
   try {
     const params = new URLSearchParams();
@@ -95,6 +98,9 @@ export const getLocales = async (
     if (longitude !== undefined && longitude !== null) {
       params.append('long', longitude.toString());
       params.append('sort', 'nearest');
+    }
+    if (cursor !== undefined && cursor !== null) {
+      params.append('cursor', cursor.toString());
     }
 
     const response = await api.get(`/api/v1/locales?${params.toString()}`, { signal });

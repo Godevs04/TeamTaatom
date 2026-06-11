@@ -6,20 +6,21 @@ const logger = createLogger('VideoCache');
 const MAX_CACHED_VIDEOS = 50;
 const cacheQueue: string[] = []; // ordered oldest → newest
 
-/** HLS manifests reference remote .ts segments — caching only the .m3u8 breaks iOS AVPlayer (CoreMedia -12865). */
-export function isHlsStreamUrl(url: string | null | undefined): boolean {
-  if (!url) return false;
-  const lower = url.toLowerCase();
-  return (
-    lower.includes('.m3u8') ||
-    lower.includes('hls=master') ||
-    lower.includes('hls=segment') ||
-    (lower.includes('hls') && lower.includes('/api/'))
-  );
-}
-
 // Deduplicate active downloads to prevent concurrent requests for the same video
 const activeDownloads = new Map<string, Promise<string>>();
+
+// Synchronous cache locking to prevent race conditions during deletion
+const lockedVideoIds = new Set<string>();
+
+/**
+ * Extract video ID from local path
+ */
+function getVideoIdFromPath(localPath: string): string | null {
+  const filename = localPath.split('/').pop();
+  if (!filename) return null;
+  const parts = filename.split('.');
+  return parts[0] || null;
+}
 
 /**
  * Get the cache directory path
@@ -61,6 +62,10 @@ async function validateCachedFile(localPath: string): Promise<boolean> {
  * Returns null if the video is not cached or invalid.
  */
 export async function getLocalVideoUri(videoId: string): Promise<string | null> {
+  if (lockedVideoIds.has(videoId)) {
+    logger.debug(`[VideoCache] getLocalVideoUri blocked due to lock for video: ${videoId}`);
+    return null;
+  }
   try {
     const cacheDir = getCachePath();
     const mp4Path = `${cacheDir}shorts/${videoId}.mp4`;
@@ -69,10 +74,8 @@ export async function getLocalVideoUri(videoId: string): Promise<string | null> 
     if (await validateCachedFile(mp4Path)) {
       return mp4Path;
     }
-    // Purge any legacy HLS manifest cache — local .m3u8 cannot drive segment playback.
-    const m3u8Info = await FileSystem.getInfoAsync(m3u8Path);
-    if (m3u8Info.exists) {
-      await removeCachedVideo(m3u8Path).catch(() => {});
+    if (await validateCachedFile(m3u8Path)) {
+      return m3u8Path;
     }
     return null;
   } catch (error) {
@@ -82,8 +85,9 @@ export async function getLocalVideoUri(videoId: string): Promise<string | null> 
 }
 
 export async function cacheVideoLocally(videoId: string, remoteUrl: string): Promise<string> {
-  if (isHlsStreamUrl(remoteUrl)) {
-    throw new Error(`HLS stream ${videoId} cannot be cached locally`);
+  if (lockedVideoIds.has(videoId)) {
+    logger.warn(`[VideoCache] cacheVideoLocally blocked: video is locked: ${videoId}`);
+    throw new Error(`Video cache is locked: ${videoId}`);
   }
 
   // Return active download promise if already in progress to prevent duplicate fetching
@@ -95,7 +99,9 @@ export async function cacheVideoLocally(videoId: string, remoteUrl: string): Pro
 
   const downloadPromise = (async () => {
     try {
-      const filename = `${videoId}.mp4`;
+      const lowercaseUrl = remoteUrl.toLowerCase();
+      const ext = (lowercaseUrl.includes('m3u8') || lowercaseUrl.includes('hls')) ? 'm3u8' : 'mp4';
+      const filename = `${videoId}.${ext}`;
       const cacheDir = getCachePath();
       const localPath = `${cacheDir}shorts/${filename}`;
 
@@ -110,7 +116,7 @@ export async function cacheVideoLocally(videoId: string, remoteUrl: string): Pro
       if (info.exists) {
         // Validate cached file before using it
         const isValid = await validateCachedFile(localPath);
-        if (isValid) {
+        if (isValid && !lockedVideoIds.has(videoId)) {
           // Move to end of queue (recently used)
           const idx = cacheQueue.indexOf(localPath);
           if (idx !== -1) {
@@ -122,8 +128,13 @@ export async function cacheVideoLocally(videoId: string, remoteUrl: string): Pro
           return localPath;
         } else {
           // File is corrupted or invalid, remove from cache
-          logger.warn(`[VideoCache] Cache file invalid, removing: ${filename}`);
-          await removeCachedVideo(localPath);
+          logger.warn(`[VideoCache] Cache file invalid or locked, removing: ${filename}`);
+          lockedVideoIds.add(videoId);
+          try {
+            await removeCachedVideo(localPath);
+          } finally {
+            lockedVideoIds.delete(videoId);
+          }
           // Fall through to re-download
         }
       } else {
@@ -184,6 +195,11 @@ export async function cacheVideoLocally(videoId: string, remoteUrl: string): Pro
 }
 
 export async function clearVideoCache(): Promise<void> {
+  // Lock all current items in queue during clear
+  cacheQueue.forEach(path => {
+    const id = getVideoIdFromPath(path);
+    if (id) lockedVideoIds.add(id);
+  });
   try {
     const cacheDir = `${getCachePath()}shorts/`;
     const info = await FileSystem.getInfoAsync(cacheDir);
@@ -196,6 +212,8 @@ export async function clearVideoCache(): Promise<void> {
   } catch (error) {
     logger.error(`[VideoCache] Error clearing cache:`, error);
     throw error;
+  } finally {
+    lockedVideoIds.clear();
   }
 }
 
@@ -223,6 +241,10 @@ export function getCacheQueue(): string[] {
  * @param localPath - Local file path to remove
  */
 export async function removeCachedVideo(localPath: string): Promise<void> {
+  const videoId = getVideoIdFromPath(localPath);
+  if (videoId) {
+    lockedVideoIds.add(videoId);
+  }
   try {
     const idx = cacheQueue.indexOf(localPath);
     if (idx !== -1) {
@@ -236,6 +258,10 @@ export async function removeCachedVideo(localPath: string): Promise<void> {
   } catch (error) {
     logger.error(`[VideoCache] Error removing video:`, error);
     throw error;
+  } finally {
+    if (videoId) {
+      lockedVideoIds.delete(videoId);
+    }
   }
 }
 
@@ -258,9 +284,6 @@ export async function isCachedVideoValid(localPath: string): Promise<boolean> {
  * @param remoteUrl - CDN URL of the video
  */
 export function preloadVideoAsync(videoId: string, remoteUrl: string): void {
-  if (isHlsStreamUrl(remoteUrl)) {
-    return;
-  }
   cacheVideoLocally(videoId, remoteUrl).catch((err) => {
     logger.warn(`[VideoCache] Preload failed for video ${videoId} (${remoteUrl}):`, err);
   });

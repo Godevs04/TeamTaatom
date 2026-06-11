@@ -82,13 +82,6 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
   const [loading, setLoading] = useState(false);
   const debounceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  interface RegionData {
-    center: { latitude: number; longitude: number };
-    zoom: number;
-    bounds: { latitudeDelta: number; longitudeDelta: number };
-  }
-  const regionDataRef = React.useRef<RegionData | null>(null);
-
   // Fetch travel map data when component becomes visible
   useEffect(() => {
     if (visible && userId) {
@@ -282,9 +275,9 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
               [${bounds.north}, ${bounds.east}]
             ]);
             
-            // Add OpenStreetMap tiles
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-              attribution: '© OpenStreetMap contributors',
+            // Add CartoDB Positron tiles (light theme)
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+              attribution: '© OpenStreetMap contributors, © CartoDB',
               maxZoom: 18
             }).addTo(map);
             
@@ -293,7 +286,7 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
               iconCreateFunction: function(cluster) {
                 const childCount = cluster.getChildCount();
                 return L.divIcon({
-                  html: '<div style="background: rgba(80, 200, 120, 0.6); backdrop-filter: blur(8px); border: 2px solid white; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px; box-shadow: 0 4px 6px rgba(0,0,0,0.15);">' + childCount + '</div>',
+                  html: '<div style="background: rgba(6, 182, 212, 0.6); backdrop-filter: blur(8px); border: 2px solid white; border-radius: 50%; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 14px; box-shadow: 0 4px 6px rgba(0,0,0,0.15);">' + childCount + '</div>',
                   className: 'custom-marker-cluster',
                   iconSize: [40, 40],
                   iconAnchor: [20, 20]
@@ -310,7 +303,7 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
               
               const icon = L.divIcon({
                 className: 'custom-marker',
-                html: \`<div style="background: #FF3040; border: 2px solid white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 11px; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">\${location.number}</div>\`,
+                html: \`<div style="background: #06B6D4; border: 2px solid white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 11px; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">\${location.number}</div>\`,
                 iconSize: [24, 24],
                 iconAnchor: [12, 12]
               });
@@ -321,43 +314,15 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
             
             map.addLayer(markersGroup);
             
-             // Listen to move event for continuous tracking during pan (updates ref, bypasses react renders)
-             map.on('move', function() {
-               const center = map.getCenter();
-               const zoom = map.getZoom();
-               const bounds = map.getBounds();
-               const message = {
-                 type: 'regionChange',
-                 center: { latitude: center.lat, longitude: center.lng },
-                 zoom: zoom,
-                 bounds: {
-                   latitudeDelta: Math.abs(bounds.getNorth() - bounds.getSouth()),
-                   longitudeDelta: Math.abs(bounds.getEast() - bounds.getWest()),
-                 }
-               };
-               if (window.ReactNativeWebView) {
-                 window.ReactNativeWebView.postMessage(JSON.stringify(message));
-               }
-             });
-
-             // Listen to moveend event to notify React Native about region change complete
-             map.on('moveend', function() {
-               const center = map.getCenter();
-               const zoom = map.getZoom();
-               const bounds = map.getBounds();
-               const message = {
-                 type: 'regionChangeComplete',
-                 center: { latitude: center.lat, longitude: center.lng },
-                 zoom: zoom,
-                 bounds: {
-                   latitudeDelta: Math.abs(bounds.getNorth() - bounds.getSouth()),
-                   longitudeDelta: Math.abs(bounds.getEast() - bounds.getWest()),
-                 }
-               };
-               if (window.ReactNativeWebView) {
-                 window.ReactNativeWebView.postMessage(JSON.stringify(message));
-               }
-             });
+            // Draw route polylines with cyan blue-green color
+            if (locations.length > 1) {
+              const routeCoordinates = locations.map(loc => [loc.latitude, loc.longitude]);
+              L.polyline(routeCoordinates, {
+                color: '#06B6D4',
+                weight: 3,
+                opacity: 0.8
+              }).addTo(map);
+            }
             
           } catch (error) {
             document.body.innerHTML = '<div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; background: #f5f5f5; color: #333; font-family: Arial, sans-serif;"><div style="font-size: 48px; margin-bottom: 20px;">⚠️</div><div style="font-size: 24px; font-weight: bold; margin-bottom: 10px;">Map Error</div><div style="font-size: 16px; text-align: center;">Failed to load map. Please check your internet connection.</div></div>';
@@ -425,34 +390,6 @@ export default function WorldMap({ visible, userId, onClose }: WorldMapProps) {
               domStorageEnabled={true}
               startInLoadingState={true}
               scalesPageToFit={true}
-              onMessage={(event) => {
-                try {
-                  const data = JSON.parse(event.nativeEvent.data);
-                  if (data.type === 'regionChange') {
-                    // Update ref only - bypass state updates/re-renders during pan
-                    regionDataRef.current = {
-                      center: data.center,
-                      zoom: data.zoom,
-                      bounds: data.bounds,
-                    };
-                  } else if (data.type === 'regionChangeComplete') {
-                    // Update ref
-                    regionDataRef.current = {
-                      center: data.center,
-                      zoom: data.zoom,
-                      bounds: data.bounds,
-                    };
-                    if (debounceTimerRef.current) {
-                      clearTimeout(debounceTimerRef.current);
-                    }
-                    debounceTimerRef.current = setTimeout(() => {
-                      fetchTravelMapData(true);
-                    }, 400);
-                  }
-                } catch (e) {
-                  logger.debug('Error parsing WebView message in WorldMap:', e);
-                }
-              }}
               onError={(syntheticEvent) => {
                 const { nativeEvent } = syntheticEvent;
                 logger.error('WebView error: ', nativeEvent);

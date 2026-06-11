@@ -38,6 +38,7 @@ interface PremiumMapMarkerProps {
   tracksViewChanges?: boolean;
   onImageLoad?: () => void;
   latitudeDelta?: number;
+  renderAsDot?: boolean;
 }
 
 const getScaleFromDelta = (delta?: number) => {
@@ -65,6 +66,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
   tracksViewChanges: propTracksViewChanges,
   onImageLoad,
   latitudeDelta,
+  renderAsDot = false,
 }: PremiumMapMarkerProps) {
   const { isDark, theme } = useTheme();
   const activeState = isActive ?? active;
@@ -180,15 +182,36 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
     );
   }
 
-  // Handle standard location markers (if inactive, render as Google Maps style gradient pin with cutout center)
+  // Handle standard location markers as dots if specified
+  if (!activeState && renderAsDot) {
+    return (
+      <Animated.View style={[styles.dotContainer, containerStyle]}>
+        {!usesNativeIosMarker && (
+          <Animated.View style={[styles.dotPulse, pulseStyle, { top: 3 }]}>
+            <LinearGradient
+              colors={isDark ? ['rgba(45, 212, 191, 0.4)', 'rgba(45, 212, 191, 0.05)'] as const : ['rgba(59, 130, 246, 0.4)', 'rgba(59, 130, 246, 0.05)'] as const}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[StyleSheet.absoluteFillObject, { borderRadius: 15 }]}
+            />
+          </Animated.View>
+        )}
+        <View style={[styles.dotCore, { backgroundColor: isDark ? '#2DD4BF' : '#3B82F6', borderColor: '#FFFFFF' }, Platform.OS === 'android' && { elevation: 3 }]} />
+      </Animated.View>
+    );
+  }
+
+  // Handle standard location markers (if inactive, render as Google Maps style gradient pin with custom landmark/icon)
   if (!activeState) {
+    const isLandmark = icon === 'location';
+
     return (
       <Animated.View style={[styles.inactiveMarkerContainer, containerStyle]}>
         {/* Pulsating Ring (under the pin) */}
         {!usesNativeIosMarker && (
           <Animated.View style={[styles.dotPulse, pulseStyle, { top: 5 }]}>
             <LinearGradient
-              colors={isDark ? ['rgba(80, 200, 120, 0.4)', 'rgba(28, 115, 180, 0.05)'] as const : ['rgba(28, 115, 180, 0.4)', 'rgba(80, 200, 120, 0.05)'] as const}
+              colors={['rgba(59, 130, 246, 0.4)', 'rgba(29, 78, 216, 0.05)'] as const}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={[StyleSheet.absoluteFillObject, { borderRadius: 15 }]}
@@ -196,22 +219,37 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
           </Animated.View>
         )}
         
-        {/* Custom Svg Gradient Pin (Teardrop shape matching Google Maps logo, cutout center, white border) */}
-        <Svg width={30} height={40} viewBox="0 0 30 40" style={styles.svgPin}>
-          <Defs>
-            <SvgLinearGradient id="pinGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-              <Stop offset="0%" stopColor="#50C878" />
-              <Stop offset="100%" stopColor="#1C73B4" />
-            </SvgLinearGradient>
-          </Defs>
-          <Path
-            d="M15 1C7.27 1 1 7.27 1 15c0 10 14 25 14 25s14-15 14-25c0-7.73-6.27-14-14-14zm0 19c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"
-            fill="url(#pinGrad)"
-            fillRule="evenodd"
-            stroke="#FFFFFF"
-            strokeWidth={1.5}
-          />
-        </Svg>
+        {/* Custom Svg Gradient Pin (Teardrop shape matching Google Maps logo, white border) */}
+        <View style={styles.pinWrapper}>
+          <Svg width={30} height={38} viewBox="0 0 30 38" style={styles.svgPin}>
+            <Defs>
+              <SvgLinearGradient id="pinGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                <Stop offset="0%" stopColor="#3B82F6" />
+                <Stop offset="100%" stopColor="#10B981" />
+              </SvgLinearGradient>
+            </Defs>
+            <Path
+              d="M15 2C7.27 2 1 8.27 1 16c0 9 14 21 14 21s14-12 14-21c0-7.73-6.27-14-14-14z"
+              fill="url(#pinGrad)"
+              stroke="#FFFFFF"
+              strokeWidth={2}
+            />
+            {isLandmark && (
+              <Path
+                d="M 9,21 H 21 V 15 H 18 V 18 H 17 V 14 H 13 V 18 H 12 V 15 H 9 Z M 13.5,21 V 18.5 A 1.5,1.5 0 0,1 16.5,18.5 V 21 Z M 15,14 V 10 L 18,11.5 L 15,13 Z"
+                fill="#FFFFFF"
+                fillRule="evenodd"
+              />
+            )}
+          </Svg>
+          
+          {/* If not landmark, overlay the custom Ionicon in white */}
+          {!isLandmark && (
+            <View style={styles.iconOverlay}>
+              <Ionicons name={icon} size={12} color="#FFFFFF" />
+            </View>
+          )}
+        </View>
       </Animated.View>
     );
   }
@@ -291,13 +329,29 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
     prevProps.photo === nextProps.photo &&
     prevProps.tracksViewChanges === nextProps.tracksViewChanges &&
     prevProps.onImageLoad === nextProps.onImageLoad &&
-    prevProps.latitudeDelta === nextProps.latitudeDelta
+    prevProps.latitudeDelta === nextProps.latitudeDelta &&
+    prevProps.renderAsDot === nextProps.renderAsDot
   );
 });
 
 export default PremiumMapMarker;
 
 const styles = StyleSheet.create({
+  pinWrapper: {
+    width: 30,
+    height: 38,
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconOverlay: {
+    position: 'absolute',
+    top: 10,
+    width: 12,
+    height: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   inactiveMarkerContainer: {
     width: 36,
     height: 44,

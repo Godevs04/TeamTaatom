@@ -4,6 +4,7 @@ import LoadingGlobe from '../components/LoadingGlobe';
 import { WebView } from 'react-native-webview';
 import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
+import { calmMorningMapStyle } from '../constants/mapStyles';
 
 const { width, height } = Dimensions.get('window');
 
@@ -53,8 +54,9 @@ export default function GlobeMap({ locations, title = 'Travel Globe', visible, o
         position: { lat: ${loc.latitude}, lng: ${loc.longitude} },
         map: map,
         icon: {
-          url: 'data:image/svg+xml;utf-8,<svg width="24" height="24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="%23FF3040"/></svg>',
-          scaledSize: new google.maps.Size(24, 24),
+          url: 'data:image/svg+xml;utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36"><circle cx="18" cy="18" r="16" fill="white" /><circle cx="18" cy="18" r="13" fill="%2306B6D4" /><path d="M18 23.27l6.18 3.73-1.64-7.03 5.46-4.73-7.19-0.61-2.81-6.63-2.81 6.63-7.19 0.61 5.46 4.73-1.64 7.03z" fill="white" /></svg>',
+          scaledSize: new google.maps.Size(30, 30),
+          anchor: new google.maps.Point(15, 15)
         },
         title: '${loc.address || ''}',
       }).addListener('click', function() {
@@ -72,7 +74,8 @@ export default function GlobeMap({ locations, title = 'Travel Globe', visible, o
             const map = new google.maps.Map(document.getElementById('map'), {
               center: { lat: ${locations[0].latitude}, lng: ${locations[0].longitude} },
               zoom: 2,
-              mapTypeId: 'terrain',
+              mapTypeId: 'roadmap',
+              styles: ${JSON.stringify(calmMorningMapStyle)},
               tilt: 45,
             });
             ${markers}
@@ -81,9 +84,9 @@ export default function GlobeMap({ locations, title = 'Travel Globe', visible, o
               new google.maps.Polyline({
                 path: path,
                 geodesic: true,
-                strokeColor: '#FF3040',
+                strokeColor: '#06B6D4',
                 strokeOpacity: 1.0,
-                strokeWeight: 2,
+                strokeWeight: 3,
                 map: map
               });
             ` : ''}
@@ -141,7 +144,7 @@ export default function GlobeMap({ locations, title = 'Travel Globe', visible, o
             onLoadEnd={() => setLoading(false)}
             onMessage={onWebViewMessage}
             startInLoadingState
-            renderLoading={() => <LoadingGlobe style={{ flex: 1 }} size="large" color="#FF3040" />}
+            renderLoading={() => <LoadingGlobe style={{ flex: 1 }} size="large" color="#06B6D4" />}
           />
         )}
       </View>
@@ -182,14 +185,14 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 16,
-    color: '#FF3040',
+    color: '#06B6D4',
     marginBottom: 16,
     textAlign: 'center',
   },
   nativeButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FF3040',
+    backgroundColor: '#06B6D4',
     padding: 12,
     borderRadius: 8,
   },

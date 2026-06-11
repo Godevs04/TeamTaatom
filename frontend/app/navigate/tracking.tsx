@@ -392,7 +392,7 @@ window.updateMapData = function(path, currentLat, currentLng) {
     if(currentSegment.length > 0) segments.push(currentSegment);
     segments.forEach(function(seg){
       if(seg.length > 1){
-        var glow = new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1.0,strokeWeight:14,map:map});
+        var glow = new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:0.22,strokeWeight:14,map:map});
         var core = new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1.0,strokeWeight:5,map:map});
         polylines.push(glow);
         polylines.push(core);

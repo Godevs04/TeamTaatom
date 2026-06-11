@@ -18,7 +18,8 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import { useTheme } from '../../context/ThemeContext';
 import * as Location from 'expo-location';
-import { MapView, Marker, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
+import { MapView, Marker, getMapProvider } from '../../utils/mapsWrapper';
+const useWebViewFallback = true;
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import { getApiUrl } from '../../utils/config';
 import { calculateDistance } from '../../utils/locationUtils';
@@ -225,6 +226,7 @@ const resolvePhotoUrl = (url?: string | null): string | undefined => {
 export default function CurrentLocationMap() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  const postPhoto = (params.photo as string) || (params.imageUrl as string) || null;
 
   // Check if we have location parameters (from locale or post)
   const postLatitude = params.latitude ? parseFloat(params.latitude as string) : null;
@@ -274,9 +276,27 @@ export default function CurrentLocationMap() {
   const [route, setRoute] = useState<DirectionsRoute | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
   const [isRoutingActive, setIsRoutingActive] = useState(false);
+  const [isMarkerSelected, setIsMarkerSelected] = useState(false);
+  const [initialCoords, setInitialCoords] = useState<{ latitude: number; longitude: number } | null>(() => {
+    if (hasValidCoordinates && postLatitude && postLongitude) {
+      return { latitude: postLatitude, longitude: postLongitude };
+    }
+    return null;
+  });
+  
+  useEffect(() => {
+    if (location && !initialCoords) {
+      setInitialCoords({
+        latitude: isPostLocation ? postLatitude! : location.coords.latitude,
+        longitude: isPostLocation ? postLongitude! : location.coords.longitude,
+      });
+    }
+  }, [location, isPostLocation, postLatitude, postLongitude, initialCoords]);
+
   const [headerCardHeight, setHeaderCardHeight] = useState(60);
   const hasLoggedParamsRef = useRef<string>('');
   const mapRef = useRef<any>(null);
+  const autoRouteTriggered = useRef(false);
 
   const [tracksViewChanges, setTracksViewChanges] = useState(true);
 
@@ -353,6 +373,17 @@ export default function CurrentLocationMap() {
             status = requested.status;
           }
           if (status !== 'granted') return;
+
+          // Try to get last known location first (almost instant)
+          const lastKnown = await Location.getLastKnownPositionAsync();
+          if (lastKnown && lastKnown.coords) {
+            setUserCoords({
+              latitude: lastKnown.coords.latitude,
+              longitude: lastKnown.coords.longitude,
+            });
+          }
+
+          // Then query current location in background
           const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
           setUserCoords({
             latitude: current.coords.latitude,
@@ -400,7 +431,18 @@ export default function CurrentLocationMap() {
         return;
       }
 
-      // Get current location with best accuracy
+      // Try to get last known location first for instant rendering
+      try {
+        const lastKnown = await Location.getLastKnownPositionAsync();
+        if (lastKnown && lastKnown.coords) {
+          setLocation(lastKnown);
+          setLoading(false); // Map can render immediately with cached location!
+        }
+      } catch (e) {
+        logger.warn('Failed to get last known position in getCurrentLocation:', e);
+      }
+
+      // Get current location with best accuracy in the background (or foreground if lastKnown was null)
       const currentLocation = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.BestForNavigation,
       });
@@ -424,7 +466,9 @@ export default function CurrentLocationMap() {
       
       // Log as debug to avoid Babel serialization issues with CodedError
       logger.info('Error getting location:', errorMessage);
-      setError('Failed to get current location');
+      if (!location) {
+        setError('Failed to get current location');
+      }
       setLoading(false);
     }
   };
@@ -500,43 +544,111 @@ export default function CurrentLocationMap() {
           status = requested.status;
         }
         if (status === 'granted') {
-          const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          coords = {
-            latitude: current.coords.latitude,
-            longitude: current.coords.longitude,
-          };
-          setUserCoords(coords);
+          // 1. Try to get last known location first (instant)
+          try {
+            const lastKnown = await Location.getLastKnownPositionAsync();
+            if (lastKnown && lastKnown.coords) {
+              coords = {
+                latitude: lastKnown.coords.latitude,
+                longitude: lastKnown.coords.longitude,
+              };
+              setUserCoords(coords);
+            }
+          } catch (e) {
+            logger.warn('Failed to get last known position in loadRoute:', e);
+          }
+
+          // 2. Fetch precise position in background/fallback if not retrieved yet
+          if (!coords) {
+            const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            coords = {
+              latitude: current.coords.latitude,
+              longitude: current.coords.longitude,
+            };
+            setUserCoords(coords);
+          }
         }
       }
 
       if (!coords) {
         logger.error('Cannot load route: user location is not available');
+        setRouteLoading(false);
         return;
       }
 
       // Route calculation is now delegated to the Maps JS SDK inside the WebView
       // Trigger calculation dynamically without reloading the WebView
-      if (useWebViewFallback) {
-        if (mapRef.current) {
-          mapRef.current.injectJavaScript(`
-            if (typeof window.calculateRoute === 'function') {
-              window.calculateRoute();
-            }
-            true;
-          `);
-        }
+      if (mapRef.current && useWebViewFallback) {
+        mapRef.current.injectJavaScript(`
+          if (typeof window.updateUserLocation === 'function') {
+            window.updateUserLocation(${coords.latitude}, ${coords.longitude});
+          }
+          if (typeof window.calculateRoute === 'function') {
+            window.calculateRoute();
+          }
+          true;
+        `);
       } else {
-        const fetchedRoute = await fetchDirectionsRoute(coords, { latitude: postLatitude, longitude: postLongitude });
-        if (fetchedRoute) {
-           setRoute(fetchedRoute);
+        // iOS / Native MapView: Fetch route directly from Google Directions API
+        const routeData = await fetchDirectionsRoute(
+          coords,
+          { latitude: postLatitude!, longitude: postLongitude! }
+        );
+        if (routeData) {
+          setRoute(routeData);
         }
         setRouteLoading(false);
       }
+
+      // Trigger a background refresh of the position to ensure we get a precise/fresh lock
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+        .then((current) => {
+          if (current && current.coords) {
+            const freshCoords = {
+              latitude: current.coords.latitude,
+              longitude: current.coords.longitude,
+            };
+            setUserCoords(freshCoords);
+          }
+        })
+        .catch((err) => {
+          logger.warn('Background position refresh failed in loadRoute:', err);
+        });
     } catch (err) {
       logger.error('Failed to init route state:', err);
       setRouteLoading(false);
     }
   };
+
+  const autoRouteParam = params.autoRoute === 'true';
+  useEffect(() => {
+    if (autoRouteParam && hasValidCoordinates && userCoords && !autoRouteTriggered.current) {
+      autoRouteTriggered.current = true;
+      loadRoute();
+    }
+  }, [autoRouteParam, hasValidCoordinates, userCoords]);
+
+  useEffect(() => {
+    if (userCoords && mapRef.current) {
+      mapRef.current.injectJavaScript(`
+        if (typeof window.updateUserLocation === 'function') {
+          window.updateUserLocation(${userCoords.latitude}, ${userCoords.longitude});
+        }
+        true;
+      `);
+    }
+  }, [userCoords]);
+
+  useEffect(() => {
+    if (mapRef.current) {
+      mapRef.current.injectJavaScript(`
+        if (typeof window.updateDestinationSelection === 'function') {
+          window.updateDestinationSelection(${isMarkerSelected});
+        }
+        true;
+      `);
+    }
+  }, [isMarkerSelected]);
 
   useEffect(() => {
     if (route?.coordinates && route.coordinates.length > 0 && mapRef.current && !useWebViewFallback) {
@@ -548,6 +660,347 @@ export default function CurrentLocationMap() {
       }
     }
   }, [route, useWebViewFallback]);
+
+  const webViewSource = useMemo(() => {
+    if (!initialCoords) return null;
+    const WV_KEY = getGoogleMapsApiKeyForWebView();
+    if (!WV_KEY) return null;
+    const lat = initialCoords.latitude;
+    const lng = initialCoords.longitude;
+    const rawTitle = isPostLocation ? (postAddress || 'Post Location') : (locationName || 'Your Current Location');
+    const htmlEsc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const html = `<!DOCTYPE html><html><head>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<style>
+html,body,#map{height:100%;margin:0;padding:0}
+.glowing-dot-container {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pulse-ring {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: radial-gradient(circle, ${isDark ? 'rgba(45, 212, 191, 0.4)' : 'rgba(59, 130, 246, 0.4)'} 0%, rgba(59, 130, 246, 0) 70%);
+  animation: pulse 1.8s infinite ease-out;
+}
+.core-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #2DD4BF 0%, #3B82F6 100%);
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+}
+@keyframes pulse {
+  0% { transform: scale(0.6); opacity: 1; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+.photo-pin {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: #FFFFFF;
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.photo-pin-img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.photo-pin-tail {
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid #FFFFFF;
+}
+</style>
+<script>
+window.map = null;
+window.destinationOverlay = null;
+window.userDotOverlay = null;
+window.isRoutingActive = false;
+window.postPhotoUrl = ${JSON.stringify(postPhoto ? resolvePhotoUrl(postPhoto) : '')};
+window.mapInitialized = false;
+
+// Race-condition shell state storage
+window.pendingUserCoords = null;
+window.pendingDestinationSelection = null;
+window.pendingStartNavigation = false;
+
+window.updateUserLocation = function(lat, lng) {
+  window.pendingUserCoords = { latitude: lat, longitude: lng };
+  if (window.mapInitialized && typeof window.updateUserLocationReal === 'function') {
+    window.updateUserLocationReal(lat, lng);
+  }
+};
+
+window.updateDestinationSelection = function(isSelected) {
+  window.pendingDestinationSelection = isSelected;
+  if (window.mapInitialized && typeof window.updateDestinationSelectionReal === 'function') {
+    window.updateDestinationSelectionReal(isSelected);
+  }
+};
+
+window.startNavigation = function() {
+  window.pendingStartNavigation = true;
+  if (window.mapInitialized && typeof window.startNavigationReal === 'function') {
+    window.startNavigationReal();
+  }
+};
+
+window.calculateRoute = function() {
+  if (window.mapInitialized && typeof window.calculateRouteReal === 'function') {
+    window.calculateRouteReal();
+  }
+};
+
+function initMap(){
+  window.map=new google.maps.Map(document.getElementById('map'),{center:{lat:${lat},lng:${lng}},zoom:15,mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true,gestureHandling:'greedy',isFractionalZoomEnabled:true});
+  var map=window.map;
+  
+  // Custom OverlayView class
+  class PhotoOverlay extends google.maps.OverlayView {
+    constructor(pos, el) {
+      super();
+      this.position = pos;
+      this.div = el;
+      this.setMap(map);
+    }
+    onAdd() {
+      this.getPanes().overlayMouseTarget.appendChild(this.div);
+    }
+    draw() {
+      var pt = this.getProjection().fromLatLngToDivPixel(this.position);
+      if (pt) {
+        this.div.style.left = pt.x + 'px';
+        this.div.style.top = pt.y + 'px';
+        this.div.style.position = 'absolute';
+        var anchor = this.div.getAttribute('data-anchor') || 'bottom';
+        if (anchor === 'center') {
+          this.div.style.transform = 'translate(-50%, -50%)';
+        } else {
+          this.div.style.transform = 'translate(-50%, -100%)';
+        }
+      }
+    }
+    onRemove() {
+      if (this.div && this.div.parentNode) {
+        this.div.parentNode.removeChild(this.div);
+      }
+    }
+  }
+
+  var isPostLoc = ${isPostLocation};
+  var userCoords = null;
+  var destination = new google.maps.LatLng(${lat}, ${lng});
+
+  function drawRoute(path) {
+    if (path.length > 1) {
+      if (window.polyline1) window.polyline1.setMap(null);
+      if (window.polyline2) window.polyline2.setMap(null);
+      
+      window.polyline1 = new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:0.22,strokeWeight:14,map:map});
+      window.polyline2 = new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:5,map:map});
+      var bounds=new google.maps.LatLngBounds();
+      path.forEach(function(p){bounds.extend(p);});
+      map.fitBounds(bounds,64);
+    }
+  }
+
+  function drawUserDot(pos) {
+    var userDiv=document.createElement('div');
+    userDiv.style.cssText='position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+    userDiv.setAttribute('data-anchor', 'center');
+    userDiv.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
+    return new PhotoOverlay(pos, userDiv);
+  }
+
+  function drawDestinationMarker(hasRoute, isSelected) {
+    var div=document.createElement('div');
+    div.style.cssText='position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+    
+    if (isPostLoc || hasRoute) {
+      if (isSelected) {
+        var imgHtml = window.postPhotoUrl ? '<img src="' + window.postPhotoUrl + '" class="photo-pin-img" />' : '<div class="photo-pin-img" style="background:#2DD4BF;display:flex;align-items:center;justify-content:center;color:white;font-size:16px;">📍</div>';
+        div.setAttribute('data-anchor', 'bottom');
+        div.innerHTML = '<div class="photo-pin">' +
+          imgHtml +
+          '<div class="photo-pin-tail"></div>' +
+        '</div>';
+      } else {
+        div.setAttribute('data-anchor', 'center');
+        div.innerHTML = '<svg viewBox="0 0 36 36" width="36" height="36" style="filter: drop-shadow(0px 2px 3px rgba(0,0,0,0.3))"><defs><linearGradient id="htmlMarkerGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#50C878"/><stop offset="100%" stop-color="#1C73B4"/></linearGradient></defs><circle cx="18" cy="18" r="16" fill="#FFFFFF" /><circle cx="18" cy="18" r="13" fill="url(#htmlMarkerGrad)" /><path d="M18 23.27l6.18 3.73-1.64-7.03 5.46-4.73-7.19-0.61-2.81-6.63-2.81 6.63-7.19 0.61 5.46 4.73-1.64 7.03z" fill="#FFFFFF" /></svg>';
+      }
+    } else {
+      div.setAttribute('data-anchor', 'center');
+      div.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
+    }
+    
+    div.addEventListener('click', function(e) {
+      e.stopPropagation();
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'TOGGLE_DESTINATION_SELECTION' }));
+      }
+    });
+
+    var overlay = new PhotoOverlay(destination, div);
+    return overlay;
+  }
+
+  window.calculateRouteReal = function() {
+    if (userCoords && isPostLoc) {
+      window.isRoutingActive = true;
+      if (window.destinationOverlay) {
+        window.destinationOverlay.setMap(null);
+      }
+      
+      try {
+        if (!window.google || !window.google.maps || !window.google.maps.DirectionsService) {
+          throw new Error('Google Maps API not loaded');
+        }
+        var directionsService = new google.maps.DirectionsService();
+        var origin = new google.maps.LatLng(userCoords.latitude, userCoords.longitude);
+        
+        directionsService.route({
+          origin: origin,
+          destination: destination,
+          travelMode: google.maps.TravelMode.DRIVING
+        }, function(response, status) {
+          if (status === 'OK') {
+            var path = response.routes[0].overview_path;
+            drawRoute(path);
+            
+            if (window.userDotOverlay) {
+              window.userDotOverlay.setMap(null);
+            }
+            window.userDotOverlay = drawUserDot(origin);
+            
+            if (window.destinationOverlay) {
+              window.destinationOverlay.setMap(null);
+            }
+            window.destinationOverlay = drawDestinationMarker(true, false);
+            
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'ROUTE_LOADED',
+                distanceText: response.routes[0].legs[0].distance.text,
+                distanceValue: response.routes[0].legs[0].distance.value,
+                durationText: response.routes[0].legs[0].duration.text,
+                durationValue: response.routes[0].legs[0].duration.value
+              }));
+            }
+          } else {
+            var fallbackPath = [origin, destination];
+            drawRoute(fallbackPath);
+            
+            if (window.userDotOverlay) {
+              window.userDotOverlay.setMap(null);
+            }
+            window.userDotOverlay = drawUserDot(origin);
+            
+            if (window.destinationOverlay) {
+              window.destinationOverlay.setMap(null);
+            }
+            window.destinationOverlay = drawDestinationMarker(true, false);
+            
+            if (window.ReactNativeWebView) {
+              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_ERROR' }));
+            }
+          }
+        });
+      } catch (err) {
+        console.error(err);
+        if (userCoords) {
+          var origin = new google.maps.LatLng(userCoords.latitude, userCoords.longitude);
+          var fallbackPath = [origin, destination];
+          drawRoute(fallbackPath);
+          
+          if (window.userDotOverlay) {
+            window.userDotOverlay.setMap(null);
+          }
+          window.userDotOverlay = drawUserDot(origin);
+          
+          if (window.destinationOverlay) {
+            window.destinationOverlay.setMap(null);
+          }
+          window.destinationOverlay = drawDestinationMarker(true, false);
+        }
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_ERROR' }));
+        }
+      }
+    }
+  };
+
+  window.destinationOverlay = drawDestinationMarker(false, false);
+
+  window.updateUserLocationReal = function(lat, lng) {
+    userCoords = { latitude: lat, longitude: lng };
+    var origin = new google.maps.LatLng(lat, lng);
+    if (window.userDotOverlay) {
+      window.userDotOverlay.setMap(null);
+    }
+    window.userDotOverlay = drawUserDot(origin);
+    
+    if (window.isRoutingActive) {
+      window.calculateRouteReal();
+    }
+  };
+
+  window.startNavigationReal = function() {
+    window.isRoutingActive = true;
+    window.calculateRouteReal();
+  };
+
+  window.updateDestinationSelectionReal = function(isSelected) {
+    if (window.destinationOverlay) {
+      window.destinationOverlay.setMap(null);
+    }
+    window.destinationOverlay = drawDestinationMarker(window.isRoutingActive, isSelected);
+  };
+  
+  map.addListener('click', function() {
+    if (window.ReactNativeWebView) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'CLEAR_DESTINATION_SELECTION' }));
+    }
+  });
+
+  // Now maps is initialized, run pending callbacks
+  window.mapInitialized = true;
+  if (window.pendingUserCoords) {
+    window.updateUserLocationReal(window.pendingUserCoords.latitude, window.pendingUserCoords.longitude);
+  }
+  if (window.pendingDestinationSelection !== null) {
+    window.updateDestinationSelectionReal(window.pendingDestinationSelection);
+  }
+  if (window.pendingStartNavigation) {
+    window.startNavigationReal();
+  }
+}
+</script></head><body>
+<div id="map"></div>
+<script async defer src="https://maps.googleapis.com/maps/api/js?key=${WV_KEY}&language=en&callback=initMap"></script>
+</body></html>`;
+    return { html };
+  }, [initialCoords, isPostLocation, postPhoto, isDark, mapStyle.customMapStyle, mapStyle.routeColor, mapStyle.routeGlowColor]);
 
   const renderMap = () => {
     if (loading) {
@@ -591,263 +1044,34 @@ export default function CurrentLocationMap() {
           </View>
         );
       }
-      const lat = location.coords.latitude;
-      const lng = location.coords.longitude;
-      const userCoordsJson = userCoords ? JSON.stringify(userCoords) : 'null';
-      const rawTitle = isPostLocation ? (postAddress || 'Post Location') : (locationName || 'Your Current Location');
-      const htmlEsc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-      const html = `<!DOCTYPE html><html><head>
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
-<style>
-html,body,#map{height:100%;margin:0;padding:0}
-.glowing-dot-container {
-  position: relative;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.pulse-ring {
-  position: absolute;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: radial-gradient(circle, ${isDark ? 'rgba(45, 212, 191, 0.4)' : 'rgba(59, 130, 246, 0.4)'} 0%, rgba(59, 130, 246, 0) 70%);
-  animation: pulse 1.8s infinite ease-out;
-}
-.core-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #2DD4BF 0%, #3B82F6 100%);
-  border: 2px solid #FFFFFF;
-  box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
-}
-@keyframes pulse {
-  0% { transform: scale(0.6); opacity: 1; }
-  100% { transform: scale(2.2); opacity: 0; }
-}
-
-.glass-marker-card {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border-radius: 20px;
-  background: ${isDark ? 'rgba(15, 23, 42, 0.75)' : 'rgba(255, 255, 255, 0.75)'};
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.08)'};
-  box-shadow: 0 8px 32px 0 ${isDark ? 'rgba(0, 0, 0, 0.37)' : 'rgba(31, 38, 135, 0.15)'};
-  max-width: 180px;
-  animation: floatCard 0.3s ease-out;
-}
-.marker-thumb {
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
-  min-height: 26px;
-  flex-shrink: 0;
-  -webkit-flex-shrink: 0;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.08)'};
-}
-.marker-thumb-placeholder {
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
-  min-height: 26px;
-  flex-shrink: 0;
-  -webkit-flex-shrink: 0;
-  border-radius: 50%;
-  background: ${isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)'};
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-}
-.marker-info {
-  display: flex;
-  flex-direction: column;
-  min-width: 60px;
-  overflow: hidden;
-}
-.marker-title {
-  font-size: 11px;
-  font-weight: 700;
-  color: ${isDark ? '#F8FAFC' : '#0F172A'};
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.marker-subtitle {
-  font-size: 9px;
-  font-weight: 500;
-  color: ${isDark ? '#94A3B8' : '#64748B'};
-  margin-top: 1px;
-}
-@keyframes floatCard {
-  0% { transform: translateY(6px); opacity: 0; }
-  100% { transform: translateY(0); opacity: 1; }
-}
-</style>
-<script>
-function initMap(){
-  window.map=new google.maps.Map(document.getElementById('map'),{center:{lat:${lat},lng:${lng}},zoom:15,mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true,gestureHandling:'greedy',isFractionalZoomEnabled:true});
-  var map=window.map;
-  
-  // Custom OverlayView class
-  class PhotoOverlay extends google.maps.OverlayView {
-    constructor(pos, el) {
-      super();
-      this.position = pos;
-      this.div = el;
-      this.setMap(map);
-    }
-    onAdd() {
-      this.getPanes().overlayMouseTarget.appendChild(this.div);
-    }
-    draw() {
-      var pt = this.getProjection().fromLatLngToDivPixel(this.position);
-      if (pt) {
-        this.div.style.left = pt.x + 'px';
-        this.div.style.top = pt.y + 'px';
-        this.div.style.position = 'absolute';
-        var anchor = this.div.getAttribute('data-anchor') || 'bottom';
-        if (anchor === 'center') {
-          this.div.style.transform = 'translate(-50%, -50%)';
-        } else {
-          this.div.style.transform = 'translate(-50%, -100%)';
-        }
+      if (!webViewSource) {
+        return (
+          <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
+            <LoadingGlobe size="large" color={theme.colors.primary} />
+            <Text style={[styles.loadingText, { color: theme.colors.text }]}>
+              Initializing map...
+            </Text>
+          </View>
+        );
       }
-    }
-    onRemove() {
-      if (this.div && this.div.parentNode) {
-        this.div.parentNode.removeChild(this.div);
-      }
-    }
-  }
-
-  var isPostLoc = ${isPostLocation};
-  var userCoords = ${userCoordsJson};
-  var destination = new google.maps.LatLng(${lat}, ${lng});
-
-  function drawRoute(path) {
-    if (path.length > 1) {
-      new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:14,map:map});
-      new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:5,map:map});
-      var bounds=new google.maps.LatLngBounds();
-      path.forEach(function(p){bounds.extend(p);});
-      map.fitBounds(bounds,64);
-    }
-  }
-
-  function drawUserDot(pos) {
-    var userDiv=document.createElement('div');
-    userDiv.style.cssText='position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
-    userDiv.setAttribute('data-anchor', 'center');
-    userDiv.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
-    new PhotoOverlay(pos, userDiv);
-  }
-
-  function drawDestinationMarker(hasRoute) {
-    var div=document.createElement('div');
-    div.style.cssText='position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
-    
-    if (isPostLoc) {
-      var titleText = ${JSON.stringify(htmlEsc(locationName || postAddress || 'Location'))};
-      var subtitleText = ${JSON.stringify(htmlEsc(params.spotTypes as string || params.description as string || 'Visited place'))};
-      var photoUrl = ${JSON.stringify(params.imageUrl ? resolvePhotoUrl(params.imageUrl as string) : '')};
-      var imgHtml = photoUrl ? '<img src="' + photoUrl + '" class="marker-thumb" onerror="this.style.display=\\'none\\'" />' : '<div class="marker-thumb-placeholder">📍</div>';
-      div.setAttribute('data-anchor', 'bottom');
-      div.innerHTML = '<div class="glass-marker-card">' +
-        imgHtml +
-        '<div class="marker-info">' +
-          '<div class="marker-title">' + titleText + '</div>' +
-          '<div class="marker-subtitle">' + subtitleText + '</div>' +
-        '</div>' +
-      '</div>';
-    } else if (hasRoute) {
-      div.setAttribute('data-anchor', 'bottom');
-      div.innerHTML = '<svg width="30" height="40" viewBox="0 0 30 40" style="filter: drop-shadow(0px 3px 4px rgba(0,0,0,0.35))"><defs><linearGradient id="htmlPinGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#50C878" /><stop offset="100%" stop-color="#1C73B4" /></linearGradient></defs><path d="M15 1C7.27 1 1 7.27 1 15c0 10 14 25 14 25s14-15 14-25c0-7.73-6.27-14-14-14zm0 19c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z" fill="url(#htmlPinGrad)" fill-rule="evenodd" stroke="#FFFFFF" stroke-width="1.5"/></svg>';
-    } else {
-      div.setAttribute('data-anchor', 'center');
-      div.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
-    }
-    var overlay = new PhotoOverlay(destination, div);
-    return overlay;
-  }
-
-  window.calculateRoute = function() {
-    if (userCoords && isPostLoc) {
-      // Remove the existing standalone destination marker before drawing the route one
-      if (window.destinationOverlay) {
-        window.destinationOverlay.onRemove();
-      }
-      
-      var directionsService = new google.maps.DirectionsService();
-      var origin = new google.maps.LatLng(userCoords.latitude, userCoords.longitude);
-      
-      directionsService.route({
-        origin: origin,
-        destination: destination,
-        travelMode: google.maps.TravelMode.DRIVING
-      }, function(response, status) {
-        if (status === 'OK') {
-          var path = response.routes[0].overview_path;
-          drawRoute(path);
-          drawUserDot(origin);
-          drawDestinationMarker(true);
-          if (window.ReactNativeWebView) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'ROUTE_LOADED',
-              distanceText: response.routes[0].legs[0].distance.text,
-              distanceValue: response.routes[0].legs[0].distance.value,
-              durationText: response.routes[0].legs[0].duration.text,
-              durationValue: response.routes[0].legs[0].duration.value
-            }));
-          }
-        } else {
-          var fallbackPath = [origin, destination];
-          drawRoute(fallbackPath);
-          drawUserDot(origin);
-          drawDestinationMarker(true);
-          if (window.ReactNativeWebView) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_ERROR' }));
-          }
-        }
-      });
-    }
-  };
-
-  if (${isRoutingActive} && userCoords && isPostLoc) {
-    window.calculateRoute();
-  } else {
-    window.destinationOverlay = drawDestinationMarker(false);
-    if (userCoords && !isPostLoc) {
-      var origin = new google.maps.LatLng(userCoords.latitude, userCoords.longitude);
-      drawUserDot(origin);
-    } else if (userCoords && isPostLoc) {
-      // Just show the user dot as well without routing
-      var origin = new google.maps.LatLng(userCoords.latitude, userCoords.longitude);
-      drawUserDot(origin);
-    }
-  }
-}
-</script></head><body>
-<div id="map"></div>
-<script async defer src="https://maps.googleapis.com/maps/api/js?key=${WV_KEY}&language=en&callback=initMap"></script>
-</body></html>`;
       return (
         <WebView
           ref={mapRef}
           style={styles.map}
-          source={{ html }}
+          source={webViewSource}
           javaScriptEnabled={true}
           domStorageEnabled={true}
           startInLoadingState={true}
+          onLoadEnd={() => {
+            if (mapRef.current) {
+              const jsCode = [
+                userCoords ? `if (typeof window.updateUserLocation === 'function') { window.updateUserLocation(${userCoords.latitude}, ${userCoords.longitude}); }` : '',
+                `if (typeof window.updateDestinationSelection === 'function') { window.updateDestinationSelection(${isMarkerSelected}); }`,
+                isRoutingActive ? `if (typeof window.startNavigation === 'function') { window.startNavigation(); }` : ''
+              ].filter(Boolean).join('\n');
+              mapRef.current.injectJavaScript(jsCode);
+            }
+          }}
           originWhitelist={['https://*', 'http://*', 'data:*', 'about:*']}
           onShouldStartLoadWithRequest={(req) => req.url.startsWith('http') || req.url.startsWith('data:') || req.url.startsWith('about:')}
           {...(Platform.OS === 'android' && { mixedContentMode: 'compatibility' as const, setSupportMultipleWindows: false })}
@@ -865,6 +1089,10 @@ function initMap(){
                 setRouteLoading(false);
               } else if (data.type === 'ROUTE_ERROR') {
                 setRouteLoading(false);
+              } else if (data.type === 'TOGGLE_DESTINATION_SELECTION') {
+                setIsMarkerSelected(prev => !prev);
+              } else if (data.type === 'CLEAR_DESTINATION_SELECTION') {
+                setIsMarkerSelected(false);
               }
             } catch (e) {}
           }}
@@ -905,6 +1133,7 @@ function initMap(){
         showsScale={true}
         mapType={mapStyle.mapType}
         followsUserLocation={!hasValidCoordinates && !route}
+        onPress={() => setIsMarkerSelected(false)}
       >
         {route?.coordinates?.length > 1 && (
           <>
@@ -928,6 +1157,7 @@ function initMap(){
           </>
         )}
         <Marker
+          key={`dest-${isMarkerSelected ? 'active' : 'inactive'}`}
           coordinate={
             isPostLocation
               ? { latitude: postLatitude!, longitude: postLongitude! }
@@ -944,30 +1174,32 @@ function initMap(){
               ? 'Post Location'
               : (locationName ? `${locationName} Location` : 'You are here')
           }
-          anchor={{ x: 0.5, y: 1.0 }}
+          anchor={{ x: 0.5, y: 0.86 }}
           onPress={() => {
-            if (isTripScoreFlow) {
-              router.back();
-            } else if (locationName && params.userId === 'admin-locale') {
-              router.back();
-            } else if (isPostLocation && postAddress) {
-              const locationSlug = postAddress.toLowerCase().replace(/\s+/g, '-');
-              router.replace({
-                pathname: '/tripscore/countries/[country]/locations/[location]',
-                params: { country: 'general', location: locationSlug, userId: 'current-user' }
-              });
+            if (!isMarkerSelected) {
+              setIsMarkerSelected(true);
             } else {
-              router.back();
+              if (isTripScoreFlow) {
+                router.back();
+              } else if (locationName && params.userId === 'admin-locale') {
+                router.back();
+              } else if (isPostLocation && postAddress) {
+                const locationSlug = postAddress.toLowerCase().replace(/\s+/g, '-');
+                router.replace({
+                  pathname: '/tripscore/countries/[country]/locations/[location]',
+                  params: { country: 'general', location: locationSlug, userId: 'current-user' }
+                });
+              } else {
+                router.back();
+              }
             }
           }}
         >
           <PremiumMapMarker 
             icon={isPostLocation ? 'location' : 'navigate'} 
-            active={isPostLocation} 
-            label={isPostLocation ? (locationName || postAddress || 'Location') : undefined}
-            activeTitle={isPostLocation ? (locationName || postAddress || 'Location') : undefined}
-            activeSubtitle={isPostLocation ? (params.spotTypes as string || params.description as string || 'Visited place') : undefined}
-            photo={isPostLocation ? (params.imageUrl ? resolvePhotoUrl(params.imageUrl as string) : undefined) : undefined}
+            active={isMarkerSelected} 
+            isActive={isMarkerSelected}
+            photo={postPhoto}
             latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
           />
         </Marker>

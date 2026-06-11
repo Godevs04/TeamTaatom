@@ -889,7 +889,7 @@ const searchByName = async (req, res) => {
  */
 const findUsers = async (req, res) => {
   try {
-    const { target_country, current_country, lang, travel_style } = req.query;
+    const { target_country, current_country, lang, travel_style, user_location } = req.query;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
@@ -918,106 +918,125 @@ const findUsers = async (req, res) => {
       langCodeToName[l.code.toLowerCase()] = l.name.toLowerCase();
     }
 
-    // Build user query based on filters
-    const userQuery = {
-      _id: { $ne: currentUserId }
-    };
+    // Build user query based on strict filters using $and
+    const queryAnd = [
+      { _id: { $ne: currentUserId } },
+      {
+        $or: [
+          { 'settings.privacy.profileVisibility': { $in: ['public', null] } },
+          { 'settings.privacy.profileVisibility': { $exists: false } },
+          { 
+            'settings.privacy.profileVisibility': 'followers',
+            followers: currentUserId
+          }
+        ]
+      }
+    ];
 
-    // Filter by language: match UI preference, languagesKnown array, or bio text
+    // Filter by language: must be explicitly mapped in languagesKnown or settings
     if (lang) {
       const langLower = lang.toLowerCase();
       const langName = langCodeToName[langLower] || langLower;
       const langNameEscaped = langName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-      const langConditions = [
-        { 'settings.account.language': langLower },
-        { languagesKnown: langLower },
-        { languagesKnown: { $regex: `^${langNameEscaped}$`, $options: 'i' } },
-        { bio: { $regex: langNameEscaped, $options: 'i' } },
-        { bio: { $regex: langLower, $options: 'i' } }
-      ];
-      if (userQuery.$or) {
-        const existingOr = userQuery.$or;
-        delete userQuery.$or;
-        userQuery.$and = userQuery.$and || [];
-        userQuery.$and.push({ $or: existingOr }, { $or: langConditions });
-      } else {
-        userQuery.$or = langConditions;
-      }
+      queryAnd.push({
+        $or: [
+          { 'settings.account.language': langLower },
+          { languagesKnown: langLower },
+          { languagesKnown: { $regex: `^${langNameEscaped}$`, $options: 'i' } }
+        ]
+      });
     }
 
     // Filter by travel style
     if (travel_style) {
-      userQuery.travelStyle = travel_style;
+      queryAnd.push({ travelStyle: travel_style });
     }
 
-    // Filter by target country (people-from) — match nationality and bio.
-    // Optional: when omitted, all users matching language are returned.
+    // Filter by target country (people-from) — match nationality
     if (target_country) {
       const countryName = codeToName[target_country.toUpperCase()] || target_country;
       const escaped = countryName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const codeEscaped = target_country.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const nationalityConditions = [
-        { nationality: { $regex: escaped, $options: 'i' } },
-        { nationality: { $regex: codeEscaped, $options: 'i' } },
-        { bio: { $regex: escaped, $options: 'i' } },
-      ];
-      // Merge with existing $or (from language) using $and
-      if (userQuery.$or) {
-        // Already have $or for language — wrap both in $and
-        const langOr = userQuery.$or;
-        delete userQuery.$or;
-        userQuery.$and = [
-          { $or: langOr },
-          { $or: nationalityConditions }
-        ];
-      } else {
-        userQuery.$or = nationalityConditions;
-      }
+      queryAnd.push({
+        $or: [
+          { nationality: { $regex: `^${escaped}$`, $options: 'i' } },
+          { nationality: { $regex: `^${codeEscaped}$`, $options: 'i' } }
+        ]
+      });
     }
 
-    // Filter by current_country — same approach as target_country but
-    // checks where the user currently is. Since User doesn't have a
-    // dedicated currentCountry field, we fall back to nationality if
-    // different from target_country (i.e. skip if same filter already applied).
-    if (current_country && current_country !== target_country) {
+    // Filter by current_country — match currentCountry (only if showLocation is enabled)
+    if (current_country) {
       const countryName = codeToName[current_country.toUpperCase()] || current_country;
       const escaped = countryName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const codeEscaped = current_country.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const currentConditions = [
-        { nationality: { $regex: escaped, $options: 'i' } },
-        { nationality: { $regex: codeEscaped, $options: 'i' } }
-      ];
-      if (userQuery.$and) {
-        userQuery.$and.push({ $or: currentConditions });
-      } else if (userQuery.$or) {
-        const existingOr = userQuery.$or;
-        delete userQuery.$or;
-        userQuery.$and = [
-          { $or: existingOr },
-          { $or: currentConditions }
-        ];
-      } else {
-        userQuery.$or = currentConditions;
-      }
+      queryAnd.push({
+        'settings.privacy.showLocation': { $ne: false },
+        $or: [
+          { currentCountry: { $regex: `^${escaped}$`, $options: 'i' } },
+          { currentCountry: { $regex: `^${codeEscaped}$`, $options: 'i' } }
+        ]
+      });
     }
 
-    const [users, total] = await Promise.all([
-      User.find(userQuery)
-        .select('username fullName profilePic bio interests travelStyle nationality languagesKnown settings.account.language followers')
-        .sort({ lastLogin: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      User.countDocuments(userQuery)
-    ]);
+    const userQuery = { $and: queryAnd };
 
-    // Calculate shared interests count with the current user and sort results
+    // If geocoding/proximity search is requested
+    const { geocodeAddress } = require('../utils/geocoder');
+    const searchCoords = user_location ? await geocodeAddress(user_location) : null;
+
+    if (searchCoords) {
+      queryAnd.push({ 'settings.privacy.showLocation': { $ne: false } });
+    }
+
+    let matchedUsers = [];
+    let total = 0;
+    if (searchCoords) {
+      // Fetch matching users to perform proximity sorting
+      matchedUsers = await User.find(userQuery)
+        .select('username fullName profilePic bio interests travelStyle nationality languagesKnown settings.account.language settings.privacy followers currentLocation currentCountry')
+        .limit(500)
+        .lean();
+      total = matchedUsers.length;
+    } else {
+      // Regular paginated query
+      [matchedUsers, total] = await Promise.all([
+        User.find(userQuery)
+          .select('username fullName profilePic bio interests travelStyle nationality languagesKnown settings.account.language settings.privacy followers currentLocation currentCountry')
+          .sort({ lastLogin: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        User.countDocuments(userQuery)
+      ]);
+    }
+
+    // Calculate shared interests count with the current user and sort/compute distances
     const currentUserInterests = currentUser?.interests || [];
-    const usersWithFollowStatus = users.map(user => {
+    let usersWithFollowStatus = await Promise.all(matchedUsers.map(async (user) => {
       const sharedInterests = (user.interests || []).filter(interest => 
         currentUserInterests.some(ci => ci.toLowerCase() === interest.toLowerCase())
       );
+
+      const showLocation = user.settings?.privacy?.showLocation !== false;
+      let distance = Infinity;
+      if (showLocation && searchCoords && user.currentLocation) {
+        const userCoords = await geocodeAddress(user.currentLocation);
+        if (userCoords && typeof userCoords.lat === 'number' && typeof userCoords.lng === 'number') {
+          const R = 6371; // km
+          const dLat = ((userCoords.lat - searchCoords.lat) * Math.PI) / 180;
+          const dLon = ((userCoords.lng - searchCoords.lng) * Math.PI) / 180;
+          const a =
+            Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos((searchCoords.lat * Math.PI) / 180) *
+              Math.cos((userCoords.lat * Math.PI) / 180) *
+              Math.sin(dLon / 2) *
+              Math.sin(dLon / 2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          distance = R * c;
+        }
+      }
 
       return {
         _id: user._id,
@@ -1028,12 +1047,27 @@ const findUsers = async (req, res) => {
         language: user.settings?.account?.language || 'en',
         travelStyle: user.travelStyle || '',
         sharedInterestsCount: sharedInterests.length,
-        isFollowing: user.followers?.some(fId => fId.toString() === currentUserId.toString()) || false
+        isFollowing: user.followers?.some(fId => fId.toString() === currentUserId.toString()) || false,
+        distance,
+        currentLocation: showLocation ? (user.currentLocation || '') : ''
       };
-    });
+    }));
 
-    // Sort by shared interests count descending
-    usersWithFollowStatus.sort((a, b) => b.sharedInterestsCount - a.sharedInterestsCount);
+    if (searchCoords) {
+      // Sort by proximity distance first, then by shared interests count descending
+      usersWithFollowStatus.sort((a, b) => {
+        if (a.distance !== b.distance) {
+          return a.distance - b.distance;
+        }
+        return b.sharedInterestsCount - a.sharedInterestsCount;
+      });
+
+      // Apply pagination in JS
+      usersWithFollowStatus = usersWithFollowStatus.slice(skip, skip + limit);
+    } else {
+      // Sort by shared interests count descending
+      usersWithFollowStatus.sort((a, b) => b.sharedInterestsCount - a.sharedInterestsCount);
+    }
 
     return sendSuccess(res, 200, 'Users found', {
       users: usersWithFollowStatus,

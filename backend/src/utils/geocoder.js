@@ -78,6 +78,8 @@ const getContinentFromCoordinates = (latitude, longitude) => {
   return 'UNKNOWN';
 };
 
+const geocodeCache = new Map();
+
 /**
  * Geocodes an address string using Google Geocoding API.
  * @param {string} address The address to geocode
@@ -88,8 +90,14 @@ async function geocodeAddress(address) {
     return null;
   }
 
+  const normalizedAddress = address.trim().toLowerCase();
+  if (geocodeCache.has(normalizedAddress)) {
+    return geocodeCache.get(normalizedAddress);
+  }
+
   const canonical = CANONICAL_LANDMARKS[normalizeLandmark(address)];
   if (canonical) {
+    geocodeCache.set(normalizedAddress, { ...canonical });
     return { ...canonical };
   }
 
@@ -141,7 +149,7 @@ async function geocodeAddress(address) {
           continent = bboxHit.continent || continent;
         }
 
-        return {
+        const geocodedResult = {
           lat: location.lat,
           lng: location.lng,
           formattedAddress: result.formatted_address || address,
@@ -151,6 +159,9 @@ async function geocodeAddress(address) {
           stateProvince,
           continent
         };
+
+        geocodeCache.set(normalizedAddress, geocodedResult);
+        return geocodedResult;
       }
     } else {
       logger.warn(`Google Geocoding failed for address "${address}": status = ${data.status}`);

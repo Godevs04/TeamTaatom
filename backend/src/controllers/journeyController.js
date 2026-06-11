@@ -462,7 +462,9 @@ const updateLocation = async (req, res) => {
         lng: parseFloat(coord.lng),
         timestamp: coord.timestamp ? new Date(coord.timestamp) : new Date(),
         accuracy: accuracy,
-        segmentBreak: coord.segmentBreak === true || coord.segmentBreak === 'true'
+        segmentBreak: coord.segmentBreak === true || coord.segmentBreak === 'true',
+        speed: coord.speed !== undefined && coord.speed !== null ? parseFloat(coord.speed) : null,
+        heading: coord.heading !== undefined && coord.heading !== null ? parseFloat(coord.heading) : null
       };
 
       const lastExisting = journey.raw_polyline.length > 0
@@ -1039,12 +1041,20 @@ const getUserJourneys = async (req, res) => {
       }
     }
 
-    const journeys = await Journey.find(journeyQuery)
+    let journeysQuery = Journey.find(journeyQuery)
       .select(selectFields + ' status')
       .sort({ startedAt: -1 })
       .skip(skip)
-      .limit(limit)
-      .lean();
+      .limit(limit);
+
+    if (includePolyline) {
+      journeysQuery = journeysQuery.populate({
+        path: 'waypoints.post',
+        select: 'caption imageUrl videoUrl thumbnailUrl storageKey storageKeys images type location spotType travelInfo user createdAt'
+      });
+    }
+
+    const journeys = await journeysQuery.lean();
 
     const total = await Journey.countDocuments(journeyQuery);
 

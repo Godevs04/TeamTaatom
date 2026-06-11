@@ -15,14 +15,10 @@ export function useMapStyle() {
       customMapStyle,
       glassTint: isDark ? 'dark' as const : 'light' as const,
       mapType: 'standard' as const,
-      routeColor: isDark ? '#2DD4BF' : '#3B82F6',
-      routeGlowColor: isDark ? 'rgba(45, 212, 191, 0.3)' : 'rgba(59, 130, 246, 0.22)',
+      routeColor: '#06B6D4', // Vibrant Cyan (matching blue-green gradient)
+      routeGlowColor: 'rgba(6, 182, 212, 0.22)',
       userInterfaceStyle,
-      nativeMapProps: Platform.select({
-        android: { customMapStyle },
-        ios: { userInterfaceStyle },
-        default: {},
-      }),
+      nativeMapProps: { customMapStyle },
     };
   }, [isDark]);
 }

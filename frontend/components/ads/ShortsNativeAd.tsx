@@ -36,6 +36,8 @@ type AdsModule = {
   NativeAsset: React.ComponentType<any>;
   NativeAssetType: typeof import('react-native-google-mobile-ads').NativeAssetType;
   AdEventType: { IMPRESSION: string };
+  NativeMediaAspectRatio: typeof import('react-native-google-mobile-ads').NativeMediaAspectRatio;
+  NativeAdChoicesPlacement: typeof import('react-native-google-mobile-ads').NativeAdChoicesPlacement;
 };
 
 const maskAdUnitId = (unitId?: string) => {
@@ -103,6 +105,8 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
         NativeAsset: ads.NativeAsset,
         NativeAssetType: ads.NativeAssetType,
         AdEventType: ads.AdEventType,
+        NativeMediaAspectRatio: ads.NativeMediaAspectRatio,
+        NativeAdChoicesPlacement: ads.NativeAdChoicesPlacement,
       });
     } catch (err) {
       logger.error('[AdMob] Failed to load react-native-google-mobile-ads module in Shorts', err, {
@@ -140,7 +144,13 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
     let requestTimedOut = false;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const adRequest = initializeAds()
-      .then(() => adsModule.NativeAd.createForAdRequest(unitId, { startVideoMuted: true }))
+      .then(() =>
+        adsModule.NativeAd.createForAdRequest(unitId, {
+          startVideoMuted: true,
+          aspectRatio: adsModule.NativeMediaAspectRatio.PORTRAIT,
+          adChoicesPlacement: adsModule.NativeAdChoicesPlacement.TOP_RIGHT,
+        })
+      )
       .then((ad) => {
         if (requestTimedOut || destroyedRef.current) {
           ad.destroy();
@@ -256,13 +266,17 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
           <Text style={styles.sponsoredLabel}>Sponsored</Text>
         </View>
 
-        {/* Headline + CTA near bottom, above safe area */}
-        <View style={[styles.footer, { paddingBottom: bottomInset + 24 }]}>
+        {/* Headline Container View - direct child of AdView */}
+        <View style={[styles.headlineContainer, { bottom: bottomInset + 80 }]}>
           <Asset assetType={AssetType.HEADLINE}>
             <Text style={styles.headline} numberOfLines={2}>
               {nativeAd.headline}
             </Text>
           </Asset>
+        </View>
+
+        {/* CTA Container View - direct child of AdView */}
+        <View style={[styles.ctaContainer, { bottom: bottomInset + 24 }]}>
           <Asset assetType={AssetType.CALL_TO_ACTION}>
             <View style={styles.ctaWrap}>
               <Text style={styles.ctaText} numberOfLines={1}>
@@ -314,18 +328,20 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     color: 'rgba(255,255,255,0.8)',
   },
-  footer: {
+  headlineContainer: {
     position: 'absolute',
     left: 16,
     right: 16,
-    bottom: 0,
-    paddingTop: 16,
+  },
+  ctaContainer: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
   },
   headline: {
     fontSize: 18,
     fontWeight: '700',
     color: '#fff',
-    marginBottom: 12,
     textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
