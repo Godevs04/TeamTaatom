@@ -12,7 +12,7 @@ import { Image as ExpoImage } from 'expo-image';
 import { BlurView } from 'expo-blur';
 import { useTheme } from '../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Circle, Path, Defs, LinearGradient as SvgLinearGradient, Stop, G, ClipPath, Image as SvgImage } from 'react-native-svg';
+import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
 import { getApiUrl } from '../utils/config';
 import { sanitizeLatitudeDelta } from '../utils/mapSafety';
 
@@ -180,34 +180,56 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
     );
   }
 
-  // Always render the card if active, otherwise render the custom gradient star pin
-  const shouldShowCard = activeState;
+  // Handle standard location markers (if inactive, render as Google Maps style gradient pin with custom landmark/icon)
+  if (!activeState) {
+    const isLandmark = icon === 'location';
 
-  if (!shouldShowCard) {
     return (
-      <View style={styles.inactiveMarkerContainer}>
-        <Animated.View style={[styles.flagPinContainer, containerStyle]}>
-          <Svg viewBox="0 0 36 36" width={36} height={36}>
+      <Animated.View style={[styles.inactiveMarkerContainer, containerStyle]}>
+        {/* Pulsating Ring (under the pin) */}
+        {!usesNativeIosMarker && (
+          <Animated.View style={[styles.dotPulse, pulseStyle, { top: 5 }]}>
+            <LinearGradient
+              colors={['rgba(59, 130, 246, 0.4)', 'rgba(29, 78, 216, 0.05)'] as const}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[StyleSheet.absoluteFillObject, { borderRadius: 15 }]}
+            />
+          </Animated.View>
+        )}
+        
+        {/* Custom Svg Gradient Pin (Teardrop shape matching Google Maps logo, white border) */}
+        <View style={styles.pinWrapper}>
+          <Svg width={30} height={38} viewBox="0 0 30 38" style={styles.svgPin}>
             <Defs>
-              <SvgLinearGradient id="markerGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                <Stop offset="0%" stopColor="#50C878" />
-                <Stop offset="100%" stopColor="#1C73B4" />
+              <SvgLinearGradient id="pinGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                <Stop offset="0%" stopColor="#3B82F6" />
+                <Stop offset="100%" stopColor="#10B981" />
               </SvgLinearGradient>
             </Defs>
-            {/* The White Border Base */}
-            <Circle cx="18" cy="18" r="16" fill="#FFFFFF" />
-            
-            {/* The Gradient Core */}
-            <Circle cx="18" cy="18" r="13" fill="url(#markerGrad)" />
-            
-            {/* The White Star Icon */}
             <Path
-              d="M18 23.27l6.18 3.73-1.64-7.03 5.46-4.73-7.19-0.61-2.81-6.63-2.81 6.63-7.19 0.61 5.46 4.73-1.64 7.03z"
-              fill="#FFFFFF"
+              d="M15 2C7.27 2 1 8.27 1 16c0 9 14 21 14 21s14-12 14-21c0-7.73-6.27-14-14-14z"
+              fill="url(#pinGrad)"
+              stroke="#FFFFFF"
+              strokeWidth={2}
             />
+            {isLandmark && (
+              <Path
+                d="M 9,21 H 21 V 15 H 18 V 18 H 17 V 14 H 13 V 18 H 12 V 15 H 9 Z M 13.5,21 V 18.5 A 1.5,1.5 0 0,1 16.5,18.5 V 21 Z M 15,14 V 10 L 18,11.5 L 15,13 Z"
+                fill="#FFFFFF"
+                fillRule="evenodd"
+              />
+            )}
           </Svg>
-        </Animated.View>
-      </View>
+          
+          {/* If not landmark, overlay the custom Ionicon in white */}
+          {!isLandmark && (
+            <View style={styles.iconOverlay}>
+              <Ionicons name={icon} size={12} color="#FFFFFF" />
+            </View>
+          )}
+        </View>
+      </Animated.View>
     );
   }
 
@@ -215,52 +237,62 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
   const showLabel = label || activeTitle || '';
   const displaySubtitle = activeSubtitle || 'Visited place';
   
-  const cardBg = isDark ? 'rgba(30, 41, 59, 0.9)' : 'rgba(255, 255, 255, 0.95)';
-  const cardBorder = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.12)';
-  const cardTitleColor = isDark ? '#FFFFFF' : '#0F172A';
-  const cardSubtitleColor = isDark ? '#94A3B8' : '#64748B';
+  const outerBg = isDark ? 'rgba(15, 23, 42, 0.75)' : 'rgba(255, 255, 255, 0.75)';
+  const borderCol = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.08)';
+  const textColor = isDark ? '#FFFFFF' : '#0F172A';
 
   return (
-    <Animated.View style={[styles.pinActiveContainer, containerStyle]}>
-      <View style={styles.pinSvgWrapper}>
-        <Svg viewBox="0 0 52 64" width={52} height={64}>
-          <Defs>
-            {/* Strict mathematical clipping mask to safeguard the image layout */}
-            <ClipPath id="circleView">
-              <Circle cx="26" cy="26" r="21" />
-            </ClipPath>
-          </Defs>
-
-          {/* Outer Premium Base Anchor: Clean, smooth, and unified */}
-          <Path
-            d="M26 62C38 48 48 38 48 26C48 13.8497 38.1503 4 26 4C13.8497 4 4 13.8497 4 26C4 38 14 48 26 62Z"
-            fill="#FFFFFF"
-          />
-
-          {/* Inner Context Shadow Layer for High Contrast */}
-          <Circle cx="26" cy="26" r="22" fill="#EAEAEA" />
-
-          {/* Content Layer: Smoothly masked image context, zero clipping cuts */}
-          {resolvedPhoto ? (
-            <G clipPath="url(#circleView)">
-              <SvgImage
-                href={{ uri: resolvedPhoto }}
-                width="46"
-                height="46"
-                x="3"
-                y="3"
-                preserveAspectRatio="xMidYMid slice"
-                onLoad={handleImageLoad}
-              />
-            </G>
-          ) : null}
-        </Svg>
-        {!resolvedPhoto && (
-          <View style={styles.pinIconOverlay}>
-            <Ionicons name={icon} size={22} color="#06B6D4" />
+    <Animated.View style={[styles.cockpitContainer, containerStyle]}>
+      {/* Shadow wrapper (no overflow hidden to allow shadows on iOS, flat wrapper on Android) */}
+      <View style={isDark ? styles.shadowDark : styles.shadowLight}>
+        {/* Glassmorphic card body (clips inner contents like blur/image) */}
+        <View style={styles.cardWrapper}>
+          <View
+            style={[
+              styles.markerCard,
+              {
+                backgroundColor: isDark ? 'rgba(30, 41, 59, 0.85)' : 'rgba(255, 255, 255, 0.85)',
+                borderColor: borderCol,
+                borderRadius: 14,
+              }
+            ]}
+          >
+            <View style={styles.markerContentRow}>
+              {resolvedPhoto ? (
+                <ExpoImage
+                  source={{ uri: resolvedPhoto }}
+                  style={[styles.markerPhoto, { borderColor: isDark ? '#2DD4BF' : '#3B82F6' }]}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  onLoad={handleImageLoad}
+                />
+              ) : (
+                <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)' }]}>
+                  <Ionicons
+                    name={icon}
+                    size={14}
+                    color={isDark ? '#2DD4BF' : '#3B82F6'}
+                  />
+                </View>
+              )}
+              
+              <View style={styles.textColumn}>
+                {showLabel ? (
+                  <Text style={[styles.markerLabelText, { color: textColor }]} numberOfLines={1}>
+                    {showLabel}
+                  </Text>
+                ) : null}
+                <Text style={[styles.activeSubtitleText, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
+                  {displaySubtitle}
+                </Text>
+              </View>
+            </View>
           </View>
-        )}
+        </View>
       </View>
+
+      {/* Base Point Indicator at the bottom */}
+      <View style={[styles.activeBaseDot, { backgroundColor: isDark ? '#2DD4BF' : '#3B82F6', marginTop: 4, marginBottom: 0 }]} />
     </Animated.View>
   );
 }, (prevProps, nextProps) => {
@@ -283,27 +315,27 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
 export default PremiumMapMarker;
 
 const styles = StyleSheet.create({
+  pinWrapper: {
+    width: 30,
+    height: 38,
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconOverlay: {
+    position: 'absolute',
+    top: 10,
+    width: 12,
+    height: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   inactiveMarkerContainer: {
-    width: 60,
-    height: 60,
+    width: 36,
+    height: 44,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
-  },
-  flagPinContainer: {
-    width: 36,
-    height: 36,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.3,
-        shadowRadius: 2,
-      },
-      android: {
-        elevation: 4,
-      },
-    }),
   },
   svgPin: {
     ...Platform.select({
@@ -331,8 +363,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   cockpitContainer: {
-    width: 220,
-    height: 64,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
@@ -386,16 +416,16 @@ const styles = StyleSheet.create({
     }),
   },
   cardWrapper: {
-    borderRadius: 22,
+    borderRadius: 14,
     overflow: 'hidden',
   },
   markerCard: {
-    minWidth: 100,
-    maxWidth: 180,
-    height: 44,
-    borderRadius: 22,
+    minWidth: 90,
+    maxWidth: 160,
+    height: 40,
+    borderRadius: 14,
     borderWidth: 1,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
     justifyContent: 'center',
   },
   markerContentRow: {
@@ -404,15 +434,15 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   markerPhoto: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     borderWidth: 1.5,
   },
   iconCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -422,12 +452,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   markerLabelText: {
-    fontSize: 12,
-    fontWeight: '700',
+    fontSize: 11,
+    fontWeight: '800',
   },
   activeSubtitleText: {
     fontSize: 9,
-    fontWeight: '500',
+    fontWeight: '600',
     marginTop: 1,
   },
   shadowDark: Platform.select({
@@ -484,39 +514,5 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-  },
-  pinActiveContainer: {
-    width: 52,
-    height: 64,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-    // High-end depth simulation via decoupled layout shadows
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000000',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.35,
-        shadowRadius: 4.65,
-      },
-      android: {
-        elevation: 7,
-      },
-    }),
-  },
-  pinSvgWrapper: {
-    width: 52,
-    height: 64,
-    position: 'relative',
-  },
-  pinIconOverlay: {
-    position: 'absolute',
-    left: 5,
-    top: 5,
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
 });

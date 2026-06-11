@@ -19,6 +19,7 @@ import {
   RefreshControl,
   ActivityIndicator,
   Easing,
+  InteractionManager,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -1121,6 +1122,23 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
   const [shorts, setShorts] = useState<PostType[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isTransitionFinished, setIsTransitionFinished] = useState(false);
+
+  useEffect(() => {
+    // Defer rendering of heavy components (FlatList, Video) until navigation transition completes
+    const interactionPromise = InteractionManager.runAfterInteractions(() => {
+      setIsTransitionFinished(true);
+    });
+
+    const fallbackTimer = setTimeout(() => {
+      setIsTransitionFinished(true);
+    }, 500);
+
+    return () => {
+      interactionPromise.cancel();
+      clearTimeout(fallbackTimer);
+    };
+  }, []);
   const [refreshing, setRefreshing] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   // Track visible index precisely using onViewableItemsChanged
@@ -2073,9 +2091,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     }, delay);
   }, [shorts, getVideoUrl]);
 
-  const loadShorts = useCallback(async () => {
+  const loadShorts = useCallback(async (isSilent = false) => {
     try {
-      setLoading(true);
+      if (!isSilent) {
+        setLoading(true);
+      }
       currentPageRef.current = 1;
       cursorRef.current = null;
       hasMoreRef.current = true;
@@ -2281,7 +2301,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await loadShorts();
+      await loadShorts(true);
     } finally {
       setRefreshing(false);
     }
@@ -2299,7 +2319,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       pauseCurrentAudio();
       flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
       try {
-        await loadShorts();
+        await loadShorts(true);
         requestAnimationFrame(() => {
           flatListRef.current?.scrollToOffset({ offset: 0, animated: false });
         });
@@ -3197,7 +3217,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
   // Deep link: scroll to specific short when effectiveShortId is set (URL or props). dataIndex accounts for ad slots when showShortsAds.
   useEffect(() => {
-    if (!effectiveShortId || shorts.length === 0) return;
+    if (!effectiveShortId || shorts.length === 0 || !isTransitionFinished) return;
     const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
     if (reelIndex === -1) return;
     const maxSlots = Math.min(
@@ -3229,7 +3249,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }, 100 * (attempt + 1));
     };
     attemptScroll();
-  }, [effectiveShortId, shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots]);
+  }, [effectiveShortId, shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots, isTransitionFinished]);
 
   // Enhanced: Ensure video playback syncs with currentVisibleIndex (uses shortsData; ad = pause all, reel = play)
   useEffect(() => {
@@ -4231,7 +4251,19 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     minimumViewTime: 50, // Reduced from 100ms — faster visibility detection after snap
   }).current;
 
-  if (!loading && shorts.length === 0) {
+  const showLoading = loading || !isTransitionFinished;
+
+  if (showLoading) {
+    return (
+      <ErrorBoundary level="route">
+        <View style={[styles.loadingContainer, { backgroundColor: '#000000' }]}>
+          <LoadingGlobe size="large" color="#38BDF8" />
+        </View>
+      </ErrorBoundary>
+    );
+  }
+
+  if (shorts.length === 0) {
     return null;
   }
 

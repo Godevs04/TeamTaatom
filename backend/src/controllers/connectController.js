@@ -920,7 +920,17 @@ const findUsers = async (req, res) => {
 
     // Build user query based on strict filters using $and
     const queryAnd = [
-      { _id: { $ne: currentUserId } }
+      { _id: { $ne: currentUserId } },
+      {
+        $or: [
+          { 'settings.privacy.profileVisibility': { $in: ['public', null] } },
+          { 'settings.privacy.profileVisibility': { $exists: false } },
+          { 
+            'settings.privacy.profileVisibility': 'followers',
+            followers: currentUserId
+          }
+        ]
+      }
     ];
 
     // Filter by language: must be explicitly mapped in languagesKnown or settings
@@ -956,12 +966,13 @@ const findUsers = async (req, res) => {
       });
     }
 
-    // Filter by current_country — match currentCountry
+    // Filter by current_country — match currentCountry (only if showLocation is enabled)
     if (current_country) {
       const countryName = codeToName[current_country.toUpperCase()] || current_country;
       const escaped = countryName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const codeEscaped = current_country.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       queryAnd.push({
+        'settings.privacy.showLocation': { $ne: false },
         $or: [
           { currentCountry: { $regex: `^${escaped}$`, $options: 'i' } },
           { currentCountry: { $regex: `^${codeEscaped}$`, $options: 'i' } }
@@ -975,12 +986,16 @@ const findUsers = async (req, res) => {
     const { geocodeAddress } = require('../utils/geocoder');
     const searchCoords = user_location ? await geocodeAddress(user_location) : null;
 
+    if (searchCoords) {
+      queryAnd.push({ 'settings.privacy.showLocation': { $ne: false } });
+    }
+
     let matchedUsers = [];
     let total = 0;
     if (searchCoords) {
       // Fetch matching users to perform proximity sorting
       matchedUsers = await User.find(userQuery)
-        .select('username fullName profilePic bio interests travelStyle nationality languagesKnown settings.account.language followers currentLocation currentCountry')
+        .select('username fullName profilePic bio interests travelStyle nationality languagesKnown settings.account.language settings.privacy followers currentLocation currentCountry')
         .limit(500)
         .lean();
       total = matchedUsers.length;
@@ -988,7 +1003,7 @@ const findUsers = async (req, res) => {
       // Regular paginated query
       [matchedUsers, total] = await Promise.all([
         User.find(userQuery)
-          .select('username fullName profilePic bio interests travelStyle nationality languagesKnown settings.account.language followers currentLocation currentCountry')
+          .select('username fullName profilePic bio interests travelStyle nationality languagesKnown settings.account.language settings.privacy followers currentLocation currentCountry')
           .sort({ lastLogin: -1 })
           .skip(skip)
           .limit(limit)
@@ -1004,8 +1019,9 @@ const findUsers = async (req, res) => {
         currentUserInterests.some(ci => ci.toLowerCase() === interest.toLowerCase())
       );
 
+      const showLocation = user.settings?.privacy?.showLocation !== false;
       let distance = Infinity;
-      if (searchCoords && user.currentLocation) {
+      if (showLocation && searchCoords && user.currentLocation) {
         const userCoords = await geocodeAddress(user.currentLocation);
         if (userCoords && typeof userCoords.lat === 'number' && typeof userCoords.lng === 'number') {
           const R = 6371; // km
@@ -1033,7 +1049,7 @@ const findUsers = async (req, res) => {
         sharedInterestsCount: sharedInterests.length,
         isFollowing: user.followers?.some(fId => fId.toString() === currentUserId.toString()) || false,
         distance,
-        currentLocation: user.currentLocation || ''
+        currentLocation: showLocation ? (user.currentLocation || '') : ''
       };
     }));
 

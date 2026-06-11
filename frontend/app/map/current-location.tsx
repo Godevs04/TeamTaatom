@@ -296,6 +296,7 @@ export default function CurrentLocationMap() {
   const [headerCardHeight, setHeaderCardHeight] = useState(60);
   const hasLoggedParamsRef = useRef<string>('');
   const mapRef = useRef<any>(null);
+  const autoRouteTriggered = useRef(false);
 
   const [tracksViewChanges, setTracksViewChanges] = useState(true);
 
@@ -608,6 +609,14 @@ export default function CurrentLocationMap() {
       setRouteLoading(false);
     }
   };
+
+  const autoRouteParam = params.autoRoute === 'true';
+  useEffect(() => {
+    if (autoRouteParam && hasValidCoordinates && userCoords && !autoRouteTriggered.current) {
+      autoRouteTriggered.current = true;
+      loadRoute();
+    }
+  }, [autoRouteParam, hasValidCoordinates, userCoords]);
 
   useEffect(() => {
     if (userCoords && mapRef.current) {

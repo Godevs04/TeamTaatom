@@ -14,6 +14,7 @@ import {
   Dimensions,
   ScrollView,
   Keyboard,
+  Linking,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { Image as ExpoImage } from 'expo-image';
@@ -129,125 +130,7 @@ function getJourneyPolylineCoords(journey: JourneyPolyline) {
   }).filter(isValidMapCoordinate);
 }
 
-interface OptimizedMarkerProps {
-  coordinate: { latitude: number; longitude: number };
-  title?: string;
-  description?: string;
-  onPress: () => void;
-  isActive: boolean;
-  icon?: keyof typeof Ionicons.glyphMap;
-  label?: string;
-  activeTitle?: string;
-  activeSubtitle?: string;
-  photo?: string;
-  onImageLoad?: () => void;
-  latitudeDelta?: number;
-}
 
-const OptimizedMarker = React.memo(({
-  coordinate,
-  title,
-  description,
-  onPress,
-  isActive,
-  icon = 'location',
-  label = '',
-  activeTitle,
-  activeSubtitle,
-  photo,
-  onImageLoad,
-  latitudeDelta
-}: OptimizedMarkerProps) => {
-  const [tracksViewChanges, setTracksViewChanges] = useState(true);
-
-  const handleImageLoad = useCallback(() => {
-    setTracksViewChanges(true);
-    const timer = setTimeout(() => {
-      if (!isActive) {
-        setTracksViewChanges(false);
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [isActive]);
-
-  useEffect(() => {
-    if (isActive) {
-      setTracksViewChanges(true);
-    } else {
-      const timer = setTimeout(() => {
-        setTracksViewChanges(false);
-      }, 800);
-      return () => clearTimeout(timer);
-    }
-  }, [isActive]);
-
-  return (
-    <Marker
-      coordinate={coordinate}
-      title={title}
-      description={description}
-      onPress={onPress}
-      tracksViewChanges={tracksViewChanges}
-      anchor={{ x: 0.5, y: 0.86 }}
-    >
-      <PremiumMapMarker
-        icon={icon}
-        isActive={isActive}
-        label={label}
-        activeTitle={activeTitle}
-        activeSubtitle={activeSubtitle}
-        photo={photo}
-        onImageLoad={handleImageLoad}
-        latitudeDelta={latitudeDelta}
-      />
-    </Marker>
-  );
-}, (prev, next) => {
-  return (
-    prev.isActive === next.isActive &&
-    prev.coordinate.latitude === next.coordinate.latitude &&
-    prev.coordinate.longitude === next.coordinate.longitude &&
-    prev.title === next.title &&
-    prev.description === next.description &&
-    prev.icon === next.icon &&
-    prev.label === next.label &&
-    prev.activeTitle === next.activeTitle &&
-    prev.activeSubtitle === next.activeSubtitle &&
-    prev.photo === next.photo &&
-    prev.latitudeDelta === next.latitudeDelta
-  );
-});
-
-interface OptimizedClusterMarkerProps {
-  cluster: any;
-  onPress: () => void;
-  isDark: boolean;
-}
-
-const OptimizedClusterMarker = React.memo(({
-  cluster,
-  onPress,
-  isDark
-}: OptimizedClusterMarkerProps) => {
-  return (
-    <Marker
-      coordinate={{ latitude: cluster.latitude, longitude: cluster.longitude }}
-      onPress={onPress}
-      tracksViewChanges={false}
-    >
-      <PremiumMapMarker
-        isActive={false}
-      />
-    </Marker>
-  );
-}, (prev, next) => {
-  return (
-    prev.isDark === next.isDark &&
-    prev.cluster.id === next.cluster.id &&
-    prev.cluster.latitude === next.cluster.latitude &&
-    prev.cluster.longitude === next.cluster.longitude
-  );
-});
 
 function AllLocationsMapInner() {
   const [locations, setLocations] = useState<LocationPin[]>([]);
@@ -255,30 +138,9 @@ function AllLocationsMapInner() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mapFilter, setMapFilter] = useState<'posts' | 'journeys'>('posts');
-  const [selectedLocation, setSelectedLocation] = useState<LocationPin | null>(null);
-  const [renderedLocation, setRenderedLocation] = useState<LocationPin | null>(null);
-  const slideAnim = useRef(new Animated.Value(300)).current;
+  const [selectedPost, setSelectedPost] = useState<LocationPin | null>(null);
+  const [selectedJourney, setSelectedJourney] = useState<JourneyPolyline | null>(null);
 
-  useEffect(() => {
-    if (selectedLocation) {
-      setRenderedLocation(selectedLocation);
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        tension: 50,
-        friction: 8,
-        useNativeDriver: true,
-      }).start();
-    } else {
-      Animated.timing(slideAnim, {
-        toValue: 300,
-        duration: 250,
-        useNativeDriver: true,
-      }).start(() => {
-        setRenderedLocation(null);
-      });
-    }
-  }, [selectedLocation]);
-  const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const [currentCountry, setCurrentCountry] = useState<string | null>(null);
   const [currentCountryCode, setCurrentCountryCode] = useState<string | null>(null);
   const [currentRegion, setCurrentRegion] = useState<any>(null);
@@ -291,6 +153,11 @@ function AllLocationsMapInner() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    setSelectedPost(null);
+    setSelectedJourney(null);
+  }, [mapFilter]);
 
   const [statistics, setStatistics] = useState<{
     totalLocations: number;
@@ -336,6 +203,249 @@ function AllLocationsMapInner() {
   const { theme, mode, isDark } = useTheme();
   const mapStyle = useMapStyle();
   const { showAlert, showError, showSuccess, showDestructiveConfirm } = useAlert();
+
+  const openDirections = (latitude: number, longitude: number, label?: string) => {
+    const url = Platform.select({
+      ios: `maps://0,0?q=${latitude},${longitude}(${encodeURIComponent(label || 'Location')})`,
+      android: `geo:0,0?q=${latitude},${longitude}(${encodeURIComponent(label || 'Location')})`,
+    });
+    if (url) {
+      Linking.canOpenURL(url).then((supported) => {
+        if (supported) {
+          Linking.openURL(url);
+        } else {
+          const browserUrl = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+          Linking.openURL(browserUrl);
+        }
+      });
+    }
+  };
+
+  const renderSelectedPostCard = () => {
+    if (!selectedPost || mapFilter === 'journeys') return null;
+
+    const resolvedPhoto = resolvePhotoUrl(selectedPost.photo);
+    const dateStr = selectedPost.date ? new Date(selectedPost.date).toLocaleDateString(undefined, {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    }) : '';
+
+    const isShort = selectedPost.contentType === 'short' || selectedPost.contentType === 'video';
+
+    return (
+      <View
+        style={[
+          styles.previewCard,
+          {
+            bottom: insets.bottom + 8 + keyboardHeight,
+            backgroundColor: isDark ? 'rgba(20, 24, 33, 0.65)' : 'rgba(255, 255, 255, 0.65)',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+          },
+          isDark ? styles.shadowDark : styles.shadowLight,
+        ]}
+      >
+        {Platform.OS !== 'android' ? (
+          <BlurView intensity={85} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+        ) : (
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.95)' : 'rgba(255, 255, 255, 0.95)' }]} />
+        )}
+
+        {/* Close Button */}
+        <TouchableOpacity
+          onPress={() => setSelectedPost(null)}
+          style={styles.previewCloseBtn}
+        >
+          <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
+        </TouchableOpacity>
+
+        <View style={styles.previewContent}>
+          {/* Photo / Thumbnail */}
+          {resolvedPhoto ? (
+            <ExpoImage
+              source={{ uri: resolvedPhoto }}
+              style={styles.previewThumbnail}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+            />
+          ) : (
+            <View style={[styles.previewThumbnailPlaceholder, { backgroundColor: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }]}>
+              <Ionicons name={isShort ? 'videocam' : 'image'} size={20} color={theme.colors.textSecondary} />
+            </View>
+          )}
+
+          {/* Details Column */}
+          <View style={styles.previewTextCol}>
+            <Text style={[styles.previewTitle, { color: theme.colors.text }]} numberOfLines={1}>
+              {selectedPost.address || 'Posted Location'}
+            </Text>
+            <View style={styles.previewMetaRow}>
+              {dateStr ? (
+                <Text style={[styles.previewDate, { color: theme.colors.textSecondary }]}>
+                  {dateStr}
+                </Text>
+              ) : null}
+              <View style={[styles.previewTypeBadge, { backgroundColor: isShort ? 'rgba(239, 68, 68, 0.12)' : 'rgba(59, 130, 246, 0.12)' }]}>
+                <Text style={[styles.previewTypeBadgeText, { color: isShort ? '#EF4444' : '#3B82F6' }]}>
+                  {isShort ? 'Short' : 'Post'}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Action Button Row */}
+        <View style={styles.previewActionRow}>
+          {/* Directions Button */}
+          <TouchableOpacity
+            onPress={() => {
+              router.push({
+                pathname: '/map/current-location',
+                params: {
+                  latitude: selectedPost.latitude.toString(),
+                  longitude: selectedPost.longitude.toString(),
+                  address: selectedPost.address || '',
+                  locationName: selectedPost.address || '',
+                  imageUrl: selectedPost.photo || '',
+                  userId: userId || 'current-user',
+                  autoRoute: 'true',
+                }
+              });
+            }}
+            style={styles.previewDirectionBtn}
+          >
+            <LinearGradient
+              colors={['#3B82F6', '#10B981']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.previewBtnGradient}
+            >
+              <Ionicons name="navigate" size={14} color="#FFFFFF" />
+              <Text style={styles.previewBtnText}>Directions</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
+          {/* Open Details Button */}
+          <TouchableOpacity
+            onPress={() => {
+              const targetUserId = userId;
+              if (isShort) {
+                router.push(`/user-shorts/${targetUserId}?shortId=${selectedPost.postId}`);
+              } else {
+                router.push(`/post/${selectedPost.postId}`);
+              }
+              setSelectedPost(null);
+            }}
+            style={styles.previewViewBtn}
+          >
+            <View style={[styles.previewInnerViewBtn, { borderColor: theme.colors.border }]}>
+              <Ionicons name="eye" size={14} color={theme.colors.text} />
+              <Text style={[styles.previewBtnText, { color: theme.colors.text }]}>View Details</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  const renderSelectedJourneyCard = () => {
+    if (!selectedJourney || mapFilter !== 'journeys') return null;
+
+    const startDateStr = selectedJourney.startedAt
+      ? new Date(selectedJourney.startedAt).toLocaleDateString(undefined, {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        })
+      : '';
+
+    const distanceStr = selectedJourney.distanceTraveled != null
+      ? `${selectedJourney.distanceTraveled.toFixed(1)} km`
+      : '0 km';
+
+    const journeyTitle = selectedJourney.title || 
+      (selectedJourney.startCity && selectedJourney.endCity 
+        ? `${selectedJourney.startCity} to ${selectedJourney.endCity}`
+        : selectedJourney.startCity 
+          ? `Journey from ${selectedJourney.startCity}`
+          : 'Saved Journey');
+
+    return (
+      <View
+        style={[
+          styles.previewCard,
+          {
+            bottom: insets.bottom + 8 + keyboardHeight,
+            backgroundColor: isDark ? 'rgba(20, 24, 33, 0.65)' : 'rgba(255, 255, 255, 0.65)',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
+          },
+          isDark ? styles.shadowDark : styles.shadowLight,
+        ]}
+      >
+        {Platform.OS !== 'android' ? (
+          <BlurView intensity={85} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+        ) : (
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.95)' : 'rgba(255, 255, 255, 0.95)' }]} />
+        )}
+
+        {/* Close Button */}
+        <TouchableOpacity
+          onPress={() => setSelectedJourney(null)}
+          style={styles.previewCloseBtn}
+        >
+          <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
+        </TouchableOpacity>
+
+        <View style={styles.previewContent}>
+          {/* Icon/Visual Badge */}
+          <View style={[styles.previewThumbnailPlaceholder, { backgroundColor: 'rgba(80, 200, 120, 0.12)', width: 44, height: 44, borderRadius: 12 }]}>
+            <Ionicons name="map" size={24} color="#50C878" />
+          </View>
+
+          {/* Details Column */}
+          <View style={[styles.previewTextCol, { marginLeft: 12 }]}>
+            <Text style={[styles.previewTitle, { color: theme.colors.text }]} numberOfLines={1}>
+              {journeyTitle}
+            </Text>
+            <View style={styles.previewMetaRow}>
+              {startDateStr ? (
+                <Text style={[styles.previewDate, { color: theme.colors.textSecondary }]}>
+                  {startDateStr}
+                </Text>
+              ) : null}
+              <View style={[styles.previewTypeBadge, { backgroundColor: 'rgba(80, 200, 120, 0.12)' }]}>
+                <Text style={[styles.previewTypeBadgeText, { color: '#50C878' }]}>
+                  {distanceStr}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Action Button Row */}
+        <View style={styles.previewActionRow}>
+          {/* View Details Button */}
+          <TouchableOpacity
+            onPress={() => {
+              router.push(`/navigate/detail?journeyId=${selectedJourney._id}`);
+              setSelectedJourney(null);
+            }}
+            style={[styles.previewDirectionBtn, { flex: 1 }]}
+          >
+            <LinearGradient
+              colors={['#3B82F6', '#10B981']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.previewBtnGradient}
+            >
+              <Ionicons name="eye" size={14} color="#FFFFFF" />
+              <Text style={styles.previewBtnText}>View Details</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
 
   const recenterOnUser = async () => {
     try {
@@ -451,6 +561,11 @@ function AllLocationsMapInner() {
 
   const validLocations = useMemo(() => {
     return locations
+      .map((loc) => ({
+        ...loc,
+        latitude: typeof loc.latitude === 'string' ? parseFloat(loc.latitude) : loc.latitude,
+        longitude: typeof loc.longitude === 'string' ? parseFloat(loc.longitude) : loc.longitude,
+      }))
       .filter(
         (loc) => isValidMapCoordinate({ latitude: loc.latitude, longitude: loc.longitude }) &&
           loc.latitude !== 0 &&
@@ -460,6 +575,8 @@ function AllLocationsMapInner() {
   }, [locations]);
 
   const clusteredLocations = useMemo(() => {
+    const latDelta = sanitizeLatitudeDelta(currentRegion?.latitudeDelta, 0.1);
+    
     const dedupedLocations: LocationPin[] = [];
     const seenCoords = new Set<string>();
     validLocations.forEach((m) => {
@@ -470,15 +587,59 @@ function AllLocationsMapInner() {
       }
     });
 
-    return dedupedLocations.map(loc => ({
-      id: `single-${loc.postId || loc.number}`,
-      isCluster: false,
-      latitude: loc.latitude,
-      longitude: loc.longitude,
-      location: loc,
-      locations: [loc],
-    }));
-  }, [validLocations]);
+    if (!latDelta || latDelta < 0.05 || dedupedLocations.length < 5) {
+      return dedupedLocations.map(loc => ({
+        id: `single-${loc.postId || loc.number}`,
+        isCluster: false,
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        location: loc,
+        locations: [loc],
+      }));
+    }
+
+    const gridSize = Math.max(latDelta / 8.0, 0.0001);
+    const grid: { [key: string]: LocationPin[] } = {};
+
+    dedupedLocations.forEach((loc) => {
+      const gridX = Math.floor(loc.longitude / gridSize);
+      const gridY = Math.floor(loc.latitude / gridSize);
+      const key = `${gridX},${gridY}`;
+      if (!grid[key]) {
+        grid[key] = [];
+      }
+      grid[key].push(loc);
+    });
+
+    return Object.keys(grid).map((key) => {
+      const group = grid[key];
+      if (group.length === 1) {
+        return {
+          id: `single-${group[0].postId || group[0].number}`,
+          isCluster: false,
+          latitude: group[0].latitude,
+          longitude: group[0].longitude,
+          location: group[0],
+          locations: group,
+        };
+      }
+
+      let sumLat = 0;
+      let sumLng = 0;
+      group.forEach((loc) => {
+        sumLat += loc.latitude;
+        sumLng += loc.longitude;
+      });
+
+      return {
+        id: `cluster-${key}`,
+        isCluster: true,
+        latitude: sumLat / group.length,
+        longitude: sumLng / group.length,
+        locations: group,
+      };
+    });
+  }, [validLocations, currentRegion]);
 
   const handleClusterPress = useCallback((cluster: any) => {
     if (!mapRef.current || useWebViewFallback) return;
@@ -498,6 +659,16 @@ function AllLocationsMapInner() {
     }
   }, [useWebViewFallback]);
 
+  const handleMarkerPress = useCallback((loc: LocationPin) => {
+    if (!loc.postId) return;
+    const targetUserId = userId;
+    if (loc.contentType === 'short') {
+      router.push(`/user-shorts/${targetUserId}?shortId=${loc.postId}`);
+    } else {
+      router.push(`/post/${loc.postId}`);
+    }
+  }, [userId, router]);
+
   const handleRegionChangeComplete = useCallback((newRegion: any) => {
     const safeRegion = sanitizeMapRegion(newRegion, currentRegion ?? undefined);
     if (!safeRegion) return;
@@ -510,78 +681,7 @@ function AllLocationsMapInner() {
     }, 200);
   }, [currentRegion]);
 
-  const carouselRef = useRef<FlatList>(null);
-  const isScrollingCarouselRef = useRef(false);
 
-  const centerMapOnLocation = useCallback((latitude: number, longitude: number) => {
-    if (!mapRef.current) return;
-    try {
-      if (useWebViewFallback) {
-        mapRef.current.injectJavaScript(`
-          if (window.map) {
-            window.map.panTo({ lat: ${latitude}, lng: ${longitude} });
-            window.map.setZoom(15);
-          }
-          true;
-        `);
-      } else {
-        if (typeof mapRef.current.animateToRegion === 'function') {
-          mapRef.current.animateToRegion(
-            {
-              latitude,
-              longitude,
-              latitudeDelta: 0.015,
-              longitudeDelta: 0.015,
-            },
-            400
-          );
-        }
-      }
-    } catch (err) {
-      logger.error('Error centering map on location:', err);
-    }
-  }, [useWebViewFallback]);
-
-  const getCarouselItemLayout = useCallback((data: any, index: number) => ({
-    length: screenWidth,
-    offset: screenWidth * index,
-    index,
-  }), []);
-
-  const handleCarouselScroll = useCallback((event: any) => {
-    if (!isScrollingCarouselRef.current) return;
-    const contentOffsetX = event.nativeEvent.contentOffset.x;
-    const index = Math.round(contentOffsetX / screenWidth);
-    if (index >= 0 && index < validLocations.length) {
-      const nextLocation = validLocations[index];
-      if (selectedLocation?.number !== nextLocation.number || selectedLocation?.postId !== nextLocation.postId) {
-        setSelectedLocation(nextLocation);
-        setSelectedMarkerId(getLocationMarkerId(nextLocation));
-        centerMapOnLocation(nextLocation.latitude, nextLocation.longitude);
-      }
-    }
-  }, [validLocations, selectedLocation, centerMapOnLocation, getLocationMarkerId]);
-
-  useEffect(() => {
-    if (selectedLocation && !isScrollingCarouselRef.current) {
-      const index = validLocations.findIndex(
-        (loc) => loc.postId === selectedLocation.postId || loc.number === selectedLocation.number
-      );
-      if (index !== -1 && carouselRef.current) {
-        setTimeout(() => {
-          try {
-            carouselRef.current?.scrollToIndex({
-              index,
-              animated: true,
-            });
-          } catch (err) {
-            logger.warn('Failed to scroll carousel to index:', err);
-          }
-        }, 50);
-      }
-      centerMapOnLocation(selectedLocation.latitude, selectedLocation.longitude);
-    }
-  }, [selectedLocation, validLocations, centerMapOnLocation]);
 
   // Journey tracking — moved here from /map/current-location so the start /
   // active / paused controls live with the rest of the user's travel data
@@ -857,12 +957,7 @@ function AllLocationsMapInner() {
         setLocations(fetchedLocations);
         setStatistics(response?.statistics ?? null);
 
-        // Auto-select first valid location if nothing is selected
-        const validLocs = fetchedLocations.filter(
-          (loc: any) => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0
-        );
-        // User requested: during start it should not show any post overlay, show all posts as a whole.
-        // So we do not auto-select the first location on startup.
+
       }
 
       // Process journey polylines
@@ -1025,23 +1120,16 @@ function AllLocationsMapInner() {
   // ──────────────────────────────────────────────────────
   const getWebMapHTML = useCallback(() => {
     const region = getMapRegion();
-    const validLocations = (mapFilter === 'posts')
-      ? locations.filter((loc) => loc.latitude && loc.longitude && loc.latitude !== 0 && loc.longitude !== 0)
-      : [];
-    const markersData = validLocations.map((loc) => ({
+    const markersData = (mapFilter === 'posts') ? validLocations.map((loc) => ({
       lat: loc.latitude,
       lng: loc.longitude,
-      title: (loc.address || `Location #${loc.number}`).replace(/"/g, '&quot;'),
-      cityName: (loc.address ? loc.address.split(',')[0].trim() : `Post #${loc.number}`).replace(/"/g, '&quot;'),
-      address: loc.address || `Location #${loc.number}`,
+      photo: resolvePhotoUrl(loc.photo),
+      cityName: loc.address,
       number: loc.number,
-      photo: loc.photo ? resolvePhotoUrl(loc.photo) : null,
-      postId: loc.postId || null,
-      latitude: loc.latitude,
-      longitude: loc.longitude,
-      date: loc.date,
-      contentType: loc.contentType || null,
-    }));
+      postId: loc.postId,
+      contentType: loc.contentType,
+      userId: userId,
+    })) : [];
     const filteredJourneys = (mapFilter === 'journeys') ? journeys : [];
     const polylinePaths = filteredJourneys.map((j) => ({
       title: j.title || 'Journey',
@@ -1054,15 +1142,13 @@ function AllLocationsMapInner() {
       endCity: j.endCity || 'End',
     }));
 
-    const centerLat = selectedLocation ? selectedLocation.latitude : region.latitude;
-    const centerLng = selectedLocation ? selectedLocation.longitude : region.longitude;
+    const centerLat = region.latitude;
+    const centerLng = region.longitude;
     const zoomLevel = Math.min(12, Math.max(2, Math.floor(15 - Math.log2(Math.max(region.latitudeDelta, 1)))));
-    const zoomLevelVal = selectedLocation ? 14 : zoomLevel;
+    const zoomLevelVal = zoomLevel;
 
     return `<!DOCTYPE html>
 <html><head>
-<link rel="preconnect" href="https://maps.googleapis.com">
-<link rel="preconnect" href="https://maps.gstatic.com">
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <style>
 html,body,#map{height:100%;margin:0;padding:0}
@@ -1079,16 +1165,16 @@ html,body,#map{height:100%;margin:0;padding:0}
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(6, 182, 212, 0.4) 0%, rgba(6, 182, 212, 0) 70%);
+  background: radial-gradient(circle, ${isDark ? 'rgba(80, 200, 120, 0.4)' : 'rgba(28, 115, 180, 0.4)'} 0%, rgba(28, 115, 180, 0) 70%);
   animation: pulse 1.8s infinite ease-out;
 }
 .core-dot {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #06B6D4 0%, #0D9488 100%);
+  background: linear-gradient(135deg, #50C878 0%, #1C73B4 100%);
   border: 2px solid #FFFFFF;
-  box-shadow: 0 0 8px rgba(6, 182, 212, 0.6);
+  box-shadow: 0 0 8px rgba(28, 115, 180, 0.6);
 }
 @keyframes pulse {
   0% { transform: scale(0.6); opacity: 1; }
@@ -1100,39 +1186,39 @@ html,body,#map{height:100%;margin:0;padding:0}
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  border-radius: 22px;
-  background: ${isDark ? 'rgba(30, 41, 59, 0.9)' : 'rgba(255, 255, 255, 0.95)'};
+  border-radius: 20px;
+  background: ${isDark ? 'rgba(15, 23, 42, 0.75)' : 'rgba(255, 255, 255, 0.75)'};
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.12)'};
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+  border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.08)'};
+  box-shadow: 0 8px 32px 0 ${isDark ? 'rgba(0, 0, 0, 0.37)' : 'rgba(31, 38, 135, 0.15)'};
   max-width: 180px;
   animation: floatCard 0.3s ease-out;
 }
 .marker-thumb {
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  min-height: 32px;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  min-height: 26px;
   flex-shrink: 0;
   -webkit-flex-shrink: 0;
   border-radius: 50%;
   object-fit: cover;
-  border: 1.5px solid #2DD4BF;
+  border: 1.5px solid ${isDark ? '#2DD4BF' : '#3B82F6'};
 }
 .marker-thumb-placeholder {
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
-  min-height: 32px;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  min-height: 26px;
   flex-shrink: 0;
   -webkit-flex-shrink: 0;
   border-radius: 50%;
-  background: rgba(45, 212, 191, 0.15);
+  background: ${isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)'};
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: 12px;
 }
 .marker-info {
   display: flex;
@@ -1141,9 +1227,9 @@ html,body,#map{height:100%;margin:0;padding:0}
   overflow: hidden;
 }
 .marker-title {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
-  color: ${isDark ? '#FFFFFF' : '#0F172A'};
+  color: ${isDark ? '#F8FAFC' : '#0F172A'};
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1157,36 +1243,6 @@ html,body,#map{height:100%;margin:0;padding:0}
 @keyframes floatCard {
   0% { transform: translateY(6px); opacity: 0; }
   100% { transform: translateY(0); opacity: 1; }
-}
-
-.photo-pin {
-  position: relative;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  background: #FFFFFF;
-  border: 2px solid #FFFFFF;
-  box-shadow: 0 4px 10px rgba(0,0,0,0.25);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.photo-pin-img {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  object-fit: cover;
-}
-.photo-pin-tail {
-  position: absolute;
-  bottom: -6px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 0;
-  height: 0;
-  border-left: 6px solid transparent;
-  border-right: 6px solid transparent;
-  border-top: 6px solid #FFFFFF;
 }
 
 .glass-cluster {
@@ -1244,14 +1300,25 @@ function initMap(){
   // Journey polylines + start/end markers
   var journeys=${JSON.stringify(polylinePaths)};
   journeys.forEach(function(j){
+    var selectJourneyHandler = function() {
+      if(window.ReactNativeWebView){
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: 'selectJourney',
+          journeyId: j._id
+        }));
+      }
+    };
+
     if(j.path&&j.path.length>1){
-      new google.maps.Polyline({path:j.path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});
-      new google.maps.Polyline({path:j.path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});
+      var glowPoly = new google.maps.Polyline({path:j.path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});
+      var corePoly = new google.maps.Polyline({path:j.path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});
+      glowPoly.addListener('click', selectJourneyHandler);
+      corePoly.addListener('click', selectJourneyHandler);
       j.path.forEach(function(p){bounds.extend(new google.maps.LatLng(p.lat,p.lng));});
     }
     // Start marker
     if(j.startCoords&&j.startCoords.lat&&j.startCoords.lng){
-      new google.maps.Marker({
+      var startMarker = new google.maps.Marker({
         position:{lat:j.startCoords.lat,lng:j.startCoords.lng},
         map:map,
         title:j.startCity||'Start',
@@ -1261,10 +1328,11 @@ function initMap(){
           anchor:new google.maps.Point(11,11)
         }
       });
+      startMarker.addListener('click', selectJourneyHandler);
     }
     // End marker
     if(j.endCoords&&j.endCoords.lat&&j.endCoords.lng){
-      new google.maps.Marker({
+      var endMarker = new google.maps.Marker({
         position:{lat:j.endCoords.lat,lng:j.endCoords.lng},
         map:map,
         title:j.endCity||'End',
@@ -1274,6 +1342,7 @@ function initMap(){
           anchor:new google.maps.Point(11,11)
         }
       });
+      endMarker.addListener('click', selectJourneyHandler);
     }
   });
 
@@ -1357,49 +1426,62 @@ function initMap(){
     activeOverlays.forEach(function(ov){ov.setMap(null);});
     activeOverlays=[];
 
-    var clusters = markers.map(function(m){
-      return {
-        lat: m.lat,
-        lng: m.lng,
-        items: [m]
-      };
-    });
+    var zoom=map.getZoom()||${zoomLevelVal};
+    var gs=getGridSize(zoom);
+    var clusters=clusterMarkers(markers,gs);
 
     clusters.forEach(function(cluster){
       var pos=new google.maps.LatLng(cluster.lat,cluster.lng);
       var div=document.createElement('div');
-      div.style.cssText='position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;white-space:nowrap;';
+      div.style.cssText='position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
 
       if (cluster.items.length === 1) {
         var main = cluster.items[0];
-        var isViewingAny = ${selectedLocation !== null};
-        var isSelected = isViewingAny && (main.number === ${selectedLocation?.number || -1} || main.postId === '${selectedLocation?.postId || ""}');
+        var isViewingAny = false;
+        var isSelected = false;
         
-        var shouldExpand = isSelected;
-        
-        if (shouldExpand) {
+        if (isSelected) {
+          var nameText = main.cityName || 'Post #' + main.number;
           var photoUrl = main.photo || '';
-          var imgHtml = photoUrl ? '<img src="' + photoUrl + '" class="photo-pin-img" />' : '<div class="photo-pin-img" style="background:#2DD4BF;display:flex;align-items:center;justify-content:center;color:white;font-size:16px;">📍</div>';
+          var imgHtml = photoUrl ? '<img src="' + photoUrl + '" class="marker-thumb" />' : '<div class="marker-thumb-placeholder">📍</div>';
           div.setAttribute('data-anchor', 'bottom');
-          div.innerHTML = '<div class="photo-pin">' +
+          div.innerHTML = '<div class="glass-marker-card">' +
             imgHtml +
-            '<div class="photo-pin-tail"></div>' +
+            '<div class="marker-info">' +
+              '<div class="marker-title">' + nameText + '</div>' +
+              '<div class="marker-subtitle">1 post</div>' +
+            '</div>' +
           '</div>';
         } else {
-          div.setAttribute('data-anchor', 'center');
-          div.innerHTML = '<svg viewBox="0 0 36 36" width="36" height="36" style="filter: drop-shadow(0px 2px 3px rgba(0,0,0,0.3))"><defs><linearGradient id="htmlMarkerGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#50C878"/><stop offset="100%" stop-color="#1C73B4"/></linearGradient></defs><circle cx="18" cy="18" r="16" fill="#FFFFFF" /><circle cx="18" cy="18" r="13" fill="url(#htmlMarkerGrad)" /><path d="M18 23.27l6.18 3.73-1.64-7.03 5.46-4.73-7.19-0.61-2.81-6.63-2.81 6.63-7.19 0.61 5.46 4.73-1.64 7.03z" fill="#FFFFFF" /></svg>';
+          div.setAttribute('data-anchor', 'bottom');
+          div.innerHTML = '<svg width="30" height="38" viewBox="0 0 30 38" style="filter: drop-shadow(0px 3px 4px rgba(0,0,0,0.3))"><defs><linearGradient id="htmlPinGrad" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#3B82F6" /><stop offset="100%" stop-color="#10B981" /></linearGradient></defs><path d="M15 2C7.27 2 1 8.27 1 16c0 9 14 21 14 21s14-12 14-21c0-7.73-6.27-14-14-14z" fill="url(#htmlPinGrad)" stroke="#FFFFFF" stroke-width="2"/><path d="M 9,21 H 21 V 15 H 18 V 18 H 17 V 14 H 13 V 18 H 12 V 15 H 9 Z M 13.5,21 V 18.5 A 1.5,1.5 0 0,1 16.5,18.5 V 21 Z M 15,14 V 10 L 18,11.5 L 15,13 Z" fill="#FFFFFF" fill-rule="evenodd"/></svg>';
         }
       } else {
         div.setAttribute('data-anchor', 'center');
-        div.innerHTML = '<svg viewBox="0 0 36 36" width="36" height="36" style="filter: drop-shadow(0px 2px 3px rgba(0,0,0,0.3))"><defs><linearGradient id="htmlMarkerGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#50C878"/><stop offset="100%" stop-color="#1C73B4"/></linearGradient></defs><circle cx="18" cy="18" r="16" fill="#FFFFFF" /><circle cx="18" cy="18" r="13" fill="url(#htmlMarkerGrad)" /><path d="M18 23.27l6.18 3.73-1.64-7.03 5.46-4.73-7.19-0.61-2.81-6.63-2.81 6.63-7.19 0.61 5.46 4.73-1.64 7.03z" fill="#FFFFFF" /></svg>';
+        var firstPhoto = null;
+        for (var i = 0; i < cluster.items.length; i++) {
+          if (cluster.items[i].photo) {
+            firstPhoto = cluster.items[i].photo;
+            break;
+          }
+        }
+        if (firstPhoto) {
+          div.innerHTML = '<div class="glass-cluster"><div class="cluster-pulse"></div><div class="cluster-glass-circle" style="padding: 1.5px; overflow: hidden;"><img src="' + firstPhoto + '" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;" /></div></div>';
+        } else {
+          div.setAttribute('data-anchor', 'bottom');
+          div.innerHTML = '<div class="glass-cluster"><div class="cluster-pulse"></div><div class="cluster-glass-circle"><span>📍</span></div></div>';
+        }
       }
 
-      // Tap handler: single marker opens the native preview card, cluster zooms in.
+      // Tap handler: single marker triggers selectPost event, cluster zooms in.
       div.addEventListener('click',function(e){
         e.stopPropagation();
         if(cluster.items.length===1){
           if(window.ReactNativeWebView){
-            window.ReactNativeWebView.postMessage(JSON.stringify({type:'selectLocation',location:cluster.items[0]}));
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'selectPost',
+              location: cluster.items[0]
+            }));
           }
         }else if(cluster.items.length>1){
           // Zoom into the cluster area
@@ -1416,26 +1498,27 @@ function initMap(){
 
   // Initial render + re-render on zoom change
   if(markers.length>0||journeys.some(function(j){return j.path.length>0;})){
-    if (!${selectedLocation !== null}) {
-      map.fitBounds(bounds,40);
-      google.maps.event.addListenerOnce(map,'bounds_changed',function(){
-        if(map.getZoom()>15)map.setZoom(15);
-        renderClusters();
-      });
-    } else {
+    map.fitBounds(bounds,40);
+    google.maps.event.addListenerOnce(map,'bounds_changed',function(){
+      if(map.getZoom()>15)map.setZoom(15);
       renderClusters();
-    }
+    });
   }else{
     renderClusters();
   }
   map.addListener('zoom_changed',function(){renderClusters();});
+  map.addListener('click',function(){
+    if(window.ReactNativeWebView){
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'clearSelection' }));
+    }
+  });
 }
 </script>
 </head><body>
 <div id="map"></div>
 <script async defer src="https://maps.googleapis.com/maps/api/js?key=${WEBVIEW_API_KEY || ''}&language=en&callback=initMap"></script>
 </body></html>`;
-  }, [locations, journeys, mapFilter, getMapRegion, WEBVIEW_API_KEY, mapStyle.customMapStyle, mapStyle.routeColor, mapStyle.routeGlowColor, selectedLocation]);
+  }, [locations, journeys, mapFilter, getMapRegion, WEBVIEW_API_KEY, mapStyle.customMapStyle, mapStyle.routeColor, mapStyle.routeGlowColor]);
 
   const webViewSource = useMemo(() => ({ html: getWebMapHTML() }), [getWebMapHTML]);
 
@@ -1462,9 +1545,6 @@ function initMap(){
           style={styles.map}
           javaScriptEnabled={true}
           domStorageEnabled={true}
-          cacheEnabled={true}
-          cacheMode="LOAD_CACHE_ELSE_NETWORK"
-          androidHardwareAccelerationDisabled={false}
           startInLoadingState={true}
           originWhitelist={['https://*', 'http://*', 'data:*', 'about:*']}
           onShouldStartLoadWithRequest={(request) => {
@@ -1477,23 +1557,26 @@ function initMap(){
               const data = JSON.parse(event.nativeEvent.data);
               if (data.type === 'navigatePost' && data.postId) {
                 const targetUserId = data.userId || userId;
-                if (data.contentType === 'short') {
+                if (data.contentType === 'short' || data.contentType === 'video') {
                   router.push(`/user-shorts/${targetUserId}?shortId=${data.postId}`);
                 } else {
                   router.push(`/post/${data.postId}`);
                 }
-              } else if (data.type === 'selectLocation' && data.location) {
-                setSelectedLocation({
-                  number: data.location.number,
-                  latitude: data.location.latitude ?? data.location.lat,
-                  longitude: data.location.longitude ?? data.location.lng,
-                  address: data.location.address || data.location.title || `Location #${data.location.number}`,
-                  date: data.location.date || '',
-                  photo: data.location.photo || undefined,
-                  postId: data.location.postId || undefined,
-                  contentType: data.location.contentType || undefined,
-                });
-                setSelectedMarkerId(data.location.postId ? `post-${data.location.postId}` : `location-${data.location.number}`);
+              } else if (data.type === 'selectPost' && data.location) {
+                const loc = {
+                  ...data.location,
+                  latitude: typeof data.location.latitude === 'string' ? parseFloat(data.location.latitude) : data.location.latitude,
+                  longitude: typeof data.location.longitude === 'string' ? parseFloat(data.location.longitude) : data.location.longitude,
+                };
+                setSelectedPost(loc);
+              } else if (data.type === 'selectJourney' && data.journeyId) {
+                const j = journeys.find(item => item._id === data.journeyId);
+                if (j) {
+                  setSelectedJourney(j);
+                }
+              } else if (data.type === 'clearSelection') {
+                setSelectedPost(null);
+                setSelectedJourney(null);
               }
             } catch (err) {
               logger.debug('[AllLocations] WebView message parse error:', err);
@@ -1520,11 +1603,6 @@ function initMap(){
     }
 
     const region = getMapRegion();
-    const validLocations = locations.filter(
-      (loc) => isValidMapCoordinate({ latitude: loc.latitude, longitude: loc.longitude }) &&
-        loc.latitude !== 0 &&
-        loc.longitude !== 0
-    );
     const safeLatitudeDelta = sanitizeLatitudeDelta(currentRegion?.latitudeDelta, region.latitudeDelta);
 
     return (
@@ -1536,6 +1614,10 @@ function initMap(){
         minZoomLevel={3}
         initialRegion={region}
         onRegionChangeComplete={handleRegionChangeComplete}
+        onPress={() => {
+          setSelectedPost(null);
+          setSelectedJourney(null);
+        }}
         // Show the OS-native current-location dot (with accuracy ring) on top
         // of the post/journey markers. Permission is already requested in the
         // useEffect at the top of this component, so the SDK silently no-ops
@@ -1583,6 +1665,7 @@ function initMap(){
               simplifyDistance={10}
               applyKalman={false}
               latitudeDelta={safeLatitudeDelta}
+              onPress={() => setSelectedJourney(j)}
             />
           ];
           if (isValidMapCoordinate({ latitude: j.startCoords?.lat, longitude: j.startCoords?.lng })) {
@@ -1592,6 +1675,7 @@ function initMap(){
                 coordinate={{ latitude: j.startCoords.lat, longitude: j.startCoords.lng }}
                 title={j.startCity || 'Start'}
                 anchor={{ x: 0.5, y: 0.5 }}
+                onPress={() => setSelectedJourney(j)}
               >
                 <PremiumMapMarker pointType="start" isActive={false} />
               </Marker>
@@ -1604,6 +1688,7 @@ function initMap(){
                 coordinate={{ latitude: j.endCoords.lat, longitude: j.endCoords.lng }}
                 title={j.endCity || 'End'}
                 anchor={{ x: 0.5, y: 0.5 }}
+                onPress={() => setSelectedJourney(j)}
               >
                 <PremiumMapMarker pointType="end" isActive={false} />
               </Marker>
@@ -1612,43 +1697,42 @@ function initMap(){
           return elements;
         })}
 
-        {/* Post location markers — hidden when filter is 'journeys' */}
+        {/* Post markers — shown when filter is 'posts' */}
         {(mapFilter === 'posts') && clusteredLocations.map((cluster) => {
           if (cluster.isCluster) {
             return (
-              <OptimizedClusterMarker
+              <Marker
                 key={cluster.id}
-                cluster={cluster}
+                coordinate={{ latitude: cluster.latitude, longitude: cluster.longitude }}
                 onPress={() => handleClusterPress(cluster)}
-                isDark={isDark}
-              />
+              >
+                <View style={styles.clusterMarkerContainer}>
+                  <View style={[styles.clusterMarkerCircle, {
+                    backgroundColor: isDark ? 'rgba(30, 41, 59, 0.85)' : 'rgba(255, 255, 255, 0.85)',
+                    borderColor: isDark ? 'rgba(45, 212, 191, 0.4)' : 'rgba(59, 130, 246, 0.3)',
+                  }]}>
+                    <Text style={[styles.clusterMarkerText, {
+                      color: isDark ? '#2DD4BF' : '#3B82F6',
+                    }]}>{cluster.locations.length}</Text>
+                  </View>
+                </View>
+              </Marker>
             );
           } else {
-            const location = cluster.location!;
-            const markerId = getLocationMarkerId(location);
-            const isActive = selectedMarkerId === markerId;
-            const city = location.address ? location.address.split(',')[0].trim() : `Post #${location.number}`;
+            const loc = cluster.location;
+            if (!loc) return null;
             return (
-              <OptimizedMarker
-                key={`${cluster.id}-${isActive ? 'active' : 'inactive'}`}
-                coordinate={{ latitude: location.latitude, longitude: location.longitude }}
-                title={location.address || `Location #${location.number}`}
-                description={`Visit #${location.number}`}
-                onPress={() => {
-                  setSelectedLocation(location);
-                  setSelectedMarkerId(markerId);
-                }}
-                isActive={isActive}
-                icon="location"
-                label={city}
-                activeTitle={city}
-                activeSubtitle={location.contentType === 'short' ? '1 short' : '1 post'}
-                photo={location.photo}
-                latitudeDelta={safeLatitudeDelta}
-              />
+              <Marker
+                key={cluster.id}
+                coordinate={{ latitude: loc.latitude, longitude: loc.longitude }}
+                onPress={() => setSelectedPost(loc)}
+              >
+                <PremiumMapMarker isActive={false} icon="location" />
+              </Marker>
             );
           }
         })}
+
       </MapView>
     );
   };
@@ -1873,165 +1957,10 @@ function initMap(){
         )}
       </View>
 
-      {/* Selected Location Card & Capsules List */}
-      {validLocations.length > 0 && renderedLocation && (
-        <Animated.View
-          style={[
-            styles.carouselContainer,
-            {
-              transform: [{ translateY: slideAnim }],
-              bottom: (isOwnPage && (mapFilter === 'journeys' || isTracking || isPaused))
-                ? insets.bottom + bottomPanelHeight + 8
-                : insets.bottom + 8,
-            }
-          ]}
-        >
-          {/* 1. Selected Location Detail Bar */}
-          {selectedLocation ? (
-            <View
-              style={[
-                styles.selectedCard,
-                {
-                  backgroundColor: isDark ? '#1E232B' : '#FFFFFF',
-                  borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)',
-                }
-              ]}
-            >
-              <View style={styles.selectedCardContent}>
-                {selectedLocation.photo ? (
-                  <ExpoImage
-                    source={{ uri: resolvePhotoUrl(selectedLocation.photo) }}
-                    style={styles.selectedCardPhoto}
-                    contentFit="cover"
-                    cachePolicy="memory-disk"
-                  />
-                ) : (
-                  <View style={[styles.selectedCardPhoto, styles.selectedCardPhotoFallback, { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.12)' : 'rgba(59, 130, 246, 0.12)' }]}>
-                    <Ionicons name="location" size={14} color={isDark ? '#2DD4BF' : '#3B82F6'} />
-                  </View>
-                )}
-                
-                <View style={styles.selectedCardTextContainer}>
-                  <Text style={[styles.selectedCardTitle, { color: isDark ? '#FFFFFF' : '#0F172A' }]} numberOfLines={1}>
-                    {(selectedLocation.address ? selectedLocation.address.split(',')[0].trim() : `Location #${selectedLocation.number}`).toUpperCase()}
-                  </Text>
-                  <Text style={[styles.selectedCardSubtitle, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
-                    {selectedLocation.contentType === 'short' ? '1 short' : '1 post'}
-                  </Text>
-                </View>
 
-                <View style={styles.selectedCardActions}>
-                  {selectedLocation.postId && (
-                    <TouchableOpacity
-                      style={[
-                        styles.actionIconButton,
-                        { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)' }
-                      ]}
-                      onPress={() => {
-                        if (selectedLocation.contentType === 'short') {
-                          router.push(`/user-shorts/${userId}?shortId=${selectedLocation.postId}`);
-                        } else {
-                          router.push(`/post/${selectedLocation.postId}`);
-                        }
-                      }}
-                    >
-                      <Ionicons
-                        name={selectedLocation.contentType === 'short' ? 'videocam' : 'images'}
-                        size={16}
-                        color={isDark ? '#2DD4BF' : '#3B82F6'}
-                      />
-                    </TouchableOpacity>
-                  )}
-
-                  <TouchableOpacity
-                    style={[
-                      styles.actionIconButton,
-                      { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)' }
-                    ]}
-                    onPress={() => router.push({
-                      pathname: '/map/current-location',
-                      params: {
-                        latitude: String(selectedLocation.latitude),
-                        longitude: String(selectedLocation.longitude),
-                        address: selectedLocation.address || `Location #${selectedLocation.number}`,
-                        photo: selectedLocation.photo || '',
-                      },
-                    })}
-                  >
-                    <Ionicons name="navigate" size={16} color="#10B981" />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.actionCloseButton}
-                    onPress={() => {
-                      setSelectedLocation(null);
-                      setSelectedMarkerId(null);
-                    }}
-                  >
-                    <Ionicons name="close" size={18} color={isDark ? '#94A3B8' : '#64748B'} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          ) : (
-            <View style={{ height: 62 }} />
-          )}
-
-          {/* 2. Horizontal Capsule List */}
-          <FlatList
-            ref={carouselRef}
-            data={validLocations}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyExtractor={(item, idx) => `capsule-${item.postId || item.number}-${idx}`}
-            style={styles.capsulesFlatList}
-            contentContainerStyle={styles.capsulesContentContainer}
-            renderItem={({ item }) => {
-              const isSelected = selectedLocation?.postId === item.postId || selectedLocation?.number === item.number;
-              const cityName = item.address ? item.address.split(',')[0].trim() : `Loc #${item.number}`;
-              
-              return (
-                <TouchableOpacity
-                  style={[
-                    styles.capsulePill,
-                    {
-                      backgroundColor: isDark ? '#1E232B' : '#FFFFFF',
-                      borderColor: isSelected 
-                        ? '#2DD4BF' 
-                        : (isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.1)'),
-                      borderWidth: isSelected ? 1.5 : 1,
-                    }
-                  ]}
-                  onPress={() => {
-                    setSelectedLocation(item);
-                    setSelectedMarkerId(item.postId ? `post-${item.postId}` : `location-${item.number}`);
-                    centerMapOnLocation(item.latitude, item.longitude);
-                  }}
-                >
-                  {item.photo ? (
-                    <ExpoImage
-                      source={{ uri: resolvePhotoUrl(item.photo) }}
-                      style={styles.capsulePhoto}
-                      contentFit="cover"
-                      cachePolicy="memory-disk"
-                    />
-                  ) : (
-                    <View style={[styles.capsulePhoto, styles.capsulePhotoFallback, { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)' }]}>
-                      <Ionicons name="location" size={10} color={isDark ? '#2DD4BF' : '#3B82F6'} />
-                    </View>
-                  )}
-                  <Text style={[styles.capsuleText, { color: isDark ? '#FFFFFF' : '#0F172A' }]} numberOfLines={1}>
-                    {cityName}
-                  </Text>
-                </TouchableOpacity>
-              );
-            }}
-          />
-        </Animated.View>
-      )}
 
       {/* Floating Bottom Cockpit Overlay */}
-      {isOwnPage && mapFilter === 'journeys' && (
+      {isOwnPage && mapFilter === 'journeys' && !selectedPost && (
         <View
           onLayout={(e) => {
             const h = e.nativeEvent.layout.height;
@@ -2039,18 +1968,7 @@ function initMap(){
           }}
           style={[
             styles.floatingBottomPanel,
-            (!isTracking && !isPaused) ? {
-              bottom: insets.bottom + 8 + keyboardHeight,
-              backgroundColor: isDark ? 'rgba(20, 24, 33, 0.75)' : 'rgba(255, 255, 255, 0.75)',
-              borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
-              borderRadius: 20,
-              left: showJourneyTitle ? (screenWidth - 250) / 2 : (screenWidth - 190) / 2,
-              right: showJourneyTitle ? (screenWidth - 250) / 2 : (screenWidth - 190) / 2,
-              paddingHorizontal: 8,
-              paddingTop: 8,
-              paddingBottom: 8,
-              alignItems: 'center',
-            } : {
+            {
               bottom: insets.bottom + 8 + keyboardHeight,
               backgroundColor: isDark ? 'rgba(20, 24, 33, 0.75)' : 'rgba(255, 255, 255, 0.75)',
               borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(0, 0, 0, 0.08)',
@@ -2065,8 +1983,8 @@ function initMap(){
             <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
           )}
 
-          {/* GPS Accuracy row - show only when recording/active */}
-          {deviceAccuracy !== null && (isTracking || isPaused) && (
+          {/* GPS Accuracy row */}
+          {deviceAccuracy !== null && (
             <View style={journeyStyles.accuracyRow}>
               <Ionicons name="checkmark-circle" size={16} color={GROWTH_GREEN} />
               <Text style={[journeyStyles.accuracyText, { color: theme.colors.textSecondary }]}>
@@ -2089,7 +2007,7 @@ function initMap(){
                     maxLength={50}
                   />
                   <TouchableOpacity onPress={() => { setShowJourneyTitle(false); setJourneyTitleInput(''); }}>
-                    <Ionicons name="close-circle" size={16} color={theme.colors.textSecondary} />
+                    <Ionicons name="close-circle" size={20} color={theme.colors.textSecondary} />
                   </TouchableOpacity>
                 </View>
               )}
@@ -2101,13 +2019,13 @@ function initMap(){
                     setShowJourneyTitle(true);
                   }
                 }}
-                style={styles.actionBtnTouchCompact}
+                style={styles.actionBtnTouch}
                 disabled={journeyActionLoading}
               >
                 <LinearGradient
                   colors={isDark ? ['rgba(255, 255, 255, 0.14)', 'rgba(255, 255, 255, 0.08)'] : ['#53A7FF', '#2B7FFF']}
                   style={[
-                    styles.actionBtnGradientCompact,
+                    styles.actionBtnGradient,
                     {
                       borderTopWidth: isDark ? 1 : 0,
                       borderColor: 'rgba(255,255,255,0.12)',
@@ -2119,8 +2037,8 @@ function initMap(){
                     <LoadingGlobe color="white" />
                   ) : (
                     <>
-                      <Ionicons name="play" size={14} color="#FFFFFF" />
-                      <Text style={[styles.actionBtnTextCompact, { color: '#FFFFFF', fontWeight: '700' }]}>Start Journey</Text>
+                      <Ionicons name="play" size={18} color="#FFFFFF" />
+                      <Text style={[styles.actionBtnText, { color: '#FFFFFF', fontWeight: '700' }]}>Start Journey</Text>
                     </>
                   )}
                 </LinearGradient>
@@ -2314,6 +2232,10 @@ function initMap(){
           </View>
         </View>
       </Modal>
+
+      {/* Google Maps style glassy compact preview card */}
+      {renderSelectedPostCard()}
+      {renderSelectedJourneyCard()}
     </View>
   );
 }
@@ -2327,6 +2249,154 @@ export default function AllLocationsMap() {
 }
 
 const styles = StyleSheet.create({
+  floatingBottomPanel: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    paddingHorizontal: 16,
+    paddingTop: 10,
+    paddingBottom: 10,
+    borderWidth: 1,
+    gap: 6,
+    overflow: 'hidden',
+  },
+  actionBtnTouch: {
+    width: '100%',
+    height: 44,
+    borderRadius: 22,
+    overflow: 'hidden',
+  },
+  previewCard: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    padding: 12,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 8,
+    overflow: 'hidden',
+  },
+  previewCloseBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  previewContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingRight: 16,
+  },
+  previewThumbnail: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+  },
+  previewThumbnailPlaceholder: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  previewTextCol: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  previewTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  previewMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  previewDate: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  previewTypeBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  previewTypeBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  previewActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  previewDirectionBtn: {
+    flex: 1,
+    height: 36,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  previewViewBtn: {
+    flex: 1,
+    height: 36,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  previewInnerViewBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderRadius: 10,
+    gap: 6,
+  },
+  previewBtnGradient: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  previewBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  clusterMarkerContainer: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  clusterMarkerCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
+  },
+  clusterMarkerText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
   container: {
     flex: 1,
   },
@@ -2484,111 +2554,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '600',
   },
-  carouselContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 136,
-  },
-  selectedCard: {
-    marginHorizontal: 16,
-    marginBottom: 8,
-    borderRadius: 28,
-    borderWidth: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    height: 56,
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 6,
-    elevation: 5,
-  },
-  selectedCardContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  selectedCardPhoto: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    marginRight: 10,
-  },
-  selectedCardPhotoFallback: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  selectedCardTextContainer: {
-    flex: 1,
-    marginRight: 8,
-  },
-  selectedCardTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  selectedCardSubtitle: {
-    fontSize: 10,
-    fontWeight: '500',
-    marginTop: 1,
-  },
-  selectedCardActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  actionIconButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  actionCloseButton: {
-    width: 30,
-    height: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 2,
-  },
-  capsulesFlatList: {
-    flexGrow: 0,
-    height: 48,
-    width: '100%',
-  },
-  capsulesContentContainer: {
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    gap: 8,
-  },
-  capsulePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 34,
-    borderRadius: 17,
-    paddingLeft: 5,
-    paddingRight: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  capsulePhoto: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    marginRight: 6,
-  },
-  capsulePhotoFallback: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  capsuleText: {
-    fontSize: 11,
-    fontWeight: '700',
-  },
   floatingHeaderContainer: {
     position: 'absolute',
     left: 16,
@@ -2742,29 +2707,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.65)',
     borderColor: 'rgba(255, 255, 255, 0.9)',
   },
-  floatingBottomPanel: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 12,
-    borderWidth: 1,
-    gap: 8,
-    overflow: 'hidden',
-  },
-  actionBtnTouch: {
-    width: '100%',
-    height: 52,
-    borderRadius: 26,
-    overflow: 'hidden',
-  },
-  actionBtnTouchCompact: {
-    width: 170,
-    height: 38,
-    borderRadius: 19,
-    overflow: 'hidden',
-  },
   actionBtnGradient: {
     flex: 1,
     flexDirection: 'row',
@@ -2772,18 +2714,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  actionBtnGradientCompact: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-  },
   actionBtnText: {
     fontSize: 15,
-  },
-  actionBtnTextCompact: {
-    fontSize: 13,
   },
   shadowActionBtn: {
     shadowColor: '#2B7FFF',
@@ -2808,71 +2740,7 @@ const styles = StyleSheet.create({
   },
 });
 
-const markerStyles = StyleSheet.create({
-  journeyMarker: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: GROWTH_GREEN,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#fff',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 0,
-      },
-    }),
-  },
-  journeyMarkerEnd: {
-    backgroundColor: ALERT_RED,
-  },
-  journeyMarkerText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  clusterContainer: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-  },
-  clusterGlow: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    overflow: 'hidden',
-    padding: 1.5,
-    backgroundColor: 'transparent',
-  },
-  clusterBlur: {
-    flex: 1,
-    borderRadius: 18.5,
-    overflow: 'hidden',
-  },
-  clusterContent: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  clusterText: {
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  clusterPhoto: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-  },
-});
+
 
 // Journey controls — moved verbatim from /map/current-location's journeyStyles
 // so the visual treatment of Start / pause / resume / end is identical.
