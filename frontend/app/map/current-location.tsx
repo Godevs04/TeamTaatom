@@ -588,6 +588,16 @@ export default function CurrentLocationMap() {
           }
           true;
         `);
+      } else {
+        // iOS / Native MapView: Fetch route directly from Google Directions API
+        const routeData = await fetchDirectionsRoute(
+          coords,
+          { latitude: postLatitude!, longitude: postLongitude! }
+        );
+        if (routeData) {
+          setRoute(routeData);
+        }
+        setRouteLoading(false);
       }
 
       // Trigger a background refresh of the position to ensure we get a precise/fresh lock
