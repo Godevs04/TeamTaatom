@@ -164,6 +164,7 @@ interface PhotoCardProps {
   onPress?: () => void;
   isVisible?: boolean; // For lazy loading
   isCurrentlyVisible?: boolean; // Whether this post is currently visible in viewport (for music playback)
+  shouldPreload?: boolean;
   showBookmark?: boolean; // Show/hide bookmark button
   hideShareCount?: boolean;
 }
@@ -174,6 +175,7 @@ function PhotoCard({
   onPress,
   isVisible = true,
   isCurrentlyVisible = false,
+  shouldPreload = false,
   showBookmark = true,
   hideShareCount = true,
 }: PhotoCardProps) {
@@ -1054,6 +1056,7 @@ function PhotoCard({
         onRetry={handleImageRetry}
         pulseAnim={pulseAnim}
         isCurrentlyVisible={isCurrentlyVisible}
+        shouldPreload={shouldPreload}
         onDoubleTap={handleDoubleTap}
         onZoomStateChange={setIsZooming}
       />
@@ -1497,7 +1500,8 @@ export default memo(PhotoCard, (prevProps, nextProps) => {
     prevProps.post.caption === nextProps.post.caption &&
     prevProps.post.imageUrl === nextProps.post.imageUrl &&
     prevProps.post.user?.profilePic === nextProps.post.user?.profilePic &&
-    prevProps.isCurrentlyVisible === nextProps.isCurrentlyVisible
+    prevProps.isCurrentlyVisible === nextProps.isCurrentlyVisible &&
+    prevProps.shouldPreload === nextProps.shouldPreload
   );
 });
 

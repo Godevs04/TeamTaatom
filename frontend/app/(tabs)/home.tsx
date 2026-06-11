@@ -209,12 +209,13 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
 interface FeedListItemProps {
   item: FeedItem;
   isCurrentlyVisible: boolean;
+  shouldPreload: boolean;
   onRefresh: () => void;
   onAdLoadFailed: (adIndex: number) => void;
 }
 
 const FeedListItem = React.memo(
-  ({ item, isCurrentlyVisible, onRefresh, onAdLoadFailed }: FeedListItemProps) => {
+  ({ item, isCurrentlyVisible, shouldPreload, onRefresh, onAdLoadFailed }: FeedListItemProps) => {
     if (isAdItem(item)) {
       return (
         <NativeAdCard
@@ -229,12 +230,16 @@ const FeedListItem = React.memo(
         post={item}
         onRefresh={onRefresh}
         isCurrentlyVisible={isCurrentlyVisible}
+        shouldPreload={shouldPreload}
         hideShareCount={true}
       />
     );
   },
   (prevProps, nextProps) => {
     if (prevProps.isCurrentlyVisible !== nextProps.isCurrentlyVisible) {
+      return false;
+    }
+    if (prevProps.shouldPreload !== nextProps.shouldPreload) {
       return false;
     }
     if (prevProps.onRefresh !== nextProps.onRefresh) {
@@ -1569,12 +1574,13 @@ export default function HomeScreen() {
     return (
       <FeedListItem
         item={item}
-        isCurrentlyVisible={!isAdItem(item) && visiblePostIdRef.current === item._id}
+        isCurrentlyVisible={!isAdItem(item) && visiblePostId === item._id}
+        shouldPreload={visibleIndex !== null && index === visibleIndex + 1}
         onRefresh={handleRefresh}
         onAdLoadFailed={handleAdLoadFailed}
       />
     );
-  }, [handleRefresh, handleAdLoadFailed]);
+  }, [handleRefresh, handleAdLoadFailed, visiblePostId, visibleIndex]);
 
   const screenGradientColors =
     mode === 'dark'

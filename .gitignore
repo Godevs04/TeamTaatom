@@ -76,3 +76,6 @@ ag_knowledge_graph.md
 MAP_MATCHING_GUIDE.md
 frontend/app.json
 frontend/app.json
+backend/scripts/generate_tn_journeys.js
+backend/scripts/test_api_response.js
+backend/scripts/verify_tn_seeding.js

@@ -38,6 +38,7 @@ interface PremiumMapMarkerProps {
   tracksViewChanges?: boolean;
   onImageLoad?: () => void;
   latitudeDelta?: number;
+  renderAsDot?: boolean;
 }
 
 const getScaleFromDelta = (delta?: number) => {
@@ -65,6 +66,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
   tracksViewChanges: propTracksViewChanges,
   onImageLoad,
   latitudeDelta,
+  renderAsDot = false,
 }: PremiumMapMarkerProps) {
   const { isDark, theme } = useTheme();
   const activeState = isActive ?? active;
@@ -176,6 +178,25 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
           end={{ x: 1, y: 1 }}
           style={styles.journeyBadge}
         />
+      </Animated.View>
+    );
+  }
+
+  // Handle standard location markers as dots if specified
+  if (!activeState && renderAsDot) {
+    return (
+      <Animated.View style={[styles.dotContainer, containerStyle]}>
+        {!usesNativeIosMarker && (
+          <Animated.View style={[styles.dotPulse, pulseStyle, { top: 3 }]}>
+            <LinearGradient
+              colors={isDark ? ['rgba(45, 212, 191, 0.4)', 'rgba(45, 212, 191, 0.05)'] as const : ['rgba(59, 130, 246, 0.4)', 'rgba(59, 130, 246, 0.05)'] as const}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[StyleSheet.absoluteFillObject, { borderRadius: 15 }]}
+            />
+          </Animated.View>
+        )}
+        <View style={[styles.dotCore, { backgroundColor: isDark ? '#2DD4BF' : '#3B82F6', borderColor: '#FFFFFF' }, Platform.OS === 'android' && { elevation: 3 }]} />
       </Animated.View>
     );
   }
@@ -308,7 +329,8 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
     prevProps.photo === nextProps.photo &&
     prevProps.tracksViewChanges === nextProps.tracksViewChanges &&
     prevProps.onImageLoad === nextProps.onImageLoad &&
-    prevProps.latitudeDelta === nextProps.latitudeDelta
+    prevProps.latitudeDelta === nextProps.latitudeDelta &&
+    prevProps.renderAsDot === nextProps.renderAsDot
   );
 });
 

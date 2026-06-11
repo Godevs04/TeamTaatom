@@ -807,7 +807,7 @@ function initMap(){
       if (window.polyline1) window.polyline1.setMap(null);
       if (window.polyline2) window.polyline2.setMap(null);
       
-      window.polyline1 = new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:14,map:map});
+      window.polyline1 = new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:0.22,strokeWeight:14,map:map});
       window.polyline2 = new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:5,map:map});
       var bounds=new google.maps.LatLngBounds();
       path.forEach(function(p){bounds.extend(p);});

@@ -1041,12 +1041,20 @@ const getUserJourneys = async (req, res) => {
       }
     }
 
-    const journeys = await Journey.find(journeyQuery)
+    let journeysQuery = Journey.find(journeyQuery)
       .select(selectFields + ' status')
       .sort({ startedAt: -1 })
       .skip(skip)
-      .limit(limit)
-      .lean();
+      .limit(limit);
+
+    if (includePolyline) {
+      journeysQuery = journeysQuery.populate({
+        path: 'waypoints.post',
+        select: 'caption imageUrl videoUrl thumbnailUrl storageKey storageKeys images type location spotType travelInfo user createdAt'
+      });
+    }
+
+    const journeys = await journeysQuery.lean();
 
     const total = await Journey.countDocuments(journeyQuery);
 

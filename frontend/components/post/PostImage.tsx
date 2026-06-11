@@ -171,6 +171,7 @@ interface PostImageProps {
   onRetry: () => void;
   pulseAnim: Animated.Value;
   isCurrentlyVisible?: boolean; // Whether this post is currently visible in viewport (for music playback)
+  shouldPreload?: boolean;
   onDoubleTap?: () => void; // Callback for double-tap to like
   onZoomStateChange?: (isZooming: boolean) => void; // Callback for pinch zoom state changes
 }
@@ -185,6 +186,7 @@ export default function PostImage({
   onRetry,
   pulseAnim,
   isCurrentlyVisible = false,
+  shouldPreload = false,
   onDoubleTap,
   onZoomStateChange,
 }: PostImageProps) {
@@ -664,6 +666,7 @@ export default function PostImage({
           <SongPlayer 
             post={post} 
             isVisible={isCurrentlyVisible} 
+            shouldPreload={shouldPreload}
             autoPlay={isCurrentlyVisible && !isMuted} 
             showPlayPause={false} 
             externalMuted={isMuted}
