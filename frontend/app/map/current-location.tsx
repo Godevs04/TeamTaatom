@@ -26,7 +26,7 @@ import { calculateDistance } from '../../utils/locationUtils';
 import GlassMapPanel from '../../components/GlassMapPanel';
 import PremiumMapMarker from '../../components/PremiumMapMarker';
 import PolylineRenderer from '../../components/PolylineRenderer';
-import { DirectionsRoute, getManeuverIcon } from '../../services/directions';
+import { DirectionsRoute, getManeuverIcon, fetchDirectionsRoute } from '../../services/directions';
 import { useMapStyle } from '../../hooks/useMapStyle';
 import logger from '../../utils/logger';
 import { BlurView } from 'expo-blur';
