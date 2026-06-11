@@ -46,7 +46,8 @@
       "distribution": "store",
       "ios": {
         "simulator": false,
-        "buildConfiguration": "Release"
+        "buildConfiguration": "Release",
+        "autoIncrement": true
       },
       "android": {
         "buildType": "app-bundle",
