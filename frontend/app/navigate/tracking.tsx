@@ -24,6 +24,7 @@ import PolylineRenderer from '../../components/PolylineRenderer';
 import GPSAccuracyChip from '../../components/GPSAccuracyChip';
 import GlassMapPanel from '../../components/GlassMapPanel';
 import PremiumMapMarker from '../../components/PremiumMapMarker';
+import SafeMarker from '../../components/SafeMarker';
 import { useMapStyle } from '../../hooks/useMapStyle';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
@@ -464,10 +465,10 @@ window.updateMapData = function(path, currentLat, currentLng) {
                   latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
                 />
               )}
-              {currentLocation && Marker && (
-                <Marker coordinate={currentLocation} title="Current Location" anchor={{ x: 0.5, y: 0.5 }}>
+              {currentLocation && SafeMarker && (
+                <SafeMarker coordinate={currentLocation} title="Current Location" anchor={{ x: 0.5, y: 0.5 }} repaintTriggers={[currentLocation, latitudeDelta]}>
                   <PremiumMapMarker icon="navigate" active latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
-                </Marker>
+                </SafeMarker>
               )}
             </MapView>
           ) : (

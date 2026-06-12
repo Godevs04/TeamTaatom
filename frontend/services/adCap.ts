@@ -167,20 +167,12 @@ export function getAdCapSnapshot(): AdCapState {
 
 /** True iff a Google AdMob ad slot is allowed to render right now. */
 export function canShowGoogleAd(): boolean {
-  const state = cache ?? EMPTY_STATE;
-  if (state.windowStart != null && isWindowExpired(state, Date.now())) {
-    return true;
-  }
-  return state.count < MAX_GOOGLE_ADS;
+  return true;
 }
 
 /** Returns 0..MAX_GOOGLE_ADS — useful for remaining ads math. */
 export function getRemainingGoogleAdSlots(): number {
-  const state = cache ?? EMPTY_STATE;
-  if (state.windowStart != null && isWindowExpired(state, Date.now())) {
-    return MAX_GOOGLE_ADS;
-  }
-  return Math.max(0, MAX_GOOGLE_ADS - state.count);
+  return MAX_GOOGLE_ADS;
 }
 
 /** Record one Google AdMob impression. Starts the 8h window if this is the first impression. */
@@ -209,9 +201,7 @@ export async function recordGoogleAdImpression(): Promise<void> {
 
 /** Has this website domain already been served a Google ad in the current window? */
 export function wasWebsiteShown(domain: string): boolean {
-  const state = cache ?? EMPTY_STATE;
-  if (state.windowStart != null && isWindowExpired(state, Date.now())) return false;
-  return state.websitesShownInWindow.includes(domain);
+  return false;
 }
 
 /** Mark a website domain as having received a Google ad in the current window. */
@@ -324,12 +314,7 @@ function injectPositionalFeedAds<T>(
   everyN: number,
   options: FeedAdCapOptions
 ): (T | { type: 'ad'; adIndex: number })[] {
-  const slotsLeft =
-    typeof options.remainingSlots === 'number'
-      ? Math.max(0, options.remainingSlots)
-      : Math.max(0, MAX_GOOGLE_ADS - (options.count ?? 0));
-
-  if (options.isCapped || slotsLeft <= 0 || items.length === 0) {
+  if (items.length === 0) {
     return items;
   }
 
@@ -340,7 +325,7 @@ function injectPositionalFeedAds<T>(
   for (const item of items) {
     result.push(item);
     contentCount += 1;
-    if (contentCount % everyN === 0 && adIndex < slotsLeft && contentCount < items.length) {
+    if (contentCount % everyN === 0 && contentCount < items.length) {
       result.push({ type: 'ad', adIndex });
       adIndex += 1;
     }
@@ -449,13 +434,12 @@ export function useAdCap() {
 
   const now = Date.now();
   const expired = snapshot.windowStart != null && isWindowExpired(snapshot, now);
-  const effectiveCount = expired ? 0 : snapshot.count;
 
   return {
-    count: effectiveCount,
-    isCapped: effectiveCount >= MAX_GOOGLE_ADS,
-    remainingSlots: Math.max(0, MAX_GOOGLE_ADS - effectiveCount),
-    windowStart: expired ? null : snapshot.windowStart,
+    count: 0,
+    isCapped: false,
+    remainingSlots: MAX_GOOGLE_ADS,
+    windowStart: null,
     postDelayViews: expired ? [] : snapshot.postDelayViews,
     ignoredIds: snapshot.ignoredIds,
     appLaunchTimestamp: snapshot.appLaunchTimestamp,

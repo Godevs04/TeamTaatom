@@ -15,6 +15,7 @@ let Marker: any = null;
 let Polyline: any = null;
 let PROVIDER_GOOGLE: any = null;
 let PROVIDER_DEFAULT: any = null;
+let AnimatedRegion: any = null;
 
 // Enable native MapView by default on iOS and Android for 60fps native performance (moving, zooming, panning)
 const skipNativeMaps = false;
@@ -33,6 +34,7 @@ if (Platform.OS !== 'web' && !skipNativeMaps) {
     Polyline = mapsModule.Polyline;
     PROVIDER_GOOGLE = mapsModule.PROVIDER_GOOGLE;
     PROVIDER_DEFAULT = mapsModule.PROVIDER_DEFAULT;
+    AnimatedRegion = mapsModule.AnimatedRegion;
     
     if (!MapView) {
       useWebViewFallback = true;
@@ -97,5 +99,5 @@ if (MapView) {
   });
 }
 
-export { SafeMapView as MapView, Marker, Polyline, PROVIDER_GOOGLE, getMapProvider, useWebViewFallback };
+export { SafeMapView as MapView, Marker, Polyline, PROVIDER_GOOGLE, getMapProvider, useWebViewFallback, AnimatedRegion };
 

@@ -26,6 +26,7 @@ export interface CloudLocaleCardData {
   description?: string;
   latitude?: number;
   longitude?: number;
+  blurhash?: string;
 }
 
 interface CloudLocaleCardProps {
@@ -167,6 +168,7 @@ const CloudLocaleCard = React.memo(
           {locale.imageUrl ? (
             <ExpoImage
               source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: isHero ? 800 : 220, height: isHero ? 500 : 260 }) }}
+              placeholder={{ blurhash: locale.blurhash || "L6PZ|Ye.dHNGo~WhZ~StH?S#xZ$*" }}
               style={styles.image as ImageStyle}
               contentFit="cover"
               cachePolicy="memory-disk"

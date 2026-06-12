@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Locale = require('../models/Locale');
 const { deleteLocaleImage } = require('../config/cloudinary');
 const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
@@ -27,9 +28,19 @@ function collectLocaleImageKeys(localeDoc) {
 async function buildLocaleImageUrls(localeDoc) {
   const keys = collectLocaleImageKeys(localeDoc);
   const imageUrls = [];
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
   for (const key of keys) {
     try {
-      const url = await generateSignedUrl(key, 'LOCALE');
+      let url = null;
+      if (key && typeof key === 'string' && (key.startsWith('taatom/') || key.includes('taatom/'))) {
+        if (cloudName) {
+          url = `https://res.cloudinary.com/${cloudName}/image/upload/w_500,q_auto,f_webp/${key}`;
+        } else {
+          url = await generateSignedUrl(key, 'LOCALE');
+        }
+      } else {
+        url = await generateSignedUrl(key, 'LOCALE');
+      }
       if (url) imageUrls.push(url);
     } catch (error) {
       logger.warn('buildLocaleImageUrls: signed URL failed', {
@@ -47,6 +58,7 @@ async function attachLocaleImagesToPlain(localeObj) {
   localeObj.imageUrls = imageUrls;
   localeObj.imageUrl = imageUrl;
   localeObj.cloudinaryUrl = cloudinaryUrl;
+  localeObj.blurhash = localeObj.blurhash || 'L6PZ|Ye.dHNGo~WhZ~StH?S#xZ$*';
   return localeObj;
 }
 
@@ -85,8 +97,7 @@ const getLocales = async (req, res) => {
     // Validate and cap limit (max 50)
     const parsedLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 50);
     const parsedPage = Math.max(parseInt(page) || 1, 1);
-    const skip = (parsedPage - 1) * parsedLimit;
-    const parsedCursor = parseFloat(cursor) || 0;
+
 
     // Backend Defensive Guards: Validate search query (prevent injection)
     if (search && typeof search !== 'string') {
@@ -228,8 +239,9 @@ const getLocales = async (req, res) => {
       
       if (!isNaN(uLat) && !isNaN(uLon)) {
         // Fetch ALL matching locales for in-memory sorting
+        // Fetch ALL matching locales for in-memory sorting
         const allLocales = await Locale.find(query)
-          .select('name countryCode stateProvince stateCode city isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys')
+          .select('name countryCode stateProvince stateCode city isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys blurhash')
           .lean()
           .maxTimeMS(5000);
           
@@ -254,33 +266,74 @@ const getLocales = async (req, res) => {
         
         allLocales.sort((a, b) => a.distanceKm - b.distanceKm);
         
-        // Filter by cursor (distanceKm > parsedCursor)
+        // Filter by cursor (using stable index/offset based cursor to handle changing user coordinates)
         let filteredLocales = allLocales;
-        if (parsedCursor > 0) {
-          filteredLocales = allLocales.filter(loc => loc.distanceKm > parsedCursor);
+        const cursorIndex = parseInt(cursor) || 0;
+        if (cursorIndex > 0) {
+          filteredLocales = allLocales.slice(cursorIndex);
         }
         
         // Paginate manually
-        locales = filteredLocales.slice(0, parsedLimit);
+        locales = filteredLocales.slice(0, parsedLimit + 1);
         
-        hasMore = filteredLocales.length > parsedLimit;
-        if (hasMore && locales.length > 0) {
-          nextCursor = locales[locales.length - 1].distanceKm;
+        if (locales.length > parsedLimit) {
+          hasMore = true;
+          locales = locales.slice(0, parsedLimit);
+          nextCursor = String(cursorIndex + parsedLimit);
+        } else {
+          hasMore = false;
+          nextCursor = null;
         }
       }
     }
     
     if (!locales) {
       // Fallback: Default sorting
+      if (cursor && typeof cursor === 'string' && cursor.includes('_')) {
+        const [cursorDisplayOrderStr, cursorId] = cursor.split('_');
+        const cursorDisplayOrder = parseInt(cursorDisplayOrderStr) || 0;
+        
+        if (mongoose.Types.ObjectId.isValid(cursorId)) {
+          const cursorCondition = {
+            $or: [
+              { displayOrder: { $gt: cursorDisplayOrder } },
+              { displayOrder: cursorDisplayOrder, _id: { $gt: new mongoose.Types.ObjectId(cursorId) } }
+            ]
+          };
+          
+          if (query.$and) {
+            query.$and.push(cursorCondition);
+          } else {
+            const existingKeys = Object.keys(query);
+            if (existingKeys.length > 0) {
+              query.$and = [
+                ...existingKeys.map(k => ({ [k]: query[k] })),
+                cursorCondition
+              ];
+              existingKeys.forEach(k => delete query[k]);
+            } else {
+              query.$or = cursorCondition.$or;
+            }
+          }
+        }
+      }
+
       locales = await Locale.find(query)
-        .select('name countryCode stateProvince stateCode city isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys')
-        .sort({ displayOrder: 1, createdAt: -1 })
-        .skip(skip)
-        .limit(parsedLimit)
+        .select('name countryCode stateProvince stateCode city isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys blurhash')
+        .sort({ displayOrder: 1, _id: 1 })
+        .limit(parsedLimit + 1)
         .lean()
         .maxTimeMS(5000); // Prevent slow queries from hanging (>5s = timeout)
         
-      hasMore = parsedPage < Math.ceil(await Locale.countDocuments(query).maxTimeMS(2000) / parsedLimit);
+      if (locales.length > parsedLimit) {
+        hasMore = true;
+        locales = locales.slice(0, parsedLimit);
+        const lastItem = locales[locales.length - 1];
+        nextCursor = `${lastItem.displayOrder}_${lastItem._id}`;
+      } else {
+        hasMore = false;
+        nextCursor = null;
+      }
     }
     
     const mappedLocales = await Promise.all(locales.map(async (locale) => {
@@ -344,7 +397,7 @@ const getLocales = async (req, res) => {
 const getLocaleById = async (req, res) => {
   try {
     const locale = await Locale.findById(req.params.id)
-      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys')
+      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys blurhash')
       .lean();
 
     if (!locale) {
@@ -489,7 +542,7 @@ const uploadLocale = async (req, res) => {
 
     // Return locale with dynamically generated signed URL
     const localeResponse = await Locale.findById(locale._id)
-      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys')
+      .select('name country countryCode stateProvince stateCode city description isActive displayOrder _id createdAt latitude longitude spotTypes travelInfo storageKey cloudinaryKey imageKey imageStorageKeys blurhash')
       .lean();
 
     if (localeResponse) {
@@ -826,7 +879,8 @@ const updateLocale = async (req, res) => {
         longitude: updatedLean.longitude,
         imageUrl: updatedLean.imageUrl,
         imageUrls: updatedLean.imageUrls,
-        cloudinaryUrl: updatedLean.cloudinaryUrl
+        cloudinaryUrl: updatedLean.cloudinaryUrl,
+        blurhash: updatedLean.blurhash || 'L6PZ|Ye.dHNGo~WhZ~StH?S#xZ$*'
       }
     });
   } catch (error) {

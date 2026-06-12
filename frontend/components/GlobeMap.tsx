@@ -5,6 +5,7 @@ import { WebView } from 'react-native-webview';
 import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import { calmMorningMapStyle } from '../constants/mapStyles';
+import { LOCATION_PIN_SVG } from './ui/LocationPin';
 
 const { width, height } = Dimensions.get('window');
 
@@ -54,9 +55,9 @@ export default function GlobeMap({ locations, title = 'Travel Globe', visible, o
         position: { lat: ${loc.latitude}, lng: ${loc.longitude} },
         map: map,
         icon: {
-          url: 'data:image/svg+xml;utf-8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36" width="36" height="36"><circle cx="18" cy="18" r="16" fill="white" /><circle cx="18" cy="18" r="13" fill="%2306B6D4" /><path d="M18 23.27l6.18 3.73-1.64-7.03 5.46-4.73-7.19-0.61-2.81-6.63-2.81 6.63-7.19 0.61 5.46 4.73-1.64 7.03z" fill="white" /></svg>',
-          scaledSize: new google.maps.Size(30, 30),
-          anchor: new google.maps.Point(15, 15)
+          url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(\`${LOCATION_PIN_SVG}\`),
+          scaledSize: new google.maps.Size(30, 38),
+          anchor: new google.maps.Point(15, 38)
         },
         title: '${loc.address || ''}',
       }).addListener('click', function() {

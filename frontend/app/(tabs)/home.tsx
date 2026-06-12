@@ -485,18 +485,9 @@ export default function HomeScreen() {
     }
   }, [posts, visiblePostId]);
 
-  // Frequency control: only show native ads after user has scrolled past 5 posts and session > 30s (1s in dev).
-  const [hasScrolledPastFifthPost, setHasScrolledPastFifthPost] = useState(false);
-  const [adsAllowedAfter30s, setAdsAllowedAfter30s] = useState(false);
-  // Persistent 5-per-8h Google AdMob cap, shared with the shorts feed. Once
-  // capped, no ad slots are inserted into the feed (per spec: posts/reels show
-  // no ads after the cap is reached).
+  // Frequency control: ads flow unconditionally without scroll or time limits.
   const adCap = useAdCap();
   const hasSetScrollThresholdRef = useRef(false);
-  useEffect(() => {
-    const t = setTimeout(() => setAdsAllowedAfter30s(true), HOME_AD_START_DELAY_MS);
-    return () => clearTimeout(t);
-  }, []);
 
   // Persisted liked post IDs so likes survive app restart (same as Shorts)
   const likedPostIdsRef = useRef<Set<string>>(new Set());
@@ -1124,7 +1115,7 @@ export default function HomeScreen() {
       return;
     }
     hasScrolledToPostIdRef.current = params.postId;
-    const showAds = !isWeb && hasScrolledPastFifthPost && adsAllowedAfter30s;
+    const showAds = !isWeb;
     const dataIndex = showAds
       ? postIndex + Math.floor(postIndex / HOME_AD_EVERY_N_POSTS)
       : postIndex;
@@ -1156,7 +1147,7 @@ export default function HomeScreen() {
       }, 150 * (attempt + 1));
     };
     attemptScroll();
-  }, [params.postId, posts, hasScrolledPastFifthPost, adsAllowedAfter30s]);
+  }, [params.postId, posts]);
 
   // Subscribe to socket events for real-time unread count updates
   useEffect(() => {
@@ -1423,15 +1414,12 @@ export default function HomeScreen() {
   });
 
   // Interleave native ad slots through the shared ad/view engine.
-  // This honors the 30s/1s startup window, ignored bootstrap views, and global 5-per-8h cap.
   const feedData = useMemo((): FeedItem[] => {
     if (isWeb || posts.length === 0) return posts as FeedItem[];
-    const showAds = hasScrolledPastFifthPost && adsAllowedAfter30s && !adCap.isCapped;
-    if (!showAds) return posts as FeedItem[];
     const rawFeed = injectHomeFeedAds(posts, {
-      isCapped: adCap.isCapped,
-      count: adCap.count,
-      remainingSlots: adCap.remainingSlots,
+      isCapped: false,
+      count: 0,
+      remainingSlots: 9999,
     }) as FeedItem[];
     return rawFeed.filter(item => {
       if (isAdItem(item)) {
@@ -1439,7 +1427,7 @@ export default function HomeScreen() {
       }
       return true;
     });
-  }, [posts, hasScrolledPastFifthPost, adsAllowedAfter30s, adCap, failedAdIndices]);
+  }, [posts, failedAdIndices]);
 
   const renderTopHeader = () => (
     <AnimatedHeader
@@ -1497,7 +1485,6 @@ export default function HomeScreen() {
           const threshold = __DEV__ ? 1 : 5;
           if (!hasSetScrollThresholdRef.current && newVisibleIndex >= threshold) {
             hasSetScrollThresholdRef.current = true;
-            setHasScrolledPastFifthPost(true);
           }
           
           const postId = item._id;
@@ -1542,7 +1529,6 @@ export default function HomeScreen() {
           const threshold = __DEV__ ? 1 : 5;
           if (!hasSetScrollThresholdRef.current && firstToken.index >= threshold) {
             hasSetScrollThresholdRef.current = true;
-            setHasScrolledPastFifthPost(true);
           }
         }
         

@@ -38,6 +38,7 @@ import * as Location from 'expo-location';
 import { Audio } from 'expo-av';
 import logger from '../utils/logger';
 import { audioManager } from '../utils/audioManager';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { imageCacheManager } from '../utils/imageCacheManager';
 import LottieSplashScreen from '../components/LottieSplashScreen';
 import { testAPIConnectivity } from '../utils/connectivity';
@@ -1130,29 +1131,40 @@ function RootLayoutInner() {
   );
 }
 
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: false,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
+
 export default Sentry.wrap(function RootLayout() {
   return (
     <ErrorBoundary level="global" showDetails={process.env.NODE_ENV === 'development'}>
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <ThemeProvider>
-          <SettingsProvider>
-            <AlertProvider>
-              <ScrollProvider>
-                {/* JourneyProvider must wrap RootLayoutInner so it (and
-                    every other screen) reads the SAME journey instance —
-                    one GPS watcher, one batch-send timer for the whole
-                    app tree. */}
-                <JourneyProvider>
-                  <SubscriptionProvider>
-                    <View style={styles.rootContainer}>
-                      <RootLayoutInner />
-                    </View>
-                  </SubscriptionProvider>
-                </JourneyProvider>
-              </ScrollProvider>
-            </AlertProvider>
-          </SettingsProvider>
-        </ThemeProvider>
+        <QueryClientProvider client={queryClient}>
+          <ThemeProvider>
+            <SettingsProvider>
+              <AlertProvider>
+                <ScrollProvider>
+                  {/* JourneyProvider must wrap RootLayoutInner so it (and
+                      every other screen) reads the SAME journey instance —
+                      one GPS watcher, one batch-send timer for the whole
+                      app tree. */}
+                  <JourneyProvider>
+                    <SubscriptionProvider>
+                      <View style={styles.rootContainer}>
+                        <RootLayoutInner />
+                      </View>
+                    </SubscriptionProvider>
+                  </JourneyProvider>
+                </ScrollProvider>
+              </AlertProvider>
+            </SettingsProvider>
+          </ThemeProvider>
+        </QueryClientProvider>
       </GestureHandlerRootView>
     </ErrorBoundary>
   );

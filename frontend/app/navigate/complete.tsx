@@ -22,6 +22,7 @@ import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import PolylineRenderer from '../../components/PolylineRenderer';
 import GlassMapPanel from '../../components/GlassMapPanel';
 import PremiumMapMarker from '../../components/PremiumMapMarker';
+import SafeMarker from '../../components/SafeMarker';
 import { useMapStyle } from '../../hooks/useMapStyle';
 import NavBar from '../../components/NavBar';
 
@@ -220,15 +221,16 @@ function initMap(){
                   applyKalman={false}
                 />
               )}
-              {Marker && journey.waypoints?.map((waypoint, index) => (
-                <Marker
+              {SafeMarker && journey.waypoints?.map((waypoint, index) => (
+                <SafeMarker
                   key={`waypoint-${index}`}
                   coordinate={{ latitude: waypoint.latitude, longitude: waypoint.longitude }}
                   title={`${waypoint.type === 'photo' ? 'Photo' : 'Video'} #${index + 1}`}
                   anchor={{ x: 0.5, y: 1.0 }}
+                  repaintTriggers={[waypoint.type]}
                 >
                   <PremiumMapMarker icon={waypoint.type === 'photo' ? 'camera' : 'videocam'} />
-                </Marker>
+                </SafeMarker>
               ))}
             </MapView>
           ) : (

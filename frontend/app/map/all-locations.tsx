@@ -33,6 +33,10 @@ import { MapView, Marker, getMapProvider, useWebViewFallback } from '../../utils
 import PolylineRenderer from '../../components/PolylineRenderer';
 import GlassMapPanel from '../../components/GlassMapPanel';
 import PremiumMapMarker from '../../components/PremiumMapMarker';
+import SafeMarker from '../../components/SafeMarker';
+import ClusteredMarker from '../../components/ClusteredMarker';
+import ClusteredGroupMarker from '../../components/ClusteredGroupMarker';
+import { LOCATION_PIN_SVG } from '../../components/ui/LocationPin';
 import { getTravelMapData } from '../../services/profile';
 import { getUserJourneys } from '../../services/journey';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
@@ -748,6 +752,22 @@ function AllLocationsMapInner() {
       };
     });
   }, [validLocations, currentRegion]);
+
+  const clusterState = useMemo(() => {
+    const mapping = new Map<string, { isCluster: boolean; latitude: number; longitude: number; clusterId: string }>();
+    clusteredLocations.forEach((c) => {
+      c.locations.forEach((loc) => {
+        const id = loc.postId || loc.number;
+        mapping.set(String(id), {
+          isCluster: c.isCluster,
+          latitude: c.latitude,
+          longitude: c.longitude,
+          clusterId: c.id,
+        });
+      });
+    });
+    return mapping;
+  }, [clusteredLocations]);
 
   const handleClusterPress = useCallback((cluster: any) => {
     if (!mapRef.current || useWebViewFallback) return;
@@ -1688,7 +1708,7 @@ function initMap(){
 
         if (isSelected || showPin) {
           div.setAttribute('data-anchor', 'bottom');
-          div.innerHTML = '<svg width="30" height="38" viewBox="0 0 30 38" style="filter: drop-shadow(0px 3px 4px rgba(0,0,0,0.3))"><defs><linearGradient id="htmlPinGrad" x1="0%" y1="0%" x2="0%" y2="100%"><stop offset="0%" stop-color="#3B82F6" /><stop offset="100%" stop-color="#10B981" /></linearGradient></defs><path d="M15 2C7.27 2 1 8.27 1 16c0 9 14 21 14 21s14-12 14-21c0-7.73-6.27-14-14-14z" fill="url(#htmlPinGrad)" stroke="#FFFFFF" stroke-width="2"/><path d="M 9,21 H 21 V 15 H 18 V 18 H 17 V 14 H 13 V 18 H 12 V 15 H 9 Z M 13.5,21 V 18.5 A 1.5,1.5 0 0,1 16.5,18.5 V 21 Z M 15,14 V 10 L 18,11.5 L 15,13 Z" fill="#FFFFFF" fill-rule="evenodd"/></svg>';
+          div.innerHTML = \`${LOCATION_PIN_SVG}\`;
         } else {
           div.setAttribute('data-anchor', 'center');
           div.innerHTML = '<div class="map-dot"></div>';
@@ -1888,11 +1908,12 @@ function initMap(){
           // 1. Representing Marker (Always show for all journeys)
           if (hasStartCoords) {
             elements.push(
-              <Marker
+              <SafeMarker
                 key={`rep-${j._id}`}
                 coordinate={{ latitude: startLat, longitude: startLng }}
                 onPress={() => setSelectedJourney(j)}
                 anchor={{ x: 0.5, y: 0.5 }}
+                repaintTriggers={[isSelected, isDark]}
               >
                 <View style={styles.journeyRepMarker}>
                   {isSelected ? (
@@ -1920,7 +1941,7 @@ function initMap(){
                     </View>
                   )}
                 </View>
-              </Marker>
+              </SafeMarker>
             );
           }
 
@@ -1945,14 +1966,15 @@ function initMap(){
 
             if (isValidMapCoordinate({ latitude: j.endCoords?.lat, longitude: j.endCoords?.lng })) {
               elements.push(
-                <Marker
+                <SafeMarker
                   key={`end-${j._id}`}
                   coordinate={{ latitude: j.endCoords.lat, longitude: j.endCoords.lng }}
                   anchor={{ x: 0.5, y: 0.5 }}
                   onPress={() => setSelectedJourney(j)}
+                  repaintTriggers={[isSelected]}
                 >
                   <PremiumMapMarker pointType="end" isActive={true} />
-                </Marker>
+                </SafeMarker>
               );
             }
 
@@ -1963,7 +1985,7 @@ function initMap(){
                 const contentType = wp.contentType || wp.post?.type || 'photo';
                 if (photoUrl && isValidMapCoordinate({ latitude: wp.lat, longitude: wp.lng })) {
                   elements.push(
-                    <Marker
+                    <SafeMarker
                       key={`wp-${j._id}-${wpIdx}`}
                       coordinate={{ latitude: wp.lat, longitude: wp.lng }}
                       anchor={{ x: 0.5, y: 0.5 }}
@@ -1975,6 +1997,7 @@ function initMap(){
                           router.push(`/post/${postId}`);
                         }
                       }}
+                      repaintTriggers={[photoUrl]}
                     >
                       <View style={{
                         width: 32,
@@ -1996,7 +2019,7 @@ function initMap(){
                           contentFit="cover"
                         />
                       </View>
-                    </Marker>
+                    </SafeMarker>
                   );
                 }
               });
@@ -2007,45 +2030,47 @@ function initMap(){
         })}
 
         {/* Post markers — shown when filter is 'posts' */}
-        {(mapFilter === 'posts') && clusteredLocations.map((cluster) => {
-          if (cluster.isCluster) {
-            return (
-              <Marker
-                key={cluster.id}
-                coordinate={{ latitude: cluster.latitude, longitude: cluster.longitude }}
-                onPress={() => handleClusterPress(cluster)}
-              >
-                <View style={styles.clusterMarkerContainer}>
-                  <View style={[styles.clusterDot, {
-                    backgroundColor: isDark ? '#2DD4BF' : '#3B82F6',
-                    borderColor: '#FFFFFF',
-                  }]} />
-                </View>
-              </Marker>
-            );
-          } else {
-            const loc = cluster.location;
-            if (!loc) return null;
-            const isSelected = selectedPost && selectedPost.postId === loc.postId;
-            const locIndex = validLocations.findIndex(l => l.postId === loc.postId || l.number === loc.number);
-            const totalCount = validLocations.length;
-            const showPin = locIndex !== -1 && (locIndex < Math.round(pinRatio * totalCount));
+        {(mapFilter === 'posts') && (
+          <>
+            {validLocations.map((loc) => {
+              const state = clusterState.get(String(loc.postId || loc.number));
+              const isSelected = selectedPost && selectedPost.postId === loc.postId;
+              const locIndex = validLocations.findIndex(l => l.postId === loc.postId || l.number === loc.number);
+              const totalCount = validLocations.length;
+              const showPin = locIndex !== -1 && (locIndex < Math.round(pinRatio * totalCount));
 
-            return (
-              <Marker
-                key={`${cluster.id}-${showPin ? 'pin' : 'dot'}-${isSelected ? 'selected' : 'unselected'}`}
-                coordinate={{ latitude: loc.latitude, longitude: loc.longitude }}
-                onPress={() => setSelectedPost(loc)}
-              >
-                <PremiumMapMarker 
-                  isActive={false} 
-                  icon="location" 
-                  renderAsDot={!showPin && !isSelected}
-                />
-              </Marker>
-            );
-          }
-        })}
+              const targetLat = state ? state.latitude : loc.latitude;
+              const targetLng = state ? state.longitude : loc.longitude;
+              const visible = state ? !state.isCluster : true;
+
+              return (
+                <ClusteredMarker
+                  key={`loc-${loc.postId || loc.number}`}
+                  location={loc}
+                  targetCoordinate={{ latitude: targetLat, longitude: targetLng }}
+                  visible={visible || isSelected}
+                  isSelected={isSelected}
+                  showPin={showPin}
+                  onPress={() => setSelectedPost(loc)}
+                >
+                  <PremiumMapMarker 
+                    isActive={isSelected} 
+                    icon="location" 
+                    renderAsDot={!showPin && !isSelected}
+                  />
+                </ClusteredMarker>
+              );
+            })}
+            {clusteredLocations.filter(c => c.isCluster).map((cluster) => (
+              <ClusteredGroupMarker
+                key={cluster.id}
+                cluster={cluster}
+                onPress={() => handleClusterPress(cluster)}
+                isDark={isDark}
+              />
+            ))}
+          </>
+        )}
 
       </MapView>
     );

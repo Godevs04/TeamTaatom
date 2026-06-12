@@ -153,9 +153,23 @@ export default function UserPostsScreen() {
       const userResponse = await api.get(`/profile/${userId}`);
       setUser(userResponse.data.profile);
       
-      // Fetch user's posts
-      const postsResponse = await api.get(`/posts/user/${userId}`);
-      const fetchedPosts = (postsResponse.data.posts || []).sort((a: any, b: any) => {
+      // Fetch all user's posts with pagination
+      let fetchedPosts: any[] = [];
+      let page = 1;
+      const limit = 20;
+      let hasMore = true;
+      let safetyCounter = 0;
+      
+      while (hasMore && safetyCounter < 50) {
+        const postsResponse = await api.get(`/posts/user/${userId}?page=${page}&limit=${limit}`);
+        const pagePosts = postsResponse.data.posts || [];
+        fetchedPosts = [...fetchedPosts, ...pagePosts];
+        hasMore = pagePosts.length === limit;
+        page++;
+        safetyCounter++;
+      }
+
+      fetchedPosts.sort((a: any, b: any) => {
         const dateA = new Date(a.createdAt || a.created_at || 0).getTime();
         const dateB = new Date(b.createdAt || b.created_at || 0).getTime();
         return dateB - dateA;

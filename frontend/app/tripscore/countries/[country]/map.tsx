@@ -21,7 +21,9 @@ import api from '../../../../services/api';
 import { MapView, Marker, getMapProvider } from '../../../../utils/mapsWrapper';
 import logger from '../../../../utils/logger';
 import PremiumMapMarker from '../../../../components/PremiumMapMarker';
+import SafeMarker from '../../../../components/SafeMarker';
 import GlassMapPanel from '../../../../components/GlassMapPanel';
+import { LOCATION_PIN_SVG } from '../../../../components/ui/LocationPin';
 import { useMapStyle } from '../../../../hooks/useMapStyle';
 import {
   isValidMapCoordinate,
@@ -75,31 +77,15 @@ const OptimizedVisitedMarker = React.memo(({
   latitudeDelta,
   onPress
 }: OptimizedVisitedMarkerProps) => {
-  const [tracksViewChanges, setTracksViewChanges] = useState(true);
+  const markerRef = useRef<any>(null);
 
   const handleImageLoad = useCallback(() => {
-    setTracksViewChanges(true);
-    const timer = setTimeout(() => {
-      if (!isSelected) {
-        setTracksViewChanges(false);
-      }
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [isSelected]);
-
-  useEffect(() => {
-    if (isSelected) {
-      setTracksViewChanges(true);
-    } else {
-      const timer = setTimeout(() => {
-        setTracksViewChanges(false);
-      }, 800);
-      return () => clearTimeout(timer);
-    }
-  }, [isSelected]);
+    markerRef.current?.repaint();
+  }, []);
 
   return (
-    <Marker
+    <SafeMarker
+      ref={markerRef}
       zIndex={isSelected ? 99999 : index}
       anchor={{ x: 0.5, y: 1.0 }}
       coordinate={{
@@ -107,7 +93,7 @@ const OptimizedVisitedMarker = React.memo(({
         longitude: location.coordinates!.longitude,
       }}
       onPress={onPress}
-      tracksViewChanges={tracksViewChanges}
+      repaintTriggers={[isSelected, latitudeDelta]}
     >
       <PremiumMapMarker 
         active={isSelected} 
@@ -117,7 +103,7 @@ const OptimizedVisitedMarker = React.memo(({
         onImageLoad={handleImageLoad}
         latitudeDelta={latitudeDelta}
       />
-    </Marker>
+    </SafeMarker>
   );
 }, (prev, next) => {
   return (
@@ -534,8 +520,8 @@ export default function CountryMapScreen() {
           '</div>';
           div.style.zIndex = 99999;
         } else {
-          div.setAttribute('data-anchor', 'center');
-          div.innerHTML = '<svg viewBox="0 0 36 36" width="36" height="36" style="filter: drop-shadow(0px 2px 3px rgba(0,0,0,0.3))"><defs><linearGradient id="countryMarkerGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#50C878"/><stop offset="100%" stop-color="#1C73B4"/></linearGradient></defs><circle cx="18" cy="18" r="16" fill="#FFFFFF" /><circle cx="18" cy="18" r="13" fill="url(#countryMarkerGrad)" /><path d="M18 23.27l6.18 3.73-1.64-7.03 5.46-4.73-7.19-0.61-2.81-6.63-2.81 6.63-7.19 0.61 5.46 4.73-1.64 7.03z" fill="#FFFFFF" /></svg>';
+          div.setAttribute('data-anchor', 'bottom');
+          div.innerHTML = \`${LOCATION_PIN_SVG}\`;
           div.style.zIndex = ${i};
         }
         
@@ -815,7 +801,7 @@ export default function CountryMapScreen() {
           >
           {/* Show a center marker to guarantee at least one visible flag when no visited locations exist */}
           {visitedMarkers.length === 0 && (
-            <Marker
+            <SafeMarker
               key="country-center-flag"
               coordinate={{
                 latitude: getCountryCenter(displayCountryName || '').latitude,
@@ -832,6 +818,7 @@ export default function CountryMapScreen() {
                   },
                 });
               }}
+              repaintTriggers={[latitudeDelta]}
             >
               <PremiumMapMarker 
                 active={true} 
@@ -840,7 +827,7 @@ export default function CountryMapScreen() {
                 icon="flag" 
                 latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
               />
-            </Marker>
+            </SafeMarker>
           )}
           {/* Markers for visited locations */}
           {visitedMarkers.map((location: any, index: number) => {

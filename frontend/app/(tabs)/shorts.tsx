@@ -21,6 +21,9 @@ import {
   Easing,
   InteractionManager,
 } from 'react-native';
+import { FlashList, FlashListRef } from '@shopify/flash-list';
+
+const AnyFlashList = FlashList as any;
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Video, ResizeMode, AVPlaybackStatus, Audio } from 'expo-av';
@@ -161,6 +164,14 @@ export type ShortsScreenProps = {
 };
 
 const videoSourceCache = new Map<string, { uri: string; overrideFileExtensionAndroid?: string }>();
+
+// Global cache for shorts feed to persist across screen mounts/unmounts
+let globalCachedShorts: PostType[] = [];
+let globalCachedPage = 1;
+let globalCachedCursor: string | null = null;
+let globalCachedHasMore = true;
+let globalCachedFollowStates: Record<string, boolean> = {};
+
 const getVideoSource = (uri: string | null | undefined) => {
   if (!uri) return undefined;
   if (!videoSourceCache.has(uri)) {
@@ -1120,8 +1131,18 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const params = useLocalSearchParams();
   const initialIndex = props.initialIndex ?? (params.index ? parseInt(params.index as string, 10) : 0);
 
-  const [shorts, setShorts] = useState<PostType[]>([]);
-  const [loading, setLoading] = useState(true);
+  const effectiveUserId =
+    props.scopedUserId ?? normalizeSearchParam(params.userId as string | string[] | undefined);
+  const effectiveShortId =
+    props.initialShortId ?? normalizeSearchParam(params.shortId as string | string[] | undefined);
+  const isGeneralFeed = !props.isSavedShorts && !effectiveUserId && !effectiveShortId;
+
+  const [shorts, setShorts] = useState<PostType[]>(() => {
+    return isGeneralFeed ? globalCachedShorts : [];
+  });
+  const [loading, setLoading] = useState(() => {
+    return isGeneralFeed ? globalCachedShorts.length === 0 : true;
+  });
   const [isTransitionFinished, setIsTransitionFinished] = useState(false);
 
   useEffect(() => {
@@ -1163,7 +1184,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [selectedShortForShare, setSelectedShortForShare] = useState<PostType | null>(null);
-  const [followStates, setFollowStates] = useState<{ [key: string]: boolean }>({});
+  const [followStates, setFollowStates] = useState<{ [key: string]: boolean }>(() => {
+    return isGeneralFeed ? globalCachedFollowStates : {};
+  });
   const swipeStartXRef = useRef<number | null>(null);
   const swipeStartYRef = useRef<number | null>(null);
   const isSwipeActiveRef = useRef(false);
@@ -1233,15 +1256,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // is bridge churn that has been correlated with native crashes on Android).
   const lastMuteEnforceAtRef = useRef<Record<string, number>>({});
 
-  // Frequency control: no ad before 5 reels watched, no ad before 20s session, max 3 ads per Shorts session
-  const [hasWatchedFiveReels, setHasWatchedFiveReels] = useState(false);
-  const [adsAllowedAfter20s, setAdsAllowedAfter20s] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setAdsAllowedAfter20s(true), SHORTS_ADS_SESSION_DELAY_MS);
-    return () => clearTimeout(t);
-  }, []);
-
-  // Hard cap: track ads shown this session; never insert more than 3 ad slots total
+  // Hard cap: track ads shown this session
   const adsShownThisSessionRef = useRef(0);
   const [adsShownThisSession, setAdsShownThisSession] = useState(0);
   // Persistent 5-per-8h Google AdMob cap, shared with the home feed. The
@@ -1260,7 +1275,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [failedAdIndices, setFailedAdIndices] = useState<number[]>([]);
   const consecutiveAdFailuresRef = useRef(0);
 
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<FlashListRef<ShortsItem>>(null);
   const videoRefs = useRef<{ [key: string]: Video | null }>({});
   // Two timeout namespaces. Previously a single `pauseTimeoutRefs[id]` slot was
   // shared by the pause-button hide timer AND the like-animation hide timer,
@@ -1316,9 +1331,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const VIEW_DEBOUNCE_MS = SHORT_VIEW_DWELL_MS; // Prevent duplicate view events within 1 second
   // Ref to store loadShorts function for socket handlers (prevents stale closure)
   const loadShortsRef = useRef<(() => Promise<void>) | null>(null);
-  const currentPageRef = useRef(1);
-  const cursorRef = useRef<string | null>(null);
-  const hasMoreRef = useRef(true);
+  const currentPageRef = useRef(isGeneralFeed ? globalCachedPage : 1);
+  const cursorRef = useRef<string | null>(isGeneralFeed ? globalCachedCursor : null);
+  const hasMoreRef = useRef(isGeneralFeed ? globalCachedHasMore : true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   // Persisted liked short IDs so likes survive app restart (server is source of truth; this merges when API omits isLiked)
   const likedShortIdsRef = useRef<Set<string>>(new Set());
@@ -1346,10 +1361,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const router = useRouter();
   const segments = useSegments();
 
-  const effectiveUserId =
-    props.scopedUserId ?? normalizeSearchParam(params.userId as string | string[] | undefined);
-  const effectiveShortId =
-    props.initialShortId ?? normalizeSearchParam(params.shortId as string | string[] | undefined);
   const lastEffectiveUserIdRef = useRef<string | undefined>(effectiveUserId);
 
   const isOnTabShorts = segments.includes('(tabs)') && segments.includes('shorts');
@@ -2285,6 +2296,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         followStatesMap[short.user._id] = (short.user as any).isFollowing || false;
       });
       setFollowStates(followStatesMap);
+
+      if (isGeneralFeed) {
+        globalCachedShorts = merged;
+        globalCachedPage = 1;
+        globalCachedCursor = cursorRef.current;
+        globalCachedHasMore = hasMoreRef.current;
+        globalCachedFollowStates = followStatesMap;
+      }
     } catch (error) {
       logger.error('Error loading shorts', error);
       showError('Failed to load shorts');
@@ -2351,11 +2370,24 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       });
       setShorts(prev => {
         const existingIds = new Set(prev.map(s => s._id));
-        return [...prev, ...mapped.filter((s) => !existingIds.has(s._id))];
+        const updated = [...prev, ...mapped.filter((s) => !existingIds.has(s._id))];
+        if (isGeneralFeed) {
+          globalCachedShorts = updated;
+          globalCachedPage = nextPage;
+          globalCachedCursor = cursorRef.current;
+          globalCachedHasMore = hasMoreRef.current;
+        }
+        return updated;
       });
       const followStatesMap: { [key: string]: boolean } = {};
       newShorts.forEach((s) => { followStatesMap[s.user._id] = (s.user as any).isFollowing || false; });
-      setFollowStates(prev => ({ ...prev, ...followStatesMap }));
+      setFollowStates(prev => {
+        const updatedFollows = { ...prev, ...followStatesMap };
+        if (isGeneralFeed) {
+          globalCachedFollowStates = updatedFollows;
+        }
+        return updatedFollows;
+      });
     } catch (error) {
       logger.error('Error loading more shorts', error);
     } finally {
@@ -3101,20 +3133,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   //   2. Per-session counter (defense-in-depth, resets on app restart).
   //   3. Persistent 5-per-8h cap (adCap, shared with home feed).
   // Whichever is most restrictive wins.
-  const showShortsAds = !isWeb && !isExpoGo && hasWatchedFiveReels && adsAllowedAfter20s && !adCap.isCapped && !shortsAdsBroken;
+  const showShortsAds = !isWeb && !isExpoGo && !shortsAdsBroken;
   const shortsData = useMemo((): ShortsItem[] => {
     if (!showShortsAds || shorts.length === 0) return shorts as ShortsItem[];
-    const maxSlots = Math.min(
-      MAX_SHORTS_ADS,
-      Math.max(0, 3 - adsShownThisSession),
-      adCap.remainingSlots,
-    );
-    if (maxSlots <= 0) return shorts as ShortsItem[];
     const result: ShortsItem[] = [];
     let adCount = 0;
     shorts.forEach((reel, i) => {
       result.push(reel);
-      if (adCount < maxSlots && (i + 1) % SHORTS_ADS_AFTER_EVERY === 0 && i < shorts.length - 1) {
+      if ((i + 1) % SHORTS_ADS_AFTER_EVERY === 0 && i < shorts.length - 1) {
         const currentAdIndex = adCount++;
         if (!failedAdIndices.includes(currentAdIndex)) {
           result.push({ type: 'ad', adIndex: currentAdIndex });
@@ -3122,7 +3148,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
     });
     return result;
-  }, [shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots, failedAdIndices]);
+  }, [shorts, showShortsAds, failedAdIndices]);
 
   // Cleanup videos that are far from viewport
   // Uses centralized stopAndUnloadVideo helper
@@ -3220,13 +3246,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     if (!effectiveShortId || shorts.length === 0 || !isTransitionFinished) return;
     const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
     if (reelIndex === -1) return;
-    const maxSlots = Math.min(
-      MAX_SHORTS_ADS,
-      Math.max(0, 3 - adsShownThisSession),
-      adCap.remainingSlots,
-    );
     const dataIndex = showShortsAds
-      ? reelIndex + Math.min(Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY), maxSlots)
+      ? reelIndex + Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY)
       : reelIndex;
     setCurrentIndex(dataIndex);
     setCurrentVisibleIndex(dataIndex);
@@ -3249,7 +3270,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }, 100 * (attempt + 1));
     };
     attemptScroll();
-  }, [effectiveShortId, shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots, isTransitionFinished]);
+  }, [effectiveShortId, shorts, showShortsAds, isTransitionFinished]);
 
   // Enhanced: Ensure video playback syncs with currentVisibleIndex (uses shortsData; ad = pause all, reel = play)
   useEffect(() => {
@@ -3467,7 +3488,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             onImpression={() => {
               consecutiveAdFailuresRef.current = 0; // Reset on successful impression
               adsShownThisSessionRef.current += 1;
-              setAdsShownThisSession((prev) => Math.min(3, prev + 1));
+               setAdsShownThisSession((prev) => prev + 1);
               // Persistent 5-per-8h cap, shared with the home feed. Fire-and-forget;
               // adCap handles AsyncStorage write + listener notification internally.
               recordGoogleAdImpression();
@@ -4167,11 +4188,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     return item._id;
   }, []);
 
-  const getItemLayout = useCallback((_data: any, index: number) => ({
-    length: containerHeight,
-    offset: containerHeight * index,
-    index,
-  }), [containerHeight]);
 
   // Track viewable items; handle ad vs reel. Frequency: set hasWatchedFiveReels when user has viewed reel at index >= 5.
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: any[] }) => {
@@ -4205,12 +4221,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     setCurrentVisibleIndex(newVisibleIndex);
     setCurrentIndex(newVisibleIndex);
 
-    // If visible item is a reel, track max reel index for frequency (hasWatchedFiveReels)
-    if (item && !isAdItem(item)) {
-      const reelIndex = shortsData.slice(0, newVisibleIndex).filter((x: ShortsItem) => !isAdItem(x)).length;
-      const threshold = __DEV__ ? 1 : 5;
-      if (reelIndex >= threshold) setHasWatchedFiveReels(true);
-    }
+    // Reel view tracking is done here.
 
     // Pause previous video if previous item was a reel
     if (previousItem && !isAdItem(previousItem)) {
@@ -4347,8 +4358,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         );
       })()}
 
-      <FlatList
+      <AnyFlashList
         ref={flatListRef}
+        estimatedItemSize={containerHeight}
         scrollEnabled={!isSwipeActive}
         refreshControl={
           <RefreshControl
@@ -4360,13 +4372,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         data={shortsData}
         renderItem={renderShortItem}
         keyExtractor={keyExtractor}
-        getItemLayout={getItemLayout}
         initialScrollIndex={(() => {
           if (!effectiveShortId || shorts.length === 0) return undefined;
           const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
           if (reelIndex === -1) return undefined;
-          const maxSlots = Math.min(MAX_SHORTS_ADS, Math.max(0, 3 - adsShownThisSession));
-          const dataIndex = showShortsAds ? reelIndex + Math.min(Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY), maxSlots) : reelIndex;
+          const dataIndex = showShortsAds ? reelIndex + Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY) : reelIndex;
           return dataIndex;
         })()}
         pagingEnabled
@@ -4376,20 +4386,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         snapToInterval={containerHeight}
         snapToAlignment="start"
         decelerationRate="fast"
-        // Stops a fast flick from carrying past one page and snapping back —
-        // user lands on the next reel exactly, no overshoot.
         disableIntervalMomentum={true}
-        onScrollToIndexFailed={(info) => {
-          const wait = new Promise(resolve => setTimeout(resolve, 500));
-          wait.then(() => {
-            flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
-          });
-        }}
-        removeClippedSubviews={true}
-        initialNumToRender={3}
-        maxToRenderPerBatch={3}
-        windowSize={3}
-        updateCellsBatchingPeriod={10}
         onEndReached={loadMoreShorts}
         onEndReachedThreshold={0.3}
         onScroll={handleScroll}
@@ -4400,8 +4397,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         contentInsetAdjustmentBehavior="never"
         automaticallyAdjustContentInsets={false}
         contentInset={{ top: 0, bottom: 0, left: 0, right: 0 }}
-        // Use onViewableItemsChanged for precise visibility tracking
-        // This ensures we know exactly which video is visible (80% coverage threshold)
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
       />

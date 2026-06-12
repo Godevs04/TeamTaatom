@@ -1517,10 +1517,10 @@ export default function PostScreen() {
             shortDuration: shortDuration
           });
           
-          // Reset audio choice and show modal to ask user
-          setAudioChoice(null);
+          // Bypassing audio choice modal - default to original audio
+          setAudioChoice('original');
           setSelectedSong(null);
-          setShowAudioChoiceModal(true);
+          setShowAudioChoiceModal(false);
           // Generate initial thumbnail
           try {
             const { uri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 1000 });
@@ -1874,10 +1874,10 @@ export default function PostScreen() {
             shortDuration: shortDuration
           });
           
-          // Reset audio choice and show modal to ask user
-          setAudioChoice(null);
+          // Bypassing audio choice modal - default to original audio
+          setAudioChoice('original');
           setSelectedSong(null);
-          setShowAudioChoiceModal(true);
+          setShowAudioChoiceModal(false);
           
           try {
             const { uri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 1000 });
@@ -2284,18 +2284,16 @@ export default function PostScreen() {
         // Check if post requires verification (pending review)
         const requiresVerification = source === 'gallery_no_exif' || source === 'manual_only';
         
+        // Flush form context immediately to reset to standard gallery view in background
+        resetFormState();
+        setHasExistingPosts(true);
+
         if (requiresVerification) {
           showSuccess(
             'Your post has been shared.\n\nThis post is under verification. We\'ll notify you shortly.',
             'Success!',
             () => {
-              // Execute strict navigation command first to unmount safely
-              router.push('/(tabs)/home');
-              // Run state cleanup after navigation is initiated
-              setTimeout(() => {
-                resetFormState();
-                setHasExistingPosts(true);
-              }, 500);
+              router.replace('/(tabs)/home');
             }
           );
         } else {
@@ -2303,13 +2301,7 @@ export default function PostScreen() {
             'Your post has been shared.',
             'Success!',
             () => {
-              // Execute strict navigation command first to unmount safely
-              router.push('/(tabs)/home');
-              // Run state cleanup after navigation is initiated
-              setTimeout(() => {
-                resetFormState();
-                setHasExistingPosts(true);
-              }, 500);
+              router.replace('/(tabs)/home');
             }
           );
         }
@@ -2677,19 +2669,17 @@ export default function PostScreen() {
       // Check if short requires verification (pending review)
       const requiresVerification = source === 'gallery_no_exif' || source === 'manual_only';
       
+      // Flush form context immediately to reset to standard gallery view in background
+      resetFormState();
+      setVideoDuration(null);
+      setHasExistingShorts(true);
+
       if (requiresVerification) {
         showSuccess(
           'Your short has been uploaded.\n\nThis post is under verification. We\'ll notify you shortly.',
           'Success!',
           () => {
-            // Execute strict navigation command first to unmount safely
-            router.push('/(tabs)/home');
-            // Run state cleanup after navigation is initiated
-            setTimeout(() => {
-              resetFormState();
-              setVideoDuration(null); // Clear video duration when video is removed
-              setHasExistingShorts(true);
-            }, 500);
+            router.replace('/(tabs)/home');
           }
         );
       } else {
@@ -2697,14 +2687,7 @@ export default function PostScreen() {
           'Your short has been uploaded.',
           'Success!',
           () => {
-            // Execute strict navigation command first to unmount safely
-            router.push('/(tabs)/home');
-            // Run state cleanup after navigation is initiated
-            setTimeout(() => {
-              resetFormState();
-              setVideoDuration(null); // Clear video duration when video is removed
-              setHasExistingShorts(true);
-            }, 500);
+            router.replace('/(tabs)/home');
           }
         );
       }
@@ -2858,28 +2841,18 @@ export default function PostScreen() {
       // Check if short requires verification (pending review)
       const requiresVerification = pendingShortData.source === 'gallery_no_exif' || pendingShortData.source === 'manual_only';
       
+      // Flush form context immediately to reset to standard gallery view in background
+      clearUploadState();
+      resetFormState();
+      setVideoDuration(null);
+      setHasExistingShorts(true);
+
       if (requiresVerification) {
         showSuccess(
           'Your short has been uploaded.\n\nThis post is under verification. We\'ll notify you shortly.',
           'Success!',
           () => {
-            router.push('/(tabs)/home');
-            setTimeout(() => {
-              clearUploadState();
-              setSelectedVideo(null);
-              setVideoDuration(null);
-              setVideoThumbnail(null);
-              setLocation(null);
-              setLocationMetadata(null);
-              setSelectedSong(null);
-              setAudioChoice(null);
-              setSongStartTime(0);
-              setSongEndTime(60);
-              setPendingShortData(null);
-              setCopyrightAccepted(false);
-              setHasExistingShorts(true);
-              setAddress('');
-            }, 500);
+            router.replace('/(tabs)/home');
           }
         );
       } else {
@@ -2887,23 +2860,7 @@ export default function PostScreen() {
           'Your short has been uploaded.',
           'Success!',
           () => {
-            router.push('/(tabs)/home');
-            setTimeout(() => {
-              clearUploadState();
-              setSelectedVideo(null);
-              setVideoDuration(null);
-              setVideoThumbnail(null);
-              setLocation(null);
-              setLocationMetadata(null);
-              setSelectedSong(null);
-              setAudioChoice(null);
-              setSongStartTime(0);
-              setSongEndTime(60);
-              setPendingShortData(null);
-              setCopyrightAccepted(false);
-              setHasExistingShorts(true);
-              setAddress('');
-            }, 500);
+            router.replace('/(tabs)/home');
           }
         );
       }
@@ -4406,7 +4363,7 @@ export default function PostScreen() {
                           onOpenSelector={() => setShowSongSelector(true)}
                           onRemove={() => {
                             setSelectedSong(null);
-                            setAudioChoice(null);
+                            setAudioChoice('original');
                             setSongStartTime(0);
                             setSongEndTime(60);
                           }}
@@ -4531,7 +4488,7 @@ export default function PostScreen() {
     ) : (
       // Unified Instagram 1:1 Editor view
       <View style={{ flex: 1, backgroundColor: theme.colors.background || '#000000' }}>
-        <PostCreateHeader onClose={() => router.push('/(tabs)/home')} onNext={() => setShowDetails(true)} showNext={selectedImages.length > 0 || !!selectedVideo} />
+        <PostCreateHeader onClose={() => router.replace('/(tabs)/home')} onNext={() => setShowDetails(true)} showNext={selectedImages.length > 0 || !!selectedVideo} />
         
         {/* Top Half - Preview & Crop (exactly 50% of viewport) */}
         <View style={{
@@ -5536,9 +5493,9 @@ export default function PostScreen() {
           // CRITICAL FIX: Use ref to prevent race condition
           // If a song was just selected, don't reset audioChoice
           if (!songJustSelectedRef.current) {
-            // User closed modal without selecting - reset audio choice
+            // User closed modal without selecting - reset audio choice to original
             if (!selectedSong) {
-              setAudioChoice(null);
+              setAudioChoice('original');
             }
           } else {
             // Song was just selected, reset the ref
@@ -5587,13 +5544,13 @@ export default function PostScreen() {
             // When song is removed, reset everything
             songJustSelectedRef.current = false;
             setSelectedSong(null);
-            setAudioChoice(null);
+            setAudioChoice('original');
             setSongStartTime(0);
             setSongEndTime(60);
             if (__DEV__) {
-              console.log('🔄 [SongSelector] Song removed, audioChoice reset to null');
+              console.log('🔄 [SongSelector] Song removed, audioChoice reset to original');
             }
-            logger.info('SongSelector - Song removed, audioChoice reset to null');
+            logger.info('SongSelector - Song removed, audioChoice reset to original');
           }
           
           // Close modal AFTER state updates

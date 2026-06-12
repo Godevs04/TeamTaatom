@@ -33,6 +33,17 @@ const cacheSongLocally = async (remoteUrl: string, forceRefresh: boolean = false
     let filename = cleanUrl.split('/').pop()?.split('?')[0] ?? `song_${Date.now()}.mp3`;
     filename = filename.replace(/[^a-zA-Z0-9._-]/g, '_');
     
+    // Ensure the cached filename has a valid audio extension (otherwise Android decoders fail to play it)
+    const lowercaseName = filename.toLowerCase();
+    const hasAudioExt = lowercaseName.endsWith('.mp3') || 
+                        lowercaseName.endsWith('.m4a') || 
+                        lowercaseName.endsWith('.wav') || 
+                        lowercaseName.endsWith('.aac') ||
+                        lowercaseName.endsWith('.ogg');
+    if (!hasAudioExt) {
+      filename = `${filename}.mp3`;
+    }
+    
     const cacheDir = FileSystem.cacheDirectory;
     if (!cacheDir) return cleanUrl;
 
