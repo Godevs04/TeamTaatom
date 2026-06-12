@@ -430,7 +430,29 @@ const ShortCellMemo = React.memo(
 ShortCellMemo.displayName = 'ShortCellMemo';
 
 const ShortsVideoPlayerComponent = React.forwardRef<Video, React.ComponentProps<typeof Video>>((props, ref) => {
-  return <Video ref={ref} {...props} />;
+  const localRef = useRef<Video | null>(null);
+
+  const combinedRef = useCallback((node: Video | null) => {
+    localRef.current = node;
+    if (typeof ref === 'function') {
+      ref(node);
+    } else if (ref) {
+      (ref as any).current = node;
+    }
+  }, [ref]);
+
+  useEffect(() => {
+    return () => {
+      if (localRef.current) {
+        logger.debug(`[ShortsVideoPlayerComponent] Unloading video player on unmount`);
+        localRef.current.unloadAsync().catch((err) => {
+          logger.debug(`[ShortsVideoPlayerComponent] Failed to unload video on unmount:`, err);
+        });
+      }
+    };
+  }, []);
+
+  return <Video ref={combinedRef} {...props} />;
 });
 ShortsVideoPlayerComponent.displayName = 'ShortsVideoPlayerComponent';
 
@@ -1196,6 +1218,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [expandedCaptions, setExpandedCaptions] = useState<{ [key: string]: boolean }>({});
   const [localVideoUris, setLocalVideoUris] = useState<Record<string, string>>({});
   const activeStartedWithRemoteRef = useRef<Record<string, boolean>>({});
+  const currentVisibleIndexRef = useRef<number>(initialIndex);
+  const shortsDataRef = useRef<ShortsItem[]>([]);
+
+  useEffect(() => {
+    currentVisibleIndexRef.current = currentVisibleIndex;
+  }, [currentVisibleIndex]);
 
   useEffect(() => {
     const unsubscribeViews = realtimePostsService.subscribeToViews(({ postId, viewsCount }) => {
@@ -1876,7 +1904,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
     
     // DETAILED LOGGING: Track URL resolution for first 2 shorts
-    const isFirstTwoShorts = shorts.length > 0 && shorts.indexOf(item) < 2;
+    const isFirstTwoShorts = shorts.length > 0 && shorts.indexOf(item) !== -1 && shorts.indexOf(item) < 2;
     if (isFirstTwoShorts) {
       logger.info(`[FIRST_2_SHORTS] getVideoUrl called for short at index ${shorts.indexOf(item)}:`, {
         videoId,
@@ -3150,6 +3178,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     return result;
   }, [shorts, showShortsAds, failedAdIndices]);
 
+  useEffect(() => {
+    shortsDataRef.current = shortsData;
+  }, [shortsData]);
+
   // Cleanup videos that are far from viewport
   // Uses centralized stopAndUnloadVideo helper
   useEffect(() => {
@@ -3652,7 +3684,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 <MemoizedVideo
                 key={`video-${item._id}-${sourceVersions[item._id] ?? 0}`}
                 ref={(ref) => {
-                  videoRefs.current[item._id] = ref;
+                  if (ref) {
+                    videoRefs.current[item._id] = ref;
+                  } else {
+                    delete videoRefs.current[item._id];
+                  }
                   if (index < 2) {
                     logger.info(`[RENDER_VIDEO] Video component mounted for short at index ${index}:`, {
                       shortId: item._id,
@@ -3680,7 +3716,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                 })()}
                 onLoadStart={() => {
                   logger.debug(`Video ${item._id} load started, index: ${index}, currentVisible: ${currentVisibleIndex}`);
-                  if (index === currentVisibleIndex && !localVideoUris[item._id]) {
+                  if (!localVideoUris[item._id]) {
                     activeStartedWithRemoteRef.current[item._id] = true;
                   }
                   if (index < 2) {
@@ -4196,7 +4232,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const newVisibleIndex = visibleItem.index;
     const item = visibleItem.item as ShortsItem;
 
-    if (newVisibleIndex === undefined || newVisibleIndex === null || newVisibleIndex === currentVisibleIndex) return;
+    if (newVisibleIndex === undefined || newVisibleIndex === null || newVisibleIndex === currentVisibleIndexRef.current) return;
 
     if (!isInitialScrollDoneRef.current) {
       if (newVisibleIndex === targetInitialIndexRef.current) {
@@ -4215,11 +4251,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       currentPlayerRef.current = null;
     }
 
-    const previousIndex = currentVisibleIndex;
-    const previousItem = shortsData[previousIndex] as ShortsItem | undefined;
+    const previousIndex = currentVisibleIndexRef.current;
+    const previousItem = shortsDataRef.current[previousIndex] as ShortsItem | undefined;
 
     setCurrentVisibleIndex(newVisibleIndex);
     setCurrentIndex(newVisibleIndex);
+    currentVisibleIndexRef.current = newVisibleIndex;
 
     // Reel view tracking is done here.
 
@@ -4255,7 +4292,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     } else {
       activeVideoIdRef.current = null;
     }
-  }, [shortsData, stopAndUnloadVideo, currentVisibleIndex, updateKeyedBool]);
+  }, [stopAndUnloadVideo, updateKeyedBool]);
 
   const viewabilityConfig = useRef({
     itemVisiblePercentThreshold: 60, // Lower threshold so visibility triggers sooner during snap animation
