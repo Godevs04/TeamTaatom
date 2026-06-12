@@ -23,15 +23,18 @@ const snapToRoads = async (polyline) => {
       lat: p.lat ?? p.latitude,
       lng: p.lng ?? p.longitude,
       timestamp: p.timestamp ? new Date(p.timestamp) : new Date(),
-      segmentBreak: p.segmentBreak || false
+      segmentBreak: p.segmentBreak || false,
+      accuracy: p.accuracy !== undefined && p.accuracy !== null ? parseFloat(p.accuracy) : null,
+      speed: p.speed !== undefined && p.speed !== null ? parseFloat(p.speed) : null,
+      heading: p.heading !== undefined && p.heading !== null ? parseFloat(p.heading) : null
     }));
 
     const snapped = await matchTrajectory(formattedPoints);
-    return snapped.map(p => ({
+    return snapped.map((p, idx) => ({
       lat: p.lat,
       lng: p.lng,
       timestamp: p.timestamp,
-      accuracy: 0,
+      accuracy: formattedPoints[idx]?.accuracy || 0,
       segmentBreak: p.segmentBreak
     }));
   } catch (err) {
@@ -452,7 +455,7 @@ const updateLocation = async (req, res) => {
       }
 
       const accuracy = toNumberOrNull(coord.accuracy);
-      if (accuracy !== null && accuracy > 20) {
+      if (accuracy !== null && accuracy > 35) { // Increased from 20 to allow background tracking with slightly worse accuracy
         qualityStats.rejectedLowAccuracyPoints++;
         continue;
       }
