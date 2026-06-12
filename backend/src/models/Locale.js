@@ -114,6 +114,11 @@ const localeSchema = new mongoose.Schema({
       },
       message: 'Longitude must be between -180 and 180'
     }
+  },
+  blurhash: {
+    type: String,
+    required: false,
+    default: 'L6PZ|Ye.dHNGo~WhZ~StH?S#xZ$*'
   }
 }, {
   timestamps: true

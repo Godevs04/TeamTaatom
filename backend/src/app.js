@@ -39,6 +39,10 @@ const { queryMonitor } = require('./middleware/queryMonitor');
 
 const app = express();
 
+// Enable trust proxy to support correct protocol detection (HTTP vs HTTPS) behind load balancers/reverse proxies
+app.set('trust proxy', true);
+
+
 // Note: Sentry Express integration is handled by expressIntegration() in instrument.js
 // setupExpressErrorHandler will be called after routes are defined
 

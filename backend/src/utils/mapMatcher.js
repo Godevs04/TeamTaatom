@@ -61,8 +61,8 @@ function estimateRoutingDistance(cPrev, cCurr) {
   return linearDist * 1.35;
 }
 
-function emissionProbability(distance, headingDiff) {
-  let probability = Math.exp(-0.5 * (distance / SIGMA_Z) ** 2) / (SIGMA_Z * Math.sqrt(2 * Math.PI));
+function emissionProbability(distance, headingDiff, sigmaZ = SIGMA_Z) {
+  let probability = Math.exp(-0.5 * (distance / sigmaZ) ** 2) / (sigmaZ * Math.sqrt(2 * Math.PI));
   if (headingDiff !== null && headingDiff !== undefined) {
     const sigmaHeading = 25.0; // Heading tolerance standard deviation
     probability *= Math.exp(-0.5 * (headingDiff / sigmaHeading) ** 2);
@@ -78,8 +78,9 @@ function transitionProbability(greatCircleDistance, routeDistance, beta = BETA) 
 
 function candidateConfidence(candidate) {
   if (!candidate || candidate.roadId === 'fallback') return 0.2;
+  const sigma = Math.max(5.0, candidate.accuracy || SIGMA_Z);
   // 1.0 at the road centerline, tapering to ~0.02 near the max search radius.
-  return Math.max(0, Math.min(1, Math.exp(-candidate.distance / SIGMA_Z)));
+  return Math.max(0, Math.min(1, Math.exp(-candidate.distance / sigma)));
 }
 
 /**
@@ -90,13 +91,14 @@ function candidateConfidence(candidate) {
  * @param {number} lng Coordinate longitude.
  * @returns {Promise<Array>} Array of candidate snapped points.
  */
-async function findCandidates(lat, lng) {
+async function findCandidates(lat, lng, accuracy = 8.0) {
   try {
+    const searchRadius = Math.max(MAX_SEARCH_RADIUS, accuracy * 1.5);
     const roads = await Road.find({
       geometry: {
         $nearSphere: {
           $geometry: { type: 'Point', coordinates: [lng, lat] },
-          $maxDistance: MAX_SEARCH_RADIUS
+          $maxDistance: searchRadius
         }
       }
     }).limit(6); // Query up to 6 closest roads to prevent excessive segment calculations
@@ -122,7 +124,8 @@ async function findCandidates(lat, lng) {
           osmId: road.osm_id,
           roadName: road.name || 'Unnamed Road',
           bearing: segmentBearing,
-          oneWay: road.oneWay === true
+          oneWay: road.oneWay === true,
+          accuracy: accuracy
         });
       }
     }
@@ -144,7 +147,7 @@ async function findCandidates(lat, lng) {
 async function matchTrajectory(rawPoints) {
   if (!Array.isArray(rawPoints) || rawPoints.length === 0) return [];
   if (rawPoints.length === 1) {
-    const candidates = await findCandidates(rawPoints[0].lat, rawPoints[0].lng);
+    const candidates = await findCandidates(rawPoints[0].lat, rawPoints[0].lng, rawPoints[0].accuracy);
     return candidates.length > 0 
       ? [{
           lat: candidates[0].lat,
@@ -160,7 +163,7 @@ async function matchTrajectory(rawPoints) {
   // 1. Retrieve geospatial candidates for each point in sequence
   const timelineCandidates = [];
   for (const pt of rawPoints) {
-    const cands = await findCandidates(pt.lat, pt.lng);
+    const cands = await findCandidates(pt.lat, pt.lng, pt.accuracy);
     
     // If no roads are indexed within 30m, fallback to raw point as a self-candidate
     if (cands.length === 0) {
@@ -185,11 +188,15 @@ async function matchTrajectory(rawPoints) {
   const backpointers = Array.from({ length: T }, () => ({}));
 
   // 2. Base Case: Initialization (t = 0)
+  const pt0 = rawPoints[0];
+  const sigmaZ0 = Math.max(5.0, (typeof pt0.accuracy === 'number' && pt0.accuracy > 0) ? pt0.accuracy : SIGMA_Z);
+  const isHeadingReliable0 = pt0.speed === undefined || pt0.speed === null || (typeof pt0.speed === 'number' && pt0.speed >= 2.5);
+
   timelineCandidates[0].forEach((cand, idx) => {
-    const headingDiff = (rawPoints[0].heading !== undefined && rawPoints[0].heading !== null && cand.bearing !== null && cand.bearing !== undefined)
-      ? getHeadingDifference(rawPoints[0].heading, cand.bearing, cand.oneWay)
+    const headingDiff = (isHeadingReliable0 && pt0.heading !== undefined && pt0.heading !== null && cand.bearing !== null && cand.bearing !== undefined)
+      ? getHeadingDifference(pt0.heading, cand.bearing, cand.oneWay)
       : null;
-    V[0][idx] = Math.log(emissionProbability(cand.distance, headingDiff));
+    V[0][idx] = Math.log(emissionProbability(cand.distance, headingDiff, sigmaZ0));
     backpointers[0][idx] = null;
   });
 
@@ -197,14 +204,17 @@ async function matchTrajectory(rawPoints) {
   for (let t = 1; t < T; t++) {
     const prevCands = timelineCandidates[t - 1];
     const currCands = timelineCandidates[t];
-    const dGcd = calculateHaversine(rawPoints[t-1].lat, rawPoints[t-1].lng, rawPoints[t].lat, rawPoints[t].lng);
+    const ptCurr = rawPoints[t];
+    const sigmaZ = Math.max(5.0, (typeof ptCurr.accuracy === 'number' && ptCurr.accuracy > 0) ? ptCurr.accuracy : SIGMA_Z);
+    const isHeadingReliable = ptCurr.speed === undefined || ptCurr.speed === null || (typeof ptCurr.speed === 'number' && ptCurr.speed >= 2.5);
+    const dGcd = calculateHaversine(rawPoints[t-1].lat, rawPoints[t-1].lng, ptCurr.lat, ptCurr.lng);
     const adaptiveBeta = Math.max(BETA, dGcd * 0.15);
 
     currCands.forEach((curr, currIdx) => {
-      const headingDiff = (rawPoints[t].heading !== undefined && rawPoints[t].heading !== null && curr.bearing !== null && curr.bearing !== undefined)
-        ? getHeadingDifference(rawPoints[t].heading, curr.bearing, curr.oneWay)
+      const headingDiff = (isHeadingReliable && ptCurr.heading !== undefined && ptCurr.heading !== null && curr.bearing !== null && curr.bearing !== undefined)
+        ? getHeadingDifference(ptCurr.heading, curr.bearing, curr.oneWay)
         : null;
-      const emissionLog = Math.log(emissionProbability(curr.distance, headingDiff));
+      const emissionLog = Math.log(emissionProbability(curr.distance, headingDiff, sigmaZ));
       let maxScore = Number.NEGATIVE_INFINITY;
       let bestPrevIdx = 0;
 
@@ -213,7 +223,12 @@ async function matchTrajectory(rawPoints) {
         
         // Compute Transition Probability (exponential distribution matching relative distances)
         const dRoute = estimateRoutingDistance(prev, curr);
-        const transitionLog = Math.log(transitionProbability(dGcd, dRoute, adaptiveBeta));
+        let transitionLog = Math.log(transitionProbability(dGcd, dRoute, adaptiveBeta));
+
+        // Topological transition penalty to prevent wiggling/jumping between parallel disconnected roads
+        if (prev.roadId !== curr.roadId && prev.roadId !== 'fallback' && curr.roadId !== 'fallback') {
+          transitionLog -= 2.0; // Apply transition log penalty
+        }
 
         const totalScore = prevScore + transitionLog + emissionLog;
         if (totalScore > maxScore) {

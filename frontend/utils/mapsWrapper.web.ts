@@ -4,4 +4,5 @@
 export const MapView = null;
 export const Marker = null;
 export const PROVIDER_GOOGLE = null;
+export const AnimatedRegion = null;
 

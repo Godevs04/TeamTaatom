@@ -234,6 +234,23 @@ interface ProfileData extends UserType {
   isOwnProfile: boolean;
 }
 
+const fetchAllUserPosts = async (userId: string) => {
+  let allPosts: any[] = [];
+  let page = 1;
+  const limit = 20;
+  let hasMore = true;
+  let safetyCounter = 0;
+  while (hasMore && safetyCounter < 50) {
+    const res = await getUserPosts(userId, page, limit);
+    const postsList = res.posts || [];
+    allPosts = [...allPosts, ...postsList];
+    hasMore = postsList.length === limit;
+    page++;
+    safetyCounter++;
+  }
+  return { posts: allPosts };
+};
+
 export default function ProfileScreen() {
   const { handleScroll } = useScrollToHideNav();
   const insets = useSafeAreaInsets();
@@ -437,7 +454,7 @@ export default function ProfileScreen() {
       // OPTIMIZATION: Fetch profile, posts, shorts, and verified locations in parallel for 2-3x faster loading
       const [profileResult, userPosts, shortsResp, travelMapResult] = await Promise.allSettled([
         getProfile(userData._id),
-        getUserPosts(userData._id),
+        fetchAllUserPosts(userData._id),
         getUserShorts(userData._id, 1, 100),
         getTravelMapData(userData._id).catch(() => null) // Don't fail if this fails
       ]);
@@ -1137,7 +1154,7 @@ export default function ProfileScreen() {
         if (isMountedRef.current) {
           setProfileData(profile.profile);
           // Also refresh posts count if needed
-          const userPosts = await getUserPosts(updatedUser._id);
+          const userPosts = await fetchAllUserPosts(updatedUser._id);
           if (isMountedRef.current) {
             setPosts(userPosts.posts);
           }

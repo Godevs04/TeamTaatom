@@ -14,6 +14,8 @@ import { audioManager } from '../../utils/audioManager';
 import { Audio } from 'expo-av';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import ReAnimated, { useSharedValue, useAnimatedStyle, runOnJS, withSpring } from 'react-native-reanimated';
+import MaskedView from '@react-native-masked-view/masked-view';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const { width: screenWidth } = Dimensions.get('window');
 const CARD_WIDTH = screenWidth - 24;
@@ -151,7 +153,19 @@ const CarouselItem = React.memo(({
                   },
                 ]}
               >
-                <Ionicons name="heart" size={80} color="#fff" />
+                <MaskedView
+                  style={{ width: 80, height: 80 }}
+                  maskElement={
+                    <Ionicons name="heart" size={80} color="#000000" />
+                  }
+                >
+                  <LinearGradient
+                    colors={['#50C878', '#1C73B4']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{ flex: 1 }}
+                  />
+                </MaskedView>
               </Animated.View>
             </View>
           )}
@@ -627,7 +641,19 @@ export default function PostImage({
                       },
                     ]}
                   >
-                    <Ionicons name="heart" size={80} color="#fff" />
+                    <MaskedView
+                      style={{ width: 80, height: 80 }}
+                      maskElement={
+                        <Ionicons name="heart" size={80} color="#000000" />
+                      }
+                    >
+                      <LinearGradient
+                        colors={['#50C878', '#1C73B4']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={{ flex: 1 }}
+                      />
+                    </MaskedView>
                   </Animated.View>
                 </View>
               </ReAnimated.View>

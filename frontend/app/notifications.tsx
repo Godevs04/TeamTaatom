@@ -26,6 +26,16 @@ import { triggerRefreshHaptic } from '../utils/hapticFeedback';
 import { theme } from '../constants/theme';
 import logger from '../utils/logger';
 import { FILTER_PREVIEW_OVERLAY, ImageFilterType } from '../components/ImageEditModal';
+import { getApiUrl } from '../utils/config';
+
+const resolvePhotoUrl = (url?: string | null): string | undefined => {
+  if (!url) return undefined;
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+    return url;
+  }
+  const cleanPath = url.startsWith('/') ? url : `/${url}`;
+  return getApiUrl(cleanPath);
+};
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -550,7 +560,7 @@ export default function NotificationsScreen() {
           <View style={styles.avatarContainer}>
             {item.fromUser?.profilePic ? (
               <Image
-                source={{ uri: item.fromUser.profilePic }}
+                source={{ uri: resolvePhotoUrl(item.fromUser.profilePic) }}
                 style={[
                   styles.avatar,
                   { borderColor: mode === 'dark' ? '#3A3A3C' : '#E5E5E7' }
@@ -622,7 +632,7 @@ export default function NotificationsScreen() {
               {item.post?.imageUrl && !failedThumbnails.has(item._id) ? (
                 <View style={{ position: 'relative' }}>
                   <Image
-                    source={{ uri: item.post.imageUrl }}
+                    source={{ uri: resolvePhotoUrl(item.post.imageUrl) }}
                     style={styles.postThumbnail}
                     resizeMode="cover"
                     onError={() => {

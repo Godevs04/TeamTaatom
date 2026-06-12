@@ -27,6 +27,7 @@ import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import PolylineRenderer from '../../components/PolylineRenderer';
 import GlassMapPanel from '../../components/GlassMapPanel';
 import PremiumMapMarker from '../../components/PremiumMapMarker';
+import SafeMarker from '../../components/SafeMarker';
 import ShareModal from '../../components/ShareModal';
 import { useMapStyle } from '../../hooks/useMapStyle';
 import logger from '../../utils/logger';
@@ -413,20 +414,20 @@ function initMap(){
                 />
               )}
               {isValidMapCoordinate({ latitude: journey.startCoords?.lat, longitude: journey.startCoords?.lng }) && (
-                <Marker coordinate={{ latitude: journey.startCoords.lat, longitude: journey.startCoords.lng }} title="Start" anchor={{ x: 0.5, y: 0.5 }}>
+                <SafeMarker coordinate={{ latitude: journey.startCoords.lat, longitude: journey.startCoords.lng }} title="Start" anchor={{ x: 0.5, y: 0.5 }} repaintTriggers={[latitudeDelta]}>
                   <PremiumMapMarker icon="play" latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
-                </Marker>
+                </SafeMarker>
               )}
               {isValidMapCoordinate({ latitude: journey.endCoords?.lat, longitude: journey.endCoords?.lng }) && (
-                <Marker coordinate={{ latitude: journey.endCoords.lat, longitude: journey.endCoords.lng }} title="End" anchor={{ x: 0.5, y: 1.0 }}>
+                <SafeMarker coordinate={{ latitude: journey.endCoords.lat, longitude: journey.endCoords.lng }} title="End" anchor={{ x: 0.5, y: 1.0 }} repaintTriggers={[latitudeDelta]}>
                   <PremiumMapMarker icon="flag" active latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
-                </Marker>
+                </SafeMarker>
               )}
               {journey.waypoints?.map((w: any, i: number) => (
                 isValidMapCoordinate({ latitude: w.lat, longitude: w.lng }) && (
-                  <Marker key={`wp-${i}`} coordinate={{ latitude: w.lat, longitude: w.lng }} title={`${w.contentType || 'Photo'} #${i + 1}`} anchor={{ x: 0.5, y: 1.0 }}>
+                  <SafeMarker key={`wp-${i}`} coordinate={{ latitude: w.lat, longitude: w.lng }} title={`${w.contentType || 'Photo'} #${i + 1}`} anchor={{ x: 0.5, y: 1.0 }} repaintTriggers={[latitudeDelta, w.contentType]}>
                     <PremiumMapMarker icon={w.contentType === 'video' ? 'videocam' : 'camera'} latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
-                  </Marker>
+                  </SafeMarker>
                 )
               ))}
             </MapView>

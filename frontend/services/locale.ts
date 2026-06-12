@@ -36,7 +36,7 @@ export interface LocalesResponse {
     total: number;
     limit: number;
     hasMore?: boolean;
-    nextCursor?: number | null;
+    nextCursor?: string | number | null;
   };
 }
 
@@ -63,7 +63,7 @@ export const getLocales = async (
   signal?: AbortSignal,
   latitude?: number,
   longitude?: number,
-  cursor?: number | null
+  cursor?: string | number | null
 ): Promise<LocalesResponse> => {
   try {
     const params = new URLSearchParams();

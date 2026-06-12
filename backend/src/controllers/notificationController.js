@@ -6,6 +6,42 @@ const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { generateSignedUrl, generateSignedUrls } = require('../services/mediaService');
 
+// Helper function to check if URL is an R2 URL
+const isR2Url = (url) => {
+  return url && typeof url === 'string' && 
+         (url.includes('r2.cloudflarestorage.com') || url.includes('cloudflarestorage.com')) &&
+         !url.includes('?'); // Not already signed
+};
+
+// Helper function to extract storage key from R2 URL
+const extractStorageKeyFromR2Url = (url) => {
+  try {
+    const urlObj = new URL(url);
+    const pathParts = urlObj.pathname.split('/').filter(p => p);
+    if (pathParts.length >= 2) {
+      return pathParts.slice(1).join('/');
+    }
+  } catch (e) {
+    logger.warn(`Failed to extract storage key from R2 URL: ${url?.substring(0, 100)}`);
+  }
+  return null;
+};
+
+const resolveAndSignUrl = async (url) => {
+  if (!url) return null;
+  if (isR2Url(url)) {
+    try {
+      const key = extractStorageKeyFromR2Url(url);
+      if (key) {
+        return await generateSignedUrl(key, 'IMAGE');
+      }
+    } catch (error) {
+      logger.warn('Failed to sign R2 URL in resolveAndSignUrl:', { url: url.substring(0, 100), error: error.message });
+    }
+  }
+  return url;
+};
+
 // @desc    Get user notifications
 // @route   GET /notifications
 // @access  Private
@@ -62,7 +98,7 @@ const getNotifications = async (req, res) => {
           // For shorts, prefer thumbnailUrl, then imageUrl
           if (post.type === 'short') {
             if (post.thumbnailUrl) {
-              notification.post.imageUrl = post.thumbnailUrl;
+              notification.post.imageUrl = await resolveAndSignUrl(post.thumbnailUrl);
             } else if (post.storageKeys && post.storageKeys.length > 0) {
               // Generate thumbnail from storage keys (usually second key is thumbnail)
               try {
@@ -73,7 +109,7 @@ const getNotifications = async (req, res) => {
                   postId: post._id, 
                   error: error.message 
                 });
-                notification.post.imageUrl = post.imageUrl || post.thumbnailUrl || null;
+                notification.post.imageUrl = await resolveAndSignUrl(post.imageUrl || post.thumbnailUrl || null);
               }
             } else if (post.storageKey) {
               try {
@@ -83,10 +119,10 @@ const getNotifications = async (req, res) => {
                   postId: post._id, 
                   error: error.message 
                 });
-                notification.post.imageUrl = post.imageUrl || post.thumbnailUrl || null;
+                notification.post.imageUrl = await resolveAndSignUrl(post.imageUrl || post.thumbnailUrl || null);
               }
             } else {
-              notification.post.imageUrl = post.thumbnailUrl || post.imageUrl || null;
+              notification.post.imageUrl = await resolveAndSignUrl(post.thumbnailUrl || post.imageUrl || null);
             }
           } else {
             // For regular posts, generate image URL from storage keys
@@ -99,7 +135,7 @@ const getNotifications = async (req, res) => {
                   postId: post._id, 
                   error: error.message 
                 });
-                notification.post.imageUrl = post.imageUrl || null;
+                notification.post.imageUrl = await resolveAndSignUrl(post.imageUrl || null);
               }
             } else if (post.storageKey) {
               try {
@@ -109,11 +145,11 @@ const getNotifications = async (req, res) => {
                   postId: post._id, 
                   error: error.message 
                 });
-                notification.post.imageUrl = post.imageUrl || null;
+                notification.post.imageUrl = await resolveAndSignUrl(post.imageUrl || null);
               }
             } else {
               // Legacy: use existing imageUrl if no storage key
-              notification.post.imageUrl = post.imageUrl || null;
+              notification.post.imageUrl = await resolveAndSignUrl(post.imageUrl || null);
             }
           }
           

@@ -23,9 +23,22 @@ const { startTranscodeWorker, triggerTranscode } = require('../services/videoTra
 // Start MongoDB-backed transcoding worker
 startTranscodeWorker();
 
+const getProto = (req) => {
+  const forwardedProto = req.headers['x-forwarded-proto'];
+  if (forwardedProto) {
+    return forwardedProto.split(',')[0].trim();
+  }
+  const host = req.get('host') || '';
+  if (host.includes('taatom.com') && !host.includes('localhost') && !host.includes('127.0.0.1')) {
+    return 'https';
+  }
+  return req.protocol || 'https';
+};
+
 const getVideoUrlForShort = (short, req) => {
   if (short && short.storageKey && short.storageKey.endsWith('index.m3u8')) {
-    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const proto = getProto(req);
+    const baseUrl = `${proto}://${req.get('host')}`;
     return `${baseUrl}/api/v1/shorts?hls=master&postId=${short._id}&ext=.m3u8`;
   }
   return null;
@@ -70,7 +83,8 @@ const handleHLSProxy = async (req, res) => {
       const m3u8Content = await streamToString(s3Response.Body);
       
       // Replace relative segments with absolute proxy endpoint URLs
-      const baseUrl = `${req.protocol}://${req.get('host')}`;
+      const proto = getProto(req);
+      const baseUrl = `${proto}://${req.get('host')}`;
       const lines = m3u8Content.split('\n');
       const mappedLines = lines.map(line => {
         const trimmed = line.trim();

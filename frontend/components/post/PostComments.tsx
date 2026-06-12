@@ -344,19 +344,24 @@ export default function PostComments({
             <View />
           </TouchableOpacity>
           
-          <Animated.View
-            style={[
-              styles.bottomSheet,
-              {
-                backgroundColor: theme.colors.background,
-                transform: [
-                  { translateY: translateY },
-                  { scale: scale }
-                ],
-                opacity: opacity,
-              },
-            ]}
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'padding'}
+            style={{ width: '100%' }}
+            keyboardVerticalOffset={0}
           >
+            <Animated.View
+              style={[
+                styles.bottomSheet,
+                {
+                  backgroundColor: theme.colors.background,
+                  transform: [
+                    { translateY: translateY },
+                    { scale: scale }
+                  ],
+                  opacity: opacity,
+                },
+              ]}
+            >
             <View style={styles.handleBar}>
               <View style={[styles.handle, { backgroundColor: theme.colors.border }]} />
             </View>
@@ -377,11 +382,8 @@ export default function PostComments({
               </TouchableOpacity>
             </View>
 
-            {/* Wrap only the Bottom Sheet CONTENT (not the sheet container) with KeyboardAvoidingView */}
-            <KeyboardAvoidingView 
-              behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+            <View 
               style={styles.container}
-              keyboardVerticalOffset={0}
             >
               <FlatList
                 ref={flatListRef}
@@ -482,9 +484,10 @@ export default function PostComments({
                   </TouchableOpacity>
                 </View>
               )}
-            </KeyboardAvoidingView>
+            </View>
           </Animated.View>
-        </Animated.View>
+        </KeyboardAvoidingView>
+      </Animated.View>
       </Modal>
 
       <CustomAlert
