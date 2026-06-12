@@ -4407,7 +4407,7 @@ export default function PostScreen() {
                             fontSize: theme.typography.body.fontSize,
                             fontWeight: '500'
                           }}>
-                            {audioChoice === 'original' ? 'Using Original Audio' : 'Add Background Music'}
+                            {audioChoice === 'original' ? 'Currently using original song wana see some audios ??' : 'Add Background Music'}
                           </Text>
                         </View>
                         <Ionicons

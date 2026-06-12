@@ -552,6 +552,20 @@ const ShortsCell = React.memo((props: ShortsCellProps) => {
     }
   }, [shouldPlay]);
 
+  // Sync native video player's mute/volume when isMuted, isActive, or song changes
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
+    const shouldMuteVideo = !isActive || hasMusic || isMuted;
+    video.getStatusAsync().then((status) => {
+      if (status.isLoaded) {
+        video.setIsMutedAsync(shouldMuteVideo).catch(() => {});
+        video.setVolumeAsync(shouldMuteVideo ? 0.0 : 1.0).catch(() => {});
+      }
+    }).catch(() => {});
+  }, [isMuted, isActive, item.song]);
+
   // Recovery check inside ShortsCell
   useEffect(() => {
     if (!isActive || videoReady || !isScreenFocused || appState !== 'active') return;
@@ -894,16 +908,26 @@ const ShortsCell = React.memo((props: ShortsCellProps) => {
                   const isNowPlaying = status.isPlaying;
                   
                   const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                  const isMutedByUser = isMuted;
-                  if ((hasMusic || isMutedByUser) && isActive) {
+                  const shouldMuteVideo = !isActive || hasMusic || isMuted;
+                  if (isActive) {
                     const video = videoRef.current;
-                    if (video && !status.isMuted) {
-                      const now = Date.now();
-                      const lastEnforce = lastMuteEnforceAtRef.current;
-                      if (now - lastEnforce > 1000) {
-                        lastMuteEnforceAtRef.current = now;
-                        video.setIsMutedAsync(true).catch(() => {});
-                        video.setVolumeAsync(0.0).catch(() => {});
+                    if (video) {
+                      if (shouldMuteVideo && !status.isMuted) {
+                        const now = Date.now();
+                        const lastEnforce = lastMuteEnforceAtRef.current;
+                        if (now - lastEnforce > 1000) {
+                          lastMuteEnforceAtRef.current = now;
+                          video.setIsMutedAsync(true).catch(() => {});
+                          video.setVolumeAsync(0.0).catch(() => {});
+                        }
+                      } else if (!shouldMuteVideo && status.isMuted) {
+                        const now = Date.now();
+                        const lastEnforce = lastMuteEnforceAtRef.current;
+                        if (now - lastEnforce > 1000) {
+                          lastMuteEnforceAtRef.current = now;
+                          video.setIsMutedAsync(false).catch(() => {});
+                          video.setVolumeAsync(1.0).catch(() => {});
+                        }
                       }
                     }
                   }
@@ -956,13 +980,9 @@ const ShortsCell = React.memo((props: ShortsCellProps) => {
                     const video = videoRef.current;
                     if (video) {
                       const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                      if (hasMusic) {
-                        video.setIsMutedAsync(true).catch(() => {});
-                        video.setVolumeAsync(0.0).catch(() => {});
-                      } else {
-                        video.setIsMutedAsync(false).catch(() => {});
-                        video.setVolumeAsync(1.0).catch(() => {});
-                      }
+                      const shouldMuteVideo = hasMusic || isMuted;
+                      video.setIsMutedAsync(shouldMuteVideo).catch(() => {});
+                      video.setVolumeAsync(shouldMuteVideo ? 0.0 : 1.0).catch(() => {});
 
                       if (!status.isPlaying) {
                         video.playAsync().then(() => {
@@ -1969,6 +1989,8 @@ const LocalShortsActionRail = React.memo(({
 
 LocalShortsActionRail.displayName = 'LocalShortsActionRail';
 
+// Module-level global mute state for shorts feed to persist across mounts/unmounts
+let globalIsFeedMuted = false;
 
 export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const params = useLocalSearchParams();
@@ -2017,7 +2039,21 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [containerHeight, setContainerHeight] = useState(SCREEN_HEIGHT - TAB_BAR_HEIGHT);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [savedShorts, setSavedShorts] = useState<Set<string>>(new Set());
-  const [mutedShorts, setMutedShorts] = useState<Set<string>>(new Set());
+  const [isFeedMuted, setIsFeedMuted] = useState(() => {
+    const currentSessionMuted = audioManager.getSessionMuted();
+    if (currentSessionMuted !== globalIsFeedMuted) {
+      globalIsFeedMuted = currentSessionMuted;
+    }
+    return globalIsFeedMuted;
+  });
+
+  useEffect(() => {
+    const unsub = audioManager.addSessionMuteListener((muted) => {
+      setIsFeedMuted(muted);
+      globalIsFeedMuted = muted;
+    });
+    return unsub;
+  }, []);
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [selectedShortId, setSelectedShortId] = useState<string | null>(null);
   const [selectedShortComments, setSelectedShortComments] = useState<any[]>([]);
@@ -3862,7 +3898,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         currentVisibleIndex={currentVisibleIndex}
         isVideoPlaying={isVideoPlaying}
         isScreenFocused={isScreenFocused}
-        isMuted={props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id)}
+        isMuted={props.isMuted !== undefined ? props.isMuted : isFeedMuted}
         currentUser={currentUser}
         containerHeight={containerHeight}
         isFollowing={isFollowing}
@@ -3889,7 +3925,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     isVideoPlaying,
     isScreenFocused,
     props.isMuted,
-    mutedShorts,
+    isFeedMuted,
     currentUser,
     containerHeight,
     followStates,
@@ -4018,7 +4054,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
         const currentShort = shorts[currentVisibleIndex] as PostType | undefined;
         const hasSong = !!(currentShort?.song?.songId && (currentShort.song.songId._id || typeof currentShort.song.songId === 'string'));
-        const isMuted = currentShort ? (props.isMuted !== undefined ? props.isMuted : mutedShorts.has(currentShort._id)) : false;
+        const isMuted = currentShort ? (props.isMuted !== undefined ? props.isMuted : isFeedMuted) : false;
         
         return (
           <View style={styles.topBar}>
@@ -4045,12 +4081,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     if (props.onMuteToggle) {
                       props.onMuteToggle();
                     } else {
-                      setMutedShorts(prev => {
-                        const next = new Set(prev);
-                        if (next.has(currentShort._id)) next.delete(currentShort._id);
-                        else next.add(currentShort._id);
-                        return next;
-                      });
+                      audioManager.setSessionMuted(!audioManager.getSessionMuted());
                     }
                   }}
                   accessibilityLabel={isMuted ? 'Unmute' : 'Mute'}
