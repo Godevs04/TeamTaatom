@@ -159,7 +159,7 @@ try {
         if (Number.isNaN(lat) || Number.isNaN(lng)) continue;
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
         const accuracy = loc.coords?.accuracy || 0;
-        if (accuracy > 20) continue; // Drop any coordinate where accuracy > 20
+        if (accuracy > 35) continue; // Drop any coordinate where accuracy > 35 (increased from 20 to preserve background updates)
         const speed = loc.coords?.speed;
         const heading = loc.coords?.heading;
         valid.push({
@@ -272,6 +272,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   const pendingSegmentBreakRef = useRef(false);
   const kalmanFilterRef = useRef<KalmanFilter | null>(null);
   const lastStationaryMarkerUpdateRef = useRef(0);
+  const currentCoordinateRef = useRef<Coordinate | null>(null);
   // Tracks whether this hook instance is still mounted. Async paths (API
   // awaits, location callbacks fired after subscription removal on some
   // Android OEMs, late timer ticks) check this before calling setState so
@@ -331,13 +332,27 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         const lng = location?.coords?.longitude;
         if (typeof lat !== 'number' || typeof lng !== 'number' || isNaN(lat) || isNaN(lng)) return;
         const accuracy = location?.coords?.accuracy || 0;
-        if (accuracy > 20) {
+        if (accuracy > 35) { // Increased from 20 to allow tracking in challenging environments (pockets, urban canyons)
           logger.debug(`[Journey] Discarding low-accuracy coordinate (±${accuracy}m) immediately.`);
           return;
         }
 
         const speed = location?.coords?.speed;
         const heading = location?.coords?.heading;
+
+        // Estimate speed if not provided by OS
+        let calculatedSpeed = speed;
+        if ((calculatedSpeed === null || calculatedSpeed === undefined) && lastCoordinateRef.current) {
+          const dist = calculateCoordinateDistance(
+            lastCoordinateRef.current.latitude,
+            lastCoordinateRef.current.longitude,
+            lat,
+            lng
+          );
+          const timeDiffSeconds = Math.max(0.1, (location.timestamp - lastCoordinateRef.current.timestamp) / 1000);
+          calculatedSpeed = dist / timeDiffSeconds;
+        }
+        const effectiveSpeed = (typeof calculatedSpeed === 'number' && calculatedSpeed >= 0) ? calculatedSpeed : 0;
 
         // Apply Kalman Filter smoothing
         if (!kalmanFilterRef.current) {
@@ -348,7 +363,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           lng,
           accuracy,
           location.timestamp,
-          speed !== null && speed !== undefined ? speed : undefined
+          effectiveSpeed
         );
 
         const coord: Coordinate = {
@@ -359,20 +374,35 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           speed: speed !== null && speed !== undefined ? speed : undefined,
           heading: heading !== null && heading !== undefined ? heading : undefined,
         };
-        // Stationary user speed filter: if speed is valid and less than 0.4 m/s (approx 1.4 km/h),
-        // treat user as stationary/idle and do not append to polyline or accumulate distance.
-        if (speed !== null && speed !== undefined && speed >= 0 && speed < STATIONARY_SPEED_MPS) {
-          const now = Date.now();
-          if (now - lastStationaryMarkerUpdateRef.current >= STATIONARY_MARKER_UPDATE_INTERVAL) {
-            lastStationaryMarkerUpdateRef.current = now;
-            setAccuracy(coord.accuracy);
-            setCurrentCoordinate(coord);
+
+        // Determine if we should update the displayed current location (blue icon).
+        // This prevents the blue dot from wiggling when the user is standing still/stationary.
+        let shouldUpdateCurrentCoord = true;
+        if (currentCoordinateRef.current) {
+          const distFromLastShow = calculateCoordinateDistance(
+            currentCoordinateRef.current.latitude,
+            currentCoordinateRef.current.longitude,
+            coord.latitude,
+            coord.longitude
+          );
+          const driftThreshold = Math.max(3, coord.accuracy * 0.35);
+          if (distFromLastShow < driftThreshold && effectiveSpeed < 0.8) {
+            shouldUpdateCurrentCoord = false;
           }
-          logger.debug(`[Journey] User is stationary (speed: ${speed} m/s). Skipping polyline update.`);
+        }
+
+        if (shouldUpdateCurrentCoord) {
+          currentCoordinateRef.current = coord;
+          setAccuracy(coord.accuracy);
+          setCurrentCoordinate(coord);
+        }
+
+        // Stationary user check: if estimated speed is below threshold,
+        // treat user as stationary/idle and do not append to polyline or accumulate distance.
+        if (effectiveSpeed < STATIONARY_SPEED_MPS) {
+          logger.debug(`[Journey] User is stationary (speed: ${effectiveSpeed.toFixed(2)} m/s). Skipping polyline update.`);
           return;
         }
-        setAccuracy(coord.accuracy);
-        setCurrentCoordinate(coord);
 
         // Only grow the polyline / running distance when movement is
         // significant. First emission seeds lastCoordinateRef.
@@ -406,7 +436,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
             // Adaptive distance threshold based on current GPS accuracy to filter noise.
             // When accuracy is worse, we require a larger distance to confirm actual movement.
-            const adaptiveMinDistance = getAdaptiveMinDistance(coord.accuracy, speed);
+            const adaptiveMinDistance = getAdaptiveMinDistance(coord.accuracy, effectiveSpeed);
             if (dist >= adaptiveMinDistance) {
               lastCoordinateRef.current = coord;
               setPolyline((prev) => [...prev, coord]);
@@ -459,8 +489,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       await Location.startLocationUpdatesAsync(BG_LOCATION_TASK, {
         accuracy: Location.Accuracy.High, // Upgraded for high-accuracy path tracking
         timeInterval: 2000, // Query every 2 seconds for a denser track
-        distanceInterval: 2, // Track every 2 meters
+        distanceInterval: 0, // Time-based updates (match foreground)
         showsBackgroundLocationIndicator: true, // Enable indicator to prevent OS suspension
+        activityType: Location.ActivityType.Fitness, // Optimize background location delivery on iOS
         foregroundService: {
           notificationTitle: 'Recording your journey',
           notificationBody: 'Path is being tracked while the app is in the background',
@@ -665,6 +696,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       pendingSegmentBreakRef.current = false;
       kalmanFilterRef.current = null;
       lastStationaryMarkerUpdateRef.current = 0;
+      currentCoordinateRef.current = null;
       batchCoordinatesRef.current = [];
       setIsTracking(false);
       setIsPaused(false);
@@ -792,6 +824,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
               } catch (e) {
                 logger.warn('[Journey] Failed to recover unsent coords:', e);
               }
+
+              // Drain any coordinates recorded in the background while the app was suspended/killed.
+              await drainBackgroundQueue();
 
               // CRITICAL: restart the foreground watcher on this fresh
               // hook instance. Without this, screens mounted mid-journey
@@ -1273,7 +1308,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
               accuracy: finalLoc.coords.accuracy || 0,
             };
 
-            if (!finalCoord.accuracy || finalCoord.accuracy <= 20) {
+            if (!finalCoord.accuracy || finalCoord.accuracy <= 35) { // Increased from 20 to match overall accuracy threshold
               // Avoid duplicate points if final location is virtually identical to the last tracked point
               const lastTracked = lastCoordinateRef.current;
               const dist = lastTracked
