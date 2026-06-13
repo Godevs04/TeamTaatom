@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
-import { trackScreenView, trackFeatureUsage, trackDropOff } from '../../services/analytics';
+import { trackScreenView, trackFeatureUsage } from '../../services/analytics';
 import { theme } from '../../constants/theme';
 import logger from '../../utils/logger';
 import { ONBOARDING_COUNTRY_SHORTCUTS, ONBOARDING_OTHER_COUNTRY_ID } from '../../constants/onboardingOptions';
@@ -27,6 +27,7 @@ export default function NationalityOnboarding() {
   const [countrySearch, setCountrySearch] = useState('');
   const [nationality, setNationality] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const filteredCountries = useMemo(() => {
     const q = countrySearch.trim().toLowerCase();
@@ -50,30 +51,33 @@ export default function NationalityOnboarding() {
     setNationality(label);
   };
 
-  const goInterests = () => {
-    trackScreenView('onboarding_interests');
-    router.replace('/onboarding/interests');
+  const goLocation = () => {
+    trackScreenView('onboarding_location');
+    router.replace('/onboarding/location');
   };
 
   const handleContinue = async () => {
+    const trimmed = nationality.trim();
+    if (!trimmed) {
+      setValidationError('Please enter your nationality or country.');
+      return;
+    }
+
     setIsLoading(true);
+    setValidationError(null);
     try {
-      await api.post('/api/v1/profile/interests', { nationality: nationality.trim() });
+      await api.post('/api/v1/profile/interests', { nationality: trimmed });
       trackFeatureUsage('onboarding_nationality_saved', {
-        hasNationality: nationality.trim().length > 0,
+        hasNationality: true,
       });
-      goInterests();
-    } catch (error) {
+      goLocation();
+    } catch (error: any) {
       logger.error('Error saving nationality:', error);
-      goInterests();
+      const msg = error?.response?.data?.message || error?.message || 'Could not save nationality. Please try again.';
+      setValidationError(typeof msg === 'string' ? msg : 'Could not save nationality. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleSkip = () => {
-    trackDropOff('onboarding_nationality', { step: 'nationality', action: 'skip' });
-    goInterests();
   };
 
   React.useEffect(() => {
@@ -84,10 +88,10 @@ export default function NationalityOnboarding() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
-          <Text style={[styles.stepMeta, { color: theme.colors.textSecondary }]}>Step 3 of 5</Text>
+          <Text style={[styles.stepMeta, { color: theme.colors.textSecondary }]}>Step 3 of 6</Text>
           <Text style={[styles.title, { color: theme.colors.text }]}>Nationality / country</Text>
           <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
-            Search countries for a shortcut, or type freely. Tap Other if you need to specify a place not listed.
+            Required — search for a shortcut or type your nationality or country freely.
           </Text>
         </View>
 
@@ -112,7 +116,10 @@ export default function NationalityOnboarding() {
         <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>Your nationality or country</Text>
         <TextInput
           value={nationality}
-          onChangeText={setNationality}
+          onChangeText={(text) => {
+            setNationality(text);
+            setValidationError(null);
+          }}
           placeholder="Type here or pick a shortcut below"
           placeholderTextColor={theme.colors.textSecondary}
           style={[
@@ -161,13 +168,13 @@ export default function NationalityOnboarding() {
             );
           })}
         </View>
+
+        {validationError ? (
+          <Text style={[styles.errorText, { color: theme.colors.error || '#DC2626' }]}>{validationError}</Text>
+        ) : null}
       </ScrollView>
 
       <View style={styles.footer}>
-        <TouchableOpacity onPress={handleSkip} style={styles.skipButton}>
-          <Text style={[styles.skipText, { color: theme.colors.textSecondary }]}>Skip</Text>
-        </TouchableOpacity>
-
         <TouchableOpacity onPress={handleContinue} disabled={isLoading} style={styles.continueButton} activeOpacity={0.8}>
           <LinearGradient colors={[theme.colors.primary, theme.colors.primary + 'DD']} style={styles.gradient}>
             <Text style={styles.continueButtonText}>{isLoading ? 'Saving...' : 'Continue'}</Text>
@@ -273,6 +280,11 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.md,
     borderWidth: 1,
     maxWidth: '100%',
+  },
+  errorText: {
+    marginTop: 12,
+    fontSize: 14,
+    fontFamily: getFontFamily('500'),
   },
   footer: {
     padding: isTablet ? theme.spacing.xl : 24,

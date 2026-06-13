@@ -1,3 +1,7 @@
+/** Minimum / maximum languages a user must pick during onboarding. */
+export const ONBOARDING_MIN_LANGUAGES = 1;
+export const ONBOARDING_MAX_LANGUAGES = 8;
+
 /** Toggle id for “Other” — not stored; use `otherLanguagesText` instead. */
 export const ONBOARDING_OTHER_LANGUAGE_ID = "__other_language__";
 

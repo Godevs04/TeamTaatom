@@ -7,10 +7,10 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../../services/api';
-import { trackScreenView, trackFeatureUsage, trackDropOff } from '../../services/analytics';
+import { trackScreenView, trackFeatureUsage } from '../../services/analytics';
 import { theme } from '../../constants/theme';
 import logger from '../../utils/logger';
-import { ONBOARDING_LANGUAGES, ONBOARDING_OTHER_LANGUAGE_ID } from '../../constants/onboardingOptions';
+import { ONBOARDING_LANGUAGES, ONBOARDING_OTHER_LANGUAGE_ID, ONBOARDING_MIN_LANGUAGES, ONBOARDING_MAX_LANGUAGES } from '../../constants/onboardingOptions';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -42,8 +42,14 @@ export default function LanguagesOnboarding() {
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
   const [otherLanguagesText, setOtherLanguagesText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const otherLanguageSelected = selectedLanguages.includes(ONBOARDING_OTHER_LANGUAGE_ID);
+
+  const languagesKnownPreview = useMemo(
+    () => buildLanguagesKnown(selectedLanguages, otherLanguagesText),
+    [selectedLanguages, otherLanguagesText]
+  );
 
   const filteredLanguages = useMemo(() => {
     const q = languageSearch.trim().toLowerCase();
@@ -68,9 +74,18 @@ export default function LanguagesOnboarding() {
   }, [languageSearch, otherLanguageSelected, filteredLanguages.length]);
 
   const toggleLanguage = (id: string) => {
-    setSelectedLanguages(prev =>
-      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
-    );
+    setValidationError(null);
+    setSelectedLanguages(prev => {
+      if (prev.includes(id)) {
+        return prev.filter(i => i !== id);
+      }
+      const nextPreview = buildLanguagesKnown([...prev, id], otherLanguagesText);
+      if (nextPreview.length > ONBOARDING_MAX_LANGUAGES) {
+        setValidationError(`You can select up to ${ONBOARDING_MAX_LANGUAGES} languages.`);
+        return prev;
+      }
+      return [...prev, id];
+    });
   };
 
   const goNationality = () => {
@@ -79,9 +94,23 @@ export default function LanguagesOnboarding() {
   };
 
   const handleContinue = async () => {
+    const languagesKnown = languagesKnownPreview;
+    if (languagesKnown.length < ONBOARDING_MIN_LANGUAGES) {
+      setValidationError(`Please select at least ${ONBOARDING_MIN_LANGUAGES} language.`);
+      return;
+    }
+    if (languagesKnown.length > ONBOARDING_MAX_LANGUAGES) {
+      setValidationError(`You can select up to ${ONBOARDING_MAX_LANGUAGES} languages.`);
+      return;
+    }
+    if (otherLanguageSelected && !parseOtherLanguages(otherLanguagesText).length && selectedLanguages.length === 1) {
+      setValidationError('Please specify your language under Other, or pick a language from the list.');
+      return;
+    }
+
     setIsLoading(true);
+    setValidationError(null);
     try {
-      const languagesKnown = buildLanguagesKnown(selectedLanguages, otherLanguagesText);
       await api.post('/api/v1/profile/interests', { languagesKnown });
       await AsyncStorage.setItem('onboarding_languages', JSON.stringify(languagesKnown));
       trackFeatureUsage('onboarding_languages_saved', {
@@ -89,17 +118,13 @@ export default function LanguagesOnboarding() {
         languages: languagesKnown,
       });
       goNationality();
-    } catch (error) {
+    } catch (error: any) {
       logger.error('Error saving languages:', error);
-      goNationality();
+      const msg = error?.response?.data?.message || error?.message || 'Could not save languages. Please try again.';
+      setValidationError(typeof msg === 'string' ? msg : 'Could not save languages. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleSkip = () => {
-    trackDropOff('onboarding_languages', { step: 'languages', action: 'skip' });
-    goNationality();
   };
 
   React.useEffect(() => {
@@ -110,10 +135,10 @@ export default function LanguagesOnboarding() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <View style={styles.header}>
-          <Text style={[styles.stepMeta, { color: theme.colors.textSecondary }]}>Step 2 of 5</Text>
+          <Text style={[styles.stepMeta, { color: theme.colors.textSecondary }]}>Step 2 of 6</Text>
           <Text style={[styles.title, { color: theme.colors.text }]}>Languages you speak</Text>
           <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
-            Search to find a language quickly. If yours is not listed, choose Other and specify.
+            Select at least {ONBOARDING_MIN_LANGUAGES} language (up to {ONBOARDING_MAX_LANGUAGES}). Search to find one quickly, or choose Other to specify.
           </Text>
         </View>
 
@@ -138,6 +163,7 @@ export default function LanguagesOnboarding() {
 
         <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>
           {languageSearch.trim() ? `Matches (${filteredLanguages.length})` : 'All languages'}
+          {languagesKnownPreview.length > 0 ? ` · ${languagesKnownPreview.length}/${ONBOARDING_MAX_LANGUAGES} selected` : ''}
         </Text>
         <View style={styles.grid}>
           {filteredLanguages.map(lang => {
@@ -219,7 +245,10 @@ export default function LanguagesOnboarding() {
         {otherLanguageSelected && (
           <TextInput
             value={otherLanguagesText}
-            onChangeText={setOtherLanguagesText}
+            onChangeText={(text) => {
+              setOtherLanguagesText(text);
+              setValidationError(null);
+            }}
             placeholder="e.g. Icelandic, ASL — comma-separated"
             placeholderTextColor={theme.colors.textSecondary}
             style={[
@@ -235,16 +264,18 @@ export default function LanguagesOnboarding() {
             maxLength={300}
           />
         )}
+
+        {validationError ? (
+          <Text style={[styles.errorText, { color: theme.colors.error || '#DC2626' }]}>{validationError}</Text>
+        ) : null}
       </ScrollView>
 
       <View style={styles.footer}>
-        <TouchableOpacity onPress={handleSkip} style={styles.skipButton}>
-          <Text style={[styles.skipText, { color: theme.colors.textSecondary }]}>Skip</Text>
-        </TouchableOpacity>
-
         <TouchableOpacity onPress={handleContinue} disabled={isLoading} style={styles.continueButton} activeOpacity={0.8}>
           <LinearGradient colors={[theme.colors.primary, theme.colors.primary + 'DD']} style={styles.gradient}>
-            <Text style={styles.continueButtonText}>{isLoading ? 'Saving...' : 'Continue'}</Text>
+            <Text style={styles.continueButtonText}>
+              {isLoading ? 'Saving...' : `Continue (${languagesKnownPreview.length})`}
+            </Text>
           </LinearGradient>
         </TouchableOpacity>
       </View>
@@ -368,6 +399,11 @@ const styles = StyleSheet.create({
     marginTop: 12,
     minHeight: 72,
     textAlignVertical: 'top',
+  },
+  errorText: {
+    marginTop: 12,
+    fontSize: 14,
+    fontFamily: getFontFamily('500'),
   },
   footer: {
     padding: isTablet ? theme.spacing.xl : 24,

@@ -78,7 +78,7 @@ export default function OnboardingSuggestedUsersPage() {
 
   return (
     <div className="mx-auto max-w-lg rounded-[1.25rem] border border-slate-200/90 bg-white/95 p-8 shadow-lg shadow-slate-200/50 backdrop-blur-sm">
-      <p className="font-display text-xs font-semibold uppercase tracking-wide text-primary">Step 5 of 5</p>
+      <p className="font-display text-xs font-semibold uppercase tracking-wide text-primary">Step 6 of 6</p>
       <h1 className="mt-2 font-display text-2xl font-semibold text-slate-900">Follow people you know</h1>
       <p className="mt-2 text-sm text-slate-600">Optional — discover travelers who share your interests.</p>
 

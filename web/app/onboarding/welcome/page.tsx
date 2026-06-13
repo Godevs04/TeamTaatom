@@ -44,7 +44,7 @@ export default function OnboardingWelcomePage() {
   return (
     <div className="mx-auto max-w-lg rounded-[1.25rem] border border-slate-200/90 bg-white/95 p-8 shadow-lg shadow-slate-200/50 backdrop-blur-sm">
       <div className="mb-6 flex items-center justify-between gap-3">
-        <p className="font-display text-xs font-semibold uppercase tracking-wide text-primary">Step 1 of 5</p>
+        <p className="font-display text-xs font-semibold uppercase tracking-wide text-primary">Step 1 of 6</p>
         <button type="button" onClick={skip} className="text-sm font-semibold text-slate-500 hover:text-slate-800">
           Skip
         </button>

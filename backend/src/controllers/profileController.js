@@ -17,7 +17,11 @@ const { VERIFIED_STATUSES } = require('../config/tripScoreConfig');
 const { lookupByCoords } = require('../utils/coordsToCountry');
 const { sendNotificationToUser } = require('../utils/sendNotification');
 const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
-const { PROFILE_ONBOARDING_VERSION } = require('../constants/profileOnboarding');
+const {
+  PROFILE_ONBOARDING_VERSION,
+  ONBOARDING_MIN_LANGUAGES,
+  ONBOARDING_MAX_LANGUAGES,
+} = require('../constants/profileOnboarding');
 
 /**
  * Check if viewer is allowed to access a target user's private content.
@@ -3022,14 +3026,26 @@ const saveInterests = async (req, res) => {
       if (!Array.isArray(body.languagesKnown)) {
         return sendError(res, 'VAL_2001', 'languagesKnown must be an array');
       }
-      update.languagesKnown = sanitizeOnboardingStringArray(body.languagesKnown, 20, 56) || [];
+      const sanitized = sanitizeOnboardingStringArray(body.languagesKnown, ONBOARDING_MAX_LANGUAGES, 56) || [];
+      if (sanitized.length < ONBOARDING_MIN_LANGUAGES) {
+        return sendError(
+          res,
+          'VAL_2001',
+          `Select at least ${ONBOARDING_MIN_LANGUAGES} language${ONBOARDING_MIN_LANGUAGES === 1 ? '' : 's'} (max ${ONBOARDING_MAX_LANGUAGES})`
+        );
+      }
+      update.languagesKnown = sanitized;
     }
 
     if (hasNationality) {
       if (typeof body.nationality !== 'string') {
         return sendError(res, 'VAL_2001', 'nationality must be a string');
       }
-      update.nationality = body.nationality.trim().slice(0, 100);
+      const trimmedNationality = body.nationality.trim().slice(0, 100);
+      if (!trimmedNationality) {
+        return sendError(res, 'VAL_2001', 'Nationality is required');
+      }
+      update.nationality = trimmedNationality;
     }
 
     const user = await User.findByIdAndUpdate(
@@ -3062,6 +3078,25 @@ const saveInterests = async (req, res) => {
 const completeProfileOnboarding = async (req, res) => {
   try {
     const userId = req.user._id;
+    const existing = await User.findById(userId).select('languagesKnown nationality profileOnboardingVersion');
+    if (!existing) {
+      return sendError(res, 'RES_3001', 'User not found');
+    }
+
+    const languageCount = Array.isArray(existing.languagesKnown) ? existing.languagesKnown.length : 0;
+    const nationality = typeof existing.nationality === 'string' ? existing.nationality.trim() : '';
+
+    if (languageCount < ONBOARDING_MIN_LANGUAGES) {
+      return sendError(
+        res,
+        'VAL_2001',
+        `Complete languages step first (at least ${ONBOARDING_MIN_LANGUAGES} language required)`
+      );
+    }
+    if (!nationality) {
+      return sendError(res, 'VAL_2001', 'Complete nationality step first');
+    }
+
     const user = await User.findByIdAndUpdate(
       userId,
       { profileOnboardingVersion: PROFILE_ONBOARDING_VERSION },

@@ -6,7 +6,12 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { saveProfileOnboardingPreferences } from "@/lib/api";
-import { ONBOARDING_LANGUAGES, ONBOARDING_OTHER_LANGUAGE_ID } from "@/lib/onboarding-options";
+import {
+  ONBOARDING_LANGUAGES,
+  ONBOARDING_OTHER_LANGUAGE_ID,
+  ONBOARDING_MIN_LANGUAGES,
+  ONBOARDING_MAX_LANGUAGES,
+} from "@/lib/onboarding-options";
 import { cn } from "@/lib/utils";
 import { Check, Search } from "lucide-react";
 
@@ -28,8 +33,14 @@ export default function OnboardingLanguagesPage() {
   const [selected, setSelected] = React.useState<string[]>([]);
   const [otherLanguagesText, setOtherLanguagesText] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [validationError, setValidationError] = React.useState<string | null>(null);
 
   const otherOn = selected.includes(ONBOARDING_OTHER_LANGUAGE_ID);
+
+  const languagesKnownPreview = React.useMemo(
+    () => buildLanguagesKnown(selected, otherLanguagesText),
+    [selected, otherLanguagesText],
+  );
 
   const filteredLanguages = React.useMemo(() => {
     const q = languageSearch.trim().toLowerCase();
@@ -54,32 +65,52 @@ export default function OnboardingLanguagesPage() {
   }, [languageSearch, otherOn, filteredLanguages.length]);
 
   const toggle = (id: string) => {
-    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+    setValidationError(null);
+    setSelected((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      const next = buildLanguagesKnown([...prev, id], otherLanguagesText);
+      if (next.length > ONBOARDING_MAX_LANGUAGES) {
+        setValidationError(`You can select up to ${ONBOARDING_MAX_LANGUAGES} languages.`);
+        return prev;
+      }
+      return [...prev, id];
+    });
   };
 
   const onContinue = async () => {
+    const languagesKnown = languagesKnownPreview;
+    if (languagesKnown.length < ONBOARDING_MIN_LANGUAGES) {
+      setValidationError(`Please select at least ${ONBOARDING_MIN_LANGUAGES} language.`);
+      return;
+    }
+    if (otherOn && !parseOtherLanguages(otherLanguagesText).length && selected.length === 1) {
+      setValidationError("Please specify your language under Other, or pick a language from the list.");
+      return;
+    }
+
     setSaving(true);
+    setValidationError(null);
     try {
-      const languagesKnown = buildLanguagesKnown(selected, otherLanguagesText);
       await saveProfileOnboardingPreferences({ languagesKnown });
       router.replace("/onboarding/nationality");
-    } catch {
-      toast.error("Could not save. You can continue and try again from settings later.");
-      router.replace("/onboarding/nationality");
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        "Could not save languages. Please try again.";
+      setValidationError(msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
   };
 
-  const onSkip = () => router.replace("/onboarding/nationality");
-
   return (
     <div className="mx-auto max-w-lg rounded-[1.25rem] border border-slate-200/90 bg-white/95 p-8 shadow-lg shadow-slate-200/50 backdrop-blur-sm">
-      <p className="font-display text-xs font-semibold uppercase tracking-wide text-primary">Step 2 of 5</p>
+      <p className="font-display text-xs font-semibold uppercase tracking-wide text-primary">Step 2 of 6</p>
       <h1 className="mt-2 font-display text-2xl font-semibold text-slate-900">Languages you speak</h1>
       <p className="mt-2 text-sm text-slate-600">
-        Search to find a language quickly. If yours is missing, pick <span className="font-semibold">Other (specify)</span> and type
-        it.
+        Select at least {ONBOARDING_MIN_LANGUAGES} language (up to {ONBOARDING_MAX_LANGUAGES}). Search to find one quickly, or pick{" "}
+        <span className="font-semibold">Other (specify)</span> to type it.
       </p>
 
       <div className="relative mt-6">
@@ -96,6 +127,9 @@ export default function OnboardingLanguagesPage() {
 
       <p className="mt-6 text-sm font-semibold text-slate-800">
         {languageSearch.trim() ? `Matches (${filteredLanguages.length})` : "All languages"}
+        {languagesKnownPreview.length > 0
+          ? ` · ${languagesKnownPreview.length}/${ONBOARDING_MAX_LANGUAGES} selected`
+          : ""}
       </p>
       <div className="mt-3 flex max-h-[min(50vh,28rem)] flex-wrap gap-2 overflow-y-auto pr-1">
         {filteredLanguages.map((lang) => {
@@ -137,19 +171,21 @@ export default function OnboardingLanguagesPage() {
       {otherOn && (
         <Input
           value={otherLanguagesText}
-          onChange={(e) => setOtherLanguagesText(e.target.value)}
+          onChange={(e) => {
+            setOtherLanguagesText(e.target.value);
+            setValidationError(null);
+          }}
           placeholder="e.g. Icelandic, American Sign Language — comma-separated"
           maxLength={300}
           className="mt-3 min-h-[72px] rounded-xl border-slate-200/90 bg-slate-50/80 py-3"
         />
       )}
 
+      {validationError ? <p className="mt-3 text-sm text-red-600">{validationError}</p> : null}
+
       <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:justify-end">
-        <Button type="button" variant="ghost" className="rounded-xl font-semibold text-slate-600" onClick={onSkip}>
-          Skip
-        </Button>
         <Button type="button" className="h-12 rounded-xl font-semibold sm:min-w-[140px]" disabled={saving} onClick={onContinue}>
-          {saving ? "Saving…" : "Continue"}
+          {saving ? "Saving…" : `Continue (${languagesKnownPreview.length})`}
         </Button>
       </div>
     </div>

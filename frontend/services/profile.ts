@@ -391,6 +391,14 @@ export const completeProfileOnboarding = async (): Promise<void> => {
   await api.post('/api/v1/profile/onboarding/complete', {});
 };
 
+export const updateProfileLocation = async (data: {
+  city?: string;
+  country?: string;
+}): Promise<{ currentLocation: string | null; currentCountry: string | null }> => {
+  const response = await api.put('/api/v1/profile/me/location', data);
+  return response.data;
+};
+
 export const getTravelMapData = async (userId: string): Promise<TravelMapDataResponse> => {
   try {
     const response = await api.get(`/api/v1/profile/${userId}/travel-map`);

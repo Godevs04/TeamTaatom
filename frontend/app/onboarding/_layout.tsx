@@ -12,6 +12,7 @@ export default function OnboardingLayout() {
       <Stack.Screen name="welcome" />
       <Stack.Screen name="languages" />
       <Stack.Screen name="nationality" />
+      <Stack.Screen name="location" />
       <Stack.Screen name="interests" />
       <Stack.Screen name="suggested-users" />
     </Stack>

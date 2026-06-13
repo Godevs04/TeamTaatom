@@ -330,6 +330,14 @@ export async function saveProfileOnboardingPreferences(body: {
   };
 }
 
+export async function saveProfileLocation(body: { city?: string; country?: string }) {
+  const res = await api.put("/profile/me/location", body);
+  return res.data as {
+    currentLocation?: string | null;
+    currentCountry?: string | null;
+  };
+}
+
 export async function completeProfileOnboarding() {
   const res = await api.post("/profile/onboarding/complete", {});
   return res.data as { success?: boolean; profileOnboardingVersion?: number };

@@ -15,6 +15,7 @@ export default function OnboardingNationalityPage() {
   const [countrySearch, setCountrySearch] = React.useState("");
   const [nationality, setNationality] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [validationError, setValidationError] = React.useState<string | null>(null);
 
   const filteredCountries = React.useMemo(() => {
     const q = countrySearch.trim().toLowerCase();
@@ -28,6 +29,7 @@ export default function OnboardingNationalityPage() {
   }, [countrySearch]);
 
   const onShortcutCountry = (label: string, id: string) => {
+    setValidationError(null);
     if (id === ONBOARDING_OTHER_COUNTRY_ID) {
       setNationality("");
       return;
@@ -36,27 +38,34 @@ export default function OnboardingNationalityPage() {
   };
 
   const onContinue = async () => {
+    const trimmed = nationality.trim();
+    if (!trimmed) {
+      setValidationError("Please enter your nationality or country.");
+      return;
+    }
+
     setSaving(true);
+    setValidationError(null);
     try {
-      await saveProfileOnboardingPreferences({ nationality: nationality.trim() });
-      router.replace("/onboarding/interests");
-    } catch {
-      toast.error("Could not save. You can continue and try again from settings later.");
-      router.replace("/onboarding/interests");
+      await saveProfileOnboardingPreferences({ nationality: trimmed });
+      router.replace("/onboarding/location");
+    } catch (err: unknown) {
+      const msg =
+        (err as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        "Could not save nationality. Please try again.";
+      setValidationError(msg);
+      toast.error(msg);
     } finally {
       setSaving(false);
     }
   };
 
-  const onSkip = () => router.replace("/onboarding/interests");
-
   return (
     <div className="mx-auto max-w-lg rounded-[1.25rem] border border-slate-200/90 bg-white/95 p-8 shadow-lg shadow-slate-200/50 backdrop-blur-sm">
-      <p className="font-display text-xs font-semibold uppercase tracking-wide text-primary">Step 3 of 5</p>
+      <p className="font-display text-xs font-semibold uppercase tracking-wide text-primary">Step 3 of 6</p>
       <h1 className="mt-2 font-display text-2xl font-semibold text-slate-900">Nationality / country</h1>
       <p className="mt-2 text-sm text-slate-600">
-        Search for a country shortcut or type freely. Tap <span className="font-semibold">Other</span> if your place is not in the
-        list.
+        Required — search for a country shortcut or type your nationality or country freely.
       </p>
 
       <div className="relative mt-6">
@@ -74,7 +83,10 @@ export default function OnboardingNationalityPage() {
       <p className="mt-6 text-sm font-semibold text-slate-800">Your nationality or country</p>
       <Input
         value={nationality}
-        onChange={(e) => setNationality(e.target.value)}
+        onChange={(e) => {
+          setNationality(e.target.value);
+          setValidationError(null);
+        }}
         placeholder="Type here or pick a shortcut below"
         maxLength={100}
         className="mt-2 h-12 rounded-xl border-slate-200/90 bg-slate-50/80"
@@ -102,10 +114,9 @@ export default function OnboardingNationalityPage() {
         })}
       </div>
 
+      {validationError ? <p className="mt-3 text-sm text-red-600">{validationError}</p> : null}
+
       <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:justify-end">
-        <Button type="button" variant="ghost" className="rounded-xl font-semibold text-slate-600" onClick={onSkip}>
-          Skip
-        </Button>
         <Button type="button" className="h-12 rounded-xl font-semibold sm:min-w-[140px]" disabled={saving} onClick={onContinue}>
           {saving ? "Saving…" : "Continue"}
         </Button>

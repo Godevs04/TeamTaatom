@@ -98,6 +98,7 @@ export default function InterestsOnboarding() {
     <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
+          <Text style={[styles.stepMeta, { color: theme.colors.textSecondary }]}>Step 5 of 6</Text>
           <Text style={[styles.title, { color: theme.colors.text }]}>
             What interests you?
           </Text>
@@ -198,6 +199,13 @@ const styles = StyleSheet.create({
   },
   header: {
     marginBottom: isTablet ? theme.spacing.xl : 32,
+  },
+  stepMeta: {
+    fontSize: 13,
+    fontFamily: getFontFamily('600'),
+    fontWeight: '600',
+    marginBottom: 6,
+    letterSpacing: 0.3,
   },
   title: {
     fontSize: isTablet ? theme.typography.h1.fontSize + 10 : 28,
