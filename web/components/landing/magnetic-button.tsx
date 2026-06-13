@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { motion, useMotionValue, useSpring } from "framer-motion";
+import { motion, useMotionValue, useReducedMotion, useSpring } from "framer-motion";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
@@ -14,6 +14,7 @@ type Props = {
 };
 
 export function MagneticButton({ href, onClick, children, className, variant = "primary" }: Props) {
+  const reduced = useReducedMotion();
   const ref = React.useRef<HTMLDivElement>(null);
   const x = useMotionValue(0);
   const y = useMotionValue(0);
@@ -21,6 +22,7 @@ export function MagneticButton({ href, onClick, children, className, variant = "
   const sy = useSpring(y, { stiffness: 280, damping: 22 });
 
   const onMove = (e: React.MouseEvent) => {
+    if (reduced) return;
     const el = ref.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
@@ -44,8 +46,8 @@ export function MagneticButton({ href, onClick, children, className, variant = "
       style={{ x: sx, y: sy }}
       onMouseMove={onMove}
       onMouseLeave={onLeave}
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.98 }}
+      whileHover={reduced ? undefined : { scale: 1.02 }}
+      whileTap={reduced ? undefined : { scale: 0.98 }}
       transition={{ type: "spring", stiffness: 400, damping: 28 }}
       className={cn(
         "inline-flex h-12 items-center justify-center rounded-full px-8 text-[15px] font-semibold transition-[box-shadow,filter] duration-300",

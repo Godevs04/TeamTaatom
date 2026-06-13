@@ -6,12 +6,10 @@ import { LandingChrome } from "./landing-chrome";
 import { LandingNav } from "./landing-nav";
 import { LandingHero } from "./landing-hero";
 import { LandingStoryFeed } from "./landing-story-feed";
+import { LandingWorldMap } from "./landing-world-map";
+import { LandingReels } from "./landing-reels";
 import { LandingSocialProof } from "./landing-social-proof";
-import { LandingFeatures } from "./landing-features";
-import { LandingProductShowcase } from "./landing-product-showcase";
-import { LandingTestimonials } from "./landing-testimonials";
 import { LandingFinalCta } from "./landing-final-cta";
-import { LandingFooter } from "./landing-footer";
 
 export function LandingPage() {
   return (
@@ -28,12 +26,10 @@ export function LandingPage() {
         <LandingNav />
         <LandingHero />
         <LandingStoryFeed />
+        <LandingWorldMap />
+        <LandingReels />
         <LandingSocialProof />
-        <LandingFeatures />
-        <LandingProductShowcase />
-        <LandingTestimonials />
         <LandingFinalCta />
-        <LandingFooter />
       </div>
     </div>
   );

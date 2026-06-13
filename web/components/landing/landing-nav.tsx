@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 const SECTIONS = [
   { id: "explore", label: "Explore" },
   { id: "stories", label: "Stories" },
-  { id: "features", label: "Journeys" },
+  { id: "journeys", label: "Journeys" },
   { id: "product", label: "Product" },
   { id: "community", label: "Community" },
 ] as const;
@@ -53,19 +53,18 @@ export function LandingNav() {
       <motion.header
         layout
         initial={{ opacity: 0, y: -14 }}
-        animate={{ opacity: 1, y: 0, scale: scrolled ? 0.965 : 1 }}
+        animate={{ opacity: 1, y: 0, scale: scrolled ? 0.97 : 1 }}
         transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1], scale: spring }}
         className={cn(
-          "pointer-events-auto relative flex w-full max-w-4xl items-center justify-between gap-3 rounded-2xl border px-3 sm:px-4",
-          "border-white/25 bg-transparent shadow-[0_12px_40px_rgba(15,23,42,0.07)]",
-          "backdrop-blur-[20px] supports-[backdrop-filter]:bg-white/[0.04]",
-          scrolled &&
-            "border-white/35 shadow-[0_16px_48px_rgba(15,23,42,0.1)] supports-[backdrop-filter]:bg-white/[0.08]",
+          "pointer-events-auto relative flex w-full max-w-5xl items-center justify-between gap-3 rounded-2xl border px-3 sm:px-5",
+          "border-white/30 bg-white/50 shadow-[0_12px_40px_rgba(15,23,42,0.06)]",
+          "backdrop-blur-[20px] supports-[backdrop-filter]:bg-white/55",
+          scrolled && "border-white/45 shadow-[0_16px_48px_rgba(15,23,42,0.09)] supports-[backdrop-filter]:bg-white/72",
           scrolled ? "py-2" : "py-2.5 sm:py-3"
         )}
         style={{ WebkitBackdropFilter: "blur(20px)" }}
       >
-        <span className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-inset ring-white/40" aria-hidden />
+        <span className="pointer-events-none absolute inset-0 rounded-2xl ring-1 ring-inset ring-white/50" aria-hidden />
 
         <Link href="/" className="relative z-10 flex shrink-0 items-center gap-2 pl-0.5">
           <motion.div animate={{ scale: scrolled ? 0.92 : 1 }} transition={spring}>
@@ -76,7 +75,10 @@ export function LandingNav() {
           </span>
         </Link>
 
-        <nav className="relative z-10 hidden items-center gap-0.5 md:flex" aria-label="Sections">
+        <nav
+          className="absolute left-1/2 top-1/2 z-10 hidden -translate-x-1/2 -translate-y-1/2 items-center gap-0.5 md:flex"
+          aria-label="Sections"
+        >
           {SECTIONS.map((s) => {
             const isActive = active === s.id;
             return (
@@ -115,7 +117,7 @@ export function LandingNav() {
               scrolled ? "px-3.5 py-1.5 text-[12px]" : "px-4 py-2 text-[13px]"
             )}
           >
-            Join
+            Join Taatom
           </Link>
           <button
             type="button"
