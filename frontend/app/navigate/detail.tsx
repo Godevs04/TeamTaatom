@@ -336,7 +336,7 @@ export default function JourneyDetailScreen() {
               const wpIcon = w.contentType === 'video' 
                 ? '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="' + (isDark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.85)') + '" stroke="' + (isDark ? 'rgba(45,212,191,0.6)' : 'rgba(59,130,246,0.6)') + '" stroke-width="1.5"/><path d="M16 9.5l-3 2v-3.5a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.5v5a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5v-1.5l3 2a.3.3 0 0 0 .5-.2v-5.6a.3.3 0 0 0-.5-.2z" fill="' + (isDark ? '#2DD4BF' : '#3B82F6') + '"/></svg>'
                 : '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="' + (isDark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.85)') + '" stroke="' + (isDark ? 'rgba(45,212,191,0.6)' : 'rgba(59,130,246,0.6)') + '" stroke-width="1.5"/><circle cx="12" cy="12" r="3" fill="' + (isDark ? '#2DD4BF' : '#3B82F6') + '"/></svg>';
-              return `new google.maps.Marker({position:{lat:${w.lat},lng:${w.lng}},map:map,title:'Post #${i+1}',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('${wpIcon}'),scaledSize:new google.maps.Size(24,24),anchor:new google.maps.Point(12,12)}});`;
+              return `new google.maps.Marker({position:{lat:${w.lat},lng:${w.lng}},map:map,title:'Post #${i+1}',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('${wpIcon}'),size:new google.maps.Size(24,24),scaledSize:new google.maps.Size(24,24),anchor:new google.maps.Point(12,12)}});`;
             }).join('\n');
             const html = `<!DOCTYPE html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
@@ -361,8 +361,8 @@ function initMap(){
     new google.maps.Polyline({path:segment,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});
     new google.maps.Polyline({path:segment,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});
   });
-  if(path.length>0)new google.maps.Marker({position:path[0],map:map,title:'Start',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#10B981" stroke="white" stroke-width="2"/></svg>'),scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
-  if(path.length>1)new google.maps.Marker({position:path[path.length-1],map:map,title:'End',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#EF4444" stroke="white" stroke-width="2"/></svg>'),scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
+  if(path.length>0)new google.maps.Marker({position:path[0],map:map,title:'Start',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#10B981" stroke="white" stroke-width="2"/></svg>'),size:new google.maps.Size(30,30),scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
+  if(path.length>1)new google.maps.Marker({position:path[path.length-1],map:map,title:'End',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#EF4444" stroke="white" stroke-width="2"/></svg>'),size:new google.maps.Size(30,30),scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
   ${wpMarkers}
   var bounds=new google.maps.LatLngBounds();path.forEach(function(p){bounds.extend(p);});map.fitBounds(bounds,40);
 }
@@ -507,7 +507,23 @@ function initMap(){
               {waypointPosts.map((waypoint: any, index: number) => {
                 const post = waypoint.post;
                 if (!post) return null;
-                const imageUrl = post.storageKeys?.[0]?.url || post.storageKeys?.[0]?.signedUrl;
+
+                const getPostPreviewUrl = (p: any): string | null => {
+                  if (!p) return null;
+                  if (p.images?.length > 0) {
+                    const img = p.images[0];
+                    return typeof img === 'string' ? img : img?.url || img?.signedUrl || null;
+                  }
+                  if (p.storageKeys?.length > 0) {
+                    const sk = p.storageKeys[0];
+                    if (typeof sk === 'string') return sk;
+                    return sk?.signedUrl || sk?.url || null;
+                  }
+                  if (p.imageUrl) return p.imageUrl;
+                  if (p.thumbnailUrl) return p.thumbnailUrl;
+                  return null;
+                };
+                const imageUrl = getPostPreviewUrl(post);
                 const hasCoords =
                   typeof waypoint.lat === 'number' && typeof waypoint.lng === 'number' &&
                   waypoint.lat !== 0 && waypoint.lng !== 0 &&

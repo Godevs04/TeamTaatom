@@ -316,6 +316,7 @@ export default function SearchScreen() {
         <FollowButton 
           userId={item._id} 
           initialIsFollowing={item.isFollowing} 
+          isPrivate={(item as any).settings?.privacy?.profileVisibility === 'private'}
           size="small" 
         />
       </View>

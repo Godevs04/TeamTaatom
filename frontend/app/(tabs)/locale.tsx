@@ -47,7 +47,7 @@ import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { savedEvents } from '../../utils/savedEvents';
 import { theme } from '../../constants/theme';
-import { optimizeCloudinaryUrl } from '../../utils/imageCache';
+import { optimizeCloudinaryUrl, useCachedImage } from '../../utils/imageCache';
 import axios from 'axios';
 import { getGoogleMapsApiKey } from '../../utils/maps';
 import { localeCache } from '../../cache/localeCache';
@@ -499,6 +499,11 @@ const getFallbackImage = (uri?: string) => {
 };
 
 const ExpoImageWithShimmer = React.memo(({ source, style, contentFit = 'cover', cachePolicy = 'memory-disk', transition = 0, placeholder }: ExpoImageWithShimmerProps) => {
+  const sourceUri = typeof source === 'object' ? source.uri : source;
+  
+  // Custom hook to cache remote images locally to bypass expiring S3/R2 signed URL signatures
+  const { cachedUri } = useCachedImage(sourceUri);
+  
   const [loading, setLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const shimmerAnim = useRef(new Animated.Value(0.3)).current;
@@ -532,15 +537,19 @@ const ExpoImageWithShimmer = React.memo(({ source, style, contentFit = 'cover', 
   }, [loading, shimmerAnim]);
 
   // Handle source changes - reset loading state and error state
-  const sourceUri = typeof source === 'object' ? source.uri : source;
   useEffect(() => {
     setLoading(true);
     setHasError(false);
   }, [sourceUri]);
 
+  // If local cached file path is available, render from local cache to prevent scrolling reloads
+  const displayUri = cachedUri || sourceUri;
+  const isLocal = displayUri && (displayUri.startsWith('file://') || displayUri.startsWith('/') || displayUri.startsWith('data:'));
+  const finalLoading = loading && !isLocal;
+
   return (
     <View style={[style, { overflow: 'hidden' }]}>
-      {loading && (
+      {finalLoading && (
         <Animated.View
           style={[
             StyleSheet.absoluteFillObject,
@@ -562,7 +571,7 @@ const ExpoImageWithShimmer = React.memo(({ source, style, contentFit = 'cover', 
         />
       ) : (
         <ExpoImage
-          source={source}
+          source={{ uri: displayUri }}
           style={[style, { width: '100%', height: '100%' }]}
           contentFit={contentFit}
           cachePolicy={cachePolicy}

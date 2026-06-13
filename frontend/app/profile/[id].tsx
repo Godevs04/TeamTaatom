@@ -9,6 +9,7 @@ import api from '../../services/api';
 import { toggleFollow, getTravelMapData, toggleBlockUser, getBlockStatus, requestRouteAccess } from '../../services/profile';
 import AlertService from '../../services/alertService';
 import { createReport } from '../../services/report';
+import { getUserFromStorage } from '../../services/auth';
 import ReportReasonModal, { ReportReasonType } from '../../components/ReportReasonModal';
 import WorldMap from '../../components/WorldMap';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
@@ -129,26 +130,37 @@ export default function UserProfileScreen() {
     setIsFollowing(apiIsFollowing);
     setFollowRequestSent(apiFollowRequestSent);
 
-    // Update followers count in profile if provided
-    // Note: Only update followersCount (target user's follower count)
-    // Do NOT update followingCount - the API returns the current user's following count,
-    // but the profile displays the target user's following count (who the target user follows)
-    if (response.followersCount !== undefined) {
-      updateProfileState((prevProfile: any) => {
-        if (!prevProfile) return prevProfile;
-        const updated: any = { ...prevProfile };
-        if (typeof response.followersCount === 'number') {
-          updated.followersCount = response.followersCount;
-        }
-        return updated;
-      });
-    }
+    // Update followers count and local visibility states in profile if provided
+    updateProfileState((prevProfile: any) => {
+      if (!prevProfile) return prevProfile;
+      const updated: any = { ...prevProfile };
+      if (response.followersCount !== undefined && typeof response.followersCount === 'number') {
+        updated.followersCount = response.followersCount;
+      }
+      
+      // Update visibility flags locally based on follow status and profile visibility
+      if (updated.profileVisibility === 'private' || updated.profileVisibility === 'followers') {
+        updated.canViewPosts = apiIsFollowing;
+        updated.canViewLocations = apiIsFollowing;
+      }
+      
+      return updated;
+    });
   }, []);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [alertVisible, setAlertVisible] = useState(false);
-  const [alertConfig, setAlertConfig] = useState({
+  const [alertConfig, setAlertConfig] = useState<{
+    title: string;
+    message: string;
+    type: 'info' | 'success' | 'warning' | 'error';
+    showCancel?: boolean;
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm?: () => void;
+    onCancel?: () => void;
+  }>({
     title: '',
     message: '',
     type: 'info' as 'info' | 'success' | 'warning' | 'error',
@@ -491,6 +503,16 @@ export default function UserProfileScreen() {
   useEffect(() => {
     (async () => {
       try {
+        // Load from storage immediately
+        const cachedUser = await getUserFromStorage();
+        if (cachedUser) {
+          setCurrentUser(cachedUser);
+        }
+      } catch (e) {
+        logger.debug('Error loading user from storage:', e);
+      }
+
+      try {
         const userData = await api.get('/api/v1/auth/me');
         setCurrentUser(userData.data.user);
       } catch (error) {
@@ -522,12 +544,7 @@ export default function UserProfileScreen() {
     }, [fetchProfile])
   );
 
-  const handleFollow = async () => {
-    // ✅ ALL GUARDS FIRST — NO STATE CHANGES ABOVE THIS
-    if (!profile?._id) return;
-    if (isFollowActionInProgress.current === true) return;
-
-    // ✅ ENTER CRITICAL SECTION (after all guards pass)
+  const executeFollowToggle = async (wasFollowing: boolean, wasRequestSent: boolean) => {
     isFollowActionInProgress.current = true;
     setFollowLoading(true);
 
@@ -537,14 +554,22 @@ export default function UserProfileScreen() {
     const prevFollowersCount = profile?.followersCount ?? 0;
 
     // ✅ OPTIMISTIC UPDATE: Change UI immediately before API call
-    // Toggle: if currently following OR follow request sent → unfollow/cancel request
-    if (prevIsFollowing || prevFollowRequestSent) {
+    if (wasFollowing || wasRequestSent) {
       // Optimistic unfollow / cancel request
       setIsFollowing(false);
       setFollowRequestSent(false);
-      if (prevIsFollowing) {
-        updateProfileState((prev: any) => prev ? { ...prev, followersCount: Math.max(0, (prev.followersCount || 0) - 1) } : prev);
-      }
+      updateProfileState((prev: any) => {
+        if (!prev) return prev;
+        const next = {
+          ...prev,
+          followersCount: Math.max(0, (prev.followersCount || 0) - (wasFollowing ? 1 : 0))
+        };
+        if (prev.profileVisibility === 'private' || prev.profileVisibility === 'followers') {
+          next.canViewPosts = false;
+          next.canViewLocations = false;
+        }
+        return next;
+      });
     } else {
       // Optimistic follow based on visibility
       const isPrivate = profile.profileVisibility === 'private';
@@ -555,7 +580,18 @@ export default function UserProfileScreen() {
       } else {
         setIsFollowing(true);
         setFollowRequestSent(false);
-        updateProfileState((prev: any) => prev ? { ...prev, followersCount: (prev.followersCount || 0) + 1 } : prev);
+        updateProfileState((prev: any) => {
+          if (!prev) return prev;
+          const next = {
+            ...prev,
+            followersCount: (prev.followersCount || 0) + 1
+          };
+          if (prev.profileVisibility === 'followers') {
+            next.canViewPosts = true;
+            next.canViewLocations = true;
+          }
+          return next;
+        });
       }
     }
     setFollowLoading(false); // Hide spinner immediately — optimistic update is shown
@@ -585,7 +621,7 @@ export default function UserProfileScreen() {
       lastFollowApiResponse.current = null;
       setIsFollowing(prevIsFollowing);
       setFollowRequestSent(prevFollowRequestSent);
-      updateProfileState((prev: any) => prev ? { ...prev, followersCount: prevFollowersCount } : prev);
+      updateProfileState((prev: any) => prev ? { ...prev, followersCount: prevFollowersCount, canViewPosts: prev.canViewPosts, canViewLocations: prev.canViewLocations } : prev);
 
       // Don't log conflict errors (follow request already pending) as they are expected
       if (!e.isConflict && e.response?.status !== 409) {
@@ -610,6 +646,50 @@ export default function UserProfileScreen() {
       isFollowActionInProgress.current = false;
       setFollowLoading(false);
     }
+  };
+
+  const handleFollow = async () => {
+    // ✅ ALL GUARDS FIRST — NO STATE CHANGES ABOVE THIS
+    if (!profile?._id) return;
+    if (isFollowActionInProgress.current === true) return;
+
+    if (isFollowing) {
+      setAlertConfig({
+        title: 'Unfollow User',
+        message: `Are you sure you want to unfollow @${profile.username}?`,
+        type: 'warning',
+        showCancel: true,
+        confirmText: 'Unfollow',
+        cancelText: 'Cancel',
+        onConfirm: () => {
+          setAlertVisible(false);
+          executeFollowToggle(true, false);
+        },
+        onCancel: () => setAlertVisible(false)
+      });
+      setAlertVisible(true);
+      return;
+    }
+
+    if (followRequestSent) {
+      setAlertConfig({
+        title: 'Cancel Follow Request',
+        message: `Are you sure you want to cancel your request to follow @${profile.username}?`,
+        type: 'warning',
+        showCancel: true,
+        confirmText: 'Cancel Request',
+        cancelText: 'Cancel',
+        onConfirm: () => {
+          setAlertVisible(false);
+          executeFollowToggle(false, true);
+        },
+        onCancel: () => setAlertVisible(false)
+      });
+      setAlertVisible(true);
+      return;
+    }
+
+    executeFollowToggle(false, false);
   };
 
   const [routeAccessLoading, setRouteAccessLoading] = useState(false);
@@ -646,7 +726,7 @@ export default function UserProfileScreen() {
   }
 
   const locationCount =
-    currentUser && (currentUser._id === profile._id || isFollowing) && verifiedLocationsCount !== null
+    currentUser && (currentUser._id === profile._id || profile.canViewLocations) && verifiedLocationsCount !== null
       ? verifiedLocationsCount
       : '-';
 
@@ -826,9 +906,10 @@ export default function UserProfileScreen() {
                   <Pressable
                     style={[
                       styles.actionButton,
+                      followState === 'FOLLOWING' ? styles.followingButton : styles.followButton,
                       followState === 'FOLLOWING'
-                        ? [styles.followingButton, { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.accent }]
-                        : [styles.followButton, { overflow: 'hidden' }]
+                        ? { backgroundColor: profileTheme.cardBg, borderColor: profileTheme.accent }
+                        : { overflow: 'hidden' }
                     ]}
                     onPress={handleFollow}
                     disabled={followLoading}
@@ -841,16 +922,12 @@ export default function UserProfileScreen() {
                         end={{ x: 1, y: 0 }}
                       />
                     )}
-                    {followLoading ? (
-                      <LoadingGlobe size="small" color={followState === 'FOLLOWING' ? profileTheme.accent : '#FFFFFF'} />
-                    ) : (
-                      <Text style={[
-                        styles.actionButtonText,
-                        { color: followState === 'FOLLOWING' ? profileTheme.accent : '#FFFFFF', zIndex: 1 }
-                      ]}>
-                        {followState === 'FOLLOWING' ? 'Following' : followState === 'REQUESTED' ? 'Request Sent' : 'Follow'}
-                      </Text>
-                    )}
+                    <Text style={[
+                      styles.actionButtonText,
+                      { color: followState === 'FOLLOWING' ? profileTheme.accent : '#FFFFFF', zIndex: 1 }
+                    ]}>
+                      {followState === 'FOLLOWING' ? 'Following' : followState === 'REQUESTED' ? 'Request Sent' : 'Follow'}
+                    </Text>
                   </Pressable>
                   
                   {followState === 'FOLLOWING' && (
@@ -1250,6 +1327,11 @@ export default function UserProfileScreen() {
         title={alertConfig.title}
         message={alertConfig.message}
         type={alertConfig.type}
+        showCancel={alertConfig.showCancel}
+        confirmText={alertConfig.confirmText}
+        cancelText={alertConfig.cancelText}
+        onConfirm={alertConfig.onConfirm}
+        onCancel={alertConfig.onCancel}
         onClose={() => setAlertVisible(false)}
       />
       
@@ -1510,6 +1592,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     flexDirection: 'row',
     maxWidth: 180,
+    minWidth: 120,
   },
   followButton: {
   },
@@ -1641,10 +1724,10 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 16,
     paddingHorizontal: 16,
-    justifyContent: 'center',
-    alignSelf: 'center',
+    width: '100%',
   },
   pillTab: {
+    flex: 1,
     paddingHorizontal: 24,
     paddingVertical: 8,
     borderRadius: 20,
@@ -1723,7 +1806,7 @@ const styles = StyleSheet.create({
 
   // Empty State
   emptyState: {
-    alignItems: 'flex-start',
+    alignItems: 'center',
     paddingVertical: 40,
     paddingHorizontal: 20,
     minHeight: 200,
@@ -1740,13 +1823,13 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 20,
     fontWeight: '600',
-    textAlign: 'left',
+    textAlign: 'center',
     marginBottom: 8,
     letterSpacing: 0.2,
   },
   emptySubtext: {
     fontSize: 15,
-    textAlign: 'left',
+    textAlign: 'center',
     lineHeight: 22,
     fontWeight: '400',
   },

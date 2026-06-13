@@ -47,21 +47,30 @@ const getUserActivity = async (req, res) => {
     }
 
     // Check privacy settings
-    const fullUser = await User.findById(userId).select('settings.privacy.profileVisibility').lean();
-    const isPublic = fullUser?.settings?.privacy?.profileVisibility !== 'private';
+    const fullUser = await User.findById(userId).select('settings.privacy.profileVisibility followers').lean();
+    const profileVisibility = fullUser?.settings?.privacy?.profileVisibility || 'public';
+    const isOwn = req.user && userId === req.user._id.toString();
     
-    // If private and not the owner, return empty
-    if (!isPublic && userId !== req.user?._id?.toString()) {
-      return sendSuccess(res, 200, 'Activity fetched successfully', {
-        activities: [],
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages: 0,
-          totalActivities: 0,
-          hasNextPage: false,
-          limit: parseInt(limit)
-        }
-      });
+    // If private or followers-only, requester must be a follower (or the owner)
+    if (!isOwn && (profileVisibility === 'private' || profileVisibility === 'followers')) {
+      const isFollower = req.user && fullUser.followers ?
+        fullUser.followers.some(f => {
+          const fId = typeof f === 'object' && f._id ? f._id.toString() : f.toString();
+          return fId === req.user._id.toString();
+        }) : false;
+        
+      if (!isFollower) {
+        return sendSuccess(res, 200, 'Activity fetched successfully', {
+          activities: [],
+          pagination: {
+            currentPage: parseInt(page),
+            totalPages: 0,
+            totalActivities: 0,
+            hasNextPage: false,
+            limit: parseInt(limit)
+          }
+        });
+      }
     }
 
     const query = { user: userId, isPublic: true };

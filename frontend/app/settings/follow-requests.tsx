@@ -84,9 +84,9 @@ export default function FollowRequestsScreen() {
     setRefreshing(false);
   };
 
-  const handleApprove = async (requestId: string, userName: string) => {
+  const handleApprove = async (userId: string, userName: string, requestId: string) => {
     try {
-      const result = await approveFollowRequest(requestId);
+      const result = await approveFollowRequest(userId);
       setFollowRequests(prev => prev.filter(req => req._id !== requestId));
       // Show different message if already processed
       if (result.alreadyProcessed) {
@@ -108,9 +108,9 @@ export default function FollowRequestsScreen() {
     }
   };
 
-  const handleReject = async (requestId: string, userName: string) => {
+  const handleReject = async (userId: string, userName: string, requestId: string) => {
     try {
-      await rejectFollowRequest(requestId);
+      await rejectFollowRequest(userId);
       setFollowRequests(prev => prev.filter(req => req._id !== requestId));
       showSuccess(`Follow request from ${userName} has been declined`);
     } catch (error) {
@@ -199,13 +199,13 @@ export default function FollowRequestsScreen() {
                   <View style={styles.actionButtons}>
                     <TouchableOpacity
                       style={[styles.actionButton, styles.rejectButton]}
-                      onPress={() => handleReject(request._id, request.user.fullName)}
+                      onPress={() => handleReject(request.user._id, request.user.fullName, request._id)}
                     >
                       <Ionicons name="close" size={16} color="white" />
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.actionButton, styles.approveButton]}
-                      onPress={() => handleApprove(request._id, request.user.fullName)}
+                      onPress={() => handleApprove(request.user._id, request.user.fullName, request._id)}
                     >
                       <Ionicons name="checkmark" size={16} color="white" />
                     </TouchableOpacity>

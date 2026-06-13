@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { TouchableOpacity, Text, StyleSheet, ActivityIndicator, ViewStyle, TextStyle } from 'react-native';
+import { TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
@@ -17,6 +17,7 @@ interface FollowButtonProps {
   onToggle?: (newState: FollowState) => void;
   onSuccess?: (result: any) => void;
   size?: 'small' | 'medium' | 'large';
+  isPrivate?: boolean;
 }
 
 export default function FollowButton({ 
@@ -27,10 +28,11 @@ export default function FollowButton({
   textStyle, 
   onToggle,
   onSuccess,
-  size = 'medium' 
+  size = 'medium',
+  isPrivate = false
 }: FollowButtonProps) {
   const { theme, isDark } = useTheme();
-  const { showError, showSuccess } = useAlert();
+  const { showError, showSuccess, showConfirm } = useAlert();
   
   const getInitialState = (): FollowState => {
     if (initialState) return initialState;
@@ -45,12 +47,12 @@ export default function FollowButton({
     setFollowState(getInitialState());
   }, [initialState, initialIsFollowing]);
 
-  const handleToggle = async () => {
-    if (loading) return;
-    
+  const executeToggle = async () => {
     // Optimistic update
     const previousState = followState;
-    const optimisticState = followState === 'FOLLOWING' ? 'NOT_FOLLOWING' : 'FOLLOWING';
+    const optimisticState = followState === 'FOLLOWING' || followState === 'REQUESTED'
+      ? 'NOT_FOLLOWING'
+      : (isPrivate ? 'REQUESTED' : 'FOLLOWING');
     setFollowState(optimisticState);
     if (onToggle) onToggle(optimisticState);
 
@@ -89,6 +91,34 @@ export default function FollowButton({
     }
   };
 
+  const handleToggle = async () => {
+    if (loading) return;
+
+    if (followState === 'FOLLOWING') {
+      showConfirm(
+        'Are you sure you want to unfollow this user?',
+        executeToggle,
+        'Unfollow User',
+        'Unfollow',
+        'Cancel'
+      );
+      return;
+    }
+
+    if (followState === 'REQUESTED') {
+      showConfirm(
+        'Are you sure you want to cancel your follow request?',
+        executeToggle,
+        'Cancel Follow Request',
+        'Cancel Request',
+        'Cancel'
+      );
+      return;
+    }
+
+    executeToggle();
+  };
+
   const getPadding = () => {
     switch (size) {
       case 'small': return { paddingVertical: 4, paddingHorizontal: 12 };
@@ -120,13 +150,9 @@ export default function FollowButton({
         onPress={handleToggle}
         disabled={loading}
       >
-        {loading ? (
-          <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-        ) : (
-          <Text style={[styles.followingText, { color: theme.colors.text, fontSize: getFontSize() }, textStyle]}>
-            {followState === 'FOLLOWING' ? 'Following' : 'Request Sent'}
-          </Text>
-        )}
+        <Text style={[styles.followingText, { color: theme.colors.text, fontSize: getFontSize() }, textStyle]}>
+          {followState === 'FOLLOWING' ? 'Following' : 'Request Sent'}
+        </Text>
       </TouchableOpacity>
     );
   }
@@ -139,13 +165,9 @@ export default function FollowButton({
         end={{ x: 1, y: 0 }}
         style={[styles.followButton, getPadding()]}
       >
-        {loading ? (
-          <ActivityIndicator size="small" color="white" />
-        ) : (
-          <Text style={[styles.followText, { fontSize: getFontSize() }, textStyle]}>
-            Follow
-          </Text>
-        )}
+        <Text style={[styles.followText, { fontSize: getFontSize() }, textStyle]}>
+          Follow
+        </Text>
       </LinearGradient>
     </TouchableOpacity>
   );

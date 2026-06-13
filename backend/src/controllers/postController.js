@@ -1372,17 +1372,17 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
       }
     }
 
-    // For "private" profiles, requester must be in profile owner's following list
-    // (i.e. the profile owner follows the viewer) — matches getProfile/getTravelMapData.
+    // For "private" profiles, requester must be in profile owner's followers list
+    // (i.e. the viewer follows the profile owner).
     if (!isOwnProfile && profileVisibility === 'private') {
-      const isFollowedBy = req.user && user.following ?
-        user.following.some(following => {
-          const followingId = typeof following === 'object' && following._id ? following._id.toString() : following.toString();
-          return followingId === req.user._id.toString();
+      const isFollowing = req.user && user.followers ?
+        user.followers.some(follower => {
+          const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
+          return followerId === req.user._id.toString();
         }) :
         false;
 
-      if (!isFollowedBy) {
+      if (!isFollowing) {
         return sendSuccess(res, 200, 'Shorts fetched successfully', {
           shorts: [],
           totalShorts: 0,
@@ -1978,17 +1978,17 @@ const getUserPosts = async (req, res) => {
       }
     }
 
-    // For "private" profiles, requester must be in profile owner's following list
-    // (i.e. the profile owner follows the viewer) — matches getProfile/getTravelMapData.
+    // For "private" profiles, requester must be in profile owner's followers list
+    // (i.e. the viewer follows the profile owner).
     if (!isOwnProfile && profileVisibility === 'private') {
-      const isFollowedBy = req.user && user.following ?
-        user.following.some(following => {
-          const followingId = typeof following === 'object' && following._id ? following._id.toString() : following.toString();
-          return followingId === req.user._id.toString();
+      const isFollowing = req.user && user.followers ?
+        user.followers.some(follower => {
+          const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
+          return followerId === req.user._id.toString();
         }) :
         false;
 
-      if (!isFollowedBy) {
+      if (!isFollowing) {
         return sendSuccess(res, 200, 'Posts fetched successfully', {
           posts: [],
           totalPosts: 0,
@@ -4016,5 +4016,6 @@ module.exports = {
   getArchivedPosts,
   getHiddenPosts,
   incrementShare,
-  getPostLikers
+  getPostLikers,
+  getAllowedPostAuthorIds
 };

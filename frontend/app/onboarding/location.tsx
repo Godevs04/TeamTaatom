@@ -133,8 +133,22 @@ export default function LocationOnboarding() {
         </View>
 
         {detectedLabel ? (
-          <View style={[styles.successBox, { backgroundColor: theme.colors.primary + '12', borderColor: theme.colors.primary }]}>
-            <Ionicons name="checkmark-circle" size={20} color={theme.colors.primary} />
+          <View style={[styles.successBox, { backgroundColor: theme.colors.card, borderColor: '#50C878' }]}>
+            <LinearGradient
+              colors={['#50C878', '#1C73B4']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: 10,
+                justifyContent: 'center',
+                alignItems: 'center',
+                marginRight: 8,
+              }}
+            >
+              <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+            </LinearGradient>
             <Text style={[styles.successText, { color: theme.colors.text }]}>{detectedLabel}</Text>
           </View>
         ) : null}
@@ -155,7 +169,12 @@ export default function LocationOnboarding() {
           style={styles.continueButton}
           activeOpacity={0.8}
         >
-          <LinearGradient colors={[theme.colors.primary, theme.colors.primary + 'DD']} style={styles.gradient}>
+          <LinearGradient
+            colors={['#50C878', '#1C73B4']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.gradient}
+          >
             {isLoading ? (
               <ActivityIndicator color="#FFFFFF" />
             ) : (

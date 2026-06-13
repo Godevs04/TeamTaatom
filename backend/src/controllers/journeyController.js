@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
+const { generateSignedUrl } = require('../services/mediaService');
 const logger = require('../utils/logger');
 const Journey = require('../models/Journey');
 const Post = require('../models/Post');
@@ -919,15 +920,50 @@ const checkRouteAccess = (owner, viewerId) => {
 
   // If routeVisibility is 'everyone', follow standard profileVisibility rules
   const profileVisibility = owner.settings?.privacy?.profileVisibility || 'public';
-  if (profileVisibility === 'private') {
-    return false;
-  }
-  if (profileVisibility === 'followers') {
+  if (profileVisibility === 'private' || profileVisibility === 'followers') {
     const followers = owner.followers || [];
     return viewerId && followers.some(id => id.toString() === viewerId.toString());
   }
 
   return true;
+};
+
+// Helper function to sign populated post media storage keys
+const signPostMedia = async (post) => {
+  if (!post) return;
+  if (post.storageKeys && post.storageKeys.length > 0) {
+    try {
+      if (post.type === 'short') {
+        if (post.storageKeys.length > 1) {
+          post.imageUrl = await generateSignedUrl(post.storageKeys[1], 'IMAGE') || post.imageUrl || null;
+          post.videoUrl = await generateSignedUrl(post.storageKeys[0], 'VIDEO') || post.videoUrl || null;
+        } else {
+          post.imageUrl = await generateSignedUrl(post.storageKeys[0], 'IMAGE') || post.imageUrl || null;
+          post.videoUrl = await generateSignedUrl(post.storageKeys[0], 'VIDEO') || post.videoUrl || null;
+        }
+      } else {
+        const signed = await Promise.all(
+          post.storageKeys.map(key => generateSignedUrl(key, 'IMAGE'))
+        );
+        post.images = signed.filter(Boolean);
+        if (post.images.length > 0) {
+          post.imageUrl = post.images[0];
+        }
+      }
+    } catch (err) {
+      logger.warn('Failed to sign post media in journeyController:', err);
+    }
+  } else if (post.storageKey) {
+    try {
+      if (post.type === 'short') {
+        post.videoUrl = await generateSignedUrl(post.storageKey, 'VIDEO') || post.videoUrl || null;
+      } else {
+        post.imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE') || post.imageUrl || null;
+      }
+    } catch (err) {
+      logger.warn('Failed to sign post media in journeyController:', err);
+    }
+  }
 };
 
 // GET /api/v1/journey/:journeyId
@@ -950,7 +986,7 @@ const getJourneyDetail = async (req, res) => {
     try {
       await journey.populate({
         path: 'waypoints.post',
-        select: 'caption storageKeys location mediaType',
+        select: 'caption imageUrl images videoUrl thumbnailUrl storageKey storageKeys type location mediaType',
         match: { _id: { $exists: true } }
       });
     } catch (popErr) {
@@ -983,7 +1019,18 @@ const getJourneyDetail = async (req, res) => {
       return sendError(res, 'AUTH_1001', 'This journey is private');
     }
 
-    return sendSuccess(res, 200, 'Journey detail retrieved', { journey });
+    const journeyObj = journey.toObject();
+
+    // Sign waypoint posts media URLs
+    if (journeyObj.waypoints && journeyObj.waypoints.length > 0) {
+      for (const w of journeyObj.waypoints) {
+        if (w.post) {
+          await signPostMedia(w.post);
+        }
+      }
+    }
+
+    return sendSuccess(res, 200, 'Journey detail retrieved', { journey: journeyObj });
   } catch (error) {
     logger.error('Get journey detail error:', { message: error.message, stack: error.stack });
     return sendError(res, 'ERR_5001', 'Failed to get journey detail');
@@ -1060,6 +1107,19 @@ const getUserJourneys = async (req, res) => {
     const journeys = await journeysQuery.lean();
 
     const total = await Journey.countDocuments(journeyQuery);
+
+    // Sign waypoint posts media URLs
+    if (includePolyline && journeys && journeys.length > 0) {
+      for (const j of journeys) {
+        if (j.waypoints && j.waypoints.length > 0) {
+          for (const w of j.waypoints) {
+            if (w.post) {
+              await signPostMedia(w.post);
+            }
+          }
+        }
+      }
+    }
 
     // Add basic waypoint count and dynamic polyline mapping (since lean bypasses getters)
     const enrichedJourneys = journeys.map(j => {

@@ -5567,6 +5567,7 @@ export default function PostScreen() {
         visible={showDetectPlaceModal}
         transparent
         animationType="slide"
+        statusBarTranslucent={true}
         onRequestClose={() => {
           setShowDetectPlaceModal(false);
           setDetectPlaceName('');
@@ -5580,7 +5581,7 @@ export default function PostScreen() {
             justifyContent: 'flex-end',
           }}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
         >
           <View style={{
             borderTopLeftRadius: 24,

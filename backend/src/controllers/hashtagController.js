@@ -3,6 +3,7 @@ const Post = require('../models/Post');
 const logger = require('../utils/logger');
 const { getOptimizedImageUrl } = require('../config/cloudinary');
 const { generateSignedUrl, generateSignedUrls, resolveProfilePic } = require('../services/mediaService');
+const { getAllowedPostAuthorIds } = require('./postController');
 
 // @desc    Search hashtags
 // @route   GET /hashtags/search
@@ -89,12 +90,17 @@ const getHashtagPosts = async (req, res) => {
       });
     }
 
+    // Get allowed author IDs based on privacy settings
+    const viewerId = req.user?._id?.toString();
+    const allowedAuthorIds = await getAllowedPostAuthorIds(viewerId);
+
     // Find posts with this hashtag
     const posts = await Post.find({
       isActive: true,
       isArchived: { $ne: true },
       isHidden: { $ne: true },
-      tags: hashtagName
+      tags: hashtagName,
+      user: { $in: allowedAuthorIds }
     })
       .populate('user', 'fullName profilePic profilePicStorageKey settings.privacy.showLocation')
       .populate('comments.user', 'fullName profilePic profilePicStorageKey')

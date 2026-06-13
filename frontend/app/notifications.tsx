@@ -216,9 +216,6 @@ export default function NotificationsScreen() {
       }
 
       if (notification.type === 'follow_request') {
-        // If already read (e.g. after pull-to-refresh), don't re-open the popup
-        if (notification.isRead) return;
-
         setFollowRequestPopup({
           visible: true,
           notification: notification,
@@ -494,8 +491,6 @@ export default function NotificationsScreen() {
       case 'follow':
         return `${userName} started following you`;
       case 'follow_request':
-        // If already read (backend marked it but type wasn't updated), show processed state
-        if (notification.isRead) return `You responded to ${userName}'s follow request`;
         return `${userName} wants to follow you`;
       case 'follow_approved':
         return `${userName} approved your follow request`;

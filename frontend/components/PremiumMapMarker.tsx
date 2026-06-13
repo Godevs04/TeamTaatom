@@ -172,7 +172,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
       ? ['#10B981', '#059669'] as const
       : ['#EF4444', '#DC2626'] as const;
     return (
-      <Animated.View style={[isDark ? styles.shadowDark : styles.shadowLight, containerStyle]}>
+      <Animated.View style={[{ width: 22, height: 22, justifyContent: 'center', alignItems: 'center' }, containerStyle]}>
         <LinearGradient
           colors={badgeColors}
           start={{ x: 0, y: 0 }}
@@ -187,16 +187,6 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
   if (!activeState && renderAsDot) {
     return (
       <Animated.View style={[styles.dotContainer, containerStyle]}>
-        {!usesNativeIosMarker && (
-          <Animated.View style={[styles.dotPulse, pulseStyle, { top: 3 }]}>
-            <LinearGradient
-              colors={['rgba(59, 130, 246, 0.4)', 'rgba(16, 185, 129, 0.05)'] as const}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[StyleSheet.absoluteFillObject, { borderRadius: 15 }]}
-            />
-          </Animated.View>
-        )}
         <LinearGradient
           colors={['#3B82F6', '#10B981'] as const}
           start={{ x: 0, y: 0 }}
@@ -216,18 +206,6 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
 
     return (
       <Animated.View style={[styles.inactiveMarkerContainer, containerStyle]}>
-        {/* Pulsating Ring (under the pin) */}
-        {!usesNativeIosMarker && (
-          <Animated.View style={[styles.dotPulse, pulseStyle, { top: 5 }]}>
-            <LinearGradient
-              colors={['rgba(59, 130, 246, 0.4)', 'rgba(29, 78, 216, 0.05)'] as const}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[StyleSheet.absoluteFillObject, { borderRadius: 15 }]}
-            />
-          </Animated.View>
-        )}
-        
         {/* Custom Svg Gradient Pin (Teardrop shape matching Google Maps logo, white border) */}
         <View style={styles.pinWrapper}>
           <LocationPin width={30} height={38} showLandmark={isLandmark} style={styles.svgPin} />
@@ -248,21 +226,6 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
 
   return (
     <Animated.View style={[styles.inactiveMarkerContainer, containerStyle]}>
-      {/* Pulsating Ring (under the pin) */}
-      {!usesNativeIosMarker && (
-        <Animated.View style={[styles.dotPulse, pulseStyle, { top: 5 }]}>
-          <LinearGradient
-            colors={activeState
-              ? ['rgba(59, 130, 246, 0.6)', 'rgba(45, 212, 191, 0.15)'] as const
-              : ['rgba(59, 130, 246, 0.4)', 'rgba(29, 78, 216, 0.05)'] as const
-            }
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={[StyleSheet.absoluteFillObject, { borderRadius: 15 }]}
-          />
-        </Animated.View>
-      )}
-      
       {/* Custom Svg Gradient Pin */}
       <View style={styles.pinWrapper}>
         <LocationPin width={30} height={38} showLandmark={isLandmark} style={styles.svgPin} />
@@ -319,17 +282,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'transparent',
   },
-  svgPin: {
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000000',
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.35,
-        shadowRadius: 4,
-      },
-      android: {},
-    }),
-  },
+  svgPin: {},
   journeyBadge: {
     width: 22,
     height: 22,
@@ -363,22 +316,11 @@ const styles = StyleSheet.create({
     borderRadius: 15,
   },
   dotCore: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    borderWidth: 2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2.5,
     borderColor: '#FFFFFF',
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.3,
-        shadowRadius: 2,
-      },
-      android: {
-        elevation: 0,
-      },
-    }),
   },
   activeBaseDot: {
     width: 6,
@@ -442,24 +384,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 1,
   },
-  shadowDark: Platform.select({
-    ios: {
-      shadowColor: '#000000',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.4,
-      shadowRadius: 12,
-    },
-    android: {},
-  }) as any,
-  shadowLight: Platform.select({
-    ios: {
-      shadowColor: '#0F172A',
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.15,
-      shadowRadius: 8,
-    },
-    android: {},
-  }) as any,
+  shadowDark: {},
+  shadowLight: {},
   userMarkerContainer: {
     width: 32,
     height: 32,

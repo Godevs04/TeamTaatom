@@ -238,8 +238,14 @@ const ShortsOverlay = ({
                     }}
                     style={styles.captionPressable}
                   >
-                    <Text style={[styles.captionText, { color: '#38BDF8', fontWeight: isExpanded ? '400' : 'bold' }]}>
-                      {isExpanded ? post.caption : '...'}
+                    <Text 
+                      style={[styles.captionText, { color: '#38BDF8', fontWeight: isExpanded ? '400' : 'normal' }]}
+                      numberOfLines={isExpanded ? undefined : 1}
+                    >
+                      {post.caption}
+                      {!isExpanded && (
+                        <Text style={{ color: '#50C878', fontWeight: 'bold' }}> ...More</Text>
+                      )}
                     </Text>
                   </Pressable>
                 </BlurView>

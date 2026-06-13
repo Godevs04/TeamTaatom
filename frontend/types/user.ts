@@ -20,6 +20,18 @@ export interface UserType {
   followRequestSent?: boolean;
   requiresFollowApproval?: boolean;
   travelStyle?: string;
+  settings?: {
+    privacy?: {
+      profileVisibility?: 'public' | 'followers' | 'private';
+      showEmail?: boolean;
+      showLocation?: boolean;
+      allowMessages?: 'everyone' | 'followers' | 'none';
+      requireFollowApproval?: boolean;
+      allowFollowRequests?: boolean;
+      shareActivity?: boolean;
+      routeVisibility?: 'everyone' | 'approved_only' | 'private';
+    };
+  };
 }
 
 export interface FollowRequest {

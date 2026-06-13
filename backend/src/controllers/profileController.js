@@ -237,12 +237,12 @@ const getProfile = async (req, res) => {
 
     // Check if current user has sent a follow request
     const hasSentFollowRequest = req.user && user.followRequests ? 
-      user.followRequests.some(req => req.user.toString() === req.user._id.toString() && req.status === 'pending') :
+      user.followRequests.some(item => item.user && item.user.toString() === req.user._id.toString() && item.status === 'pending') :
       false;
 
     // Check if current user has received a follow request from this user
     const hasReceivedFollowRequest = req.user && user.sentFollowRequests ? 
-      user.sentFollowRequests.some(req => req.user.toString() === id && req.status === 'pending') :
+      user.sentFollowRequests.some(item => item.user && item.user.toString() === req.user._id.toString() && item.status === 'pending') :
       false;
 
     // Determine profile visibility based on settings
@@ -276,10 +276,10 @@ const getProfile = async (req, res) => {
           break;
           
         case 'private':
-          // Private: Only people the profile owner follows can see details
+          // Private: Only approved followers can see details
           canViewProfile = true;
-          canViewPosts = isFollowedBy;
-          canViewLocations = isFollowedBy;
+          canViewPosts = isFollowing;
+          canViewLocations = isFollowing;
           followRequestSent = hasSentFollowRequest;
           break;
           
@@ -374,6 +374,12 @@ const getProfile = async (req, res) => {
       // Include bio for all users
       bio: user.bio || ''
     };
+
+    // Enforce location privacy
+    if (!canViewLocations) {
+      delete profile.currentLocation;
+      delete profile.currentCountry;
+    }
 
     return sendSuccess(res, 200, 'Profile fetched successfully', { profile });
 
@@ -588,8 +594,8 @@ const toggleFollow = async (req, res) => {
     }
     // Mongoose stores ObjectIds; req.params.id is a string — `.includes(id)` is always false.
     const targetIdStr = id.toString();
-    const isFollowing = currentUser.following.some(
-      (fid) => fid.toString() === targetIdStr
+    const isFollowing = (targetUser.followers || []).some(
+      (fid) => fid.toString() === currentUserId.toString()
     );
 
     const notifyFollowUpdated = () => {
@@ -616,13 +622,24 @@ const toggleFollow = async (req, res) => {
       
       // Remove any pending follow requests
       currentUser.sentFollowRequests = currentUser.sentFollowRequests.filter(
-        req => req.user.toString() !== id
+        req => req.user.toString() !== id.toString()
       );
+      currentUser.markModified('sentFollowRequests');
+
       targetUser.followRequests = targetUser.followRequests.filter(
         req => req.user.toString() !== currentUserId.toString()
       );
+      targetUser.markModified('followRequests');
 
-      await Promise.all([currentUser.save(), targetUser.save()]);
+      await Promise.all([
+        currentUser.save(), 
+        targetUser.save(),
+        Notification.deleteMany({
+          type: { $in: ['follow', 'follow_request', 'follow_approved', 'follow_request_accepted', 'follow_request_rejected'] },
+          fromUser: currentUserId,
+          toUser: id
+        })
+      ]);
 
       // Invalidate cache
       await Promise.all([
@@ -646,23 +663,34 @@ const toggleFollow = async (req, res) => {
       if (requiresApproval) {
         // Check if follow request already exists (check both sides)
         const existingSentRequest = currentUser.sentFollowRequests.find(
-          req => req.user.toString() === id && req.status === 'pending'
+          item => item.user.toString() === id && item.status === 'pending'
         );
         
         const existingReceivedRequest = targetUser.followRequests.find(
-          req => req.user.toString() === currentUserId.toString() && req.status === 'pending'
+          item => item.user.toString() === currentUserId.toString() && item.status === 'pending'
         );
         
         if (existingSentRequest || existingReceivedRequest) {
           // Cancel/Recall follow request
           currentUser.sentFollowRequests = currentUser.sentFollowRequests.filter(
-            req => req.user.toString() !== id
+            item => item.user.toString() !== id.toString()
           );
-          targetUser.followRequests = targetUser.followRequests.filter(
-            req => req.user.toString() !== currentUserId.toString()
-          );
+          currentUser.markModified('sentFollowRequests');
 
-          await Promise.all([currentUser.save(), targetUser.save()]);
+          targetUser.followRequests = targetUser.followRequests.filter(
+            item => item.user.toString() !== currentUserId.toString()
+          );
+          targetUser.markModified('followRequests');
+
+          await Promise.all([
+            currentUser.save(), 
+            targetUser.save(),
+            Notification.deleteMany({
+              type: 'follow_request',
+              fromUser: currentUserId,
+              toUser: id
+            })
+          ]);
 
           // Invalidate cache
           await Promise.all([
@@ -694,13 +722,16 @@ const toggleFollow = async (req, res) => {
           requestedAt: new Date()
         };
 
-        // Remove any existing duplicate requests before adding new one
+        // Remove any existing requests (pending, approved, or rejected) before adding new one
         currentUser.sentFollowRequests = currentUser.sentFollowRequests.filter(
-          req => !(req.user.toString() === id && req.status === 'pending')
+          item => item.user.toString() !== id.toString()
         );
+        currentUser.markModified('sentFollowRequests');
+
         targetUser.followRequests = targetUser.followRequests.filter(
-          req => !(req.user.toString() === currentUserId.toString() && req.status === 'pending')
+          item => item.user.toString() !== currentUserId.toString()
         );
+        targetUser.markModified('followRequests');
 
         currentUser.sentFollowRequests.push(sentRequest);
         targetUser.followRequests.push(followRequest);
@@ -730,6 +761,13 @@ const toggleFollow = async (req, res) => {
             }
           });
         }
+
+        // Delete any old follow-related notifications from this user to target user
+        await Notification.deleteMany({
+          type: { $in: ['follow', 'follow_request', 'follow_approved', 'follow_request_accepted', 'follow_request_rejected'] },
+          fromUser: currentUserId,
+          toUser: id
+        });
 
         // Create notification in database
         await Notification.createNotification({
@@ -766,7 +804,9 @@ const toggleFollow = async (req, res) => {
         });
       } else {
         // Direct follow (no approval required)
+        currentUser.following.pull(id);
         currentUser.following.push(id);
+        targetUser.followers.pull(currentUserId);
         targetUser.followers.push(currentUserId);
 
         await Promise.all([currentUser.save(), targetUser.save()]);
@@ -804,6 +844,13 @@ const toggleFollow = async (req, res) => {
             }
           });
         }
+
+        // Delete any old follow-related notifications from this user to target user
+        await Notification.deleteMany({
+          type: { $in: ['follow', 'follow_request', 'follow_approved', 'follow_request_accepted', 'follow_request_rejected'] },
+          fromUser: currentUserId,
+          toUser: id
+        });
 
         // Create notification in database
         await Notification.createNotification({
@@ -1124,7 +1171,7 @@ const getFollowersList = async (req, res) => {
     
     // Populate the paginated followers users
     const followers = await User.find({ _id: { $in: paginatedFollowersIds } })
-      .select('fullName profilePic profilePicStorageKey email followers following totalLikes isVerified followRequests');
+      .select('fullName profilePic profilePicStorageKey email followers following totalLikes isVerified followRequests settings.privacy');
 
     const currentUserId = req.user ? req.user._id.toString() : null;
 
@@ -1205,7 +1252,7 @@ const getFollowingList = async (req, res) => {
     
     // Populate the paginated following users
     const following = await User.find({ _id: { $in: paginatedFollowingIds } })
-      .select('fullName profilePic profilePicStorageKey email followers following totalLikes isVerified followRequests');
+      .select('fullName profilePic profilePicStorageKey email followers following totalLikes isVerified followRequests settings.privacy');
 
     const currentUserId = req.user ? req.user._id.toString() : null;
 
@@ -1338,9 +1385,9 @@ const approveFollowRequest = async (req, res) => {
       followerId.toString() === requestId.toString()
     );
 
-    // Find the follow request by requester ID (since requestId is actually the requester's user ID)
+    // Find the pending follow request by requester ID (since requestId is actually the requester's user ID)
     const request = user.followRequests.find(req => 
-      req.user.toString() === requestId
+      req.user.toString() === requestId.toString() && req.status === 'pending'
     );
     
     logger.debug('Searching for request with:');
@@ -1357,7 +1404,7 @@ const approveFollowRequest = async (req, res) => {
         requestedAt: request.requestedAt
       });
     } else {
-      logger.debug('❌ No request found for user:', requestId);
+      logger.debug('❌ No pending request found for user:', requestId);
       logger.debug('Available request user IDs:', user.followRequests.map(req => ({
         id: req.user.toString(),
         type: typeof req.user,
@@ -1365,8 +1412,8 @@ const approveFollowRequest = async (req, res) => {
       })));
     }
 
-    // If already approved or already a follower, return success (idempotent operation)
-    if (isAlreadyFollower || (request && request.status === 'approved')) {
+    // If already a follower, return success (idempotent operation)
+    if (isAlreadyFollower) {
       logger.debug('✅ Request already processed - returning success (idempotent)');
       return sendSuccess(res, 200, 'Follow request already approved', {
         followersCount: user.followers.length,
@@ -1374,8 +1421,8 @@ const approveFollowRequest = async (req, res) => {
       });
     }
 
-    // If request not found and not already a follower, return error
-    if (!request || request.status !== 'pending') {
+    // If request not found, return error
+    if (!request) {
       logger.debug('❌ No pending request found for user:', requestId);
       return sendError(res, 'RES_3001', 'Follow request not found or already processed');
     }
@@ -1441,16 +1488,16 @@ const approveFollowRequest = async (req, res) => {
           
           // Find the request by requester ID (not by _id)
           const freshRequest = freshUser.followRequests.find(req => 
-            req.user.toString() === requestId.toString()
+            req.user.toString() === requestId.toString() && req.status === 'pending'
           );
-          if (freshRequest && freshRequest.status === 'pending') {
+          if (freshRequest) {
             freshRequest.status = 'approved';
           }
           
           const freshSentRequest = freshRequester.sentFollowRequests.find(
-            req => req.user.toString() === currentUserId.toString()
+            req => req.user.toString() === currentUserId.toString() && req.status === 'pending'
           );
-          if (freshSentRequest && freshSentRequest.status === 'pending') {
+          if (freshSentRequest) {
             freshSentRequest.status = 'approved';
           }
           
@@ -1567,7 +1614,7 @@ const rejectFollowRequest = async (req, res) => {
     
     // Update requester's sent request status
     const sentRequest = requester.sentFollowRequests.find(
-      req => req.user.toString() === currentUserId.toString()
+      req => req.user.toString() === currentUserId.toString() && req.status === 'pending'
     );
     if (sentRequest) {
       sentRequest.status = 'rejected';
@@ -2292,16 +2339,16 @@ const getTravelMapData = async (req, res) => {
           return sendSuccess(res, 200, 'Travel map data fetched successfully', emptyResponse);
         }
       } else if (profileVisibility === 'private') {
-        // Private: requester must be in the profile owner's following list
+        // Private: requester must be in the profile owner's followers list
         if (!req.user) {
           return sendSuccess(res, 200, 'Travel map data fetched successfully', emptyResponse);
         }
         const requesterId = req.user._id.toString();
-        const isFollowedBy = (targetUser.following || []).some(f => {
+        const isFollower = (targetUser.followers || []).some(f => {
           const fId = typeof f === 'object' && f._id ? f._id.toString() : f.toString();
           return fId === requesterId;
         });
-        if (!isFollowedBy) {
+        if (!isFollower) {
           return sendSuccess(res, 200, 'Travel map data fetched successfully', emptyResponse);
         }
       }
@@ -2835,19 +2882,43 @@ const toggleBlockUser = async (req, res) => {
       
       // Remove follow requests
       currentUser.followRequests = currentUser.followRequests.filter(
-        req => req.user.toString() !== id
+        req => req.user.toString() !== id.toString()
       );
+      currentUser.markModified('followRequests');
+      
       currentUser.sentFollowRequests = currentUser.sentFollowRequests.filter(
-        req => req.user.toString() !== id
+        req => req.user.toString() !== id.toString()
       );
+      currentUser.markModified('sentFollowRequests');
+      
       targetUser.followRequests = targetUser.followRequests.filter(
         req => req.user.toString() !== currentUserId.toString()
       );
+      targetUser.markModified('followRequests');
+      
       targetUser.sentFollowRequests = targetUser.sentFollowRequests.filter(
         req => req.user.toString() !== currentUserId.toString()
       );
+      targetUser.markModified('sentFollowRequests');
 
-      await Promise.all([currentUser.save(), targetUser.save()]);
+      await Promise.all([
+        currentUser.save(), 
+        targetUser.save(),
+        Notification.deleteMany({
+          $or: [
+            {
+              type: { $in: ['follow', 'follow_request', 'follow_approved', 'follow_request_accepted', 'follow_request_rejected'] },
+              fromUser: currentUserId,
+              toUser: id
+            },
+            {
+              type: { $in: ['follow', 'follow_request', 'follow_approved', 'follow_request_accepted', 'follow_request_rejected'] },
+              fromUser: id,
+              toUser: currentUserId
+            }
+          ]
+        })
+      ]);
 
       // Invalidate cache
       await Promise.all([

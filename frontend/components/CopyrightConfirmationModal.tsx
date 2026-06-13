@@ -70,19 +70,46 @@ export default function CopyrightConfirmationModal({
 
             <View style={[styles.bulletList, { backgroundColor: theme.colors.surfaceSecondary }]}>
               <View style={styles.bulletItem}>
-                <Ionicons name="checkmark-circle" size={16} color={theme.colors.primary} style={styles.bulletIcon} />
+                <View style={styles.bulletIconContainer}>
+                  <LinearGradient
+                    colors={['#50C878', '#1C73B4']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.bulletIconGradient}
+                  >
+                    <Ionicons name="checkmark" size={10} color="#FFFFFF" />
+                  </LinearGradient>
+                </View>
                 <Text style={[styles.bulletText, { color: theme.colors.text }]}>
                   Taatom does not provide copyrighted music
                 </Text>
               </View>
               <View style={styles.bulletItem}>
-                <Ionicons name="checkmark-circle" size={16} color={theme.colors.primary} style={styles.bulletIcon} />
+                <View style={styles.bulletIconContainer}>
+                  <LinearGradient
+                    colors={['#50C878', '#1C73B4']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.bulletIconGradient}
+                  >
+                    <Ionicons name="checkmark" size={10} color="#FFFFFF" />
+                  </LinearGradient>
+                </View>
                 <Text style={[styles.bulletText, { color: theme.colors.text }]}>
                   I am solely responsible for copyright violations
                 </Text>
               </View>
               <View style={styles.bulletItem}>
-                <Ionicons name="checkmark-circle" size={16} color={theme.colors.primary} style={styles.bulletIcon} />
+                <View style={styles.bulletIconContainer}>
+                  <LinearGradient
+                    colors={['#50C878', '#1C73B4']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.bulletIconGradient}
+                  >
+                    <Ionicons name="checkmark" size={10} color="#FFFFFF" />
+                  </LinearGradient>
+                </View>
                 <Text style={[styles.bulletText, { color: theme.colors.text }]}>
                   My content may be removed if a valid copyright complaint is received
                 </Text>
@@ -95,17 +122,24 @@ export default function CopyrightConfirmationModal({
               onPress={() => setAgreed(!agreed)}
               activeOpacity={0.7}
             >
-              <View style={[
-                styles.checkbox,
-                {
-                  borderColor: agreed ? theme.colors.primary : theme.colors.border,
-                  backgroundColor: agreed ? theme.colors.primary : 'transparent',
-                }
-              ]}>
-                {agreed && (
+              {agreed ? (
+                <LinearGradient
+                  colors={['#50C878', '#1C73B4']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={[styles.checkbox, { borderWidth: 0 }]}
+                >
                   <Ionicons name="checkmark" size={18} color="white" />
-                )}
-              </View>
+                </LinearGradient>
+              ) : (
+                <View style={[
+                  styles.checkbox,
+                  {
+                    borderColor: theme.colors.border,
+                    backgroundColor: 'transparent',
+                  }
+                ]} />
+              )}
               <Text style={[styles.checkboxLabel, { color: theme.colors.text }]}>
                 I agree and take responsibility for the audio used
               </Text>
@@ -206,9 +240,16 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 12,
   },
-  bulletIcon: {
+  bulletIconContainer: {
     marginRight: 10,
-    marginTop: 2,
+    marginTop: 2.5,
+  },
+  bulletIconGradient: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   bulletText: {
     flex: 1,

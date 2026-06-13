@@ -56,6 +56,7 @@ export default function GlobeMap({ locations, title = 'Travel Globe', visible, o
         map: map,
         icon: {
           url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(\`${LOCATION_PIN_SVG}\`),
+          size: new google.maps.Size(30, 38),
           scaledSize: new google.maps.Size(30, 38),
           anchor: new google.maps.Point(15, 38)
         },

@@ -171,6 +171,7 @@ export default function FollowersFollowingList() {
               <FollowButton 
                 userId={item._id} 
                 initialIsFollowing={isFollowing} 
+                isPrivate={(item as any).settings?.privacy?.profileVisibility === 'private'}
                 onToggle={(newFollowState) => {
                   setUsers(prev => prev.map(u => 
                     u._id === item._id 
