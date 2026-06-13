@@ -85,6 +85,13 @@ export async function getLocalVideoUri(videoId: string): Promise<string | null> 
 }
 
 export async function cacheVideoLocally(videoId: string, remoteUrl: string): Promise<string> {
+  const lowercaseUrl = remoteUrl.toLowerCase();
+  const isHls = lowercaseUrl.includes('m3u8') || lowercaseUrl.includes('hls');
+  if (isHls) {
+    logger.debug(`[VideoCache] HLS video detected, skipping local caching: ${videoId}`);
+    return remoteUrl;
+  }
+
   if (lockedVideoIds.has(videoId)) {
     logger.warn(`[VideoCache] cacheVideoLocally blocked: video is locked: ${videoId}`);
     throw new Error(`Video cache is locked: ${videoId}`);

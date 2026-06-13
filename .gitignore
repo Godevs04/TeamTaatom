@@ -79,3 +79,6 @@ frontend/app.json
 backend/scripts/generate_tn_journeys.js
 backend/scripts/test_api_response.js
 backend/scripts/verify_tn_seeding.js
+gemini.md
+backend/scripts/check_locales.js
+backend/scripts/check_specific_locales.js

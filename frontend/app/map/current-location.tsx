@@ -8,6 +8,7 @@ import {
   StatusBar,
   Platform,
   KeyboardAvoidingView,
+  Linking,
 } from 'react-native';
 import MaskedView from '@react-native-masked-view/masked-view';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -25,11 +26,13 @@ import { getApiUrl } from '../../utils/config';
 import { calculateDistance } from '../../utils/locationUtils';
 import GlassMapPanel from '../../components/GlassMapPanel';
 import PremiumMapMarker from '../../components/PremiumMapMarker';
+import SafeMarker from '../../components/SafeMarker';
 import PolylineRenderer from '../../components/PolylineRenderer';
 import { DirectionsRoute, getManeuverIcon, fetchDirectionsRoute } from '../../services/directions';
 import { useMapStyle } from '../../hooks/useMapStyle';
 import logger from '../../utils/logger';
 import { BlurView } from 'expo-blur';
+import { LOCATION_PIN_SVG } from '../../components/ui/LocationPin';
 import {
   isValidMapCoordinate,
   sanitizeLatitudeDelta,
@@ -297,16 +300,6 @@ export default function CurrentLocationMap() {
   const hasLoggedParamsRef = useRef<string>('');
   const mapRef = useRef<any>(null);
   const autoRouteTriggered = useRef(false);
-
-  const [tracksViewChanges, setTracksViewChanges] = useState(true);
-
-  useEffect(() => {
-    setTracksViewChanges(true);
-    const timer = setTimeout(() => {
-      setTracksViewChanges(false);
-    }, 600);
-    return () => clearTimeout(timer);
-  }, [location, route]);
 
   useEffect(() => {
     // Create a unique key for these params to avoid duplicate logging
@@ -846,8 +839,8 @@ function initMap(){
           '<div class="photo-pin-tail"></div>' +
         '</div>';
       } else {
-        div.setAttribute('data-anchor', 'center');
-        div.innerHTML = '<svg viewBox="0 0 36 36" width="36" height="36" style="filter: drop-shadow(0px 2px 3px rgba(0,0,0,0.3))"><defs><linearGradient id="htmlMarkerGrad" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#50C878"/><stop offset="100%" stop-color="#1C73B4"/></linearGradient></defs><circle cx="18" cy="18" r="16" fill="#FFFFFF" /><circle cx="18" cy="18" r="13" fill="url(#htmlMarkerGrad)" /><path d="M18 23.27l6.18 3.73-1.64-7.03 5.46-4.73-7.19-0.61-2.81-6.63-2.81 6.63-7.19 0.61 5.46 4.73-1.64 7.03z" fill="#FFFFFF" /></svg>';
+        div.setAttribute('data-anchor', 'bottom');
+        div.innerHTML = \`${LOCATION_PIN_SVG}\`;
       }
     } else {
       div.setAttribute('data-anchor', 'center');
@@ -1081,6 +1074,9 @@ function initMap(){
               const data = JSON.parse(event.nativeEvent.data);
               if (data.type === 'ROUTE_LOADED') {
                 setRoute({
+                  distanceText: data.distanceText,
+                  distanceValue: data.distanceValue,
+                  durationText: data.durationText,
                   distance: { text: data.distanceText, value: data.distanceValue },
                   duration: { text: data.durationText, value: data.durationValue },
                   coordinates: [], 
@@ -1146,24 +1142,25 @@ function initMap(){
               applyKalman={false}
               latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
             />
-            <Marker
+            <SafeMarker
               coordinate={route.coordinates[0]}
               title="Start Point"
               description="Your starting point"
               anchor={{ x: 0.5, y: 0.5 }}
+              repaintTriggers={[latitudeDelta]}
             >
               <PremiumMapMarker pointType="start" active={false} latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
-            </Marker>
+            </SafeMarker>
           </>
         )}
-        <Marker
+        <SafeMarker
           key={`dest-${isMarkerSelected ? 'active' : 'inactive'}`}
           coordinate={
             isPostLocation
               ? { latitude: postLatitude!, longitude: postLongitude! }
               : { latitude: location.coords.latitude, longitude: location.coords.longitude }
           }
-          tracksViewChanges={tracksViewChanges}
+          repaintTriggers={[isMarkerSelected, postPhoto, latitudeDelta]}
           title={
             isPostLocation
               ? (postAddress || 'Post Location')
@@ -1202,7 +1199,7 @@ function initMap(){
             photo={postPhoto}
             latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
           />
-        </Marker>
+        </SafeMarker>
       </MapView>
     );
   };
@@ -1332,6 +1329,9 @@ function initMap(){
                     <Ionicons name="navigate" size={18} color={theme.colors.primary} />
                     <Text style={[styles.locationText, { color: theme.colors.text }]} numberOfLines={1}>
                       {(() => {
+                        if (routeLoading) {
+                          return 'Calculating...';
+                        }
                         if (route?.distanceText) {
                           return `${route.distanceText.toLowerCase()} from you`;
                         }

@@ -14,6 +14,7 @@ import {
   Platform,
   Animated,
   AppState,
+  AppStateStatus,
   BackHandler,
   Pressable,
   RefreshControl,
@@ -21,6 +22,9 @@ import {
   Easing,
   InteractionManager,
 } from 'react-native';
+import { FlashList, FlashListRef } from '@shopify/flash-list';
+
+const AnyFlashList = FlashList as any;
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Video, ResizeMode, AVPlaybackStatus, Audio } from 'expo-av';
@@ -161,6 +165,14 @@ export type ShortsScreenProps = {
 };
 
 const videoSourceCache = new Map<string, { uri: string; overrideFileExtensionAndroid?: string }>();
+
+// Global cache for shorts feed to persist across screen mounts/unmounts
+let globalCachedShorts: PostType[] = [];
+let globalCachedPage = 1;
+let globalCachedCursor: string | null = null;
+let globalCachedHasMore = true;
+let globalCachedFollowStates: Record<string, boolean> = {};
+
 const getVideoSource = (uri: string | null | undefined) => {
   if (!uri) return undefined;
   if (!videoSourceCache.has(uri)) {
@@ -403,23 +415,885 @@ CyclingMetadata.displayName = 'CyclingMetadata';
  * If we ever need to invalidate every visible cell at once (e.g. on theme
  * change), include the relevant value in the cacheKey.
  */
-interface ShortCellMemoProps {
-  children: React.ReactNode;
-  cacheKey: string;
+interface ShortsCellProps {
+  item: PostType;
+  index: number;
+  currentVisibleIndex: number;
+  isVideoPlaying: boolean;
+  isScreenFocused: boolean;
+  isMuted: boolean;
+  currentUser: any;
+  containerHeight: number;
+  isFollowing: boolean;
+  isSaved: boolean;
+  isLiked: boolean;
+  localVideoUris: Record<string, string>;
+  isSavedShorts?: boolean;
+  effectiveUserId?: string | null;
+  handlers: any;
+  videoRefs: React.MutableRefObject<Record<string, Video | null>>;
+  currentPlayerRef: React.MutableRefObject<Audio.Sound | null>;
+  progressCallbacks: React.MutableRefObject<Record<string, (position: number, duration: number) => void>>;
+  lastVideoPositionRef: React.MutableRefObject<Record<string, number>>;
+  activeStartedWithRemoteRef: React.MutableRefObject<Record<string, boolean>>;
+  showSwipeHint: boolean;
+  fadeAnimation: Animated.Value;
+  likedShortIdsRef: React.MutableRefObject<Set<string>>;
+  videoCacheRef: React.MutableRefObject<Map<string, { url: string; timestamp: number }>>;
+  appState: AppStateStatus;
 }
 
-function ShortCell(props: ShortCellMemoProps) {
-  return <>{props.children}</>;
-}
+const ShortsCell = React.memo((props: ShortsCellProps) => {
+  const {
+    item,
+    index,
+    currentVisibleIndex,
+    isVideoPlaying,
+    isScreenFocused,
+    isMuted: isMutedProp,
+    currentUser,
+    containerHeight,
+    isFollowing,
+    isSaved,
+    isLiked,
+    localVideoUris,
+    isSavedShorts,
+    effectiveUserId,
+    handlers,
+    videoRefs,
+    currentPlayerRef,
+    progressCallbacks,
+    lastVideoPositionRef,
+    activeStartedWithRemoteRef,
+    showSwipeHint,
+    fadeAnimation,
+    likedShortIdsRef,
+    videoCacheRef,
+    appState,
+  } = props;
 
-const ShortCellMemo = React.memo(
-  ShortCell,
-  (prev, next) => prev.cacheKey === next.cacheKey
-);
-ShortCellMemo.displayName = 'ShortCellMemo';
+  const isActive = index === currentVisibleIndex;
+
+  // Local States
+  const [videoReady, setVideoReady] = useState(false);
+  const [showPauseButton, setShowPauseButton] = useState(false);
+  const [showLikeAnimation, setShowLikeAnimation] = useState(false);
+  const [isCaptionExpanded, setIsCaptionExpanded] = useState(false);
+  const [sourceVersion, setSourceVersion] = useState(0);
+  const [userPaused, setUserPaused] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [likeParticles, setLikeAnimationParticles] = useState<Array<{ id: string; x: number; y: number }>>([]);
+  const [isMuted, setIsMuted] = useState(isMutedProp);
+
+  // Sync mute state from props
+  useEffect(() => {
+    setIsMuted(isMutedProp);
+  }, [isMutedProp]);
+
+  // Reset user-paused state when scrolling away so it auto-plays next time
+  useEffect(() => {
+    if (!isActive) {
+      setUserPaused(false);
+    }
+  }, [isActive]);
+
+  const router = useRouter();
+
+  // Local Refs
+  const videoRef = useRef<Video | null>(null);
+  const pauseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const likeAnimTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTapRef = useRef<number>(0);
+  const tapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  const likeAnimationVal = useRef(new Animated.Value(0)).current;
+  const particleAnims = useRef<Record<string, any>>({});
+  const lastMuteEnforceAtRef = useRef<number>(0);
+
+  // Clean up timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (pauseTimeoutRef.current) clearTimeout(pauseTimeoutRef.current);
+      if (likeAnimTimeoutRef.current) clearTimeout(likeAnimTimeoutRef.current);
+      if (tapTimeoutRef.current) clearTimeout(tapTimeoutRef.current);
+    };
+  }, []);
+
+  const retryVideoLoadLocally = () => {
+    setTimeout(() => {
+      setSourceVersion(prev => prev + 1);
+      setVideoReady(false);
+    }, 1000);
+  };
+
+  // Sync playback state based on visibility and focus
+  const shouldPlay = isActive && isVideoPlaying && isScreenFocused && !userPaused && appState === 'active';
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (shouldPlay) {
+      video.getStatusAsync().then((status) => {
+        if (status.isLoaded && !status.isPlaying) {
+          video.playAsync().then(() => {
+            setIsPlaying(true);
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+    } else {
+      video.getStatusAsync().then((status) => {
+        if (status.isLoaded && status.isPlaying) {
+          video.pauseAsync().then(() => {
+            setIsPlaying(false);
+          }).catch(() => {});
+        }
+      }).catch(() => {});
+    }
+  }, [shouldPlay]);
+
+  // Sync native video player's mute/volume when isMuted, isActive, or song changes
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
+    const shouldMuteVideo = !isActive || hasMusic || isMuted;
+    video.getStatusAsync().then((status) => {
+      if (status.isLoaded) {
+        video.setIsMutedAsync(shouldMuteVideo).catch(() => {});
+        video.setVolumeAsync(shouldMuteVideo ? 0.0 : 1.0).catch(() => {});
+      }
+    }).catch(() => {});
+  }, [isMuted, isActive, item.song]);
+
+  // Recovery check inside ShortsCell
+  useEffect(() => {
+    if (!isActive || videoReady || !isScreenFocused || appState !== 'active') return;
+    
+    const timer = setTimeout(() => {
+      const video = videoRef.current;
+      if (video) {
+        video.getStatusAsync().then((status) => {
+          if (!status.isLoaded) {
+            logger.warn(`Video ${item._id} still not loaded after 1.5s - triggering URL refetch recovery`);
+            handlers.refetchShortWithFreshUrl(item._id)
+              .then((freshShort: PostType | null) => {
+                if (freshShort) {
+                  setSourceVersion(prev => prev + 1);
+                  setVideoReady(false);
+                  logger.info(`Successfully recovered visible video ${item._id} with fresh signed URL`);
+                } else {
+                  retryVideoLoadLocally();
+                }
+              })
+              .catch(() => {
+                retryVideoLoadLocally();
+              });
+          }
+        }).catch(() => {});
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [isActive, videoReady, isScreenFocused, appState]);
+
+  const showLikeAnimationTemporarily = () => {
+    likeAnimationVal.setValue(0);
+    setShowLikeAnimation(true);
+    setShowPauseButton(false);
+
+    if (pauseTimeoutRef.current) {
+      clearTimeout(pauseTimeoutRef.current);
+      pauseTimeoutRef.current = null;
+    }
+
+    const particleCount = 6;
+    const particles: Array<{ id: string; x: number; y: number }> = [];
+    const localParticleAnims: Record<string, any> = {};
+
+    for (let i = 0; i < particleCount; i++) {
+      const particleId = `${item._id}-${Date.now()}-${i}`;
+      const angle = (Math.PI * 2 * i) / particleCount + (Math.random() - 0.5) * 0.5;
+      const distance = 30 + Math.random() * 40;
+      const x = Math.cos(angle) * distance;
+      const y = Math.sin(angle) * distance;
+
+      particles.push({ id: particleId, x, y });
+      localParticleAnims[particleId] = {
+        scale: new Animated.Value(0),
+        opacity: new Animated.Value(0),
+        translateY: new Animated.Value(0),
+        translateX: new Animated.Value(0),
+      };
+    }
+
+    particleAnims.current = localParticleAnims;
+    setLikeAnimationParticles(particles);
+
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(likeAnimationVal, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.spring(likeAnimationVal, {
+        toValue: 1.2,
+        tension: 100,
+        friction: 3,
+        useNativeDriver: true,
+      }),
+      Animated.spring(likeAnimationVal, {
+        toValue: 1,
+        tension: 100,
+        friction: 3,
+        useNativeDriver: true,
+      }),
+      Animated.timing(likeAnimationVal, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    particles.forEach((particle, particleIndex) => {
+      const anims = localParticleAnims[particle.id];
+      if (!anims) return;
+
+      setTimeout(() => {
+        Animated.parallel([
+          Animated.sequence([
+            Animated.timing(anims.scale, {
+              toValue: 1,
+              duration: 150,
+              useNativeDriver: true,
+            }),
+            Animated.timing(anims.scale, {
+              toValue: 0.6,
+              duration: 400,
+              useNativeDriver: true,
+            }),
+          ]),
+          Animated.sequence([
+            Animated.timing(anims.opacity, {
+              toValue: 0.4,
+              duration: 150,
+              useNativeDriver: true,
+            }),
+            Animated.timing(anims.opacity, {
+              toValue: 0,
+              duration: 400,
+              useNativeDriver: true,
+            }),
+          ]),
+          Animated.timing(anims.translateY, {
+            toValue: -80 - Math.random() * 40,
+            duration: 550,
+            useNativeDriver: true,
+          }),
+          Animated.timing(anims.translateX, {
+            toValue: particle.x,
+            duration: 550,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }, particleIndex * 30);
+    });
+
+    if (likeAnimTimeoutRef.current) {
+      clearTimeout(likeAnimTimeoutRef.current);
+    }
+    likeAnimTimeoutRef.current = setTimeout(() => {
+      setShowLikeAnimation(false);
+      setLikeAnimationParticles([]);
+    }, 1500);
+  };
+
+  const handleCellVideoTap = () => {
+    const now = Date.now();
+    const delay = 300;
+    const videoId = item._id;
+
+    if (now - lastTapRef.current < delay) {
+      if (tapTimeoutRef.current) {
+        clearTimeout(tapTimeoutRef.current);
+        tapTimeoutRef.current = null;
+      }
+      
+      const originalIsLiked = likedShortIdsRef.current.has(videoId) || item.isLiked || false;
+      
+      if (originalIsLiked) {
+        showLikeAnimationTemporarily();
+        return;
+      }
+
+      handlers.handleLike(videoId, true);
+      showLikeAnimationTemporarily();
+      
+      lastTapRef.current = 0;
+    } else {
+      lastTapRef.current = now;
+      if (tapTimeoutRef.current) {
+        clearTimeout(tapTimeoutRef.current);
+      }
+      
+      tapTimeoutRef.current = setTimeout(() => {
+        setUserPaused(prev => {
+          const next = !prev;
+          setShowPauseButton(true);
+          if (pauseTimeoutRef.current) {
+            clearTimeout(pauseTimeoutRef.current);
+          }
+          pauseTimeoutRef.current = setTimeout(() => {
+            setShowPauseButton(false);
+          }, 1500);
+          
+          return next;
+        });
+        tapTimeoutRef.current = null;
+      }, delay);
+    }
+  };
+
+  const distanceFromVisible = index - currentVisibleIndex;
+  const shouldRenderVideo = Math.abs(distanceFromVisible) <= 1;
+
+  const isCellVideoPlaying = isPlaying && isVideoPlaying;
+  const isOwn = item.user._id === currentUser?._id;
+  const isScopedView = !!effectiveUserId || isSavedShorts;
+  const progressBottom = isScopedView ? (Platform.OS === 'web' ? 8 : 20) : (Platform.OS === 'web' ? 8 : 77);
+  const progressHeight = 24;
+  const clearance = 16;
+  const bottomContentOffset = progressBottom + progressHeight + clearance;
+  
+  const shouldShowPauseButton = !showLikeAnimation && showPauseButton;
+  const pauseButtonIcon = isPlaying ? "pause" : "play";
+
+  return (
+    <View style={[
+      styles.shortItem, 
+      { 
+        height: containerHeight,
+        paddingBottom: isScopedView ? 0 : TAB_BAR_HEIGHT,
+      }
+    ]}>
+        {/* Video Player with Gesture Handling */}
+        <View
+          style={[
+            styles.videoContainer,
+            { bottom: isScopedView ? 100 : 0 }
+          ]}
+          onTouchStart={handlers.handleTouchStart}
+          onTouchMove={handlers.handleTouchMove}
+          onTouchEnd={(event) => handlers.handleTouchEnd(event, item.user._id)}
+          onTouchCancel={handlers.handleTouchCancel}
+        >
+          <TouchableWithoutFeedback
+            onPress={handleCellVideoTap}
+            onLongPress={() => {
+              if (item.user._id === currentUser?._id) {
+                handlers.handleDeleteShort(item._id);
+              }
+            }}
+            accessible={true}
+            accessibilityLabel="Tap to play or pause video"
+            accessibilityRole="button"
+          >
+            <View style={[
+              styles.shortVideo,
+              StyleSheet.absoluteFillObject
+            ]}>
+            {item.imageUrl ? (
+              <ExpoImage
+                source={{ uri: item.imageUrl }}
+                style={[styles.shortVideo as ImageStyle, StyleSheet.absoluteFillObject]}
+                contentFit="contain"
+                cachePolicy="memory-disk"
+                transition={0}
+                onError={(e: any) => logger.warn('[shorts thumbnail] load failed', {
+                  shortId: item._id,
+                  url: item.imageUrl?.substring(0, 120),
+                  error: e?.error || e?.nativeEvent?.error || String(e),
+                })}
+              />
+            ) : (
+              <View style={[styles.shortVideo, StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }]}>
+                <LoadingGlobe size="small" color="rgba(255,255,255,0.6)" />
+              </View>
+            )}
+            {shouldRenderVideo && (
+              <ShortsVideoPlayerComponent
+              key={`video-${item._id}-${sourceVersion}`}
+              ref={(ref) => {
+                videoRef.current = ref;
+                if (ref) {
+                  videoRefs.current[item._id] = ref;
+                } else {
+                  delete videoRefs.current[item._id];
+                }
+              }}
+              source={getVideoSource(handlers.getVideoUrl(item))}
+              style={[
+                styles.shortVideo,
+                StyleSheet.absoluteFillObject,
+                { opacity: videoReady ? 1 : 0 }
+              ]}
+              resizeMode={ResizeMode.CONTAIN}
+              shouldPlay={shouldPlay}
+              isLooping
+              progressUpdateIntervalMillis={100}
+              isMuted={!isActive || !!(item.song?.songId?._id || item.song?.songId) || isMuted}
+              volume={(!!(item.song?.songId?._id || item.song?.songId) || isMuted) ? 0.0 : 1.0}
+              onLoadStart={() => {
+                logger.debug(`Video ${item._id} load started, index: ${index}, currentVisible: ${currentVisibleIndex}`);
+                if (!localVideoUris[item._id]) {
+                  activeStartedWithRemoteRef.current[item._id] = true;
+                }
+              }}
+              onReadyForDisplay={() => {
+                logger.debug(`Video ${item._id} ready for display`);
+                setVideoReady(true);
+              }}
+              onError={(error) => {
+                logger.error(`Video ${item._id} failed to load:`, error);
+                videoCacheRef.current.delete(item._id);
+                if (localVideoUris[item._id]) {
+                  handlers.removeLocalVideoUri(item._id);
+                }
+                delete activeStartedWithRemoteRef.current[item._id];
+                setIsPlaying(false);
+                setVideoReady(false);
+
+                const errorMessage = typeof error === 'string' ? error : (error as any)?.message || '';
+                const errorCode = (error as any)?.code;
+                const errorDomain = (error as any)?.domain;
+                const isTimeoutError =
+                  errorCode === -1001 ||
+                  errorCode === '-1001' ||
+                  errorDomain === 'NSURLErrorDomain' ||
+                  /(-1001|NSURLErrorDomain|timeout|Timeout|timed out)/.test(errorMessage);
+                const isExpiredUrl = /(403|404|Forbidden|expired|ExpiredRequest)/.test(errorMessage);
+
+                if (isExpiredUrl || isTimeoutError) {
+                  const errorType = isTimeoutError ? 'timeout' : 'expired URL';
+                  logger.debug(`Video ${item._id} ${errorType} — refetching fresh signed URL`, { errorCode, errorDomain, errorMessage });
+                  handlers.refetchShortWithFreshUrl(item._id)
+                    .then((freshShort: PostType | null) => {
+                      const freshVideoUrl = freshShort?.videoUrl || freshShort?.mediaUrl || freshShort?.imageUrl;
+                      if (!freshShort || !freshVideoUrl) {
+                        retryVideoLoadLocally();
+                        return;
+                      }
+                      setSourceVersion(prev => prev + 1);
+                      setVideoReady(false);
+                    })
+                    .catch((refetchError: any) => {
+                      logger.error(`Failed to refetch fresh URL for video ${item._id}:`, refetchError);
+                      retryVideoLoadLocally();
+                    });
+                } else {
+                  retryVideoLoadLocally();
+                }
+              }}
+              onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
+                if (status.isLoaded) {
+                  if (isActive) {
+                    const cb = progressCallbacks.current[item._id];
+                    if (cb) {
+                      cb(status.positionMillis, status.durationMillis || 1);
+                    }
+                  }
+                  const wasPlaying = isPlaying;
+                  const isNowPlaying = status.isPlaying;
+                  
+                  const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
+                  const shouldMuteVideo = !isActive || hasMusic || isMuted;
+                  if (isActive) {
+                    const video = videoRef.current;
+                    if (video) {
+                      if (shouldMuteVideo && !status.isMuted) {
+                        const now = Date.now();
+                        const lastEnforce = lastMuteEnforceAtRef.current;
+                        if (now - lastEnforce > 1000) {
+                          lastMuteEnforceAtRef.current = now;
+                          video.setIsMutedAsync(true).catch(() => {});
+                          video.setVolumeAsync(0.0).catch(() => {});
+                        }
+                      } else if (!shouldMuteVideo && status.isMuted) {
+                        const now = Date.now();
+                        const lastEnforce = lastMuteEnforceAtRef.current;
+                        if (now - lastEnforce > 1000) {
+                          lastMuteEnforceAtRef.current = now;
+                          video.setIsMutedAsync(false).catch(() => {});
+                          video.setVolumeAsync(1.0).catch(() => {});
+                        }
+                      }
+                    }
+                  }
+                  
+                  if (isNowPlaying && (!isActive || !isScreenFocused)) {
+                    videoRef.current?.pauseAsync().catch(() => {});
+                    return;
+                  }
+                  
+                  if (isNowPlaying && isActive) {
+                    currentPlayerRef.current = null;
+                  }
+
+                  if (isNowPlaying && isActive && status.positionMillis !== undefined) {
+                    const lastPos = lastVideoPositionRef.current[item._id] ?? 0;
+                    const curPos = status.positionMillis;
+                    if (lastPos > 500 && curPos < lastPos - 500) {
+                      if (hasMusic && currentPlayerRef.current) {
+                        const startSec = item.song?.startTime || 0;
+                        const endSec = item.song?.endTime;
+                        const songStartMs = startSec * 1000;
+                        const segmentMs = endSec && endSec > startSec ? (endSec - startSec) * 1000 : 60000;
+                        const audioOffsetMs = curPos % segmentMs;
+                        currentPlayerRef.current.setPositionAsync(songStartMs + audioOffsetMs).catch(() => {});
+                      }
+                    }
+                    lastVideoPositionRef.current[item._id] = curPos;
+                  }
+                  
+                  if (isNowPlaying && wasPlaying !== true) {
+                    logger.debug(`Video ${item._id} playing`);
+                    setIsPlaying(true);
+                  }
+                } else if ((status as any).error) {
+                  logger.error(`Video ${item._id} playback error:`, (status as any).error);
+                  if (isActive) {
+                    videoCacheRef.current.delete(item._id);
+                    if (localVideoUris[item._id]) {
+                      handlers.removeLocalVideoUri(item._id);
+                    }
+                  }
+                }
+              }}
+              onLoad={(status) => {
+                if (status.isLoaded) {
+                  logger.debug(`Video ${item._id} loaded successfully, isPlaying: ${status.isPlaying}, shouldPlay: ${isActive}`);
+                  setIsPlaying(status.isPlaying);
+                  
+                  if (isActive && isScreenFocused && !userPaused) {
+                    const video = videoRef.current;
+                    if (video) {
+                      const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
+                      const shouldMuteVideo = hasMusic || isMuted;
+                      video.setIsMutedAsync(shouldMuteVideo).catch(() => {});
+                      video.setVolumeAsync(shouldMuteVideo ? 0.0 : 1.0).catch(() => {});
+
+                      if (!status.isPlaying) {
+                        video.playAsync().then(() => {
+                          setIsPlaying(true);
+                          logger.debug(`Video ${item._id} started playing after load`);
+                        }).catch((error) => {
+                          logger.error(`Video ${item._id} failed to play after load:`, error);
+                        });
+                      }
+                    }
+                  }
+                }
+              }}
+            />
+            )}
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+        
+        <LinearGradient
+          colors={['transparent', 'transparent']}
+          style={styles.topGradient}
+        />
+        <LinearGradient
+          colors={['transparent', 'transparent']}
+          style={styles.bottomGradient}
+        />
+        
+        {showLikeAnimation && (() => {
+          const opacity = likeAnimationVal.interpolate({
+            inputRange: [0, 0.5, 1, 1.2],
+            outputRange: [0, 0.4, 0.5, 0.5],
+          });
+          
+          const scale = likeAnimationVal.interpolate({
+            inputRange: [0, 0.5, 1, 1.2],
+            outputRange: [0.3, 0.8, 1, 1.2],
+          });
+          
+          return (
+            <Animated.View 
+              style={[
+                styles.likeAnimationContainer,
+                {
+                  opacity,
+                  transform: [{ scale }],
+                },
+              ]}
+              pointerEvents="none"
+            >
+              <MaskedView
+                style={{ width: 80, height: 80 }}
+                maskElement={
+                  <Ionicons name="heart" size={80} color="#000000" />
+                }
+              >
+                <LinearGradient
+                  colors={['#50C878', '#1C73B4']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{ flex: 1 }}
+                />
+              </MaskedView>
+            </Animated.View>
+          );
+        })()}
+
+        {likeParticles.map((particle) => {
+          const anims = particleAnims.current[particle.id];
+          if (!anims) return null;
+          
+          return (
+            <Animated.View
+              key={particle.id}
+              style={[
+                styles.likeAnimationContainer,
+                {
+                  position: 'absolute',
+                  transform: [
+                    { translateX: anims.translateX },
+                    { translateY: anims.translateY },
+                    { scale: anims.scale },
+                  ],
+                  opacity: anims.opacity,
+                },
+              ]}
+              pointerEvents="none"
+            >
+              <Ionicons name="heart" size={24} color="#50C878" />
+            </Animated.View>
+          );
+        })}
+
+        {shouldShowPauseButton && (
+          <View 
+            style={styles.playButton} 
+            pointerEvents="none"
+            collapsable={false}
+          >
+            <View style={styles.playButtonBlur}>
+              <Ionicons 
+                name={pauseButtonIcon} 
+                size={50} 
+                color="white" 
+              />
+            </View>
+          </View>
+        )}
+
+        {showSwipeHint && !effectiveUserId && isActive && (
+          <Animated.View style={[styles.swipeHint, { opacity: fadeAnimation }]}>
+            <View style={styles.swipeHintBlur}>
+              <Ionicons name="arrow-back" size={24} color="white" />
+              <Text style={styles.swipeHintText}>Swipe left for profile</Text>
+            </View>
+          </Animated.View>
+        )}
+      
+        <LocalShortsActionRail
+          short={item}
+          shortId={item._id}
+          userId={item.user._id}
+          username={item.user.username}
+          profilePic={item.user.profilePic}
+          initialIsLiked={isLiked}
+          initialLikesCount={typeof item.likesCount === 'number' ? item.likesCount : 0}
+          commentsCount={item.commentsCount || 0}
+          isSaved={isSaved}
+          isFollowing={isFollowing}
+          isOwn={isOwn}
+          currentUserLoaded={!!currentUser?._id}
+          onProfilePress={handlers.handleProfilePress}
+          onLikePress={handlers.handleLike}
+          onCommentPress={handlers.handleComment}
+          onSharePress={handlers.handleShare}
+          onSavePress={handlers.handleSave}
+          isScopedView={isScopedView}
+          isPlaying={isCellVideoPlaying}
+        />
+
+        <View 
+          style={[
+            styles.bottomContent, 
+            { bottom: bottomContentOffset }
+          ]}
+        >
+          <LinearGradient
+            colors={['transparent', 'transparent', 'transparent']}
+            style={styles.bottomGradientOverlay}
+          />
+          
+          <View style={styles.bottomContentInner}>
+            <View style={styles.userProfileSection}>
+              <TouchableOpacity
+                style={styles.bottomAvatarContainer}
+                onPress={(e) => {
+                  e.stopPropagation?.();
+                  handlers.handleProfilePress(item.user._id);
+                }}
+                activeOpacity={0.7}
+                accessibilityLabel={`View ${item.user.username || 'user'}'s profile`}
+                accessibilityRole="button"
+              >
+                <LinearGradient
+                  colors={['#50C878', '#1C73B4']}
+                  style={styles.bottomGradientBorder}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                >
+                  <ExpoImage
+                    source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
+                    style={styles.bottomProfileImage as ImageStyle}
+                    cachePolicy="memory-disk"
+                    placeholder={require('../../assets/avatars/male_avatar.png')}
+                    contentFit="cover"
+                    transition={200}
+                    onError={(e: any) => logger.warn('[shorts bottom avatar] load failed', {
+                      userId: item.user._id,
+                      url: item.user.profilePic?.substring(0, 120),
+                      error: e?.error || e?.nativeEvent?.error || String(e),
+                    })}
+                  />
+                </LinearGradient>
+              </TouchableOpacity>
+
+              <View style={styles.userDetails}>
+                <View style={styles.usernameRow}>
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation?.();
+                      handlers.handleProfilePress(item.user._id);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.username}>@{item.user.username || item.user._id}</Text>
+                  </TouchableOpacity>
+                  
+                  {isFollowing && (
+                    <View style={styles.followingBadge}>
+                      <Text style={styles.followingText}>Following</Text>
+                    </View>
+                  )}
+                </View>
+
+                <CyclingMetadata
+                  song={item.song}
+                  location={item.location}
+                  onLocationPress={async (e) => {
+                    e.stopPropagation?.();
+                    try {
+                      const address = item.location?.address;
+                      if (address) {
+                        const coordinates = await geocodeAddress(address);
+                        if (coordinates) {
+                          router.push({
+                            pathname: '/map/current-location',
+                            params: {
+                              latitude: coordinates.latitude.toString(),
+                              longitude: coordinates.longitude.toString(),
+                              address,
+                              photo: item.imageUrl || '',
+                            }
+                          });
+                        } else {
+                          router.push('/map/current-location');
+                        }
+                      }
+                    } catch (error) {
+                      logger.warn('Failed to geocode location:', error);
+                      router.push('/map/current-location');
+                    }
+                  }}
+                />
+              </View>
+            </View>
+
+            {item.caption ? (
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={(e) => {
+                  e.stopPropagation?.();
+                  setIsCaptionExpanded(prev => !prev);
+                }}
+              >
+                <Text 
+                  style={styles.caption} 
+                  numberOfLines={isCaptionExpanded ? undefined : 2}
+                >
+                  {item.caption}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            
+            {!!(item.song?.songId && (item.song.songId._id || typeof item.song.songId === 'string')) && (
+                <View style={styles.hiddenSongPlayer} pointerEvents="none">
+                  <SongPlayer
+                    post={item}
+                    isVisible={isScreenFocused && isActive}
+                    shouldPreload={isScreenFocused && index === currentVisibleIndex + 1}
+                    autoPlay={isCellVideoPlaying}
+                    externalMuted={isMuted}
+                    onPlayingChange={handlers.handleSongPlayingChange}
+                  />
+                </View>
+            )}
+          </View>
+        </View>
+        {shouldRenderVideo && (
+          <ShortsProgressBar
+            shortId={item._id}
+            index={index}
+            currentVisibleIndex={currentVisibleIndex}
+            getVideoRef={() => videoRef.current}
+            hasMusic={!!(item.song?.songId?._id || item.song?.songId)}
+            songStartSec={item.song?.startTime}
+            songEndSec={item.song?.endTime}
+            currentPlayerRef={currentPlayerRef}
+            progressCallbacks={progressCallbacks}
+            lastVideoPositionRef={lastVideoPositionRef}
+            isScopedView={isScopedView}
+          />
+        )}
+    </View>
+  );
+});
+ShortsCell.displayName = 'ShortsCell';
 
 const ShortsVideoPlayerComponent = React.forwardRef<Video, React.ComponentProps<typeof Video>>((props, ref) => {
-  return <Video ref={ref} {...props} />;
+  const localRef = useRef<Video | null>(null);
+
+  const combinedRef = useCallback((node: Video | null) => {
+    localRef.current = node;
+    if (typeof ref === 'function') {
+      ref(node);
+    } else if (ref) {
+      (ref as any).current = node;
+    }
+  }, [ref]);
+
+  useEffect(() => {
+    return () => {
+      if (localRef.current) {
+        logger.debug(`[ShortsVideoPlayerComponent] Unloading video player on unmount`);
+        localRef.current.unloadAsync().catch((err) => {
+          logger.debug(`[ShortsVideoPlayerComponent] Failed to unload video on unmount:`, err);
+        });
+      }
+    };
+  }, []);
+
+  return <Video ref={combinedRef} {...props} />;
 });
 ShortsVideoPlayerComponent.displayName = 'ShortsVideoPlayerComponent';
 
@@ -1115,13 +1989,25 @@ const LocalShortsActionRail = React.memo(({
 
 LocalShortsActionRail.displayName = 'LocalShortsActionRail';
 
+// Module-level global mute state for shorts feed to persist across mounts/unmounts
+let globalIsFeedMuted = false;
 
 export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const params = useLocalSearchParams();
   const initialIndex = props.initialIndex ?? (params.index ? parseInt(params.index as string, 10) : 0);
 
-  const [shorts, setShorts] = useState<PostType[]>([]);
-  const [loading, setLoading] = useState(true);
+  const effectiveUserId =
+    props.scopedUserId ?? normalizeSearchParam(params.userId as string | string[] | undefined);
+  const effectiveShortId =
+    props.initialShortId ?? normalizeSearchParam(params.shortId as string | string[] | undefined);
+  const isGeneralFeed = !props.isSavedShorts && !effectiveUserId && !effectiveShortId;
+
+  const [shorts, setShorts] = useState<PostType[]>(() => {
+    return isGeneralFeed ? globalCachedShorts : [];
+  });
+  const [loading, setLoading] = useState(() => {
+    return isGeneralFeed ? globalCachedShorts.length === 0 : true;
+  });
   const [isTransitionFinished, setIsTransitionFinished] = useState(false);
 
   useEffect(() => {
@@ -1149,30 +2035,48 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [isVideoPlaying, setIsVideoPlaying] = useState(true);
   const [isScreenFocused, setIsScreenFocused] = useState(true);
   const isScreenFocusedRef = useRef(true);
-  const [videoStates, setVideoStates] = useState<{ [key: string]: boolean }>({});
+  const [appState, setAppState] = useState(AppState.currentState);
   const [containerHeight, setContainerHeight] = useState(SCREEN_HEIGHT - TAB_BAR_HEIGHT);
-  const [showPauseButton, setShowPauseButton] = useState<{ [key: string]: boolean }>({});
-  const [showLikeAnimation, setShowLikeAnimation] = useState<{ [key: string]: boolean }>({});
-  const [likeAnimationParticles, setLikeAnimationParticles] = useState<{ [key: string]: Array<{ id: string; x: number; y: number }> }>({});
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [savedShorts, setSavedShorts] = useState<Set<string>>(new Set());
-  const [mutedShorts, setMutedShorts] = useState<Set<string>>(new Set());
+  const [isFeedMuted, setIsFeedMuted] = useState(() => {
+    const currentSessionMuted = audioManager.getSessionMuted();
+    if (currentSessionMuted !== globalIsFeedMuted) {
+      globalIsFeedMuted = currentSessionMuted;
+    }
+    return globalIsFeedMuted;
+  });
+
+  useEffect(() => {
+    const unsub = audioManager.addSessionMuteListener((muted) => {
+      setIsFeedMuted(muted);
+      globalIsFeedMuted = muted;
+    });
+    return unsub;
+  }, []);
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [selectedShortId, setSelectedShortId] = useState<string | null>(null);
   const [selectedShortComments, setSelectedShortComments] = useState<any[]>([]);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [selectedShortForShare, setSelectedShortForShare] = useState<PostType | null>(null);
-  const [followStates, setFollowStates] = useState<{ [key: string]: boolean }>({});
+  const [followStates, setFollowStates] = useState<{ [key: string]: boolean }>(() => {
+    return isGeneralFeed ? globalCachedFollowStates : {};
+  });
   const swipeStartXRef = useRef<number | null>(null);
   const swipeStartYRef = useRef<number | null>(null);
   const isSwipeActiveRef = useRef(false);
   const [isSwipeActive, setIsSwipeActive] = useState(false);
   const [showSwipeHint, setShowSwipeHint] = useState(true);
   const [videoQuality, setVideoQuality] = useState<'low' | 'medium' | 'high'>('high');
-  const [expandedCaptions, setExpandedCaptions] = useState<{ [key: string]: boolean }>({});
   const [localVideoUris, setLocalVideoUris] = useState<Record<string, string>>({});
   const activeStartedWithRemoteRef = useRef<Record<string, boolean>>({});
+  const currentVisibleIndexRef = useRef<number>(initialIndex);
+  const shortsDataRef = useRef<ShortsItem[]>([]);
+
+  useEffect(() => {
+    currentVisibleIndexRef.current = currentVisibleIndex;
+  }, [currentVisibleIndex]);
 
   useEffect(() => {
     const unsubscribeViews = realtimePostsService.subscribeToViews(({ postId, viewsCount }) => {
@@ -1221,27 +2125,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     };
   }, []);
 
-  // Per-short source-URL "version". Bumped when onError refetches a fresh
-  // signed URL — appended to the Video's key so React fully unmounts the
-  // expo-av native player and remounts it with the new source. The previous
-  // approach of manually calling unloadAsync/loadAsync inside nested setTimeouts
-  // raced with scroll/unmount and was a likely cause of native player crashes.
-  const [sourceVersions, setSourceVersions] = useState<Record<string, number>>({});
-  const [videoReadyStates, setVideoReadyStates] = useState<Record<string, boolean>>({});
   // Throttle for the defensive mute-enforcement inside onPlaybackStatusUpdate
   // (status callbacks fire ~5x/sec per video; firing setIsMutedAsync each time
   // is bridge churn that has been correlated with native crashes on Android).
-  const lastMuteEnforceAtRef = useRef<Record<string, number>>({});
 
-  // Frequency control: no ad before 5 reels watched, no ad before 20s session, max 3 ads per Shorts session
-  const [hasWatchedFiveReels, setHasWatchedFiveReels] = useState(false);
-  const [adsAllowedAfter20s, setAdsAllowedAfter20s] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setAdsAllowedAfter20s(true), SHORTS_ADS_SESSION_DELAY_MS);
-    return () => clearTimeout(t);
-  }, []);
-
-  // Hard cap: track ads shown this session; never insert more than 3 ad slots total
+  // Hard cap: track ads shown this session
   const adsShownThisSessionRef = useRef(0);
   const [adsShownThisSession, setAdsShownThisSession] = useState(0);
   // Persistent 5-per-8h Google AdMob cap, shared with the home feed. The
@@ -1260,34 +2148,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [failedAdIndices, setFailedAdIndices] = useState<number[]>([]);
   const consecutiveAdFailuresRef = useRef(0);
 
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<FlashListRef<ShortsItem>>(null);
   const videoRefs = useRef<{ [key: string]: Video | null }>({});
   // Two timeout namespaces. Previously a single `pauseTimeoutRefs[id]` slot was
   // shared by the pause-button hide timer AND the like-animation hide timer,
   // so a tap-then-like (or vice versa) on the same cell within 1.5s overwrote
   // the slot and orphaned the first timer. Splitting them prevents stale
   // callbacks from setting state on stale data.
-  const pauseTimeoutRefs = useRef<{ [key: string]: NodeJS.Timeout }>({});
-  const likeAnimTimeoutRefs = useRef<{ [key: string]: NodeJS.Timeout }>({});
-  const lastTapRef = useRef<Record<string, number>>({});
-  const tapTimeoutRefs = useRef<Record<string, NodeJS.Timeout>>({});
   const likeDebounceRefs = useRef<Record<string, { timer: NodeJS.Timeout; targetState: boolean; originalState: boolean; originalLikesCount: number }>>({});
-
-  // Helpers that no-op when the per-id value hasn't changed. The previous
-  // pattern `setState(prev => ({ ...prev, [id]: value }))` always allocated a
-  // new object reference, even when value === prev[id], which churned
-  // renderShortItem's deps and re-rendered every visible cell on every video
-  // load/play/pause/viewability event. Coalescing eliminates the redundant
-  // re-renders entirely.
-  const updateKeyedBool = useCallback((
-    setter: React.Dispatch<React.SetStateAction<{ [key: string]: boolean }>>,
-    key: string,
-    value: boolean
-  ) => {
-    setter((prev) => (prev[key] === value ? prev : { ...prev, [key]: value }));
-  }, []);
-  const likeAnimationRefs = useRef<{ [key: string]: Animated.Value }>({});
-  const likeParticleRefs = useRef<{ [key: string]: ParticleAnimations }>({});
   const swipeAnimation = useRef(new Animated.Value(0)).current;
   const fadeAnimation = useRef(new Animated.Value(1)).current;
   // Track currently active video to ensure only one plays at a time
@@ -1309,16 +2177,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // Guard to prevent duplicate navigation on rapid swipes
   const isNavigatingRef = useRef<boolean>(false);
   const lastNavigationUserIdRef = useRef<string | null>(null);
-  const activeRecoveryTimerRef = useRef<any>(null);
   // When we blur with userId in params (e.g. tab switch), clear params on next focus so Shorts shows all users
   const shouldClearParamsOnNextFocusRef = useRef<boolean>(false);
   const lastViewTimeRef = useRef<number>(0);
   const VIEW_DEBOUNCE_MS = SHORT_VIEW_DWELL_MS; // Prevent duplicate view events within 1 second
   // Ref to store loadShorts function for socket handlers (prevents stale closure)
   const loadShortsRef = useRef<(() => Promise<void>) | null>(null);
-  const currentPageRef = useRef(1);
-  const cursorRef = useRef<string | null>(null);
-  const hasMoreRef = useRef(true);
+  const currentPageRef = useRef(isGeneralFeed ? globalCachedPage : 1);
+  const cursorRef = useRef<string | null>(isGeneralFeed ? globalCachedCursor : null);
+  const hasMoreRef = useRef(isGeneralFeed ? globalCachedHasMore : true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   // Persisted liked short IDs so likes survive app restart (server is source of truth; this merges when API omits isLiked)
   const likedShortIdsRef = useRef<Set<string>>(new Set());
@@ -1328,8 +2195,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     handleTouchMove: null as any,
     handleTouchEnd: null as any,
     handleTouchCancel: null as any,
-    toggleVideoPlayback: null as any,
-    showPauseButtonTemporarily: null as any,
     handleDeleteShort: null as any,
     handleProfilePress: null as any,
     handleLike: null as any,
@@ -1338,18 +2203,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     handleSave: null as any,
     getVideoUrl: null as any,
     refetchShortWithFreshUrl: null as any,
-    retryVideoLoad: null as any,
-    handleVideoTap: null as any,
+    removeLocalVideoUri: null as any,
+    handleSongPlayingChange: null as any,
   });
   
   const { theme, mode } = useTheme();
   const router = useRouter();
   const segments = useSegments();
 
-  const effectiveUserId =
-    props.scopedUserId ?? normalizeSearchParam(params.userId as string | string[] | undefined);
-  const effectiveShortId =
-    props.initialShortId ?? normalizeSearchParam(params.shortId as string | string[] | undefined);
   const lastEffectiveUserIdRef = useRef<string | undefined>(effectiveUserId);
 
   const isOnTabShorts = segments.includes('(tabs)') && segments.includes('shorts');
@@ -1376,7 +2237,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       if (video) {
         try {
           await video.pauseAsync();
-          updateKeyedBool(setVideoStates, activeVideoIdRef.current!, false);
           logger.debug(`Paused current video: ${activeVideoIdRef.current}`);
         } catch (error) {
           logger.warn(`Error pausing current video:`, error);
@@ -1473,21 +2333,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       // Remove from refs
       delete videoRefs.current[videoId];
 
-      // Update state — coalesce: skip the new-object allocation when the key
-      // wasn't there to begin with.
-      setVideoStates(prev => {
-        if (!(videoId in prev)) return prev;
-        const newState = { ...prev };
-        delete newState[videoId];
-        return newState;
-      });
-      setVideoReadyStates(prev => {
-        if (!(videoId in prev)) return prev;
-        const newState = { ...prev };
-        delete newState[videoId];
-        return newState;
-      });
-
       logger.debug(`Stopped and unloaded video: ${videoId}`);
     } catch (error) {
       // Safely handle and log errors
@@ -1501,12 +2346,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
       // Still remove from refs even if cleanup fails to prevent memory leaks
       delete videoRefs.current[videoId];
-      setVideoStates(prev => {
-        if (!(videoId in prev)) return prev;
-        const newState = { ...prev };
-        delete newState[videoId];
-        return newState;
-      });
     }
   }, []);
 
@@ -1560,19 +2399,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       });
       videoRefs.current = {};
       
-      // Clear all pause timeouts, like-anim timeouts, tap timeouts, and debounced like timers.
-      Object.values(pauseTimeoutRefs.current).forEach(timeout => clearTimeout(timeout));
-      Object.values(likeAnimTimeoutRefs.current).forEach(timeout => clearTimeout(timeout));
-      Object.values(tapTimeoutRefs.current).forEach(timeout => clearTimeout(timeout));
+      // Clear all debounced like timers.
       Object.values(likeDebounceRefs.current).forEach(item => clearTimeout(item.timer));
-      pauseTimeoutRefs.current = {};
-      likeAnimTimeoutRefs.current = {};
-      tapTimeoutRefs.current = {};
       likeDebounceRefs.current = {};
-
-      // Drop animated-value refs so we don't leak Animated.Value instances.
-      likeAnimationRefs.current = {};
-      likeParticleRefs.current = {};
       
       // Clear video cache
       if (videoCacheRef.current) {
@@ -1644,12 +2473,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       // Audio.Sound (SongPlayer) can play alongside a muted Video component.
       // Without this, iOS gives the muted Video exclusive audio-session control
       // and silences (or blocks) all Audio.Sound instances — the user sees a
-      // playing video but hears nothing, or the video itself refuses to start
-      // because the session mode conflicts with the previous tab's setting.
+      // reel play but hears nothing.
       Audio.setAudioModeAsync({
         allowsRecordingIOS: false,
         playsInSilentModeIOS: true,
-        staysActiveInBackground: false,
         shouldDuckAndroid: true,
         playThroughEarpieceAndroid: false,
         interruptionModeIOS: 0, // MIX_WITH_OTHERS — required for video + song coexistence
@@ -1657,23 +2484,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }).catch(err => {
         logger.error('Error setting audio mode for shorts:', err);
       });
-
-      // Screen focused - resume current video if it exists
-      if (activeVideoIdRef.current && shortsRef.current[currentVisibleIndex]) {
-        const currentVideoId = shortsRef.current[currentVisibleIndex]._id;
-        if (currentVideoId === activeVideoIdRef.current && !userPausedShortIdsRef.current.has(currentVideoId)) {
-          const video = videoRefs.current[currentVideoId];
-          if (video) {
-            const hasSong = !!(shortsRef.current[currentVisibleIndex].song?.songId?._id || shortsRef.current[currentVisibleIndex].song?.songId);
-            const expectedMute = hasSong || false;
-            video.setIsMutedAsync(expectedMute).catch(() => {});
-            video.setVolumeAsync(expectedMute ? 0.0 : 1.0).catch(() => {});
-            video.playAsync().catch((error) => {
-              logger.warn(`Error resuming video on focus:`, error);
-            });
-          }
-        }
-      }
 
       return () => {
         // CRITICAL: Mark screen as unfocused FIRST
@@ -1693,14 +2503,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
         // Pause video and audio
         pauseCurrentVideo();
-        if (currentPlayerRef.current) {
-          currentPlayerRef.current.pauseAsync?.().catch(() => {});
-          currentPlayerRef.current = null;
-        }
         logger.debug('[Shorts] Stopping all audio - leaving shorts page');
         audioManager.stopAll().catch(() => {});
       };
-    }, [currentVisibleIndex, pauseCurrentVideo])
+    }, [pauseCurrentVideo])
   );
 
   // Pause when user navigates away from Shorts (tab or /user-shorts stack)
@@ -1719,11 +2525,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   }, [shortsPlaybackSurfaceActive, pauseCurrentVideo]);
 
   // Handle app state changes (background/foreground)
-  // Uses centralized pauseCurrentVideo helper
+  // Updates reactive appState prop which flows down to ShortsCell
   useEffect(() => {
     if (Platform.OS === 'web') return; // AppState not needed on web
     
     const subscription = AppState.addEventListener('change', (nextAppState) => {
+      setAppState(nextAppState);
       if (nextAppState === 'background' || nextAppState === 'inactive') {
         // App going to background - pause current video and audio
         pauseCurrentVideo();
@@ -1733,30 +2540,13 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         }
         audioManager.stopAll().catch(() => {});
         logger.debug('App backgrounded, paused current video and audio');
-      } else if (nextAppState === 'active') {
-        // App coming to foreground - resume current video if screen is focused
-        if (activeVideoIdRef.current && shortsRef.current[currentVisibleIndex] && isScreenFocusedRef.current) {
-          const currentVideoId = shortsRef.current[currentVisibleIndex]._id;
-          if (currentVideoId === activeVideoIdRef.current && !userPausedShortIdsRef.current.has(currentVideoId)) {
-            const video = videoRefs.current[currentVideoId];
-            if (video) {
-              const hasSong = !!(shortsRef.current[currentVisibleIndex].song?.songId?._id || shortsRef.current[currentVisibleIndex].song?.songId);
-              const expectedMute = hasSong || false;
-              video.setIsMutedAsync(expectedMute).catch(() => {});
-              video.setVolumeAsync(expectedMute ? 0.0 : 1.0).catch(() => {});
-              video.playAsync().catch((error) => {
-                logger.warn(`Error resuming video on foreground:`, error);
-              });
-            }
-          }
-        }
       }
     });
     
     return () => {
       subscription.remove();
     };
-  }, [currentVisibleIndex, pauseCurrentVideo]);
+  }, [pauseCurrentVideo]);
 
   // Handle Android hardware back button
   // Pauses video before allowing normal navigation
@@ -1865,7 +2655,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
     
     // DETAILED LOGGING: Track URL resolution for first 2 shorts
-    const isFirstTwoShorts = shorts.length > 0 && shorts.indexOf(item) < 2;
+    const isFirstTwoShorts = shorts.length > 0 && shorts.indexOf(item) !== -1 && shorts.indexOf(item) < 2;
     if (isFirstTwoShorts) {
       logger.info(`[FIRST_2_SHORTS] getVideoUrl called for short at index ${shorts.indexOf(item)}:`, {
         videoId,
@@ -2026,70 +2816,30 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     }
   }, []);
 
-  // Helper function to retry video loading
-  const retryVideoLoad = useCallback((videoId: string, delay: number = 1000) => {
-    setTimeout(() => {
-      const video = videoRefs.current[videoId];
-      if (!video) {
-        logger.debug(`Video ${videoId} ref is null, skipping retry`);
-        return;
-      }
-      
-      const short = shorts.find(s => s._id === videoId);
-      if (!short) {
-        logger.debug(`Short ${videoId} not found, skipping retry`);
-        return;
-      }
-      
-      const videoUrl = getVideoUrl(short);
-      
-      // Check if unloadAsync exists before calling
-      if (typeof video.unloadAsync === 'function') {
-        video.unloadAsync().then(() => {
-          // Re-check video ref after unload (it might have been cleared)
-          const videoAfterUnload = videoRefs.current[videoId];
-          if (videoAfterUnload && typeof videoAfterUnload.loadAsync === 'function') {
-            videoAfterUnload.loadAsync({ uri: videoUrl }).then(() => {
-              const videoForPlay = videoRefs.current[videoId];
-              if (videoForPlay && typeof videoForPlay.playAsync === 'function') {
-                const hasSong = !!(short?.song?.songId?._id || short?.song?.songId);
-                const expectedMute = hasSong || false;
-                videoForPlay.setIsMutedAsync(expectedMute).catch(() => {});
-                videoForPlay.setVolumeAsync(expectedMute ? 0.0 : 1.0).catch(() => {});
-                videoForPlay.playAsync().catch(() => {
-                  logger.error(`Video ${videoId} retry play failed`);
-                });
-              }
-            }).catch((loadError) => {
-              logger.error(`Video ${videoId} retry load failed:`, loadError);
-              // Bump source version to force a clean remount with a fresh URL fetch on next render.
-              // Without this, the Video sits in a broken state showing a black surface forever
-              // until the user scrolls away and back.
-              setSourceVersions(prev => ({ ...prev, [videoId]: (prev[videoId] ?? 0) + 1 }));
-              updateKeyedBool(setVideoReadyStates, videoId, false);
-            });
-          }
-        }).catch(() => {
-          // If unload fails, try to reload directly (re-check video ref)
-          const videoAfterError = videoRefs.current[videoId];
-          if (videoAfterError && typeof videoAfterError.loadAsync === 'function') {
-            videoAfterError.loadAsync({ uri: videoUrl }).catch(() => {
-              setSourceVersions(prev => ({ ...prev, [videoId]: (prev[videoId] ?? 0) + 1 }));
-              updateKeyedBool(setVideoReadyStates, videoId, false);
-            });
-          }
-        });
-      } else {
-        // If unloadAsync doesn't exist, try to reload directly
-        if (typeof video.loadAsync === 'function') {
-          video.loadAsync({ uri: videoUrl }).catch(() => {
-            setSourceVersions(prev => ({ ...prev, [videoId]: (prev[videoId] ?? 0) + 1 }));
-            updateKeyedBool(setVideoReadyStates, videoId, false);
-          });
-        }
-      }
-    }, delay);
-  }, [shorts, getVideoUrl]);
+  const handleUrlRefetch = useCallback(async (shortId: string) => {
+    const freshShort = await refetchShortWithFreshUrl(shortId);
+    if (freshShort) {
+      setShorts(prev => prev.map(s =>
+        s._id === shortId
+          ? { ...s, mediaUrl: freshShort.mediaUrl, videoUrl: freshShort.videoUrl || s.videoUrl, imageUrl: freshShort.imageUrl || s.imageUrl }
+          : s
+      ));
+      return freshShort;
+    }
+    return null;
+  }, [refetchShortWithFreshUrl]);
+
+  const removeLocalVideoUri = useCallback((shortId: string) => {
+    if (localVideoUris[shortId]) {
+      const pathToRemove = localVideoUris[shortId];
+      setLocalVideoUris(prev => {
+        const updated = { ...prev };
+        delete updated[shortId];
+        return updated;
+      });
+      removeCachedVideo(pathToRemove).catch(() => {});
+    }
+  }, [localVideoUris]);
 
   const loadShorts = useCallback(async (isSilent = false) => {
     try {
@@ -2285,6 +3035,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         followStatesMap[short.user._id] = (short.user as any).isFollowing || false;
       });
       setFollowStates(followStatesMap);
+
+      if (isGeneralFeed) {
+        globalCachedShorts = merged;
+        globalCachedPage = 1;
+        globalCachedCursor = cursorRef.current;
+        globalCachedHasMore = hasMoreRef.current;
+        globalCachedFollowStates = followStatesMap;
+      }
     } catch (error) {
       logger.error('Error loading shorts', error);
       showError('Failed to load shorts');
@@ -2351,11 +3109,24 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       });
       setShorts(prev => {
         const existingIds = new Set(prev.map(s => s._id));
-        return [...prev, ...mapped.filter((s) => !existingIds.has(s._id))];
+        const updated = [...prev, ...mapped.filter((s) => !existingIds.has(s._id))];
+        if (isGeneralFeed) {
+          globalCachedShorts = updated;
+          globalCachedPage = nextPage;
+          globalCachedCursor = cursorRef.current;
+          globalCachedHasMore = hasMoreRef.current;
+        }
+        return updated;
       });
       const followStatesMap: { [key: string]: boolean } = {};
       newShorts.forEach((s) => { followStatesMap[s.user._id] = (s.user as any).isFollowing || false; });
-      setFollowStates(prev => ({ ...prev, ...followStatesMap }));
+      setFollowStates(prev => {
+        const updatedFollows = { ...prev, ...followStatesMap };
+        if (isGeneralFeed) {
+          globalCachedFollowStates = updatedFollows;
+        }
+        return updatedFollows;
+      });
     } catch (error) {
       logger.error('Error loading more shorts', error);
     } finally {
@@ -2436,237 +3207,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     };
   }, [effectiveUserId]); // Only depend on scoped user, not loadShorts (use ref instead)
 
-  // Pause all videos except the specified one to ensure only one plays at a time
-  const pauseAllVideosExcept = useCallback(async (activeVideoId: string | null) => {
-    Object.keys(videoRefs.current).forEach(async (videoId) => {
-      if (videoId !== activeVideoId && videoRefs.current[videoId]) {
-        try {
-          await videoRefs.current[videoId]?.pauseAsync();
-          updateKeyedBool(setVideoStates, videoId, false);
-        } catch (error) {
-          logger.warn(`Error pausing video ${videoId}:`, error);
-        }
-      }
-    });
-  }, [updateKeyedBool]);
 
-  const toggleVideoPlayback = useCallback((videoId: string) => {
-    const video = videoRefs.current[videoId];
-    if (video) {
-      const isCurrentlyPlaying = videoStates[videoId];
-      const newPlayState = !isCurrentlyPlaying;
-      
-      // Find the current short to check for music
-      const currentShort = shorts.find(s => s._id === videoId);
-       const hasMusic = !!(currentShort?.song?.songId?._id || currentShort?.song?.songId);
-
-      // If starting playback, pause all other videos first
-      if (newPlayState) {
-        userPausedShortIdsRef.current.delete(videoId);
-        pauseAllVideosExcept(videoId);
-        activeVideoIdRef.current = videoId;
-        // Update video state immediately for music sync (coalesced)
-        updateKeyedBool(setVideoStates, videoId, true);
-        
-        // Set video audio based on music presence
-        if (hasMusic) {
-          // If music exists, mute video
-          video.setIsMutedAsync(true).catch(() => {});
-          video.setVolumeAsync(0.0).catch(() => {});
-        } else {
-          // If no music, unmute video
-          video.setIsMutedAsync(false).catch(() => {});
-          video.setVolumeAsync(1.0).catch(() => {});
-        }
-      } else {
-        userPausedShortIdsRef.current.add(videoId);
-        if (activeVideoIdRef.current === videoId) {
-          activeVideoIdRef.current = null;
-        }
-        // Update video state immediately for music sync
-        updateKeyedBool(setVideoStates, videoId, false);
-      }
-
-      video.setStatusAsync({
-        shouldPlay: newPlayState,
-      }).catch(() => {});
-    }
-  }, [videoStates, pauseAllVideosExcept, shorts, updateKeyedBool]);
-
-  const showPauseButtonTemporarily = (videoId: string) => {
-    // Don't show pause button if like animation is showing
-    if (showLikeAnimation[videoId]) {
-      return;
-    }
-
-    updateKeyedBool(setShowPauseButton, videoId, true);
-
-    // Clear existing pause-button timeout (separate slot from like-anim).
-    if (pauseTimeoutRefs.current[videoId]) {
-      clearTimeout(pauseTimeoutRefs.current[videoId]);
-    }
-
-    // Set new timeout
-    pauseTimeoutRefs.current[videoId] = setTimeout(() => {
-      updateKeyedBool(setShowPauseButton, videoId, false);
-    }, 2000);
-  };
-
-  const showLikeAnimationTemporarily = useCallback((shortId: string) => {
-    // Initialize animation value if not exists
-    if (!likeAnimationRefs.current[shortId]) {
-      likeAnimationRefs.current[shortId] = new Animated.Value(0);
-    }
-    
-    const animValue = likeAnimationRefs.current[shortId];
-    
-    // Reset animation
-    animValue.setValue(0);
-
-    // Show like animation (coalesced — no-op if already true)
-    updateKeyedBool(setShowLikeAnimation, shortId, true);
-
-    // Hide pause button while animation is showing (coalesced)
-    updateKeyedBool(setShowPauseButton, shortId, false);
-    
-    // Clear existing timeout
-    if (pauseTimeoutRefs.current[shortId]) {
-      clearTimeout(pauseTimeoutRefs.current[shortId]);
-    }
-    
-    // Create multiple heart particles (Instagram-like)
-    const particleCount = 6;
-    const particles: Array<{ id: string; x: number; y: number }> = [];
-    const particleAnims: ParticleAnimations = {};
-    
-    if (!likeParticleRefs.current[shortId]) {
-      likeParticleRefs.current[shortId] = {};
-    }
-    
-    for (let i = 0; i < particleCount; i++) {
-      const particleId = `${shortId}-${Date.now()}-${i}`;
-      // Random spread around center
-      const angle = (Math.PI * 2 * i) / particleCount + (Math.random() - 0.5) * 0.5;
-      const distance = 30 + Math.random() * 40;
-      const x = Math.cos(angle) * distance;
-      const y = Math.sin(angle) * distance;
-      
-      particles.push({ id: particleId, x, y });
-      
-      // Create animation values for each particle
-      particleAnims[particleId] = {
-        scale: new Animated.Value(0),
-        opacity: new Animated.Value(0),
-        translateY: new Animated.Value(0),
-        translateX: new Animated.Value(0),
-      };
-    }
-    
-    likeParticleRefs.current[shortId] = particleAnims;
-    setLikeAnimationParticles(prev => ({ ...prev, [shortId]: particles }));
-    
-    // Main heart animation: scale from 0.5 to 1.2, then back to 1, with fade
-    Animated.sequence([
-      // Scale up and fade in
-      Animated.parallel([
-        Animated.timing(animValue, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]),
-      // Bounce effect
-      Animated.spring(animValue, {
-        toValue: 1.2,
-        tension: 100,
-        friction: 3,
-        useNativeDriver: true,
-      }),
-      // Settle back
-      Animated.spring(animValue, {
-        toValue: 1,
-        tension: 100,
-        friction: 3,
-        useNativeDriver: true,
-      }),
-      // Fade out
-      Animated.timing(animValue, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-    ]).start();
-    
-    // Animate particles floating upward with fade
-    particles.forEach((particle, index) => {
-      const anims = particleAnims[particle.id];
-      if (!anims) return;
-      
-      // Delay each particle slightly for staggered effect
-      setTimeout(() => {
-        Animated.parallel([
-          // Scale up
-          Animated.sequence([
-            Animated.timing(anims.scale, {
-              toValue: 1,
-              duration: 150,
-              useNativeDriver: true,
-            }),
-            Animated.timing(anims.scale, {
-              toValue: 0.6,
-              duration: 400,
-              useNativeDriver: true,
-            }),
-          ]),
-          // Fade in then out
-          Animated.sequence([
-            Animated.timing(anims.opacity, {
-              toValue: 0.4, // Lower opacity for subtle effect
-              duration: 150,
-              useNativeDriver: true,
-            }),
-            Animated.timing(anims.opacity, {
-              toValue: 0,
-              duration: 400,
-              useNativeDriver: true,
-            }),
-          ]),
-          // Float upward
-          Animated.timing(anims.translateY, {
-            toValue: -80 - Math.random() * 40,
-            duration: 550,
-            useNativeDriver: true,
-          }),
-          // Slight horizontal drift
-          Animated.timing(anims.translateX, {
-            toValue: particle.x,
-            duration: 550,
-            useNativeDriver: true,
-          }),
-        ]).start();
-      }, index * 30); // Stagger particles
-    });
-    
-    // Hide animation after 1.5 seconds.
-    // Use the separate likeAnim slot so a follow-up tap-to-pause on the same
-    // cell within 1.5s doesn't orphan this timer.
-    if (likeAnimTimeoutRefs.current[shortId]) {
-      clearTimeout(likeAnimTimeoutRefs.current[shortId]);
-    }
-    likeAnimTimeoutRefs.current[shortId] = setTimeout(() => {
-      updateKeyedBool(setShowLikeAnimation, shortId, false);
-      setLikeAnimationParticles(prev => {
-        if (!prev[shortId]) return prev;
-        const newState = { ...prev };
-        delete newState[shortId];
-        return newState;
-      });
-      // Clean up particle refs
-      if (likeParticleRefs.current[shortId]) {
-        delete likeParticleRefs.current[shortId];
-      }
-    }, 1500);
-  }, [updateKeyedBool]);
 
   const executeLikeApiCall = useCallback(async (shortId: string) => {
     const pending = likeDebounceRefs.current[shortId];
@@ -2707,9 +3248,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const originalIsLiked = likedShortIdsRef.current.has(shortId) || currentShort.isLiked || false;
     const originalLikesCount = currentShort.likesCount || 0;
 
-    // If forceLike is true and it's already liked, strictly show the heart animation and return
+    // If forceLike is true and it's already liked, strictly return
     if (forceLike && originalIsLiked) {
-      showLikeAnimationTemporarily(shortId);
       return;
     }
 
@@ -2722,7 +3262,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // its own optimistic UI update; the parent only mirrors persisted liked IDs.
     if (newIsLiked && forceLike) {
       emitLikeRailState(shortId, true);
-      showLikeAnimationTemporarily(shortId);
     }
 
     // Keep persisted liked IDs in sync
@@ -2750,39 +3289,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         timer: setTimeout(() => executeLikeApiCall(shortId), 500)
       };
     }
-  }, [showLikeAnimationTemporarily, executeLikeApiCall]);
+  }, [executeLikeApiCall]);
 
-  const handleVideoTap = useCallback((videoId: string) => {
-    const now = Date.now();
-    const lastTap = lastTapRef.current[videoId] ?? 0;
-    const delay = 300; // ms window for double tap
 
-    if (now - lastTap < delay) {
-      // Double tap detected!
-      if (tapTimeoutRefs.current[videoId]) {
-        clearTimeout(tapTimeoutRefs.current[videoId]);
-        delete tapTimeoutRefs.current[videoId];
-      }
-      
-      // Double tap strictly sets isLiked = true and fires the heart animation.
-      // It must NEVER unlike the video if it is already liked.
-      handleLike(videoId, true);
-      
-      lastTapRef.current[videoId] = 0;
-    } else {
-      lastTapRef.current[videoId] = now;
-      
-      if (tapTimeoutRefs.current[videoId]) {
-        clearTimeout(tapTimeoutRefs.current[videoId]);
-      }
-      
-      tapTimeoutRefs.current[videoId] = setTimeout(() => {
-        handlersRef.current.toggleVideoPlayback(videoId);
-        handlersRef.current.showPauseButtonTemporarily(videoId);
-        delete tapTimeoutRefs.current[videoId];
-      }, delay);
-    }
-  }, [handleLike]);
 
   const handleFollow = async (userId: string) => {
     if (actionLoading === userId) return;
@@ -3101,20 +3610,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   //   2. Per-session counter (defense-in-depth, resets on app restart).
   //   3. Persistent 5-per-8h cap (adCap, shared with home feed).
   // Whichever is most restrictive wins.
-  const showShortsAds = !isWeb && !isExpoGo && hasWatchedFiveReels && adsAllowedAfter20s && !adCap.isCapped && !shortsAdsBroken;
+  const showShortsAds = !isWeb && !isExpoGo && !shortsAdsBroken;
   const shortsData = useMemo((): ShortsItem[] => {
     if (!showShortsAds || shorts.length === 0) return shorts as ShortsItem[];
-    const maxSlots = Math.min(
-      MAX_SHORTS_ADS,
-      Math.max(0, 3 - adsShownThisSession),
-      adCap.remainingSlots,
-    );
-    if (maxSlots <= 0) return shorts as ShortsItem[];
     const result: ShortsItem[] = [];
     let adCount = 0;
     shorts.forEach((reel, i) => {
       result.push(reel);
-      if (adCount < maxSlots && (i + 1) % SHORTS_ADS_AFTER_EVERY === 0 && i < shorts.length - 1) {
+      if ((i + 1) % SHORTS_ADS_AFTER_EVERY === 0 && i < shorts.length - 1) {
         const currentAdIndex = adCount++;
         if (!failedAdIndices.includes(currentAdIndex)) {
           result.push({ type: 'ad', adIndex: currentAdIndex });
@@ -3122,7 +3625,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
     });
     return result;
-  }, [shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots, failedAdIndices]);
+  }, [shorts, showShortsAds, failedAdIndices]);
+
+  useEffect(() => {
+    shortsDataRef.current = shortsData;
+  }, [shortsData]);
 
   // Cleanup videos that are far from viewport
   // Uses centralized stopAndUnloadVideo helper
@@ -3220,13 +3727,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     if (!effectiveShortId || shorts.length === 0 || !isTransitionFinished) return;
     const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
     if (reelIndex === -1) return;
-    const maxSlots = Math.min(
-      MAX_SHORTS_ADS,
-      Math.max(0, 3 - adsShownThisSession),
-      adCap.remainingSlots,
-    );
     const dataIndex = showShortsAds
-      ? reelIndex + Math.min(Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY), maxSlots)
+      ? reelIndex + Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY)
       : reelIndex;
     setCurrentIndex(dataIndex);
     setCurrentVisibleIndex(dataIndex);
@@ -3249,133 +3751,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }, 100 * (attempt + 1));
     };
     attemptScroll();
-  }, [effectiveShortId, shorts, showShortsAds, adsShownThisSession, adCap.remainingSlots, isTransitionFinished]);
+  }, [effectiveShortId, shorts, showShortsAds, isTransitionFinished]);
 
-  // Enhanced: Ensure video playback syncs with currentVisibleIndex (uses shortsData; ad = pause all, reel = play)
-  useEffect(() => {
-    if (previousVisibleIndexRef.current === currentVisibleIndex) return;
-    const visibleItem = shortsData[currentVisibleIndex] as ShortsItem | undefined;
-    const isReel = visibleItem && !isAdItem(visibleItem);
-    previousVisibleIndexRef.current = currentVisibleIndex;
-    
-    // Clear any pending recovery check when visible video changes
-    if (activeRecoveryTimerRef.current) {
-      clearTimeout(activeRecoveryTimerRef.current);
-      activeRecoveryTimerRef.current = null;
-    }
 
-    // NOTE: Do NOT call audioManager.stopAll() here.
-    // SongPlayer handles its own lifecycle via isVisible/autoPlay props,
-    // and audioManager.playSound() already calls stopAll() before playing a new sound.
-    // Calling stopAll() here creates a race condition that destroys audio before SongPlayer can play.
-
-    if (!isReel) {
-      Object.keys(videoRefs.current).forEach(id => {
-        videoRefs.current[id]?.pauseAsync().catch(() => {});
-      });
-      activeVideoIdRef.current = null;
-      return;
-    }
-
-    const currentShortId = (visibleItem as PostType)._id.toString();
-    const currentVideo = videoRefs.current[currentShortId];
-    const isUserPausedCurrent = userPausedShortIdsRef.current.has(currentShortId);
-    // Pause non-current videos but do NOT reset their videoStates to false.
-    // videoStates tracks whether the user intentionally paused a video.
-    // When returning to a video, its previous state is preserved so the song
-    // auto-plays if the video was playing when the user scrolled away.
-    Object.keys(videoRefs.current).forEach(id => {
-      if (id !== currentShortId) {
-        videoRefs.current[id]?.pauseAsync().catch(() => {});
-      }
-    });
-
-    if (currentVideo) {
-      activeVideoIdRef.current = currentShortId;
-      currentVideo.getStatusAsync().then((status) => {
-        if (status.isLoaded) {
-          const hasMusic = !!((visibleItem as PostType)?.song?.songId?._id || (visibleItem as PostType)?.song?.songId);
-          if (hasMusic) {
-            currentVideo.setIsMutedAsync(true).catch(() => {});
-            currentVideo.setVolumeAsync(0.0).catch(() => {});
-          } else {
-            currentVideo.setIsMutedAsync(false).catch(() => {});
-            currentVideo.setVolumeAsync(1.0).catch(() => {});
-          }
-          if (!status.isPlaying && !isUserPausedCurrent) {
-            currentVideo.playAsync().then(() => {
-              updateKeyedBool(setVideoStates, currentShortId, true);
-              logger.debug(`Video ${currentShortId} started playing via useEffect`);
-            }).catch((error) => {
-              logger.error(`Video ${currentShortId} failed to play via useEffect:`, error);
-              setTimeout(() => {
-                if (!userPausedShortIdsRef.current.has(currentShortId)) {
-                  currentVideo.playAsync().catch(() => {});
-                }
-              }, 500);
-            });
-          } else {
-            updateKeyedBool(setVideoStates, currentShortId, !isUserPausedCurrent);
-          }
-        } else {
-          logger.debug(`Video ${currentShortId} not loaded yet, waiting for onLoad`);
-          
-          // RECOVERY MECHANISM:
-          // If the visible video is not loaded yet (e.g. failed load in background due to expired URL),
-          // schedule a recovery check after 1.5 seconds. If it's still not loaded, we force-refetch the fresh signed URL.
-          activeRecoveryTimerRef.current = setTimeout(() => {
-            const checkVideo = videoRefs.current[currentShortId];
-            if (checkVideo) {
-              checkVideo.getStatusAsync().then((checkStatus) => {
-                if (!checkStatus.isLoaded) {
-                  logger.warn(`Video ${currentShortId} still not loaded after 1.5s - triggering URL refetch recovery`);
-                  handlersRef.current.refetchShortWithFreshUrl(currentShortId).then((freshShort: PostType | null) => {
-                    const freshVideoUrl = freshShort?.videoUrl || freshShort?.mediaUrl || freshShort?.imageUrl;
-                    if (freshShort && freshVideoUrl) {
-                      setShorts(prev => prev.map(s =>
-                        s._id === currentShortId
-                          ? { ...s, mediaUrl: freshShort.mediaUrl, videoUrl: freshShort.videoUrl || s.videoUrl, imageUrl: freshShort.imageUrl || s.imageUrl }
-                          : s
-                      ));
-                      setSourceVersions(prev => ({
-                        ...prev,
-                        [currentShortId]: (prev[currentShortId] ?? 0) + 1,
-                      }));
-                      updateKeyedBool(setVideoReadyStates, currentShortId, false);
-                      logger.info(`Successfully recovered visible video ${currentShortId} with fresh signed URL`);
-                    } else {
-                      handlersRef.current.retryVideoLoad(currentShortId, 200);
-                    }
-                  }).catch(() => {
-                    handlersRef.current.retryVideoLoad(currentShortId, 200);
-                  });
-                }
-              }).catch(() => {});
-            }
-          }, 1500);
-        }
-      }).catch((error) => {
-        logger.error(`Failed to get status for video ${currentShortId}:`, error);
-        const hasMusic = !!((visibleItem as PostType)?.song?.songId?._id || (visibleItem as PostType)?.song?.songId);
-        currentVideo.setIsMutedAsync(hasMusic).catch(() => {});
-        currentVideo.setVolumeAsync(hasMusic ? 0.0 : 1.0).catch(() => {});
-        if (!userPausedShortIdsRef.current.has(currentShortId)) {
-          currentVideo.playAsync().catch(() => {});
-        }
-      });
-    } else {
-      activeVideoIdRef.current = currentShortId;
-      updateKeyedBool(setVideoStates, currentShortId, !isUserPausedCurrent);
-      logger.debug(`Video ref not available for ${currentShortId}, will play when mounted`);
-    }
-
-    return () => {
-      if (activeRecoveryTimerRef.current) {
-        clearTimeout(activeRecoveryTimerRef.current);
-        activeRecoveryTimerRef.current = null;
-      }
-    };
-  }, [currentVisibleIndex, shortsData, updateKeyedBool]);
 
   // Preload next reel and track video views (reels only; skip when visible item is ad)
   useEffect(() => {
@@ -3439,8 +3817,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       handleTouchMove,
       handleTouchEnd,
       handleTouchCancel,
-      toggleVideoPlayback,
-      showPauseButtonTemporarily,
       handleDeleteShort,
       handleProfilePress,
       handleLike,
@@ -3448,11 +3824,26 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       handleShare,
       handleSave,
       getVideoUrl,
-      refetchShortWithFreshUrl,
-      retryVideoLoad,
-      handleVideoTap,
+      refetchShortWithFreshUrl: handleUrlRefetch,
+      removeLocalVideoUri,
+      handleSongPlayingChange,
     };
-  }, [handleTouchStart, handleTouchMove, handleTouchEnd, handleTouchCancel, toggleVideoPlayback, showPauseButtonTemporarily, handleDeleteShort, handleProfilePress, handleLike, handleComment, handleShare, handleSave, getVideoUrl, refetchShortWithFreshUrl, retryVideoLoad, handleVideoTap]);
+  }, [
+    handleTouchStart,
+    handleTouchMove,
+    handleTouchEnd,
+    handleTouchCancel,
+    handleDeleteShort,
+    handleProfilePress,
+    handleLike,
+    handleComment,
+    handleShare,
+    handleSave,
+    getVideoUrl,
+    handleUrlRefetch,
+    removeLocalVideoUri,
+    handleSongPlayingChange,
+  ]);
 
   // Memoized video item component to prevent unnecessary re-renders
   // Renders either a reel (PostType) or a full-screen ShortsNativeAd (after every 5 reels, max 3).
@@ -3467,7 +3858,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             onImpression={() => {
               consecutiveAdFailuresRef.current = 0; // Reset on successful impression
               adsShownThisSessionRef.current += 1;
-              setAdsShownThisSession((prev) => Math.min(3, prev + 1));
+               setAdsShownThisSession((prev) => prev + 1);
               // Persistent 5-per-8h cap, shared with the home feed. Fire-and-forget;
               // adCap handles AsyncStorage write + listener notification internally.
               recordGoogleAdImpression();
@@ -3496,682 +3887,62 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     }
 
     // Reel item
-    const distanceFromVisible = index - currentVisibleIndex;
-    // Mount the currently-visible reel AND its immediate neighbours (prev + next)
-    // so the upcoming video can buffer while the user watches the current one.
-    // This eliminates the "split-second black flash" when scrolling because the
-    // next Video component is already mounted and pre-loading its stream.
-    // Memory note: each expo-av Video holds a hardware decoder + GPU surface;
-    // three concurrent decoders (prev + current + next) is the sweet spot.
-    // The cleanup effect at distance > 1 unloads anything further out, and
-    // the blur handler unloads ALL decoders when the user leaves the tab.
-    const shouldRenderVideo = Math.abs(distanceFromVisible) <= 1;
-
-    const videoState = videoStates[item._id];
-    // Only treat the video as "playing" once it has actually reported playback
-    // (via onLoad / onPlaybackStatusUpdate). The previous optimistic fallback
-    // (`index === currentVisibleIndex` when state is undefined) caused SongPlayer
-    // to autoplay the (smaller, faster-loading) audio file before the video had
-    // finished buffering — so the user heard music before seeing the reel, and
-    // a tap-pause during that gap couldn't sync the two streams.
-    const isCellVideoPlaying = videoState === true && isVideoPlaying;
     const isFollowing = followStates[item.user._id] || false;
     const isSaved = savedShorts.has(item._id);
     const isLiked = item.isLiked || false;
-    
-    const isScopedView = !!effectiveUserId || props.isSavedShorts;
-    const progressBottom = isScopedView ? (isWeb ? 8 : 20) : (isWeb ? 8 : 77);
-    const progressHeight = 24;
-    const videoContainerBottom = progressBottom + progressHeight;
-    const clearance = 16;
-    const bottomContentOffset = progressBottom + progressHeight + clearance;
-    
-    // Calculate pause button visibility and icon - isolated from like state to prevent flexing
-    // Don't show pause button if like animation is showing
-    // Only show play/pause overlay when the user explicitly taps. Previously
-    // `!videoStates[item._id]` also triggered it, which flashed a "play"
-    // button during the brief load/transition window on scroll.
-    const shouldShowPauseButton = !showLikeAnimation[item._id] && !!showPauseButton[item._id];
-    const pauseButtonIcon = videoStates[item._id] ? "pause" : "play";
-    const shouldShowLikeAnimation = showLikeAnimation[item._id] || false;
-    
-    if (__DEV__ && index === currentVisibleIndex) {
-      if (item.song) {
-        logger.debug('Short has song data:', { shortId: item._id, songId: item.song.songId?._id || item.song.songId });
-      } else {
-        logger.debug('Short has NO song data:', { shortId: item._id });
-      }
-    }
-
-    // Pipe-separated key of every state slice that affects this cell's
-    // output. ShortCellMemo skips re-render if this string is identical to
-    // its previous value — meaning a state change for a different cell
-    // doesn't pay the cost of re-rendering this one. Pipe-string is cheap
-    // to build and compare; deliberately avoiding JSON.stringify per cell.
-    const isOwn = item.user._id === currentUser?._id;
-    const isVisibleNow = index === currentVisibleIndex;
-    const isMutedByUser = props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id);
-    const isReadyForDisplay = videoReadyStates[item._id] || false;
-    const cacheKey =
-      `${item._id}|${index}|${isVisibleNow ? 1 : 0}|` +
-      `${isCellVideoPlaying ? 1 : 0}|${isVisibleNow ? (isMutedByUser ? 1 : 0) : 0}|` +
-      `${isSaved ? 1 : 0}|${isFollowing ? 1 : 0}|` +
-      `${shouldShowPauseButton ? 1 : 0}|${shouldShowLikeAnimation ? 1 : 0}|` +
-      `${sourceVersions[item._id] ?? 0}|` +
-      `${item.commentsCount ?? 0}|${item.viewsCount ?? 0}|` +
-      `${isOwn ? 1 : 0}|${isScreenFocused ? 1 : 0}|${containerHeight}|${expandedCaptions[item._id] ? 1 : 0}|` +
-      `${isReadyForDisplay ? 1 : 0}`;
-
-    const videoDim = getScaledVideoDimensions(SCREEN_WIDTH, containerHeight);
 
     return (
-      <ShortCellMemo cacheKey={cacheKey}>
-      <View style={[
-        styles.shortItem, 
-        { 
-          height: containerHeight,
-          paddingBottom: isScopedView ? 0 : TAB_BAR_HEIGHT,
-        }
-      ]}>
-          {/* Video Player with Gesture Handling */}
-          <View
-            style={[
-              styles.videoContainer,
-              { bottom: isScopedView ? 100 : 0 }
-            ]}
-            onTouchStart={handlersRef.current.handleTouchStart}
-            onTouchMove={handlersRef.current.handleTouchMove}
-            onTouchEnd={(event) => handlersRef.current.handleTouchEnd(event, item.user._id)}
-            onTouchCancel={handlersRef.current.handleTouchCancel}
-          >
-            <TouchableWithoutFeedback
-              onPress={() => {
-                handlersRef.current.handleVideoTap(item._id);
-              }}
-              onLongPress={() => {
-                // Only allow delete for own content
-                if (item.user._id === currentUser?._id) {
-                  handlersRef.current.handleDeleteShort(item._id);
-                }
-              }}
-              accessible={true}
-              accessibilityLabel="Tap to play or pause video"
-              accessibilityRole="button"
-            >
-              {/* TouchableWithoutFeedback uses React.Children.only — wrap the backdrop
-                  + Video pair in a single View so it sees one child. The wrapper fills
-                  the parent so taps still hit anywhere. */}
-              <View style={[
-                styles.shortVideo,
-                StyleSheet.absoluteFillObject
-              ]}>
-              {/* Always show thumbnail backdrop so there's never a black surface.
-                  The Video layers on top; once its first frame decodes, it
-                  naturally covers the image — no opacity hack needed. */}
-              {item.imageUrl ? (
-                <ExpoImage
-                  source={{ uri: item.imageUrl }}
-                  style={[styles.shortVideo as ImageStyle, StyleSheet.absoluteFillObject]}
-                  contentFit="contain"
-                  cachePolicy="memory-disk"
-                  transition={0}
-                  onError={(e: any) => logger.warn('[shorts thumbnail] load failed', {
-                    shortId: item._id,
-                    url: item.imageUrl?.substring(0, 120),
-                    error: e?.error || e?.nativeEvent?.error || String(e),
-                  })}
-                />
-              ) : (
-                <View style={[styles.shortVideo, StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }]}>
-                  <LoadingGlobe size="small" color="rgba(255,255,255,0.6)" />
-                </View>
-              )}
-              {/* Only mount Video component if within 1 index of visible */}
-              {shouldRenderVideo && (
-                <MemoizedVideo
-                key={`video-${item._id}-${sourceVersions[item._id] ?? 0}`}
-                ref={(ref) => {
-                  videoRefs.current[item._id] = ref;
-                  if (index < 2) {
-                    logger.info(`[RENDER_VIDEO] Video component mounted for short at index ${index}:`, {
-                      shortId: item._id,
-                      shouldRenderVideo,
-                      sourceVersion: sourceVersions[item._id] ?? 0,
-                      timestamp: new Date().toISOString()
-                    });
-                  }
-                }}
-                source={getVideoSource(handlersRef.current.getVideoUrl(item))}
-                style={[
-                  styles.shortVideo,
-                  StyleSheet.absoluteFillObject,
-                  { opacity: isReadyForDisplay ? 1 : 0 }
-                ]}
-                resizeMode={ResizeMode.CONTAIN}
-                shouldPlay={index === currentVisibleIndex && isVideoPlaying && !userPausedShortIdsRef.current.has(item._id)}
-                isLooping
-                progressUpdateIntervalMillis={100}
-                isMuted={index !== currentVisibleIndex || !!(item.song?.songId?._id || item.song?.songId) || (props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id))}
-                volume={(() => {
-                  const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                  const isMutedByUser = props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id);
-                  return (hasMusic || isMutedByUser) ? 0.0 : 1.0;
-                })()}
-                onLoadStart={() => {
-                  logger.debug(`Video ${item._id} load started, index: ${index}, currentVisible: ${currentVisibleIndex}`);
-                  if (index === currentVisibleIndex && !localVideoUris[item._id]) {
-                    activeStartedWithRemoteRef.current[item._id] = true;
-                  }
-                  if (index < 2) {
-                    logger.info(`[RENDER_VIDEO] onLoadStart for short at index ${index}:`, {
-                      shortId: item._id,
-                      timestamp: new Date().toISOString()
-                    });
-                  }
-                  if (index === currentVisibleIndex) {
-                    const video = videoRefs.current[item._id];
-                    if (video) {
-                      const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                      const isMutedByUser = props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id);
-                      if (hasMusic || isMutedByUser) {
-                        video.setIsMutedAsync(true).catch(() => {});
-                        video.setVolumeAsync(0.0).catch(() => {});
-                      }
-                    }
-                  }
-                }}
-                onReadyForDisplay={() => {
-                  logger.debug(`Video ${item._id} ready for display`);
-                  updateKeyedBool(setVideoReadyStates, item._id, true);
-                }}
-                onError={(error) => {
-                  // Handle video loading errors (likely expired signed URL or timeout).
-                  // Strategy: don't manually call unload/load on the native player —
-                  // those calls race with React's lifecycle and have crashed expo-av
-                  // when the user scrolls during the retry. Instead refresh the URL
-                  // via setShorts and bump a per-item key version so React fully
-                  // unmounts the old player and remounts a clean one with the new URL.
-                  logger.error(`Video ${item._id} failed to load:`, error);
-                  videoCacheRef.current.delete(item._id);
-                  if (localVideoUris[item._id]) {
-                    const pathToRemove = localVideoUris[item._id];
-                    setLocalVideoUris(prev => {
-                      const updated = { ...prev };
-                      delete updated[item._id];
-                      return updated;
-                    });
-                    removeCachedVideo(pathToRemove).catch(() => {});
-                  }
-                  delete activeStartedWithRemoteRef.current[item._id];
-                  updateKeyedBool(setVideoStates, item._id, false);
-                  updateKeyedBool(setVideoReadyStates, item._id, false);
-
-                  const errorMessage = typeof error === 'string' ? error : (error as any)?.message || '';
-                  const errorCode = (error as any)?.code;
-                  const errorDomain = (error as any)?.domain;
-                  const isTimeoutError =
-                    errorCode === -1001 ||
-                    errorCode === '-1001' ||
-                    errorDomain === 'NSURLErrorDomain' ||
-                    /(-1001|NSURLErrorDomain|timeout|Timeout|timed out)/.test(errorMessage);
-                  const isExpiredUrl = /(403|404|Forbidden|expired|ExpiredRequest)/.test(errorMessage);
-
-                  if (isExpiredUrl || isTimeoutError) {
-                    const errorType = isTimeoutError ? 'timeout' : 'expired URL';
-                    logger.debug(`Video ${item._id} ${errorType} — refetching fresh signed URL`, { errorCode, errorDomain, errorMessage });
-                    handlersRef.current
-                      .refetchShortWithFreshUrl(item._id)
-                      .then((freshShort: PostType | null) => {
-                        const freshVideoUrl = freshShort?.videoUrl || freshShort?.mediaUrl || freshShort?.imageUrl;
-                        if (!freshShort || !freshVideoUrl) {
-                          handlersRef.current.retryVideoLoad(item._id, 1000);
-                          return;
-                        }
-                        // Swap the URL in feed state.
-                        setShorts(prev => prev.map(s =>
-                          s._id === item._id
-                            ? { ...s, mediaUrl: freshShort.mediaUrl, videoUrl: freshShort.videoUrl || s.videoUrl, imageUrl: freshShort.imageUrl || s.imageUrl }
-                            : s
-                        ));
-                        // Bump source version → key changes → Video remounts cleanly.
-                        setSourceVersions(prev => ({
-                          ...prev,
-                          [item._id]: (prev[item._id] ?? 0) + 1,
-                        }));
-                        updateKeyedBool(setVideoReadyStates, item._id, false);
-                      })
-                      .catch((refetchError: any) => {
-                        logger.error(`Failed to refetch fresh URL for video ${item._id}:`, refetchError);
-                        handlersRef.current.retryVideoLoad(item._id, 1000);
-                      });
-                  } else {
-                    handlersRef.current.retryVideoLoad(item._id, 1000);
-                  }
-                }}
-                onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
-                  if (status.isLoaded) {
-                    if (index === currentVisibleIndex) {
-                      const cb = progressCallbacks.current[item._id];
-                      if (cb) {
-                        cb(status.positionMillis, status.durationMillis || 1);
-                      }
-                    }
-                    const wasPlaying = videoStates[item._id];
-                    const isNowPlaying = status.isPlaying;
-                    
-                    // CRITICAL: If music exists, or if user muted this short, ensure video stays muted
-                    const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                    const isMutedByUser = props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id);
-                    if ((hasMusic || isMutedByUser) && index === currentVisibleIndex) {
-                      const video = videoRefs.current[item._id];
-                      if (video && !status.isMuted) {
-                        // Throttle to once/second per video. Status callbacks fire
-                        // ~5x/sec; calling setIsMutedAsync/setVolumeAsync that
-                        // often was bridge churn correlated with native crashes.
-                        const now = Date.now();
-                        const lastEnforce = lastMuteEnforceAtRef.current[item._id] ?? 0;
-                        if (now - lastEnforce > 1000) {
-                          lastMuteEnforceAtRef.current[item._id] = now;
-                          video.setIsMutedAsync(true).catch(() => {});
-                          video.setVolumeAsync(0.0).catch(() => {});
-                        }
-                      }
-                    }
-                    
-                    // Ensure only one video plays at a time.
-                    // Gate by the source of truth (currentVisibleIndex) rather
-                    // than the ref — the ref can lag during scroll transitions
-                    // and falsely pause the video that just became visible,
-                    // causing intermittent "won't play" behaviour.
-                    if (isNowPlaying && (index !== currentVisibleIndex || !isScreenFocusedRef.current)) {
-                      videoRefs.current[item._id]?.pauseAsync().catch(() => {
-                        // Silently handle pause errors
-                      });
-                      return; // Don't update state if we're pausing it
-                    }
-                    
-                    // Update active video ref when playback starts
-                    if (isNowPlaying && index === currentVisibleIndex) {
-                      activeVideoIdRef.current = item._id;
-                    }
-
-                    // Detect video loop restart and sync audio back to startTime.
-                    // When isLooping is true, expo-av restarts the video natively
-                    // without firing didJustFinish. We detect the loop by checking
-                    // if the position jumped backwards significantly.
-                    if (isNowPlaying && index === currentVisibleIndex && status.positionMillis !== undefined) {
-                      const lastPos = lastVideoPositionRef.current[item._id] ?? 0;
-                      const curPos = status.positionMillis;
-                      // A backwards jump of >500ms while playing = the video looped
-                      if (lastPos > 500 && curPos < lastPos - 500) {
-                        const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                        if (hasMusic && currentPlayerRef.current) {
-                          const startSec = item.song?.startTime || 0;
-                          const endSec = item.song?.endTime;
-                          const songStartMs = startSec * 1000;
-                          // Compensate for the video having already advanced `curPos` ms
-                          // past the loop point by the time this status update fires.
-                          // Without the offset, audio resets to exactly startTime while
-                          // the video is already curPos ms in, leaving audio ~100ms behind
-                          // the visual after every loop. Wrap within the audio segment
-                          // length so the seek never lands past endTime.
-                          const segmentMs = endSec && endSec > startSec ? (endSec - startSec) * 1000 : 60000;
-                          const audioOffsetMs = curPos % segmentMs;
-                          currentPlayerRef.current.setPositionAsync(songStartMs + audioOffsetMs).catch(() => {});
-                        }
-                      }
-                      lastVideoPositionRef.current[item._id] = curPos;
-                    }
-                    
-                    // Only update video state when playback status actually changes
-                    // to avoid unnecessary re-renders (onPlaybackStatusUpdate fires ~30x/sec).
-                    // Only sync 'true' (playing) state from native player. We do NOT sync 'false' (paused)
-                    // automatically here, because native player temporarily reports isPlaying=false
-                    // during re-renders, buffering, or loop transitions, which would cause the background song
-                    // player to stutter. User-initiated pause and screen transitions explicitly set videoStates to false.
-                    if (isNowPlaying && wasPlaying !== true) {
-                      logger.debug(`Video ${item._id} playing`);
-                      updateKeyedBool(setVideoStates, item._id, true);
-                    }
-                  } else if ((status as any).error) {
-                    // Handle playback errors
-                    logger.error(`Video ${item._id} playback error:`, (status as any).error);
-                    // Clear cache and retry if this is the current visible video
-                    if (index === currentVisibleIndex) {
-                      videoCacheRef.current.delete(item._id);
-                      if (localVideoUris[item._id]) {
-                        const pathToRemove = localVideoUris[item._id];
-                        setLocalVideoUris(prev => {
-                          const updated = { ...prev };
-                          delete updated[item._id];
-                          return updated;
-                        });
-                        removeCachedVideo(pathToRemove).catch(() => {});
-                      }
-                      delete activeStartedWithRemoteRef.current[item._id];
-                    }
-                  }
-                }}
-                onLoad={(status) => {
-                  // CRITICAL: Ensure video plays after it fully loads, especially for subsequent videos
-                  if (status.isLoaded) {
-                    logger.debug(`Video ${item._id} loaded successfully, isPlaying: ${status.isPlaying}, shouldPlay: ${index === currentVisibleIndex}`);
-
-                    // Initialize video state when video loads (coalesced)
-                    updateKeyedBool(setVideoStates, item._id, !!status.isPlaying);
-                    
-                    // CRITICAL FIX: Ensure video plays when it becomes visible and is loaded
-                    // This fixes the black screen issue for subsequent videos
-                    if (index === currentVisibleIndex && isScreenFocusedRef.current && !userPausedShortIdsRef.current.has(item._id)) {
-                      const video = videoRefs.current[item._id];
-                      if (video) {
-                        // If music exists (by songId), ensure video is muted
-                        const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                        if (hasMusic) {
-                          video.setIsMutedAsync(true).catch(() => {});
-                          video.setVolumeAsync(0.0).catch(() => {});
-                        } else {
-                          video.setIsMutedAsync(false).catch(() => {});
-                          video.setVolumeAsync(1.0).catch(() => {});
-                        }
-
-                        // Play video if it's not already playing
-                        if (!status.isPlaying) {
-                          activeVideoIdRef.current = item._id;
-                          video.playAsync().then(() => {
-                            updateKeyedBool(setVideoStates, item._id, true);
-                            logger.debug(`Video ${item._id} started playing after load`);
-                          }).catch((error) => {
-                            logger.error(`Video ${item._id} failed to play after load:`, error);
-                          });
-                        }
-                      }
-                    }
-                  }
-                }}
-              />
-              )}
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-          
-          {/* Elegant Gradient Overlays */}
-          <LinearGradient
-            colors={['transparent', 'transparent']}
-            style={styles.topGradient}
-          />
-          <LinearGradient
-            colors={['transparent', 'transparent']}
-            style={styles.bottomGradient}
-          />
-          
-          {/* Like Animation - Shows when like button is clicked */}
-          {shouldShowLikeAnimation && (() => {
-            // Get or create animation value for this item
-            if (!likeAnimationRefs.current[item._id]) {
-              likeAnimationRefs.current[item._id] = new Animated.Value(0);
-            }
-            const animValue = likeAnimationRefs.current[item._id];
-            
-            // Create interpolated values for opacity and scale
-            const opacity = animValue.interpolate({
-              inputRange: [0, 0.5, 1, 1.2],
-              outputRange: [0, 0.4, 0.5, 0.5], // Lower opacity for subtle effect
-            });
-            
-            const scale = animValue.interpolate({
-              inputRange: [0, 0.5, 1, 1.2],
-              outputRange: [0.3, 0.8, 1, 1.2],
-            });
-            
-            return (
-              <Animated.View 
-                style={[
-                  styles.likeAnimationContainer,
-                  {
-                    opacity,
-                    transform: [{ scale }],
-                  },
-                ]}
-                pointerEvents="none"
-              >
-                <MaskedView
-                  style={{ width: 80, height: 80 }}
-                  maskElement={
-                    <Ionicons name="heart" size={80} color="#000000" />
-                  }
-                >
-                  <LinearGradient
-                    colors={['#50C878', '#1C73B4']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={{ flex: 1 }}
-                  />
-                </MaskedView>
-              </Animated.View>
-            );
-          })()}
-
-          {/* Play/Pause Overlay - Stable positioning to prevent flexing during like/unlike */}
-          {shouldShowPauseButton && (
-            <View 
-              style={styles.playButton} 
-              pointerEvents="none"
-              collapsable={false}
-            >
-              <View style={styles.playButtonBlur}>
-                <Ionicons 
-                  name={pauseButtonIcon} 
-                  size={50} 
-                  color="white" 
-                />
-              </View>
-            </View>
-          )}
-
-          {/* Swipe Hint */}
-          {showSwipeHint && !effectiveUserId && index === currentVisibleIndex && (
-            <Animated.View style={[styles.swipeHint, { opacity: fadeAnimation }]}>
-              <View style={styles.swipeHintBlur}>
-                <Ionicons name="arrow-back" size={24} color="white" />
-                <Text style={styles.swipeHintText}>Swipe left for profile</Text>
-              </View>
-            </Animated.View>
-          )}
-        
-          <LocalShortsActionRail
-            short={item}
-            shortId={item._id}
-            userId={item.user._id}
-            username={item.user.username}
-            profilePic={item.user.profilePic}
-            initialIsLiked={isLiked}
-            initialLikesCount={typeof item.likesCount === 'number' ? item.likesCount : 0}
-            commentsCount={item.commentsCount || 0}
-            isSaved={isSaved}
-            isFollowing={isFollowing}
-            isOwn={isOwn}
-            currentUserLoaded={!!currentUser?._id}
-            onProfilePress={handlersRef.current.handleProfilePress}
-            onLikePress={handlersRef.current.handleLike}
-            onCommentPress={handlersRef.current.handleComment}
-            onSharePress={handlersRef.current.handleShare}
-            onSavePress={handlersRef.current.handleSave}
-            isScopedView={!!effectiveUserId || props.isSavedShorts}
-            isPlaying={isCellVideoPlaying}
-          />
-
-          {/* Bottom Content with Elegant Design */}
-          <View 
-            style={[
-              styles.bottomContent, 
-              { bottom: bottomContentOffset }
-            ]}
-          >
-            <LinearGradient
-              colors={['transparent', 'transparent', 'transparent']}
-              style={styles.bottomGradientOverlay}
-            />
-            
-            <View style={styles.bottomContentInner}>
-              <View style={styles.userProfileSection}>
-                <TouchableOpacity
-                  style={styles.bottomAvatarContainer}
-                  onPress={(e) => {
-                    e.stopPropagation?.();
-                    handlersRef.current.handleProfilePress(item.user._id);
-                  }}
-                  activeOpacity={0.7}
-                  accessibilityLabel={`View ${item.user.username || 'user'}'s profile`}
-                  accessibilityRole="button"
-                >
-                  <LinearGradient
-                    colors={['#50C878', '#1C73B4']}
-                    style={styles.bottomGradientBorder}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                  >
-                    <ExpoImage
-                      source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                      style={styles.bottomProfileImage as ImageStyle}
-                      cachePolicy="memory-disk"
-                      placeholder={require('../../assets/avatars/male_avatar.png')}
-                      contentFit="cover"
-                      transition={200}
-                      onError={(e: any) => logger.warn('[shorts bottom avatar] load failed', {
-                        userId: item.user._id,
-                        url: item.user.profilePic?.substring(0, 120),
-                        error: e?.error || e?.nativeEvent?.error || String(e),
-                      })}
-                    />
-                  </LinearGradient>
-                </TouchableOpacity>
-
-                <View style={styles.userDetails}>
-                  {/* Row 1 (Identity): A horizontal flex row containing the Username */}
-                  <View style={styles.usernameRow}>
-                    <TouchableOpacity
-                      onPress={(e) => {
-                        e.stopPropagation?.();
-                        handlersRef.current.handleProfilePress(item.user._id);
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.username}>@{item.user.username || item.user._id}</Text>
-                    </TouchableOpacity>
-                    
-                    {isFollowing && (
-                      <View style={styles.followingBadge}>
-                        <Text style={styles.followingText}>Following</Text>
-                      </View>
-                    )}
-                  </View>
-
-                  {/* Row 2 (Music & Location Cycling Carousel): Alternates every 2 seconds */}
-                  <CyclingMetadata
-                    song={item.song}
-                    location={item.location}
-                    onLocationPress={async (e) => {
-                      e.stopPropagation?.();
-                      try {
-                        const address = item.location?.address;
-                        if (address) {
-                          const coordinates = await geocodeAddress(address);
-                          if (coordinates) {
-                            router.push({
-                              pathname: '/map/current-location',
-                              params: {
-                                latitude: coordinates.latitude.toString(),
-                                longitude: coordinates.longitude.toString(),
-                                address,
-                                photo: item.imageUrl || '',
-                              }
-                            });
-                          } else {
-                            router.push('/map/current-location');
-                          }
-                        }
-                      } catch (error) {
-                        logger.warn('Failed to geocode location:', error);
-                        router.push('/map/current-location');
-                      }
-                    }}
-                  />
-                </View>
-              </View>
-
-              {/* Row 3 (Caption Constraint): Toggles between 2 lines and expanded on press */}
-              {item.caption ? (
-                <TouchableOpacity
-                  activeOpacity={0.85}
-                  onPress={(e) => {
-                    e.stopPropagation?.();
-                    setExpandedCaptions(prev => ({
-                      ...prev,
-                      [item._id]: !prev[item._id]
-                    }));
-                  }}
-                >
-                  <Text 
-                    style={styles.caption} 
-                    numberOfLines={expandedCaptions[item._id] ? undefined : 2}
-                  >
-                    {item.caption}
-                  </Text>
-                </TouchableOpacity>
-              ) : null}
-              
-              {/* Song Player - Hidden but active for audio playback */}
-              {/* CRITICAL: Only render SongPlayer if song exists with valid s3Url */}
-              {/* Render SongPlayer whenever a populated song object exists — even if the URL is missing.
-                 SongPlayer will fetch a fresh URL via getSongById if s3Url/cloudinaryUrl are null. */}
-              {!!(item.song?.songId && (item.song.songId._id || typeof item.song.songId === 'string')) && (
-                  <View style={styles.hiddenSongPlayer} pointerEvents="none">
-                    <SongPlayer
-                      post={item}
-                      isVisible={isScreenFocused && index === currentVisibleIndex}
-                      shouldPreload={isScreenFocused && index === currentVisibleIndex + 1}
-                      autoPlay={isCellVideoPlaying}
-                      externalMuted={props.isMuted !== undefined ? props.isMuted : mutedShorts.has(item._id)}
-                      onPlayingChange={handleSongPlayingChange}
-                    />
-                  </View>
-              )}
-            </View>
-          </View>
-          {shouldRenderVideo && (
-            <ShortsProgressBar
-              shortId={item._id}
-              index={index}
-              currentVisibleIndex={currentVisibleIndex}
-              getVideoRef={() => videoRefs.current[item._id]}
-              hasMusic={!!(item.song?.songId?._id || item.song?.songId)}
-              songStartSec={item.song?.startTime}
-              songEndSec={item.song?.endTime}
-              currentPlayerRef={currentPlayerRef}
-              progressCallbacks={progressCallbacks}
-              lastVideoPositionRef={lastVideoPositionRef}
-              isScopedView={!!effectiveUserId || props.isSavedShorts}
-            />
-          )}
-      </View>
-      </ShortCellMemo>
+      <ShortsCell
+        item={item}
+        index={index}
+        currentVisibleIndex={currentVisibleIndex}
+        isVideoPlaying={isVideoPlaying}
+        isScreenFocused={isScreenFocused}
+        isMuted={props.isMuted !== undefined ? props.isMuted : isFeedMuted}
+        currentUser={currentUser}
+        containerHeight={containerHeight}
+        isFollowing={isFollowing}
+        isSaved={isSaved}
+        isLiked={isLiked}
+        localVideoUris={localVideoUris}
+        isSavedShorts={props.isSavedShorts}
+        effectiveUserId={effectiveUserId}
+        handlers={handlersRef.current}
+        videoRefs={videoRefs}
+        currentPlayerRef={currentPlayerRef}
+        progressCallbacks={progressCallbacks}
+        lastVideoPositionRef={lastVideoPositionRef}
+        activeStartedWithRemoteRef={activeStartedWithRemoteRef}
+        showSwipeHint={showSwipeHint}
+        fadeAnimation={fadeAnimation}
+        likedShortIdsRef={likedShortIdsRef}
+        videoCacheRef={videoCacheRef}
+        appState={appState}
+      />
     );
-    // swipeAnimation / fadeAnimation are Animated.Value refs from useRef ---
-    // their identity never changes, so they don't belong in the deps array.
-    // Including them was harmless but signaled false volatility.
-  }, [currentVisibleIndex, videoStates, followStates, savedShorts, mutedShorts, currentUser, showPauseButton, showLikeAnimation, isScreenFocused, sourceVersions, containerHeight, expandedCaptions, isVideoPlaying, localVideoUris, props.isMuted]);
+  }, [
+    currentVisibleIndex,
+    isVideoPlaying,
+    isScreenFocused,
+    props.isMuted,
+    isFeedMuted,
+    currentUser,
+    containerHeight,
+    followStates,
+    savedShorts,
+    localVideoUris,
+    props.isSavedShorts,
+    effectiveUserId,
+    showSwipeHint,
+    fadeAnimation,
+    appState,
+  ]);
 
   const keyExtractor = useCallback((item: ShortsItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;
     return item._id;
   }, []);
 
-  const getItemLayout = useCallback((_data: any, index: number) => ({
-    length: containerHeight,
-    offset: containerHeight * index,
-    index,
-  }), [containerHeight]);
 
   // Track viewable items; handle ad vs reel. Frequency: set hasWatchedFiveReels when user has viewed reel at index >= 5.
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: any[] }) => {
@@ -4180,7 +3951,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const newVisibleIndex = visibleItem.index;
     const item = visibleItem.item as ShortsItem;
 
-    if (newVisibleIndex === undefined || newVisibleIndex === null || newVisibleIndex === currentVisibleIndex) return;
+    if (newVisibleIndex === undefined || newVisibleIndex === null || newVisibleIndex === currentVisibleIndexRef.current) return;
 
     if (!isInitialScrollDoneRef.current) {
       if (newVisibleIndex === targetInitialIndexRef.current) {
@@ -4199,18 +3970,14 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       currentPlayerRef.current = null;
     }
 
-    const previousIndex = currentVisibleIndex;
-    const previousItem = shortsData[previousIndex] as ShortsItem | undefined;
+    const previousIndex = currentVisibleIndexRef.current;
+    const previousItem = shortsDataRef.current[previousIndex] as ShortsItem | undefined;
 
     setCurrentVisibleIndex(newVisibleIndex);
     setCurrentIndex(newVisibleIndex);
+    currentVisibleIndexRef.current = newVisibleIndex;
 
-    // If visible item is a reel, track max reel index for frequency (hasWatchedFiveReels)
-    if (item && !isAdItem(item)) {
-      const reelIndex = shortsData.slice(0, newVisibleIndex).filter((x: ShortsItem) => !isAdItem(x)).length;
-      const threshold = __DEV__ ? 1 : 5;
-      if (reelIndex >= threshold) setHasWatchedFiveReels(true);
-    }
+    // Reel view tracking is done here.
 
     // Pause previous video if previous item was a reel
     if (previousItem && !isAdItem(previousItem)) {
@@ -4218,18 +3985,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       const previousVideo = videoRefs.current[previousVideoId];
       userPausedShortIdsRef.current.delete(previousVideoId);
       if (previousVideo) {
-        previousVideo.pauseAsync()
-          .then(() => {
-            updateKeyedBool(setVideoStates, previousVideoId, false);
-          })
-          .catch(() => {
-            updateKeyedBool(setVideoStates, previousVideoId, false);
-          });
-        // Do NOT call stopAndUnloadVideo here: the Video component may still
-        // be mounted in the FlatList window, and unloadAsync leaves it in a
-        // black/unloaded state with no trigger to reload when the user
-        // scrolls back. Unmounting (via shouldRenderVideo / windowSize) is
-        // what frees resources — pauseAsync above is enough to stop playback.
+        previousVideo.pauseAsync().catch(() => {});
       }
     }
 
@@ -4240,11 +3996,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     // If new visible item is a reel, mark it active for playback; if ad, leave video paused
     if (item && !isAdItem(item)) {
       activeVideoIdRef.current = item._id;
-      updateKeyedBool(setVideoStates, item._id, !userPausedShortIdsRef.current.has(item._id));
     } else {
       activeVideoIdRef.current = null;
     }
-  }, [shortsData, stopAndUnloadVideo, currentVisibleIndex, updateKeyedBool]);
+  }, []);
 
   const viewabilityConfig = useRef({
     itemVisiblePercentThreshold: 60, // Lower threshold so visibility triggers sooner during snap animation
@@ -4299,7 +4054,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
         const currentShort = shorts[currentVisibleIndex] as PostType | undefined;
         const hasSong = !!(currentShort?.song?.songId && (currentShort.song.songId._id || typeof currentShort.song.songId === 'string'));
-        const isMuted = currentShort ? (props.isMuted !== undefined ? props.isMuted : mutedShorts.has(currentShort._id)) : false;
+        const isMuted = currentShort ? (props.isMuted !== undefined ? props.isMuted : isFeedMuted) : false;
         
         return (
           <View style={styles.topBar}>
@@ -4326,12 +4081,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                     if (props.onMuteToggle) {
                       props.onMuteToggle();
                     } else {
-                      setMutedShorts(prev => {
-                        const next = new Set(prev);
-                        if (next.has(currentShort._id)) next.delete(currentShort._id);
-                        else next.add(currentShort._id);
-                        return next;
-                      });
+                      audioManager.setSessionMuted(!audioManager.getSessionMuted());
                     }
                   }}
                   accessibilityLabel={isMuted ? 'Unmute' : 'Mute'}
@@ -4347,8 +4097,9 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         );
       })()}
 
-      <FlatList
+      <AnyFlashList
         ref={flatListRef}
+        estimatedItemSize={containerHeight}
         scrollEnabled={!isSwipeActive}
         refreshControl={
           <RefreshControl
@@ -4360,13 +4111,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         data={shortsData}
         renderItem={renderShortItem}
         keyExtractor={keyExtractor}
-        getItemLayout={getItemLayout}
         initialScrollIndex={(() => {
           if (!effectiveShortId || shorts.length === 0) return undefined;
           const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
           if (reelIndex === -1) return undefined;
-          const maxSlots = Math.min(MAX_SHORTS_ADS, Math.max(0, 3 - adsShownThisSession));
-          const dataIndex = showShortsAds ? reelIndex + Math.min(Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY), maxSlots) : reelIndex;
+          const dataIndex = showShortsAds ? reelIndex + Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY) : reelIndex;
           return dataIndex;
         })()}
         pagingEnabled
@@ -4376,20 +4125,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         snapToInterval={containerHeight}
         snapToAlignment="start"
         decelerationRate="fast"
-        // Stops a fast flick from carrying past one page and snapping back —
-        // user lands on the next reel exactly, no overshoot.
         disableIntervalMomentum={true}
-        onScrollToIndexFailed={(info) => {
-          const wait = new Promise(resolve => setTimeout(resolve, 500));
-          wait.then(() => {
-            flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
-          });
-        }}
-        removeClippedSubviews={true}
-        initialNumToRender={3}
-        maxToRenderPerBatch={3}
-        windowSize={3}
-        updateCellsBatchingPeriod={10}
         onEndReached={loadMoreShorts}
         onEndReachedThreshold={0.3}
         onScroll={handleScroll}
@@ -4400,8 +4136,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         contentInsetAdjustmentBehavior="never"
         automaticallyAdjustContentInsets={false}
         contentInset={{ top: 0, bottom: 0, left: 0, right: 0 }}
-        // Use onViewableItemsChanged for precise visibility tracking
-        // This ensures we know exactly which video is visible (80% coverage threshold)
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
       />

@@ -77,7 +77,7 @@ export default function ShareModal({
   shareUrl,
 }: ShareModalProps) {
   const isJourneyShare = !!journey;
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const { height: screenHeight } = Dimensions.get('window');
 
   const isPrimaryWhite = theme.colors.primary.toLowerCase() === '#ffffff' || theme.colors.primary.toLowerCase() === '#fff';
@@ -933,8 +933,8 @@ export default function ShareModal({
                 </TouchableOpacity>
 
                 <TouchableOpacity style={styles.bottomRailItem} onPress={handleCopyLink}>
-                  <View style={[styles.bottomRailIconCircle, { backgroundColor: 'rgba(255, 255, 255, 0.1)' }]}>
-                    <Ionicons name="link-outline" size={24} color="#FFFFFF" />
+                  <View style={[styles.bottomRailIconCircle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#F3F4F6' }]}>
+                    <Ionicons name="link-outline" size={24} color={theme.colors.text} />
                   </View>
                   <Text style={[styles.bottomRailText, { color: theme.colors.text }]} numberOfLines={2}>
                     Copy link
@@ -960,8 +960,8 @@ export default function ShareModal({
                 </TouchableOpacity>
 
                 <TouchableOpacity style={styles.bottomRailItem} onPress={handleNativeShare}>
-                  <View style={[styles.bottomRailIconCircle, { backgroundColor: 'rgba(255, 255, 255, 0.1)' }]}>
-                    <Ionicons name="share-social-outline" size={24} color="#FFFFFF" />
+                  <View style={[styles.bottomRailIconCircle, { backgroundColor: isDark ? 'rgba(255, 255, 255, 0.1)' : '#F3F4F6' }]}>
+                    <Ionicons name="share-social-outline" size={24} color={theme.colors.text} />
                   </View>
                   <Text style={[styles.bottomRailText, { color: theme.colors.text }]} numberOfLines={2}>
                     Share

@@ -13,6 +13,7 @@ import { BlurView } from 'expo-blur';
 import { useTheme } from '../context/ThemeContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Path, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
+import LocationPin from './ui/LocationPin';
 import { getApiUrl } from '../utils/config';
 import { sanitizeLatitudeDelta } from '../utils/mapSafety';
 
@@ -121,7 +122,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
   }, [pulse, usesNativeIosMarker]);
 
   const containerStyle = useAnimatedStyle(() => {
-    const baseScale = activeState ? (isDark ? 1.15 : 1.1) : 1.0;
+    const baseScale = activeState ? 1.3 : 1.0;
     const totalScale = baseScale * zoomScaleShared.value;
     return {
       transform: [{ scale: totalScale }],
@@ -189,14 +190,22 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
         {!usesNativeIosMarker && (
           <Animated.View style={[styles.dotPulse, pulseStyle, { top: 3 }]}>
             <LinearGradient
-              colors={isDark ? ['rgba(45, 212, 191, 0.4)', 'rgba(45, 212, 191, 0.05)'] as const : ['rgba(59, 130, 246, 0.4)', 'rgba(59, 130, 246, 0.05)'] as const}
+              colors={['rgba(59, 130, 246, 0.4)', 'rgba(16, 185, 129, 0.05)'] as const}
               start={{ x: 0, y: 0 }}
               end={{ x: 1, y: 1 }}
               style={[StyleSheet.absoluteFillObject, { borderRadius: 15 }]}
             />
           </Animated.View>
         )}
-        <View style={[styles.dotCore, { backgroundColor: isDark ? '#2DD4BF' : '#3B82F6', borderColor: '#FFFFFF' }, Platform.OS === 'android' && { elevation: 3 }]} />
+        <LinearGradient
+          colors={['#3B82F6', '#10B981'] as const}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[
+            styles.dotCore,
+            Platform.OS === 'android' && { elevation: 3 }
+          ]}
+        />
       </Animated.View>
     );
   }
@@ -221,27 +230,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
         
         {/* Custom Svg Gradient Pin (Teardrop shape matching Google Maps logo, white border) */}
         <View style={styles.pinWrapper}>
-          <Svg width={30} height={38} viewBox="0 0 30 38" style={styles.svgPin}>
-            <Defs>
-              <SvgLinearGradient id="pinGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                <Stop offset="0%" stopColor="#3B82F6" />
-                <Stop offset="100%" stopColor="#10B981" />
-              </SvgLinearGradient>
-            </Defs>
-            <Path
-              d="M15 2C7.27 2 1 8.27 1 16c0 9 14 21 14 21s14-12 14-21c0-7.73-6.27-14-14-14z"
-              fill="url(#pinGrad)"
-              stroke="#FFFFFF"
-              strokeWidth={2}
-            />
-            {isLandmark && (
-              <Path
-                d="M 9,21 H 21 V 15 H 18 V 18 H 17 V 14 H 13 V 18 H 12 V 15 H 9 Z M 13.5,21 V 18.5 A 1.5,1.5 0 0,1 16.5,18.5 V 21 Z M 15,14 V 10 L 18,11.5 L 15,13 Z"
-                fill="#FFFFFF"
-                fillRule="evenodd"
-              />
-            )}
-          </Svg>
+          <LocationPin width={30} height={38} showLandmark={isLandmark} style={styles.svgPin} />
           
           {/* If not landmark, overlay the custom Ionicon in white */}
           {!isLandmark && (
@@ -254,66 +243,37 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
     );
   }
 
-  // Handle Active State: Glassmorphism card + photo preview
-  const showLabel = label || activeTitle || '';
-  const displaySubtitle = activeSubtitle || 'Visited place';
-  
-  const outerBg = isDark ? 'rgba(15, 23, 42, 0.75)' : 'rgba(255, 255, 255, 0.75)';
-  const borderCol = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.08)';
-  const textColor = isDark ? '#FFFFFF' : '#0F172A';
+  // Handle both Inactive Pin and Active Pin (No glassmorphic card preview anymore!)
+  const isLandmark = icon === 'location';
 
   return (
-    <Animated.View style={[styles.cockpitContainer, containerStyle]}>
-      {/* Shadow wrapper (no overflow hidden to allow shadows on iOS, flat wrapper on Android) */}
-      <View style={isDark ? styles.shadowDark : styles.shadowLight}>
-        {/* Glassmorphic card body (clips inner contents like blur/image) */}
-        <View style={styles.cardWrapper}>
-          <View
-            style={[
-              styles.markerCard,
-              {
-                backgroundColor: isDark ? 'rgba(30, 41, 59, 0.85)' : 'rgba(255, 255, 255, 0.85)',
-                borderColor: borderCol,
-                borderRadius: 14,
-              }
-            ]}
-          >
-            <View style={styles.markerContentRow}>
-              {resolvedPhoto ? (
-                <ExpoImage
-                  source={{ uri: resolvedPhoto }}
-                  style={[styles.markerPhoto, { borderColor: isDark ? '#2DD4BF' : '#3B82F6' }]}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                  onLoad={handleImageLoad}
-                />
-              ) : (
-                <View style={[styles.iconCircle, { backgroundColor: isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)' }]}>
-                  <Ionicons
-                    name={icon}
-                    size={14}
-                    color={isDark ? '#2DD4BF' : '#3B82F6'}
-                  />
-                </View>
-              )}
-              
-              <View style={styles.textColumn}>
-                {showLabel ? (
-                  <Text style={[styles.markerLabelText, { color: textColor }]} numberOfLines={1}>
-                    {showLabel}
-                  </Text>
-                ) : null}
-                <Text style={[styles.activeSubtitleText, { color: isDark ? '#94A3B8' : '#64748B' }]} numberOfLines={1}>
-                  {displaySubtitle}
-                </Text>
-              </View>
-            </View>
+    <Animated.View style={[styles.inactiveMarkerContainer, containerStyle]}>
+      {/* Pulsating Ring (under the pin) */}
+      {!usesNativeIosMarker && (
+        <Animated.View style={[styles.dotPulse, pulseStyle, { top: 5 }]}>
+          <LinearGradient
+            colors={activeState
+              ? ['rgba(59, 130, 246, 0.6)', 'rgba(45, 212, 191, 0.15)'] as const
+              : ['rgba(59, 130, 246, 0.4)', 'rgba(29, 78, 216, 0.05)'] as const
+            }
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={[StyleSheet.absoluteFillObject, { borderRadius: 15 }]}
+          />
+        </Animated.View>
+      )}
+      
+      {/* Custom Svg Gradient Pin */}
+      <View style={styles.pinWrapper}>
+        <LocationPin width={30} height={38} showLandmark={isLandmark} style={styles.svgPin} />
+        
+        {/* If not landmark, overlay the custom Ionicon in white */}
+        {!isLandmark && (
+          <View style={styles.iconOverlay}>
+            <Ionicons name={icon} size={12} color="#FFFFFF" />
           </View>
-        </View>
+        )}
       </View>
-
-      {/* Base Point Indicator at the bottom */}
-      <View style={[styles.activeBaseDot, { backgroundColor: isDark ? '#2DD4BF' : '#3B82F6', marginTop: 4, marginBottom: 0 }]} />
     </Animated.View>
   );
 }, (prevProps, nextProps) => {
