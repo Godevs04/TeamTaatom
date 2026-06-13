@@ -259,6 +259,9 @@ export default function ProfileScreen() {
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
   const [posts, setPosts] = useState<PostType[]>([]);
   const [userShorts, setUserShorts] = useState<PostType[]>([]);
+  const [postsPage, setPostsPage] = useState(1);
+  const [hasMorePosts, setHasMorePosts] = useState(true);
+  const [loadingMorePosts, setLoadingMorePosts] = useState(false);
 
   const [savedPosts, setSavedPosts] = useState<PostType[]>([]);
   const [savedShorts, setSavedShorts] = useState<PostType[]>([]);
@@ -391,7 +394,7 @@ export default function ProfileScreen() {
     }
     
     isFetchingRef.current = true;
-    if (!isBackground) {
+    if (!isBackground && !profileData) {
       setCheckingUser(true);
       setVerifiedLocations([]);
       setVerifiedLocationsCount(null);
@@ -418,7 +421,9 @@ export default function ProfileScreen() {
       
       // OPTIMIZATION: Set user immediately for optimistic rendering
       setUser(userData);
-      setCheckingUser(false);
+      if (!profileData) {
+        setCheckingUser(false);
+      }
       
       // OPTIMIZATION: Try to load cached data first for instant display (optimistic)
       try {
@@ -454,7 +459,7 @@ export default function ProfileScreen() {
       // OPTIMIZATION: Fetch profile, posts, shorts, and verified locations in parallel for 2-3x faster loading
       const [profileResult, userPosts, shortsResp, travelMapResult] = await Promise.allSettled([
         getProfile(userData._id),
-        fetchAllUserPosts(userData._id),
+        getUserPosts(userData._id, 1, 18),
         getUserShorts(userData._id, 1, 100),
         getTravelMapData(userData._id).catch(() => null) // Don't fail if this fails
       ]);
@@ -506,18 +511,11 @@ export default function ProfileScreen() {
         const fetchedPosts = sortByCreatedDesc(userPosts.value.posts || []);
         if (__DEV__) {
           console.log('📸 [Profile] Fetched posts:', fetchedPosts.length);
-          if (fetchedPosts.length > 0) {
-            console.log('📸 [Profile] First post:', {
-              _id: fetchedPosts[0]._id,
-              imageUrl: fetchedPosts[0].imageUrl,
-              image_url: (fetchedPosts[0] as any).image_url,
-              mediaUrl: (fetchedPosts[0] as any).mediaUrl,
-              images: (fetchedPosts[0] as any).images,
-              allKeys: Object.keys(fetchedPosts[0] || {})
-            });
-          }
         }
         setPosts(fetchedPosts);
+        setPostsPage(1);
+        const total = userPosts.value.totalPosts ?? fetchedPosts.length;
+        setHasMorePosts(fetchedPosts.length < total);
         // Cache posts for offline support
         try {
           await AsyncStorage.setItem(`cachedUserPosts_${userData._id}`, JSON.stringify({
@@ -595,10 +593,87 @@ export default function ProfileScreen() {
     }
   }, [showError, loadUnreadCount]);
 
-  // Lifecycle: Setup and cleanup
+  const loadMorePosts = useCallback(async () => {
+    if (loadingMorePosts || !hasMorePosts || !user?._id) return;
+    
+    setLoadingMorePosts(true);
+    const nextPage = postsPage + 1;
+    
+    try {
+      const res = await getUserPosts(user._id, nextPage, 18);
+      const newPosts = res.posts || [];
+      if (newPosts.length > 0) {
+        setPosts(prev => {
+          const combined = [...prev, ...newPosts];
+          return sortByCreatedDesc(combined);
+        });
+        setPostsPage(nextPage);
+        setHasMorePosts((posts.length + newPosts.length) < (res.totalPosts ?? 0));
+      } else {
+        setHasMorePosts(false);
+      }
+    } catch (error) {
+      logger.error('Failed to load more posts:', error);
+    } finally {
+      setLoadingMorePosts(false);
+    }
+  }, [loadingMorePosts, hasMorePosts, user?._id, postsPage, posts.length]);
+
+  // Lifecycle: Setup and cleanup with cache-first load
   useEffect(() => {
     isMountedRef.current = true;
-    loadUserData();
+    
+    const initializeProfile = async () => {
+      try {
+        const userData = await getUserFromStorage();
+        if (!isMountedRef.current) return;
+        if (!userData) {
+          setCheckingUser(false);
+          setLoading(false);
+          return;
+        }
+        setUser(userData);
+        setCheckingUser(false);
+
+        // Try to load cached data first for instant display (optimistic)
+        const [cachedProfile, cachedPosts] = await Promise.all([
+          AsyncStorage.getItem(`cachedProfile_${userData._id}`).catch(() => null),
+          AsyncStorage.getItem(`cachedUserPosts_${userData._id}`).catch(() => null)
+        ]);
+
+        if (!isMountedRef.current) return;
+
+        let hasValidCache = false;
+        if (cachedProfile) {
+          const parsed = JSON.parse(cachedProfile);
+          const cacheAge = Date.now() - (parsed.timestamp || 0);
+          if (cacheAge < 5 * 60 * 1000) { // 5 min cache for profile
+            setProfileData(parsed.data);
+            hasValidCache = true;
+          }
+        }
+
+        if (cachedPosts) {
+          const parsed = JSON.parse(cachedPosts);
+          const cacheAge = Date.now() - (parsed.timestamp || 0);
+          if (cacheAge < 50 * 60 * 1000) {
+            const cachedArr = sortByCreatedDesc(parsed.data || []);
+            setPosts(cachedArr as PostType[]);
+          }
+        }
+
+        if (hasValidCache) {
+          setLoading(false);
+        }
+      } catch (cacheError) {
+        logger.debug('Cache load error on mount:', cacheError);
+      }
+
+      // Trigger background sync
+      loadUserData();
+    };
+
+    initializeProfile();
 
     return () => {
       isMountedRef.current = false;
@@ -1657,6 +1732,12 @@ export default function ProfileScreen() {
         key={`${activeTab}_${activeSavedSubTab}`}
         keyExtractor={(item) => item._id}
         renderItem={renderProfileItem}
+        onEndReached={() => {
+          if (activeTab === 'posts') {
+            loadMorePosts();
+          }
+        }}
+        onEndReachedThreshold={0.5}
         ListHeaderComponent={
           <>
             {/* Spacer to reserve space for the absolute header */}
@@ -1802,6 +1883,11 @@ export default function ProfileScreen() {
         columnWrapperStyle={[styles.postsGridWrapper, { backgroundColor: profileTheme.glassCardBg }]}
         ListFooterComponent={
           <>
+            {activeTab === 'posts' && loadingMorePosts && (
+              <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+                <LoadingGlobe size="small" />
+              </View>
+            )}
             <View style={[styles.unifiedCardFooter, { backgroundColor: profileTheme.glassCardBg }]} />
             
             {/* Edit Profile Modal */}

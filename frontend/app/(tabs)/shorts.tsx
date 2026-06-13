@@ -428,6 +428,7 @@ interface ShortsCellProps {
   isSaved: boolean;
   isLiked: boolean;
   localVideoUris: Record<string, string>;
+  isCacheChecked: boolean;
   isSavedShorts?: boolean;
   effectiveUserId?: string | null;
   handlers: any;
@@ -457,6 +458,7 @@ const ShortsCell = React.memo((props: ShortsCellProps) => {
     isSaved,
     isLiked,
     localVideoUris,
+    isCacheChecked,
     isSavedShorts,
     effectiveUserId,
     handlers,
@@ -757,7 +759,7 @@ const ShortsCell = React.memo((props: ShortsCellProps) => {
   };
 
   const distanceFromVisible = index - currentVisibleIndex;
-  const shouldRenderVideo = Math.abs(distanceFromVisible) <= 1;
+  const shouldRenderVideo = Math.abs(distanceFromVisible) <= 1 && isCacheChecked;
 
   const isCellVideoPlaying = isPlaying && isVideoPlaying;
   const isOwn = item.user._id === currentUser?._id;
@@ -847,13 +849,13 @@ const ShortsCell = React.memo((props: ShortsCellProps) => {
               volume={(!!(item.song?.songId?._id || item.song?.songId) || isMuted) ? 0.0 : 1.0}
               onLoadStart={() => {
                 logger.debug(`Video ${item._id} load started, index: ${index}, currentVisible: ${currentVisibleIndex}`);
-                if (!localVideoUris[item._id]) {
-                  activeStartedWithRemoteRef.current[item._id] = true;
-                }
               }}
               onReadyForDisplay={() => {
                 logger.debug(`Video ${item._id} ready for display`);
                 setVideoReady(true);
+                if (handlers.onVideoReady) {
+                  handlers.onVideoReady(item._id);
+                }
               }}
               onError={(error) => {
                 logger.error(`Video ${item._id} failed to load:`, error);
@@ -2070,6 +2072,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [showSwipeHint, setShowSwipeHint] = useState(true);
   const [videoQuality, setVideoQuality] = useState<'low' | 'medium' | 'high'>('high');
   const [localVideoUris, setLocalVideoUris] = useState<Record<string, string>>({});
+  const [checkedVideoCacheIds, setCheckedVideoCacheIds] = useState<Set<string>>(new Set());
+  const [activeVideoPrepared, setActiveVideoPrepared] = useState(false);
   const activeStartedWithRemoteRef = useRef<Record<string, boolean>>({});
   const currentVisibleIndexRef = useRef<number>(initialIndex);
   const shortsDataRef = useRef<ShortsItem[]>([]);
@@ -2077,6 +2081,30 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   useEffect(() => {
     currentVisibleIndexRef.current = currentVisibleIndex;
   }, [currentVisibleIndex]);
+
+  useEffect(() => {
+    if (isGeneralFeed && globalCachedShorts.length > 0) {
+      const firstShorts = globalCachedShorts.slice(0, 3);
+      const initialUris: Record<string, string> = {};
+      Promise.all(
+        firstShorts.map(async (item: any) => {
+          const localUri = await getLocalVideoUri(item._id);
+          if (localUri) {
+            initialUris[item._id] = localUri;
+          }
+        })
+      ).then(() => {
+        setLocalVideoUris((prev) => ({ ...prev, ...initialUris }));
+        setCheckedVideoCacheIds((prev) => {
+          const next = new Set(prev);
+          firstShorts.forEach((s) => next.add(s._id));
+          return next;
+        });
+      });
+    }
+  }, []);
+
+
 
   useEffect(() => {
     const unsubscribeViews = realtimePostsService.subscribeToViews(({ postId, viewsCount }) => {
@@ -2205,6 +2233,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     refetchShortWithFreshUrl: null as any,
     removeLocalVideoUri: null as any,
     handleSongPlayingChange: null as any,
+    onVideoReady: null as any,
   });
   
   const { theme, mode } = useTheme();
@@ -2849,6 +2878,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       currentPageRef.current = 1;
       cursorRef.current = null;
       hasMoreRef.current = true;
+      setCheckedVideoCacheIds(new Set());
 
       logger.info(`[LOAD_SHORTS] Starting to load shorts`, {
         effectiveUserId,
@@ -2899,6 +2929,24 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           return { ...s, isLiked, likesCount };
         });
 
+        // Resolve cache for the first 3 saved shorts
+        const firstShorts = enriched.slice(0, 3);
+        const initialUris: Record<string, string> = {};
+        await Promise.all(
+          firstShorts.map(async (item: any) => {
+            const localUri = await getLocalVideoUri(item._id);
+            if (localUri) {
+              initialUris[item._id] = localUri;
+            }
+          })
+        );
+        setLocalVideoUris((prev) => ({ ...prev, ...initialUris }));
+        setCheckedVideoCacheIds((prev) => {
+          const next = new Set(prev);
+          firstShorts.forEach((s) => next.add(s._id));
+          return next;
+        });
+
         // Set follow states
         const followStatesMap: { [key: string]: boolean } = {};
         enriched.forEach((short: PostType) => {
@@ -2930,6 +2978,18 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
               hasMediaUrl: !!singleShort.mediaUrl,
               hasImageUrl: !!singleShort.imageUrl
             });
+
+            // Resolve cache for this single short first!
+            const localUri = await getLocalVideoUri(singleShort._id);
+            if (localUri) {
+              setLocalVideoUris(prev => ({ ...prev, [singleShort._id]: localUri }));
+            }
+            setCheckedVideoCacheIds((prev) => {
+              const next = new Set(prev);
+              next.add(singleShort._id);
+              return next;
+            });
+
             const fromStorage = likedShortIdsRef.current.has(singleShort._id);
             const isLiked = singleShort.isLiked || fromStorage;
             const likesCount = isLiked && fromStorage && !singleShort.isLiked
@@ -3024,6 +3084,25 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           : (s.likesCount ?? 0);
         return { ...s, isLiked, likesCount };
       });
+
+      // Resolve cache for the first 3 shorts
+      const firstShorts = merged.slice(0, 3);
+      const initialUris: Record<string, string> = {};
+      await Promise.all(
+        firstShorts.map(async (item: any) => {
+          const localUri = await getLocalVideoUri(item._id);
+          if (localUri) {
+            initialUris[item._id] = localUri;
+          }
+        })
+      );
+      setLocalVideoUris((prev) => ({ ...prev, ...initialUris }));
+      setCheckedVideoCacheIds((prev) => {
+        const next = new Set(prev);
+        firstShorts.forEach((s) => next.add(s._id));
+        return next;
+      });
+
       setShorts(merged);
       if (!shouldFilterByUser) {
         hasMoreRef.current = (response.shorts || []).length >= 10;
@@ -3074,6 +3153,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       setCurrentVisibleIndex(0);
       previousVisibleIndexRef.current = -1;
       activeVideoIdRef.current = null;
+      setCheckedVideoCacheIds(new Set());
       pauseCurrentAudio();
       flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
       try {
@@ -3631,6 +3711,28 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     shortsDataRef.current = shortsData;
   }, [shortsData]);
 
+  // Reset activePrepared state when visible index changes
+  useEffect(() => {
+    setActiveVideoPrepared(false);
+  }, [currentVisibleIndex]);
+
+  // Set activeVideoPrepared to true if active video is already cached
+  useEffect(() => {
+    const activeVideo = shortsData[currentVisibleIndex];
+    if (activeVideo && !isAdItem(activeVideo) && !!localVideoUris[activeVideo._id]) {
+      setActiveVideoPrepared(true);
+    }
+  }, [currentVisibleIndex, shortsData, localVideoUris]);
+
+  // Fallback: allow preloading next videos after 1.5s regardless of active video readiness
+  useEffect(() => {
+    if (activeVideoPrepared) return;
+    const timer = setTimeout(() => {
+      setActiveVideoPrepared(true);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [activeVideoPrepared, currentVisibleIndex]);
+
   // Cleanup videos that are far from viewport
   // Uses centralized stopAndUnloadVideo helper
   useEffect(() => {
@@ -3649,28 +3751,89 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     });
   }, [currentVisibleIndex, shortsData, stopAndUnloadVideo]);
 
+  const handleVideoReady = useCallback((videoId: string) => {
+    // When video is ready for display, if it didn't use a local URI, lock it to remote
+    if (!localVideoUris[videoId]) {
+      activeStartedWithRemoteRef.current[videoId] = true;
+    }
+    
+    // If the ready video is the active one, mark active video as prepared
+    const activeVideo = shortsDataRef.current[currentVisibleIndexRef.current];
+    if (activeVideo && !isAdItem(activeVideo) && activeVideo._id === videoId) {
+      setActiveVideoPrepared(true);
+    }
+  }, [localVideoUris]);
+
   // Sliding-Window Preloading and Local Cache Resolution Effect
   useEffect(() => {
     if (!shortsData || shortsData.length === 0) return;
 
-    const minIndex = Math.max(0, currentVisibleIndex - 2);
-    const maxIndex = Math.min(shortsData.length - 1, currentVisibleIndex + 2);
+    // 1. Always preload active video immediately if not cached
+    const activeItem = shortsData[currentVisibleIndex];
+    if (activeItem && !isAdItem(activeItem)) {
+      const baseUrl = activeItem.videoUrl || activeItem.mediaUrl || activeItem.imageUrl;
+      if (baseUrl) {
+        preloadVideoAsync(activeItem._id, baseUrl);
+      }
+    }
 
-    // 1. Trigger background preloading for all videos in the sliding window
-    for (let i = minIndex; i <= maxIndex; i++) {
-      const item = shortsData[i];
-      if (item && !isAdItem(item)) {
-        const baseUrl = item.videoUrl || item.mediaUrl || item.imageUrl;
+    // 2. Preload previous video (backward scrolling support) immediately
+    const prevIndex = currentVisibleIndex - 1;
+    if (prevIndex >= 0) {
+      const prevItem = shortsData[prevIndex];
+      if (prevItem && !isAdItem(prevItem)) {
+        const baseUrl = prevItem.videoUrl || prevItem.mediaUrl || prevItem.imageUrl;
         if (baseUrl) {
-          preloadVideoAsync(item._id, baseUrl);
+          preloadVideoAsync(prevItem._id, baseUrl);
         }
       }
     }
 
-    // 2. Poll/check file existence for the sliding window to update localVideoUris state
+    // 3. Preload next videos only when active video is prepared (ready or cached)
+    let staggerTimeout: NodeJS.Timeout | null = null;
+    if (activeVideoPrepared) {
+      // Preload next video (index + 1)
+      const nextIndex = currentVisibleIndex + 1;
+      if (nextIndex < shortsData.length) {
+        const nextItem = shortsData[nextIndex];
+        if (nextItem && !isAdItem(nextItem)) {
+          const baseUrl = nextItem.videoUrl || nextItem.mediaUrl || nextItem.imageUrl;
+          if (baseUrl) {
+            preloadVideoAsync(nextItem._id, baseUrl);
+          }
+        }
+      }
+
+      // Preload second next video (index + 2) with a delay, or when next video is cached
+      const secondNextIndex = currentVisibleIndex + 2;
+      if (secondNextIndex < shortsData.length) {
+        const secondNextItem = shortsData[secondNextIndex];
+        if (secondNextItem && !isAdItem(secondNextItem)) {
+          const baseUrl = secondNextItem.videoUrl || secondNextItem.mediaUrl || secondNextItem.imageUrl;
+          if (baseUrl) {
+            const nextItem = shortsData[nextIndex];
+            const isNextCached = nextItem && !isAdItem(nextItem) && !!localVideoUris[nextItem._id];
+            
+            if (isNextCached) {
+              preloadVideoAsync(secondNextItem._id, baseUrl);
+            } else {
+              staggerTimeout = setTimeout(() => {
+                preloadVideoAsync(secondNextItem._id, baseUrl);
+              }, 1200);
+            }
+          }
+        }
+      }
+    }
+
+    // 4. Poll/check file existence for the sliding window to update localVideoUris and checkedVideoCacheIds state
+    const minIndex = Math.max(0, currentVisibleIndex - 2);
+    const maxIndex = Math.min(shortsData.length - 1, currentVisibleIndex + 2);
     let active = true;
     const checkCachedVideos = async () => {
       const newUris: Record<string, string> = {};
+      const checkedIds: string[] = [];
+
       for (let i = minIndex; i <= maxIndex; i++) {
         const item = shortsData[i];
         if (item && !isAdItem(item)) {
@@ -3678,6 +3841,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           if (localUri) {
             newUris[item._id] = localUri;
           }
+          checkedIds.push(item._id);
         }
       }
       if (active) {
@@ -3695,6 +3859,18 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           }
           return prev;
         });
+
+        setCheckedVideoCacheIds(prev => {
+          const next = new Set(prev);
+          let changed = false;
+          for (const id of checkedIds) {
+            if (!next.has(id)) {
+              next.add(id);
+              changed = true;
+            }
+          }
+          return changed ? next : prev;
+        });
       }
     };
 
@@ -3704,23 +3880,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     return () => {
       active = false;
       clearInterval(interval);
-    };
-  }, [currentVisibleIndex, shortsData]);
-
-  // Track if active video started with a remote URL when it became visible.
-  // This prevents reload stuttering / black flashes mid-playback when download finishes.
-  useEffect(() => {
-    if (!shortsData || shortsData.length === 0) return;
-    const visibleItem = shortsData[currentVisibleIndex];
-    if (visibleItem && !isAdItem(visibleItem)) {
-      const videoId = visibleItem._id;
-      // If it became visible and we don't have a cached local URI for it yet,
-      // it must have started playing with a remote URL. Mark it as such.
-      if (!localVideoUris[videoId]) {
-        activeStartedWithRemoteRef.current[videoId] = true;
+      if (staggerTimeout) {
+        clearTimeout(staggerTimeout);
       }
-    }
-  }, [currentVisibleIndex, shortsData, localVideoUris]);
+    };
+  }, [currentVisibleIndex, shortsData, activeVideoPrepared, localVideoUris]);
 
   // Deep link: scroll to specific short when effectiveShortId is set (URL or props). dataIndex accounts for ad slots when showShortsAds.
   useEffect(() => {
@@ -3809,8 +3973,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     };
   }, [currentVisibleIndex, shortsData, getVideoUrl, currentUser?._id]);
 
-  // CRITICAL: Update handlers ref whenever handlers change (prevents stale closures in renderShortItem)
-  // This MUST be after all handlers are defined
   useEffect(() => {
     handlersRef.current = {
       handleTouchStart,
@@ -3827,6 +3989,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       refetchShortWithFreshUrl: handleUrlRefetch,
       removeLocalVideoUri,
       handleSongPlayingChange,
+      onVideoReady: handleVideoReady,
     };
   }, [
     handleTouchStart,
@@ -3843,6 +4006,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     handleUrlRefetch,
     removeLocalVideoUri,
     handleSongPlayingChange,
+    handleVideoReady,
   ]);
 
   // Memoized video item component to prevent unnecessary re-renders
@@ -3905,6 +4069,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         isSaved={isSaved}
         isLiked={isLiked}
         localVideoUris={localVideoUris}
+        isCacheChecked={checkedVideoCacheIds.has(item._id)}
         isSavedShorts={props.isSavedShorts}
         effectiveUserId={effectiveUserId}
         handlers={handlersRef.current}
@@ -3936,6 +4101,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     showSwipeHint,
     fadeAnimation,
     appState,
+    checkedVideoCacheIds,
   ]);
 
   const keyExtractor = useCallback((item: ShortsItem) => {

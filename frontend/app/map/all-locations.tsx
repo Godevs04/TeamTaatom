@@ -657,6 +657,60 @@ function AllLocationsMapInner() {
     }
   }, [selectedPost]);
 
+  // Zoom to fit selected journey polyline
+  useEffect(() => {
+    if (selectedJourney && mapRef.current) {
+      let coords = getJourneyPolylineCoords(selectedJourney);
+      if (coords.length === 0) {
+        if (selectedJourney.startCoords?.lat && selectedJourney.startCoords?.lng) {
+          coords.push({
+            latitude: selectedJourney.startCoords.lat,
+            longitude: selectedJourney.startCoords.lng,
+            timestamp: Date.now(),
+            segmentBreak: false,
+          });
+        }
+        if (selectedJourney.endCoords?.lat && selectedJourney.endCoords?.lng) {
+          coords.push({
+            latitude: selectedJourney.endCoords.lat,
+            longitude: selectedJourney.endCoords.lng,
+            timestamp: Date.now(),
+            segmentBreak: false,
+          });
+        }
+      }
+      if (coords.length > 0) {
+        if (useWebViewFallback) {
+          const boundsJson = JSON.stringify(coords.map(c => ({ lat: c.latitude, lng: c.longitude })));
+          mapRef.current.injectJavaScript(`
+            if (window.map) {
+              var coords = ${boundsJson};
+              var bounds = new google.maps.LatLngBounds();
+              coords.forEach(function(c) {
+                bounds.extend(new google.maps.LatLng(c.lat, c.lng));
+              });
+              window.map.fitBounds(bounds);
+            }
+            true;
+          `);
+        } else {
+          setTimeout(() => {
+            try {
+              if (typeof mapRef.current?.fitToCoordinates === 'function') {
+                mapRef.current.fitToCoordinates(coords, {
+                  edgePadding: { top: 100, right: 100, bottom: 100, left: 100 },
+                  animated: true,
+                });
+              }
+            } catch (err) {
+              logger.error('Error fitting to journey coordinates:', err);
+            }
+          }, 100);
+        }
+      }
+    }
+  }, [selectedJourney, useWebViewFallback]);
+
   // Scroll carousel to index when selectedPost is changed externally
   useEffect(() => {
     if (selectedPost && !isScrollingCarouselRef.current) {
@@ -1901,7 +1955,7 @@ function initMap(){
                 anchor={{ x: 0.5, y: 0.5 }}
                 repaintTriggers={[isSelected, isDark]}
               >
-                <View style={styles.journeyRepMarker}>
+                <View style={styles.journeyRepMarker} pointerEvents="none">
                   {isSelected ? (
                     <LinearGradient
                       colors={['#3B82F6', '#10B981']}

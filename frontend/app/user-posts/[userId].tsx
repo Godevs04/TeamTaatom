@@ -91,8 +91,13 @@ export default function UserPostsScreen() {
     }
   }
 
-  const [posts, setPosts] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [posts, setPosts] = useState<any[]>(() => {
+    if (initialPost.current) {
+      return [initialPost.current];
+    }
+    return [];
+  });
+  const [loading, setLoading] = useState(!initialPost.current);
   const [refreshing, setRefreshing] = useState(false);
   const [user, setUser] = useState<any>(null);
   const flatListRef = useRef<FlatList>(null);
@@ -100,6 +105,9 @@ export default function UserPostsScreen() {
   const shouldRestoreScrollRef = useRef(false);
 
   const [initialIndex, setInitialIndex] = useState(0);
+  const [postsPage, setPostsPage] = useState(1);
+  const [hasMorePosts, setHasMorePosts] = useState(true);
+  const [loadingMorePosts, setLoadingMorePosts] = useState(false);
 
   const [visiblePostId, setVisiblePostId] = useState<string | null>(null);
   const visiblePostIdRef = useRef<string | null>(null);
@@ -149,25 +157,44 @@ export default function UserPostsScreen() {
         setLoading(true);
       }
       
-      // Fetch user info
-      const userResponse = await api.get(`/profile/${userId}`);
-      setUser(userResponse.data.profile);
+      // Fetch user info in parallel with initial posts fetch
+      const userPromise = api.get(`/profile/${userId}`).then(res => {
+        setUser(res.data.profile);
+      }).catch(err => {
+        logger.error('Error fetching user profile in posts detail:', err);
+      });
       
-      // Fetch all user's posts with pagination
-      let fetchedPosts: any[] = [];
-      let page = 1;
       const limit = 20;
-      let hasMore = true;
-      let safetyCounter = 0;
-      
-      while (hasMore && safetyCounter < 50) {
-        const postsResponse = await api.get(`/posts/user/${userId}?page=${page}&limit=${limit}`);
-        const pagePosts = postsResponse.data.posts || [];
-        fetchedPosts = [...fetchedPosts, ...pagePosts];
-        hasMore = pagePosts.length === limit;
-        page++;
-        safetyCounter++;
+      let targetIndex = 0;
+      if (postId && posts.length > 0) {
+        const foundIndex = posts.findIndex((p: any) => p._id === postId);
+        if (foundIndex !== -1) {
+          targetIndex = foundIndex;
+        }
+      } else if (index) {
+        targetIndex = parseInt(index as string, 10);
       }
+
+      const targetPage = Math.floor(targetIndex / limit) + 1;
+      const maxPageToFetch = Math.min(Math.max(1, targetPage), 5);
+
+      const pagePromises = [];
+      for (let p = 1; p <= maxPageToFetch; p++) {
+        pagePromises.push(api.get(`/posts/user/${userId}?page=${p}&limit=${limit}`));
+      }
+
+      const [pagesResponses] = await Promise.all([
+        Promise.all(pagePromises),
+        userPromise
+      ]);
+
+      let fetchedPosts: any[] = [];
+      for (const res of pagesResponses) {
+        fetchedPosts = [...fetchedPosts, ...(res.data.posts || [])];
+      }
+
+      // De-duplicate just in case
+      fetchedPosts = fetchedPosts.filter((p, i, self) => self.findIndex(t => t._id === p._id) === i);
 
       fetchedPosts.sort((a: any, b: any) => {
         const dateA = new Date(a.createdAt || a.created_at || 0).getTime();
@@ -175,17 +202,36 @@ export default function UserPostsScreen() {
         return dateB - dateA;
       });
       
-      let targetIndex = 0;
+      let finalTargetIndex = targetIndex;
       if (postId) {
         const foundIndex = fetchedPosts.findIndex((p: any) => p._id === postId);
         if (foundIndex !== -1) {
-          targetIndex = foundIndex;
+          finalTargetIndex = foundIndex;
         }
-      } else if (index) {
-        targetIndex = parseInt(index as string, 10);
       }
-      setInitialIndex(targetIndex);
+      
+      setInitialIndex(finalTargetIndex);
       setPosts(fetchedPosts);
+      
+      setPostsPage(maxPageToFetch);
+      const lastPageResponse = pagesResponses[pagesResponses.length - 1];
+      const lastPagePosts = lastPageResponse?.data?.posts || [];
+      setHasMorePosts(lastPagePosts.length === limit);
+
+      // Scroll to target index programmatically once posts are loaded
+      if (fetchedPosts.length > 0 && finalTargetIndex > 0) {
+        requestAnimationFrame(() => {
+          try {
+            flatListRef.current?.scrollToIndex({
+              index: finalTargetIndex,
+              animated: false,
+              viewPosition: 0,
+            });
+          } catch (err) {
+            logger.debug('Programmatic scroll to index failed:', err);
+          }
+        });
+      }
       
     } catch (error) {
       logger.error('Error fetching user posts:', error);
@@ -194,6 +240,39 @@ export default function UserPostsScreen() {
       setRefreshing(false);
     }
   }, [userId, postId, index]);
+
+  const loadMorePosts = useCallback(async () => {
+    if (loadingMorePosts || !hasMorePosts || !userId) return;
+    
+    setLoadingMorePosts(true);
+    const nextPage = postsPage + 1;
+    const limit = 20;
+    
+    try {
+      const postsResponse = await api.get(`/posts/user/${userId}?page=${nextPage}&limit=${limit}`);
+      const pagePosts = postsResponse.data.posts || [];
+      if (pagePosts.length > 0) {
+        setPosts(prev => {
+          const combined = [...prev, ...pagePosts];
+          // Remove duplicates
+          const unique = combined.filter((p, i, self) => self.findIndex(t => t._id === p._id) === i);
+          return unique.sort((a: any, b: any) => {
+            const dateA = new Date(a.createdAt || a.created_at || 0).getTime();
+            const dateB = new Date(b.createdAt || b.created_at || 0).getTime();
+            return dateB - dateA;
+          });
+        });
+        setPostsPage(nextPage);
+        setHasMorePosts(pagePosts.length === limit);
+      } else {
+        setHasMorePosts(false);
+      }
+    } catch (error) {
+      logger.error('Error loading more user posts in details view:', error);
+    } finally {
+      setLoadingMorePosts(false);
+    }
+  }, [loadingMorePosts, hasMorePosts, userId, postsPage]);
 
   useEffect(() => {
     fetchUserPosts();
@@ -361,10 +440,19 @@ export default function UserPostsScreen() {
           data={posts}
           keyExtractor={(item) => item._id}
           renderItem={renderPost}
-          initialScrollIndex={initialIndex}
+          initialScrollIndex={posts.length > 1 ? initialIndex : 0}
           getItemLayout={getItemLayout}
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={viewabilityConfig}
+          onEndReached={loadMorePosts}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={
+            loadingMorePosts ? (
+              <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+                <LoadingGlobe size="small" color={theme.colors.primary} />
+              </View>
+            ) : null
+          }
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

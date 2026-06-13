@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useImperativeHandle } from 'react';
+import { View } from 'react-native';
 import { Marker } from '../utils/mapsWrapper';
 
 interface SafeMarkerProps {
@@ -71,8 +72,15 @@ const SafeMarker = React.forwardRef(({ children, repaintTriggers = [], ...props 
   if (!Marker) return null;
 
   return (
-    <Marker ref={markerRef} {...props} tracksViewChanges={tracksViewChanges}>
-      {children}
+    <Marker
+      ref={markerRef}
+      {...props}
+      onSelect={props.onSelect || props.onPress}
+      tracksViewChanges={tracksViewChanges}
+    >
+      <View pointerEvents="none">
+        {children}
+      </View>
     </Marker>
   );
 });

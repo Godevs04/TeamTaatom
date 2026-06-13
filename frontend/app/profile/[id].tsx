@@ -42,6 +42,21 @@ const columnWidth = Math.floor((width - 4) / 3);
 
 const TRIP_GAP_DAYS = 7;
 
+const normalizeId = (val: any): string | null => {
+  if (!val) return null;
+  if (typeof val === 'string') return val;
+  if (typeof val === 'object') {
+    if (val._id) return normalizeId(val._id);
+    if (val.toString && typeof val.toString === 'function') {
+      try {
+        const str = val.toString();
+        if (str !== '[object Object]') return str;
+      } catch {}
+    }
+  }
+  return String(val);
+};
+
 const sortByCreatedDesc = <T extends { createdAt?: string; created_at?: string; _id?: string }>(items: T[]): T[] =>
   [...items].sort((a, b) => {
     const dateA = new Date(a.createdAt || a.created_at || 0).getTime();
@@ -94,6 +109,9 @@ export default function UserProfileScreen() {
   const [userShorts, setUserShorts] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'posts' | 'shorts'>('posts');
   const [loadingShorts, setLoadingShorts] = useState(false);
+  const [postsPage, setPostsPage] = useState(1);
+  const [hasMorePosts, setHasMorePosts] = useState(true);
+  const [loadingMorePosts, setLoadingMorePosts] = useState(false);
 
   const [verifiedLocationsCount, setVerifiedLocationsCount] = useState<number | null>(null);
   const [verifiedLocations, setVerifiedLocations] = useState<Array<{ latitude: number; longitude: number; address: string; date?: string }>>([]);
@@ -374,36 +392,22 @@ export default function UserProfileScreen() {
         
         // Fetch posts with pagination and shorts in parallel
         const [postsResult, shortsResult] = await Promise.allSettled([
-          // Fetch all posts with pagination
-          (async () => {
-            let allPosts: any[] = [];
-            let page = 1;
-            let hasMore = true;
-            const limit = 100;
-            
-            while (hasMore) {
-              try {
-                const postsRes = await api.get(`/api/v1/posts/user/${id}?page=${page}&limit=${limit}`);
-                const posts = postsRes.data.posts || [];
-                allPosts = [...allPosts, ...posts];
-                hasMore = posts.length === limit;
-                page++;
-              } catch (err) {
-                logger.error('Error fetching posts page:', err);
-                hasMore = false;
-              }
-            }
-            return allPosts;
-          })(),
+          // Fetch first page of posts
+          api.get(`/api/v1/posts/user/${id}?page=1&limit=18`),
           // Fetch shorts in parallel
           getUserShorts(id as string, 1, 100)
         ]);
         
         // Handle posts result
         if (postsResult.status === 'fulfilled') {
-          userProfile.posts = sortByCreatedDesc(postsResult.value);
+          const resPosts = postsResult.value.data.posts || [];
+          userProfile.posts = sortByCreatedDesc(resPosts);
+          setPostsPage(1);
+          const total = postsResult.value.data.totalPosts ?? resPosts.length;
+          setHasMorePosts(resPosts.length < total);
         } else {
           userProfile.posts = [];
+          setHasMorePosts(false);
         }
         
         // Handle shorts result
@@ -474,21 +478,88 @@ export default function UserProfileScreen() {
     }
   }, [id]);
 
+  const loadMorePosts = useCallback(async () => {
+    if (loadingMorePosts || !hasMorePosts || !id) return;
+    
+    setLoadingMorePosts(true);
+    const nextPage = postsPage + 1;
+    
+    try {
+      const postsRes = await api.get(`/api/v1/posts/user/${id}?page=${nextPage}&limit=18`);
+      const newPosts = postsRes.data.posts || [];
+      if (newPosts.length > 0) {
+        updateProfileState((prev: any) => {
+          if (!prev) return prev;
+          const combined = [...(prev.posts || []), ...newPosts];
+          return {
+            ...prev,
+            posts: sortByCreatedDesc(combined)
+          };
+        });
+        setPostsPage(nextPage);
+        const currentLength = (profile?.posts?.length || 0) + newPosts.length;
+        setHasMorePosts(currentLength < (postsRes.data.totalPosts ?? 0));
+      } else {
+        setHasMorePosts(false);
+      }
+    } catch (error) {
+      logger.error('Failed to load more posts for other user profile:', error);
+    } finally {
+      setLoadingMorePosts(false);
+    }
+  }, [loadingMorePosts, hasMorePosts, id, postsPage, profile?.posts?.length]);
+
   useEffect(() => {
-    updateProfileState(null);
-    setLoading(true);
+    let active = true;
+    
+    const checkCacheAndFetch = async () => {
+      if (!id) return;
+      
+      try {
+        const cachedProfile = await AsyncStorage.getItem(`cachedUserProfile_${id}`).catch(() => null);
+        if (active) {
+          if (cachedProfile) {
+            const parsed = JSON.parse(cachedProfile);
+            const cacheAge = Date.now() - (parsed.timestamp || 0);
+            if (cacheAge < 5 * 60 * 1000 && parsed.data) {
+              updateProfileState(parsed.data);
+              setIsFollowing(Boolean(parsed.data.isFollowing));
+              setFollowRequestSent(Boolean(parsed.data.followRequestSent));
+              setLoading(false);
+            } else {
+              updateProfileState(null);
+              setLoading(true);
+            }
+          } else {
+            updateProfileState(null);
+            setLoading(true);
+          }
+        }
+      } catch (err) {
+        if (active) {
+          updateProfileState(null);
+          setLoading(true);
+        }
+      }
+      
+      if (active) {
+        fetchProfile();
+      }
+    };
+    
     setIsFollowing(false);
     setFollowRequestSent(false);
     setShowWorldMap(false);
     setVerifiedLocationsCount(null);
     setVerifiedLocations([]);
     setShowProfileMenu(false);
-    // Clear the stored API response when profile ID changes
     lastFollowApiResponse.current = null;
-    // Fetch profile when ID changes
-    if (id) {
-      fetchProfile();
-    }
+    
+    checkCacheAndFetch();
+    
+    return () => {
+      active = false;
+    };
   }, [id, fetchProfile]);
 
   // Fetch block status when viewing another user's profile
@@ -507,6 +578,13 @@ export default function UserProfileScreen() {
         const cachedUser = await getUserFromStorage();
         if (cachedUser) {
           setCurrentUser(cachedUser);
+          const normalizedId = normalizeId(id);
+          const normalizedCurrentId = normalizeId(cachedUser._id);
+          if (normalizedId && normalizedCurrentId && normalizedId === normalizedCurrentId) {
+            logger.info('Redirecting to own profile tab on cached user load', { id });
+            router.replace('/(tabs)/profile');
+            return;
+          }
         }
       } catch (e) {
         logger.debug('Error loading user from storage:', e);
@@ -514,14 +592,33 @@ export default function UserProfileScreen() {
 
       try {
         const userData = await api.get('/api/v1/auth/me');
-        setCurrentUser(userData.data.user);
+        const user = userData.data.user;
+        setCurrentUser(user);
+        const normalizedId = normalizeId(id);
+        const normalizedCurrentId = normalizeId(user?._id);
+        if (normalizedId && normalizedCurrentId && normalizedId === normalizedCurrentId) {
+          logger.info('Redirecting to own profile tab on me api load', { id });
+          router.replace('/(tabs)/profile');
+        }
       } catch (error) {
         logger.error('Error fetching current user:', error);
         // Don't block profile loading if current user fetch fails
         // Profile can still be loaded without current user
       }
     })();
-  }, []);
+  }, [id, router]);
+
+  // Redirect to own profile tab if viewing own profile
+  useEffect(() => {
+    if (currentUser && id) {
+      const normalizedId = normalizeId(id);
+      const normalizedCurrentId = normalizeId(currentUser._id);
+      if (normalizedId && normalizedCurrentId && normalizedId === normalizedCurrentId) {
+        logger.info('Redirecting to own profile tab because id matches currentUser._id', { id });
+        router.replace('/(tabs)/profile');
+      }
+    }
+  }, [id, currentUser, router]);
 
   const isOwnProfile = Boolean(currentUser && id && currentUser._id === id);
   const tripsCount = useMemo(() => countTripsFromLocations(verifiedLocations), [verifiedLocations]);
@@ -719,9 +816,9 @@ export default function UserProfileScreen() {
 
   if (loading || !profile) {
     return (
-      <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}>
-        <LoadingGlobe size={36} />
-      </SafeAreaView>
+      <View style={{ flex: 1, backgroundColor: isDark ? '#000000' : '#F5F7FA', justifyContent: 'center', alignItems: 'center' }}>
+        <LoadingGlobe size={36} color={isDark ? '#38BDF8' : '#1C73B4'} />
+      </View>
     );
   }
 
@@ -755,6 +852,14 @@ export default function UserProfileScreen() {
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        scrollEventThrottle={16}
+        onScroll={({ nativeEvent }) => {
+          const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+          const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 300;
+          if (isCloseToBottom && activeTab === 'posts') {
+            loadMorePosts();
+          }
+        }}
       >
         {/* Modern Hero Header */}
         <ExpoLinearGradient
@@ -1183,6 +1288,11 @@ export default function UserProfileScreen() {
                   )}
                 </View>
               ) : null}
+              {activeTab === 'posts' && loadingMorePosts && (
+                <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+                  <LoadingGlobe size="small" />
+                </View>
+              )}
             </View>
 
             {/* Shorts Tab */}

@@ -920,17 +920,7 @@ const findUsers = async (req, res) => {
 
     // Build user query based on strict filters using $and
     const queryAnd = [
-      { _id: { $ne: currentUserId } },
-      {
-        $or: [
-          { 'settings.privacy.profileVisibility': { $in: ['public', null] } },
-          { 'settings.privacy.profileVisibility': { $exists: false } },
-          { 
-            'settings.privacy.profileVisibility': 'followers',
-            followers: currentUserId
-          }
-        ]
-      }
+      { _id: { $ne: currentUserId } }
     ];
 
     // Filter by language: must be explicitly mapped in languagesKnown or settings

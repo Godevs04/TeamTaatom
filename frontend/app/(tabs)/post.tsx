@@ -235,6 +235,18 @@ interface ShortFormValues {
   placeName: string;
 }
 
+interface FormikValueTrackerProps {
+  values: any;
+  onValuesChange: (values: any) => void;
+}
+
+const FormikValueTracker = ({ values, onValuesChange }: FormikValueTrackerProps) => {
+  useEffect(() => {
+    onValuesChange(values);
+  }, [values, onValuesChange]);
+  return null;
+};
+
 export default function PostScreen() {
   const { showSuccess, showError, showConfirm } = useAlert();
   const isFocused = useIsFocused();
@@ -467,6 +479,12 @@ export default function PostScreen() {
   const [copyrightAccepted, setCopyrightAccepted] = useState(false);
   const [pendingShortData, setPendingShortData] = useState<any>(null);
 
+  const [draftComment, setDraftComment] = useState("");
+  const [draftCaption, setDraftCaption] = useState("");
+  const [draftTags, setDraftTags] = useState("");
+  const [draftPlaceName, setDraftPlaceName] = useState("");
+  const formValuesRef = useRef<any>(null);
+
   useEffect(() => {
     if (params.postType === 'short' || params.postType === 'photo') {
       setPostType(params.postType);
@@ -589,6 +607,11 @@ export default function PostScreen() {
       setFieldValueRef.current('tags', '');
       setFieldValueRef.current('caption', '');
     }
+
+    setDraftComment('');
+    setDraftCaption('');
+    setDraftTags('');
+    setDraftPlaceName('');
   }, []);
 
   const handleConfirmDetectedPlace = useCallback((setFieldValue: any) => {
@@ -631,6 +654,99 @@ export default function PostScreen() {
   // Draft saving
   const DRAFT_KEY = 'postDraft';
   const DRAFT_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
+
+  const handleFormValuesChange = useCallback((values: any) => {
+    formValuesRef.current = values;
+    if (values.comment !== undefined && values.comment !== draftComment) {
+      setDraftComment(values.comment);
+    }
+    if (values.caption !== undefined && values.caption !== draftCaption) {
+      setDraftCaption(values.caption);
+    }
+    if (values.tags !== undefined && values.tags !== draftTags) {
+      setDraftTags(values.tags);
+    }
+    if (values.placeName !== undefined && values.placeName !== draftPlaceName) {
+      setDraftPlaceName(values.placeName);
+    }
+  }, [draftComment, draftCaption, draftTags, draftPlaceName]);
+
+  const hasDraftContent = useCallback(() => {
+    const hasMedia = selectedImages.length > 0 || !!selectedVideo;
+    const hasText = !!(draftComment.trim() || draftCaption.trim() || draftTags.trim() || draftPlaceName.trim());
+    const hasSong = !!selectedSong;
+    const hasLoc = !!location;
+    return hasMedia || hasText || hasSong || hasLoc;
+  }, [selectedImages, selectedVideo, draftComment, draftCaption, draftTags, draftPlaceName, selectedSong, location]);
+
+  const handleClosePost = useCallback(async () => {
+    if (hasDraftContent()) {
+      Alert.alert(
+        'Discard Post?',
+        'You can discard this post or save it as a draft to finish editing later.',
+        [
+          {
+            text: 'Discard',
+            style: 'destructive',
+            onPress: async () => {
+              try {
+                await AsyncStorage.removeItem(DRAFT_KEY);
+              } catch (e) {
+                logger.error('Failed to clear draft on close discard', e);
+              }
+              resetFormState();
+              router.replace('/(tabs)/home');
+            }
+          },
+          {
+            text: 'Save Draft',
+            onPress: async () => {
+              try {
+                const draft = {
+                  selectedImages,
+                  selectedVideo,
+                  videoThumbnail,
+                  location,
+                  address,
+                  locationMetadata,
+                  postType,
+                  selectedFilter,
+                  selectedSong: selectedSong ? {
+                    _id: selectedSong._id,
+                    title: selectedSong.title,
+                    artist: selectedSong.artist,
+                    s3Url: selectedSong.s3Url,
+                    duration: selectedSong.duration
+                  } : null,
+                  songStartTime,
+                  songEndTime,
+                  audioChoice,
+                  comment: draftComment,
+                  caption: draftCaption,
+                  tags: draftTags,
+                  placeName: draftPlaceName,
+                  timestamp: Date.now()
+                };
+                await AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+                logger.debug('Draft saved manually via close popup');
+              } catch (error) {
+                logger.error('Failed to save draft on close save draft', error);
+              }
+              resetFormState();
+              router.replace('/(tabs)/home');
+            }
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel'
+          }
+        ]
+      );
+    } else {
+      resetFormState();
+      router.replace('/(tabs)/home');
+    }
+  }, [hasDraftContent, selectedImages, selectedVideo, videoThumbnail, location, address, locationMetadata, postType, selectedFilter, selectedSong, songStartTime, songEndTime, audioChoice, draftComment, draftCaption, draftTags, draftPlaceName, router, resetFormState]);
 
   // Upload lifecycle safety: track active upload session
   const uploadSessionRef = useRef<{
@@ -760,9 +876,13 @@ export default function PostScreen() {
   // Includes caption, media metadata, location, and music selection
   useEffect(() => {
     const saveDraft = async () => {
-      // Only save if there's media selected
       if (hasPostedRef.current) return;
-      if (selectedImages.length === 0 && !selectedVideo) return;
+      if (!hasDraftContent()) {
+        try {
+          await AsyncStorage.removeItem(DRAFT_KEY);
+        } catch (e) {}
+        return;
+      }
       
       const draft = {
         selectedImages,
@@ -783,6 +903,10 @@ export default function PostScreen() {
         songEndTime,
         audioChoice,
         selectedFilter,
+        comment: draftComment,
+        caption: draftCaption,
+        tags: draftTags,
+        placeName: draftPlaceName,
         timestamp: Date.now()
       };
       
@@ -796,7 +920,45 @@ export default function PostScreen() {
     
     const timeoutId = setTimeout(saveDraft, 2000); // Debounce by 2 seconds
     return () => clearTimeout(timeoutId);
-  }, [selectedImages, selectedVideo, videoThumbnail, location, address, locationMetadata, postType, selectedSong, songStartTime, songEndTime, audioChoice, selectedFilter]);
+  }, [selectedImages, selectedVideo, videoThumbnail, location, address, locationMetadata, postType, selectedSong, songStartTime, songEndTime, audioChoice, selectedFilter, draftComment, draftCaption, draftTags, draftPlaceName, hasDraftContent]);
+
+  const restoreDraftData = useCallback((draft: any) => {
+    // Restore media
+    if (draft.selectedImages) setSelectedImages(draft.selectedImages);
+    if (draft.selectedVideo && draft.selectedVideo.trim()) {
+      setSelectedVideo(draft.selectedVideo);
+    } else {
+      setSelectedVideo(null);
+      setVideoDuration(null); // Clear video duration when video is removed
+    }
+    if (draft.videoThumbnail && draft.videoThumbnail.trim()) {
+      setVideoThumbnail(draft.videoThumbnail);
+    }
+    
+    // Restore location
+    if (draft.location) setLocation(draft.location);
+    if (draft.address) setAddress(draft.address);
+    if (draft.locationMetadata) setLocationMetadata(draft.locationMetadata);
+    
+    // Restore post type
+    if (draft.postType) setPostType(draft.postType);
+
+    if (draft.selectedFilter) setSelectedFilter(draft.selectedFilter);
+    
+    // Restore music selection
+    if (draft.selectedSong) {
+      setSelectedSong(draft.selectedSong as Song);
+      if (draft.songStartTime !== undefined) setSongStartTime(draft.songStartTime);
+      if (draft.songEndTime !== undefined) setSongEndTime(draft.songEndTime);
+      if (draft.audioChoice) setAudioChoice(draft.audioChoice);
+    }
+
+    // Restore text fields
+    setDraftComment(draft.comment || "");
+    setDraftCaption(draft.caption || "");
+    setDraftTags(draft.tags || "");
+    setDraftPlaceName(draft.placeName || "");
+  }, []);
 
   // Enhanced draft recovery: restore all metadata including music selection
   const loadDraft = async () => {
@@ -826,6 +988,15 @@ export default function PostScreen() {
         return;
       }
 
+      // Check for auto-restore flag set by global layout popup
+      const shouldAutoRestore = await AsyncStorage.getItem('shouldAutoRestoreDraft');
+      if (shouldAutoRestore === 'true') {
+        await AsyncStorage.removeItem('shouldAutoRestoreDraft');
+        restoreDraftData(draft);
+        logger.info('Draft auto-restored via shouldAutoRestoreDraft flag');
+        return;
+      }
+
       // Only show the draft alert while the Post tab is focused so the
       // popup doesn't appear over other screens.
       if (!isFocusedRef.current) return;
@@ -845,35 +1016,7 @@ export default function PostScreen() {
           {
             text: 'Restore',
             onPress: () => {
-              // Restore media
-              if (draft.selectedImages) setSelectedImages(draft.selectedImages);
-              if (draft.selectedVideo && draft.selectedVideo.trim()) {
-                setSelectedVideo(draft.selectedVideo);
-              } else {
-                setSelectedVideo(null);
-                setVideoDuration(null); // Clear video duration when video is removed
-              }
-              if (draft.videoThumbnail && draft.videoThumbnail.trim()) {
-                setVideoThumbnail(draft.videoThumbnail);
-              }
-              
-              // Restore location
-              if (draft.location) setLocation(draft.location);
-              if (draft.address) setAddress(draft.address);
-              if (draft.locationMetadata) setLocationMetadata(draft.locationMetadata);
-              
-              // Restore post type
-              if (draft.postType) setPostType(draft.postType);
-
-              if (draft.selectedFilter) setSelectedFilter(draft.selectedFilter);
-              
-              // Restore music selection
-              if (draft.selectedSong) {
-                setSelectedSong(draft.selectedSong as Song);
-                if (draft.songStartTime !== undefined) setSongStartTime(draft.songStartTime);
-                if (draft.songEndTime !== undefined) setSongEndTime(draft.songEndTime);
-                if (draft.audioChoice) setAudioChoice(draft.audioChoice);
-              }
+              restoreDraftData(draft);
             }
           }
         ]
@@ -987,6 +1130,20 @@ export default function PostScreen() {
         );
         return true; // Prevent default back behavior
       }
+
+      // If they are on details screen (showDetails is true), go back to editor
+      if (showDetails) {
+        setShowDetails(false);
+        return true;
+      }
+
+      // If they have selected media and are on editor view, show the discard warning
+      const hasMedia = selectedImages.length > 0 || !!selectedVideo;
+      if (isFocused && hasMedia) {
+        handleClosePost();
+        return true;
+      }
+
       return false; // Allow default back behavior
     });
 
@@ -1004,7 +1161,7 @@ export default function PostScreen() {
       backHandler.remove();
       appStateSubscription.remove();
     };
-  }, [cancelUpload]);
+  }, [cancelUpload, showDetails, isFocused, handleClosePost]);
 
   // Component unmount lifecycle cleanup for media playback
   useEffect(() => {
@@ -1026,6 +1183,27 @@ export default function PostScreen() {
     useCallback(() => {
       isFocusedRef.current = true;
 
+      // Check for auto-restore flag set by global layout popup
+      const checkAndRestoreAutoDraft = async () => {
+        try {
+          const shouldAutoRestore = await AsyncStorage.getItem('shouldAutoRestoreDraft');
+          if (shouldAutoRestore === 'true') {
+            await AsyncStorage.removeItem('shouldAutoRestoreDraft');
+            const draftJson = await AsyncStorage.getItem(DRAFT_KEY);
+            if (draftJson) {
+              const draft = JSON.parse(draftJson);
+              restoreDraftData(draft);
+              logger.info('Draft auto-restored via shouldAutoRestoreDraft flag');
+              // Mark draft as checked so it doesn't trigger the restore prompt again
+              draftCheckedRef.current = true;
+            }
+          }
+        } catch (e) {
+          logger.error('Failed to check/restore auto draft on focus', e);
+        }
+      };
+      checkAndRestoreAutoDraft();
+
       // Load draft only once per mount, and only while this tab is visible
       if (!draftCheckedRef.current) {
         draftCheckedRef.current = true;
@@ -1038,6 +1216,7 @@ export default function PostScreen() {
         if (isFocusedRefVal.current) return;
 
         isFocusedRef.current = false;
+        draftCheckedRef.current = false; // Reset so next focus checks draft again
         if (uploadSessionRef.current.isActive) {
           logger.debug('Screen blurred during upload, cancelling');
           cancelUpload();
@@ -1057,7 +1236,7 @@ export default function PostScreen() {
           logger.error('[Post] Error stopping audio:', error);
         });
       };
-    }, [cancelUpload])
+    }, [cancelUpload, restoreDraftData])
   );
 
   const pickImages = async () => {
@@ -1984,6 +2163,25 @@ export default function PostScreen() {
       Alert.alert('Error', 'Failed to take video. Please try again.');
     }
   };
+
+  // Auto-launch camera/video for journey capture
+  const autoCameraLaunchedRef = useRef(false);
+  useEffect(() => {
+    if (isFocused && isJourneyCapture && !selectedVideo && selectedImages.length === 0) {
+      if (!autoCameraLaunchedRef.current) {
+        autoCameraLaunchedRef.current = true;
+        // Clear the parameters immediately so we don't trigger on subsequent focus/re-focus
+        router.setParams({ journeyCapture: 'false' });
+        if (params.postType === 'short') {
+          takeVideo();
+        } else {
+          takePhoto();
+        }
+      }
+    } else if (!isFocused) {
+      autoCameraLaunchedRef.current = false;
+    }
+  }, [isFocused, isJourneyCapture, params.postType, selectedVideo, selectedImages.length, router]);
 
   // Throttle geocoding to avoid rate limit
   let lastCoords: { lat: number | null; lng: number | null } = {
@@ -3289,7 +3487,8 @@ export default function PostScreen() {
           >
             {postType === 'photo' ? (
               <Formik
-                initialValues={{ comment: "", placeName: "", tags: "" }}
+                enableReinitialize={true}
+                initialValues={{ comment: draftComment, placeName: draftPlaceName, tags: draftTags }}
                 validationSchema={postSchema}
                 onSubmit={handlePostWrapper}
               >
@@ -3373,6 +3572,7 @@ export default function PostScreen() {
 
                   return (
                     <View>
+                      <FormikValueTracker values={values} onValuesChange={handleFormValuesChange} />
                       <View style={{ marginBottom: theme.spacing.lg }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm }}>
                           <Ionicons name="chatbubble-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
@@ -3863,7 +4063,8 @@ export default function PostScreen() {
               </Formik>
             ) : (
               <Formik
-                initialValues={{ caption: "", tags: "", placeName: "" }}
+                enableReinitialize={true}
+                initialValues={{ caption: draftCaption, tags: draftTags, placeName: draftPlaceName }}
                 validationSchema={shortSchema}
                 onSubmit={handleShortWrapper}
               >
@@ -3947,6 +4148,7 @@ export default function PostScreen() {
 
                   return (
                     <View>
+                      <FormikValueTracker values={values} onValuesChange={handleFormValuesChange} />
                       <View style={{ marginBottom: theme.spacing.lg }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: theme.spacing.sm }}>
                           <Ionicons name="chatbubble-outline" size={18} color={theme.colors.primary} style={{ marginRight: theme.spacing.xs }} />
@@ -4488,7 +4690,17 @@ export default function PostScreen() {
     ) : (
       // Unified Instagram 1:1 Editor view
       <View style={{ flex: 1, backgroundColor: theme.colors.background || '#000000' }}>
-        <PostCreateHeader onClose={() => router.replace('/(tabs)/home')} onNext={() => setShowDetails(true)} showNext={selectedImages.length > 0 || !!selectedVideo} />
+        <PostCreateHeader
+          onClose={handleClosePost}
+          onNext={() => {
+            if (postType === 'short' || !!selectedVideo) {
+              setShowAudioChoiceModal(true);
+            } else {
+              setShowDetails(true);
+            }
+          }}
+          showNext={selectedImages.length > 0 || !!selectedVideo}
+        />
         
         {/* Top Half - Preview & Crop (exactly 50% of viewport) */}
         <View style={{
@@ -5437,6 +5649,7 @@ export default function PostScreen() {
                 setAudioChoice('original');
                 setSelectedSong(null);
                 setShowAudioChoiceModal(false);
+                setShowDetails(true);
               }}
               activeOpacity={0.8}
             >
@@ -5472,9 +5685,6 @@ export default function PostScreen() {
               ]}
               onPress={() => {
                 setShowAudioChoiceModal(false);
-                setSelectedVideo(null);
-                setVideoDuration(null); // Clear video duration when video is removed
-                setPostType('photo');
               }}
               activeOpacity={0.7}
             >
@@ -5526,6 +5736,9 @@ export default function PostScreen() {
             setAudioChoice('background'); // CRITICAL: Set this BEFORE closing modal
             setSongStartTime(startTime);
             setSongEndTime(endTime);
+            if (!showDetails) {
+              setShowDetails(true);
+            }
             if (__DEV__) {
               console.log('✅ [SongSelector] Song selected, audioChoice set to background:', {
                 songId: song._id,

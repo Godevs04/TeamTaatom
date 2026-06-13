@@ -117,11 +117,15 @@ const ClusteredMarker = ({
     <AnimatedMarker
       coordinate={animatedCoordinate as any}
       onPress={onPress}
+      onSelect={onPress}
       tappable={visible || isSelected}
       tracksViewChanges={tracksViewChanges}
       anchor={{ x: 0.5, y: showPin || isSelected ? 0.86 : 0.5 }}
     >
-      <Animated.View style={[animatedStyle, { width: markerWidth, height: markerHeight, justifyContent: 'center', alignItems: 'center' }]}>
+      <Animated.View 
+        pointerEvents="none" 
+        style={[animatedStyle, { width: markerWidth, height: markerHeight, justifyContent: 'center', alignItems: 'center' }]}
+      >
         {children}
       </Animated.View>
     </AnimatedMarker>

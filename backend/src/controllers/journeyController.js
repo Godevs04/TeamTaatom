@@ -456,7 +456,7 @@ const updateLocation = async (req, res) => {
       }
 
       const accuracy = toNumberOrNull(coord.accuracy);
-      if (accuracy !== null && accuracy > 35) { // Increased from 20 to allow background tracking with slightly worse accuracy
+      if (accuracy !== null && accuracy > 80) { // Increased from 35 to 80 to allow background tracking with slightly worse accuracy
         qualityStats.rejectedLowAccuracyPoints++;
         continue;
       }

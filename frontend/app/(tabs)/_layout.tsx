@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { Tabs, usePathname, useRouter } from 'expo-router';
-import { Platform, BackHandler } from 'react-native';
+import { Platform, BackHandler, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../context/ThemeContext';
 import { audioManager } from '../../utils/audioManager';
@@ -20,6 +20,58 @@ export default function TabsLayout() {
   const router = useRouter();
   const previousPathnameRef = useRef<string | null>(null);
   const isRestoredRef = useRef(false);
+  const hasShownDraftAlertRef = useRef(false);
+
+  useEffect(() => {
+    if (pathname === '/(tabs)/post' || pathname === '/post' || pathname?.endsWith('/post')) {
+      hasShownDraftAlertRef.current = false;
+      return;
+    }
+
+    // If we are not on the post tab and haven't shown the draft alert during this session focus cycle
+    if (!hasShownDraftAlertRef.current) {
+      const checkDraft = async () => {
+        try {
+          const draftJson = await AsyncStorage.getItem('postDraft');
+          if (draftJson) {
+            const draft = JSON.parse(draftJson);
+            const DRAFT_EXPIRY = 24 * 60 * 60 * 1000; // 24 hours
+            if (Date.now() - draft.timestamp < DRAFT_EXPIRY) {
+              hasShownDraftAlertRef.current = true;
+              Alert.alert(
+                'Draft Found',
+                'You have an unfinished post. Would you like to continue editing it?',
+                [
+                  {
+                    text: 'Discard',
+                    style: 'destructive',
+                    onPress: async () => {
+                      await AsyncStorage.removeItem('postDraft');
+                      await AsyncStorage.removeItem('shouldAutoRestoreDraft');
+                    }
+                  },
+                  {
+                    text: 'Not Now',
+                    style: 'cancel',
+                  },
+                  {
+                    text: 'Continue',
+                    onPress: async () => {
+                      await AsyncStorage.setItem('shouldAutoRestoreDraft', 'true');
+                      router.replace('/(tabs)/post');
+                    }
+                  }
+                ]
+              );
+            }
+          }
+        } catch (err) {
+          logger.error('[TabsLayout] Error checking draft globally:', err);
+        }
+      };
+      checkDraft();
+    }
+  }, [pathname, router]);
 
 
   useEffect(() => {

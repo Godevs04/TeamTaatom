@@ -22,6 +22,7 @@ import { getPosts, getPostById, toggleLike } from '../../services/posts';
 import { listChats } from '../../services/chat';
 import { PostType } from '../../types/post';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
+import { getImageAspectRatio } from '../../components/post/PostImage';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Audio } from 'expo-av';
@@ -436,6 +437,7 @@ export default function HomeScreen() {
   const savedVisiblePostIdRef = useRef<string | null>(null);
   const visibleIndexRef = useRef<number | null>(null);
   const visiblePostIdRef = useRef<string | null>(null);
+  const isRefocusingRef = useRef(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isError, setIsError] = useState(false);
   const [failedAdIndices, setFailedAdIndices] = useState<number[]>([]);
@@ -840,7 +842,9 @@ export default function HomeScreen() {
                     return false;
                   }
                 }).length;
-                totalUnseen += unseen;
+                if (unseen > 0) {
+                  totalUnseen += 1;
+                }
                 return;
               }
 
@@ -877,7 +881,9 @@ export default function HomeScreen() {
                       }
                     }).length;
 
-                    totalUnseen += unseen;
+                    if (unseen > 0) {
+                      totalUnseen += 1;
+                    }
                   }
                 } catch (e) {
                   // Skip this chat if otherUserId normalization fails
@@ -1016,6 +1022,12 @@ export default function HomeScreen() {
   // Navigation lifecycle safety: clear/restore visible index tracking, resume playback, background refresh
   useFocusEffect(
     useCallback(() => {
+      let refocusTimeout: NodeJS.Timeout | null = null;
+      isRefocusingRef.current = true;
+      refocusTimeout = setTimeout(() => {
+        isRefocusingRef.current = false;
+      }, 800);
+
       // 1. Restore scroll position
       if (shouldRestoreHomeScrollRef.current && homeScrollOffsetRef.current > 0) {
         const offset = homeScrollOffsetRef.current;
@@ -1049,8 +1061,8 @@ export default function HomeScreen() {
         logger.error('Error setting audio mode for home:', err);
       });
 
-      // 3. Background refresh data on focus
-      if (hasInitializedRef.current && !isFetchingRef.current) {
+      // 3. Background refresh data on focus - only if empty
+      if (hasInitializedRef.current && !isFetchingRef.current && postsRef.current.length === 0) {
         logger.debug('[Home] Screen focused: triggering background refresh of page 1');
         fetchPosts(1, false).catch((err) => {
           logger.error('[Home] Background refresh failed:', err);
@@ -1064,6 +1076,7 @@ export default function HomeScreen() {
       }, 10000);
 
       return () => {
+        if (refocusTimeout) clearTimeout(refocusTimeout);
         clearInterval(interval);
         // Clear active view timer when leaving home page
         if (viewTimerRef.current) {
@@ -1270,6 +1283,10 @@ export default function HomeScreen() {
   // page 1 mid-pagination would corrupt the list ordering).
   const handleLoadMore = useCallback(
     throttle(async () => {
+      if (isRefocusingRef.current) {
+        logger.debug('handleLoadMore blocked: list is refocusing');
+        return;
+      }
       if (!loading && hasMore && !isPaginatingRef.current && !fetchingTabsRef.current.has(feedMode)) {
         await fetchPosts(page + 1, true);
       }
@@ -1448,6 +1465,26 @@ export default function HomeScreen() {
 
   // Memoize keyExtractor and renderItem at top level (before conditional returns)
   // MUST be defined before conditional returns to follow Rules of Hooks
+  const overrideItemLayout = useCallback(
+    (
+      layout: { size?: number; offset?: number },
+      item: FeedItem,
+      index: number,
+      maxColumns: number,
+      extraData?: any
+    ) => {
+      if (isAdItem(item)) {
+        layout.size = 300;
+      } else {
+        const cardWidth = screenWidth - 32;
+        const aspect = getImageAspectRatio(item);
+        const imageHeight = cardWidth / aspect;
+        layout.size = imageHeight + 230; // imageHeight + header + actions + padding + margin
+      }
+    },
+    []
+  );
+
   const keyExtractor = useCallback((item: FeedItem) => {
     if (isAdItem(item)) return `ad-${item.adIndex}`;
     return item._id?.toString() || '';
@@ -1645,6 +1682,7 @@ export default function HomeScreen() {
               renderItem={renderItem}
               extraData={visiblePostId}
               estimatedItemSize={580}
+              overrideItemLayout={overrideItemLayout}
               style={styles.postsContainer}
               contentContainerStyle={[
                 styles.postsList,
