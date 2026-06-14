@@ -75,6 +75,17 @@ const getScreenForType = (type, notificationData = {}) => {
       // If no post, navigate to tripscore or home
       return '/home';
     
+    case 'subscription_active': {
+      // Subscription-related notifications: navigate to Connect page
+      const connectPageId = notificationData.connectPageId || 
+                            notificationData.entityId || 
+                            (notificationData.metadata && typeof notificationData.metadata === 'object' ? notificationData.metadata.connectPageId : null);
+      if (connectPageId) {
+        return `/connect/page/${connectPageId}`;
+      }
+      return '/home';
+    }
+    
     default:
       // Unknown notification type: default to home
       logger.warn(`Unknown notification type: ${type}`);

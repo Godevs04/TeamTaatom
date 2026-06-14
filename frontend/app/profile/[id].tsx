@@ -119,6 +119,17 @@ export default function UserProfileScreen() {
   const isFollowActionInProgress = useRef(false);
   // Ref to store the last API response for follow state - this is the source of truth
   const lastFollowApiResponse = useRef<{ isFollowing: boolean; followRequestSent: boolean } | null>(null);
+  const isFetchingMoreRef = useRef(false);
+  const profileRef = useRef<any>(null);
+  const userShortsRef = useRef<any[]>([]);
+
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
+
+  useEffect(() => {
+    userShortsRef.current = userShorts;
+  }, [userShorts]);
 
   // Derived followState to prevent out-of-sync bugs and blank renders on unfollow
   const followState = useMemo(() => {
@@ -327,7 +338,7 @@ export default function UserProfileScreen() {
     showAlert(message, title || 'Warning', 'warning');
   };
 
-  const fetchProfile = useCallback(async () => {
+  const fetchProfile = useCallback(async (isBackground = false, forceRefresh = false) => {
     const startTime = Date.now();
     if (!hasProfileRef.current) {
       setLoading(true);
@@ -368,10 +379,19 @@ export default function UserProfileScreen() {
         timestamp: Date.now()
       })).catch(() => {});
       
-      updateProfileState(userProfile);
+      const shouldSkipPosts = isBackground && !forceRefresh && (profileRef.current?.posts?.length || 0) > 0;
+
+      updateProfileState((prev: any) => {
+        if (!prev) return userProfile;
+        return {
+          ...userProfile,
+          posts: shouldSkipPosts ? (prev.posts || []) : (userProfile.posts || []),
+          shorts: shouldSkipPosts ? (prev.shorts || []) : (userProfile.shorts || [])
+        };
+      });
       
       // Fetch verified locations count only if viewer is allowed to see locations
-      if (userProfile.canViewLocations) getTravelMapData(id as string)
+      if (userProfile.canViewLocations && !shouldSkipPosts) getTravelMapData(id as string)
         .then((res) => {
           const locs = Array.isArray(res?.locations) ? res.locations : [];
           const total = res?.statistics?.totalLocations ?? locs.length;
@@ -388,57 +408,63 @@ export default function UserProfileScreen() {
       
       // OPTIMIZATION: Fetch posts and shorts in parallel if user can view posts
       if (userProfile.canViewPosts) {
-        setLoadingShorts(true);
-        
-        // Fetch posts with pagination and shorts in parallel
-        const [postsResult, shortsResult] = await Promise.allSettled([
-          // Fetch first page of posts
-          api.get(`/api/v1/posts/user/${id}?page=1&limit=18`),
-          // Fetch shorts in parallel
-          getUserShorts(id as string, 1, 100)
-        ]);
-        
-        // Handle posts result
-        if (postsResult.status === 'fulfilled') {
-          const resPosts = postsResult.value.data.posts || [];
-          userProfile.posts = sortByCreatedDesc(resPosts);
-          setPostsPage(1);
-          const total = postsResult.value.data.totalPosts ?? resPosts.length;
-          setHasMorePosts(resPosts.length < total);
+        if (shouldSkipPosts) {
+          // Skip fetching posts and shorts to preserve state
         } else {
-          userProfile.posts = [];
-          setHasMorePosts(false);
-        }
-        
-        // Handle shorts result
-        if (shortsResult.status === 'fulfilled') {
-          const fetchedShorts = sortByCreatedDesc(shortsResult.value.shorts || []);
-          setUserShorts(fetchedShorts);
+          setLoadingShorts(true);
           
-          // Log for debugging
-          if (__DEV__ && fetchedShorts.length > 0) {
-            logger.debug('Fetched shorts for other user profile:', {
-              count: fetchedShorts.length,
-              firstShort: {
-                _id: fetchedShorts[0]._id,
-                imageUrl: (fetchedShorts[0] as any).imageUrl?.substring(0, 50),
-                thumbnailUrl: (fetchedShorts[0] as any).thumbnailUrl?.substring(0, 50),
-                mediaUrl: (fetchedShorts[0] as any).mediaUrl?.substring(0, 50),
-              }
-            });
+          // Fetch posts with pagination and shorts in parallel
+          const [postsResult, shortsResult] = await Promise.allSettled([
+            // Fetch first page of posts
+            api.get(`/api/v1/posts/user/${id}?page=1&limit=18`),
+            // Fetch shorts in parallel
+            getUserShorts(id as string, 1, 100)
+          ]);
+          
+          // Handle posts result
+          if (postsResult.status === 'fulfilled') {
+            const resPosts = postsResult.value.data.posts || [];
+            userProfile.posts = sortByCreatedDesc(resPosts);
+            setPostsPage(1);
+            const total = postsResult.value.data.totalPosts ?? resPosts.length;
+            setHasMorePosts(resPosts.length < total);
+          } else {
+            userProfile.posts = [];
+            setHasMorePosts(false);
           }
-        } else {
-          logger.error('Error fetching shorts:', shortsResult.reason);
-          setUserShorts([]);
+          
+          // Handle shorts result
+          if (shortsResult.status === 'fulfilled') {
+            const fetchedShorts = sortByCreatedDesc(shortsResult.value.shorts || []);
+            setUserShorts(fetchedShorts);
+            
+            // Log for debugging
+            if (__DEV__ && fetchedShorts.length > 0) {
+              logger.debug('Fetched shorts for other user profile:', {
+                count: fetchedShorts.length,
+                firstShort: {
+                  _id: fetchedShorts[0]._id,
+                  imageUrl: (fetchedShorts[0] as any).imageUrl?.substring(0, 50),
+                  thumbnailUrl: (fetchedShorts[0] as any).thumbnailUrl?.substring(0, 50),
+                  mediaUrl: (fetchedShorts[0] as any).mediaUrl?.substring(0, 50),
+                }
+              });
+            }
+          } else {
+            logger.error('Error fetching shorts:', shortsResult.reason);
+            setUserShorts([]);
+          }
+          
+          setLoadingShorts(false);
+          updateProfileState(userProfile); // Update profile with posts (includes fetched posts)
         }
-        
-        setLoadingShorts(false);
-        updateProfileState(userProfile); // Update profile with posts (includes fetched posts)
       } else {
         // User cannot view posts, set empty arrays
-        userProfile.posts = [];
-        setUserShorts([]);
-        updateProfileState(userProfile);
+        if (!shouldSkipPosts) {
+          userProfile.posts = [];
+          setUserShorts([]);
+          updateProfileState(userProfile);
+        }
       }
       
       // CRITICAL: If we have a stored API response from a follow action, ALWAYS use it
@@ -479,8 +505,9 @@ export default function UserProfileScreen() {
   }, [id]);
 
   const loadMorePosts = useCallback(async () => {
-    if (loadingMorePosts || !hasMorePosts || !id) return;
+    if (isFetchingMoreRef.current || !hasMorePosts || !id) return;
     
+    isFetchingMoreRef.current = true;
     setLoadingMorePosts(true);
     const nextPage = postsPage + 1;
     
@@ -490,14 +517,19 @@ export default function UserProfileScreen() {
       if (newPosts.length > 0) {
         updateProfileState((prev: any) => {
           if (!prev) return prev;
-          const combined = [...(prev.posts || []), ...newPosts];
+          // Strict de-duplication: Filter out any items whose unique IDs already exist in the current state
+          const existingIds = new Set((prev.posts || []).map((p: any) => p._id));
+          const filteredNewPosts = newPosts.filter((p: any) => !existingIds.has(p._id));
+          if (filteredNewPosts.length === 0) return prev;
+          
+          const combined = [...(prev.posts || []), ...filteredNewPosts];
           return {
             ...prev,
             posts: sortByCreatedDesc(combined)
           };
         });
         setPostsPage(nextPage);
-        const currentLength = (profile?.posts?.length || 0) + newPosts.length;
+        const currentLength = (profileRef.current?.posts?.length || 0) + newPosts.length;
         setHasMorePosts(currentLength < (postsRes.data.totalPosts ?? 0));
       } else {
         setHasMorePosts(false);
@@ -506,8 +538,9 @@ export default function UserProfileScreen() {
       logger.error('Failed to load more posts for other user profile:', error);
     } finally {
       setLoadingMorePosts(false);
+      isFetchingMoreRef.current = false;
     }
-  }, [loadingMorePosts, hasMorePosts, id, postsPage, profile?.posts?.length]);
+  }, [hasMorePosts, id, postsPage]);
 
   useEffect(() => {
     let active = true;
@@ -637,7 +670,7 @@ export default function UserProfileScreen() {
       isFollowActionInProgress.current = false;
       // Always fetch profile, don't wait for currentUser
       // The profile fetch doesn't require currentUser to work
-      fetchProfile();
+      fetchProfile(true, false);
     }, [fetchProfile])
   );
 

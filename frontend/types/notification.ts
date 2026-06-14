@@ -9,7 +9,11 @@ export interface Notification {
     | 'post_mention'
     | 'follow_request_accepted'
     | 'follow_request_rejected'
-    | 'subscription_active';
+    | 'subscription_active'
+    | 'route_access_request'
+    | 'route_access_approved'
+    | 'route_access_accepted'
+    | 'route_access_rejected';
   fromUser: {
     _id: string;
     fullName: string;

@@ -8,6 +8,7 @@ export interface PostType {
   };
   caption: string;
   imageUrl: string;
+  thumbnailUrl?: string; // Thumbnail for video/short posts
   images?: string[]; // Multiple images for carousel
   videoUrl?: string;
   mediaUrl?: string; // Virtual field from backend

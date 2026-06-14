@@ -296,6 +296,17 @@ export default function ProfileScreen() {
   
   // Request Guards: Prevent duplicate API calls on rapid tab switching
   const isFetchingRef = useRef(false);
+  const isFetchingMoreRef = useRef(false);
+  const postsRef = useRef<PostType[]>([]);
+  const userShortsRef = useRef<PostType[]>([]);
+
+  useEffect(() => {
+    postsRef.current = posts;
+  }, [posts]);
+
+  useEffect(() => {
+    userShortsRef.current = userShorts;
+  }, [userShorts]);
   
   // Scroll position persistence: Store scroll position when navigating away
   const scrollViewRef = useRef<FlatList>(null);
@@ -386,7 +397,7 @@ export default function ProfileScreen() {
   }, []);
 
   // Profile Data Consistency: Single source of truth - refresh all profile data from API
-  const loadUserData = useCallback(async (isBackground = false) => {
+  const loadUserData = useCallback(async (isBackground = false, forceRefresh = false) => {
     // Request Guard: Prevent duplicate calls
     if (isFetchingRef.current) {
       logger.debug('loadUserData already in progress, skipping');
@@ -461,11 +472,14 @@ export default function ProfileScreen() {
       }
       
       // OPTIMIZATION: Fetch profile, posts, shorts, and verified locations in parallel for 2-3x faster loading
+      // If we are in background focus refresh and already have posts, only fetch profile info to avoid wiping pagination
+      const shouldSkipPosts = isBackground && !forceRefresh && postsRef.current.length > 0;
+
       const [profileResult, userPosts, shortsResp, travelMapResult] = await Promise.allSettled([
         getProfile(userData._id),
-        getUserPosts(userData._id, 1, 18),
-        getUserShorts(userData._id, 1, 100),
-        getTravelMapData(userData._id).catch(() => null) // Don't fail if this fails
+        shouldSkipPosts ? Promise.resolve({ posts: postsRef.current, totalPosts: postsRef.current.length }) : getUserPosts(userData._id, 1, 18),
+        shouldSkipPosts ? Promise.resolve({ shorts: userShortsRef.current }) : getUserShorts(userData._id, 1, 100),
+        shouldSkipPosts ? Promise.resolve(null) : getTravelMapData(userData._id).catch(() => null) // Don't fail if this fails
       ]);
       
       if (!isMountedRef.current) return;
@@ -497,37 +511,43 @@ export default function ProfileScreen() {
       if (!isMountedRef.current) return;
 
       // Handle verified locations (count + list for globe and trips) - backend returns { locations, statistics } at top level
-      if (travelMapResult.status === 'fulfilled' && travelMapResult.value) {
-        const raw = travelMapResult.value as { locations?: unknown[]; statistics?: { totalLocations?: number } };
-        const locs = Array.isArray(raw.locations) ? raw.locations : [];
-        const total = raw.statistics?.totalLocations ?? locs.length;
-        setVerifiedLocationsCount(total);
-        setVerifiedLocations(locs.map((l: unknown) => {
-          const item = l as { latitude: number; longitude: number; address?: string; date?: string };
-          return { latitude: item.latitude, longitude: item.longitude, address: item.address ?? '', date: item.date };
-        }));
-      } else {
-        setVerifiedLocationsCount(0);
-        setVerifiedLocations([]);
+      if (!shouldSkipPosts) {
+        if (travelMapResult.status === 'fulfilled' && travelMapResult.value) {
+          const raw = travelMapResult.value as { locations?: unknown[]; statistics?: { totalLocations?: number } };
+          const locs = Array.isArray(raw.locations) ? raw.locations : [];
+          const total = raw.statistics?.totalLocations ?? locs.length;
+          setVerifiedLocationsCount(total);
+          setVerifiedLocations(locs.map((l: unknown) => {
+            const item = l as { latitude: number; longitude: number; address?: string; date?: string };
+            return { latitude: item.latitude, longitude: item.longitude, address: item.address ?? '', date: item.date };
+          }));
+        } else {
+          setVerifiedLocationsCount(0);
+          setVerifiedLocations([]);
+        }
       }
       
       if (userPosts.status === 'fulfilled') {
-        const fetchedPosts = sortByCreatedDesc(userPosts.value.posts || []);
-        if (__DEV__) {
-          console.log('📸 [Profile] Fetched posts:', fetchedPosts.length);
-        }
-        setPosts(fetchedPosts);
-        setPostsPage(1);
-        const total = userPosts.value.totalPosts ?? fetchedPosts.length;
-        setHasMorePosts(fetchedPosts.length < total);
-        // Cache posts for offline support
-        try {
-          await AsyncStorage.setItem(`cachedUserPosts_${userData._id}`, JSON.stringify({
-            data: fetchedPosts,
-            timestamp: Date.now()
-          }));
-        } catch (cacheError) {
-          logger.debug('Failed to cache user posts', cacheError);
+        if (shouldSkipPosts) {
+          // Keep existing posts state intact
+        } else {
+          const fetchedPosts = sortByCreatedDesc(userPosts.value.posts || []);
+          if (__DEV__) {
+            console.log('📸 [Profile] Fetched posts:', fetchedPosts.length);
+          }
+          setPosts(fetchedPosts);
+          setPostsPage(1);
+          const total = userPosts.value.totalPosts ?? fetchedPosts.length;
+          setHasMorePosts(fetchedPosts.length < total);
+          // Cache posts for offline support
+          try {
+            await AsyncStorage.setItem(`cachedUserPosts_${userData._id}`, JSON.stringify({
+              data: fetchedPosts,
+              timestamp: Date.now()
+            }));
+          } catch (cacheError) {
+            logger.debug('Failed to cache user posts', cacheError);
+          }
         }
       } else if (userPosts.status === 'rejected') {
         if (__DEV__) {
@@ -558,7 +578,7 @@ export default function ProfileScreen() {
         }
       }
       
-      if (shortsResp.status === 'fulfilled') {
+      if (shortsResp.status === 'fulfilled' && !shouldSkipPosts) {
         setUserShorts(sortByCreatedDesc(shortsResp.value.shorts || []));
       }
       
@@ -598,8 +618,9 @@ export default function ProfileScreen() {
   }, [showError, loadUnreadCount]);
 
   const loadMorePosts = useCallback(async () => {
-    if (loadingMorePosts || !hasMorePosts || !user?._id) return;
+    if (isFetchingMoreRef.current || !hasMorePosts || !user?._id) return;
     
+    isFetchingMoreRef.current = true;
     setLoadingMorePosts(true);
     const nextPage = postsPage + 1;
     
@@ -608,11 +629,16 @@ export default function ProfileScreen() {
       const newPosts = res.posts || [];
       if (newPosts.length > 0) {
         setPosts(prev => {
-          const combined = [...prev, ...newPosts];
+          // Strict de-duplication: Filter out any items whose unique IDs already exist in the current state
+          const existingIds = new Set(prev.map(p => p._id));
+          const filteredNewPosts = newPosts.filter(p => !existingIds.has(p._id));
+          if (filteredNewPosts.length === 0) return prev;
+          
+          const combined = [...prev, ...filteredNewPosts];
           return sortByCreatedDesc(combined);
         });
         setPostsPage(nextPage);
-        setHasMorePosts((posts.length + newPosts.length) < (res.totalPosts ?? 0));
+        setHasMorePosts((postsRef.current.length + newPosts.length) < (res.totalPosts ?? 0));
       } else {
         setHasMorePosts(false);
       }
@@ -620,8 +646,9 @@ export default function ProfileScreen() {
       logger.error('Failed to load more posts:', error);
     } finally {
       setLoadingMorePosts(false);
+      isFetchingMoreRef.current = false;
     }
-  }, [loadingMorePosts, hasMorePosts, user?._id, postsPage, posts.length]);
+  }, [hasMorePosts, user?._id, postsPage]);
 
   // Lifecycle: Setup and cleanup with cache-first load
   useEffect(() => {
@@ -848,7 +875,7 @@ export default function ProfileScreen() {
 
         if (user?._id && (!isFetchingRef.current || needsRefresh) && activeTab !== 'saved') {
           if (isMountedRef.current && user?._id) {
-            loadUserData(true);
+            loadUserData(true, needsRefresh);
           }
         }
       }, 100);

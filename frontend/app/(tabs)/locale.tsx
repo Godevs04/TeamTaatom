@@ -24,6 +24,7 @@ import LoadingGlobe from '../../components/LoadingGlobe';
 import EmptyState from '../../components/EmptyState';
 import { Image as ExpoImage } from 'expo-image';
 import { FlashList } from '@shopify/flash-list';
+const AnimatedFlashList = Animated.createAnimatedComponent(FlashList) as any;
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { KalmanFilter } from '../../utils/kalmanFilter';
 import { BlurView } from 'expo-blur';
@@ -479,25 +480,6 @@ interface ExpoImageWithShimmerProps {
   placeholder?: string | any;
 }
 
-const fallbackImages = [
-  'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?q=80&w=600&auto=format&fit=crop', // Adventure road trip
-  'https://images.unsplash.com/photo-1564507592333-c60657eea523?q=80&w=600&auto=format&fit=crop', // Taj Mahal/India
-  'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=600&auto=format&fit=crop', // Beach
-  'https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?q=80&w=600&auto=format&fit=crop', // City
-  'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?q=80&w=600&auto=format&fit=crop', // Forest
-  'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?q=80&w=600&auto=format&fit=crop', // Mountain
-];
-
-const getFallbackImage = (uri?: string) => {
-  let hash = 0;
-  const str = uri || '';
-  for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  const index = Math.abs(hash) % fallbackImages.length;
-  return fallbackImages[index];
-};
-
 const ExpoImageWithShimmer = React.memo(({ source, style, contentFit = 'cover', cachePolicy = 'memory-disk', transition = 0, placeholder }: ExpoImageWithShimmerProps) => {
   const sourceUri = typeof source === 'object' ? source.uri : source;
   
@@ -562,33 +544,23 @@ const ExpoImageWithShimmer = React.memo(({ source, style, contentFit = 'cover', 
           ]}
         />
       )}
-      {hasError ? (
-        <ExpoImage
-          source={{ uri: getFallbackImage(sourceUri) }}
-          style={[style, { width: '100%', height: '100%' }]}
-          contentFit={contentFit}
-          cachePolicy={cachePolicy}
-        />
-      ) : (
-        <ExpoImage
-          source={{ uri: displayUri }}
-          style={[style, { width: '100%', height: '100%' }]}
-          contentFit={contentFit}
-          cachePolicy={cachePolicy}
-          transition={transition}
-          placeholder={placeholder}
-          onLoad={() => setLoading(false)}
-          onError={() => {
-            setLoading(false);
-            setHasError(true);
-          }}
-        />
-      )}
+      <ExpoImage
+        source={{ uri: displayUri }}
+        style={[style, { width: '100%', height: '100%' }]}
+        contentFit={contentFit}
+        cachePolicy={cachePolicy}
+        transition={transition}
+        placeholder={placeholder}
+        onLoad={() => setLoading(false)}
+        onError={() => {
+          setLoading(false);
+          setHasError(true);
+        }}
+      />
     </View>
   );
 });
 
-const AnimatedFlashList = Animated.createAnimatedComponent(FlashList) as any;
 
 export default function LocaleScreen() {
   const { showSuccess, showError, showInfo } = useAlert();
@@ -1981,11 +1953,11 @@ export default function LocaleScreen() {
   // Memoized filtered saved locales for performance
   const filteredSavedLocales = useMemo(() => {
     if (isLocationResolving) return [];
-    if (activeTab === 'saved' && savedLocales.length > 0) {
+    if (savedLocales.length > 0) {
       return applyFilters(savedLocales, true);
     }
     return savedLocales;
-  }, [savedLocales, activeSavedFilters, searchSavedInput, activeTab, applyFilters, userLocation, locationPermissionGranted, calculatingDistances, isLocationResolving]);
+  }, [savedLocales, activeSavedFilters, searchSavedInput, applyFilters, userLocation, locationPermissionGranted, calculatingDistances, isLocationResolving]);
 
   // Whether any user-applied filter is active (search query or filter modal selection).
   // Lifted out of renderAdminLocales so the list renderer (FlatList) can read it
@@ -2010,10 +1982,9 @@ export default function LocaleScreen() {
   // doesn't re-allocate on every parent render.
   // Always derive display list from sorted data + live filters (search, spot types, radius)
   const localesToShow = useMemo(() => {
-    if (activeTab !== 'locale') return [];
     if (isLocationResolving || sortedAdminLocales.length === 0) return [];
     return applyFilters(sortedAdminLocales, false);
-  }, [activeTab, sortedAdminLocales, applyFilters, searchLocaleInput, activeLocaleFilters, isLocationResolving]);
+  }, [sortedAdminLocales, applyFilters, searchLocaleInput, activeLocaleFilters, isLocationResolving]);
 
   // Update filtered locales when adminLocales change (but NOT when filters/searchQuery change - handled in loadAdminLocales)
   // Also apply client-side filters for multiple spot types and search radius which require client-side processing

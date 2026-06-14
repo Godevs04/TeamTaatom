@@ -1,4 +1,4 @@
-import React, { useEffect, useState, Suspense, useRef } from 'react';
+import React, { useEffect, useState, Suspense, useRef, useCallback } from 'react';
 import { View, StyleSheet, Text, TouchableOpacity, AppState, Platform } from 'react-native';
 import LoadingGlobe from '../components/LoadingGlobe';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -116,6 +116,7 @@ function RootLayoutInner() {
   const segments = useSegments();
   const previousPathnameRef = useRef<string | null>(null);
   const pendingDeepLinkRef = useRef<string | null>(null);
+  const pendingNotificationRef = useRef<Notifications.NotificationResponse | null>(null);
   const insets = useSafeAreaInsets();
   const topInset = Platform.OS === 'web' ? 0 : insets.top;
 
@@ -907,31 +908,70 @@ function RootLayoutInner() {
     }
   }, [isAuthenticated]);
 
+  const handleNotificationResponse = useCallback((response: Notifications.NotificationResponse) => {
+    try {
+      const data = response.notification.request.content?.data as Record<string, unknown> | undefined;
+      if (!data) return;
+      
+      logger.debug('Push notification response received:', data);
+
+      if (!isAuthenticated) {
+        logger.debug('App not authenticated yet. Queuing notification action.');
+        pendingNotificationRef.current = response;
+        return;
+      }
+
+      const type = data.type;
+      const screen = data.screen || data.path || data.url;
+      const postId = data.postId || data.post_id || data.entityId;
+      const userId = data.userId || data.user_id || data.profileId || data.profile_id || data.fromUserId || data.senderId;
+      const chatWith = data.chatWith;
+      const chatId = data.chatId;
+
+      let parsedMetadata: Record<string, any> | undefined;
+      if (data.metadata) {
+        try {
+          parsedMetadata = typeof data.metadata === 'string' ? JSON.parse(data.metadata) : data.metadata as Record<string, any>;
+        } catch (e) {
+          logger.error('Failed to parse push notification metadata:', e);
+        }
+      }
+
+      const connectPageId = data.connectPageId || parsedMetadata?.connectPageId || (type === 'subscription_active' ? data.entityId : undefined);
+
+      if (chatWith) {
+        logger.debug('Routing to direct chat with user:', chatWith);
+        router.push({ pathname: '/chat/thread', params: { userId: String(chatWith) } } as any);
+      } else if (chatId) {
+        logger.debug('Routing to chat room/group:', chatId);
+        router.push({ pathname: '/chat/thread', params: { chatId: String(chatId) } } as any);
+      } else if (type === 'subscription_active' && connectPageId) {
+        logger.debug('Routing to subscription connect page:', connectPageId);
+        router.push(`/connect/page/${connectPageId}` as any);
+      } else if (postId && typeof postId === 'string' && (type === 'like' || type === 'comment' || type === 'mention' || type === 'share' || type === 'trip_created' || type === 'trip_approved')) {
+        logger.debug('Routing to post detail:', postId);
+        router.push(`/post/${postId}` as any);
+      } else if (userId && typeof userId === 'string' && (type === 'follow' || type === 'follow_request' || type === 'follow_approved')) {
+        logger.debug('Routing to profile:', userId);
+        router.push(`/profile/${userId}` as any);
+      } else if (screen && typeof screen === 'string') {
+        logger.debug('Routing to screen path:', screen);
+        router.push(screen as any);
+      } else if (postId && typeof postId === 'string') {
+        logger.debug('Fallback routing to post detail:', postId);
+        router.push(`/post/${postId}` as any);
+      } else if (userId && typeof userId === 'string') {
+        logger.debug('Fallback routing to profile:', userId);
+        router.push(`/profile/${userId}` as any);
+      }
+    } catch (err) {
+      logger.error('Error handling notification response:', err);
+    }
+  }, [isAuthenticated, router]);
+
   // When user taps a push notification: navigate to screen, path, url, or post details (both iOS & Android)
   useEffect(() => {
     if (Platform.OS === 'web') return;
-
-    const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
-      try {
-        const data = response.notification.request.content?.data as Record<string, unknown> | undefined;
-        if (!data) return;
-        
-        logger.debug('Push notification response received:', data);
-        const screen = data.screen || data.path || data.url;
-        const postId = data.postId || data.post_id;
-        const userId = data.userId || data.user_id || data.profileId || data.profile_id;
-        
-        if (screen && typeof screen === 'string') {
-          router.push(screen as any);
-        } else if (postId && typeof postId === 'string') {
-          router.push(`/post/${postId}` as any);
-        } else if (userId && typeof userId === 'string') {
-          router.push(`/profile/${userId}` as any);
-        }
-      } catch (err) {
-        logger.error('Error handling notification response:', err);
-      }
-    };
 
     const subscription = Notifications.addNotificationResponseReceivedListener(handleNotificationResponse);
 
@@ -944,7 +984,16 @@ function RootLayoutInner() {
     });
 
     return () => subscription.remove();
-  }, [router]);
+  }, [handleNotificationResponse]);
+
+  // Process queued notifications once authenticated
+  useEffect(() => {
+    if (isAuthenticated && pendingNotificationRef.current) {
+      logger.debug('Processing pending queued notification after authentication');
+      handleNotificationResponse(pendingNotificationRef.current);
+      pendingNotificationRef.current = null;
+    }
+  }, [isAuthenticated, handleNotificationResponse]);
 
   // Handle app state changes to maintain authentication (mobile only)
   useEffect(() => {
