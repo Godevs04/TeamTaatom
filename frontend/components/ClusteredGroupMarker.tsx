@@ -111,20 +111,20 @@ const ClusteredGroupMarker = ({
   const count = cluster.locations.length;
   
   // Calculate size according to count (number of merged places)
-  let size = 20;
-  let borderWidth = 2;
+  let size = 28;
+  let borderWidth = 3;
   if (count <= 3) {
-    size = 20;
-    borderWidth = 2;
-  } else if (count <= 8) {
-    size = 26;
-    borderWidth = 2.5;
-  } else if (count <= 20) {
-    size = 32;
+    size = 28;
     borderWidth = 3;
-  } else {
-    size = 40;
+  } else if (count <= 8) {
+    size = 34;
     borderWidth = 3.5;
+  } else if (count <= 20) {
+    size = 40;
+    borderWidth = 4;
+  } else {
+    size = 48;
+    borderWidth = 4.5;
   }
 
   return (
@@ -134,24 +134,8 @@ const ClusteredGroupMarker = ({
       tracksViewChanges={tracksViewChanges}
       anchor={{ x: 0.5, y: 0.5 }}
     >
-      <Animated.View style={animatedStyle}>
-        <View style={styles.clusterMarkerContainer}>
-          {/* Pulsating Ring (under the merged dot) */}
-          {!usesNativeIosMarker && (
-            <Animated.View style={[styles.dotPulse, pulseStyle, { 
-              width: size * 1.8, 
-              height: size * 1.8, 
-              borderRadius: (size * 1.8) / 2,
-            }]}>
-              <LinearGradient
-                colors={['rgba(59, 130, 246, 0.4)', 'rgba(16, 185, 129, 0.05)'] as const}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={[StyleSheet.absoluteFillObject, { borderRadius: (size * 1.8) / 2 }]}
-              />
-            </Animated.View>
-          )}
-
+      <Animated.View style={[animatedStyle, { width: size, height: size, justifyContent: 'center', alignItems: 'center' }]}>
+        <View style={[styles.clusterMarkerContainer, { width: size, height: size }]}>
           {/* Merged Dot Core (Bigger according to no of places, no numbers) */}
           <LinearGradient
             colors={['#3B82F6', '#10B981'] as const}
@@ -165,8 +149,7 @@ const ClusteredGroupMarker = ({
                 borderRadius: size / 2, 
                 borderWidth: borderWidth,
                 borderColor: '#FFFFFF',
-              }, 
-              Platform.OS === 'android' && { elevation: 3 }
+              }
             ]}
           />
         </View>
@@ -177,8 +160,6 @@ const ClusteredGroupMarker = ({
 
 const styles = StyleSheet.create({
   clusterMarkerContainer: {
-    width: 80,
-    height: 80,
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
@@ -188,19 +169,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  dotCore: {
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 4,
-      },
-      android: {
-        elevation: 3,
-      },
-    }),
-  },
+  dotCore: {},
 });
 
 export default React.memo(ClusteredGroupMarker);

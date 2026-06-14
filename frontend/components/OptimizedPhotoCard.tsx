@@ -450,8 +450,21 @@ function PhotoCard({
   // expo-image handles caching, retries, dedup, and progressive display natively.
   // We just pass the URL straight through and track error state for the fallback UI.
   const [imageError, setImageError] = useState(false);
-  const imageUri = post.imageUrl || null;
+  const imageUri = post.imageUrl || (post.images && post.images.length > 0 ? post.images[0] : null);
   const imageLoading = false; // expo-image manages its own loading state
+
+  // Synchronous state reset during render phase when recycled (fixing one-frame stale state leak)
+  const [prevPostId, setPrevPostId] = useState(post._id);
+  if (post._id !== prevPostId) {
+    setPrevPostId(post._id);
+    setIsLiked(post.isLiked || false);
+    setLikesCount(post.likesCount || 0);
+    setComments(post.comments || []);
+    setIsSaved(isSavedSync(post._id));
+    setCommentsDisabled((post as any).commentsDisabled || false);
+    setEditCaption(post.caption || '');
+    setImageError(!post.imageUrl && (!post.images || post.images.length === 0));
+  }
 
   // Synchronize component state when post prop fields change (fixing recycling/stale value leaks)
   React.useEffect(() => {
@@ -461,7 +474,7 @@ function PhotoCard({
     setIsSaved(isSavedSync(post._id));
     setCommentsDisabled(post.commentsDisabled || false);
     setEditCaption(post.caption || '');
-    setImageError(!post.imageUrl);
+    setImageError(!post.imageUrl && (!post.images || post.images.length === 0));
   }, [
     post._id,
     post.isLiked,
@@ -469,7 +482,8 @@ function PhotoCard({
     post.comments,
     post.caption,
     post.commentsDisabled,
-    post.imageUrl
+    post.imageUrl,
+    post.images
   ]);
 
   const showCustomAlertMessage = useCallback((
@@ -611,13 +625,13 @@ function PhotoCard({
       showCustomAlertMessage('Sharing', 'Preparing post for sharing...', 'info');
 
       // Try expo-sharing first
-      if (await Sharing.isAvailableAsync()) {
+      if (imageUri && await Sharing.isAvailableAsync()) {
         try {
           // Download the image to local storage
           const filename = `post_${post._id}_${Date.now()}.jpg`;
           const localUri = `${FileSystem.cacheDirectory}${filename}`;
 
-          const downloadResult = await FileSystem.downloadAsync(post.imageUrl, localUri);
+          const downloadResult = await FileSystem.downloadAsync(imageUri, localUri);
           
           if (downloadResult.status === 200) {
             // Share the local file
@@ -644,8 +658,8 @@ function PhotoCard({
       // Fallback to React Native Share API
       const shareContent = {
         title: `Post by ${postUser.fullName || 'Unknown User'}`,
-        message: post.caption ? `${post.caption}\n\n${post.imageUrl}` : post.imageUrl,
-        url: post.imageUrl,
+        message: post.caption ? `${post.caption}\n\n${imageUri || ''}` : (imageUri || ''),
+        url: imageUri || undefined,
       };
 
       const result = await Share.share(shareContent);
@@ -660,7 +674,7 @@ function PhotoCard({
       logger.error('Error sharing post', error);
       showCustomAlertMessage('Error', 'Failed to share post. Please try again.', 'error');
     }
-  }, [post._id, post.caption, post.imageUrl, postUser.fullName, settings?.account?.wifiOnlyDownloads, showCustomAlertMessage]);
+  }, [post._id, post.caption, imageUri, postUser.fullName, settings?.account?.wifiOnlyDownloads, showCustomAlertMessage]);
 
   const handleSave = useCallback(() => {
     // Store previous state for revert
@@ -1499,6 +1513,7 @@ export default memo(PhotoCard, (prevProps, nextProps) => {
     prevProps.post.commentsDisabled === nextProps.post.commentsDisabled &&
     prevProps.post.caption === nextProps.post.caption &&
     prevProps.post.imageUrl === nextProps.post.imageUrl &&
+    prevProps.post.images === nextProps.post.images &&
     prevProps.post.user?.profilePic === nextProps.post.user?.profilePic &&
     prevProps.isCurrentlyVisible === nextProps.isCurrentlyVisible &&
     prevProps.shouldPreload === nextProps.shouldPreload

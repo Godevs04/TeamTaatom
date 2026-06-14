@@ -218,7 +218,8 @@ const connectSocket = async () => {
     // CRITICAL: Join user room immediately after connection
     // Backend emits messages to 'user:${userId}' rooms, so we must join it
     try {
-      if (!socket) {
+      const currentSocket = socket;
+      if (!currentSocket) {
         logger.warn('[Socket] Socket is null, cannot join user room');
         return;
       }
@@ -227,7 +228,7 @@ const connectSocket = async () => {
         const user = JSON.parse(userData);
         const userId = user._id;
         if (userId) {
-          socket.emit('join', `user:${userId}`);
+          currentSocket.emit('join', `user:${userId}`);
           if (process.env.NODE_ENV === 'development') {
             logger.debug(`[Socket] Joined user room: user:${userId}`);
           }

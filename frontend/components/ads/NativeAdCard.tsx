@@ -21,6 +21,8 @@ import {
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { PostSkeleton } from '../LoadingSkeleton';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { useTheme } from '../../context/ThemeContext';
 import { ADMOB } from '../../constants/admob';
@@ -63,7 +65,7 @@ const maskAdUnitId = (unitId?: string) => {
 };
 
 function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAdCardProps) {
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const [adsModule, setAdsModule] = useState<AdsModule | null>(null);
   const [moduleError, setModuleError] = useState(false);
   const [nativeAd, setNativeAd] = useState<any>(null);
@@ -211,8 +213,12 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adsModule, unitId, adIndex]);
 
-  if (isWeb || moduleError) {
-    return null;
+  if (loading) {
+    return (
+      <View style={[styles.wrapper, { padding: 16 }]}>
+        <PostSkeleton />
+      </View>
+    );
   }
 
   if (isExpoGo && __DEV__) {
@@ -230,24 +236,34 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
     );
   }
 
-  if (isExpoGo) {
-    return null;
-  }
-
-  if (!adsModule) {
-    return null;
-  }
-
-  if (loading) {
+  if (isWeb || moduleError || isExpoGo || !adsModule || error || !nativeAd) {
     return (
-      <View style={[styles.wrapper, { padding: 16 }]}>
-        <PostSkeleton />
+      <View style={[styles.wrapper, { backgroundColor: theme.colors.surface }]}>
+        <LinearGradient
+          colors={isDark ? ['#1A365D', '#0A2540'] : ['#EBF8FF', '#BEE3F8']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.fallbackGradient}
+        >
+          <View style={styles.fallbackContent}>
+            <View style={styles.fallbackHeader}>
+              <Ionicons name="compass-outline" size={24} color={theme.colors.primary} />
+              <Text style={[styles.fallbackLabel, { color: theme.colors.primary }]}>Taatom Explorer</Text>
+            </View>
+            <Text style={[styles.fallbackHeadline, { color: theme.colors.text }]}>
+              Record Your Next Adventure
+            </Text>
+            <Text style={[styles.fallbackBody, { color: theme.colors.textSecondary }]}>
+              Track your paths, auto-pin photos as waypoints, and build your TripScore.
+            </Text>
+            <View style={styles.fallbackCtaContainer}>
+              <Text style={[styles.fallbackCta, { color: theme.colors.primary }]}>Explore Navigate</Text>
+              <Ionicons name="arrow-forward" size={16} color={theme.colors.primary} />
+            </View>
+          </View>
+        </LinearGradient>
       </View>
     );
-  }
-
-  if (error || !nativeAd) {
-    return null;
   }
 
   const { NativeAdView: AdView, NativeAsset: Asset, NativeAssetType: AssetType, NativeMediaView: MediaView } = adsModule;
@@ -386,6 +402,44 @@ const styles = StyleSheet.create({
     minHeight: 140,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: 'rgba(28, 115, 180, 0.35)',
+  },
+  fallbackGradient: {
+    padding: 20,
+    minHeight: 180,
+    justifyContent: 'center',
+    borderRadius: 16,
+  },
+  fallbackContent: {
+    gap: 8,
+  },
+  fallbackHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  fallbackLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  fallbackHeadline: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  fallbackBody: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  fallbackCtaContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 8,
+  },
+  fallbackCta: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 

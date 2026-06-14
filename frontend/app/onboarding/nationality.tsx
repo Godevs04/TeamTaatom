@@ -176,7 +176,12 @@ export default function NationalityOnboarding() {
 
       <View style={styles.footer}>
         <TouchableOpacity onPress={handleContinue} disabled={isLoading} style={styles.continueButton} activeOpacity={0.8}>
-          <LinearGradient colors={[theme.colors.primary, theme.colors.primary + 'DD']} style={styles.gradient}>
+          <LinearGradient
+            colors={['#50C878', '#1C73B4']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.gradient}
+          >
             <Text style={styles.continueButtonText}>{isLoading ? 'Saving...' : 'Continue'}</Text>
           </LinearGradient>
         </TouchableOpacity>

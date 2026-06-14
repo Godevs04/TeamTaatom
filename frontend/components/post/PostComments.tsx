@@ -359,6 +359,7 @@ export default function PostComments({
                     { scale: scale }
                   ],
                   opacity: opacity,
+                  paddingBottom: 0,
                 },
               ]}
             >
@@ -413,7 +414,8 @@ export default function PostComments({
               {commentsDisabled ? (
                 <View style={[styles.inputContainer, styles.disabledInputContainer, { 
                   borderTopColor: theme.colors.border,
-                  backgroundColor: theme.colors.surfaceSecondary 
+                  backgroundColor: theme.colors.surfaceSecondary,
+                  paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, 12) : 12,
                 }]}>
                   <Ionicons name="lock-closed" size={20} color={theme.colors.textSecondary} />
                   <Text style={[styles.disabledText, { color: theme.colors.textSecondary }]}>
@@ -426,8 +428,8 @@ export default function PostComments({
                     styles.inputContainer, 
                     { 
                       borderTopColor: theme.colors.border,
-                      // Ensure input box is always above keyboard
-                      paddingBottom: Platform.OS === 'ios' ? Math.max(insets.bottom, 12) : 12,
+                      // Ensure input box is always flush above keyboard
+                      paddingBottom: keyboardHeight > 0 ? 12 : (Platform.OS === 'ios' ? Math.max(insets.bottom, 12) : 12),
                     }
                   ]}
                 >

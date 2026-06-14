@@ -1999,7 +1999,15 @@ export default function ChatThreadScreen() {
         setTimeout(() => reject(new Error('Request timeout')), 10000)
       );
       
-      const [blockStatusResult, chatRes, messagesRes] = await Promise.allSettled([
+      const fetchProfilePromise = (!user.fullName || !user.profilePic)
+        ? api.get(`/profile/${user._id}`).catch((err) => {
+            logger.error('Failed to load profile in thread parallel fetch:', err);
+            return null;
+          })
+        : Promise.resolve(null);
+
+      const [profileResult, blockStatusResult, chatRes, messagesRes] = await Promise.allSettled([
+        fetchProfilePromise,
         getBlockStatus(user._id).catch(() => ({ isBlocked: false })),
         Promise.race([
           api.get(`/chat/${user._id}`),
@@ -2010,6 +2018,17 @@ export default function ChatThreadScreen() {
           timeoutPromise
         ])
       ]);
+      
+      let finalUser = { ...user };
+      const profileResultVal = profileResult as any;
+      if (profileResultVal.status === 'fulfilled' && profileResultVal.value?.data?.profile) {
+        const p = profileResultVal.value.data.profile;
+        finalUser = {
+          ...finalUser,
+          fullName: p.fullName,
+          profilePic: p.profilePic,
+        };
+      }
       
       const blockStatusVal = blockStatusResult as any;
       if (blockStatusVal.status === 'fulfilled' && blockStatusVal.value.isBlocked) {
@@ -2040,7 +2059,7 @@ export default function ChatThreadScreen() {
       
       setActiveChat(chatData);
       setActiveMessages(messagesData);
-      setSelectedUser(user);
+      setSelectedUser(finalUser);
     } catch (e: any) {
       logger.error('Error opening chat with user:', e);
       setError(`Failed to load chat: ${e.response?.data?.message || e.message || 'Unknown error'}`);
@@ -2087,20 +2106,7 @@ export default function ChatThreadScreen() {
     if (params.userId) {
       setLoading(true);
       setError(null);
-      api.get(`/profile/${params.userId}`)
-        .then(res => {
-          const user = {
-            _id: res.data.profile._id,
-            fullName: res.data.profile.fullName,
-            profilePic: res.data.profile.profilePic,
-          };
-          openChatWithUser(user);
-        })
-        .catch(e => {
-          setError('User not found or you are not allowed to chat.');
-          setShowErrorAlert(true);
-          setLoading(false);
-        });
+      openChatWithUser({ _id: params.userId });
     } else {
       const { consumePendingChatRoomId } = require('../../utils/connectChatBridge');
       const resolvedChatId = (params.chatId as string) || consumePendingChatRoomId();
@@ -2216,7 +2222,7 @@ export default function ChatThreadScreen() {
     }
   };
 
-  if (chatLoading || loading) {
+  if ((chatLoading || loading) && activeMessages.length === 0) {
     return (
       <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }}>
         <LoadingGlobe color={theme.colors.primary} size="large" />

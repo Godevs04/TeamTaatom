@@ -115,6 +115,18 @@ class AudioManager {
   }
 
   /**
+   * Instantly pause the current active sound
+   */
+  async pauseCurrentSound(): Promise<void> {
+    const sound = this.currentSound;
+    if (sound) {
+      try {
+        await sound.pauseAsync().catch(() => {});
+      } catch (_) {}
+    }
+  }
+
+  /**
    * Get currently playing post ID
    */
   getCurrentPostId(): string | null {

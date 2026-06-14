@@ -152,6 +152,10 @@ export default function ChatModal() {
   const [search, setSearch] = useState('');
   const [users, setUsers] = useState<any[]>([]);
   const [conversations, setConversations] = useState<any[]>([]);
+  const conversationsRef = useRef<any[]>(conversations);
+  useEffect(() => {
+    conversationsRef.current = conversations;
+  }, [conversations]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showNewMessage, setShowNewMessage] = useState(false);
@@ -374,7 +378,9 @@ export default function ChatModal() {
   useFocusEffect(
     useCallback(() => {
       const loadChats = async () => {
-        setLoading(true);
+        if (conversationsRef.current.length === 0) {
+          setLoading(true);
+        }
         const token = await AsyncStorage.getItem('authToken');
         const userData = await AsyncStorage.getItem('userData');
         let myUserId = '';

@@ -111,6 +111,8 @@ const BG_QUEUE_KEY_PREFIX = 'bgJourneyCoords:';
 // every JS bundle load (required by TaskManager's API contract — it must
 // be reachable before `startLocationUpdatesAsync` is called).
 const BG_LOCATION_TASK = 'taatom-journey-bg-location';
+const bgKalmanFilters = new Map<string, KalmanFilter>();
+const bgPositionHistories = new Map<string, { latitude: number; longitude: number }[]>();
 
 const getAdaptiveMinDistance = (accuracy: number, speed?: number | null): number => {
   const accuracyFloor = Math.max(0, Number.isFinite(accuracy) ? accuracy : 0) * 0.5;
@@ -123,6 +125,42 @@ const getAdaptiveMinDistance = (accuracy: number, speed?: number | null): number
     }
   }
   return Math.max(MIN_LOCATION_DISTANCE, accuracyFloor);
+};
+
+const isDriftingStationary = (
+  history: { latitude: number; longitude: number }[],
+  newPoint: { latitude: number; longitude: number },
+  speed: number,
+  maxPoints = 5,
+  driftThresholdMeters = 8
+): boolean => {
+  if (speed >= 0.8) return false; // Clearly moving
+  const points = [...history, newPoint].slice(-maxPoints);
+  if (points.length < 3) return false; // Need at least 3 points to check variance
+  
+  const n = points.length;
+  let sumLat = 0;
+  let sumLng = 0;
+  for (const p of points) {
+    sumLat += p.latitude;
+    sumLng += p.longitude;
+  }
+  const meanLat = sumLat / n;
+  const meanLng = sumLng / n;
+  
+  let varLat = 0;
+  let varLng = 0;
+  for (const p of points) {
+    varLat += (p.latitude - meanLat) * (p.latitude - meanLat);
+    varLng += (p.longitude - meanLng) * (p.longitude - meanLng);
+  }
+  const stdDevLat = Math.sqrt(varLat / n);
+  const stdDevLng = Math.sqrt(varLng / n);
+  
+  const METRES_PER_DEGREE = 111320.0;
+  const stdDevMeters = Math.sqrt(stdDevLat * stdDevLat + stdDevLng * stdDevLng) * METRES_PER_DEGREE;
+  
+  return stdDevMeters < driftThresholdMeters;
 };
 
 // Background location task. Runs in a headless JS context when the app is
@@ -151,7 +189,24 @@ try {
       const journeyId = await AsyncStorage.getItem('activeJourneyId');
       if (!journeyId) return; // Stale task firing after a stop — drop.
 
+      // 1. Get/Initialize background KalmanFilter
+      let filter = bgKalmanFilters.get(journeyId);
+      if (!filter) {
+        const kalmanKey = `@kalman_state:${journeyId}`;
+        const savedKalmanRaw = await AsyncStorage.getItem(kalmanKey);
+        if (savedKalmanRaw) {
+          try {
+            filter = KalmanFilter.fromJSON(JSON.parse(savedKalmanRaw));
+            bgKalmanFilters.set(journeyId, filter);
+          } catch (e) {
+            // ignore parse error
+          }
+        }
+      }
+
+      let bgHistory = bgPositionHistories.get(journeyId) || [];
       const valid: Coordinate[] = [];
+
       for (const loc of locations) {
         const lat = loc?.coords?.latitude;
         const lng = loc?.coords?.longitude;
@@ -159,19 +214,60 @@ try {
         if (Number.isNaN(lat) || Number.isNaN(lng)) continue;
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
         const accuracy = loc.coords?.accuracy || 0;
-        if (accuracy > 35) continue; // Drop any coordinate where accuracy > 35 (increased from 20 to preserve background updates)
+        if (accuracy > 80) continue; // Drop any coordinate where accuracy > 80 (increased from 35 to allow background updates)
+        
         const speed = loc.coords?.speed;
         const heading = loc.coords?.heading;
+        const effectiveSpeed = typeof speed === 'number' && speed >= 0 ? speed : 0;
+
+        // 2. Stationary variance check (Jitter Mitigation)
+        const isDrifting = isDriftingStationary(bgHistory, { latitude: lat, longitude: lng }, effectiveSpeed);
+        bgHistory = [...bgHistory, { latitude: lat, longitude: lng }].slice(-5);
+        bgPositionHistories.set(journeyId, bgHistory);
+
+        if (isDrifting) {
+          if (__DEV__) {
+            console.log(`[Journey BG] Stationary drift detected. Skipping point: Lat ${lat}, Lng ${lng}`);
+          }
+          continue;
+        }
+
+        // 3. Smooth with Kalman Filter
+        if (!filter) {
+          filter = new KalmanFilter(lat, lng, accuracy, loc.timestamp);
+          bgKalmanFilters.set(journeyId, filter);
+        }
+        
+        const smoothed = filter.update(
+          lat,
+          lng,
+          accuracy,
+          loc.timestamp,
+          effectiveSpeed,
+          typeof heading === 'number' ? heading : undefined
+        );
+
         valid.push({
-          latitude: lat,
-          longitude: lng,
+          latitude: smoothed.latitude,
+          longitude: smoothed.longitude,
           timestamp: loc.timestamp,
           accuracy,
-          speed: typeof speed === 'number' ? speed : undefined,
+          speed: typeof speed === 'number' && speed >= 0 ? speed : undefined,
           heading: typeof heading === 'number' ? heading : undefined,
         });
       }
+
       if (valid.length === 0) return;
+
+      // 4. Save Kalman Filter state to AsyncStorage
+      if (filter) {
+        const kalmanKey = `@kalman_state:${journeyId}`;
+        try {
+          await AsyncStorage.setItem(kalmanKey, JSON.stringify(filter.toJSON()));
+        } catch (e) {
+          // ignore save error
+        }
+      }
 
       const queueKey = BG_QUEUE_KEY_PREFIX + journeyId;
       const existingRaw = await AsyncStorage.getItem(queueKey);
@@ -271,6 +367,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   const startTimeRef = useRef<number | null>(null);
   const pendingSegmentBreakRef = useRef(false);
   const kalmanFilterRef = useRef<KalmanFilter | null>(null);
+  const positionHistoryRef = useRef<{ latitude: number; longitude: number }[]>([]);
   const lastStationaryMarkerUpdateRef = useRef(0);
   const currentCoordinateRef = useRef<Coordinate | null>(null);
   // Tracks whether this hook instance is still mounted. Async paths (API
@@ -332,7 +429,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         const lng = location?.coords?.longitude;
         if (typeof lat !== 'number' || typeof lng !== 'number' || isNaN(lat) || isNaN(lng)) return;
         const accuracy = location?.coords?.accuracy || 0;
-        if (accuracy > 35) { // Increased from 20 to allow tracking in challenging environments (pockets, urban canyons)
+        if (accuracy > 80) { // Increased from 35 to allow tracking in challenging environments (pockets, urban canyons)
           logger.debug(`[Journey] Discarding low-accuracy coordinate (±${accuracy}m) immediately.`);
           return;
         }
@@ -340,9 +437,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         const speed = location?.coords?.speed;
         const heading = location?.coords?.heading;
 
-        // Estimate speed if not provided by OS
+        // Estimate speed if not provided by OS or if negative (unknown)
         let calculatedSpeed = speed;
-        if ((calculatedSpeed === null || calculatedSpeed === undefined) && lastCoordinateRef.current) {
+        if ((calculatedSpeed === null || calculatedSpeed === undefined || calculatedSpeed < 0) && lastCoordinateRef.current) {
           const dist = calculateCoordinateDistance(
             lastCoordinateRef.current.latitude,
             lastCoordinateRef.current.longitude,
@@ -363,7 +460,8 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           lng,
           accuracy,
           location.timestamp,
-          effectiveSpeed
+          effectiveSpeed,
+          heading !== null && heading !== undefined ? heading : undefined
         );
 
         const coord: Coordinate = {
@@ -371,7 +469,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           longitude: smoothed.longitude,
           timestamp: location.timestamp,
           accuracy,
-          speed: speed !== null && speed !== undefined ? speed : undefined,
+          speed: typeof speed === 'number' && speed >= 0 ? speed : undefined,
           heading: heading !== null && heading !== undefined ? heading : undefined,
         };
 
@@ -397,11 +495,32 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           setCurrentCoordinate(coord);
         }
 
+        // Stationary variance check (Jitter Mitigation)
+        const history = positionHistoryRef.current;
+        const stationaryDrift = isDriftingStationary(history, coord, effectiveSpeed);
+        positionHistoryRef.current = [...history, coord].slice(-5);
+
+        if (stationaryDrift) {
+          logger.debug(`[Journey] Stationary drift detected (speed: ${effectiveSpeed.toFixed(2)} m/s). Skipping polyline update.`);
+          return;
+        }
+
         // Stationary user check: if estimated speed is below threshold,
         // treat user as stationary/idle and do not append to polyline or accumulate distance.
         if (effectiveSpeed < STATIONARY_SPEED_MPS) {
-          logger.debug(`[Journey] User is stationary (speed: ${effectiveSpeed.toFixed(2)} m/s). Skipping polyline update.`);
-          return;
+          const dist = lastCoordinateRef.current
+            ? calculateCoordinateDistance(
+                lastCoordinateRef.current.latitude,
+                lastCoordinateRef.current.longitude,
+                coord.latitude,
+                coord.longitude
+              )
+            : 0;
+          const minDistance = getAdaptiveMinDistance(coord.accuracy, effectiveSpeed);
+          if (dist < Math.max(12, minDistance * 1.5)) {
+            logger.debug(`[Journey] User is stationary (speed: ${effectiveSpeed.toFixed(2)} m/s, dist: ${dist.toFixed(1)}m). Skipping polyline update.`);
+            return;
+          }
         }
 
         // Only grow the polyline / running distance when movement is
@@ -496,6 +615,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           notificationTitle: 'Recording your journey',
           notificationBody: 'Path is being tracked while the app is in the background',
           notificationColor: '#22C55E',
+          killServiceOnDestroy: true,
         },
         pausesUpdatesAutomatically: false,
       });
@@ -574,26 +694,60 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         !isDuplicateTimestamp(c.timestamp)
       );
 
-      // Smooth background coordinate batch sequentially
-      const smoothedCoords = valid.map((c) => {
-        const acc = c.accuracy || 10;
-        const ts = typeof c.timestamp === 'number' ? c.timestamp : Date.now();
-        if (!kalmanFilterRef.current) {
-          kalmanFilterRef.current = new KalmanFilter(c.latitude, c.longitude, acc, ts);
+      // Restore Kalman Filter state from background task
+      const kalmanKey = `@kalman_state:${id}`;
+      const savedKalmanRaw = await AsyncStorage.getItem(kalmanKey);
+      let restoredFromBg = false;
+      if (savedKalmanRaw) {
+        try {
+          kalmanFilterRef.current = KalmanFilter.fromJSON(JSON.parse(savedKalmanRaw));
+          restoredFromBg = true;
+          logger.debug('[Journey] Restored Kalman Filter state from background task.');
+        } catch (e) {
+          logger.warn('[Journey] Failed to restore Kalman Filter state from background:', e);
         }
-        const smoothed = kalmanFilterRef.current.update(
-          c.latitude,
-          c.longitude,
-          acc,
-          ts,
-          typeof c.speed === 'number' ? c.speed : undefined
-        );
-        return {
-          ...c,
-          latitude: smoothed.latitude,
-          longitude: smoothed.longitude,
-        };
-      });
+      }
+
+      // Smooth background coordinate batch sequentially with speed estimation if not restored
+      let smoothedCoords = valid;
+      if (!restoredFromBg) {
+        let lastProcessedCoord = lastCoordinateRef.current;
+        smoothedCoords = valid.map((c) => {
+          const acc = c.accuracy || 10;
+          const ts = typeof c.timestamp === 'number' ? c.timestamp : Date.now();
+          
+          let estSpeed = c.speed;
+          if ((estSpeed === undefined || estSpeed === null || estSpeed < 0) && lastProcessedCoord) {
+            const dist = calculateCoordinateDistance(
+              lastProcessedCoord.latitude,
+              lastProcessedCoord.longitude,
+              c.latitude,
+              c.longitude
+            );
+            const timeDiffSeconds = Math.max(0.1, (ts - (lastProcessedCoord.timestamp || ts)) / 1000);
+            estSpeed = dist / timeDiffSeconds;
+          }
+
+          if (!kalmanFilterRef.current) {
+            kalmanFilterRef.current = new KalmanFilter(c.latitude, c.longitude, acc, ts);
+          }
+          const smoothed = kalmanFilterRef.current.update(
+            c.latitude,
+            c.longitude,
+            acc,
+            ts,
+            typeof estSpeed === 'number' && estSpeed >= 0 ? estSpeed : undefined
+          );
+          const smoothedCoord = {
+            ...c,
+            latitude: smoothed.latitude,
+            longitude: smoothed.longitude,
+            speed: typeof estSpeed === 'number' && estSpeed >= 0 ? estSpeed : undefined
+          };
+          lastProcessedCoord = smoothedCoord;
+          return smoothedCoord;
+        });
+      }
 
       // Apply the same MIN_LOCATION_DISTANCE filter the foreground watcher
       // uses, walking from the last known polyline tail forward, so a row
@@ -612,7 +766,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           lastCoord.latitude, lastCoord.longitude,
           c.latitude, c.longitude
         );
-        if (d >= getAdaptiveMinDistance(c.accuracy ?? 0, null)) {
+        if (d >= getAdaptiveMinDistance(c.accuracy ?? 0, typeof c.speed === 'number' ? c.speed : null)) {
           accepted.push(c);
           addedDistance += d;
           lastCoord = c;
@@ -690,6 +844,12 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         batchSendTimerRef.current = null;
       }
       await stopBackgroundUpdates();
+      const id = journeyIdRef.current;
+      if (id) {
+        AsyncStorage.removeItem(`@kalman_state:${id}`).catch(() => {});
+        bgKalmanFilters.delete(id);
+        bgPositionHistories.delete(id);
+      }
       journeyIdRef.current = null;
       startTimeRef.current = null;
       lastCoordinateRef.current = null;
@@ -720,136 +880,87 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         // Check if there's an active journey in storage
         const storedJourneyId = await AsyncStorage.getItem('activeJourneyId');
         if (storedJourneyId) {
-          journeyIdRef.current = storedJourneyId;
-          setIsTracking(true);
+          logger.debug('[Journey] App was terminated with active journey, auto-saving:', storedJourneyId);
+          
+          // Stop background task updates first
+          await stopBackgroundUpdates();
 
-          // Rehydrate active journey state from AsyncStorage immediately to survive app kill
+          // Drain any background location updates accumulated
+          await drainBackgroundQueue();
+
+          // Fetch pending/unsent coordinates from local storage and upload them if possible
           try {
-            const cachedStateRaw = await AsyncStorage.getItem('@active_journey_state');
-            if (cachedStateRaw) {
-              const cached = JSON.parse(cachedStateRaw);
-              if (cached && cached.journey && cached.journey._id === storedJourneyId) {
-                setJourney(cached.journey);
-                const normalizedPolyline: Coordinate[] = normalizeJourneyPolyline({
-                  ...cached.journey,
-                  polyline: cached.polyline || cached.journey.polyline || [],
-                });
-                setPolyline(normalizedPolyline);
-                setDistance(cached.distance || 0);
-                const cachedIsPaused = cached.journey.status === 'paused';
-                const activeDuration = getJourneyActiveDuration(cached.journey);
-                const cachedDuration = activeDuration || cached.duration || 0;
-                setDuration(cachedDuration);
-                setIsPaused(cachedIsPaused);
-                if (normalizedPolyline.length > 0) {
-                  lastCoordinateRef.current = normalizedPolyline[normalizedPolyline.length - 1];
+            const persistedKey = PENDING_COORDS_KEY_PREFIX + storedJourneyId;
+            const persistedRaw = await AsyncStorage.getItem(persistedKey);
+            if (persistedRaw) {
+              const persisted = JSON.parse(persistedRaw);
+              if (Array.isArray(persisted) && persisted.length > 0) {
+                const valid = persisted.filter((c: any) =>
+                  c &&
+                  typeof c === 'object' &&
+                  typeof c.latitude === 'number' &&
+                  typeof c.longitude === 'number' &&
+                  !isNaN(c.latitude) && !isNaN(c.longitude)
+                );
+                if (valid.length > 0) {
+                  await updateJourneyLocation(storedJourneyId, valid);
                 }
-                if (!cachedIsPaused && cached.timestamp) {
-                  startTimeRef.current = Date.now() - cachedDuration * 1000;
-                } else if (cachedIsPaused) {
-                  startTimeRef.current = null;
-                }
-                logger.debug('[Journey] Rehydrated state from AsyncStorage:', cached.journey._id);
               }
+              await AsyncStorage.removeItem(persistedKey).catch(() => {});
             }
-          } catch (cacheErr) {
-            logger.warn('[Journey] Failed to rehydrate from AsyncStorage:', cacheErr);
+          } catch (e) {
+            logger.warn('[Journey] Failed to upload pending coords on auto-save:', e);
           }
 
-          // Fetch journey details from backend
+          // Complete the journey on the backend
           try {
-            const { journey: fetchedJourney } = await getActiveJourney();
-            if (fetchedJourney) {
-              setJourney(fetchedJourney);
-              // Backend polyline uses {lat, lng} but the frontend
-              // Coordinate type (and calculateCoordinateDistance) expects
-              // {latitude, longitude}. Normalize on restore so the
-              // watcher's distance calculation doesn't receive undefined.
-              const normalizedPolyline: Coordinate[] = normalizeJourneyPolyline(fetchedJourney);
-              setPolyline(normalizedPolyline);
-              setDistance(fetchedJourney.distanceTraveled || 0);
-              // Set startTimeRef so the duration useEffect can spin up its
-              // 1s ticker. Before this fix, the ref stayed null on screens
-              // that mounted mid-journey (e.g. tracking.tsx after a
-              // router.replace) so the duration never advanced live.
-              const isPausedJourney = fetchedJourney.status === 'paused';
-              const activeDuration = getJourneyActiveDuration(fetchedJourney);
-              startTimeRef.current = isPausedJourney ? null : Date.now() - activeDuration * 1000;
-              setDuration(activeDuration);
-              setIsPaused(isPausedJourney);
-
-              // Seed lastCoordinateRef from the tail of the restored polyline
-              // so further emissions compute deltas against the right base.
-              if (normalizedPolyline.length > 0) {
-                lastCoordinateRef.current = normalizedPolyline[normalizedPolyline.length - 1];
+            await completeJourney(storedJourneyId, { snapToRoads: true });
+            logger.debug('[Journey] Interrupted journey completed successfully on server:', storedJourneyId);
+          } catch (err: any) {
+            logger.error('[Journey] Failed to complete interrupted journey on server:', err);
+            // Queue retry if it fails (offline)
+            try {
+              const queueRaw = await AsyncStorage.getItem('@pending_journey_completions');
+              let queue = [];
+              if (queueRaw) {
+                const parsed = JSON.parse(queueRaw);
+                if (Array.isArray(parsed)) queue = parsed;
               }
-
-              // Recover any points that were pushed but not yet sent (e.g.
-              // app was force-quit between two 60s syncs). Replay them into
-              // the in-memory polyline / batch so they ride out on the next
-              // batch send or the final flush at journey end. Validate each
-              // entry — a corrupted blob (write interrupted by force-quit)
-              // would otherwise propagate NaNs into the polyline and crash
-              // calculateCoordinateDistance / map renderers downstream.
-              try {
-                const persistedKey = PENDING_COORDS_KEY_PREFIX + storedJourneyId;
-                const persistedRaw = await AsyncStorage.getItem(persistedKey);
-                if (persistedRaw) {
-                  const persisted = JSON.parse(persistedRaw);
-                  const valid: Coordinate[] = Array.isArray(persisted)
-                    ? persisted.filter((c: any) =>
-                        c &&
-                        typeof c === 'object' &&
-                        typeof c.latitude === 'number' &&
-                        typeof c.longitude === 'number' &&
-                        !isNaN(c.latitude) && !isNaN(c.longitude) &&
-                        c.latitude >= -90 && c.latitude <= 90 &&
-                        c.longitude >= -180 && c.longitude <= 180
-                      )
-                    : [];
-                  if (valid.length > 0) {
-                    batchCoordinatesRef.current = [...valid];
-                    setPolyline((prev) => [...prev, ...valid]);
-                    lastCoordinateRef.current = valid[valid.length - 1];
-                    logger.debug(`[Journey] Recovered ${valid.length} unsent coords from storage` +
-                      (Array.isArray(persisted) && persisted.length !== valid.length
-                        ? ` (${persisted.length - valid.length} dropped as malformed)`
-                        : ''));
-                  } else if (Array.isArray(persisted) && persisted.length > 0) {
-                    // Entire blob was malformed — clear it so we don't keep
-                    // re-loading the same corrupt data on every mount.
-                    AsyncStorage.removeItem(persistedKey).catch(() => {});
-                  }
-                }
-              } catch (e) {
-                logger.warn('[Journey] Failed to recover unsent coords:', e);
+              if (!queue.some((item: any) => item.journeyId === storedJourneyId)) {
+                queue.push({ journeyId: storedJourneyId, snapToRoads: true, timestamp: Date.now() });
+                await AsyncStorage.setItem('@pending_journey_completions', JSON.stringify(queue));
               }
-
-              // Drain any coordinates recorded in the background while the app was suspended/killed.
-              await drainBackgroundQueue();
-
-              // CRITICAL: restart the foreground watcher on this fresh
-              // hook instance. Without this, screens mounted mid-journey
-              // (router.replace from index → tracking) had no live GPS
-              // pipe — the polyline never grew and the marker stayed at
-              // the start point.
-              if (!isPausedJourney) {
-                try { await startLocationWatcher(); } catch (e) {
-                  logger.warn('[Journey] Failed to start watcher on restore:', e);
-                }
-              }
-              logger.debug('[Journey] Restored active journey from backend:', fetchedJourney._id);
-            } else {
-              logger.debug('[Journey] Backend returned no active journey. Clearing local tracking state.');
-              await resetTrackingState();
-              await AsyncStorage.removeItem('activeJourneyId');
-              await AsyncStorage.removeItem('@active_journey_state');
-              suppressNextSyncRef.current = true;
-              broadcastJourneyStateChanged();
+            } catch (storageErr) {
+              logger.error('[Journey] Failed to persist completion retry on auto-save:', storageErr);
             }
-          } catch (err) {
-            logger.error('[Journey] Failed to fetch active journey:', err);
           }
+
+          // Reset local tracking state to clean up UI
+          await resetTrackingState();
+          await AsyncStorage.removeItem('activeJourneyId');
+          await AsyncStorage.removeItem('@active_journey_state');
+          await AsyncStorage.removeItem(BG_QUEUE_KEY_PREFIX + storedJourneyId).catch(() => {});
+          await AsyncStorage.removeItem(`@kalman_state:${storedJourneyId}`).catch(() => {});
+          bgKalmanFilters.delete(storedJourneyId);
+          bgPositionHistories.delete(storedJourneyId);
+          
+          journeyIdRef.current = null;
+          startTimeRef.current = null;
+          lastCoordinateRef.current = null;
+          pendingSegmentBreakRef.current = false;
+          batchCoordinatesRef.current = [];
+          setIsTracking(false);
+          setIsPaused(false);
+          setJourney(null);
+          setPolyline([]);
+          setDistance(0);
+          setDuration(0);
+          setAccuracy(null);
+          setCurrentCoordinate(null);
+          setError(null);
+
+          suppressNextSyncRef.current = true;
+          broadcastJourneyStateChanged();
         }
       } catch (err) {
         logger.error('[Journey] Failed to initialize journey:', err);
@@ -1308,7 +1419,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
               accuracy: finalLoc.coords.accuracy || 0,
             };
 
-            if (!finalCoord.accuracy || finalCoord.accuracy <= 35) { // Increased from 20 to match overall accuracy threshold
+            if (!finalCoord.accuracy || finalCoord.accuracy <= 80) { // Increased from 35 to match overall accuracy threshold
               // Avoid duplicate points if final location is virtually identical to the last tracked point
               const lastTracked = lastCoordinateRef.current;
               const dist = lastTracked
@@ -1379,6 +1490,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       // linger and feed into a *future* journey with the same id — which
       // shouldn't happen, but the guard is cheap).
       await AsyncStorage.removeItem(BG_QUEUE_KEY_PREFIX + completingJourneyId).catch(() => {});
+      await AsyncStorage.removeItem(`@kalman_state:${completingJourneyId}`).catch(() => {});
+      bgKalmanFilters.delete(completingJourneyId);
+      bgPositionHistories.delete(completingJourneyId);
 
       // -------------------------------------------------------------
       // OPTIMISTIC LOCAL STATE CLEARING (instant UI termination)

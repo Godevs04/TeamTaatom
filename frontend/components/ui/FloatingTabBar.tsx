@@ -279,12 +279,12 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   pillDark: {
-    backgroundColor: 'rgba(15, 22, 35, 0.82)', // Solid frosted glass
+    backgroundColor: 'rgba(10, 15, 25, 0.70)',
     borderColor: 'rgba(255, 255, 255, 0.12)',
   },
   pillLight: {
-    backgroundColor: 'rgba(250, 252, 255, 0.85)', // Solid frosted glass
-    borderColor: 'rgba(255, 255, 255, 0.35)',
+    backgroundColor: 'rgba(255, 255, 255, 0.65)',
+    borderColor: 'rgba(255, 255, 255, 0.45)',
   },
   tabItem: {
     flex: 1,

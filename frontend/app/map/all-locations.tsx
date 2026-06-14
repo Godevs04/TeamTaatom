@@ -657,6 +657,60 @@ function AllLocationsMapInner() {
     }
   }, [selectedPost]);
 
+  // Zoom to fit selected journey polyline
+  useEffect(() => {
+    if (selectedJourney && mapRef.current) {
+      let coords = getJourneyPolylineCoords(selectedJourney);
+      if (coords.length === 0) {
+        if (selectedJourney.startCoords?.lat && selectedJourney.startCoords?.lng) {
+          coords.push({
+            latitude: selectedJourney.startCoords.lat,
+            longitude: selectedJourney.startCoords.lng,
+            timestamp: Date.now(),
+            segmentBreak: false,
+          });
+        }
+        if (selectedJourney.endCoords?.lat && selectedJourney.endCoords?.lng) {
+          coords.push({
+            latitude: selectedJourney.endCoords.lat,
+            longitude: selectedJourney.endCoords.lng,
+            timestamp: Date.now(),
+            segmentBreak: false,
+          });
+        }
+      }
+      if (coords.length > 0) {
+        if (useWebViewFallback) {
+          const boundsJson = JSON.stringify(coords.map(c => ({ lat: c.latitude, lng: c.longitude })));
+          mapRef.current.injectJavaScript(`
+            if (window.map) {
+              var coords = ${boundsJson};
+              var bounds = new google.maps.LatLngBounds();
+              coords.forEach(function(c) {
+                bounds.extend(new google.maps.LatLng(c.lat, c.lng));
+              });
+              window.map.fitBounds(bounds);
+            }
+            true;
+          `);
+        } else {
+          setTimeout(() => {
+            try {
+              if (typeof mapRef.current?.fitToCoordinates === 'function') {
+                mapRef.current.fitToCoordinates(coords, {
+                  edgePadding: { top: 100, right: 100, bottom: 100, left: 100 },
+                  animated: true,
+                });
+              }
+            } catch (err) {
+              logger.error('Error fitting to journey coordinates:', err);
+            }
+          }, 100);
+        }
+      }
+    }
+  }, [selectedJourney, useWebViewFallback]);
+
   // Scroll carousel to index when selectedPost is changed externally
   useEffect(() => {
     if (selectedPost && !isScrollingCarouselRef.current) {
@@ -1324,11 +1378,6 @@ html,body,#map{height:100%;margin:0;padding:0}
   border-radius: 50%;
   background: linear-gradient(135deg, #50C878 0%, #1C73B4 100%);
   border: 2px solid #FFFFFF;
-  box-shadow: 0 0 8px rgba(28, 115, 180, 0.6);
-}
-@keyframes pulse {
-  0% { transform: scale(0.6); opacity: 1; }
-  100% { transform: scale(2.2); opacity: 0; }
 }
 
 .glass-marker-card {
@@ -1403,14 +1452,6 @@ html,body,#map{height:100%;margin:0;padding:0}
   align-items: center;
   justify-content: center;
 }
-.cluster-pulse {
-  position: absolute;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: ${isDark ? 'rgba(59, 130, 246, 0.25)' : 'rgba(33, 150, 243, 0.2)'};
-  animation: pulse 2s infinite ease-out;
-}
 .cluster-glass-circle {
   width: 36px;
   height: 36px;
@@ -1434,20 +1475,18 @@ html,body,#map{height:100%;margin:0;padding:0}
   color: ${isDark ? '#2DD4BF' : '#3B82F6'};
 }
 .map-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, ${isDark ? '#2DD4BF' : '#3B82F6'} 0%, #10B981 100%);
-  border: 2px solid #FFFFFF;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-}
-.map-cluster-dot {
   width: 16px;
   height: 16px;
   border-radius: 50%;
   background: linear-gradient(135deg, ${isDark ? '#2DD4BF' : '#3B82F6'} 0%, #10B981 100%);
-  border: 2px solid #FFFFFF;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  border: 2.5px solid #FFFFFF;
+}
+.map-cluster-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, ${isDark ? '#2DD4BF' : '#3B82F6'} 0%, #10B981 100%);
+  border: 3px solid #FFFFFF;
 }
 </style>
 <script>
@@ -1502,7 +1541,7 @@ function initMap(){
         '    <stop offset="100%" stop-color="#10B981" />' +
         '  </linearGradient>' +
         '</defs>' +
-        '<circle cx="18" cy="18" r="16" fill="' + fill + '" stroke="' + strokeColor + '" stroke-width="2" style="filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.25));" />' +
+        '<circle cx="18" cy="18" r="16" fill="' + fill + '" stroke="' + strokeColor + '" stroke-width="2" />' +
         '<g transform="translate(6, 6) scale(0.9)" fill="' + iconColor + '">' +
         '  <path d="M19 10h-6V8h3c.6 0 1-.4 1-1s-.4-1-1-1h-3V4c0-.6-.4-1-1-1s-1 .4-1 1v2H8c-.6 0-1 .4-1 1s.4 1 1 1h3v2H5c-.6 0-1 .4-1 1s.4 1 1 1h6v6c0 .6.4 1 1 1s1-.4 1-1v-6h6c.6 0 1-.4 1-1s-.4-1-1-1z"/>' +
         '</g>' +
@@ -1513,6 +1552,7 @@ function initMap(){
         map: map,
         icon: {
           url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+          size: new google.maps.Size(size, size),
           scaledSize: new google.maps.Size(size, size),
           anchor: new google.maps.Point(size/2, size/2)
         },
@@ -1554,7 +1594,7 @@ function initMap(){
         var endDiv = document.createElement('div');
         endDiv.style.cssText = 'position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:90;';
         endDiv.setAttribute('data-anchor', 'center');
-        endDiv.innerHTML = '<div style="width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #FFFFFF; background-color: ${ALERT_RED}; box-shadow: 0 2px 5px rgba(0,0,0,0.3);"></div>';
+        endDiv.innerHTML = '<div style="width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #FFFFFF; background-color: ${ALERT_RED};"></div>';
         endDiv.addEventListener('click', selectJourneyHandler);
         new PhotoOverlay(endPos, endDiv);
         bounds.extend(endPos);
@@ -1568,7 +1608,7 @@ function initMap(){
             var wpDiv = document.createElement('div');
             wpDiv.style.cssText = 'position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
             wpDiv.setAttribute('data-anchor', 'center');
-            wpDiv.innerHTML = '<div style="width: 32px; height: 32px; border-radius: 50%; border: 2.5px solid #FFFFFF; box-shadow: 0 2px 6px rgba(0,0,0,0.3); overflow: hidden; background-image: url(\\'' + wp.photo + '\\'); background-size: cover; background-position: center; transition: transform 0.2s ease;"></div>';
+            wpDiv.innerHTML = '<div style="width: 32px; height: 32px; border-radius: 50%; border: 2.5px solid #FFFFFF; overflow: hidden; background-image: url(\\'' + wp.photo + '\\'); background-size: cover; background-position: center; transition: transform 0.2s ease;"></div>';
             
             // Highlight / hover effects
             wpDiv.firstChild.addEventListener('mouseenter', function() {
@@ -1915,7 +1955,7 @@ function initMap(){
                 anchor={{ x: 0.5, y: 0.5 }}
                 repaintTriggers={[isSelected, isDark]}
               >
-                <View style={styles.journeyRepMarker}>
+                <View style={styles.journeyRepMarker} pointerEvents="none">
                   {isSelected ? (
                     <LinearGradient
                       colors={['#3B82F6', '#10B981']}

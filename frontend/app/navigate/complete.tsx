@@ -162,6 +162,7 @@ function initMap(){
       title:'Start',
       icon:{
         url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#10B981" stroke="white" stroke-width="2"/></svg>'),
+        size:new google.maps.Size(30,30),
         scaledSize:new google.maps.Size(30,30),
         anchor:new google.maps.Point(15,15)
       }
@@ -174,6 +175,7 @@ function initMap(){
       title:'End',
       icon:{
         url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#EF4444" stroke="white" stroke-width="2"/></svg>'),
+        size:new google.maps.Size(30,30),
         scaledSize:new google.maps.Size(30,30),
         anchor:new google.maps.Point(15,15)
       }

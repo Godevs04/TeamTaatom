@@ -36,6 +36,10 @@ class ImageCacheManager {
    * Get cached image URI or download and cache if not exists
    */
   async getCachedImageUri(url: string, options: ImageCacheOptions = {}): Promise<string> {
+    if (!url || typeof url !== 'string' || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+      return url;
+    }
+
     try {
       const cacheKey = this.generateCacheKey(url);
       const cachedPath = `${this.cacheDir}${cacheKey}`;
@@ -55,7 +59,7 @@ class ImageCacheManager {
       // Download and cache the image
       return await this.downloadAndCache(url, cachedPath, options);
     } catch (error) {
-      logger.error('Error getting cached image:', error);
+      logger.warn('Error getting cached image:', error);
       return url; // Fallback to original URL
     }
   }
@@ -79,7 +83,7 @@ class ImageCacheManager {
         throw new Error(`Download failed with status: ${downloadResult.status}`);
       }
     } catch (error) {
-      logger.error('Error downloading image:', error);
+      logger.warn('Error downloading image:', error);
       return url; // Fallback to original URL
     }
   }
@@ -195,7 +199,7 @@ class ImageCacheManager {
         urls.map(url => this.getCachedImageUri(url))
       );
     } catch (error) {
-      logger.error('Error preloading images:', error);
+      logger.warn('Error preloading images:', error);
     }
   }
 }

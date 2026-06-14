@@ -144,9 +144,14 @@ export default function InterestsOnboarding() {
                   {interest.label}
                 </Text>
                 {isSelected && (
-                  <View style={[styles.checkmark, { backgroundColor: theme.colors.primary }]}>
+                  <LinearGradient
+                    colors={['#50C878', '#1C73B4']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.checkmark}
+                  >
                     <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                  </View>
+                  </LinearGradient>
                 )}
               </TouchableOpacity>
             );
@@ -169,7 +174,9 @@ export default function InterestsOnboarding() {
           activeOpacity={0.8}
         >
           <LinearGradient
-            colors={[theme.colors.primary, theme.colors.primary + 'DD']}
+            colors={['#50C878', '#1C73B4']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
             style={styles.gradient}
           >
             <Text style={styles.continueButtonText}>

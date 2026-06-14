@@ -137,7 +137,9 @@ export default function WelcomeOnboarding() {
           activeOpacity={0.8}
         >
           <LinearGradient
-            colors={[currentStepData.color, currentStepData.color + 'DD']}
+            colors={['#50C878', '#1C73B4']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
             style={styles.gradient}
           >
             <Text style={styles.nextButtonText}>

@@ -19,8 +19,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import { useTheme } from '../../context/ThemeContext';
 import * as Location from 'expo-location';
-import { MapView, Marker, getMapProvider } from '../../utils/mapsWrapper';
-const useWebViewFallback = true;
+import { MapView, Marker, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import { getApiUrl } from '../../utils/config';
 import { calculateDistance } from '../../utils/locationUtils';
@@ -622,7 +621,7 @@ export default function CurrentLocationMap() {
   }, [autoRouteParam, hasValidCoordinates, userCoords]);
 
   useEffect(() => {
-    if (userCoords && mapRef.current) {
+    if (userCoords && mapRef.current && useWebViewFallback) {
       mapRef.current.injectJavaScript(`
         if (typeof window.updateUserLocation === 'function') {
           window.updateUserLocation(${userCoords.latitude}, ${userCoords.longitude});
@@ -633,7 +632,7 @@ export default function CurrentLocationMap() {
   }, [userCoords]);
 
   useEffect(() => {
-    if (mapRef.current) {
+    if (mapRef.current && useWebViewFallback) {
       mapRef.current.injectJavaScript(`
         if (typeof window.updateDestinationSelection === 'function') {
           window.updateDestinationSelection(${isMarkerSelected});
@@ -674,25 +673,12 @@ html,body,#map{height:100%;margin:0;padding:0}
   align-items: center;
   justify-content: center;
 }
-.pulse-ring {
-  position: absolute;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: radial-gradient(circle, ${isDark ? 'rgba(45, 212, 191, 0.4)' : 'rgba(59, 130, 246, 0.4)'} 0%, rgba(59, 130, 246, 0) 70%);
-  animation: pulse 1.8s infinite ease-out;
-}
 .core-dot {
   width: 14px;
   height: 14px;
   border-radius: 50%;
   background: linear-gradient(135deg, #2DD4BF 0%, #3B82F6 100%);
   border: 2px solid #FFFFFF;
-  box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
-}
-@keyframes pulse {
-  0% { transform: scale(0.6); opacity: 1; }
-  100% { transform: scale(2.2); opacity: 0; }
 }
 
 .photo-pin {
@@ -822,7 +808,7 @@ function initMap(){
     var userDiv=document.createElement('div');
     userDiv.style.cssText='position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
     userDiv.setAttribute('data-anchor', 'center');
-    userDiv.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
+    userDiv.innerHTML = '<div class="glowing-dot-container"><div class="core-dot"></div></div>';
     return new PhotoOverlay(pos, userDiv);
   }
 
@@ -844,7 +830,7 @@ function initMap(){
       }
     } else {
       div.setAttribute('data-anchor', 'center');
-      div.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
+      div.innerHTML = '<div class="glowing-dot-container"><div class="core-dot"></div></div>';
     }
     
     div.addEventListener('click', function(e) {
@@ -1193,10 +1179,13 @@ function initMap(){
           }}
         >
           <PremiumMapMarker 
-            icon={isPostLocation ? 'location' : 'navigate'} 
+            icon="location" 
             active={isMarkerSelected} 
             isActive={isMarkerSelected}
             photo={postPhoto}
+            label={locationName || postAddress || 'Location'}
+            activeTitle={locationName || postAddress || 'Location'}
+            activeSubtitle={(params.spotTypes as string) || (params.description as string) || (isPostLocation ? 'Post Location' : 'You are here')}
             latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
           />
         </SafeMarker>
