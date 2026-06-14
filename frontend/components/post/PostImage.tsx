@@ -25,8 +25,14 @@ const CARD_WIDTH = screenWidth - 24;
 // the cache and force a re-download of an image we already have on disk.
 const getStableCacheKey = (url?: string | null): string | undefined => {
   if (!url) return undefined;
-  const q = url.indexOf('?');
-  return q >= 0 ? url.slice(0, q) : url;
+  const cleanUrl = url.split('?')[0];
+  let hash = 0;
+  for (let i = 0; i < cleanUrl.length; i++) {
+    const char = cleanUrl.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(36);
 };
 
 // Module-level cache of measured natural aspect ratios for `aspectRatio: 'full'`
@@ -94,6 +100,22 @@ const CarouselItem = React.memo(({
   heartScale,
   heartOpacity,
 }: CarouselItemProps) => {
+  const [hasError, setHasError] = useState(false);
+  const [isImageLoading, setIsImageLoading] = useState(true);
+  const { theme } = useTheme();
+
+  const [prevItem, setPrevItem] = useState(item);
+  if (item !== prevItem) {
+    setPrevItem(item);
+    setHasError(false);
+    setIsImageLoading(true);
+  }
+
+  useEffect(() => {
+    setHasError(false);
+    setIsImageLoading(true);
+  }, [item]);
+
   const slideContainerStyle = useAnimatedStyle(() => {
     const isActive = index === currentImageIndex;
     const isZooming = scale.value > 1.01;
@@ -113,63 +135,90 @@ const CarouselItem = React.memo(({
           slideContainerStyle,
         ]}
       >
-        <ReAnimated.View
-          style={[
-            StyleSheet.absoluteFill,
-            isActive ? animatedImageStyle : null,
-          ]}
-        >
-          <ExpoImage
-            source={{
-              uri: applyCloudinaryFilter(item, filter),
-              cacheKey: getStableCacheKey(item) ? `${getStableCacheKey(item)}:${filter || 'original'}` : undefined,
-            }}
-            placeholderContentFit="cover"
-            cachePolicy="memory-disk"
-            contentFit="cover"
-            transition={250}
-            priority={isActive ? "high" : "normal"}
-            style={styles.image}
-          />
-          {filter && FILTER_PREVIEW_OVERLAY[filter as ImageFilterType] && (
-            <View
-              pointerEvents="none"
-              style={[
-                StyleSheet.absoluteFillObject,
-                { backgroundColor: FILTER_PREVIEW_OVERLAY[filter as ImageFilterType]! },
-              ]}
+        {hasError ? (
+          <View style={[styles.imageError, { width: containerWidth, height: '100%', minHeight: undefined }]}>
+            <Ionicons name="image-outline" size={48} color={theme.colors.textPassive} />
+            <Text style={[styles.errorText, { color: theme.colors.textPassive }]}>
+              Failed to load image
+            </Text>
+            <TouchableOpacity 
+              style={styles.retryButton} 
+              onPress={() => setHasError(false)}
+            >
+              <Ionicons name="refresh" size={16} color={theme.colors.text} />
+              <Text style={[styles.retryText, { color: theme.colors.text }]}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <ReAnimated.View
+            style={[
+              StyleSheet.absoluteFill,
+              isActive ? animatedImageStyle : null,
+            ]}
+          >
+            <ExpoImage
+              source={{
+                uri: applyCloudinaryFilter(item, filter),
+                cacheKey: getStableCacheKey(item) ? `${getStableCacheKey(item)}_${filter || 'original'}` : undefined,
+              }}
+              placeholderContentFit="cover"
+              cachePolicy="memory-disk"
+              contentFit="cover"
+              transition={250}
+              priority={isActive ? "high" : "normal"}
+              style={styles.image}
+              onLoadStart={() => setIsImageLoading(true)}
+              onLoad={() => setIsImageLoading(false)}
+              onError={() => {
+                setIsImageLoading(false);
+                setHasError(true);
+              }}
             />
-          )}
-
-          {/* Heart animation overlay */}
-          {isActive && (
-            <View style={styles.heartContainer} pointerEvents="none">
-              <Animated.View
+            {isImageLoading && (
+              <View style={[styles.imageLoader, { backgroundColor: theme.colors.surface }]} pointerEvents="none">
+                <LoadingGlobe color={theme.colors.primary} size="large" />
+              </View>
+            )}
+            {filter && FILTER_PREVIEW_OVERLAY[filter as ImageFilterType] && (
+              <View
+                pointerEvents="none"
                 style={[
-                  styles.heartAnimation,
-                  {
-                    transform: [{ scale: heartScale }],
-                    opacity: heartOpacity,
-                  },
+                  StyleSheet.absoluteFillObject,
+                  { backgroundColor: FILTER_PREVIEW_OVERLAY[filter as ImageFilterType]! },
                 ]}
-              >
-                <MaskedView
-                  style={{ width: 80, height: 80 }}
-                  maskElement={
-                    <Ionicons name="heart" size={80} color="#000000" />
-                  }
+              />
+            )}
+
+            {/* Heart animation overlay */}
+            {isActive && (
+              <View style={styles.heartContainer} pointerEvents="none">
+                <Animated.View
+                  style={[
+                    styles.heartAnimation,
+                    {
+                      transform: [{ scale: heartScale }],
+                      opacity: heartOpacity,
+                    },
+                  ]}
                 >
-                  <LinearGradient
-                    colors={['#50C878', '#1C73B4']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={{ flex: 1 }}
-                  />
-                </MaskedView>
-              </Animated.View>
-            </View>
-          )}
-        </ReAnimated.View>
+                  <MaskedView
+                    style={{ width: 80, height: 80 }}
+                    maskElement={
+                      <Ionicons name="heart" size={80} color="#000000" />
+                    }
+                  >
+                    <LinearGradient
+                      colors={['#50C878', '#1C73B4']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={{ flex: 1 }}
+                    />
+                  </MaskedView>
+                </Animated.View>
+              </View>
+            )}
+          </ReAnimated.View>
+        )}
       </ReAnimated.View>
     </GestureDetector>
   );
@@ -211,6 +260,7 @@ export default function PostImage({
   const [scrollEnabled, setScrollEnabled] = useState(true);
   const [containerWidth, setContainerWidth] = useState(screenWidth - 32);
   const [isZoomed, setIsZoomed] = useState(false);
+  const [isImageLoading, setIsImageLoading] = useState(true);
 
   const handleLayout = useCallback((event: any) => {
     const { width } = event.nativeEvent.layout;
@@ -430,6 +480,21 @@ export default function PostImage({
   const focalX = useSharedValue<number>(0);
   const focalY = useSharedValue<number>(0);
 
+  // Synchronous state reset during render phase when recycled (fixing one-frame stale state leak)
+  const [prevPostId, setPrevPostId] = useState(post._id);
+  if (post._id !== prevPostId) {
+    setPrevPostId(post._id);
+    setCurrentImageIndex(0);
+    setIsZoomed(false);
+    setScrollEnabled(true);
+    setIsImageLoading(true);
+    scale.value = 1;
+    originX.value = 0;
+    originY.value = 0;
+    focalX.value = 0;
+    focalY.value = 0;
+  }
+
   const pinchGesture = Gesture.Pinch()
     .onStart((e) => {
       runOnJS(setIsZoomed)(true);
@@ -609,7 +674,7 @@ export default function PostImage({
                 <ExpoImage
                   source={{
                     uri: applyCloudinaryFilter(imageUri, post.filter),
-                    cacheKey: getStableCacheKey(imageUri) ? `${getStableCacheKey(imageUri)}:${post.filter || 'original'}` : undefined,
+                    cacheKey: getStableCacheKey(imageUri) ? `${getStableCacheKey(imageUri)}_${post.filter || 'original'}` : undefined,
                   }}
                   placeholder={blurUpUri ? { uri: blurUpUri } : undefined}
                   placeholderContentFit="cover"
@@ -618,8 +683,18 @@ export default function PostImage({
                   transition={250}
                   priority="high"
                   style={styles.image}
-                  onError={() => onImageError()}
+                  onLoadStart={() => setIsImageLoading(true)}
+                  onLoad={() => setIsImageLoading(false)}
+                  onError={() => {
+                    setIsImageLoading(false);
+                    onImageError();
+                  }}
                 />
+                {isImageLoading && (
+                  <View style={[styles.imageLoader, { backgroundColor: theme.colors.surface }]} pointerEvents="none">
+                    <LoadingGlobe color={theme.colors.primary} size="large" />
+                  </View>
+                )}
                 {post.filter && FILTER_PREVIEW_OVERLAY[post.filter as ImageFilterType] && (
                   <View
                     pointerEvents="none"

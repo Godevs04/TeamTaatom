@@ -817,6 +817,7 @@ export default function LocaleScreen() {
       return lastPage.pagination?.hasMore ? lastPage.pagination?.nextCursor : undefined;
     },
     enabled: !isLocationResolving,
+    staleTime: 5 * 60 * 1000,
   });
 
   // Synchronize adminLocales with query pages and drivingDistances
@@ -852,8 +853,8 @@ export default function LocaleScreen() {
   }, [isFetchingNextPage]);
 
   useEffect(() => {
-    setLoadingLocales(isLoading || isRefetching);
-  }, [isLoading, isRefetching]);
+    setLoadingLocales(isLoading);
+  }, [isLoading]);
 
   useEffect(() => {
     if (data?.pages) {

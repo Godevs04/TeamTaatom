@@ -621,7 +621,7 @@ export default function CurrentLocationMap() {
   }, [autoRouteParam, hasValidCoordinates, userCoords]);
 
   useEffect(() => {
-    if (userCoords && mapRef.current) {
+    if (userCoords && mapRef.current && useWebViewFallback) {
       mapRef.current.injectJavaScript(`
         if (typeof window.updateUserLocation === 'function') {
           window.updateUserLocation(${userCoords.latitude}, ${userCoords.longitude});
@@ -632,7 +632,7 @@ export default function CurrentLocationMap() {
   }, [userCoords]);
 
   useEffect(() => {
-    if (mapRef.current) {
+    if (mapRef.current && useWebViewFallback) {
       mapRef.current.injectJavaScript(`
         if (typeof window.updateDestinationSelection === 'function') {
           window.updateDestinationSelection(${isMarkerSelected});

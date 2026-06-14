@@ -536,20 +536,12 @@ const ShortsCell = React.memo((props: ShortsCellProps) => {
     if (!video) return;
 
     if (shouldPlay) {
-      video.getStatusAsync().then((status) => {
-        if (status.isLoaded && !status.isPlaying) {
-          video.playAsync().then(() => {
-            setIsPlaying(true);
-          }).catch(() => {});
-        }
+      video.playAsync().then(() => {
+        setIsPlaying(true);
       }).catch(() => {});
     } else {
-      video.getStatusAsync().then((status) => {
-        if (status.isLoaded && status.isPlaying) {
-          video.pauseAsync().then(() => {
-            setIsPlaying(false);
-          }).catch(() => {});
-        }
+      video.pauseAsync().then(() => {
+        setIsPlaying(false);
       }).catch(() => {});
     }
   }, [shouldPlay]);
@@ -560,12 +552,8 @@ const ShortsCell = React.memo((props: ShortsCellProps) => {
     if (!video) return;
     const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
     const shouldMuteVideo = !isActive || hasMusic || isMuted;
-    video.getStatusAsync().then((status) => {
-      if (status.isLoaded) {
-        video.setIsMutedAsync(shouldMuteVideo).catch(() => {});
-        video.setVolumeAsync(shouldMuteVideo ? 0.0 : 1.0).catch(() => {});
-      }
-    }).catch(() => {});
+    video.setIsMutedAsync(shouldMuteVideo).catch(() => {});
+    video.setVolumeAsync(shouldMuteVideo ? 0.0 : 1.0).catch(() => {});
   }, [isMuted, isActive, item.song]);
 
   // Recovery check inside ShortsCell
@@ -939,21 +927,18 @@ const ShortsCell = React.memo((props: ShortsCellProps) => {
                     return;
                   }
                   
-                  if (isNowPlaying && isActive) {
-                    currentPlayerRef.current = null;
-                  }
-
                   if (isNowPlaying && isActive && status.positionMillis !== undefined) {
                     const lastPos = lastVideoPositionRef.current[item._id] ?? 0;
                     const curPos = status.positionMillis;
                     if (lastPos > 500 && curPos < lastPos - 500) {
-                      if (hasMusic && currentPlayerRef.current) {
+                      const audio = audioManager.getCurrentSound() || currentPlayerRef.current;
+                      if (hasMusic && audio) {
                         const startSec = item.song?.startTime || 0;
                         const endSec = item.song?.endTime;
                         const songStartMs = startSec * 1000;
                         const segmentMs = endSec && endSec > startSec ? (endSec - startSec) * 1000 : 60000;
                         const audioOffsetMs = curPos % segmentMs;
-                        currentPlayerRef.current.setPositionAsync(songStartMs + audioOffsetMs).catch(() => {});
+                        audio.setPositionAsync(songStartMs + audioOffsetMs).catch(() => {});
                       }
                     }
                     lastVideoPositionRef.current[item._id] = curPos;
@@ -1348,6 +1333,9 @@ const ShortsProgressBar = ({
   const [duration, setDuration] = useState(0);
   const [isPressing, setIsPressing] = useState(false);
 
+  const progressRef = useRef(0);
+  const durationRef = useRef(0);
+
   const lastSeekTimeRef = useRef(0);
   const pendingSeekTimeoutRef = useRef<any>(null);
   const isPressingRef = useRef(false);
@@ -1359,13 +1347,17 @@ const ShortsProgressBar = ({
   useEffect(() => {
     if (index !== currentVisibleIndex) {
       setProgress(0);
+      progressRef.current = 0;
       return;
     }
 
     progressCallbacks.current[shortId] = (pos: number, dur: number) => {
       setDuration(dur);
+      durationRef.current = dur;
       if (dur > 0 && !isPressingRef.current) {
-        setProgress(pos / dur);
+        const newProg = pos / dur;
+        setProgress(newProg);
+        progressRef.current = newProg;
       }
     };
 
@@ -1378,12 +1370,13 @@ const ShortsProgressBar = ({
   }, [shortId, index, currentVisibleIndex]);
 
   const handleTouch = (event: any, forceSeek = false) => {
-    if (duration <= 0) return;
+    if (durationRef.current <= 0) return;
     
     const pageX = event.nativeEvent.pageX;
     const leftOffset = (SCREEN_WIDTH - 226) / 2;
     const newProgress = Math.max(0, Math.min(1, (pageX - leftOffset) / 226));
     setProgress(newProgress);
+    progressRef.current = newProgress;
 
     const now = Date.now();
     const timeDelta = now - lastTouchTimeRef.current;
@@ -1399,10 +1392,9 @@ const ShortsProgressBar = ({
       triggerHaptic('light');
     }
 
-
     lastHapticProgressRef.current = newProgress;
 
-    const targetMs = newProgress * duration;
+    const targetMs = newProgress * durationRef.current;
     
     // Calculate music seek offset
     const startSec = songStartSec || 0;
@@ -1415,25 +1407,14 @@ const ShortsProgressBar = ({
     const performSeek = () => {
       const video = getVideoRef();
       if (video) {
-        if (forceSeek) {
-          // Enforce frame-accurate seeking using precise tolerance options on touch start/end
-          video.setPositionAsync(targetMs, {
-            toleranceMillisBefore: 0,
-            toleranceMillisAfter: 0,
-          }).catch(() => {});
-        } else {
-          // Fast seek during active drag to avoid UI stuttering
-          video.setPositionAsync(targetMs).catch(() => {});
-        }
+        // Fast seek always, no tolerance parameters to avoid UI freeze/stutter
+        video.setPositionAsync(targetMs).catch(() => {});
       }
-      if (forceSeek && hasMusic && currentPlayerRef.current) {
-        // Audio seek does not use tolerance parameters (to prevent codec rejection errors)
-        // We only seek the background audio player on initial touch (forceSeek = true)
-        // because the final seek is handled separately on touch end.
-        // This avoids audio thread clogging during active drag.
-        currentPlayerRef.current.setPositionAsync(finalAudioMs).catch(() => {});
+      const audio = hasMusic ? (audioManager.getCurrentSound() || currentPlayerRef.current) : null;
+      if (forceSeek && audio) {
+        audio.setPositionAsync(finalAudioMs).catch(() => {});
       }
-      // Update lastVideoPosition immediately to prevent false loop detection triggers
+      // Update last video position immediately to prevent false loop detection triggers
       lastVideoPositionRef.current[shortId] = targetMs;
     };
 
@@ -1494,8 +1475,9 @@ const ShortsProgressBar = ({
         if (video) {
           video.pauseAsync().catch(() => {});
         }
-        if (hasMusic && currentPlayerRef.current) {
-          currentPlayerRef.current.pauseAsync().catch(() => {});
+        const audio = hasMusic ? (audioManager.getCurrentSound() || currentPlayerRef.current) : null;
+        if (audio) {
+          audio.pauseAsync().catch(() => {});
         }
         
         lastTouchTimeRef.current = Date.now();
@@ -1513,8 +1495,8 @@ const ShortsProgressBar = ({
           pendingSeekTimeoutRef.current = null;
         }
         
-        // Calculate final exact seek coordinates on release
-        const finalTargetMs = progress * duration;
+        // Calculate final exact seek coordinates on release using refs to ensure accurate coordinates
+        const finalTargetMs = progressRef.current * durationRef.current;
         const startSec = songStartSec || 0;
         const endSec = songEndSec;
         const songStartMs = startSec * 1000;
@@ -1524,10 +1506,10 @@ const ShortsProgressBar = ({
 
         const video = getVideoRef();
         
-        // Seek to final precise destination simultaneously and resume play smoothly with CRITICAL BUFFER LOCK
+        // Seek to final precise destination simultaneously and resume play smoothly
         const executeFinalSeekAndPlay = async () => {
           const video = getVideoRef();
-          const audio = hasMusic ? currentPlayerRef.current : null;
+          const audio = hasMusic ? (audioManager.getCurrentSound() || currentPlayerRef.current) : null;
 
           try {
             // Pause explicitly first to reset players stream state (prevents stale buffer playing)
@@ -1538,45 +1520,13 @@ const ShortsProgressBar = ({
               await audio.pauseAsync().catch(() => {});
             }
 
-            // Perform seek operations with robust retry loop and backoff
-            const seekVideo = async () => {
-              if (!video) return;
-              for (let i = 0; i < 3; i++) {
-                try {
-                  await video.setPositionAsync(finalTargetMs, {
-                    toleranceMillisBefore: 0,
-                    toleranceMillisAfter: 0,
-                  });
-                  return; // success
-                } catch (e) {
-                  logger.warn(`Video seek attempt ${i + 1} failed:`, e);
-                  if (i === 2) throw e;
-                  await new Promise((resolve) => setTimeout(resolve, 50));
-                }
-              }
-            };
-
-            const seekAudio = async () => {
-              if (!audio) return;
-              for (let i = 0; i < 3; i++) {
-                try {
-                  await audio.setPositionAsync(finalAudioMs);
-                  return; // success
-                } catch (e) {
-                  logger.warn(`Audio seek attempt ${i + 1} failed:`, e);
-                  if (i === 2) throw e;
-                  await new Promise((resolve) => setTimeout(resolve, 50));
-                }
-              }
-            };
-
             // Update last video position immediately to prevent false loop detection triggers
             lastVideoPositionRef.current[shortId] = finalTargetMs;
 
             // Wait for both seeks to complete (ignoring individual catch rejections so one doesn't abort the other)
             await Promise.all([
-              seekVideo().catch((err) => logger.error("Final video seek failed after retries:", err)),
-              seekAudio().catch((err) => logger.error("Final audio seek failed after retries:", err)),
+              video ? video.setPositionAsync(finalTargetMs).catch((err) => logger.error("Final video seek failed:", err)) : Promise.resolve(),
+              audio ? audio.setPositionAsync(finalAudioMs).catch((err) => logger.error("Final audio seek failed:", err)) : Promise.resolve(),
             ]);
 
             // Once seeking is completed, resume playback
@@ -4135,6 +4085,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       currentPlayerRef.current.pauseAsync?.().catch(() => {});
       currentPlayerRef.current = null;
     }
+    // Also pause the current active sound in audioManager to prevent overlapping audio
+    audioManager.pauseCurrentSound().catch(() => {});
 
     const previousIndex = currentVisibleIndexRef.current;
     const previousItem = shortsDataRef.current[previousIndex] as ShortsItem | undefined;

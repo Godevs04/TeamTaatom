@@ -51,7 +51,7 @@ export class KalmanFilter {
    * @param timestamp Measurement timestamp in milliseconds.
    * @returns Smoothed latitude and longitude coordinates.
    */
-  public update(lat: number, lng: number, accuracy: number, timestamp: number, speed?: number): { latitude: number; longitude: number } {
+  public update(lat: number, lng: number, accuracy: number, timestamp: number, speed?: number, heading?: number): { latitude: number; longitude: number } {
     if (this.lastTimestamp === 0) {
       this.x = [lat, lng, 0, 0];
       this.lastTimestamp = timestamp;
@@ -76,6 +76,14 @@ export class KalmanFilter {
       }
     }
     this.Q_metres_per_sec = qBase;
+
+    // Inject heading-based speed projections into state vector velocity if available
+    if (typeof speed === 'number' && speed >= 0 && typeof heading === 'number' && heading >= 0) {
+      const headingRad = (heading * Math.PI) / 180.0;
+      const METRES_PER_DEGREE = 111320.0;
+      this.x[2] = (speed / METRES_PER_DEGREE) * Math.cos(headingRad);
+      this.x[3] = (speed / METRES_PER_DEGREE) * Math.sin(headingRad);
+    }
 
     // --- 1. PREDICT PHASE ---
     // State transition F: x_pred = x + vel * dt
@@ -194,5 +202,22 @@ export class KalmanFilter {
       [dt3 * qScale, 0, dt2 * qScale, 0],
       [0, dt3 * qScale, 0, dt2 * qScale]
     ];
+  }
+
+  public toJSON(): any {
+    return {
+      x: this.x,
+      P: this.P,
+      Q_metres_per_sec: this.Q_metres_per_sec,
+      lastTimestamp: this.lastTimestamp
+    };
+  }
+
+  public static fromJSON(json: any): KalmanFilter {
+    const filter = new KalmanFilter(json.x[0], json.x[1], 10, json.lastTimestamp);
+    filter.x = [...json.x];
+    filter.P = json.P.map((row: any) => [...row]);
+    filter.Q_metres_per_sec = json.Q_metres_per_sec;
+    return filter;
   }
 }

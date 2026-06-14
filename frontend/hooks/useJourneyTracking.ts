@@ -111,6 +111,8 @@ const BG_QUEUE_KEY_PREFIX = 'bgJourneyCoords:';
 // every JS bundle load (required by TaskManager's API contract — it must
 // be reachable before `startLocationUpdatesAsync` is called).
 const BG_LOCATION_TASK = 'taatom-journey-bg-location';
+const bgKalmanFilters = new Map<string, KalmanFilter>();
+const bgPositionHistories = new Map<string, { latitude: number; longitude: number }[]>();
 
 const getAdaptiveMinDistance = (accuracy: number, speed?: number | null): number => {
   const accuracyFloor = Math.max(0, Number.isFinite(accuracy) ? accuracy : 0) * 0.5;
@@ -123,6 +125,42 @@ const getAdaptiveMinDistance = (accuracy: number, speed?: number | null): number
     }
   }
   return Math.max(MIN_LOCATION_DISTANCE, accuracyFloor);
+};
+
+const isDriftingStationary = (
+  history: { latitude: number; longitude: number }[],
+  newPoint: { latitude: number; longitude: number },
+  speed: number,
+  maxPoints = 5,
+  driftThresholdMeters = 8
+): boolean => {
+  if (speed >= 0.8) return false; // Clearly moving
+  const points = [...history, newPoint].slice(-maxPoints);
+  if (points.length < 3) return false; // Need at least 3 points to check variance
+  
+  const n = points.length;
+  let sumLat = 0;
+  let sumLng = 0;
+  for (const p of points) {
+    sumLat += p.latitude;
+    sumLng += p.longitude;
+  }
+  const meanLat = sumLat / n;
+  const meanLng = sumLng / n;
+  
+  let varLat = 0;
+  let varLng = 0;
+  for (const p of points) {
+    varLat += (p.latitude - meanLat) * (p.latitude - meanLat);
+    varLng += (p.longitude - meanLng) * (p.longitude - meanLng);
+  }
+  const stdDevLat = Math.sqrt(varLat / n);
+  const stdDevLng = Math.sqrt(varLng / n);
+  
+  const METRES_PER_DEGREE = 111320.0;
+  const stdDevMeters = Math.sqrt(stdDevLat * stdDevLat + stdDevLng * stdDevLng) * METRES_PER_DEGREE;
+  
+  return stdDevMeters < driftThresholdMeters;
 };
 
 // Background location task. Runs in a headless JS context when the app is
@@ -151,7 +189,24 @@ try {
       const journeyId = await AsyncStorage.getItem('activeJourneyId');
       if (!journeyId) return; // Stale task firing after a stop — drop.
 
+      // 1. Get/Initialize background KalmanFilter
+      let filter = bgKalmanFilters.get(journeyId);
+      if (!filter) {
+        const kalmanKey = `@kalman_state:${journeyId}`;
+        const savedKalmanRaw = await AsyncStorage.getItem(kalmanKey);
+        if (savedKalmanRaw) {
+          try {
+            filter = KalmanFilter.fromJSON(JSON.parse(savedKalmanRaw));
+            bgKalmanFilters.set(journeyId, filter);
+          } catch (e) {
+            // ignore parse error
+          }
+        }
+      }
+
+      let bgHistory = bgPositionHistories.get(journeyId) || [];
       const valid: Coordinate[] = [];
+
       for (const loc of locations) {
         const lat = loc?.coords?.latitude;
         const lng = loc?.coords?.longitude;
@@ -160,18 +215,59 @@ try {
         if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
         const accuracy = loc.coords?.accuracy || 0;
         if (accuracy > 80) continue; // Drop any coordinate where accuracy > 80 (increased from 35 to allow background updates)
+        
         const speed = loc.coords?.speed;
         const heading = loc.coords?.heading;
+        const effectiveSpeed = typeof speed === 'number' && speed >= 0 ? speed : 0;
+
+        // 2. Stationary variance check (Jitter Mitigation)
+        const isDrifting = isDriftingStationary(bgHistory, { latitude: lat, longitude: lng }, effectiveSpeed);
+        bgHistory = [...bgHistory, { latitude: lat, longitude: lng }].slice(-5);
+        bgPositionHistories.set(journeyId, bgHistory);
+
+        if (isDrifting) {
+          if (__DEV__) {
+            console.log(`[Journey BG] Stationary drift detected. Skipping point: Lat ${lat}, Lng ${lng}`);
+          }
+          continue;
+        }
+
+        // 3. Smooth with Kalman Filter
+        if (!filter) {
+          filter = new KalmanFilter(lat, lng, accuracy, loc.timestamp);
+          bgKalmanFilters.set(journeyId, filter);
+        }
+        
+        const smoothed = filter.update(
+          lat,
+          lng,
+          accuracy,
+          loc.timestamp,
+          effectiveSpeed,
+          typeof heading === 'number' ? heading : undefined
+        );
+
         valid.push({
-          latitude: lat,
-          longitude: lng,
+          latitude: smoothed.latitude,
+          longitude: smoothed.longitude,
           timestamp: loc.timestamp,
           accuracy,
           speed: typeof speed === 'number' && speed >= 0 ? speed : undefined,
           heading: typeof heading === 'number' ? heading : undefined,
         });
       }
+
       if (valid.length === 0) return;
+
+      // 4. Save Kalman Filter state to AsyncStorage
+      if (filter) {
+        const kalmanKey = `@kalman_state:${journeyId}`;
+        try {
+          await AsyncStorage.setItem(kalmanKey, JSON.stringify(filter.toJSON()));
+        } catch (e) {
+          // ignore save error
+        }
+      }
 
       const queueKey = BG_QUEUE_KEY_PREFIX + journeyId;
       const existingRaw = await AsyncStorage.getItem(queueKey);
@@ -271,6 +367,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   const startTimeRef = useRef<number | null>(null);
   const pendingSegmentBreakRef = useRef(false);
   const kalmanFilterRef = useRef<KalmanFilter | null>(null);
+  const positionHistoryRef = useRef<{ latitude: number; longitude: number }[]>([]);
   const lastStationaryMarkerUpdateRef = useRef(0);
   const currentCoordinateRef = useRef<Coordinate | null>(null);
   // Tracks whether this hook instance is still mounted. Async paths (API
@@ -363,7 +460,8 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           lng,
           accuracy,
           location.timestamp,
-          effectiveSpeed
+          effectiveSpeed,
+          heading !== null && heading !== undefined ? heading : undefined
         );
 
         const coord: Coordinate = {
@@ -395,6 +493,16 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           currentCoordinateRef.current = coord;
           setAccuracy(coord.accuracy);
           setCurrentCoordinate(coord);
+        }
+
+        // Stationary variance check (Jitter Mitigation)
+        const history = positionHistoryRef.current;
+        const stationaryDrift = isDriftingStationary(history, coord, effectiveSpeed);
+        positionHistoryRef.current = [...history, coord].slice(-5);
+
+        if (stationaryDrift) {
+          logger.debug(`[Journey] Stationary drift detected (speed: ${effectiveSpeed.toFixed(2)} m/s). Skipping polyline update.`);
+          return;
         }
 
         // Stationary user check: if estimated speed is below threshold,
@@ -586,43 +694,60 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         !isDuplicateTimestamp(c.timestamp)
       );
 
-      // Smooth background coordinate batch sequentially with speed estimation
-      let lastProcessedCoord = lastCoordinateRef.current;
-      const smoothedCoords = valid.map((c) => {
-        const acc = c.accuracy || 10;
-        const ts = typeof c.timestamp === 'number' ? c.timestamp : Date.now();
-        
-        let estSpeed = c.speed;
-        if ((estSpeed === undefined || estSpeed === null || estSpeed < 0) && lastProcessedCoord) {
-          const dist = calculateCoordinateDistance(
-            lastProcessedCoord.latitude,
-            lastProcessedCoord.longitude,
-            c.latitude,
-            c.longitude
-          );
-          const timeDiffSeconds = Math.max(0.1, (ts - (lastProcessedCoord.timestamp || ts)) / 1000);
-          estSpeed = dist / timeDiffSeconds;
+      // Restore Kalman Filter state from background task
+      const kalmanKey = `@kalman_state:${id}`;
+      const savedKalmanRaw = await AsyncStorage.getItem(kalmanKey);
+      let restoredFromBg = false;
+      if (savedKalmanRaw) {
+        try {
+          kalmanFilterRef.current = KalmanFilter.fromJSON(JSON.parse(savedKalmanRaw));
+          restoredFromBg = true;
+          logger.debug('[Journey] Restored Kalman Filter state from background task.');
+        } catch (e) {
+          logger.warn('[Journey] Failed to restore Kalman Filter state from background:', e);
         }
+      }
 
-        if (!kalmanFilterRef.current) {
-          kalmanFilterRef.current = new KalmanFilter(c.latitude, c.longitude, acc, ts);
-        }
-        const smoothed = kalmanFilterRef.current.update(
-          c.latitude,
-          c.longitude,
-          acc,
-          ts,
-          typeof estSpeed === 'number' && estSpeed >= 0 ? estSpeed : undefined
-        );
-        const smoothedCoord = {
-          ...c,
-          latitude: smoothed.latitude,
-          longitude: smoothed.longitude,
-          speed: typeof estSpeed === 'number' && estSpeed >= 0 ? estSpeed : undefined
-        };
-        lastProcessedCoord = smoothedCoord;
-        return smoothedCoord;
-      });
+      // Smooth background coordinate batch sequentially with speed estimation if not restored
+      let smoothedCoords = valid;
+      if (!restoredFromBg) {
+        let lastProcessedCoord = lastCoordinateRef.current;
+        smoothedCoords = valid.map((c) => {
+          const acc = c.accuracy || 10;
+          const ts = typeof c.timestamp === 'number' ? c.timestamp : Date.now();
+          
+          let estSpeed = c.speed;
+          if ((estSpeed === undefined || estSpeed === null || estSpeed < 0) && lastProcessedCoord) {
+            const dist = calculateCoordinateDistance(
+              lastProcessedCoord.latitude,
+              lastProcessedCoord.longitude,
+              c.latitude,
+              c.longitude
+            );
+            const timeDiffSeconds = Math.max(0.1, (ts - (lastProcessedCoord.timestamp || ts)) / 1000);
+            estSpeed = dist / timeDiffSeconds;
+          }
+
+          if (!kalmanFilterRef.current) {
+            kalmanFilterRef.current = new KalmanFilter(c.latitude, c.longitude, acc, ts);
+          }
+          const smoothed = kalmanFilterRef.current.update(
+            c.latitude,
+            c.longitude,
+            acc,
+            ts,
+            typeof estSpeed === 'number' && estSpeed >= 0 ? estSpeed : undefined
+          );
+          const smoothedCoord = {
+            ...c,
+            latitude: smoothed.latitude,
+            longitude: smoothed.longitude,
+            speed: typeof estSpeed === 'number' && estSpeed >= 0 ? estSpeed : undefined
+          };
+          lastProcessedCoord = smoothedCoord;
+          return smoothedCoord;
+        });
+      }
 
       // Apply the same MIN_LOCATION_DISTANCE filter the foreground watcher
       // uses, walking from the last known polyline tail forward, so a row
@@ -719,6 +844,12 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         batchSendTimerRef.current = null;
       }
       await stopBackgroundUpdates();
+      const id = journeyIdRef.current;
+      if (id) {
+        AsyncStorage.removeItem(`@kalman_state:${id}`).catch(() => {});
+        bgKalmanFilters.delete(id);
+        bgPositionHistories.delete(id);
+      }
       journeyIdRef.current = null;
       startTimeRef.current = null;
       lastCoordinateRef.current = null;
@@ -809,6 +940,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           await AsyncStorage.removeItem('activeJourneyId');
           await AsyncStorage.removeItem('@active_journey_state');
           await AsyncStorage.removeItem(BG_QUEUE_KEY_PREFIX + storedJourneyId).catch(() => {});
+          await AsyncStorage.removeItem(`@kalman_state:${storedJourneyId}`).catch(() => {});
+          bgKalmanFilters.delete(storedJourneyId);
+          bgPositionHistories.delete(storedJourneyId);
           
           journeyIdRef.current = null;
           startTimeRef.current = null;
@@ -1356,6 +1490,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       // linger and feed into a *future* journey with the same id — which
       // shouldn't happen, but the guard is cheap).
       await AsyncStorage.removeItem(BG_QUEUE_KEY_PREFIX + completingJourneyId).catch(() => {});
+      await AsyncStorage.removeItem(`@kalman_state:${completingJourneyId}`).catch(() => {});
+      bgKalmanFilters.delete(completingJourneyId);
+      bgPositionHistories.delete(completingJourneyId);
 
       // -------------------------------------------------------------
       // OPTIMISTIC LOCAL STATE CLEARING (instant UI termination)

@@ -287,20 +287,22 @@ export default function HomeScreen() {
   const [headerHeight, setHeaderHeight] = useState(56 + 63 + insets.top);
   const bottomBarHeight = isWeb ? 70 : (Platform.OS === 'ios' ? (insets.bottom > 0 ? 56 + insets.bottom : 64) : 68);
   const [posts, setRawPosts] = useState<PostType[]>([]);
+  const postsRef = useRef<PostType[]>(posts);
   const setPosts = useCallback((value: React.SetStateAction<PostType[]>) => {
     setRawPosts((prev) => {
       const resolved = typeof value === 'function' ? (value as any)(prev) : value;
       const seen = new Set<string>();
-      return resolved.filter((p: PostType) => {
+      const filtered = resolved.filter((p: PostType) => {
         if (!p || !p._id) return false;
         if (seen.has(p._id)) return false;
         seen.add(p._id);
         return true;
       });
+      postsRef.current = filtered;
+      return filtered;
     });
   }, []);
 
-  const postsRef = useRef(posts);
   useEffect(() => {
     postsRef.current = posts;
   }, [posts]);
@@ -419,6 +421,7 @@ export default function HomeScreen() {
     };
   }, [setPosts]);
   const [loading, setLoading] = useState(true);
+  const [isPaginating, setIsPaginating] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
@@ -551,6 +554,7 @@ export default function HomeScreen() {
         return;
       }
       isPaginatingRef.current = true;
+      setIsPaginating(true);
     } else {
       if (fetchingTabsRef.current.has(requestFeedMode)) {
         logger.debug('Refresh blocked: same-tab refresh already in progress', requestFeedMode);
@@ -616,8 +620,18 @@ export default function HomeScreen() {
         });
       } else {
         const merged = mergeLikedIntoPosts(response.posts);
-        setPosts(merged);
-        feedCacheRef.current[requestFeedMode] = { posts: merged, page: pageNum, hasMore: true };
+        if (pageNum === 1 && postsRef.current.length > 0) {
+          setPosts(prev => {
+            const newIds = new Set(merged.map(p => p._id));
+            const uniqueOld = prev.filter(p => !newIds.has(p._id));
+            const combined = [...merged, ...uniqueOld];
+            feedCacheRef.current[requestFeedMode] = { posts: combined, page: pageNum, hasMore: true };
+            return combined;
+          });
+        } else {
+          setPosts(merged);
+          feedCacheRef.current[requestFeedMode] = { posts: merged, page: pageNum, hasMore: true };
+        }
       }
 
       // If fewer posts returned than requested, we've reached the end regardless
@@ -762,6 +776,7 @@ export default function HomeScreen() {
       // Clear request guards (release the per-tab lock with the same key we acquired)
       if (shouldAppend) {
         isPaginatingRef.current = false;
+        setIsPaginating(false);
       } else {
         fetchingTabsRef.current.delete(requestFeedMode);
       }
@@ -1438,13 +1453,8 @@ export default function HomeScreen() {
       count: 0,
       remainingSlots: 9999,
     }) as FeedItem[];
-    return rawFeed.filter(item => {
-      if (isAdItem(item)) {
-        return !failedAdIndices.includes(item.adIndex);
-      }
-      return true;
-    });
-  }, [posts, failedAdIndices]);
+    return rawFeed;
+  }, [posts]);
 
   const renderTopHeader = () => (
     <AnimatedHeader
@@ -1736,7 +1746,7 @@ export default function HomeScreen() {
                 ) : null
               }
               ListFooterComponent={
-                hasMore && posts.length > 0 ? (
+                isPaginating && hasMore && posts.length > 0 ? (
                   <View style={[styles.loadMoreContainer, { minHeight: 56 }]}>
                     <LoadingGlobe color={theme.colors.primary} />
                   </View>
@@ -1753,7 +1763,7 @@ export default function HomeScreen() {
               }
               onViewableItemsChanged={onViewableItemsChanged}
               viewabilityConfig={viewabilityConfig}
-              drawDistance={screenHeight}
+              drawDistance={screenHeight * 3}
             />
           </View>
           <ScrollEdgeFades isDark={isDark} variant="vertical" hideTop={true} />

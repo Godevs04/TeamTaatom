@@ -434,23 +434,27 @@ export default function ProfileScreen() {
         
         if (cachedProfile && !isMountedRef.current) return;
         if (cachedProfile) {
-          const parsed = JSON.parse(cachedProfile);
-          const cacheAge = Date.now() - (parsed.timestamp || 0);
-          if (cacheAge < 5 * 60 * 1000) { // 5 min cache for profile
-            setProfileData(parsed.data);
-            setLoading(false); // Show cached data immediately
-          }
+          try {
+            const parsed = JSON.parse(cachedProfile);
+            if (parsed && parsed.data) {
+              setProfileData(parsed.data);
+              setLoading(false); // Show cached data immediately
+            }
+          } catch (e) {}
         }
         
         if (cachedPosts && !isMountedRef.current) return;
         if (cachedPosts) {
-          const parsed = JSON.parse(cachedPosts);
-          const cacheAge = Date.now() - (parsed.timestamp || 0);
-          // 50 min — must stay under the 1h R2/S3 signed URL expiry so cached
-          // posts never contain stale URLs that would render blank.
-          if (cacheAge < 50 * 60 * 1000) {
-            setPosts(sortByCreatedDesc(parsed.data || []));
-          }
+          try {
+            const parsed = JSON.parse(cachedPosts);
+            if (parsed && parsed.data) {
+              // Only load cached posts if under 50 min S3/R2 signed URL expiration limit
+              const cacheAge = Date.now() - (parsed.timestamp || 0);
+              if (cacheAge < 50 * 60 * 1000) {
+                setPosts(sortByCreatedDesc(parsed.data || []));
+              }
+            }
+          } catch (e) {}
         }
       } catch (cacheError) {
         logger.debug('Cache load error (non-critical):', cacheError);
@@ -643,26 +647,28 @@ export default function ProfileScreen() {
 
         if (!isMountedRef.current) return;
 
-        let hasValidCache = false;
+        let hasCache = false;
         if (cachedProfile) {
-          const parsed = JSON.parse(cachedProfile);
-          const cacheAge = Date.now() - (parsed.timestamp || 0);
-          if (cacheAge < 5 * 60 * 1000) { // 5 min cache for profile
-            setProfileData(parsed.data);
-            hasValidCache = true;
-          }
+          try {
+            const parsed = JSON.parse(cachedProfile);
+            if (parsed && parsed.data) {
+              setProfileData(parsed.data);
+              hasCache = true;
+            }
+          } catch (e) {}
         }
 
         if (cachedPosts) {
-          const parsed = JSON.parse(cachedPosts);
-          const cacheAge = Date.now() - (parsed.timestamp || 0);
-          if (cacheAge < 50 * 60 * 1000) {
-            const cachedArr = sortByCreatedDesc(parsed.data || []);
-            setPosts(cachedArr as PostType[]);
-          }
+          try {
+            const parsed = JSON.parse(cachedPosts);
+            if (parsed && parsed.data) {
+              const cachedArr = sortByCreatedDesc(parsed.data || []);
+              setPosts(cachedArr as PostType[]);
+            }
+          } catch (e) {}
         }
 
-        if (hasValidCache) {
+        if (hasCache) {
           setLoading(false);
         }
       } catch (cacheError) {

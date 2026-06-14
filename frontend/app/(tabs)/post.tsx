@@ -68,6 +68,7 @@ import { theme } from '../../constants/theme';
 import { ErrorBoundary } from '../../utils/errorBoundary';
 import { validateAndSanitizeCaption } from '../../utils/sanitize';
 import CopyrightConfirmationModal from '../../components/CopyrightConfirmationModal';
+import CustomAlert from '../../components/CustomAlert';
 import { trackFeatureUsage } from '../../services/analytics';
 import ImageEditModal, { ImageFilterType, FILTER_PREVIEW_OVERLAY } from '../../components/ImageEditModal';
 import AspectImageCropper, { CropTransform } from '../../components/post/AspectImageCropper';
@@ -469,6 +470,10 @@ export default function PostScreen() {
   const isFocusedRef = useRef(false);
   const draftCheckedRef = useRef(false);
   const hasPostedRef = useRef(false);
+  const isClosingRef = useRef(false);
+  const isDraftDecisionPendingRef = useRef(true);
+  const [showDraftRecoveryAlert, setShowDraftRecoveryAlert] = useState(false);
+  const [draftToRestore, setDraftToRestore] = useState<any>(null);
   const [spotType, setSpotType] = useState<string>('');
   const [travelInfo, setTravelInfo] = useState<string>('');
   const [showImageEditModal, setShowImageEditModal] = useState(false);
@@ -689,6 +694,7 @@ export default function PostScreen() {
             text: 'Discard',
             style: 'destructive',
             onPress: async () => {
+              isClosingRef.current = true;
               try {
                 await AsyncStorage.removeItem(DRAFT_KEY);
               } catch (e) {
@@ -701,6 +707,7 @@ export default function PostScreen() {
           {
             text: 'Save Draft',
             onPress: async () => {
+              isClosingRef.current = true;
               try {
                 const draft = {
                   selectedImages,
@@ -729,7 +736,7 @@ export default function PostScreen() {
                 };
                 await AsyncStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
                 logger.debug('Draft saved manually via close popup');
-              } catch (error) {
+              } catch (error: any) {
                 logger.error('Failed to save draft on close save draft', error);
               }
               resetFormState();
@@ -743,6 +750,7 @@ export default function PostScreen() {
         ]
       );
     } else {
+      isClosingRef.current = true;
       resetFormState();
       router.replace('/(tabs)/home');
     }
@@ -876,7 +884,8 @@ export default function PostScreen() {
   // Includes caption, media metadata, location, and music selection
   useEffect(() => {
     const saveDraft = async () => {
-      if (hasPostedRef.current) return;
+      if (hasPostedRef.current || isClosingRef.current || isDraftDecisionPendingRef.current) return;
+      if (!isFocusedRef.current) return;
       if (!hasDraftContent()) {
         try {
           await AsyncStorage.removeItem(DRAFT_KEY);
@@ -965,12 +974,16 @@ export default function PostScreen() {
     // If the user already has media selected in the current session, do not show the restore prompt.
     if (selectedImages.length > 0 || selectedVideo) {
       logger.debug('Skipping draft recovery: media already selected in current session');
+      isDraftDecisionPendingRef.current = false;
       return;
     }
 
     try {
       const draftJson = await AsyncStorage.getItem(DRAFT_KEY);
-      if (!draftJson) return;
+      if (!draftJson) {
+        isDraftDecisionPendingRef.current = false;
+        return;
+      }
       
       let draft;
       try {
@@ -979,12 +992,14 @@ export default function PostScreen() {
         logger.error('Failed to parse draft JSON', parseError);
         // Clear corrupted draft
         await AsyncStorage.removeItem(DRAFT_KEY);
+        isDraftDecisionPendingRef.current = false;
         return;
       }
       
       // Check if draft is still valid (less than 24 hours old)
       if (Date.now() - draft.timestamp > DRAFT_EXPIRY) {
         await AsyncStorage.removeItem(DRAFT_KEY);
+        isDraftDecisionPendingRef.current = false;
         return;
       }
 
@@ -994,6 +1009,7 @@ export default function PostScreen() {
         await AsyncStorage.removeItem('shouldAutoRestoreDraft');
         restoreDraftData(draft);
         logger.info('Draft auto-restored via shouldAutoRestoreDraft flag');
+        isDraftDecisionPendingRef.current = false;
         return;
       }
 
@@ -1001,26 +1017,9 @@ export default function PostScreen() {
       // popup doesn't appear over other screens.
       if (!isFocusedRef.current) return;
 
-      // Show restore option
-      Alert.alert(
-        'Draft Found',
-        'Would you like to restore your previous draft?',
-        [
-          {
-            text: 'Discard',
-            style: 'destructive',
-            onPress: async () => {
-              await AsyncStorage.removeItem(DRAFT_KEY);
-            }
-          },
-          {
-            text: 'Restore',
-            onPress: () => {
-              restoreDraftData(draft);
-            }
-          }
-        ]
-      );
+      // Show restore option using custom themed alert
+      setDraftToRestore(draft);
+      setShowDraftRecoveryAlert(true);
     } catch (error) {
       logger.error('Failed to load draft', error);
       // Clear corrupted draft on error
@@ -1029,6 +1028,7 @@ export default function PostScreen() {
       } catch (clearError) {
         logger.error('Failed to clear corrupted draft', clearError);
       }
+      isDraftDecisionPendingRef.current = false;
     }
   };
 
@@ -1173,17 +1173,13 @@ export default function PostScreen() {
     };
   }, []);
 
-  const isFocusedRefVal = useRef(isFocused);
+  // Handle focus/blur state transitions and recovery checking
   useEffect(() => {
-    isFocusedRefVal.current = isFocused;
-  }, [isFocused]);
-
-  // Navigation lifecycle safety: cancel upload and stop audio/video on screen blur
-  useFocusEffect(
-    useCallback(() => {
+    if (isFocused) {
       isFocusedRef.current = true;
-
-      // Check for auto-restore flag set by global layout popup
+      isClosingRef.current = false;
+      isDraftDecisionPendingRef.current = true;
+      
       const checkAndRestoreAutoDraft = async () => {
         try {
           const shouldAutoRestore = await AsyncStorage.getItem('shouldAutoRestoreDraft');
@@ -1194,8 +1190,8 @@ export default function PostScreen() {
               const draft = JSON.parse(draftJson);
               restoreDraftData(draft);
               logger.info('Draft auto-restored via shouldAutoRestoreDraft flag');
-              // Mark draft as checked so it doesn't trigger the restore prompt again
               draftCheckedRef.current = true;
+              isDraftDecisionPendingRef.current = false;
             }
           }
         } catch (e) {
@@ -1204,40 +1200,35 @@ export default function PostScreen() {
       };
       checkAndRestoreAutoDraft();
 
-      // Load draft only once per mount, and only while this tab is visible
+      // Load draft only once per focus cycle
       if (!draftCheckedRef.current) {
         draftCheckedRef.current = true;
         loadDraft();
       }
+    } else {
+      isFocusedRef.current = false;
+      draftCheckedRef.current = false; // Reset so next focus checks draft again
 
-      // On screen blur, cancel upload if active and clear focus flag
-      return () => {
-        // If the screen is still focused, this is a callback recreation, not a real blur.
-        if (isFocusedRefVal.current) return;
-
-        isFocusedRef.current = false;
-        draftCheckedRef.current = false; // Reset so next focus checks draft again
-        if (uploadSessionRef.current.isActive) {
-          logger.debug('Screen blurred during upload, cancelling');
-          cancelUpload();
-        }
-        
-        // Stop active video playback
-        if (videoRef.current) {
-          logger.debug('[Post] Stopping video playback on screen blur');
-          videoRef.current.stopAsync().catch((error) => {
-            logger.error('[Post] Error stopping video:', error);
-          });
-        }
-        
-        // Stop active audio playback
-        logger.debug('[Post] Stopping audio playback on screen blur');
-        audioManager.stopAll().catch((error) => {
-          logger.error('[Post] Error stopping audio:', error);
+      if (uploadSessionRef.current.isActive) {
+        logger.debug('Screen blurred during upload, cancelling');
+        cancelUpload();
+      }
+      
+      // Stop active video playback
+      if (videoRef.current) {
+        logger.debug('[Post] Stopping video playback on screen blur');
+        videoRef.current.stopAsync().catch((error) => {
+          logger.error('[Post] Error stopping video:', error);
         });
-      };
-    }, [cancelUpload, restoreDraftData])
-  );
+      }
+      
+      // Stop active audio playback
+      logger.debug('[Post] Stopping audio playback on screen blur');
+      audioManager.stopAll().catch((error) => {
+        logger.error('[Post] Error stopping audio:', error);
+      });
+    }
+  }, [isFocused, cancelUpload, restoreDraftData]);
 
   const pickImages = async () => {
     try {
@@ -6093,6 +6084,37 @@ export default function PostScreen() {
           visible={showCopyrightModal}
           onCancel={handleCopyrightCancel}
           onAgree={handleCopyrightAgree}
+        />
+
+        {/* Custom Themed Draft Recovery Alert */}
+        <CustomAlert
+          visible={showDraftRecoveryAlert}
+          title="Restore Draft?"
+          message="We found an unsaved post from your last session. Would you like to restore it or discard it to start fresh?"
+          confirmText="Restore"
+          cancelText="Discard"
+          showCancel={true}
+          type="info"
+          onConfirm={() => {
+            if (draftToRestore) {
+              restoreDraftData(draftToRestore);
+            }
+            setShowDraftRecoveryAlert(false);
+            isDraftDecisionPendingRef.current = false;
+          }}
+          onCancel={async () => {
+            try {
+              await AsyncStorage.removeItem(DRAFT_KEY);
+            } catch (e) {
+              logger.error('Failed to remove draft on custom discard', e);
+            }
+            setShowDraftRecoveryAlert(false);
+            isDraftDecisionPendingRef.current = false;
+          }}
+          onClose={() => {
+            setShowDraftRecoveryAlert(false);
+            isDraftDecisionPendingRef.current = false;
+          }}
         />
 
         {/* Selection Manager Modal (Ticket 4) */}
