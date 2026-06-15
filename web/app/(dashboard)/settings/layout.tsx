@@ -18,6 +18,9 @@ import {
   Monitor,
   HelpCircle,
   Route,
+  FileText,
+  Flag,
+  PhoneCall,
 } from "lucide-react";
 import { cn } from "../../../lib/utils";
 
@@ -37,6 +40,9 @@ const sections: { id: string; title: string; href: string; icon: React.ElementTy
   { id: "follow-requests", title: "Follow Requests", href: "/settings/follow-requests", icon: UserPlus },
   { id: "account-activity", title: "Account Activity", href: "/settings/account-activity", icon: Monitor },
   { id: "blocked-users", title: "Blocked Users", href: "/settings/blocked-users", icon: UserX },
+  { id: "content-policy", title: "Community Guidelines", href: "/settings/content-policy", icon: Flag },
+  { id: "terms", title: "Terms of Service", href: "/settings/terms", icon: FileText },
+  { id: "contact-support", title: "Contact Support", href: "/settings/contact-support", icon: PhoneCall },
   { id: "about", title: "About", href: "/settings/about", icon: Info },
   { id: "help", title: "Help center", href: "/help", icon: HelpCircle },
 ];

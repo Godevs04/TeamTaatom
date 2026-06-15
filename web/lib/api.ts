@@ -10,7 +10,11 @@ export async function authMe(): Promise<{ user: User }> {
   return res.data;
 }
 
-export async function authSignIn(input: { email: string; password: string }) {
+export async function authSignIn(input: {
+  email: string;
+  password: string;
+  loginLocation?: string;
+}) {
   const res = await api.post("/auth/signin", input);
   return res.data as { success?: boolean; message?: string; user?: User; token?: string };
 }
@@ -714,6 +718,21 @@ export async function getBlockedUsers() {
 
 export async function unblockUser(userId: string) {
   await api.delete(`/users/me/blocked/${userId}`);
+}
+
+export async function resendVerificationEmail() {
+  const res = await api.post("/users/me/verify-email");
+  return res.data as { email?: string; message?: string };
+}
+
+export async function deleteAccount(password: string) {
+  const res = await api.delete("/users/me", { data: { password } });
+  return res.data as { message?: string };
+}
+
+export async function exportUserData() {
+  const res = await api.get("/users/me/export");
+  return res.data as Record<string, unknown>;
 }
 
 /** Taatom music library (shorts audio) */

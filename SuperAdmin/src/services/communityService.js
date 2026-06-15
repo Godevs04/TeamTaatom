@@ -117,9 +117,9 @@ export const getCommunityPageOrders = async (pageId) => {
 }
 
 // Update the delivery status of an order
-export const updateOrderStatus = async (orderId, status) => {
+export const updateOrderStatus = async (orderId, deliveryStatus) => {
   try {
-    const response = await api.put(`${BASE}/orders/${orderId}/status`, { status })
+    const response = await api.put(`${BASE}/orders/${orderId}/status`, { deliveryStatus })
     return response.data?.data || response.data
   } catch (error) {
     logger.error('Failed to update order status:', error)

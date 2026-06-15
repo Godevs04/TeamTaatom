@@ -17,15 +17,52 @@ module.exports = {
     ecmaVersion: 2020,
     sourceType: 'module',
   },
-  plugins: ['react', 'react-hooks'],
+  plugins: ['react', 'react-hooks', 'react-refresh'],
   rules: {
     'react/react-in-jsx-scope': 'off',
-    'no-unused-vars': 'off',
     'react/prop-types': 'off',
+    'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+    'no-unused-vars': [
+      'error',
+      {
+        argsIgnorePattern: '^_',
+        varsIgnorePattern: '^_',
+        caughtErrorsIgnorePattern: '^_',
+        ignoreRestSiblings: true,
+      },
+    ],
+    'no-console': ['warn', { allow: ['warn', 'error', 'debug'] }],
   },
   settings: {
     react: {
       version: 'detect',
     },
   },
+  overrides: [
+    {
+      files: ['src/utils/logger.js'],
+      rules: {
+        'no-console': 'off',
+      },
+    },
+    {
+      files: ['**/*.{ts,tsx}'],
+      parser: '@typescript-eslint/parser',
+      extends: ['plugin:@typescript-eslint/recommended'],
+      plugins: ['@typescript-eslint'],
+      rules: {
+        'no-unused-vars': 'off',
+        '@typescript-eslint/no-unused-vars': [
+          'error',
+          {
+            argsIgnorePattern: '^_',
+            varsIgnorePattern: '^_',
+            caughtErrorsIgnorePattern: '^_',
+            ignoreRestSiblings: true,
+          },
+        ],
+        '@typescript-eslint/no-explicit-any': 'warn',
+      },
+    },
+  ],
 };

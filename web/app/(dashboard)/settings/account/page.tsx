@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { cn } from "../../../../lib/utils";
 import { useAuth } from "../../../../context/auth-context";
 import { EditProfileForm } from "../../../../components/profile/edit-profile-form";
+import { AccountSecuritySection } from "../../../../components/settings/account-security-section";
 
 function themeToNextThemes(value: "light" | "dark" | "auto") {
   return value === "auto" ? "system" : value;
@@ -206,6 +207,8 @@ export default function AccountSettingsPage() {
               </div>
             </div>
           </section>
+
+          {user ? <AccountSecuritySection user={user} /> : null}
         </div>
       </div>
     </div>

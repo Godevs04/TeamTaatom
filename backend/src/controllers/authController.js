@@ -629,18 +629,13 @@ const refreshToken = async (req, res) => {
 // @access  Private
 const logout = async (req, res) => {
   try {
-    // Clear httpOnly cookie
+    // Always clear httpOnly cookie — works even when session/token is already expired
     clearAuthToken(res);
-    
-    res.status(200).json({
-      message: 'Logged out successfully'
-    });
+
+    return sendSuccess(res, 200, 'Logged out successfully');
   } catch (error) {
     logger.error('Logout error:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: 'Error logging out'
-    });
+    return sendError(res, 'SRV_6001', 'Error logging out');
   }
 };
 

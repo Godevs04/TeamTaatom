@@ -1,12 +1,14 @@
 {
   "name": "superadmin",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "lint": "eslint . --report-unused-disable-directives --max-warnings 1000",
+    "lint": "eslint src --report-unused-disable-directives --max-warnings 0",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run lint",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -39,6 +41,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.38.0",
+    "@typescript-eslint/eslint-plugin": "^8.46.0",
+    "@typescript-eslint/parser": "^8.46.0",
     "@types/react": "^18.2.37",
     "@types/react-dom": "^18.2.15",
     "@vitejs/plugin-react": "^4.1.1",
@@ -52,6 +56,7 @@
     "picomatch": "^4.0.4",
     "postcss": "^8.5.13",
     "tailwindcss": "^3.3.5",
+    "typescript": "^5.9.3",
     "vite": "^6.3.5"
   }
 }

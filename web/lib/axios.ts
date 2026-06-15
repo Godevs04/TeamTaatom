@@ -54,7 +54,7 @@ api.interceptors.response.use(
 
     if (status === 401 && !config._retry && hasToken) {
       // Never try to refresh for the refresh call itself or other auth endpoints
-      if (url.includes("/auth/refresh") || url.includes("/auth/signin") || url.includes("/auth/signup")) {
+      if (url.includes("/auth/refresh") || url.includes("/auth/signin") || url.includes("/auth/signup") || url.includes("/auth/logout")) {
         throw err;
       }
 

@@ -520,6 +520,6 @@ router.post('/reset-password', authValidations.resetPassword, endpointLimiters.p
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-router.post('/logout', authMiddleware, logout);
+router.post('/logout', logout);
 
 module.exports = router;

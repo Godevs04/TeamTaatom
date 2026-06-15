@@ -15,6 +15,40 @@ function getNestedApiMessage(data: unknown): string | undefined {
  * Returns a user-friendly message for auth API errors (signup, signin, forgot, etc.)
  * so we never show technical text like "Request failed with status code 409".
  */
+/** True when backend rejects sign-in because the account email is not verified yet. */
+export function isVerifyRequiredError(error: unknown): boolean {
+  const err = error as {
+    response?: {
+      data?: {
+        code?: string;
+        message?: string;
+        error?: string | { code?: string; message?: string };
+      };
+    };
+  };
+  const data = err?.response?.data;
+  const nested = data?.error;
+  const code =
+    (typeof nested === "object" && nested !== null ? nested.code : undefined) ??
+    (typeof nested === "string" ? nested : undefined) ??
+    data?.code ??
+    "";
+  const message = (
+    (typeof nested === "object" && nested !== null ? nested.message : undefined) ??
+    data?.message ??
+    ""
+  ).toLowerCase();
+
+  return (
+    code === "AUTH_1005" ||
+    code === "AUTH_1006" ||
+    code === "VERIFY_REQUIRED" ||
+    message.includes("verify") ||
+    message.includes("verification") ||
+    message.includes("not verified")
+  );
+}
+
 export function getFriendlyAuthErrorMessage(error: unknown): string {
   if (isAxiosError(error)) {
     const status = error.response?.status;
