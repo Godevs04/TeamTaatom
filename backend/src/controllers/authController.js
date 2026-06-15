@@ -4,7 +4,7 @@ const { OAuth2Client } = require('google-auth-library');
 const User = require('../models/User');
 const { sendOTPEmail, sendWelcomeEmail, sendForgotPasswordMail, sendPasswordResetConfirmationEmail, sendLoginNotificationEmail } = require('../utils/sendOtp');
 const logger = require('../utils/logger');
-const { setAuthToken, clearAuthToken } = require('../utils/authHelpers');
+const { setAuthToken, clearAuthToken, resolveLoginContext } = require('../utils/authHelpers');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const { generateSignedUrl } = require('../services/mediaService');
 const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
@@ -275,20 +275,13 @@ const signin = async (req, res) => {
     }
 
     // Fire-and-forget login notification email (geo lookup + send happens after response)
-    const device = req.headers['user-agent'] || 'Unknown device';
-    const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress || '';
     (async () => {
-      let location = 'Unknown location';
       try {
-        const fetch = (...args) => import("node-fetch").then(m => m.default(...args));
-        const geoRes = await fetch(`https://ipapi.co/${ip}/json/`);
-        if (geoRes.ok) {
-          const geo = await geoRes.json();
-          location = `${geo.city || ''}, ${geo.region || ''}, ${geo.country_name || ''}`.replace(/^, |, $/g, '');
-        }
-      } catch (_e) { /* geo lookup is best-effort */ }
-      sendLoginNotificationEmail(user.email, user.fullName, device, location)
-        .catch(err => logger.error('Login notification email failed:', err));
+        const { device, location } = await resolveLoginContext(req);
+        await sendLoginNotificationEmail(user.email, user.fullName, device, location);
+      } catch (err) {
+        logger.error('Login notification email failed:', err);
+      }
     })();
 
     return sendSuccess(res, 200, 'Sign in successful', {

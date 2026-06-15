@@ -6,6 +6,7 @@ import { Platform } from 'react-native';
 import { isRateLimitError, handleRateLimitError } from '../utils/rateLimitHandler';
 import { parseError } from '../utils/errorCodes';
 import { clearCachedAuthToken, getCachedAuthToken, setCachedAuthToken } from '../utils/authTokenCache';
+import { getLoginLocationHint, LoginLocationHint } from '../utils/loginLocation';
 
 const isWeb = Platform.OS === 'web';
 
@@ -20,6 +21,7 @@ export interface SignUpData {
 export interface SignInData {
   email: string;
   password: string;
+  loginLocation?: LoginLocationHint;
 }
 
 export interface VerifyOTPData {
@@ -128,7 +130,12 @@ export const signIn = async (data: SignInData): Promise<AuthResponse> => {
     // Debug: Log the API base URL being used
     // @ts-ignore
     logger.debug('API_BASE_URL:', require('./api').default.defaults.baseURL);
-    const response = await api.post('/api/v1/auth/signin', data);
+    const loginLocation = data.loginLocation ?? (await getLoginLocationHint());
+    const response = await api.post('/api/v1/auth/signin', {
+      email: data.email,
+      password: data.password,
+      ...(loginLocation ? { loginLocation } : {}),
+    });
     const { token, user } = response.data;
     
     // Store token and user data

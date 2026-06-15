@@ -909,7 +909,7 @@ const sendLoginNotificationEmail = async (email, fullName, device, location) => 
               </tr>
               <tr>
                 <td style="font-weight: bold; padding: 6px 0;">Location:</td>
-                <td style="padding: 6px 0;">${location && location.trim() ? location : ' 🌏 Unknown or Local Network'}</td>
+                <td style="padding: 6px 0;">${location && location.trim() ? location : 'Location unavailable'}</td>
               </tr>
               <tr>
                 <td style="font-weight: bold; padding: 6px 0;">Time:</td>

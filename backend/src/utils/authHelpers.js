@@ -104,103 +104,247 @@ const _debugCookies = (req) => {
 };
 
 /**
+ * Normalize IP address (strip IPv6-mapped prefix, trim).
+ * @param {string} ip
+ * @returns {string}
+ */
+function normalizeIP(ip) {
+  if (!ip || typeof ip !== 'string') return '';
+  let value = ip.trim();
+  if (value.startsWith('::ffff:')) {
+    value = value.slice(7);
+  }
+  return value;
+}
+
+/**
+ * @param {string} ip
+ * @returns {boolean}
+ */
+function isPrivateIP(ip) {
+  const value = normalizeIP(ip);
+  if (!value || value === 'Unknown') return true;
+  if (value === '127.0.0.1' || value === '::1' || value === 'localhost') return true;
+  if (value.startsWith('192.168.') || value.startsWith('10.')) return true;
+  if (/^172\.(1[6-9]|2\d|3[01])\./.test(value)) return true;
+  if (value.startsWith('fc') || value.startsWith('fd') || value.startsWith('fe80')) return true;
+  return false;
+}
+
+/**
  * Extract real client IP address from request
  * Handles proxies, load balancers, and CDNs
  * @param {Object} req - Express request object
  * @returns {string} - Client IP address
  */
 const getClientIP = (req) => {
-  // Check various headers in order of priority
+  const pickPublicIP = (ips) => {
+    for (const raw of ips) {
+      const ip = normalizeIP(raw);
+      if (ip && !isPrivateIP(ip)) return ip;
+    }
+    return normalizeIP(ips[0] || '');
+  };
+
   const forwardedFor = req.headers['x-forwarded-for'];
   if (forwardedFor) {
-    // x-forwarded-for can contain multiple IPs, take the first one (original client)
-    const ips = forwardedFor.split(',').map(ip => ip.trim());
-    return ips[0] || req.ip || req.connection?.remoteAddress || 'Unknown';
+    const ips = forwardedFor.split(',').map((ip) => ip.trim()).filter(Boolean);
+    const chosen = pickPublicIP(ips);
+    if (chosen) return chosen;
   }
-  
+
   const realIP = req.headers['x-real-ip'];
   if (realIP) {
-    return realIP;
+    return normalizeIP(realIP);
   }
-  
-  const cfConnectingIP = req.headers['cf-connecting-ip']; // Cloudflare
+
+  const cfConnectingIP = req.headers['cf-connecting-ip'];
   if (cfConnectingIP) {
-    return cfConnectingIP;
+    return normalizeIP(cfConnectingIP);
   }
-  
-  // Fallback to Express's req.ip or connection remoteAddress
-  return req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || 'Unknown';
+
+  return normalizeIP(req.ip || req.connection?.remoteAddress || req.socket?.remoteAddress || 'Unknown');
 };
 
 /**
- * Get location from IP address using ipapi.co
- * Returns formatted location string or 'Unknown Location' on error
- * @param {string} ipAddress - IP address to geolocate
- * @returns {Promise<string>} - Location string
+ * Build a readable location label from geolocation parts.
+ * @param {{ city?: string, region?: string, country?: string, country_name?: string }} parts
+ * @returns {string}
+ */
+function formatLocationParts(parts) {
+  const city = parts.city?.trim();
+  const region = parts.region?.trim();
+  const country = (parts.country_name || parts.country)?.trim();
+  return [city, region, country].filter(Boolean).join(', ');
+}
+
+/**
+ * Extract client-reported location from sign-in body or header (mobile GPS).
+ * @param {import('express').Request} req
+ * @returns {string|null}
+ */
+function parseClientLoginLocation(req) {
+  const bodyLoc = req.body?.loginLocation;
+  if (bodyLoc && typeof bodyLoc === 'object') {
+    const label = typeof bodyLoc.label === 'string' ? bodyLoc.label.trim() : '';
+    if (label) return label;
+    const formatted = formatLocationParts(bodyLoc);
+    if (formatted) return formatted;
+  }
+
+  const headerLoc = req.headers['x-client-location'];
+  if (typeof headerLoc === 'string' && headerLoc.trim()) {
+    try {
+      const parsed = JSON.parse(headerLoc);
+      if (parsed && typeof parsed === 'object') {
+        const label = typeof parsed.label === 'string' ? parsed.label.trim() : '';
+        if (label) return label;
+        const formatted = formatLocationParts(parsed);
+        if (formatted) return formatted;
+      }
+    } catch {
+      return headerLoc.trim();
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Parse user-agent into a friendly device label for login emails.
+ * @param {string} userAgent
+ * @returns {string}
+ */
+function formatLoginDevice(userAgent) {
+  if (!userAgent || typeof userAgent !== 'string') return 'Unknown device';
+  const ua = userAgent;
+
+  if (ua.includes('Expo') || ua.includes('CFNetwork') || ua.includes('Darwin')) {
+    if (ua.includes('iPhone') || ua.includes('iPad') || ua.includes('Darwin')) {
+      return 'Taatom on iOS';
+    }
+    if (ua.includes('Android')) {
+      return 'Taatom on Android';
+    }
+    return 'Taatom mobile app';
+  }
+
+  if (ua.includes('okhttp') || (ua.includes('Android') && !ua.includes('Mozilla'))) {
+    return 'Taatom on Android';
+  }
+
+  const lower = ua.toLowerCase();
+  let browser = 'Browser';
+  let os = 'Unknown OS';
+
+  if (lower.includes('edg/')) browser = 'Edge';
+  else if (lower.includes('chrome/') && !lower.includes('edg')) browser = 'Chrome';
+  else if (lower.includes('firefox/')) browser = 'Firefox';
+  else if (lower.includes('safari/') && !lower.includes('chrome')) browser = 'Safari';
+  else if (lower.includes('opera') || lower.includes('opr/')) browser = 'Opera';
+
+  if (lower.includes('windows')) os = 'Windows';
+  else if (lower.includes('mac os') || lower.includes('macintosh')) os = 'macOS';
+  else if (lower.includes('android')) os = 'Android';
+  else if (lower.includes('iphone') || lower.includes('ipad')) os = 'iOS';
+  else if (lower.includes('linux')) os = 'Linux';
+
+  return `${browser} on ${os}`;
+}
+
+async function fetchGeoFromIpApiCo(ipAddress) {
+  const fetch = (...args) => import('node-fetch').then((m) => m.default(...args));
+  const geoRes = await fetch(`https://ipapi.co/${encodeURIComponent(ipAddress)}/json/`, {
+    headers: { 'User-Agent': 'Taatom/1.0' },
+  });
+  if (!geoRes.ok) return null;
+  const geo = await geoRes.json();
+  if (geo.error) return null;
+  return formatLocationParts({
+    city: geo.city,
+    region: geo.region,
+    country_name: geo.country_name,
+  }) || null;
+}
+
+async function fetchGeoFromIpApiCom(ipAddress) {
+  const fetch = (...args) => import('node-fetch').then((m) => m.default(...args));
+  const geoRes = await fetch(
+    `http://ip-api.com/json/${encodeURIComponent(ipAddress)}?fields=status,city,regionName,country`,
+    { headers: { 'User-Agent': 'Taatom/1.0' } }
+  );
+  if (!geoRes.ok) return null;
+  const geo = await geoRes.json();
+  if (geo.status !== 'success') return null;
+  return formatLocationParts({
+    city: geo.city,
+    region: geo.regionName,
+    country_name: geo.country,
+  }) || null;
+}
+
+/**
+ * Get location from IP address using multiple providers.
+ * @param {string} ipAddress
+ * @returns {Promise<string>}
  */
 const getLocationFromIP = async (ipAddress) => {
-  // Skip geolocation for local/private IPs
-  if (!ipAddress || 
-      ipAddress === 'Unknown' || 
-      ipAddress === '127.0.0.1' || 
-      ipAddress === '::1' || 
-      ipAddress.startsWith('192.168.') || 
-      ipAddress.startsWith('10.') || 
-      ipAddress.startsWith('172.16.') ||
-      ipAddress.startsWith('172.17.') ||
-      ipAddress.startsWith('172.18.') ||
-      ipAddress.startsWith('172.19.') ||
-      ipAddress.startsWith('172.20.') ||
-      ipAddress.startsWith('172.21.') ||
-      ipAddress.startsWith('172.22.') ||
-      ipAddress.startsWith('172.23.') ||
-      ipAddress.startsWith('172.24.') ||
-      ipAddress.startsWith('172.25.') ||
-      ipAddress.startsWith('172.26.') ||
-      ipAddress.startsWith('172.27.') ||
-      ipAddress.startsWith('172.28.') ||
-      ipAddress.startsWith('172.29.') ||
-      ipAddress.startsWith('172.30.') ||
-      ipAddress.startsWith('172.31.')) {
-    return 'Local Network';
+  const ip = normalizeIP(ipAddress);
+  if (!ip || isPrivateIP(ip)) {
+    return '';
   }
-  
+
   try {
-    const fetch = (...args) => import("node-fetch").then(m => m.default(...args));
-    const geoRes = await fetch(`https://ipapi.co/${ipAddress}/json/`);
-    
-    if (geoRes.ok) {
-      const geo = await geoRes.json();
-      
-      // Handle API errors
-      if (geo.error) {
-        logger.warn(`IP geolocation error for ${ipAddress}:`, geo.reason);
-        return 'Unknown Location';
-      }
-      
-      // Build location string
-      const parts = [];
-      if (geo.city) parts.push(geo.city);
-      if (geo.region) parts.push(geo.region);
-      if (geo.country_name) parts.push(geo.country_name);
-      
-      const location = parts.length > 0 ? parts.join(', ') : 'Unknown Location';
-      return location;
-    } else {
-      logger.warn(`IP geolocation API returned status ${geoRes.status} for ${ipAddress}`);
-      return 'Unknown Location';
-    }
+    const fromIpApiCo = await fetchGeoFromIpApiCo(ip);
+    if (fromIpApiCo) return fromIpApiCo;
   } catch (error) {
-    logger.warn(`Failed to get location for IP ${ipAddress}:`, error.message);
-    return 'Unknown Location';
+    logger.warn(`ipapi.co lookup failed for ${ip}:`, error.message);
   }
+
+  try {
+    const fromIpApiCom = await fetchGeoFromIpApiCom(ip);
+    if (fromIpApiCom) return fromIpApiCom;
+  } catch (error) {
+    logger.warn(`ip-api.com lookup failed for ${ip}:`, error.message);
+  }
+
+  return '';
 };
+
+/**
+ * Resolve login device + location for security notification emails.
+ * Prefers client GPS when IP is private or geolocation fails.
+ * @param {import('express').Request} req
+ * @returns {Promise<{ ip: string, device: string, location: string }>}
+ */
+async function resolveLoginContext(req) {
+  const ip = normalizeIP(getClientIP(req));
+  const device = formatLoginDevice(req.headers['user-agent'] || '');
+  const clientLocation = parseClientLoginLocation(req);
+
+  if (clientLocation) {
+    return { ip, device, location: clientLocation };
+  }
+
+  const ipLocation = await getLocationFromIP(ip);
+  if (ipLocation) {
+    return { ip, device, location: ipLocation };
+  }
+
+  if (isPrivateIP(ip)) {
+    return { ip, device, location: 'Local network' };
+  }
+
+  return { ip, device, location: '' };
+}
 
 module.exports = {
   setAuthToken,
   clearAuthToken,
   getAuthToken,
   getClientIP,
-  getLocationFromIP
+  getLocationFromIP,
+  resolveLoginContext,
+  formatLoginDevice,
 };
 
