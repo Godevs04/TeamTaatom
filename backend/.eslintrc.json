@@ -2,15 +2,38 @@
   "env": { "node": true, "es2022": true, "jest": true },
   "extends": ["eslint:recommended"],
   "parserOptions": { "ecmaVersion": 2022, "sourceType": "script" },
-  "ignorePatterns": ["node_modules/", "coverage/", "*.min.js"],
+  "ignorePatterns": ["node_modules/", "coverage/", "dist/", "*.min.js"],
   "rules": {
-    "no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "caughtErrorsIgnorePattern": "^_" }],
-    "no-undef": "warn",
+    "no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_",
+        "varsIgnorePattern": "^_",
+        "caughtErrorsIgnorePattern": "^_",
+        "ignoreRestSiblings": true
+      }
+    ],
+    "no-undef": "error",
     "no-empty": "warn",
-    "no-dupe-keys": "warn",
+    "no-dupe-keys": "error",
     "no-useless-escape": "warn",
-    "no-unreachable": "warn",
-    "no-case-declarations": "warn",
-    "no-prototype-builtins": "warn"
-  }
+    "no-unreachable": "error",
+    "no-case-declarations": "error",
+    "no-prototype-builtins": "warn",
+    "no-console": ["warn", { "allow": ["warn", "error", "debug"] }]
+  },
+  "overrides": [
+    {
+      "files": ["src/utils/logger.js"],
+      "rules": {
+        "no-console": "off"
+      }
+    },
+    {
+      "files": ["src/__tests__/**/*.js", "scripts/**/*.js"],
+      "rules": {
+        "no-console": "off"
+      }
+    }
+  ]
 }

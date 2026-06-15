@@ -5,7 +5,7 @@ require('dotenv').config();
 // This ensures consistent behavior across cloud environments
 if (process.env.STAGING === 'true' || process.env.PRODUCTION === 'true' || process.env.DEPLOY_ENV === 'staging' || process.env.DEPLOY_ENV === 'production') {
   process.env.NODE_ENV = 'production';
-  console.log('📡 Deployment environment detected - Setting NODE_ENV=production');
+  console.debug('📡 Deployment environment detected - Setting NODE_ENV=production');
 }
 
 // Validate required environment variables before starting
@@ -73,9 +73,9 @@ const validateEnvironment = () => {
       console.error('   Without this, SuperAdmin login will fail with SRV_6001 errors.');
     } else if (!smtpFrom) {
       console.warn('⚠️  SMTP_FROM not configured. Using default: contact@taatom.com');
-      console.log('✅ Brevo email service configured');
+      console.debug('✅ Brevo email service configured');
     } else {
-      console.log('✅ Brevo email service configured');
+      console.debug('✅ Brevo email service configured');
     }
   }
 };

@@ -1186,7 +1186,7 @@ if (enableSwagger) {
         responseInterceptor: (response) => {
           // Log response for debugging (only in development)
           if (process.env.NODE_ENV === 'development' && typeof console !== 'undefined') {
-            console.log('📡 Swagger Response:', {
+            console.debug('📡 Swagger Response:', {
               url: response.url,
               status: response.status,
               statusText: response.statusText,
@@ -1199,7 +1199,7 @@ if (enableSwagger) {
         // Callbacks
         onComplete: () => {
           if (typeof window !== 'undefined') {
-            console.log('✅ Swagger UI loaded successfully');
+            console.debug('✅ Swagger UI loaded successfully');
             /* eslint-disable no-undef */
             document.querySelectorAll('a[href^="#"]').forEach(anchor => {
               anchor.addEventListener('click', function (e) {
