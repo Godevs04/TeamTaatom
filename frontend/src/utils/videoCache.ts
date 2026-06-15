@@ -12,6 +12,61 @@ const activeDownloads = new Map<string, Promise<string>>();
 // Synchronous cache locking to prevent race conditions during deletion
 const lockedVideoIds = new Set<string>();
 
+// Synchronous in-memory registry of cached video IDs
+const cachedVideoIds = new Set<string>();
+const cachedVideoExtensions = new Map<string, string>();
+let isCacheInitialized = false;
+
+// Pub/sub cache update listeners
+type CacheListener = (videoId: string, localUri: string) => void;
+const cacheListeners = new Set<CacheListener>();
+
+/**
+ * Register a listener to be notified when a video is successfully cached.
+ * Returns an unsubscribe function.
+ */
+export function addCacheListener(listener: CacheListener): () => void {
+  cacheListeners.add(listener);
+  return () => {
+    cacheListeners.delete(listener);
+  };
+}
+
+/**
+ * Initialize video cache by scanning the shorts/ directory at startup
+ */
+export async function initializeVideoCache(): Promise<void> {
+  if (isCacheInitialized) return;
+  try {
+    const cacheDir = getCachePath();
+    const shortsCacheDir = `${cacheDir}shorts/`;
+    const dirInfo = await FileSystem.getInfoAsync(shortsCacheDir);
+    if (dirInfo.exists) {
+      const files = await FileSystem.readDirectoryAsync(shortsCacheDir);
+      for (const file of files) {
+        const parts = file.split('.');
+        const id = parts[0];
+        const ext = parts[1];
+        if (id && ext && (ext === 'mp4' || ext === 'm3u8')) {
+          cachedVideoIds.add(id);
+          cachedVideoExtensions.set(id, ext);
+          const fullPath = `${shortsCacheDir}${file}`;
+          if (!cacheQueue.includes(fullPath)) {
+            cacheQueue.push(fullPath);
+          }
+        }
+      }
+    }
+    isCacheInitialized = true;
+    logger.info(`[VideoCache] Initialized. Found ${cachedVideoIds.size} cached videos.`);
+  } catch (error) {
+    logger.error(`[VideoCache] Initialization failed:`, error);
+  }
+}
+
+// Auto-initialize immediately
+initializeVideoCache().catch(() => {});
+
 /**
  * Extract video ID from local path
  */
@@ -26,13 +81,10 @@ function getVideoIdFromPath(localPath: string): string | null {
  * Get the cache directory path
  */
 function getCachePath(): string {
-  // Use the legacy cacheDirectory if available, otherwise construct the path
   const FileSystemModule = FileSystem as any;
   if (FileSystemModule.cacheDirectory) {
     return FileSystemModule.cacheDirectory;
   }
-  // Fallback for newer versions - construct cache path
-  // documentDirectory is available on the module
   const docDir = (FileSystem as any).documentDirectory || '';
   return `${docDir}../Cache/`;
 }
@@ -41,7 +93,6 @@ async function validateCachedFile(localPath: string): Promise<boolean> {
   try {
     const info = await FileSystem.getInfoAsync(localPath);
     if (!info.exists) {
-      // Use debug instead of warn to prevent Metro Bundler OOM crashes from excessive log spam
       logger.debug(`[VideoCache] Validation failed: file does not exist: ${localPath}`);
       return false;
     }
@@ -58,6 +109,21 @@ async function validateCachedFile(localPath: string): Promise<boolean> {
 }
 
 /**
+ * Retrieve the local URI synchronously using the in-memory cache registry.
+ * Returns null if not cached.
+ */
+export function getLocalVideoUriSync(videoId: string): string | null {
+  if (lockedVideoIds.has(videoId)) {
+    return null;
+  }
+  if (cachedVideoIds.has(videoId)) {
+    const ext = cachedVideoExtensions.get(videoId) || 'mp4';
+    return `${getCachePath()}shorts/${videoId}.${ext}`;
+  }
+  return null;
+}
+
+/**
  * Retrieve the validated local URI for a cached video if it exists.
  * Returns null if the video is not cached or invalid.
  */
@@ -66,17 +132,24 @@ export async function getLocalVideoUri(videoId: string): Promise<string | null> 
     logger.debug(`[VideoCache] getLocalVideoUri blocked due to lock for video: ${videoId}`);
     return null;
   }
+  
+  // Fast path: check registry first before running async disk checks
+  if (!cachedVideoIds.has(videoId)) {
+    return null;
+  }
+
   try {
     const cacheDir = getCachePath();
-    const mp4Path = `${cacheDir}shorts/${videoId}.mp4`;
-    const m3u8Path = `${cacheDir}shorts/${videoId}.m3u8`;
+    const ext = cachedVideoExtensions.get(videoId) || 'mp4';
+    const localPath = `${cacheDir}shorts/${videoId}.${ext}`;
 
-    if (await validateCachedFile(mp4Path)) {
-      return mp4Path;
+    if (await validateCachedFile(localPath)) {
+      return localPath;
     }
-    if (await validateCachedFile(m3u8Path)) {
-      return m3u8Path;
-    }
+    
+    // If validation failed, remove from registry
+    cachedVideoIds.delete(videoId);
+    cachedVideoExtensions.delete(videoId);
     return null;
   } catch (error) {
     logger.warn(`[VideoCache] Error checking local URI for ${videoId}:`, error);
@@ -132,6 +205,11 @@ export async function cacheVideoLocally(videoId: string, remoteUrl: string): Pro
           cacheQueue.push(localPath);
           logger.debug(`[VideoCache] Cache hit: ${filename}`);
           logger.info(`[VideoCache] CACHE_HIT for ${filename}, queue: ${cacheQueue.length}/${MAX_CACHED_VIDEOS}`);
+          
+          // Sync with registry
+          cachedVideoIds.add(videoId);
+          cachedVideoExtensions.set(videoId, ext);
+
           return localPath;
         } else {
           // File is corrupted or invalid, remove from cache
@@ -160,6 +238,20 @@ export async function cacheVideoLocally(videoId: string, remoteUrl: string): Pro
       try {
         await FileSystem.downloadAsync(remoteUrl, localPath);
         cacheQueue.push(localPath);
+        
+        // Add to registry
+        cachedVideoIds.add(videoId);
+        cachedVideoExtensions.set(videoId, ext);
+        
+        // Notify listeners
+        cacheListeners.forEach((listener) => {
+          try {
+            listener(videoId, localPath);
+          } catch (listenerError) {
+            logger.error(`[VideoCache] Error in cache listener for video ${videoId}:`, listenerError);
+          }
+        });
+
         logger.debug(`[VideoCache] Downloaded: ${filename} (queue: ${cacheQueue.length}/${MAX_CACHED_VIDEOS})`);
         logger.info(`[VideoCache] DOWNLOAD_COMPLETE for ${filename}, queue: ${cacheQueue.length}/${MAX_CACHED_VIDEOS}`);
       } catch (downloadError) {
@@ -176,6 +268,11 @@ export async function cacheVideoLocally(videoId: string, remoteUrl: string): Pro
             const evictInfo = await FileSystem.getInfoAsync(evict);
             if (evictInfo.exists) {
               await FileSystem.deleteAsync(evict);
+              const evictId = getVideoIdFromPath(evict);
+              if (evictId) {
+                cachedVideoIds.delete(evictId);
+                cachedVideoExtensions.delete(evictId);
+              }
               logger.debug(`[VideoCache] Evicted: ${evict.split('/').pop()}`);
               logger.info(`[VideoCache] EVICTED: ${evict.split('/').pop()}`);
             }
@@ -216,6 +313,8 @@ export async function clearVideoCache(): Promise<void> {
     }
     cacheQueue.length = 0;
     activeDownloads.clear();
+    cachedVideoIds.clear();
+    cachedVideoExtensions.clear();
   } catch (error) {
     logger.error(`[VideoCache] Error clearing cache:`, error);
     throw error;
@@ -251,6 +350,8 @@ export async function removeCachedVideo(localPath: string): Promise<void> {
   const videoId = getVideoIdFromPath(localPath);
   if (videoId) {
     lockedVideoIds.add(videoId);
+    cachedVideoIds.delete(videoId);
+    cachedVideoExtensions.delete(videoId);
   }
   try {
     const idx = cacheQueue.indexOf(localPath);

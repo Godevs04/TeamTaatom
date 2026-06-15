@@ -444,10 +444,14 @@ export default function NotificationsScreen() {
       case 'follow':
       case 'follow_request':
       case 'follow_approved':
-        return '#007AFF'; // Blue color for follows and follow requests
+      case 'route_access_request':
+        return '#007AFF'; // Blue color for follows and requests
       case 'follow_request_accepted':
-        return '#34C759'; // Green for accepted
+      case 'route_access_approved':
+      case 'route_access_accepted':
+        return '#34C759'; // Green for accepted/approved
       case 'follow_request_rejected':
+      case 'route_access_rejected':
         return '#8E8E93'; // Grey for rejected
       case 'subscription_active':
         return '#34C759'; // Green for paid activations — distinct from social events
@@ -467,11 +471,16 @@ export default function NotificationsScreen() {
       case 'follow_request':
         return 'person-add-outline';
       case 'follow_approved':
+      case 'route_access_approved':
+      case 'route_access_accepted':
         return 'checkmark-circle';
       case 'follow_request_accepted':
         return 'checkmark-circle';
       case 'follow_request_rejected':
+      case 'route_access_rejected':
         return 'close-circle';
+      case 'route_access_request':
+        return 'map-outline';
       case 'subscription_active':
         return 'cash';
       default:
@@ -498,6 +507,14 @@ export default function NotificationsScreen() {
         return `You accepted ${userName}'s follow request`;
       case 'follow_request_rejected':
         return `You declined ${userName}'s follow request`;
+      case 'route_access_request':
+        return `${userName} requested access to view your traveling routes`;
+      case 'route_access_approved':
+        return `${userName} approved your request to view their traveling routes`;
+      case 'route_access_accepted':
+        return `You approved ${userName}'s route access request`;
+      case 'route_access_rejected':
+        return `You declined ${userName}'s route access request`;
       case 'subscription_active': {
         const pageName = metadata?.connectPageName as string | undefined;
         const verb = metadata?.isCommunity ? 'purchased' : 'subscribed to';

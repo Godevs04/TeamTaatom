@@ -19,6 +19,11 @@ const notificationSchema = new mongoose.Schema({
       'post_mention',
       // Sent to a Connect page owner when someone activates a paid subscription / purchase.
       'subscription_active',
+      // Route access request notification types
+      'route_access_request',
+      'route_access_approved',
+      'route_access_accepted',
+      'route_access_rejected',
     ],
     required: true
   },

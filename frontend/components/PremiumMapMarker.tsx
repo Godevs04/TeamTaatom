@@ -316,9 +316,9 @@ const styles = StyleSheet.create({
     borderRadius: 15,
   },
   dotCore: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     borderWidth: 2.5,
     borderColor: '#FFFFFF',
   },

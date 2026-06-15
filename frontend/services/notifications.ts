@@ -138,6 +138,7 @@ export const handleNotificationClick = async (notification: any): Promise<{
         };
 
       case 'follow_approved':
+      case 'route_access_approved':
         // Navigate to approver's profile
         if (notification.fromUserId || notification.fromUser?._id) {
           const userId = notification.fromUserId || notification.fromUser?._id;
@@ -151,6 +152,24 @@ export const handleNotificationClick = async (notification: any): Promise<{
         return {
           success: true,
           message: 'This user account is no longer available.',
+          shouldNavigate: false
+        };
+
+      case 'route_access_request':
+        // Navigate to Route Access Requests screen under settings
+        return {
+          success: true,
+          message: 'Opening route access requests...',
+          shouldNavigate: true,
+          navigationPath: '/settings/route-access-requests'
+        };
+
+      case 'route_access_accepted':
+      case 'route_access_rejected':
+        // No navigation needed, just read-marked
+        return {
+          success: true,
+          message: 'Notification marked as read',
           shouldNavigate: false
         };
 

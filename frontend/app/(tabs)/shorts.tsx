@@ -60,7 +60,7 @@ import Constants from 'expo-constants';
 import { savedEvents } from '../../utils/savedEvents';
 import { triggerHaptic } from '../../utils/hapticFeedback';
 import { shortsEvents } from '../../utils/shortsEvents';
-import { preloadVideoAsync, getLocalVideoUri, removeCachedVideo } from '../../src/utils/videoCache';
+import { preloadVideoAsync, getLocalVideoUri, removeCachedVideo, getLocalVideoUriSync, addCacheListener } from '../../src/utils/videoCache';
 
 /** Shorts list item: either a reel (PostType) or a full-screen native ad slot. */
 export type ShortsItem = PostType | { type: 'ad'; adIndex: number };
@@ -542,6 +542,7 @@ const ShortsCell = React.memo((props: ShortsCellProps) => {
     } else {
       video.pauseAsync().then(() => {
         setIsPlaying(false);
+        video.setPositionAsync(0).catch(() => {});
       }).catch(() => {});
     }
   }, [shouldPlay]);
@@ -747,7 +748,8 @@ const ShortsCell = React.memo((props: ShortsCellProps) => {
   };
 
   const distanceFromVisible = index - currentVisibleIndex;
-  const shouldRenderVideo = Math.abs(distanceFromVisible) <= 1 && isCacheChecked;
+  const isCached = isCacheChecked && !!localVideoUris[item._id];
+  const shouldRenderVideo = isActive || (Math.abs(distanceFromVisible) <= 2 && isCached);
 
   const isCellVideoPlaying = isPlaying && isVideoPlaying;
   const isOwn = item.user._id === currentUser?._id;
@@ -794,16 +796,16 @@ const ShortsCell = React.memo((props: ShortsCellProps) => {
               styles.shortVideo,
               StyleSheet.absoluteFillObject
             ]}>
-            {item.imageUrl ? (
+            {(item.thumbnailUrl || item.imageUrl) ? (
               <ExpoImage
-                source={{ uri: item.imageUrl }}
+                source={{ uri: item.thumbnailUrl || item.imageUrl }}
                 style={[styles.shortVideo as ImageStyle, StyleSheet.absoluteFillObject]}
                 contentFit="contain"
                 cachePolicy="memory-disk"
                 transition={0}
                 onError={(e: any) => logger.warn('[shorts thumbnail] load failed', {
                   shortId: item._id,
-                  url: item.imageUrl?.substring(0, 120),
+                  url: (item.thumbnailUrl || item.imageUrl)?.substring(0, 120),
                   error: e?.error || e?.nativeEvent?.error || String(e),
                 })}
               />
@@ -1190,7 +1192,7 @@ const ShortsCell = React.memo((props: ShortsCellProps) => {
                               latitude: coordinates.latitude.toString(),
                               longitude: coordinates.longitude.toString(),
                               address,
-                              photo: item.imageUrl || '',
+                               photo: item.thumbnailUrl || item.imageUrl || '',
                             }
                           });
                         } else {
@@ -2036,22 +2038,37 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     if (isGeneralFeed && globalCachedShorts.length > 0) {
       const firstShorts = globalCachedShorts.slice(0, 3);
       const initialUris: Record<string, string> = {};
-      Promise.all(
-        firstShorts.map(async (item: any) => {
-          const localUri = await getLocalVideoUri(item._id);
-          if (localUri) {
-            initialUris[item._id] = localUri;
-          }
-        })
-      ).then(() => {
-        setLocalVideoUris((prev) => ({ ...prev, ...initialUris }));
-        setCheckedVideoCacheIds((prev) => {
-          const next = new Set(prev);
-          firstShorts.forEach((s) => next.add(s._id));
-          return next;
-        });
+      
+      firstShorts.forEach((item: any) => {
+        const localUri = getLocalVideoUriSync(item._id);
+        if (localUri) {
+          initialUris[item._id] = localUri;
+        }
+      });
+
+      setLocalVideoUris((prev) => ({ ...prev, ...initialUris }));
+      setCheckedVideoCacheIds((prev) => {
+        const next = new Set(prev);
+        firstShorts.forEach((s) => next.add(s._id));
+        return next;
       });
     }
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = addCacheListener((videoId, localUri) => {
+      setLocalVideoUris((prev) => {
+        if (prev[videoId] === localUri) return prev;
+        return { ...prev, [videoId]: localUri };
+      });
+      setCheckedVideoCacheIds((prev) => {
+        if (prev.has(videoId)) return prev;
+        const next = new Set(prev);
+        next.add(videoId);
+        return next;
+      });
+    });
+    return unsubscribe;
   }, []);
 
 
@@ -2882,14 +2899,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         // Resolve cache for the first 3 saved shorts
         const firstShorts = enriched.slice(0, 3);
         const initialUris: Record<string, string> = {};
-        await Promise.all(
-          firstShorts.map(async (item: any) => {
-            const localUri = await getLocalVideoUri(item._id);
-            if (localUri) {
-              initialUris[item._id] = localUri;
-            }
-          })
-        );
+        firstShorts.forEach((item: any) => {
+          const localUri = getLocalVideoUriSync(item._id);
+          if (localUri) {
+            initialUris[item._id] = localUri;
+          }
+        });
         setLocalVideoUris((prev) => ({ ...prev, ...initialUris }));
         setCheckedVideoCacheIds((prev) => {
           const next = new Set(prev);
@@ -2930,7 +2945,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             });
 
             // Resolve cache for this single short first!
-            const localUri = await getLocalVideoUri(singleShort._id);
+            const localUri = getLocalVideoUriSync(singleShort._id);
             if (localUri) {
               setLocalVideoUris(prev => ({ ...prev, [singleShort._id]: localUri }));
             }
@@ -3038,14 +3053,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       // Resolve cache for the first 3 shorts
       const firstShorts = merged.slice(0, 3);
       const initialUris: Record<string, string> = {};
-      await Promise.all(
-        firstShorts.map(async (item: any) => {
-          const localUri = await getLocalVideoUri(item._id);
-          if (localUri) {
-            initialUris[item._id] = localUri;
-          }
-        })
-      );
+      firstShorts.forEach((item: any) => {
+        const localUri = getLocalVideoUriSync(item._id);
+        if (localUri) {
+          initialUris[item._id] = localUri;
+        }
+      });
       setLocalVideoUris((prev) => ({ ...prev, ...initialUris }));
       setCheckedVideoCacheIds((prev) => {
         const next = new Set(prev);
@@ -3686,7 +3699,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   // Cleanup videos that are far from viewport
   // Uses centralized stopAndUnloadVideo helper
   useEffect(() => {
-    const cleanupDistance = 1; // Cleanup videos more than 1 position away (since we keep 3 mounted)
+    const cleanupDistance = 2; // Cleanup videos more than 2 positions away (since we keep 5 mounted)
     Object.keys(videoRefs.current).forEach((videoId) => {
       const videoIndex = shortsData.findIndex(s => !isAdItem(s) && s._id === videoId);
       if (videoIndex === -1) return;
@@ -3776,65 +3789,59 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
     }
 
-    // 4. Poll/check file existence for the sliding window to update localVideoUris and checkedVideoCacheIds state
+    // 4. Synchronously check cache status for the sliding window to update localVideoUris and checkedVideoCacheIds state
     const minIndex = Math.max(0, currentVisibleIndex - 2);
     const maxIndex = Math.min(shortsData.length - 1, currentVisibleIndex + 2);
-    let active = true;
-    const checkCachedVideos = async () => {
-      const newUris: Record<string, string> = {};
-      const checkedIds: string[] = [];
+    const newUris: Record<string, string> = {};
+    const checkedIds: string[] = [];
 
-      for (let i = minIndex; i <= maxIndex; i++) {
-        const item = shortsData[i];
-        if (item && !isAdItem(item)) {
-          const localUri = await getLocalVideoUri(item._id);
-          if (localUri) {
-            newUris[item._id] = localUri;
+    for (let i = minIndex; i <= maxIndex; i++) {
+      const item = shortsData[i];
+      if (item && !isAdItem(item)) {
+        const localUri = getLocalVideoUriSync(item._id);
+        if (localUri) {
+          newUris[item._id] = localUri;
+        }
+        checkedIds.push(item._id);
+      }
+    }
+
+    setLocalVideoUris(prev => {
+      let changed = false;
+      const merged = { ...prev };
+      for (const id of checkedIds) {
+        const uri = newUris[id];
+        if (uri) {
+          if (prev[id] !== uri) {
+            merged[id] = uri;
+            changed = true;
           }
-          checkedIds.push(item._id);
+        } else if (prev[id]) {
+          delete merged[id];
+          changed = true;
         }
       }
-      if (active) {
-        setLocalVideoUris(prev => {
-          let changed = false;
-          const merged = { ...prev };
-          for (const id of Object.keys(newUris)) {
-            if (prev[id] !== newUris[id]) {
-              merged[id] = newUris[id];
-              changed = true;
-            }
-          }
-          if (changed) {
-            return merged;
-          }
-          return prev;
-        });
+      return changed ? merged : prev;
+    });
 
-        setCheckedVideoCacheIds(prev => {
-          const next = new Set(prev);
-          let changed = false;
-          for (const id of checkedIds) {
-            if (!next.has(id)) {
-              next.add(id);
-              changed = true;
-            }
-          }
-          return changed ? next : prev;
-        });
+    setCheckedVideoCacheIds(prev => {
+      const next = new Set(prev);
+      let changed = false;
+      for (const id of checkedIds) {
+        if (!next.has(id)) {
+          next.add(id);
+          changed = true;
+        }
       }
-    };
-
-    checkCachedVideos();
-    const interval = setInterval(checkCachedVideos, 1000);
+      return changed ? next : prev;
+    });
 
     return () => {
-      active = false;
-      clearInterval(interval);
       if (staggerTimeout) {
         clearTimeout(staggerTimeout);
       }
     };
-  }, [currentVisibleIndex, shortsData, activeVideoPrepared, localVideoUris]);
+  }, [currentVisibleIndex, shortsData, activeVideoPrepared]);
 
   // Deep link: scroll to specific short when effectiveShortId is set (URL or props). dataIndex accounts for ad slots when showShortsAds.
   useEffect(() => {
@@ -4284,7 +4291,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           post={{
             _id: selectedShortForShare._id,
             caption: selectedShortForShare.caption,
-            imageUrl: selectedShortForShare.imageUrl,
+            imageUrl: selectedShortForShare.thumbnailUrl || selectedShortForShare.imageUrl || '',
             mediaUrl: selectedShortForShare.mediaUrl || selectedShortForShare.videoUrl,
             videoUrl: selectedShortForShare.videoUrl,
             user: selectedShortForShare.user,

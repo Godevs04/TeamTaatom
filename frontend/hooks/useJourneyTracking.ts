@@ -880,6 +880,55 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         // Check if there's an active journey in storage
         const storedJourneyId = await AsyncStorage.getItem('activeJourneyId');
         if (storedJourneyId) {
+          // Fetch the status from the server or check if it was paused in local storage
+          let statusOnServer: string | null = null;
+          let fetchedJourney: any = null;
+          try {
+            const data = await getJourneyDetail(storedJourneyId);
+            fetchedJourney = data?.journey;
+            statusOnServer = fetchedJourney?.status || null;
+          } catch (e) {
+            logger.warn('[Journey] Failed to fetch journey detail during init, checking local state:', e);
+            try {
+              const localStateRaw = await AsyncStorage.getItem('@active_journey_state');
+              if (localStateRaw) {
+                const localState = JSON.parse(localStateRaw);
+                statusOnServer = localState?.journey?.status || null;
+                fetchedJourney = localState?.journey || null;
+              }
+            } catch (localErr) {
+              // Ignore
+            }
+          }
+
+          if (statusOnServer === 'paused') {
+            logger.debug('[Journey] Restoring paused journey state on startup:', storedJourneyId);
+            journeyIdRef.current = storedJourneyId;
+            setJourney(fetchedJourney);
+            
+            // Rehydrate polyline and other stats
+            try {
+              const localStateRaw = await AsyncStorage.getItem('@active_journey_state');
+              if (localStateRaw) {
+                const localState = JSON.parse(localStateRaw);
+                setPolyline(localState.polyline || []);
+                setDistance(localState.distance || 0);
+                setDuration(localState.duration || 0);
+              } else if (fetchedJourney) {
+                const normalized = normalizeJourneyPolyline(fetchedJourney);
+                setPolyline(normalized);
+                setDistance(fetchedJourney.distanceTraveled || fetchedJourney.distance || 0);
+                setDuration(getJourneyActiveDuration(fetchedJourney));
+              }
+            } catch (rehydrateErr) {
+              logger.warn('[Journey] Error rehydrating paused journey stats:', rehydrateErr);
+            }
+            
+            setIsTracking(true);
+            setIsPaused(true);
+            return;
+          }
+
           logger.debug('[Journey] App was terminated with active journey, auto-saving:', storedJourneyId);
           
           // Stop background task updates first
@@ -1363,10 +1412,21 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         throw new Error(err);
       }
 
+      // Request background ("Always") permission so the path keeps
+      // recording when the phone is locked or the app is backgrounded.
+      if (Platform.OS !== 'web') {
+        try {
+          await Location.requestBackgroundPermissionsAsync();
+        } catch (e) {
+          logger.warn('[Journey] Background permission request failed (non-blocking):', e);
+        }
+      }
+
       // Call API
       const { journey: resumedJourney } = await resumeJourney(journeyIdRef.current);
       const resumedDuration = getJourneyActiveDuration(resumedJourney);
       setJourney(resumedJourney);
+      setIsTracking(true);
       setIsPaused(false);
 
       // Reset duration timer

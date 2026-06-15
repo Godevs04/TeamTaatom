@@ -111,20 +111,14 @@ const ClusteredGroupMarker = ({
   const count = cluster.locations.length;
   
   // Calculate size according to count (number of merged places)
-  let size = 28;
-  let borderWidth = 3;
-  if (count <= 3) {
-    size = 28;
-    borderWidth = 3;
-  } else if (count <= 8) {
-    size = 34;
-    borderWidth = 3.5;
-  } else if (count <= 20) {
-    size = 40;
-    borderWidth = 4;
+  let size = 20;
+  let borderWidth = 2.5;
+  if (count === 2) {
+    size = 18;
+    borderWidth = 2.5;
   } else {
-    size = 48;
-    borderWidth = 4.5;
+    size = 20;
+    borderWidth = 2.5;
   }
 
   return (

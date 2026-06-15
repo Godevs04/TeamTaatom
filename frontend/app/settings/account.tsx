@@ -221,8 +221,12 @@ export default function AccountSettingsScreen() {
             <View style={styles.settingContent}>
               <Ionicons name="mail-outline" size={20} color={theme.colors.text} />
               <View style={styles.settingTextContainer}>
-                <Text style={[styles.settingLabel, { color: theme.colors.text }]}>
-                  Email
+                <Text 
+                  style={[styles.settingLabel, { color: theme.colors.text }]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {user?.email}
                 </Text>
                 {user?.isVerified === false && (
                   <Text style={[styles.settingDescription, { color: theme.colors.error }]}>
@@ -247,13 +251,6 @@ export default function AccountSettingsScreen() {
                   </Text>
                 </View>
               ) : null}
-              <Text 
-                style={[styles.settingValue, { color: theme.colors.textSecondary, marginLeft: 8 }]}
-                numberOfLines={1}
-                ellipsizeMode="tail"
-              >
-                {user?.email}
-              </Text>
             </View>
           </View>
 

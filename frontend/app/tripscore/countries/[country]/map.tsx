@@ -30,8 +30,9 @@ import {
   sanitizeLatitudeDelta,
   sanitizeMapRegion,
 } from '../../../../utils/mapSafety';
+import { getGoogleMapsApiKeyForWebView } from '../../../../utils/maps';
 
-const GOOGLE_MAPS_API_KEY = Constants.expoConfig?.extra?.GOOGLE_MAPS_API_KEY;
+const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKeyForWebView();
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -87,7 +88,7 @@ const OptimizedVisitedMarker = React.memo(({
     <SafeMarker
       ref={markerRef}
       zIndex={isSelected ? 99999 : index}
-      anchor={{ x: 0.5, y: 1.0 }}
+      anchor={isSelected ? { x: 0.5, y: 1.0 } : { x: 0.5, y: 0.5 }}
       coordinate={{
         latitude: location.coordinates!.latitude,
         longitude: location.coordinates!.longitude,
@@ -102,6 +103,7 @@ const OptimizedVisitedMarker = React.memo(({
         photo={location.imageUrl} 
         onImageLoad={handleImageLoad}
         latitudeDelta={latitudeDelta}
+        renderAsDot={true}
       />
     </SafeMarker>
   );
@@ -123,6 +125,8 @@ export default function CountryMapScreen() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<TripScoreCountryResponse | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
+  const [pinnedLocation, setPinnedLocation] = useState<Location | null>(null);
+  const [initialSelectDone, setInitialSelectDone] = useState(false);
   const [renderedLocation, setRenderedLocation] = useState<Location | null>(null);
   const slideAnim = useRef(new Animated.Value(300)).current;
   const carouselRef = useRef<FlatList>(null);
@@ -165,24 +169,37 @@ export default function CountryMapScreen() {
   const centerMapOnLocation = useCallback((loc: Location) => {
     if (!isValidMapCoordinate(loc.coordinates)) return;
     if (mapRef.current) {
-      if (Platform.OS === 'ios') {
-        const region = sanitizeMapRegion({
-          latitude: loc.coordinates.latitude,
-          longitude: loc.coordinates.longitude,
-          latitudeDelta: 0.05,
-          longitudeDelta: 0.05,
-        });
-        if (region) {
-          mapRef.current.animateToRegion(region, 350);
-        }
+      if (Platform.OS === 'web' || Platform.OS === 'android') {
+        const jsCode = `
+          if (window.map) {
+            window.map.panTo({ lat: ${loc.coordinates.latitude}, lng: ${loc.coordinates.longitude} });
+            window.map.setZoom(12);
+          }
+          true;
+        `;
+        mapRef.current.injectJavaScript(jsCode);
       } else {
-        mapRef.current.animateCamera({
-          center: {
+        if (Platform.OS === 'ios') {
+          const region = sanitizeMapRegion({
             latitude: loc.coordinates.latitude,
             longitude: loc.coordinates.longitude,
-          },
-          zoom: 12,
-        }, { duration: 350 });
+            latitudeDelta: 0.05,
+            longitudeDelta: 0.05,
+          });
+          if (region) {
+            mapRef.current.animateToRegion(region, 350);
+          }
+        } else {
+          if (typeof mapRef.current.animateCamera === 'function') {
+            mapRef.current.animateCamera({
+              center: {
+                latitude: loc.coordinates.latitude,
+                longitude: loc.coordinates.longitude,
+              },
+              zoom: 12,
+            }, { duration: 350 });
+          }
+        }
       }
     }
   }, []);
@@ -193,6 +210,7 @@ export default function CountryMapScreen() {
   useEffect(() => {
     loadCountryData();
   }, []);
+
 
   // NOTE: We intentionally do not reload on focus. Re-fetching can re-order / change marker lists.
   // Markers are made stable via deterministic fallback coordinates + stable keys.
@@ -216,7 +234,21 @@ export default function CountryMapScreen() {
   };
 
   const handleLocationPress = (location: Location) => {
-    setSelectedLocation(location);
+    const isAlreadyPinned = pinnedLocation && (
+      pinnedLocation.name === location.name &&
+      pinnedLocation.coordinates?.latitude === location.coordinates?.latitude &&
+      pinnedLocation.coordinates?.longitude === location.coordinates?.longitude
+    );
+
+    if (isAlreadyPinned) {
+      // Toggle off
+      setPinnedLocation(null);
+      setSelectedLocation(null);
+    } else {
+      // Pin and select
+      setPinnedLocation(location);
+      setSelectedLocation(location);
+    }
   };
 
   const getCountryCenter = (countryName: string) => {
@@ -404,6 +436,23 @@ export default function CountryMapScreen() {
     return deduped;
   }, [data?.locations?.length, displayCountryName]); // Only depend on locations count and country name (more stable)
 
+  // Auto-select latest location on screen entry once visitedMarkers has loaded
+  useEffect(() => {
+    if (visitedMarkers.length > 0 && !initialSelectDone) {
+      const latestLoc = visitedMarkers[visitedMarkers.length - 1];
+      setSelectedLocation(latestLoc);
+      setPinnedLocation(latestLoc);
+      setInitialSelectDone(true);
+    }
+  }, [visitedMarkers, initialSelectDone]);
+
+  // Keep the pinned location in sync with the selected location (e.g. on carousel swipe)
+  useEffect(() => {
+    if (selectedLocation) {
+      setPinnedLocation(selectedLocation);
+    }
+  }, [selectedLocation]);
+
   const handleCarouselScroll = useCallback((event: any) => {
     if (!isScrollingCarouselRef.current) return;
     const contentOffsetX = event.nativeEvent.contentOffset.x;
@@ -488,40 +537,30 @@ export default function CountryMapScreen() {
     const locations = getMapLocations(countryDisplayName);
     const center = getCountryCenter(countryDisplayName || '');
     const delta = getCountryDelta(countryDisplayName || '');
+    const apiKey = getGoogleMapsApiKeyForWebView() || '';
     
     const markers = locations.map((loc, i) => {
       const lat = loc.coordinates?.latitude || center.latitude;
       const lng = loc.coordinates?.longitude || center.longitude;
-      const isSelected = selectedLocation && (
-        selectedLocation.name === loc.name &&
-        selectedLocation.coordinates?.latitude === loc.coordinates?.latitude &&
-        selectedLocation.coordinates?.longitude === loc.coordinates?.longitude
+      const isPinned = pinnedLocation && (
+        pinnedLocation.name === loc.name &&
+        pinnedLocation.coordinates?.latitude === loc.coordinates?.latitude &&
+        pinnedLocation.coordinates?.longitude === loc.coordinates?.longitude
       );
-
-      const photoUrl = loc.imageUrl || '';
-      const escName = loc.name.replace(/'/g, "\\'").replace(/"/g, '&quot;');
-      const subtitleText = (loc.category?.typeOfSpot || 'Visited spot').replace(/'/g, "\\'").replace(/"/g, '&quot;');
 
       return `
         var pos = new google.maps.LatLng(${lat}, ${lng});
         var div = document.createElement('div');
         div.style.cssText = 'position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
         
-        var isSel = ${!!isSelected};
+        var isSel = ${!!isPinned};
         if (isSel) {
-          var imgHtml = "${photoUrl}" ? '<img class="marker-thumb" src="${photoUrl}" onerror="this.style.display=\'none\'" />' : '<div class="marker-thumb-placeholder">📍</div>';
-          div.setAttribute('data-anchor', 'bottom');
-          div.innerHTML = '<div class="glass-marker-card">' +
-            imgHtml +
-            '<div class="marker-info">' +
-              '<div class="marker-title">${escName}</div>' +
-              '<div class="marker-subtitle">${subtitleText}</div>' +
-            '</div>' +
-          '</div>';
-          div.style.zIndex = 99999;
-        } else {
           div.setAttribute('data-anchor', 'bottom');
           div.innerHTML = \`${LOCATION_PIN_SVG}\`;
+          div.style.zIndex = 99999;
+        } else {
+          div.setAttribute('data-anchor', 'center');
+          div.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
           div.style.zIndex = ${i};
         }
         
@@ -564,80 +603,16 @@ export default function CountryMapScreen() {
             animation: pulse 1.8s infinite ease-out;
           }
           .core-dot {
-            width: 8px;
-            height: 8px;
+            width: 16px;
+            height: 16px;
             border-radius: 50%;
             background: linear-gradient(135deg, #2DD4BF 0%, #3B82F6 100%);
-            border: 1.5px solid #FFFFFF;
+            border: 2.5px solid #FFFFFF;
             box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
           }
           @keyframes pulse {
             0% { transform: scale(0.6); opacity: 1; }
             100% { transform: scale(2.2); opacity: 0; }
-          }
-          
-          .glass-marker-card {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 6px 12px;
-            border-radius: 20px;
-            background: ${isDark ? 'rgba(15, 23, 42, 0.75)' : 'rgba(255, 255, 255, 0.75)'};
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.08)'};
-            box-shadow: 0 8px 32px 0 ${isDark ? 'rgba(0, 0, 0, 0.37)' : 'rgba(31, 38, 135, 0.15)'};
-            max-width: 180px;
-            animation: floatCard 0.3s ease-out;
-          }
-          .marker-thumb {
-            width: 26px;
-            height: 26px;
-            min-width: 26px;
-            min-height: 26px;
-            flex-shrink: 0;
-            -webkit-flex-shrink: 0;
-            border-radius: 50%;
-            object-fit: cover;
-            border: 1.5px solid ${isDark ? '#2DD4BF' : '#3B82F6'};
-          }
-          .marker-thumb-placeholder {
-            width: 26px;
-            height: 26px;
-            min-width: 26px;
-            min-height: 26px;
-            flex-shrink: 0;
-            -webkit-flex-shrink: 0;
-            border-radius: 50%;
-            background: ${isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)'};
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 12px;
-          }
-          .marker-info {
-            display: flex;
-            flex-direction: column;
-            min-width: 60px;
-            overflow: hidden;
-          }
-          .marker-title {
-            font-size: 11px;
-            font-weight: 700;
-            color: ${isDark ? '#F8FAFC' : '#0F172A'};
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-          }
-          .marker-subtitle {
-            font-size: 9px;
-            font-weight: 500;
-            color: ${isDark ? '#94A3B8' : '#64748B'};
-            margin-top: 1px;
-          }
-          @keyframes floatCard {
-            0% { transform: translateY(6px); opacity: 0; }
-            100% { transform: translateY(0); opacity: 1; }
           }
         </style>
         <script>
@@ -653,6 +628,7 @@ export default function CountryMapScreen() {
               gestureHandling: 'greedy',
               isFractionalZoomEnabled: true
             });
+            window.map = map;
             
             // Custom OverlayView class
             class PhotoOverlay extends google.maps.OverlayView {
@@ -703,7 +679,7 @@ export default function CountryMapScreen() {
       </head>
       <body>
         <div id="map"></div>
-        <script async defer src="https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY || ''}&callback=initMap"></script>
+        <script async defer src="https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=initMap"></script>
       </body>
       </html>
     `;
@@ -762,8 +738,12 @@ export default function CountryMapScreen() {
       <View style={styles.mapContainer}>
         {(Platform.OS === 'web' || Platform.OS === 'android') ? (
           <WebView
+            ref={(ref: any) => { mapRef.current = ref; }}
             style={styles.map}
-            source={{ html: getWebMapHTML(displayCountryName || '') }}
+            source={{ 
+              html: getWebMapHTML(displayCountryName || ''),
+              baseUrl: 'https://maps.googleapis.com'
+            }}
             javaScriptEnabled={true}
             domStorageEnabled={true}
             cacheEnabled={true}
@@ -771,6 +751,7 @@ export default function CountryMapScreen() {
             androidHardwareAccelerationDisabled={false}
             startInLoadingState={true}
             scalesPageToFit={true}
+            originWhitelist={['https://*', 'http://*', 'data:*', 'about:*']}
             onMessage={(event) => handleWebViewMessage(event, displayCountryName || '')}
             onError={(syntheticEvent) => {
               const { nativeEvent } = syntheticEvent;
@@ -831,17 +812,17 @@ export default function CountryMapScreen() {
           )}
           {/* Markers for visited locations */}
           {visitedMarkers.map((location: any, index: number) => {
-            const isSelected = selectedLocation && (
-              selectedLocation.name === location.name &&
-              selectedLocation.coordinates?.latitude === location.coordinates.latitude &&
-              selectedLocation.coordinates?.longitude === location.coordinates.longitude
+            const isPinned = pinnedLocation && (
+              pinnedLocation.name === location.name &&
+              pinnedLocation.coordinates?.latitude === location.coordinates.latitude &&
+              pinnedLocation.coordinates?.longitude === location.coordinates.longitude
             );
 
             return (
               <OptimizedVisitedMarker
-                key={location.stableId || `${location.name}-${location.coordinates!.latitude.toFixed(6)}-${location.coordinates!.longitude.toFixed(6)}-${isSelected ? 'selected' : 'unselected'}`}
+                key={location.stableId || `${location.name}-${location.coordinates!.latitude.toFixed(6)}-${location.coordinates!.longitude.toFixed(6)}-${isPinned ? 'selected' : 'unselected'}`}
                 location={location}
-                isSelected={!!isSelected}
+                isSelected={!!isPinned}
                 index={index}
                 latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
                 onPress={() => handleLocationPress(location)}

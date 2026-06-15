@@ -667,18 +667,17 @@ export default function CurrentLocationMap() {
 html,body,#map{height:100%;margin:0;padding:0}
 .glowing-dot-container {
   position: relative;
-  width: 32px;
-  height: 32px;
+  width: 16px;
+  height: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .core-dot {
-  width: 14px;
-  height: 14px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: linear-gradient(135deg, #2DD4BF 0%, #3B82F6 100%);
-  border: 2px solid #FFFFFF;
 }
 
 .photo-pin {

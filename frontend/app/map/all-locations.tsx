@@ -1481,12 +1481,19 @@ html,body,#map{height:100%;margin:0;padding:0}
   background: linear-gradient(135deg, ${isDark ? '#2DD4BF' : '#3B82F6'} 0%, #10B981 100%);
   border: 2.5px solid #FFFFFF;
 }
-.map-cluster-dot {
-  width: 24px;
-  height: 24px;
+.map-cluster-dot-2 {
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: linear-gradient(135deg, ${isDark ? '#2DD4BF' : '#3B82F6'} 0%, #10B981 100%);
-  border: 3px solid #FFFFFF;
+  border: 2.5px solid #FFFFFF;
+}
+.map-cluster-dot-3plus {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, ${isDark ? '#2DD4BF' : '#3B82F6'} 0%, #10B981 100%);
+  border: 2.5px solid #FFFFFF;
 }
 </style>
 <script>
@@ -1753,9 +1760,12 @@ function initMap(){
           div.setAttribute('data-anchor', 'center');
           div.innerHTML = '<div class="map-dot"></div>';
         }
+      } else if (cluster.items.length === 2) {
+        div.setAttribute('data-anchor', 'center');
+        div.innerHTML = '<div class="map-cluster-dot-2"></div>';
       } else {
         div.setAttribute('data-anchor', 'center');
-        div.innerHTML = '<div class="map-cluster-dot"></div>';
+        div.innerHTML = '<div class="map-cluster-dot-3plus"></div>';
       }
 
       // Tap handler: single marker triggers selectPost event, cluster zooms in.

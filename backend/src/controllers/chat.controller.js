@@ -796,7 +796,7 @@ exports.sendMessageToRoom = async (req, res) => {
                 sound: 'default',
                 title: pageName,
                 body: `${req.user.fullName || 'Someone'}: ${text || (attachments && attachments.length > 0 ? '📎 Sent an attachment' : '')}`,
-                data: { chatId: chatIdStr, type: 'connect_page' },
+                data: { chatId: chatIdStr, type: 'connect_page', screen: `/chat/thread?chatId=${chatIdStr}` },
               }),
             });
           } catch (pushErr) {
@@ -1333,7 +1333,7 @@ exports.sendMessage = async (req, res) => {
             sound: 'default',
             title: 'New Message',
             body: `${req.user.fullName || 'Someone'}: ${text || (attachments && attachments.length > 0 ? '📎 Sent an attachment' : '')}`,
-            data: { chatWith: userId }
+            data: { chatWith: userId, screen: `/chat/thread?userId=${userId}` }
           })
         });
         logger.debug('Push notification sent successfully');
