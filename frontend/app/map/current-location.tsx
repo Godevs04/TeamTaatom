@@ -1096,6 +1096,8 @@ function initMap(){
         style={[styles.map, Platform.OS === 'android' && { flex: 1, minHeight: 200 }]}
         provider={getMapProvider()}
         {...mapStyle.nativeMapProps}
+        minZoomLevel={3}
+        cameraZoomRange={{ maxCenterCoordinateDistance: 5000000 }}
         initialRegion={{
           latitude: isPostLocation ? postLatitude! : location.coords.latitude,
           longitude: isPostLocation ? postLongitude! : location.coords.longitude,

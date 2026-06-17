@@ -90,6 +90,21 @@ function ProfilePremiumView(props: React.ComponentProps<typeof OriginalProfilePr
   return React.cloneElement(element, {}, ...updatedChildren);
 }
 
+const normalizeId = (id: any): string => {
+  if (!id) return '';
+  if (typeof id === 'string') return id;
+  if (id._id) return normalizeId(id._id);
+  if (typeof id === 'object') {
+    if (id.toString && typeof id.toString === 'function') {
+      try {
+        const str = id.toString();
+        if (str && str !== '[object Object]') return str;
+      } catch {}
+    }
+  }
+  return String(id);
+};
+
 const TRIP_GAP_DAYS = 7;
 
 const sortByCreatedDesc = <T extends { createdAt?: string; created_at?: string; _id?: string }>(items: T[]): T[] =>
@@ -257,14 +272,41 @@ export default function ProfileScreen() {
   const { subscriptionStatuses, refreshSubscriptionStatus, updateSubscriptionStatus } = useSubscription();
   const [user, setUser] = useState<UserType | null>(null);
   const [profileData, setProfileData] = useState<ProfileData | null>(null);
-  const [posts, setPosts] = useState<PostType[]>([]);
-  const [userShorts, setUserShorts] = useState<PostType[]>([]);
+  const [posts, setRawPosts] = useState<PostType[]>([]);
+  const setPosts = useCallback((value: React.SetStateAction<PostType[]>) => {
+    setRawPosts((prev) => {
+      const resolved = typeof value === 'function' ? (value as any)(prev) : value;
+      return savedEvents.filterDeleted(resolved);
+    });
+  }, []);
+
+  const [userShorts, setRawUserShorts] = useState<PostType[]>([]);
+  const setUserShorts = useCallback((value: React.SetStateAction<PostType[]>) => {
+    setRawUserShorts((prev) => {
+      const resolved = typeof value === 'function' ? (value as any)(prev) : value;
+      return savedEvents.filterDeleted(resolved);
+    });
+  }, []);
+
   const [postsPage, setPostsPage] = useState(1);
   const [hasMorePosts, setHasMorePosts] = useState(true);
   const [loadingMorePosts, setLoadingMorePosts] = useState(false);
 
-  const [savedPosts, setSavedPosts] = useState<PostType[]>([]);
-  const [savedShorts, setSavedShorts] = useState<PostType[]>([]);
+  const [savedPosts, setRawSavedPosts] = useState<PostType[]>([]);
+  const setSavedPosts = useCallback((value: React.SetStateAction<PostType[]>) => {
+    setRawSavedPosts((prev) => {
+      const resolved = typeof value === 'function' ? (value as any)(prev) : value;
+      return savedEvents.filterDeleted(resolved);
+    });
+  }, []);
+
+  const [savedShorts, setRawSavedShorts] = useState<PostType[]>([]);
+  const setSavedShorts = useCallback((value: React.SetStateAction<PostType[]>) => {
+    setRawSavedShorts((prev) => {
+      const resolved = typeof value === 'function' ? (value as any)(prev) : value;
+      return savedEvents.filterDeleted(resolved);
+    });
+  }, []);
   const [savedIds, setSavedIds] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState<'posts' | 'shorts' | 'saved'>('posts');
   const [activeSavedSubTab, setActiveSavedSubTab] = useState<'posts' | 'shorts'>('posts');
@@ -437,38 +479,41 @@ export default function ProfileScreen() {
       }
       
       // OPTIMIZATION: Try to load cached data first for instant display (optimistic)
-      try {
-        const [cachedProfile, cachedPosts] = await Promise.all([
-          AsyncStorage.getItem(`cachedProfile_${userData._id}`).catch(() => null),
-          AsyncStorage.getItem(`cachedUserPosts_${userData._id}`).catch(() => null)
-        ]);
-        
-        if (cachedProfile && !isMountedRef.current) return;
-        if (cachedProfile) {
-          try {
-            const parsed = JSON.parse(cachedProfile);
-            if (parsed && parsed.data) {
-              setProfileData(parsed.data);
-              setLoading(false); // Show cached data immediately
-            }
-          } catch (e) {}
-        }
-        
-        if (cachedPosts && !isMountedRef.current) return;
-        if (cachedPosts) {
-          try {
-            const parsed = JSON.parse(cachedPosts);
-            if (parsed && parsed.data) {
-              // Only load cached posts if under 50 min S3/R2 signed URL expiration limit
-              const cacheAge = Date.now() - (parsed.timestamp || 0);
-              if (cacheAge < 50 * 60 * 1000) {
-                setPosts(sortByCreatedDesc(parsed.data || []));
+      // Only do this if we are not in the background and do not have any posts in state yet
+      const hasExistingPosts = postsRef.current && postsRef.current.length > 0;
+      if (!isBackground && !hasExistingPosts) {
+        try {
+          const [cachedProfile, cachedPosts] = await Promise.all([
+            AsyncStorage.getItem(`cachedProfile_${userData._id}`).catch(() => null),
+            AsyncStorage.getItem(`cachedUserPosts_${userData._id}`).catch(() => null)
+          ]);
+          
+          if (cachedProfile && !isMountedRef.current) return;
+          if (cachedProfile) {
+            try {
+              const parsed = JSON.parse(cachedProfile);
+              if (parsed && parsed.data) {
+                setProfileData(parsed.data);
+                setLoading(false); // Show cached data immediately
               }
-            }
-          } catch (e) {}
+            } catch (e) {}
+          }
+          
+          if (cachedPosts) {
+            try {
+              const parsed = JSON.parse(cachedPosts);
+              if (parsed && parsed.data) {
+                // Only load cached posts if under 50 min S3/R2 signed URL expiration limit
+                const cacheAge = Date.now() - (parsed.timestamp || 0);
+                if (cacheAge < 50 * 60 * 1000) {
+                  setPosts(sortByCreatedDesc(parsed.data || []));
+                }
+              }
+            } catch (e) {}
+          }
+        } catch (cacheError) {
+          logger.debug('Cache load error (non-critical):', cacheError);
         }
-      } catch (cacheError) {
-        logger.debug('Cache load error (non-critical):', cacheError);
       }
       
       // OPTIMIZATION: Fetch profile, posts, shorts, and verified locations in parallel for 2-3x faster loading
@@ -972,28 +1017,38 @@ export default function ProfileScreen() {
       if (action === 'delete' || action === 'archive') {
         // Remove from posts and savedPosts arrays
         setPosts(prev => {
-          const filtered = prev.filter(p => p._id !== postId);
+          const filtered = prev.filter(p => normalizeId(p._id) !== normalizeId(postId));
           if (filtered.length !== prev.length) {
             // Decrement count aggregate to stay synchronized
             setProfileData(cur => cur ? {
               ...cur,
               postsCount: Math.max(0, (cur.postsCount || 0) - (prev.length - filtered.length))
             } : null);
+            // Sync with AsyncStorage cache
+            if (user?._id) {
+              AsyncStorage.setItem(`cachedUserPosts_${user._id}`, JSON.stringify({
+                data: filtered,
+                timestamp: Date.now()
+              })).catch(() => {});
+            }
           }
           return filtered;
         });
-        setSavedPosts(prev => prev.filter(p => p._id !== postId));
-        setUserShorts(prev => prev.filter(s => s._id !== postId));
-        setSavedShorts(prev => prev.filter(s => s._id !== postId));
+        setSavedPosts(prev => prev.filter(p => normalizeId(p._id) !== normalizeId(postId)));
+        setUserShorts(prev => prev.filter(s => normalizeId(s._id) !== normalizeId(postId)));
+        setSavedShorts(prev => prev.filter(s => normalizeId(s._id) !== normalizeId(postId)));
+        
+        // Force refresh from backend to guarantee profile posts and count are synchronized
+        void loadUserData(true, true);
       } else if (action === 'unarchive') {
         // Since it's restored, let's trigger a full background refresh of user data/posts to pull it back in
-        void loadUserData(true);
+        void loadUserData(true, true);
       }
     });
     return () => {
       unsubscribe();
     };
-  }, [loadUserData]);
+  }, [loadUserData, user?._id]);
 
   // Saved Content Stability: Load saved IDs when switching to saved tab (defensive parsing)
   useEffect(() => {
@@ -1288,13 +1343,13 @@ export default function ProfileScreen() {
         try {
           // Update UI optimistically
           if (isShort) {
-            setUserShorts(prev => prev.filter(short => short._id !== postId));
+            setUserShorts(prev => prev.filter(short => normalizeId(short._id) !== normalizeId(postId)));
           } else {
-            setPosts(prev => prev.filter(post => post._id !== postId));
+            setPosts(prev => prev.filter(post => normalizeId(post._id) !== normalizeId(postId)));
           }
           
-          setSavedPosts(prev => prev.filter(item => item._id !== postId));
-          setSavedShorts(prev => prev.filter(item => item._id !== postId));
+          setSavedPosts(prev => prev.filter(item => normalizeId(item._id) !== normalizeId(postId)));
+          setSavedShorts(prev => prev.filter(item => normalizeId(item._id) !== normalizeId(postId)));
           
           if (profileData) {
             setProfileData(prev => prev ? { 
@@ -1309,17 +1364,19 @@ export default function ProfileScreen() {
           // Perform actual deletion
           if (isShort) {
             await deleteShort(postId);
+            savedEvents.emitPostAction(postId, 'delete');
           } else {
             await deletePost(postId);
             await AsyncStorage.removeItem('postDraft');
+            savedEvents.emitPostAction(postId, 'delete');
           }
           const { audioManager } = await import('../../utils/audioManager');
           await audioManager.stopAll();
           
           showSuccess(`${isShort ? 'Short' : 'Post'} deleted successfully!`);
           
-          // Invalidate/refresh profile count in the background
-          void loadUserData(true);
+          // Invalidate/refresh profile count in the background with forceRefresh = true
+          void loadUserData(true, true);
         } catch (error: any) {
           // Revert optimistic update on error
           setPosts(previousPosts);
@@ -1356,11 +1413,13 @@ export default function ProfileScreen() {
           setSelectedItemIds([]);
 
           if (activeTab === 'shorts') {
-            setUserShorts(prev => prev.filter(s => !idsToDelete.includes(s._id)));
+            setUserShorts(prev => prev.filter(s => !idsToDelete.map(id => normalizeId(id)).includes(normalizeId(s._id))));
             await Promise.all(idsToDelete.map(id => deleteShort(id)));
+            idsToDelete.forEach(id => savedEvents.emitPostAction(id, 'delete'));
           } else {
-            setPosts(prev => prev.filter(p => !idsToDelete.includes(p._id)));
+            setPosts(prev => prev.filter(p => !idsToDelete.map(id => normalizeId(id)).includes(normalizeId(p._id))));
             await Promise.all(idsToDelete.map(id => deletePost(id)));
+            idsToDelete.forEach(id => savedEvents.emitPostAction(id, 'delete'));
           }
 
           if (profileData) {
@@ -1372,8 +1431,8 @@ export default function ProfileScreen() {
 
           showSuccess(`${idsToDelete.length} ${typeLabel} deleted successfully!`);
           
-          // Invalidate/refresh profile count in the background
-          void loadUserData(true);
+          // Invalidate/refresh profile count in the background with forceRefresh = true
+          void loadUserData(true, true);
         } catch (error: any) {
           // Revert optimistic updates
           setPosts(previousPosts);

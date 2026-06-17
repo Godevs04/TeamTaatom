@@ -1189,7 +1189,7 @@ const createPost = async (req, res) => {
 
     // Invalidate cache for post lists
     await deleteCacheByPattern('posts:*');
-    await deleteCache(CacheKeys.userPosts(req.user._id.toString(), 1, 20));
+    await deleteCacheByPattern(`user:${req.user._id.toString()}:posts:*`);
 
     // Update hashtag counts asynchronously (don't block post creation)
     if (allHashtags.length > 0) {
@@ -2347,7 +2347,7 @@ const toggleLike = async (req, res) => {
       // Invalidate cache
       await deleteCache(CacheKeys.post(req.params.id));
       await deleteCacheByPattern('posts:*');
-      await deleteCache(CacheKeys.userPosts(post.user.toString(), 1, 20));
+      await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
       // Update user's total likes if this is their post - use final verified state
       if (finalIsLiked) {
@@ -2700,11 +2700,6 @@ const deletePost = async (req, res) => {
     const postId = post._id;
     const userId = post.user.toString();
 
-    // Invalidate cache before deletion
-    await deleteCache(CacheKeys.post(req.params.id));
-    await deleteCacheByPattern('posts:*');
-    await deleteCache(CacheKeys.userPosts(userId, 1, 20));
-
     // Cascade delete all related data FIRST (before deleting the post)
     await cascadeDeletePost(postId, post);
 
@@ -2715,6 +2710,12 @@ const deletePost = async (req, res) => {
     // Decrement user's postCount atomically
     await User.findByIdAndUpdate(userId, { $inc: { postCount: -1 } });
     logger.info(`Decremented postCount for user ${userId}`);
+
+    // Invalidate cache after database deletion is complete to prevent concurrent reads from caching stale/deleted post
+    await deleteCache(CacheKeys.post(req.params.id));
+    await deleteCacheByPattern('posts:*');
+    await deleteCacheByPattern(`user:${userId}:posts:*`);
+
 
     // Emit socket events
     const io = getIO();
@@ -2752,6 +2753,11 @@ const archivePost = async (req, res) => {
     post.isArchived = true;
     await post.save();
 
+    // Invalidate cache
+    await deleteCache(CacheKeys.post(post._id.toString()));
+    await deleteCacheByPattern('posts:*');
+    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
+
     return sendSuccess(res, 200, 'Post archived successfully', { post });
   } catch (error) {
     logger.error('Archive post error:', error);
@@ -2775,6 +2781,11 @@ const unarchivePost = async (req, res) => {
 
     post.isArchived = false;
     await post.save();
+
+    // Invalidate cache
+    await deleteCache(CacheKeys.post(post._id.toString()));
+    await deleteCacheByPattern('posts:*');
+    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     return sendSuccess(res, 200, 'Post unarchived successfully', { post });
   } catch (error) {
@@ -2868,6 +2879,11 @@ const hidePost = async (req, res) => {
     post.isHidden = true;
     await post.save();
 
+    // Invalidate cache
+    await deleteCache(CacheKeys.post(post._id.toString()));
+    await deleteCacheByPattern('posts:*');
+    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
+
     return sendSuccess(res, 200, 'Post hidden successfully', { post });
   } catch (error) {
     logger.error('Hide post error:', error);
@@ -2891,6 +2907,11 @@ const unhidePost = async (req, res) => {
 
     post.isHidden = false;
     await post.save();
+
+    // Invalidate cache
+    await deleteCache(CacheKeys.post(post._id.toString()));
+    await deleteCacheByPattern('posts:*');
+    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     return sendSuccess(res, 200, 'Post unhidden successfully', { post });
   } catch (error) {
@@ -3028,7 +3049,7 @@ const updatePost = async (req, res) => {
     // Invalidate cache
     await deleteCache(CacheKeys.post(req.params.id));
     await deleteCacheByPattern('posts:*');
-    await deleteCache(CacheKeys.userPosts(post.user.toString(), 1, 20));
+    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     // Update hashtag counts (decrement old, increment new)
     const newHashtags = extractedHashtags.length > 0 ? extractedHashtags : (post.tags || []);
@@ -3760,7 +3781,7 @@ const createShort = async (req, res) => {
     await short.save();
 
     await deleteCacheByPattern('posts:*');
-    await deleteCache(CacheKeys.userPosts(req.user._id.toString(), 1, 20));
+    await deleteCacheByPattern(`user:${req.user._id.toString()}:posts:*`);
 
     // Create TranscodeJob
     const TranscodeJob = mongoose.model('TranscodeJob');
@@ -3923,7 +3944,7 @@ const incrementShare = async (req, res) => {
     // Invalidate cache
     await deleteCache(CacheKeys.post(req.params.id));
     await deleteCacheByPattern('posts:*');
-    await deleteCache(CacheKeys.userPosts(post.user.toString(), 1, 20));
+    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     // Emit real-time post share update if socket is configured
     try {

@@ -73,6 +73,22 @@ const getPostCardHeight = (post: any) => {
   
   return height;
 };
+
+const normalizeId = (id: any): string => {
+  if (!id) return '';
+  if (typeof id === 'string') return id;
+  if (id._id) return normalizeId(id._id);
+  if (typeof id === 'object') {
+    if (id.toString && typeof id.toString === 'function') {
+      try {
+        const str = id.toString();
+        if (str && str !== '[object Object]') return str;
+      } catch {}
+    }
+  }
+  return String(id);
+};
+
 const isWeb = Platform.OS === 'web';
 const isIOS = Platform.OS === 'ios';
 const isAndroid = Platform.OS === 'android';
@@ -91,13 +107,23 @@ export default function UserPostsScreen() {
     }
   }
 
-  const [posts, setPosts] = useState<any[]>(() => {
-    if (initialPost.current) {
-      return [initialPost.current];
-    }
-    return [];
+  const [posts, setRawPosts] = useState<any[]>(() => {
+    const initial = initialPost.current ? [initialPost.current] : [];
+    return savedEvents.filterDeleted(initial);
   });
+  const setPosts = (value: React.SetStateAction<any[]>) => {
+    setRawPosts((prev) => {
+      const resolved = typeof value === 'function' ? (value as any)(prev) : value;
+      return savedEvents.filterDeleted(resolved);
+    });
+  };
   const [loading, setLoading] = useState(!initialPost.current);
+
+  useEffect(() => {
+    if (!loading && posts.length === 0) {
+      router.back();
+    }
+  }, [loading, posts.length]);
   const [refreshing, setRefreshing] = useState(false);
   const [user, setUser] = useState<any>(null);
   const flatListRef = useRef<FlatList>(null);
@@ -202,10 +228,19 @@ export default function UserPostsScreen() {
         return dateB - dateA;
       });
       
+      if (fetchedPosts.length === 0) {
+        router.back();
+        return;
+      }
+
       let finalTargetIndex = targetIndex;
       if (postId) {
-        const foundIndex = fetchedPosts.findIndex((p: any) => p._id === postId);
-        if (foundIndex !== -1) {
+        const foundIndex = fetchedPosts.findIndex((p: any) => normalizeId(p._id) === normalizeId(postId));
+        if (foundIndex === -1) {
+          // Specific post is deleted or no longer available, go back immediately
+          router.back();
+          return;
+        } else {
           finalTargetIndex = foundIndex;
         }
       }
@@ -281,7 +316,7 @@ export default function UserPostsScreen() {
   useEffect(() => {
     const unsubscribeLikes = realtimePostsService.subscribeToLikes(({ postId: likedPostId, isLiked, likesCount }) => {
       setPosts(prev => prev.map(post => (
-        post._id === likedPostId
+        normalizeId(post._id) === normalizeId(likedPostId)
           ? { ...post, isLiked, likesCount } as any
           : post
       )));
@@ -292,17 +327,25 @@ export default function UserPostsScreen() {
         const isLiked = action === 'like';
         const likesCount = data?.likesCount ?? 0;
         setPosts(prev => prev.map(post => (
-          post._id === likedPostId
+          normalizeId(post._id) === normalizeId(likedPostId)
             ? { ...post, isLiked, likesCount } as any
             : post
         )));
       } else if (action === 'save' || action === 'unsave') {
         const isSaved = action === 'save';
         setPosts(prev => prev.map(post => (
-          post._id === likedPostId
+          normalizeId(post._id) === normalizeId(likedPostId)
             ? { ...post, isSaved } as any
             : post
         )));
+      } else if (action === 'delete') {
+        setPosts(prev => {
+          const filtered = prev.filter(post => normalizeId(post._id) !== normalizeId(likedPostId));
+          if (filtered.length === 0) {
+            router.back();
+          }
+          return filtered;
+        });
       }
     });
 

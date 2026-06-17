@@ -18,14 +18,20 @@ import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import EmptyState from '../../components/EmptyState';
 import ErrorMessage from '../../components/ErrorMessage';
 import NavBar from '../../components/NavBar';
-import { savedEvents } from '../../utils/savedEvents';
+import { savedEvents, normalizeId } from '../../utils/savedEvents';
 
 export default function HashtagDetailScreen() {
   const { hashtag } = useLocalSearchParams<{ hashtag: string }>();
   const router = useRouter();
   const { theme } = useTheme();
   const [hashtagData, setHashtagData] = useState<Hashtag | null>(null);
-  const [posts, setPosts] = useState<PostType[]>([]);
+  const [posts, setRawPosts] = useState<PostType[]>([]);
+  const setPosts = (value: React.SetStateAction<PostType[]>) => {
+    setRawPosts((prev) => {
+      const resolved = typeof value === 'function' ? (value as any)(prev) : value;
+      return savedEvents.filterDeleted(resolved);
+    });
+  };
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,17 +86,19 @@ export default function HashtagDetailScreen() {
         const isLiked = action === 'like';
         const likesCount = data?.likesCount ?? 0;
         setPosts(prev => prev.map(post => (
-          post._id === likedPostId
+          normalizeId(post._id) === normalizeId(likedPostId)
             ? { ...post, isLiked, likesCount } as any
             : post
         )));
       } else if (action === 'save' || action === 'unsave') {
         const isSaved = action === 'save';
         setPosts(prev => prev.map(post => (
-          post._id === likedPostId
+          normalizeId(post._id) === normalizeId(likedPostId)
             ? { ...post, isSaved } as any
             : post
         )));
+      } else if (action === 'delete') {
+        setPosts(prev => prev.filter(post => normalizeId(post._id) !== normalizeId(likedPostId)));
       }
     });
 

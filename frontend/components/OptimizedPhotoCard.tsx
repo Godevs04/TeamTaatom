@@ -789,7 +789,7 @@ function PhotoCard({
                   try {
                     const parsed = JSON.parse(cached);
                     if (parsed?.data && Array.isArray(parsed.data)) {
-                      parsed.data = parsed.data.filter((p: any) => p._id !== post._id);
+                      parsed.data = parsed.data.filter((p: any) => normalizeId(p._id) !== normalizeId(post._id));
                       await AsyncStorage.setItem(key, JSON.stringify(parsed));
                     }
                   } catch {

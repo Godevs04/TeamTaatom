@@ -57,7 +57,7 @@ import { ShortsNativeAd } from '../../components/ads/ShortsNativeAd';
 import { useAdCap, recordGoogleAdImpression, logContentView } from '../../services/adCap';
 import { realtimePostsService } from '../../services/realtimePosts';
 import Constants from 'expo-constants';
-import { savedEvents } from '../../utils/savedEvents';
+import { savedEvents, normalizeId } from '../../utils/savedEvents';
 import { triggerHaptic } from '../../utils/hapticFeedback';
 import { shortsEvents } from '../../utils/shortsEvents';
 import { preloadVideoAsync, getLocalVideoUri, removeCachedVideo, getLocalVideoUriSync, addCacheListener } from '../../src/utils/videoCache';
@@ -542,10 +542,12 @@ const ShortsCell = React.memo((props: ShortsCellProps) => {
     } else {
       video.pauseAsync().then(() => {
         setIsPlaying(false);
-        video.setPositionAsync(0).catch(() => {});
+        if (!isActive) {
+          video.setPositionAsync(0).catch(() => {});
+        }
       }).catch(() => {});
     }
-  }, [shouldPlay]);
+  }, [shouldPlay, isActive]);
 
   // Sync native video player's mute/volume when isMuted, isActive, or song changes
   useEffect(() => {
@@ -1956,9 +1958,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     props.initialShortId ?? normalizeSearchParam(params.shortId as string | string[] | undefined);
   const isGeneralFeed = !props.isSavedShorts && !effectiveUserId && !effectiveShortId;
 
-  const [shorts, setShorts] = useState<PostType[]>(() => {
+  const [shorts, setRawShorts] = useState<PostType[]>(() => {
     return isGeneralFeed ? globalCachedShorts : [];
   });
+  const setShorts = useCallback((value: React.SetStateAction<PostType[]>) => {
+    setRawShorts((prev) => {
+      const resolved = typeof value === 'function' ? (value as any)(prev) : value;
+      return savedEvents.filterDeleted(resolved);
+    });
+  }, []);
   const [loading, setLoading] = useState(() => {
     return isGeneralFeed ? globalCachedShorts.length === 0 : true;
   });
@@ -2000,6 +2008,18 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     }
     return globalIsFeedMuted;
   });
+
+  useEffect(() => {
+    const unsubscribeDelete = savedEvents.addPostActionListener((postId, action) => {
+      if (action === 'delete') {
+        const normDeletedId = normalizeId(postId);
+        setShorts(prev => prev.filter(s => normalizeId(s._id) !== normDeletedId));
+      }
+    });
+    return () => {
+      unsubscribeDelete();
+    };
+  }, []);
 
   useEffect(() => {
     const unsub = audioManager.addSessionMuteListener((muted) => {
@@ -3526,6 +3546,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       async () => {
         try {
           await deleteShort(shortId);
+          savedEvents.emitPostAction(shortId, 'delete');
           
           // Remove from local state
           setShorts(prev => prev.filter(short => short._id !== shortId));

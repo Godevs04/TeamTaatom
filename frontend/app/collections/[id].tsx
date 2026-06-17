@@ -24,7 +24,7 @@ import { PostType } from '../../types/post';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import { theme } from '../../constants/theme';
 import logger from '../../utils/logger';
-import { savedEvents } from '../../utils/savedEvents';
+import { savedEvents, normalizeId } from '../../utils/savedEvents';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -42,7 +42,14 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
 
 export default function CollectionDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const [collection, setCollection] = useState<Collection | null>(null);
+  const [collection, setRawCollection] = useState<Collection | null>(null);
+  const setCollection = (value: React.SetStateAction<Collection | null>) => {
+    setRawCollection((prev) => {
+      const resolved = typeof value === 'function' ? (value as any)(prev) : value;
+      if (!resolved || !resolved.posts) return resolved;
+      return { ...resolved, posts: savedEvents.filterDeleted(resolved.posts) };
+    });
+  };
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -82,8 +89,12 @@ export default function CollectionDetailScreen() {
       setCollection(prev => {
         if (!prev || !prev.posts) return prev;
         
+        if (action === 'delete') {
+          return { ...prev, posts: prev.posts.filter(post => normalizeId(post._id) !== normalizeId(likedPostId)) };
+        }
+        
         const updatedPosts = prev.posts.map(post => {
-          if (post._id !== likedPostId) return post;
+          if (normalizeId(post._id) !== normalizeId(likedPostId)) return post;
           
           if (action === 'like' || action === 'unlike') {
             const isLiked = action === 'like';

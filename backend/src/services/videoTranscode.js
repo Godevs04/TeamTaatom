@@ -348,9 +348,10 @@ async function processJob(job, Post) {
       const bitrate = videoStream && videoStream.bit_rate ? parseInt(videoStream.bit_rate) : 0;
       const bitrateOk = bitrate > 0 && bitrate <= 5000000; // Capped at 5Mbps
 
-      if (videoOk && audioOk && resolutionOk && fpsOk && bitrateOk) {
+      const isPortrait = height > width;
+      if (videoOk && audioOk && resolutionOk && fpsOk && bitrateOk && !isPortrait) {
         needsHLSTranscode = false;
-        logger.info('[transcodeWorker] Video is compliant (H.264/AAC, ≤1080p, ≤30fps, ≤5Mbps). Bypassing HLS transcoding.', {
+        logger.info('[transcodeWorker] Video is compliant (H.264/AAC, ≤1080p, ≤30fps, ≤5Mbps) and landscape. Bypassing HLS transcoding.', {
           postId,
           videoCodec: videoStream.codec_name,
           audioCodec: audioStream ? audioStream.codec_name : 'none',

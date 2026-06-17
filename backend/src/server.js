@@ -1,5 +1,9 @@
 require('dotenv').config();
 
+// Force Node.js to use Google DNS to bypass ISP restrictions on SRV records (mongodb+srv)
+const dns = require('dns');
+dns.setServers(['8.8.8.8', '8.8.4.4']);
+
 // PRODUCTION-GRADE: Ensure NODE_ENV is set correctly for staging/production deployments
 // If deploying to staging or production, force NODE_ENV to production
 // This ensures consistent behavior across cloud environments
