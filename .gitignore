@@ -85,3 +85,7 @@ backend/scripts/check_specific_locales.js
 frontend/app.json
 frontend/app.json
 frontend/app.json
+
+# Scratch and test setup directories
+backend/scratch/
+SuperAdmin/setups/

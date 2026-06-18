@@ -7,7 +7,7 @@ import { useAlert } from '../../context/AlertContext';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaskedView from '@react-native-masked-view/masked-view';
 import { useRouter } from 'expo-router';
-import { getPostById } from '../../services/posts';
+import { getPostById, getPostLikers } from '../../services/posts';
 import { getProfile } from '../../services/profile';
 import { GlassModal } from '../ui/GlassModal';
 
@@ -105,24 +105,9 @@ const ShortsActions = ({
     setShowModal(true);
     setLoading(true);
     try {
-      const data = await getPostById(shortId);
-      const likes = data?.data?.post?.likes || data?.post?.likes || data?.likes || [];
-      if (likes.length > 0) {
-        // Fetch profiles in parallel
-        const profiles = await Promise.all(
-          likes.map(async (userId: string) => {
-            try {
-              const res = await getProfile(userId);
-              return res?.profile || null;
-            } catch (err) {
-              return null;
-            }
-          })
-        );
-        setLikers(profiles.filter(Boolean));
-      } else {
-        setLikers([]);
-      }
+      const response = await getPostLikers(shortId, 1, 100);
+      const likersList = response?.likers || (response as any)?.data?.likers || [];
+      setLikers(likersList);
     } catch (error) {
       console.warn('Failed to load likers for short:', error);
     } finally {

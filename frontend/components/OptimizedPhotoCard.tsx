@@ -18,7 +18,7 @@ import { useTheme } from '../context/ThemeContext';
 import { PostType } from '../types/post';
 import { toggleLike, deletePost, archivePost, unarchivePost, hidePost, unhidePost, toggleComments, updatePost, deleteComment } from '../services/posts';
 import { toggleFollow } from '../services/profile';
-import { getUserFromStorage, getCurrentUser } from '../services/auth';
+import { getUserFromStorage, getCurrentUser, saveUserToStorage } from '../services/auth';
 import { useRouter } from 'expo-router';
 import CustomAlert from './CustomAlert';
 import PostComments from './post/PostComments';
@@ -514,14 +514,23 @@ function PhotoCard({
       return;
     }
 
-    const { isLiked: currentIsLiked, likesCount: currentLikesCount } = stateRef.current;
-    const newLiked = !currentIsLiked;
-    const newCount = newLiked ? currentLikesCount + 1 : Math.max(0, currentLikesCount - 1);
+    const { isLiked: previousLiked, likesCount: previousCount } = stateRef.current;
+    const newLiked = !previousLiked;
+    const newCount = newLiked ? previousCount + 1 : Math.max(0, previousCount - 1);
     likeTargetRef.current = newLiked;
+
+    // Update ref immediately so that rapid successive taps read the correct updated value!
+    stateRef.current = { isLiked: newLiked, likesCount: newCount };
 
     triggerLikeHaptic(newLiked);
     setIsLikedWithRef(newLiked);
     setLikesCountWithRef(newCount);
+
+    // Emit optimistic post action immediately
+    savedEvents.emitPostAction(post._id, newLiked ? 'like' : 'unlike', {
+      likesCount: newCount,
+      isLiked: newLiked,
+    });
 
     if (likeDebounceRef.current) {
       clearTimeout(likeDebounceRef.current);
@@ -531,8 +540,6 @@ function PhotoCard({
       const targetLiked = likeTargetRef.current;
       if (targetLiked === null) return;
 
-      const previousLiked = stateRef.current.isLiked;
-      const previousCount = stateRef.current.likesCount;
       const actionKey = `like-${post._id}`;
       setActionLoading(prev => {
         const next = new Set(prev);
@@ -563,6 +570,9 @@ function PhotoCard({
         setIsLikedWithRef(response.isLiked);
         setLikesCountWithRef(response.likesCount);
         likeTargetRef.current = response.isLiked;
+        
+        // Update stateRef.current with final confirmed values
+        stateRef.current = { isLiked: response.isLiked, likesCount: response.likesCount };
 
         trackEngagement(response.isLiked ? 'like' : 'unlike', 'post', post._id, {
           likes_count: response.likesCount,
@@ -582,6 +592,14 @@ function PhotoCard({
         setIsLikedWithRef(previousLiked);
         setLikesCountWithRef(previousCount);
         likeTargetRef.current = previousLiked;
+        stateRef.current = { isLiked: previousLiked, likesCount: previousCount };
+        
+        // Revert parent state too
+        savedEvents.emitPostAction(post._id, previousLiked ? 'like' : 'unlike', {
+          likesCount: previousCount,
+          isLiked: previousLiked,
+        });
+
         logger.error('Error toggling like', error);
         Alert.alert('Error', 'Failed to update like status.');
       } finally {
@@ -1301,7 +1319,7 @@ function PhotoCard({
                                   following: updatedFollowing.length
                                 };
                                 setCurrentUser(updatedUser);
-                                await AsyncStorage.setItem('userData', JSON.stringify(updatedUser));
+                                await saveUserToStorage(updatedUser);
                               } catch (err: any) {
                                 showCustomAlertMessage('Error', sanitizeErrorForDisplay(err, 'OptimizedPhotoCard.unfollow') || 'Failed to unfollow user', 'error');
                               } finally {
@@ -1334,7 +1352,7 @@ function PhotoCard({
                               following: updatedFollowing.length
                             };
                             setCurrentUser(updatedUser);
-                            await AsyncStorage.setItem('userData', JSON.stringify(updatedUser));
+                            await saveUserToStorage(updatedUser);
                             showCustomAlertMessage('Success', `Following ${postUser.fullName || 'User'}!`, 'success');
                           } catch (err: any) {
                             showCustomAlertMessage('Error', sanitizeErrorForDisplay(err, 'OptimizedPhotoCard.follow') || 'Failed to follow user', 'error');

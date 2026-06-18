@@ -303,9 +303,9 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
   useEffect(() => {
     const getCurrentUserId = async () => {
       try {
-        const userData = await AsyncStorage.getItem('userData');
-        if (userData) {
-          const user = JSON.parse(userData);
+        const { getUserFromStorage } = require('../../services/auth');
+        const user = await getUserFromStorage();
+        if (user) {
           setCurrentUserId(user._id);
         }
       } catch (e) {
@@ -994,9 +994,10 @@ function ChatWindow({ otherUser, onClose, messages, onSendMessage, chatId, chatT
     
     let currentUserId = '';
     try {
-      const userData = await AsyncStorage.getItem('userData');
-      if (userData) {
-        currentUserId = JSON.parse(userData)._id;
+      const { getUserFromStorage } = require('../../services/auth');
+      const user = await getUserFromStorage();
+      if (user) {
+        currentUserId = user._id;
       }
     } catch (e) {
       logger.error('Error getting user ID:', e);

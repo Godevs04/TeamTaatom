@@ -10,6 +10,7 @@ import { useRouter, useLocalSearchParams, useNavigation, useFocusEffect } from '
 import { socketService } from '../../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getCachedAuthToken } from '../../utils/authTokenCache';
+import { getUserFromStorage } from '../../services/auth';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { matchGradientLocations } from '../../utils/linearGradient';
@@ -334,11 +335,8 @@ export default function ChatModal() {
     if (showLoading) setLoading(true);
     try {
       const token = await getCachedAuthToken();
-      const userData = await AsyncStorage.getItem('userData');
-      let myUserId = '';
-      if (userData) {
-        try { myUserId = JSON.parse(userData)._id; } catch {}
-      }
+      const user = await getUserFromStorage();
+      const myUserId = user?._id || '';
       const { getApiBaseUrl } = require('../../utils/config');
       const API_BASE_URL = getApiBaseUrl();
       const res = await fetch(`${API_BASE_URL}/chat`, {
@@ -383,13 +381,8 @@ export default function ChatModal() {
           setLoading(true);
         }
         const token = await getCachedAuthToken();
-        const userData = await AsyncStorage.getItem('userData');
-        let myUserId = '';
-        if (userData) {
-          try {
-            myUserId = JSON.parse(userData)._id;
-          } catch {}
-        }
+        const user = await getUserFromStorage();
+        const myUserId = user?._id || '';
         const { getApiBaseUrl } = require('../../utils/config');
         const API_BASE_URL = getApiBaseUrl();
         
@@ -436,13 +429,8 @@ export default function ChatModal() {
 
       const loadFollowers = async () => {
         try {
-          const userData = await AsyncStorage.getItem('userData');
-          let myUserId = '';
-          if (userData) {
-            try {
-              myUserId = JSON.parse(userData)._id;
-            } catch {}
-          }
+          const user = await getUserFromStorage();
+          const myUserId = user?._id || '';
           if (!myUserId) return;
 
           const [followingRes, followersRes] = await Promise.all([

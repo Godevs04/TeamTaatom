@@ -27,7 +27,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import NavBar from '../../components/NavBar';
-import { getUserFromStorage, signOut } from '../../services/auth';
+import { getUserFromStorage, signOut, saveUserToStorage } from '../../services/auth';
 import { getProfile, getTravelMapData } from '../../services/profile';
 import { getUserPosts, getShorts, getUserShorts, getPostById, deletePost, deleteShort } from '../../services/posts';
 import { savedEvents } from '../../utils/savedEvents';
@@ -543,7 +543,7 @@ export default function ProfileScreen() {
             profilePic: freshProfile.profilePic,
           };
           setUser(updatedUser);
-          AsyncStorage.setItem('userData', JSON.stringify(updatedUser)).catch(() => {});
+          saveUserToStorage(updatedUser).catch(() => {});
         }
 
         // Cache profile for next time

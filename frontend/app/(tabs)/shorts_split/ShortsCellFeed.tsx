@@ -26,7 +26,7 @@ import LoadingGlobe from '../../../components/LoadingGlobe';
 
 // Imports with rewritten relative paths (added an extra parent folder level)
 import { useTheme } from '../../../context/ThemeContext';
-import { getPostById } from '../../../services/posts';
+import { getPostById, getPostLikers } from '../../../services/posts';
 import { getProfile } from '../../../services/profile';
 import { PostType } from '../../../types/post';
 import { useAlert } from '../../../context/AlertContext';
@@ -93,6 +93,51 @@ const getVideoSource = (uri) => {
   }
   return videoSourceCache.get(uri);
 };
+
+const ShortsVideoPlayerComponent = React.forwardRef<Video, React.ComponentProps<typeof Video>>((props, ref) => {
+  const localRef = useRef<Video | null>(null);
+
+  const combinedRef = useCallback((node: Video | null) => {
+    localRef.current = node;
+    if (typeof ref === 'function') {
+      ref(node);
+    } else if (ref) {
+      (ref as any).current = node;
+    }
+  }, [ref]);
+
+  useEffect(() => {
+    return () => {
+      if (localRef.current) {
+        logger.debug(`[ShortsVideoPlayerComponent] Unloading video player on unmount`);
+        localRef.current.unloadAsync().catch((err) => {
+          logger.debug(`[ShortsVideoPlayerComponent] Failed to unload video on unmount:`, err);
+        });
+      }
+    };
+  }, []);
+
+  return <Video ref={combinedRef} {...props} />;
+});
+ShortsVideoPlayerComponent.displayName = 'ShortsVideoPlayerComponent';
+
+const MemoizedVideo = React.memo(
+  ShortsVideoPlayerComponent,
+  (prev, next) => {
+    const prevUri = prev.source && typeof prev.source === 'object' && 'uri' in prev.source ? (prev.source as any).uri : null;
+    const nextUri = next.source && typeof next.source === 'object' && 'uri' in next.source ? (next.source as any).uri : null;
+
+    // Native expo-av players are fragile when parent UI state changes. Only
+    // playback, mute, volume, or source changes are allowed to reach the native Video.
+    return (
+      prev.shouldPlay === next.shouldPlay &&
+      prev.isMuted === next.isMuted &&
+      prev.volume === next.volume &&
+      prevUri === nextUri
+    );
+  }
+);
+MemoizedVideo.displayName = 'MemoizedShortsVideo';
 
 // Extracted cell block
 interface ShortsCellProps {
@@ -211,13 +256,13 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
     videoOpacity.setValue(0);
   }, [item._id]);
 
-  // BUG 15: Also reset when cell becomes inactive (scrolled away)
+  // Reset ready state when shouldRenderVideo changes to false (unmounted)
   useEffect(() => {
-    if (!isActive) {
+    if (!shouldRenderVideo) {
       setVideoReady(false);
       videoOpacity.setValue(0);
     }
-  }, [isActive]);
+  }, [shouldRenderVideo]);
 
   const retryVideoLoadLocally = () => {
     setTimeout(() => {
@@ -240,9 +285,6 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
     } else {
       video.pauseAsync().then(() => {
         setIsPlaying(false);
-        if (!isActive) {
-          video.setPositionAsync(0).catch(() => {});
-        }
       }).catch(() => {});
     }
   }, [shouldPlay, isActive]);
@@ -522,7 +564,7 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
                   ]}
                   pointerEvents={videoReady ? 'none' : 'none'}
                 >
-                <ShortsVideoPlayerComponent
+                <MemoizedVideo
                 key={`video-${item._id}-${sourceVersion}`}
                 ref={(ref) => {
                   videoRef.current = ref;
@@ -658,6 +700,19 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
                     if (isNowPlaying !== wasPlaying) {
                       logger.debug(`Video ${item._id} playing status changed: ${isNowPlaying}`);
                       setIsPlaying(isNowPlaying);
+
+                      if (isNowPlaying && isActive) {
+                        const audio = audioManager.getCurrentSound() || currentPlayerRef.current;
+                        if (hasMusic && audio && status.positionMillis !== undefined) {
+                          const startSec = item.song?.startTime || 0;
+                          const endSec = item.song?.endTime;
+                          const songStartMs = startSec * 1000;
+                          const segmentMs = endSec && endSec > startSec ? (endSec - startSec) * 1000 : 60000;
+                          const audioOffsetMs = status.positionMillis % segmentMs;
+                          logger.debug(`Syncing audio position to video play transition offset: ${songStartMs + audioOffsetMs}`);
+                          audio.setPositionAsync(songStartMs + audioOffsetMs).catch(() => {});
+                        }
+                      }
                     }
                   } else if ((status as any).error) {
                     logger.error(`Video ${item._id} playback error:`, (status as any).error);
@@ -674,8 +729,16 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
                     logger.debug(`Video ${item._id} loaded successfully, isPlaying: ${status.isPlaying}, shouldPlay: ${isActive}`);
                     setIsPlaying(status.isPlaying);
                     
+                    const savedPos = lastVideoPositionRef.current[item._id];
+                    const video = videoRef.current;
+                    if (video && savedPos && savedPos > 0) {
+                      logger.debug(`Seeking video ${item._id} to saved position: ${savedPos}`);
+                      video.setPositionAsync(savedPos).catch((err) => {
+                        logger.error(`Failed to seek video to saved position:`, err);
+                      });
+                    }
+
                     if (isActive && isScreenFocused && !userPaused) {
-                      const video = videoRef.current;
                       if (video) {
                         const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
                         const shouldMuteVideo = hasMusic || isMuted;
@@ -967,51 +1030,6 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
   );
 });
 ShortsCell.displayName = 'ShortsCell';
-
-const ShortsVideoPlayerComponent = React.forwardRef<Video, React.ComponentProps<typeof Video>>((props, ref) => {
-  const localRef = useRef<Video | null>(null);
-
-  const combinedRef = useCallback((node: Video | null) => {
-    localRef.current = node;
-    if (typeof ref === 'function') {
-      ref(node);
-    } else if (ref) {
-      (ref as any).current = node;
-    }
-  }, [ref]);
-
-  useEffect(() => {
-    return () => {
-      if (localRef.current) {
-        logger.debug(`[ShortsVideoPlayerComponent] Unloading video player on unmount`);
-        localRef.current.unloadAsync().catch((err) => {
-          logger.debug(`[ShortsVideoPlayerComponent] Failed to unload video on unmount:`, err);
-        });
-      }
-    };
-  }, []);
-
-  return <Video ref={combinedRef} {...props} />;
-});
-ShortsVideoPlayerComponent.displayName = 'ShortsVideoPlayerComponent';
-
-const MemoizedVideo = React.memo(
-  ShortsVideoPlayerComponent,
-  (prev, next) => {
-    const prevUri = prev.source && typeof prev.source === 'object' && 'uri' in prev.source ? (prev.source as any).uri : null;
-    const nextUri = next.source && typeof next.source === 'object' && 'uri' in next.source ? (next.source as any).uri : null;
-
-    // Native expo-av players are fragile when parent UI state changes. Only
-    // playback, mute, volume, or source changes are allowed to reach the native Video.
-    return (
-      prev.shouldPlay === next.shouldPlay &&
-      prev.isMuted === next.isMuted &&
-      prev.volume === next.volume &&
-      prevUri === nextUri
-    );
-  }
-);
-MemoizedVideo.displayName = 'MemoizedShortsVideo';
 
 interface ShortsProgressBarProps {
   shortId: string;
@@ -1449,23 +1467,9 @@ const LocalShortsActionRail = React.memo(({
     setShowModal(true);
     setLoading(true);
     try {
-      const data = await getPostById(shortId);
-      const likes = data?.data?.post?.likes || data?.post?.likes || data?.likes || [];
-      if (likes.length > 0) {
-        const profiles = await Promise.all(
-          likes.map(async (uid: string) => {
-            try {
-              const res = await getProfile(uid);
-              return res?.profile || null;
-            } catch (err) {
-              return null;
-            }
-          })
-        );
-        setLikers(profiles.filter(Boolean));
-      } else {
-        setLikers([]);
-      }
+      const response = await getPostLikers(shortId, 1, 100);
+      const likersList = response?.likers || (response as any)?.data?.likers || [];
+      setLikers(likersList);
     } catch (error) {
       logger.warn('Failed to load likers for short:', error);
     } finally {

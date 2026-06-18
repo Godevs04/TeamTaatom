@@ -152,9 +152,11 @@ async function getAllowedPostAuthorIds(viewerId) {
   const publicUsers = await User.find(publicQuery).select('_id').lean();
   const publicIds = publicUsers.map(u => u._id);
 
+  const follows = await Follow.find({ follower: viewerObjId }).select('following').lean();
+  const followingIds = follows.map(f => f.following);
   const restrictedAuthors = await User.find({
-    'settings.privacy.profileVisibility': { $in: ['followers', 'private'] },
-    followers: viewerObjId
+    _id: { $in: followingIds },
+    'settings.privacy.profileVisibility': { $in: ['followers', 'private'] }
   }).select('_id').lean();
   const restrictedIds = restrictedAuthors.map(u => u._id);
 
@@ -782,12 +784,8 @@ const getPostById = async (req, res) => {
     const postAuthorId = post.user?._id?.toString();
     const visibility = post.user?.settings?.privacy?.profileVisibility || 'public';
     if (visibility !== 'public' && postAuthorId !== userId) {
-      const viewerObjId = userId ? new mongoose.Types.ObjectId(userId) : null;
-      
-      // Fetch fresh author data for followers check to avoid cache staleness
-      const freshAuthor = await User.findById(postAuthorId).select('followers').lean();
-      const authorFollowers = (freshAuthor?.followers || []).map(f => f.toString());
-      const isFollower = viewerObjId ? authorFollowers.includes(viewerObjId.toString()) : false;
+      // Check follow status in Follow collection
+      const isFollower = userId ? !!(await Follow.exists({ follower: userId, following: postAuthorId })) : false;
 
       if (visibility === 'followers' && !isFollower) {
         return sendError(res, 'AUTH_1006', 'This post is not available');
@@ -941,11 +939,9 @@ const getPostById = async (req, res) => {
     if (userId) {
       isLiked = post.likes && post.likes.some(like => like.toString() === userId);
       
-      // Check follow status (user data already populated in aggregation)
-      if (post.user && post.user.followers) {
-        isFollowing = post.user.followers.some(follower => 
-          follower.toString() === userId
-        );
+      // Check follow status in Follow collection
+      if (post.user && post.user._id) {
+        isFollowing = !!(await Follow.exists({ follower: userId, following: post.user._id }));
       }
     }
 
@@ -1398,34 +1394,11 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
     const profileVisibility = user.settings?.privacy?.profileVisibility || 'public';
     const isOwnProfile = req.user ? req.user._id.toString() === userId : false;
 
-    // For "followers only" profiles, requester must be in profile owner's followers list
-    if (!isOwnProfile && profileVisibility === 'followers') {
-      const isFollowing = req.user && user.followers ?
-        user.followers.some(follower => {
-          const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
-          return followerId === req.user._id.toString();
-        }) :
-        false;
-
-      if (!isFollowing) {
-        return sendSuccess(res, 200, 'Shorts fetched successfully', {
-          shorts: [],
-          totalShorts: 0,
-          nextCursor: null,
-          hasNextPage: false
-        });
-      }
-    }
-
-    // For "private" profiles, requester must be in profile owner's followers list
-    // (i.e. the viewer follows the profile owner).
-    if (!isOwnProfile && profileVisibility === 'private') {
-      const isFollowing = req.user && user.followers ?
-        user.followers.some(follower => {
-          const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
-          return followerId === req.user._id.toString();
-        }) :
-        false;
+    // For "followers only" and "private" profiles, requester must follow profile owner
+    if (!isOwnProfile && (profileVisibility === 'followers' || profileVisibility === 'private')) {
+      const isFollowing = req.user
+        ? await Follow.exists({ follower: req.user._id, following: userId })
+        : false;
 
       if (!isFollowing) {
         return sendSuccess(res, 200, 'Shorts fetched successfully', {
@@ -1605,6 +1578,12 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
     const shortsWithProfilePics = await Promise.all(shorts.map(async (short) => {
       if (short.user) {
         short.user.profilePic = await resolveProfilePic(short.user);
+        // Add follow check using Follow.exists
+        if (currentUserId) {
+          short.isFollowing = !!(await Follow.exists({ follower: currentUserId, following: short.user._id }));
+        } else {
+          short.isFollowing = false;
+        }
       }
 
       // Generate signed URL for song if present (same logic as getShorts)
@@ -2306,7 +2285,7 @@ const toggleLike = async (req, res) => {
       if (vis !== 'public') {
         const isFollower = await Follow.exists({ follower: req.user._id, following: postOwnerId });
         if (!isFollower) {
-          return sendError(res, 'AUTH_1003', 'You cannot interact with this post');
+          return sendError(res, 'AUTH_1006', 'You cannot interact with this post');
         }
       }
     }
@@ -2517,15 +2496,13 @@ const addComment = async (req, res) => {
     const commentPostOwnerId = post.user?._id?.toString();
     if (commentPostOwnerId && commentPostOwnerId !== req.user._id.toString()) {
       const commentPostAuthor = await User.findById(commentPostOwnerId)
-        .select('settings.privacy.profileVisibility followers')
+        .select('settings.privacy.profileVisibility')
         .lean();
       const commentVis = commentPostAuthor?.settings?.privacy?.profileVisibility || 'public';
       if (commentVis !== 'public') {
-        const isCommentFollower = (commentPostAuthor?.followers || []).some(
-          f => f.toString() === req.user._id.toString()
-        );
+        const isCommentFollower = await Follow.exists({ follower: req.user._id, following: commentPostOwnerId });
         if (!isCommentFollower) {
-          return sendError(res, 'AUTH_1003', 'You cannot interact with this post');
+          return sendError(res, 'AUTH_1006', 'You cannot interact with this post');
         }
       }
     }
@@ -4029,13 +4006,19 @@ const getPostLikers = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const post = await Post.findById(id).select('likes').lean();
-    if (!post) {
+    const postExists = await Post.exists({ _id: id });
+    if (!postExists) {
       return sendError(res, 'RES_3001', 'Post does not exist');
     }
 
-    const likerIds = (post.likes || []).slice(skip, skip + limit);
-    const totalLikes = (post.likes || []).length;
+    const totalLikes = await Like.countDocuments({ post: id });
+    const likes = await Like.find({ post: id })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const likerIds = likes.map(l => l.user);
 
     const likers = await User.find({ _id: { $in: likerIds } })
       .select('fullName username profilePic profilePicStorageKey settings.privacy.profileVisibility')

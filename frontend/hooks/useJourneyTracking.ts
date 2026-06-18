@@ -1856,32 +1856,20 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         coord.longitude
       );
 
-      const timeDiff = coord.timestamp - lastCoordinateRef.current.timestamp;
-      if (polylineRef.current.length === 1 && timeDiff < 20000 && dist >= MIN_LOCATION_DISTANCE) {
-        logger.debug(`[Journey] Replacing inaccurate startup coordinate with accurate watcher coordinate (dist: ${dist}m, time: ${timeDiff}ms).`);
-        lastCoordinateRef.current = coord;
-        setPolyline(() => {
-          console.log("Journey Points:", 1);
-          return [coord];
-        });
-        batchCoordinatesRef.current = [coord];
-        persistPendingCoords();
-      } else {
-        const timeDiffSeconds = Math.max(0.1, (coord.timestamp - lastCoordinateRef.current.timestamp) / 1000);
-        const speedKmh = (dist / 1000) / (timeDiffSeconds / 3600);
-        if (speedKmh > 180) {
-          logger.warn(`[Journey] Discarding coordinate due to unrealistic speed jump: ${speedKmh.toFixed(1)} km/h (dist: ${dist.toFixed(1)}m in ${timeDiffSeconds.toFixed(1)}s).`);
-          return;
-        }
+      const timeDiffSeconds = Math.max(0.1, (coord.timestamp - lastCoordinateRef.current.timestamp) / 1000);
+      const speedKmh = (dist / 1000) / (timeDiffSeconds / 3600);
+      if (speedKmh > 180) {
+        logger.warn(`[Journey] Discarding coordinate due to unrealistic speed jump: ${speedKmh.toFixed(1)} km/h (dist: ${dist.toFixed(1)}m in ${timeDiffSeconds.toFixed(1)}s).`);
+        return;
+      }
 
-        const adaptiveMinDistance = getAdaptiveMinDistance(coord.accuracy, effectiveSpeed);
-        if (dist >= adaptiveMinDistance) {
-          lastCoordinateRef.current = coord;
-          queuePolylineUpdate(coord);
-          setDistance((prev) => prev + dist);
-          batchCoordinatesRef.current.push(coord);
-          persistPendingCoords();
-        }
+      const adaptiveMinDistance = getAdaptiveMinDistance(coord.accuracy, effectiveSpeed);
+      if (dist >= adaptiveMinDistance) {
+        lastCoordinateRef.current = coord;
+        queuePolylineUpdate(coord);
+        setDistance((prev) => prev + dist);
+        batchCoordinatesRef.current.push(coord);
+        persistPendingCoords();
       }
     } else {
       lastCoordinateRef.current = coord;

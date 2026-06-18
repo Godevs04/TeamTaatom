@@ -1528,6 +1528,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       likedShortIdsRef.current = finalSet;
       AsyncStorage.setItem(LIKED_SHORTS_STORAGE_KEY, JSON.stringify([...finalSet])).catch(() => {});
 
+      // Sync the parent state with final confirmed values from server
+      setShorts(prevShorts => 
+        prevShorts.map(s => 
+          s._id === shortId 
+            ? { ...s, isLiked: response.isLiked, likesCount: response.likesCount } 
+            : s
+        )
+      );
+
       trackEngagement('like', 'short', shortId, {
         isLiked: response.isLiked
       });
@@ -1540,9 +1549,21 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       likedShortIdsRef.current = revertSet;
       AsyncStorage.setItem(LIKED_SHORTS_STORAGE_KEY, JSON.stringify([...revertSet])).catch(() => {});
 
+      // Revert parent state
+      setShorts(prevShorts => 
+        prevShorts.map(s => 
+          s._id === shortId 
+            ? { ...s, isLiked: pending.originalState, likesCount: pending.originalLikesCount } 
+            : s
+        )
+      );
+
+      // Revert rail child state
+      emitLikeRailState(shortId, pending.originalState);
+
       showError('Failed to update like status');
     }
-  }, [showError]);
+  }, [showError, setShorts]);
 
   const handleLike = useCallback(async (shortId: string, forceLike: boolean = false) => {
     // Find current short
@@ -1575,6 +1596,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     likedShortIdsRef.current = newPersistSet;
     AsyncStorage.setItem(LIKED_SHORTS_STORAGE_KEY, JSON.stringify([...newPersistSet])).catch(() => {});
 
+    // Update parent state optimistically
+    setShorts(prevShorts => 
+      prevShorts.map(s => 
+        s._id === shortId 
+          ? { ...s, isLiked: newIsLiked, likesCount: newLikesCount } 
+          : s
+      )
+    );
+
     // Debounce & coalesce API call
     const pending = likeDebounceRefs.current[shortId];
     if (pending) {
@@ -1593,7 +1623,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         timer: setTimeout(() => executeLikeApiCall(shortId), 500)
       };
     }
-  }, [executeLikeApiCall]);
+  }, [executeLikeApiCall, setShorts]);
 
 
 
