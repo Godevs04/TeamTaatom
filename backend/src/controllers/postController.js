@@ -927,19 +927,6 @@ const getPostById = async (req, res) => {
             post.videoUrl = post.videoUrl || post.imageUrl || null;
           }
         }
-      } else if (post.storageKeys && post.storageKeys.length > 0) {
-        try {
-          post.videoUrl = await generateSignedUrl(post.storageKeys[0], 'VIDEO');
-          if (post.storageKeys.length > 1) {
-            post.imageUrl = await generateSignedUrl(post.storageKeys[1], 'IMAGE');
-          } else {
-            post.imageUrl = await generateSignedUrl(post.storageKeys[0], 'IMAGE');
-          }
-          logger.debug(`Generated fresh signed URLs from storageKeys for short ${post._id}`);
-        } catch (error) {
-          logger.warn(`Failed to generate signed URL from storageKeys for short ${post._id}:`, error.message);
-          post.videoUrl = post.videoUrl || post.imageUrl || null;
-        }
       }
       // Set mediaUrl for shorts (virtual field)
       post.mediaUrl = post.videoUrl || post.imageUrl || null;
