@@ -1,4 +1,5 @@
 const Post = require('../models/Post');
+const Like = require('../models/Like');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { cacheWrapper, CACHE_TTL } = require('../utils/cache');
@@ -122,7 +123,7 @@ const searchPosts = async (req, res) => {
                 }
               }
             },
-            likesCount: { $size: { $ifNull: ['$likes', []] } },
+            likesCount: { $ifNull: ['$likesCount', 0] },
             commentsCount: { $size: { $ifNull: ['$comments', []] } }
           }
         },
@@ -171,12 +172,20 @@ const searchPosts = async (req, res) => {
       return post;
     }));
 
-    // Add isLiked field
+    // Add isLiked status by querying Like collection in batch
+    let likedPostIds = new Set();
+    if (userId && postsWithImageUrls.length > 0) {
+      const postIds = postsWithImageUrls.map(p => p._id);
+      const likes = await Like.find({
+        user: userId,
+        post: { $in: postIds }
+      }).select('post').lean();
+      likedPostIds = new Set(likes.map(l => l.post.toString()));
+    }
+
     const postsWithLikeStatus = postsWithImageUrls.map(post => ({
       ...post,
-      isLiked: userId && post.likes
-        ? post.likes.some(like => like.toString() === userId)
-        : false
+      isLiked: userId ? likedPostIds.has(post._id.toString()) : false
     }));
 
     return sendSuccess(res, 200, 'Posts found successfully', {
@@ -238,7 +247,7 @@ const searchByLocation = async (req, res) => {
         { $unwind: { path: '$user', preserveNullAndEmptyArrays: false } },
         {
           $addFields: {
-            likesCount: { $size: { $ifNull: ['$likes', []] } },
+            likesCount: { $ifNull: ['$likesCount', 0] },
             commentsCount: { $size: { $ifNull: ['$comments', []] } }
           }
         }
@@ -251,11 +260,20 @@ const searchByLocation = async (req, res) => {
 
     const { posts, totalPosts } = result;
 
+    // Add isLiked status by querying Like collection in batch
+    let likedPostIds = new Set();
+    if (userId && posts.length > 0) {
+      const postIds = posts.map(p => p._id);
+      const likes = await Like.find({
+        user: userId,
+        post: { $in: postIds }
+      }).select('post').lean();
+      likedPostIds = new Set(likes.map(l => l.post.toString()));
+    }
+
     const postsWithLikeStatus = posts.map(post => ({
       ...post,
-      isLiked: userId && post.likes 
-        ? post.likes.some(like => like.toString() === userId)
-        : false
+      isLiked: userId ? likedPostIds.has(post._id.toString()) : false
     }));
 
     return sendSuccess(res, 200, 'Location search results', {

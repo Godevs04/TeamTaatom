@@ -223,9 +223,9 @@ const connectSocket = async () => {
         logger.warn('[Socket] Socket is null, cannot join user room');
         return;
       }
-      const userData = await AsyncStorage.getItem('userData');
-      if (userData) {
-        const user = JSON.parse(userData);
+      const { getUserFromStorage } = require('./auth');
+      const user = await getUserFromStorage();
+      if (user) {
         const userId = user._id;
         if (userId) {
           currentSocket.emit('join', `user:${userId}`);

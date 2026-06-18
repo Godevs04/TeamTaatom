@@ -706,6 +706,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   };
 
   const handleRemove = () => {
+    loadRequestIdRef.current++;
     stopAudio();
     setCurrentSong(null);
     setStartTime(0);
@@ -1117,6 +1118,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
 
   // Go back to song list from trimmer
   const handleBackToList = () => {
+    loadRequestIdRef.current++;
     stopAudio();
     setCurrentSong(null);
     setCurrentPage('list');

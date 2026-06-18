@@ -9,6 +9,7 @@ import api from '../../services/api';
 import { useRouter, useLocalSearchParams, useNavigation, useFocusEffect } from 'expo-router';
 import { socketService } from '../../services/socket';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getCachedAuthToken } from '../../utils/authTokenCache';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { matchGradientLocations } from '../../utils/linearGradient';
@@ -332,7 +333,7 @@ export default function ChatModal() {
   const refreshChatList = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
     try {
-      const token = await AsyncStorage.getItem('authToken');
+      const token = await getCachedAuthToken();
       const userData = await AsyncStorage.getItem('userData');
       let myUserId = '';
       if (userData) {
@@ -381,7 +382,7 @@ export default function ChatModal() {
         if (conversationsRef.current.length === 0) {
           setLoading(true);
         }
-        const token = await AsyncStorage.getItem('authToken');
+        const token = await getCachedAuthToken();
         const userData = await AsyncStorage.getItem('userData');
         let myUserId = '';
         if (userData) {

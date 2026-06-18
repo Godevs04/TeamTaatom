@@ -26,7 +26,7 @@ import { ColorValue } from "react-native";
 import Constants from 'expo-constants';
 import { LOGO_IMAGE } from '../../utils/config';
 import { getUserFromStorage } from '../../services/auth';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getCachedAuthToken } from '../../utils/authTokenCache';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -206,7 +206,7 @@ export default function ForgotPasswordScreen() {
       try {
         const fromSettings = params.fromSettings === 'true';
         if (fromSettings) {
-          const token = await AsyncStorage.getItem('authToken');
+          const token = await getCachedAuthToken();
           const user = await getUserFromStorage();
           setIsLoggedIn(!!(token && user));
         }

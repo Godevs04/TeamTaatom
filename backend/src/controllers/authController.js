@@ -286,7 +286,7 @@ const signin = async (req, res) => {
 
     return sendSuccess(res, 200, 'Sign in successful', {
       ...tokenResponse, // Only includes token for mobile
-      user: user.getPublicProfile()
+      user: await user.getPublicProfile()
     });
 
   } catch (error) {
@@ -303,11 +303,13 @@ const signin = async (req, res) => {
 // @access  Private
 const getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id)
-      .select('username fullName bio email profilePic profilePicStorageKey totalLikes isVerified createdAt lastLogin followers following interests languagesKnown nationality profileOnboardingVersion')
-      .populate('followers', 'fullName profilePic')
-      .populate('following', 'fullName profilePic')
-      .lean();
+    const Follow = require('../models/Follow');
+    const [user, followingDocs] = await Promise.all([
+      User.findById(req.user._id)
+        .select('username fullName bio email profilePic profilePicStorageKey totalLikes followersCount followingCount isVerified createdAt lastLogin interests languagesKnown nationality profileOnboardingVersion')
+        .lean(),
+      Follow.find({ follower: req.user._id }).select('following').lean()
+    ]);
 
     if (!user) {
       return res.status(404).json({ error: 'User not found', message: 'User does not exist' });
@@ -329,6 +331,8 @@ const getMe = async (req, res) => {
       profilePicUrl = user.profilePic;
     }
 
+    const followingIds = followingDocs.map(f => f.following.toString());
+
     const publicProfile = {
       _id: user._id,
       username: user.username,
@@ -336,9 +340,9 @@ const getMe = async (req, res) => {
       bio: user.bio,
       email: user.email,
       profilePic: profilePicUrl,
-      followers: user.followers?.length ?? 0,
-      following: user.following?.length ?? 0,
-      followingIds: user.following ? user.following.map(f => (f && (f._id || f)).toString()).filter(Boolean) : [],
+      followers: user.followersCount ?? 0,
+      following: user.followingCount ?? 0,
+      followingIds: followingIds,
       totalLikes: user.totalLikes ?? 0,
       isVerified: user.isVerified,
       createdAt: user.createdAt,
@@ -437,7 +441,7 @@ const googleSignIn = async (req, res) => {
     res.status(200).json({
       message: 'Google sign-in successful',
       ...tokenResponse, // Only includes token for mobile
-      user: user.getPublicProfile()
+      user: await user.getPublicProfile()
     });
 
   } catch (error) {
@@ -613,7 +617,7 @@ const refreshToken = async (req, res) => {
     res.status(200).json({
       message: 'Token refreshed successfully',
       ...tokenResponse, // Only includes token for mobile
-      user: user.getPublicProfile()
+      user: await user.getPublicProfile()
     });
   } catch (error) {
     logger.error('Refresh token error:', error);

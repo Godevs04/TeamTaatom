@@ -1,23 +1,104 @@
 const rateLimit = require('express-rate-limit');
+const RedisStore = require('rate-limit-redis').default;
+const { redisClient } = require('../utils/cache');
+const logger = require('../utils/logger');
 
-// Store user-based rate limit tracking
-const userRateLimitStore = new Map();
-const ipRateLimitStore = new Map();
+// Custom resilient store that delegates to RedisStore if Redis is ready,
+// and falls back to express-rate-limit's built-in MemoryStore otherwise.
+class ResilientRedisStore {
+  constructor(prefix) {
+    this.prefix = prefix;
+    this.redisStore = null;
+    this.memoryStore = new rateLimit.MemoryStore();
+    this.options = null;
+  }
 
-// Cleanup old entries every 15 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [key, data] of userRateLimitStore.entries()) {
-    if (now - data.resetTime > 15 * 60 * 1000) {
-      userRateLimitStore.delete(key);
+  init(options) {
+    this.options = options;
+    if (typeof this.memoryStore.init === 'function') {
+      this.memoryStore.init(options);
+    }
+    if (this.redisStore && typeof this.redisStore.init === 'function') {
+      this.redisStore.init(options);
     }
   }
-  for (const [key, data] of ipRateLimitStore.entries()) {
-    if (now - data.resetTime > 15 * 60 * 1000) {
-      ipRateLimitStore.delete(key);
+
+  getRedisStore() {
+    if (redisClient && redisClient.status === 'ready') {
+      if (!this.redisStore) {
+        try {
+          this.redisStore = new RedisStore({
+            sendCommand: (...args) => {
+              if (redisClient && redisClient.status === 'ready') {
+                return redisClient.call(...args);
+              }
+              return Promise.reject(new Error('Redis is not connected'));
+            },
+            prefix: `rl:${this.prefix}:`,
+          });
+          if (this.options && typeof this.redisStore.init === 'function') {
+            this.redisStore.init(this.options);
+          }
+        } catch (err) {
+          logger.error(`Failed to initialize RedisStore for prefix ${this.prefix}:`, err.message);
+          return null;
+        }
+      }
+      return this.redisStore;
+    }
+    return null;
+  }
+
+  async get(key) {
+    const store = this.getRedisStore();
+    if (store) {
+      try {
+        return await store.get(key);
+      } catch (err) {
+        logger.warn(`Rate limiter Redis get failed for prefix ${this.prefix}, falling back to memory:`, err.message);
+      }
+    }
+    if (typeof this.memoryStore.get === 'function') {
+      return await this.memoryStore.get(key);
     }
   }
-}, 15 * 60 * 1000);
+
+  async increment(key) {
+    const store = this.getRedisStore();
+    if (store) {
+      try {
+        return await store.increment(key);
+      } catch (err) {
+        logger.warn(`Rate limiter Redis increment failed for prefix ${this.prefix}, falling back to memory:`, err.message);
+      }
+    }
+    return await this.memoryStore.increment(key);
+  }
+
+  async decrement(key) {
+    const store = this.getRedisStore();
+    if (store) {
+      try {
+        return await store.decrement(key);
+      } catch (err) {
+        logger.warn(`Rate limiter Redis decrement failed for prefix ${this.prefix}, falling back to memory:`, err.message);
+      }
+    }
+    return await this.memoryStore.decrement(key);
+  }
+
+  async resetKey(key) {
+    const store = this.getRedisStore();
+    if (store) {
+      try {
+        return await store.resetKey(key);
+      } catch (err) {
+        logger.warn(`Rate limiter Redis resetKey failed for prefix ${this.prefix}, falling back to memory:`, err.message);
+      }
+    }
+    return await this.memoryStore.resetKey(key);
+  }
+}
 
 // Custom key generator for user-based rate limiting
 const userKeyGenerator = (req) => {
@@ -40,6 +121,7 @@ const generalLimiter = rateLimit({
     message: 'Too many requests from this IP, please try again later.',
   },
   keyGenerator: ipKeyGenerator,
+  store: new ResilientRedisStore('general'),
 });
 
 // Strict rate limiter for sensitive endpoints
@@ -54,6 +136,7 @@ const strictLimiter = rateLimit({
   },
   keyGenerator: ipKeyGenerator,
   skipSuccessfulRequests: false,
+  store: new ResilientRedisStore('strict'),
 });
 
 // User-based rate limiter (for authenticated users)
@@ -69,6 +152,7 @@ const createUserLimiter = (maxRequests = 100, windowMs = 15 * 60 * 1000) => {
     },
     keyGenerator: userKeyGenerator,
     skipSuccessfulRequests: false,
+    store: new ResilientRedisStore(`user:${maxRequests}:${windowMs}`),
   });
 };
 
@@ -85,6 +169,7 @@ const createIPLimiter = (maxRequests = 100, windowMs = 15 * 60 * 1000) => {
     },
     keyGenerator: ipKeyGenerator,
     skipSuccessfulRequests: false,
+    store: new ResilientRedisStore(`ip:${maxRequests}:${windowMs}`),
   });
 };
 

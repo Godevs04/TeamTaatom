@@ -1,4 +1,4 @@
-import { getApiUrl } from '../utils/config';
+import api from './api';
 import logger from '../utils/logger';
 
 export interface Song {
@@ -33,21 +33,14 @@ export const getSongs = async (
   limit: number = 50
 ): Promise<{ songs: Song[]; pagination: any }> => {
   try {
-    const params = new URLSearchParams();
-    if (search) params.append('search', search);
-    if (genre && genre !== 'all') params.append('genre', genre);
-    params.append('page', page.toString());
-    params.append('limit', limit.toString());
+    const params: any = {};
+    if (search) params.search = search;
+    if (genre && genre !== 'all') params.genre = genre;
+    params.page = page;
+    params.limit = limit;
 
-    const response = await fetch(`${getApiUrl('/api/v1/songs')}?${params.toString()}`);
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.message || 'Failed to fetch songs');
-    }
-
-    // Backend returns: { success: true, message, songs, pagination }
-    return data;
+    const response = await api.get('/api/v1/songs', { params });
+    return response.data;
   } catch (error) {
     logger.error('getSongs', error);
     throw error;
@@ -61,18 +54,10 @@ export const getSongs = async (
  */
 export const getSongById = async (id: string): Promise<Song> => {
   try {
-    const response = await fetch(`${getApiUrl(`/api/v1/songs/${id}`)}`);
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.message || 'Failed to fetch song');
-    }
-
-    // Backend returns: { success: true, message, song }
-    return data.song;
+    const response = await api.get(`/api/v1/songs/${id}`);
+    return response.data.song;
   } catch (error) {
     logger.error('getSongById', error);
     throw error;
   }
 };
-

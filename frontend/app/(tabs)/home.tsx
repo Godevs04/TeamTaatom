@@ -290,7 +290,7 @@ export default function HomeScreen() {
   const postsRef = useRef<PostType[]>(posts);
   const setPosts = useCallback((value: React.SetStateAction<PostType[]>) => {
     setRawPosts((prev) => {
-      const resolved = typeof value === 'function' ? (value as any)(prev) : value;
+      const resolved: PostType[] = typeof value === 'function' ? (value as any)(prev) : value;
       const resolvedFiltered = savedEvents.filterDeleted(resolved);
       const seen = new Set<string>();
       const filtered = resolvedFiltered.filter((p: PostType) => {

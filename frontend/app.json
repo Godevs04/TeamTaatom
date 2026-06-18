@@ -131,6 +131,7 @@
       "description": "Taatom - Social Media App"
     },
     "plugins": [
+      "expo-secure-store",
       "expo-router",
       [
         "expo-notifications",
