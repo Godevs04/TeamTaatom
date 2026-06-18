@@ -1915,7 +1915,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   //   2. Per-session counter (defense-in-depth, resets on app restart).
   //   3. Persistent 5-per-8h cap (adCap, shared with home feed).
   // Whichever is most restrictive wins.
-  const showShortsAds = !isWeb && !isExpoGo && !shortsAdsBroken;
+  const showShortsAds = !isWeb && !isExpoGo && !shortsAdsBroken && !adCap.isCapped;
   const shortsData = useMemo((): ShortsItem[] => {
     if (!showShortsAds || shorts.length === 0) return shorts as ShortsItem[];
     const result: ShortsItem[] = [];
@@ -2288,12 +2288,17 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const isFollowing = followStates[item.user._id] || false;
     const isSaved = savedShorts.has(item._id);
     const isLiked = item.isLiked || false;
+    const isActive = index === currentVisibleIndex;
+    const shouldPreload = isScreenFocused && index === currentVisibleIndex + 1;
+    const shouldRenderVideo = Math.abs(index - currentVisibleIndex) <= 1;
 
     return (
       <ShortsCell
         item={item}
         index={index}
-        currentVisibleIndex={currentVisibleIndex}
+        isActive={isActive}
+        shouldPreload={shouldPreload}
+        shouldRenderVideo={shouldRenderVideo}
         isVideoPlaying={isVideoPlaying}
         isScreenFocused={isScreenFocused}
         isMuted={props.isMuted !== undefined ? props.isMuted : isFeedMuted}
@@ -2302,7 +2307,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         isFollowing={isFollowing}
         isSaved={isSaved}
         isLiked={isLiked}
-        localVideoUris={localVideoUris}
+        localVideoUri={localVideoUris[item._id]}
         isCacheChecked={checkedVideoCacheIds.has(item._id)}
         isSavedShorts={props.isSavedShorts}
         effectiveUserId={effectiveUserId}

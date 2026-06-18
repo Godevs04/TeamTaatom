@@ -478,6 +478,7 @@ async function processJob(job, Post) {
       // Update Post to keep rawKey as storageKey
       await Post.findByIdAndUpdate(postId, {
         status: 'active',
+        storageKey: rawKey,
         imageUrl: finalImageUrl,
         thumbnailUrl: finalImageUrl,
         storageKeys: uploadedKeys

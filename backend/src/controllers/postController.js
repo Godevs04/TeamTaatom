@@ -10,7 +10,7 @@ const Like = require('../models/Like');
 const Follow = require('../models/Follow');
 const { getOptimizedImageUrl } = require('../config/cloudinary');
 const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
-const { generateSignedUrl, generateSignedUrls, resolveProfilePic, resolveSong } = require('../services/mediaService');
+const { generateSignedUrl, generateSignedUrls, resolveProfilePic, resolveSong, extractStorageKeyFromUrl } = require('../services/mediaService');
 const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
 const logger = require('../utils/logger');
@@ -908,21 +908,24 @@ const getPostById = async (req, res) => {
             logger.warn(`Failed to generate signed URL for HLS short thumbnail ${post._id}:`, error.message);
           }
         }
-      } else if (post.storageKey) {
-        try {
-          const freshVideoUrl = await generateSignedUrl(post.storageKey, 'VIDEO');
-          post.videoUrl = freshVideoUrl;
-          // Also generate thumbnail URL
-          if (post.storageKeys && post.storageKeys.length > 1) {
-            post.imageUrl = await generateSignedUrl(post.storageKeys[1], 'IMAGE');
-          } else {
-            post.imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE');
+      } else {
+        const videoKey = post.storageKey || (post.storageKeys && post.storageKeys.length > 0 ? post.storageKeys[0] : null) || extractStorageKeyFromUrl(post.videoUrl);
+        if (videoKey) {
+          try {
+            const freshVideoUrl = await generateSignedUrl(videoKey, 'VIDEO');
+            post.videoUrl = freshVideoUrl;
+            // Also generate thumbnail URL
+            if (post.storageKeys && post.storageKeys.length > 1) {
+              post.imageUrl = await generateSignedUrl(post.storageKeys[1], 'IMAGE');
+            } else {
+              post.imageUrl = await generateSignedUrl(videoKey, 'IMAGE');
+            }
+            logger.debug(`Generated fresh signed URLs for short ${post._id}`);
+          } catch (error) {
+            logger.warn(`Failed to generate signed URL for short ${post._id}:`, error.message);
+            // Fallback to stored URLs if generation fails
+            post.videoUrl = post.videoUrl || post.imageUrl || null;
           }
-          logger.debug(`Generated fresh signed URLs for short ${post._id}`);
-        } catch (error) {
-          logger.warn(`Failed to generate signed URL for short ${post._id}:`, error.message);
-          // Fallback to stored URLs if generation fails
-          post.videoUrl = post.videoUrl || post.imageUrl || null;
         }
       } else if (post.storageKeys && post.storageKeys.length > 0) {
         try {
@@ -3551,45 +3554,28 @@ const getShorts = async (req, res) => {
             logger.warn(`Failed to generate signed URL for HLS short thumbnail ${short._id}:`, error.message);
           }
         }
-      } else if (short.storageKey) {
-        try {
-          const freshVideoUrl = await generateSignedUrl(short.storageKey, 'VIDEO');
-          if (freshVideoUrl) {
-            videoUrl = freshVideoUrl;
-          }
-          if (short.storageKeys && short.storageKeys.length > 1) {
-            const freshImageUrl = await generateSignedUrl(short.storageKeys[1], 'IMAGE');
-            if (freshImageUrl) {
-              imageUrl = freshImageUrl;
+      } else {
+        const videoKey = short.storageKey || (short.storageKeys && short.storageKeys.length > 0 ? short.storageKeys[0] : null) || extractStorageKeyFromUrl(short.videoUrl);
+        if (videoKey) {
+          try {
+            const freshVideoUrl = await generateSignedUrl(videoKey, 'VIDEO');
+            if (freshVideoUrl) {
+              videoUrl = freshVideoUrl;
             }
-          } else {
-            const freshImageUrl = await generateSignedUrl(short.storageKey, 'IMAGE');
-            if (freshImageUrl) {
-              imageUrl = freshImageUrl;
+            if (short.storageKeys && short.storageKeys.length > 1) {
+              const freshImageUrl = await generateSignedUrl(short.storageKeys[1], 'IMAGE');
+              if (freshImageUrl) {
+                imageUrl = freshImageUrl;
+              }
+            } else {
+              const freshImageUrl = await generateSignedUrl(videoKey, 'IMAGE');
+              if (freshImageUrl) {
+                imageUrl = freshImageUrl;
+              }
             }
+          } catch (error) {
+            logger.warn(`Failed to generate signed URL for short ${short._id}:`, error.message);
           }
-        } catch (error) {
-          logger.warn(`Failed to generate signed URL for short ${short._id}:`, error.message);
-        }
-      } else if (short.storageKeys && short.storageKeys.length > 0) {
-        try {
-          const freshVideoUrl = await generateSignedUrl(short.storageKeys[0], 'VIDEO');
-          if (freshVideoUrl) {
-            videoUrl = freshVideoUrl;
-          }
-          if (short.storageKeys.length > 1) {
-            const freshImageUrl = await generateSignedUrl(short.storageKeys[1], 'IMAGE');
-            if (freshImageUrl) {
-              imageUrl = freshImageUrl;
-            }
-          } else {
-            const freshImageUrl = await generateSignedUrl(short.storageKeys[0], 'IMAGE');
-            if (freshImageUrl) {
-              imageUrl = freshImageUrl;
-            }
-          }
-        } catch (error) {
-          logger.warn(`Failed to generate signed URL from storageKeys for short ${short._id}:`, error.message);
         }
       }
       

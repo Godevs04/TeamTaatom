@@ -127,6 +127,63 @@ const getAdaptiveMinDistance = (accuracy: number, speed?: number | null): number
   return Math.max(MIN_LOCATION_DISTANCE, accuracyFloor);
 };
 
+interface GPSDiagnostics {
+  acceptedPoints: number;
+  rejectedAccuracy: number;
+  rejectedJump: number;
+  totalAccuracySum: number;
+  totalPointsReceived: number;
+}
+
+const validateGPSPoint = (
+  coord: Coordinate,
+  lastCoord: Coordinate | null,
+  diagnostics: GPSDiagnostics
+): boolean => {
+  diagnostics.totalPointsReceived += 1;
+  diagnostics.totalAccuracySum += coord.accuracy;
+
+  // Rule 1: accuracy check (reject if accuracy > 25m)
+  if (coord.accuracy > 25) {
+    diagnostics.rejectedAccuracy += 1;
+    return false;
+  }
+
+  // Rule 3: speed > 150 km/h (41.67 m/s) check
+  const speedMps = coord.speed;
+  if (typeof speedMps === 'number' && speedMps > 41.67) {
+    diagnostics.rejectedJump += 1;
+    return false;
+  }
+
+  if (lastCoord) {
+    const dist = calculateCoordinateDistance(
+      lastCoord.latitude,
+      lastCoord.longitude,
+      coord.latitude,
+      coord.longitude
+    );
+    const timeDiffSeconds = Math.max(0.1, (coord.timestamp - lastCoord.timestamp) / 1000);
+    const calculatedSpeedMps = dist / timeDiffSeconds;
+
+    // Rule 2: speed < 1 km/h (0.28 m/s) and jump > 20m check
+    const effectiveSpeed = typeof speedMps === 'number' && speedMps >= 0 ? speedMps : calculatedSpeedMps;
+    if (effectiveSpeed < 0.28 && dist > 20) {
+      diagnostics.rejectedJump += 1;
+      return false;
+    }
+
+    // Rule 4: GPS sudden jump filter (>40m in less than 2 seconds)
+    if (dist > 40 && timeDiffSeconds < 2) {
+      diagnostics.rejectedJump += 1;
+      return false;
+    }
+  }
+
+  diagnostics.acceptedPoints += 1;
+  return true;
+};
+
 const isDriftingStationary = (
   history: { latitude: number; longitude: number }[],
   newPoint: { latitude: number; longitude: number },
@@ -370,6 +427,15 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   const positionHistoryRef = useRef<{ latitude: number; longitude: number }[]>([]);
   const lastStationaryMarkerUpdateRef = useRef(0);
   const currentCoordinateRef = useRef<Coordinate | null>(null);
+  const diagnosticsRef = useRef<GPSDiagnostics>({
+    acceptedPoints: 0,
+    rejectedAccuracy: 0,
+    rejectedJump: 0,
+    totalAccuracySum: 0,
+    totalPointsReceived: 0,
+  });
+  const queuedPolylineCoordsRef = useRef<Coordinate[]>([]);
+  const polylineUpdateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   // Tracks whether this hook instance is still mounted. Async paths (API
   // awaits, location callbacks fired after subscription removal on some
   // Android OEMs, late timer ticks) check this before calling setState so
@@ -409,19 +475,38 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     AsyncStorage.removeItem(PENDING_COORDS_KEY_PREFIX + journeyId).catch(() => {});
   }, []);
 
+  const flushPolylineQueue = useCallback(() => {
+    if (queuedPolylineCoordsRef.current.length === 0) return;
+    const coordsToAppend = queuedPolylineCoordsRef.current.splice(0);
+    setPolyline((prev) => {
+      const next = [...prev, ...coordsToAppend];
+      console.log("Journey Points:", next.length);
+      return next;
+    });
+  }, []);
+
+  const queuePolylineUpdate = useCallback((coord: Coordinate) => {
+    queuedPolylineCoordsRef.current.push(coord);
+    if (!polylineUpdateTimeoutRef.current) {
+      polylineUpdateTimeoutRef.current = setTimeout(() => {
+        polylineUpdateTimeoutRef.current = null;
+        flushPolylineQueue();
+      }, 1000);
+    }
+  }, [flushPolylineQueue]);
+
   // Single source of truth for spinning up the foreground location watcher.
   // Called from startJourneyRecording, resumeJourneyRecording, AND
   // initializeJourney (on screens that mount mid-journey, like tracking.tsx).
-  // distanceInterval is 0 so emissions are purely time-based — that way the
-  // marker and accuracy chip update even when the user is stationary; we
-  // still gate polyline appends on MIN_LOCATION_DISTANCE to keep the path clean.
+  // distanceInterval is 3 meters to filter small noise; we still gate polyline appends
+  // on getAdaptiveMinDistance to keep the path clean.
   const startLocationWatcher = useCallback(async () => {
     if (Platform.OS === 'web') return;
     if (locationWatcherRef.current) return; // already running on this instance
 
-    const initialTimeInterval = 1000;
-    const initialDistanceInterval = 0;
-    const initialAccuracy = Location.Accuracy.High;
+    const initialTimeInterval = 2000;
+    const initialDistanceInterval = 3;
+    const initialAccuracy = Location.Accuracy.BestForNavigation;
 
     currentIntervalsRef.current = {
       timeInterval: initialTimeInterval,
@@ -434,6 +519,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         accuracy: initialAccuracy,
         distanceInterval: initialDistanceInterval,
         timeInterval: initialTimeInterval,
+        mayShowUserSettingsDialog: true,
       },
       (location) => {
         if (watcherCallbackRef.current) {
@@ -475,6 +561,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           accuracy: newAccuracy,
           distanceInterval: newDistanceInterval,
           timeInterval: newTimeInterval,
+          mayShowUserSettingsDialog: true,
         },
         (location) => {
           if (watcherCallbackRef.current) {
@@ -488,25 +575,25 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   }, []);
 
   const adjustWatcherAdaptiveThrottling = useCallback((speed: number) => {
-    let targetTimeInterval = 1000;
-    let targetDistanceInterval = 0;
-    let targetAccuracy = Location.Accuracy.High;
+    let targetTimeInterval = 2000;
+    let targetDistanceInterval = 3;
+    let targetAccuracy = Location.Accuracy.BestForNavigation;
 
-    if (speed < STATIONARY_SPEED_MPS) {
-      // Stationary: update every 15 seconds, 10 meters, balanced accuracy for low battery usage
-      targetTimeInterval = 15000;
-      targetDistanceInterval = 10;
-      targetAccuracy = Location.Accuracy.Balanced;
-    } else if (speed < WALKING_SPEED_MPS) {
-      // Walking/slow moving: update every 3 seconds, 5 meters, high accuracy
-      targetTimeInterval = 3000;
+    if (speed < WALKING_SPEED_MPS) {
+      // Walking / Stationary
+      targetTimeInterval = 2000;
+      targetDistanceInterval = 3;
+      targetAccuracy = Location.Accuracy.BestForNavigation;
+    } else if (speed < DRIVING_SPEED_MPS) {
+      // Cycling
+      targetTimeInterval = 1500;
       targetDistanceInterval = 5;
-      targetAccuracy = Location.Accuracy.High;
+      targetAccuracy = Location.Accuracy.BestForNavigation;
     } else {
-      // Driving/fast moving: update every 5 seconds, 15 meters, high accuracy
-      targetTimeInterval = 5000;
-      targetDistanceInterval = 15;
-      targetAccuracy = Location.Accuracy.High;
+      // Driving
+      targetTimeInterval = 1000;
+      targetDistanceInterval = 10;
+      targetAccuracy = Location.Accuracy.BestForNavigation;
     }
 
     updateWatcherConfig(targetTimeInterval, targetDistanceInterval, targetAccuracy).catch((err) => {
@@ -525,6 +612,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       }
       if (durationTimerRef.current) clearInterval(durationTimerRef.current);
       if (batchSendTimerRef.current) clearInterval(batchSendTimerRef.current);
+      if (polylineUpdateTimeoutRef.current) clearTimeout(polylineUpdateTimeoutRef.current);
     };
   }, []);
 
@@ -542,9 +630,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       const already = await Location.hasStartedLocationUpdatesAsync(BG_LOCATION_TASK).catch(() => false);
       if (already) return true;
       await Location.startLocationUpdatesAsync(BG_LOCATION_TASK, {
-        accuracy: Location.Accuracy.High, // Upgraded for high-accuracy path tracking
+        accuracy: Location.Accuracy.High, // Upgraded for high-accuracy path tracking (safe for iOS)
         timeInterval: 2000, // Query every 2 seconds for a denser track
-        distanceInterval: 0, // Time-based updates (match foreground)
+        distanceInterval: 3, // Distance threshold of 3 meters
         showsBackgroundLocationIndicator: true, // Enable indicator to prevent OS suspension
         activityType: Location.ActivityType.Fitness, // Optimize background location delivery on iOS
         foregroundService: {
@@ -693,6 +781,19 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       const accepted: Coordinate[] = [];
       let addedDistance = 0;
       for (const c of smoothedCoords) {
+        // Run validation
+        const isValid = validateGPSPoint(c, lastCoord, diagnosticsRef.current);
+        if (!isValid) {
+          console.log("[GPS Diagnostics] [Background Drain] Point rejected:", {
+            accuracy: c.accuracy,
+            speed: c.speed,
+            acceptedPoints: diagnosticsRef.current.acceptedPoints,
+            rejectedAccuracy: diagnosticsRef.current.rejectedAccuracy,
+            rejectedJump: diagnosticsRef.current.rejectedJump,
+          });
+          continue;
+        }
+
         if (!lastCoord) {
           accepted.push(c);
           lastCoord = c;
@@ -793,6 +894,13 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       kalmanFilterRef.current = null;
       lastStationaryMarkerUpdateRef.current = 0;
       currentCoordinateRef.current = null;
+      diagnosticsRef.current = {
+        acceptedPoints: 0,
+        rejectedAccuracy: 0,
+        rejectedJump: 0,
+        totalAccuracySum: 0,
+        totalPointsReceived: 0,
+      };
       batchCoordinatesRef.current = [];
       setIsTracking(false);
       setIsPaused(false);
@@ -1226,6 +1334,13 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         clearPersistedCoords(newJourney._id);
 
         // Initialize polyline with start location
+        diagnosticsRef.current = {
+          acceptedPoints: 1,
+          rejectedAccuracy: 0,
+          rejectedJump: 0,
+          totalAccuracySum: location.coords.accuracy || 0,
+          totalPointsReceived: 1,
+        };
         const initialCoord: Coordinate = {
           latitude: startCoords.lat,
           longitude: startCoords.lng,
@@ -1274,6 +1389,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   const pauseJourneyRecording = useCallback(async () => {
     try {
       setError(null);
+      flushPolylineQueue();
 
       if (!journeyIdRef.current) {
         throw new Error('No active journey');
@@ -1390,6 +1506,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   const stopJourneyRecording = useCallback(async (options?: { snapToRoads?: boolean }) => {
     try {
       setError(null);
+      flushPolylineQueue();
 
       if (!journeyIdRef.current) {
         throw new Error('No active journey');
@@ -1628,7 +1745,34 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     }
     const effectiveSpeed = (typeof calculatedSpeed === 'number' && calculatedSpeed >= 0) ? calculatedSpeed : 0;
 
-    // Apply Kalman Filter smoothing
+    // Construct raw coordinate for filtering
+    const rawCoord: Coordinate = {
+      latitude: lat,
+      longitude: lng,
+      timestamp: location.timestamp,
+      accuracy,
+      speed: typeof speed === 'number' && speed >= 0 ? speed : undefined,
+      heading: heading !== null && heading !== undefined ? heading : undefined,
+    };
+
+    // Validate point BEFORE Kalman Filter and insertion
+    const isValid = validateGPSPoint(rawCoord, lastCoordinateRef.current, diagnosticsRef.current);
+    if (!isValid) {
+      console.log("[GPS Diagnostics] Point rejected:", {
+        accuracy: rawCoord.accuracy,
+        speed: rawCoord.speed,
+        acceptedPoints: diagnosticsRef.current.acceptedPoints,
+        rejectedAccuracy: diagnosticsRef.current.rejectedAccuracy,
+        rejectedJump: diagnosticsRef.current.rejectedJump,
+        avgAccuracy: diagnosticsRef.current.totalPointsReceived > 0 
+          ? (diagnosticsRef.current.totalAccuracySum / diagnosticsRef.current.totalPointsReceived).toFixed(1) + 'm' 
+          : '0m',
+        gpsSignalQuality: rawCoord.accuracy < 5 ? 'Excellent' : rawCoord.accuracy <= 10 ? 'Good' : rawCoord.accuracy <= 20 ? 'Fair' : 'Poor'
+      });
+      return;
+    }
+
+    // Apply Kalman Filter smoothing to validated coordinates
     if (!kalmanFilterRef.current) {
       kalmanFilterRef.current = new KalmanFilter(lat, lng, accuracy, location.timestamp);
     }
@@ -1649,6 +1793,14 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       speed: typeof speed === 'number' && speed >= 0 ? speed : undefined,
       heading: heading !== null && heading !== undefined ? heading : undefined,
     };
+
+    console.log("[GPS Diagnostics] Point accepted:", {
+      acceptedPoints: diagnosticsRef.current.acceptedPoints,
+      rejectedAccuracy: diagnosticsRef.current.rejectedAccuracy,
+      rejectedJump: diagnosticsRef.current.rejectedJump,
+      avgAccuracy: (diagnosticsRef.current.totalAccuracySum / diagnosticsRef.current.totalPointsReceived).toFixed(1) + 'm',
+      gpsSignalQuality: coord.accuracy < 5 ? 'Excellent' : coord.accuracy <= 10 ? 'Good' : coord.accuracy <= 20 ? 'Fair' : 'Poor'
+    });
 
     let shouldUpdateCurrentCoord = true;
     if (currentCoordinateRef.current) {
@@ -1708,7 +1860,10 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       if (polylineRef.current.length === 1 && timeDiff < 20000 && dist >= MIN_LOCATION_DISTANCE) {
         logger.debug(`[Journey] Replacing inaccurate startup coordinate with accurate watcher coordinate (dist: ${dist}m, time: ${timeDiff}ms).`);
         lastCoordinateRef.current = coord;
-        setPolyline([coord]);
+        setPolyline(() => {
+          console.log("Journey Points:", 1);
+          return [coord];
+        });
         batchCoordinatesRef.current = [coord];
         persistPendingCoords();
       } else {
@@ -1722,7 +1877,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         const adaptiveMinDistance = getAdaptiveMinDistance(coord.accuracy, effectiveSpeed);
         if (dist >= adaptiveMinDistance) {
           lastCoordinateRef.current = coord;
-          setPolyline((prev) => [...prev, coord]);
+          queuePolylineUpdate(coord);
           setDistance((prev) => prev + dist);
           batchCoordinatesRef.current.push(coord);
           persistPendingCoords();
@@ -1732,10 +1887,14 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       lastCoordinateRef.current = coord;
       if (pendingSegmentBreakRef.current) {
         const segmentStart = { ...coord, segmentBreak: true };
-        setPolyline((prev) => [...prev, segmentStart]);
+        queuePolylineUpdate(segmentStart);
         batchCoordinatesRef.current.push(segmentStart);
         persistPendingCoords();
         pendingSegmentBreakRef.current = false;
+      } else {
+        queuePolylineUpdate(coord);
+        batchCoordinatesRef.current.push(coord);
+        persistPendingCoords();
       }
     }
 

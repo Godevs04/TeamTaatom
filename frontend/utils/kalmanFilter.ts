@@ -65,14 +65,14 @@ export class KalmanFilter {
     this.lastTimestamp = timestamp;
 
     // Adaptive process noise scale based on velocity (m/s)
-    let qBase = 0.08;
+    let qBase = 0.25; // Increased from 0.08 for more responsiveness (less over-smoothing)
     if (typeof speed === 'number') {
       if (speed < 0.4) {
         // High smoothing when stationary/idle
-        qBase = 0.015;
+        qBase = 0.05; // Increased from 0.015
       } else {
         // Scale Q quadratically with speed to adapt to higher vehicle accelerations
-        qBase = 0.08 * (1.0 + 0.15 * speed * speed);
+        qBase = 0.25 * (1.0 + 0.15 * speed * speed);
       }
     }
     this.Q_metres_per_sec = qBase;

@@ -98,7 +98,9 @@ const getVideoSource = (uri) => {
 interface ShortsCellProps {
   item: PostType;
   index: number;
-  currentVisibleIndex: number;
+  isActive: boolean;
+  shouldPreload: boolean;
+  shouldRenderVideo: boolean;
   isVideoPlaying: boolean;
   isScreenFocused: boolean;
   isMuted: boolean;
@@ -107,7 +109,7 @@ interface ShortsCellProps {
   isFollowing: boolean;
   isSaved: boolean;
   isLiked: boolean;
-  localVideoUris: Record<string, string>;
+  localVideoUri?: string;
   isCacheChecked: boolean;
   isSavedShorts?: boolean;
   effectiveUserId?: string | null;
@@ -128,7 +130,9 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
   const {
     item,
     index,
-    currentVisibleIndex,
+    isActive,
+    shouldPreload,
+    shouldRenderVideo,
     isVideoPlaying,
     isScreenFocused,
     isMuted: isMutedProp,
@@ -137,7 +141,7 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
     isFollowing,
     isSaved,
     isLiked,
-    localVideoUris,
+    localVideoUri,
     isCacheChecked,
     isSavedShorts,
     effectiveUserId,
@@ -153,8 +157,6 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
     videoCacheRef,
     appState,
   } = props;
-
-  const isActive = index === currentVisibleIndex;
 
   // Local States
   const [videoReady, setVideoReady] = useState(false);
@@ -445,10 +447,6 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
     }
   };
 
-  const distanceFromVisible = index - currentVisibleIndex;
-  const isCached = isCacheChecked && !!localVideoUris[item._id];
-  const shouldRenderVideo = isActive || (Math.abs(distanceFromVisible) <= 2 && isCached);
-
   const isCellVideoPlaying = isPlaying && isVideoPlaying;
   const isOwn = item.user._id === currentUser?._id;
   const isScopedView = !!effectiveUserId || isSavedShorts;
@@ -490,214 +488,216 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
             accessibilityLabel="Tap to play or pause video"
             accessibilityRole="button"
           >
-            {isCacheChecked ? (
-              <ExpoImage
-                source={{ uri: item.thumbnailUrl || item.imageUrl }}
-                style={[styles.shortVideo as ImageStyle, StyleSheet.absoluteFillObject]}
-                contentFit="contain"
-                cachePolicy="memory-disk"
-                transition={0}
-                onError={(e: any) => logger.warn('[shorts thumbnail] load failed', {
-                  shortId: item._id,
-                  url: (item.thumbnailUrl || item.imageUrl)?.substring(0, 120),
-                  error: e?.error || e?.nativeEvent?.error || String(e),
-                })}
-              />
-            ) : (
-              <View style={[styles.shortVideo, StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }]}>
-                <LoadingGlobe size="small" color="rgba(255,255,255,0.6)" />
-              </View>
-            )}
-            {shouldRenderVideo && (
-              // BUG 15: Wrap in Animated.View — opacity crossfades thumbnail->video;
-              // translateY keeps the native SurfaceView off-screen until first frame ready
-              // so the black punch-through never shows over the thumbnail.
-              <Animated.View
-                style={[
-                  styles.shortVideo,
-                  StyleSheet.absoluteFillObject,
-                  {
-                    opacity: videoOpacity,
-                    transform: [{ translateY: videoReady ? 0 : 9999 }],
-                  },
-                ]}
-                pointerEvents={videoReady ? 'none' : 'none'}
-              >
-              <ShortsVideoPlayerComponent
-              key={`video-${item._id}-${sourceVersion}`}
-              ref={(ref) => {
-                videoRef.current = ref;
-                if (ref) {
-                  videoRefs.current[item._id] = ref;
-                } else {
-                  delete videoRefs.current[item._id];
-                }
-              }}
-              source={getVideoSource(handlers.getVideoUrl(item))}
-              style={[styles.shortVideo, StyleSheet.absoluteFillObject]}
-              resizeMode={ResizeMode.CONTAIN}
-              shouldPlay={shouldPlay}
-              isLooping
-              progressUpdateIntervalMillis={100}
-              isMuted={!isActive || !!(item.song?.songId?._id || item.song?.songId) || isMuted}
-              volume={(!!(item.song?.songId?._id || item.song?.songId) || isMuted) ? 0.0 : 1.0}
-              onLoadStart={() => {
-                logger.debug(`Video ${item._id} load started, index: ${index}, currentVisible: ${currentVisibleIndex}`);
-              }}
-              onReadyForDisplay={() => {
-                logger.debug(`Video ${item._id} ready for display`);
-                setVideoReady(true);
-                // BUG 15: Crossfade the video in over 200ms
-                Animated.timing(videoOpacity, {
-                  toValue: 1,
-                  duration: 200,
-                  useNativeDriver: true,
-                }).start();
-                if (handlers.onVideoReady) {
-                  handlers.onVideoReady(item._id);
-                }
-              }}
-              onError={(error) => {
-                logger.error(`Video ${item._id} failed to load:`, error);
-                videoCacheRef.current.delete(item._id);
-                if (localVideoUris[item._id]) {
-                  handlers.removeLocalVideoUri(item._id);
-                }
-                delete activeStartedWithRemoteRef.current[item._id];
-                setIsPlaying(false);
-                setVideoReady(false);
+            <View style={StyleSheet.absoluteFillObject}>
+              {(item.thumbnailUrl || item.imageUrl) ? (
+                <ExpoImage
+                  source={{ uri: item.thumbnailUrl || item.imageUrl }}
+                  style={[styles.shortVideo as ImageStyle, StyleSheet.absoluteFillObject]}
+                  contentFit="contain"
+                  cachePolicy="memory-disk"
+                  transition={0}
+                  onError={(e: any) => logger.warn('[shorts thumbnail] load failed', {
+                    shortId: item._id,
+                    url: (item.thumbnailUrl || item.imageUrl)?.substring(0, 120),
+                    error: e?.error || e?.nativeEvent?.error || String(e),
+                  })}
+                />
+              ) : (
+                <View style={[styles.shortVideo, StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }]}>
+                  <LoadingGlobe size="small" color="rgba(255,255,255,0.6)" />
+                </View>
+              )}
+              {shouldRenderVideo && (
+                // BUG 15: Wrap in Animated.View — opacity crossfades thumbnail->video;
+                // translateY keeps the native SurfaceView off-screen until first frame ready
+                // so the black punch-through never shows over the thumbnail.
+                <Animated.View
+                  style={[
+                    styles.shortVideo,
+                    StyleSheet.absoluteFillObject,
+                    {
+                      opacity: videoOpacity,
+                      transform: [{ translateY: videoReady ? 0 : 9999 }],
+                    },
+                  ]}
+                  pointerEvents={videoReady ? 'none' : 'none'}
+                >
+                <ShortsVideoPlayerComponent
+                key={`video-${item._id}-${sourceVersion}`}
+                ref={(ref) => {
+                  videoRef.current = ref;
+                  if (ref) {
+                    videoRefs.current[item._id] = ref;
+                  } else {
+                    delete videoRefs.current[item._id];
+                  }
+                }}
+                source={getVideoSource(handlers.getVideoUrl(item))}
+                style={[styles.shortVideo, StyleSheet.absoluteFillObject]}
+                resizeMode={ResizeMode.CONTAIN}
+                shouldPlay={shouldPlay}
+                isLooping
+                progressUpdateIntervalMillis={100}
+                isMuted={!isActive || !!(item.song?.songId?._id || item.song?.songId) || isMuted}
+                volume={(!!(item.song?.songId?._id || item.song?.songId) || isMuted) ? 0.0 : 1.0}
+                onLoadStart={() => {
+                  logger.debug(`Video ${item._id} load started, index: ${index}, isActive: ${isActive}`);
+                }}
+                onReadyForDisplay={() => {
+                  logger.debug(`Video ${item._id} ready for display`);
+                  setVideoReady(true);
+                  // BUG 15: Crossfade the video in over 200ms
+                  Animated.timing(videoOpacity, {
+                    toValue: 1,
+                    duration: 200,
+                    useNativeDriver: true,
+                  }).start();
+                  if (handlers.onVideoReady) {
+                    handlers.onVideoReady(item._id);
+                  }
+                }}
+                onError={(error) => {
+                  logger.error(`Video ${item._id} failed to load:`, error);
+                  videoCacheRef.current.delete(item._id);
+                  if (localVideoUri) {
+                    handlers.removeLocalVideoUri(item._id);
+                  }
+                  delete activeStartedWithRemoteRef.current[item._id];
+                  setIsPlaying(false);
+                  setVideoReady(false);
 
-                const errorMessage = typeof error === 'string' ? error : (error as any)?.message || '';
-                const errorCode = (error as any)?.code;
-                const errorDomain = (error as any)?.domain;
-                const isTimeoutError =
-                  errorCode === -1001 ||
-                  errorCode === '-1001' ||
-                  errorDomain === 'NSURLErrorDomain' ||
-                  /(-1001|NSURLErrorDomain|timeout|Timeout|timed out)/.test(errorMessage);
-                const isExpiredUrl = /(403|404|Forbidden|expired|ExpiredRequest)/.test(errorMessage);
+                  const errorMessage = typeof error === 'string' ? error : (error as any)?.message || '';
+                  const errorCode = (error as any)?.code;
+                  const errorDomain = (error as any)?.domain;
+                  const isTimeoutError =
+                    errorCode === -1001 ||
+                    errorCode === '-1001' ||
+                    errorDomain === 'NSURLErrorDomain' ||
+                    /(-1001|NSURLErrorDomain|timeout|Timeout|timed out)/.test(errorMessage);
+                  const isExpiredUrl = /(403|404|Forbidden|expired|ExpiredRequest)/.test(errorMessage);
 
-                if (isExpiredUrl || isTimeoutError) {
-                  const errorType = isTimeoutError ? 'timeout' : 'expired URL';
-                  logger.debug(`Video ${item._id} ${errorType} — refetching fresh signed URL`, { errorCode, errorDomain, errorMessage });
-                  handlers.refetchShortWithFreshUrl(item._id)
-                    .then((freshShort: PostType | null) => {
-                      const freshVideoUrl = freshShort?.videoUrl || freshShort?.mediaUrl || freshShort?.imageUrl;
-                      if (!freshShort || !freshVideoUrl) {
+                  if (isExpiredUrl || isTimeoutError) {
+                    const errorType = isTimeoutError ? 'timeout' : 'expired URL';
+                    logger.debug(`Video ${item._id} ${errorType} — refetching fresh signed URL`, { errorCode, errorDomain, errorMessage });
+                    handlers.refetchShortWithFreshUrl(item._id)
+                      .then((freshShort: PostType | null) => {
+                        const freshVideoUrl = freshShort?.videoUrl || freshShort?.mediaUrl || freshShort?.imageUrl;
+                        if (!freshShort || !freshVideoUrl) {
+                          retryVideoLoadLocally();
+                          return;
+                        }
+                        setSourceVersion(prev => prev + 1);
+                        setVideoReady(false);
+                      })
+                      .catch((refetchError: any) => {
+                        logger.error(`Failed to refetch fresh URL for video ${item._id}:`, refetchError);
                         retryVideoLoadLocally();
-                        return;
-                      }
-                      setSourceVersion(prev => prev + 1);
-                      setVideoReady(false);
-                    })
-                    .catch((refetchError: any) => {
-                      logger.error(`Failed to refetch fresh URL for video ${item._id}:`, refetchError);
-                      retryVideoLoadLocally();
-                    });
-                } else {
-                  retryVideoLoadLocally();
-                }
-              }}
-              onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
-                if (status.isLoaded) {
-                  if (isActive) {
-                    const cb = progressCallbacks.current[item._id];
-                    if (cb) {
-                      cb(status.positionMillis, status.durationMillis || 1);
-                    }
+                      });
+                  } else {
+                    retryVideoLoadLocally();
                   }
-                  const wasPlaying = isPlaying;
-                  const isNowPlaying = status.isPlaying;
-                  
-                  const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                  const shouldMuteVideo = !isActive || hasMusic || isMuted;
-                  if (isActive) {
-                    const video = videoRef.current;
-                    if (video) {
-                      if (shouldMuteVideo && !status.isMuted) {
-                        const now = Date.now();
-                        const lastEnforce = lastMuteEnforceAtRef.current;
-                        if (now - lastEnforce > 1000) {
-                          lastMuteEnforceAtRef.current = now;
-                          video.setIsMutedAsync(true).catch(() => {});
-                          video.setVolumeAsync(0.0).catch(() => {});
-                        }
-                      } else if (!shouldMuteVideo && status.isMuted) {
-                        const now = Date.now();
-                        const lastEnforce = lastMuteEnforceAtRef.current;
-                        if (now - lastEnforce > 1000) {
-                          lastMuteEnforceAtRef.current = now;
-                          video.setIsMutedAsync(false).catch(() => {});
-                          video.setVolumeAsync(1.0).catch(() => {});
+                }}
+                onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
+                  if (status.isLoaded) {
+                    if (isActive) {
+                      const cb = progressCallbacks.current[item._id];
+                      if (cb) {
+                        cb(status.positionMillis, status.durationMillis || 1);
+                      }
+                    }
+                    const wasPlaying = isPlaying;
+                    const isNowPlaying = status.isPlaying;
+                    
+                    const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
+                    const shouldMuteVideo = !isActive || hasMusic || isMuted;
+                    if (isActive) {
+                      const video = videoRef.current;
+                      if (video) {
+                        if (shouldMuteVideo && !status.isMuted) {
+                          const now = Date.now();
+                          const lastEnforce = lastMuteEnforceAtRef.current;
+                          if (now - lastEnforce > 1000) {
+                            lastMuteEnforceAtRef.current = now;
+                            video.setIsMutedAsync(true).catch(() => {});
+                            video.setVolumeAsync(0.0).catch(() => {});
+                          }
+                        } else if (!shouldMuteVideo && status.isMuted) {
+                          const now = Date.now();
+                          const lastEnforce = lastMuteEnforceAtRef.current;
+                          if (now - lastEnforce > 1000) {
+                            lastMuteEnforceAtRef.current = now;
+                            video.setIsMutedAsync(false).catch(() => {});
+                            video.setVolumeAsync(1.0).catch(() => {});
+                          }
                         }
                       }
                     }
-                  }
-                  
-                  if (isNowPlaying && (!isActive || !isScreenFocused)) {
-                    videoRef.current?.pauseAsync().catch(() => {});
-                    return;
-                  }
-                  
-                  if (isNowPlaying && isActive && status.positionMillis !== undefined) {
-                    const lastPos = lastVideoPositionRef.current[item._id] ?? 0;
-                    const curPos = status.positionMillis;
-                    if (lastPos > 500 && curPos < lastPos - 500) {
-                      const audio = audioManager.getCurrentSound() || currentPlayerRef.current;
-                      if (hasMusic && audio) {
-                        const startSec = item.song?.startTime || 0;
-                        const endSec = item.song?.endTime;
-                        const songStartMs = startSec * 1000;
-                        const segmentMs = endSec && endSec > startSec ? (endSec - startSec) * 1000 : 60000;
-                        const audioOffsetMs = curPos % segmentMs;
-                        audio.setPositionAsync(songStartMs + audioOffsetMs).catch(() => {});
+                    
+                    if (isNowPlaying && (!isActive || !isScreenFocused)) {
+                      videoRef.current?.pauseAsync().catch(() => {});
+                      return;
+                    }
+                    
+                    if (isNowPlaying && isActive && status.positionMillis !== undefined) {
+                      const lastPos = lastVideoPositionRef.current[item._id] ?? 0;
+                      const curPos = status.positionMillis;
+                      if (lastPos > 500 && curPos < lastPos - 500) {
+                        const audio = audioManager.getCurrentSound() || currentPlayerRef.current;
+                        if (hasMusic && audio) {
+                          const startSec = item.song?.startTime || 0;
+                          const endSec = item.song?.endTime;
+                          const songStartMs = startSec * 1000;
+                          const segmentMs = endSec && endSec > startSec ? (endSec - startSec) * 1000 : 60000;
+                          const audioOffsetMs = curPos % segmentMs;
+                          audio.setPositionAsync(songStartMs + audioOffsetMs).catch(() => {});
+                        }
+                      }
+                      lastVideoPositionRef.current[item._id] = curPos;
+                    }
+                    
+                    if (isNowPlaying !== wasPlaying) {
+                      logger.debug(`Video ${item._id} playing status changed: ${isNowPlaying}`);
+                      setIsPlaying(isNowPlaying);
+                    }
+                  } else if ((status as any).error) {
+                    logger.error(`Video ${item._id} playback error:`, (status as any).error);
+                    if (isActive) {
+                      videoCacheRef.current.delete(item._id);
+                      if (localVideoUri) {
+                        handlers.removeLocalVideoUri(item._id);
                       }
                     }
-                    lastVideoPositionRef.current[item._id] = curPos;
                   }
-                  
-                  if (isNowPlaying && wasPlaying !== true) {
-                    logger.debug(`Video ${item._id} playing`);
-                    setIsPlaying(true);
-                  }
-                } else if ((status as any).error) {
-                  logger.error(`Video ${item._id} playback error:`, (status as any).error);
-                  if (isActive) {
-                    videoCacheRef.current.delete(item._id);
-                    if (localVideoUris[item._id]) {
-                      handlers.removeLocalVideoUri(item._id);
-                    }
-                  }
-                }
-              }}
-              onLoad={(status) => {
-                if (status.isLoaded) {
-                  logger.debug(`Video ${item._id} loaded successfully, isPlaying: ${status.isPlaying}, shouldPlay: ${isActive}`);
-                  setIsPlaying(status.isPlaying);
-                  
-                  if (isActive && isScreenFocused && !userPaused) {
-                    const video = videoRef.current;
-                    if (video) {
-                      const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                      const shouldMuteVideo = hasMusic || isMuted;
-                      video.setIsMutedAsync(shouldMuteVideo).catch(() => {});
-                      video.setVolumeAsync(shouldMuteVideo ? 0.0 : 1.0).catch(() => {});
+                }}
+                onLoad={(status) => {
+                  if (status.isLoaded) {
+                    logger.debug(`Video ${item._id} loaded successfully, isPlaying: ${status.isPlaying}, shouldPlay: ${isActive}`);
+                    setIsPlaying(status.isPlaying);
+                    
+                    if (isActive && isScreenFocused && !userPaused) {
+                      const video = videoRef.current;
+                      if (video) {
+                        const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
+                        const shouldMuteVideo = hasMusic || isMuted;
+                        video.setIsMutedAsync(shouldMuteVideo).catch(() => {});
+                        video.setVolumeAsync(shouldMuteVideo ? 0.0 : 1.0).catch(() => {});
 
-                      if (!status.isPlaying) {
-                        video.playAsync().then(() => {
-                          setIsPlaying(true);
-                          logger.debug(`Video ${item._id} started playing after load`);
-                        }).catch((error) => {
-                          logger.error(`Video ${item._id} failed to play after load:`, error);
-                        });
+                        if (!status.isPlaying) {
+                          video.playAsync().then(() => {
+                            setIsPlaying(true);
+                            logger.debug(`Video ${item._id} started playing after load`);
+                          }).catch((error) => {
+                            logger.error(`Video ${item._id} failed to play after load:`, error);
+                          });
+                        }
                       }
                     }
                   }
-                }
-              }}
-            />
-              </Animated.View>
-            )}
+                }}
+                />
+                </Animated.View>
+              )}
+            </View>
           </TouchableWithoutFeedback>
         </View>
         
@@ -939,7 +939,7 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
                   <SongPlayer
                     post={item}
                     isVisible={isScreenFocused && isActive}
-                    shouldPreload={isScreenFocused && index === currentVisibleIndex + 1}
+                    shouldPreload={shouldPreload}
                     autoPlay={isCellVideoPlaying}
                     externalMuted={isMuted}
                     onPlayingChange={handlers.handleSongPlayingChange}
@@ -952,7 +952,7 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
           <ShortsProgressBar
             shortId={item._id}
             index={index}
-            currentVisibleIndex={currentVisibleIndex}
+            isActive={isActive}
             getVideoRef={() => videoRef.current}
             hasMusic={!!(item.song?.songId?._id || item.song?.songId)}
             songStartSec={item.song?.startTime}
@@ -1016,7 +1016,7 @@ MemoizedVideo.displayName = 'MemoizedShortsVideo';
 interface ShortsProgressBarProps {
   shortId: string;
   index: number;
-  currentVisibleIndex: number;
+  isActive: boolean;
   getVideoRef: () => Video | null;
   hasMusic: boolean;
   songStartSec?: number;
@@ -1030,7 +1030,7 @@ interface ShortsProgressBarProps {
 const ShortsProgressBar = ({
   shortId,
   index,
-  currentVisibleIndex,
+  isActive,
   getVideoRef,
   hasMusic,
   songStartSec,
@@ -1056,7 +1056,7 @@ const ShortsProgressBar = ({
   const lastHapticProgressRef = useRef(0);
 
   useEffect(() => {
-    if (index !== currentVisibleIndex) {
+    if (!isActive) {
       setProgress(0);
       progressRef.current = 0;
       return;
@@ -1078,7 +1078,7 @@ const ShortsProgressBar = ({
         clearTimeout(pendingSeekTimeoutRef.current);
       }
     };
-  }, [shortId, index, currentVisibleIndex]);
+  }, [shortId, index, isActive]);
 
   const handleTouch = (event: any, forceSeek = false) => {
     if (durationRef.current <= 0) return;

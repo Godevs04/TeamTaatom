@@ -1450,16 +1450,11 @@ export default function HomeScreen() {
     },
   });
 
-  // Interleave native ad slots through the shared ad/view engine.
   const feedData = useMemo((): FeedItem[] => {
     if (isWeb || posts.length === 0) return posts as FeedItem[];
-    const rawFeed = injectHomeFeedAds(posts, {
-      isCapped: false,
-      count: 0,
-      remainingSlots: 9999,
-    }) as FeedItem[];
+    const rawFeed = injectHomeFeedAds(posts, adCap) as FeedItem[];
     return rawFeed;
-  }, [posts]);
+  }, [posts, adCap]);
 
   const renderTopHeader = () => (
     <AnimatedHeader
