@@ -128,9 +128,9 @@ export const toggleFollow = async (userId: string): Promise<{
 
     // Sync following list in AsyncStorage userData
     try {
-      const storedUser = await AsyncStorage.getItem('userData');
-      if (storedUser) {
-        const user = JSON.parse(storedUser);
+      const { getUserFromStorage, saveUserToStorage } = require('./auth');
+      const user = await getUserFromStorage();
+      if (user) {
         let followingList = Array.isArray(user.followingIds) 
           ? [...user.followingIds] 
           : (Array.isArray(user.following) ? [...user.following] : []);
@@ -143,7 +143,7 @@ export const toggleFollow = async (userId: string): Promise<{
         }
         user.followingIds = followingList;
         user.following = followingList.length; // Keep following count updated too
-        await AsyncStorage.setItem('userData', JSON.stringify(user));
+        await saveUserToStorage(user);
         logger.debug('toggleFollow service: updated userData followingIds list in AsyncStorage');
       }
     } catch (storageError) {

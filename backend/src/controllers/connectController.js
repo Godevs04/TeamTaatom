@@ -4,6 +4,7 @@ const ConnectFollow = require('../models/ConnectFollow');
 const ConnectPageView = require('../models/ConnectPageView');
 const Chat = require('../models/Chat');
 const User = require('../models/User');
+const Follow = require('../models/Follow');
 const Subscription = require('../models/Subscription');
 const Order = require('../models/Order');
 const cashfreeService = require('../services/cashfreeService');
@@ -985,7 +986,7 @@ const findUsers = async (req, res) => {
     if (searchCoords) {
       // Fetch matching users to perform proximity sorting
       matchedUsers = await User.find(userQuery)
-        .select('username fullName profilePic bio interests travelStyle nationality languagesKnown settings.account.language settings.privacy followers currentLocation currentCountry')
+        .select('username fullName profilePic bio interests travelStyle nationality languagesKnown settings.account.language settings.privacy currentLocation currentCountry')
         .limit(500)
         .lean();
       total = matchedUsers.length;
@@ -993,7 +994,7 @@ const findUsers = async (req, res) => {
       // Regular paginated query
       [matchedUsers, total] = await Promise.all([
         User.find(userQuery)
-          .select('username fullName profilePic bio interests travelStyle nationality languagesKnown settings.account.language settings.privacy followers currentLocation currentCountry')
+          .select('username fullName profilePic bio interests travelStyle nationality languagesKnown settings.account.language settings.privacy currentLocation currentCountry')
           .sort({ lastLogin: -1 })
           .skip(skip)
           .limit(limit)
@@ -1037,7 +1038,7 @@ const findUsers = async (req, res) => {
         language: user.settings?.account?.language || 'en',
         travelStyle: user.travelStyle || '',
         sharedInterestsCount: sharedInterests.length,
-        isFollowing: user.followers?.some(fId => fId.toString() === currentUserId.toString()) || false,
+        isFollowing: !!(await Follow.exists({ follower: currentUserId, following: user._id })),
         distance,
         currentLocation: showLocation ? (user.currentLocation || '') : ''
       };

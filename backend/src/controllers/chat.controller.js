@@ -1360,48 +1360,52 @@ exports.sendMessage = async (req, res) => {
 exports.markMessageSeen = async (chatId, messageId, userId) => {
   logger.debug('[markMessageSeen] called with:', { chatId, messageId, userId });
   if (!chatId || !messageId || !userId) return;
-  const chat = await Chat.findById(chatId);
-  if (!chat) {
-    logger.debug('[markMessageSeen] chat not found');
-    return;
-  }
-  // Only allow if user is a participant
-  const participantIds = chat.participants.map(id => id.toString());
-  if (!participantIds.includes(userId.toString())) {
-    logger.debug('[markMessageSeen] user not a participant');
-    return;
-  }
-  const msg = chat.messages.id(messageId);
-  if (!msg) {
-    logger.debug('[markMessageSeen] message not found');
-    return;
-  }
-
-  // For group chats (connect_page): use seenBy array
-  if (chat.type === 'connect_page') {
-    if (!Array.isArray(msg.seenBy)) msg.seenBy = [];
-    const alreadySeen = msg.seenBy.some(id => id.toString() === userId.toString());
-    if (!alreadySeen) {
-      msg.seenBy.push(userId);
-      // Mark boolean seen as true when ALL other participants have seen it
-      const otherParticipants = participantIds.filter(id => id !== msg.sender.toString());
-      const allSeen = otherParticipants.every(pId => msg.seenBy.some(sId => sId.toString() === pId));
-      if (allSeen) msg.seen = true;
-      await chat.save();
-      logger.debug('[markMessageSeen] group message seenBy updated:', { messageId, seenByCount: msg.seenBy.length, allSeen });
-    } else {
-      logger.debug('[markMessageSeen] user already in seenBy');
+  try {
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+      logger.debug('[markMessageSeen] chat not found');
+      return;
     }
-    return;
-  }
+    // Only allow if user is a participant
+    const participantIds = chat.participants.map(id => id.toString());
+    if (!participantIds.includes(userId.toString())) {
+      logger.debug('[markMessageSeen] user not a participant');
+      return;
+    }
+    const msg = chat.messages.id(messageId);
+    if (!msg) {
+      logger.debug('[markMessageSeen] message not found');
+      return;
+    }
 
-  // For 1:1 chats: use boolean seen (existing behavior)
-  if (!msg.seen) {
-    msg.seen = true;
-    await chat.save();
-    logger.debug('[markMessageSeen] message marked as seen:', { messageId });
-  } else {
-    logger.debug('[markMessageSeen] message already seen');
+    // For group chats (connect_page): use seenBy array
+    if (chat.type === 'connect_page') {
+      if (!Array.isArray(msg.seenBy)) msg.seenBy = [];
+      const alreadySeen = msg.seenBy.some(id => id.toString() === userId.toString());
+      if (!alreadySeen) {
+        msg.seenBy.push(userId);
+        // Mark boolean seen as true when ALL other participants have seen it
+        const otherParticipants = participantIds.filter(id => id !== msg.sender.toString());
+        const allSeen = otherParticipants.every(pId => msg.seenBy.some(sId => sId.toString() === pId));
+        if (allSeen) msg.seen = true;
+        await chat.save();
+        logger.debug('[markMessageSeen] group message seenBy updated:', { messageId, seenByCount: msg.seenBy.length, allSeen });
+      } else {
+        logger.debug('[markMessageSeen] user already in seenBy');
+      }
+      return;
+    }
+
+    // For 1:1 chats: use boolean seen (existing behavior)
+    if (!msg.seen) {
+      msg.seen = true;
+      await chat.save();
+      logger.debug('[markMessageSeen] message marked as seen:', { messageId });
+    } else {
+      logger.debug('[markMessageSeen] message already seen');
+    }
+  } catch (error) {
+    logger.error('Error in markMessageSeen:', error);
   }
 };
 

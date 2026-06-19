@@ -58,6 +58,9 @@ import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { sanitizeErrorForDisplay } from '../../utils/errorSanitizer';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AudioChoiceModal } from './post_split/AudioChoiceModal';
+import { DetectPlaceModal } from './post_split/DetectPlaceModal';
+import { MediaManagerModal } from './post_split/MediaManagerModal';
 import * as FileSystem from 'expo-file-system/legacy';
 import { SongSelector } from '../../components/SongSelector';
 import { audioManager } from '../../utils/audioManager';
@@ -1657,11 +1660,13 @@ export default function PostScreen() {
           
           // Get accurate video duration using Audio component
           let actualDuration: number | null = durationInSeconds;
+          let soundInstance: Audio.Sound | null = null;
           try {
             const { sound } = await Audio.Sound.createAsync(
               { uri: asset.uri },
               { shouldPlay: false }
             );
+            soundInstance = sound;
             const status = await sound.getStatusAsync();
             if (status.isLoaded && status.durationMillis) {
               actualDuration = status.durationMillis / 1000; // Convert milliseconds to seconds
@@ -1670,11 +1675,16 @@ export default function PostScreen() {
                 durationSeconds: actualDuration
               });
             }
-            await sound.unloadAsync();
           } catch (videoError) {
             logger.warn('Failed to get video duration from Audio.Sound.createAsync, using asset.duration:', videoError);
             // Fallback to asset.duration if Audio.Sound.createAsync fails
             actualDuration = durationInSeconds;
+          } finally {
+            if (soundInstance) {
+              await soundInstance.unloadAsync().catch((err) => {
+                logger.error('Failed to unload temporary duration checker sound:', err);
+              });
+            }
           }
           
           // Store video duration and auto-match song selection duration (max 60 seconds for shorts)
@@ -2014,11 +2024,13 @@ export default function PostScreen() {
           
           // Get accurate video duration using Audio component
           let actualDuration: number | null = durationInSeconds;
+          let soundInstance: Audio.Sound | null = null;
           try {
             const { sound } = await Audio.Sound.createAsync(
               { uri: asset.uri },
               { shouldPlay: false }
             );
+            soundInstance = sound;
             const status = await sound.getStatusAsync();
             if (status.isLoaded && status.durationMillis) {
               actualDuration = status.durationMillis / 1000; // Convert milliseconds to seconds
@@ -2027,11 +2039,16 @@ export default function PostScreen() {
                 durationSeconds: actualDuration
               });
             }
-            await sound.unloadAsync();
           } catch (videoError) {
             logger.warn('Failed to get video duration from Audio.Sound.createAsync (camera), using asset.duration:', videoError);
             // Fallback to asset.duration if Audio.Sound.createAsync fails
             actualDuration = durationInSeconds;
+          } finally {
+            if (soundInstance) {
+              await soundInstance.unloadAsync().catch((err) => {
+                logger.error('Failed to unload temporary duration checker sound (camera):', err);
+              });
+            }
           }
           
           // Store video duration and auto-match song selection duration (max 60 seconds for shorts)
@@ -5514,179 +5531,22 @@ export default function PostScreen() {
 
       {/* Song Selector Modal */}
       {/* Audio Choice Modal for Shorts */}
-      <Modal
+      <AudioChoiceModal
         visible={showAudioChoiceModal}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setShowAudioChoiceModal(false)}
-      >
-        <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}>
-          <View style={[
-            styles.modalContent, 
-            { 
-              borderRadius: 24,
-              borderWidth: 1,
-              borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.45)',
-              overflow: 'hidden',
-              backgroundColor: mode === 'dark' ? 'rgba(10, 18, 32, 0.75)' : 'rgba(255, 255, 255, 0.65)',
-              ...theme.shadows.large
-            }
-          ]}>
-            <BlurView
-              intensity={80}
-              tint={mode === 'dark' ? 'dark' : 'light'}
-              style={StyleSheet.absoluteFillObject}
-            />
-            <LinearGradient
-              colors={
-                mode === 'dark'
-                  ? ['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0.02)']
-                  : ['rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.1)']
-              }
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0.4, y: 0.4 }}
-              style={StyleSheet.absoluteFillObject}
-              pointerEvents="none"
-            />
-            <View style={{ zIndex: 1 }}>
-              <View style={{ alignItems: 'center', marginBottom: theme.spacing.lg }}>
-                <View style={{
-                  width: 64,
-                  height: 64,
-                  borderRadius: 32,
-                  backgroundColor: theme.colors.secondary + '15',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  marginBottom: theme.spacing.md
-                }}>
-                  <Ionicons name="musical-notes" size={32} color={theme.colors.secondary} />
-                </View>
-                <Text style={[styles.modalTitle, { color: theme.colors.text }]}>
-                  Choose Audio for Your Short
-                </Text>
-                <Text style={[styles.modalDescription, { color: theme.colors.textSecondary }]}>
-                  Select how you want to handle audio for this video
-                </Text>
-              </View>
-              
-              <TouchableOpacity
-                style={{
-                  borderRadius: 16,
-                  overflow: 'hidden',
-                  marginBottom: 16,
-                  shadowColor: '#14B8A6',
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.25,
-                  shadowRadius: 8,
-                  elevation: 3,
-                }}
-                onPress={() => {
-                  setAudioChoice('background');
-                  setShowAudioChoiceModal(false);
-                  setShowSongSelector(true);
-                }}
-                activeOpacity={0.8}
-              >
-                <LinearGradient
-                  colors={['#38BDF8', '#14B8A6', '#34D399']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    padding: isTablet ? theme.spacing.xl : 20,
-                    borderRadius: 16,
-                    borderWidth: 1,
-                    borderColor: 'rgba(255, 255, 255, 0.35)',
-                  }}
-                >
-                  <LinearGradient
-                    colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 0, y: 0.4 }}
-                    style={StyleSheet.absoluteFillObject}
-                    pointerEvents="none"
-                  />
-                  <View style={{
-                    width: 48,
-                    height: 48,
-                    borderRadius: 24,
-                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    marginRight: theme.spacing.md,
-                    zIndex: 1,
-                  }}>
-                    <Ionicons name="musical-notes" size={24} color="white" />
-                  </View>
-                  <View style={[styles.audioChoiceTextContainer, { zIndex: 1 }]}>
-                    <Text style={styles.audioChoiceTitle}>Background Music</Text>
-                    <Text style={styles.audioChoiceSubtitle}>Add a song from our library</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={20} color="white" style={{ zIndex: 1 }} />
-                </LinearGradient>
-              </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.audioChoiceButton, 
-                { 
-                  backgroundColor: mode === 'dark' ? '#1E1E1E' : '#FFFFFF',
-                  borderWidth: 2,
-                  borderColor: theme.colors.border
-                }
-              ]}
-              onPress={() => {
-                setAudioChoice('original');
-                setSelectedSong(null);
-                setShowAudioChoiceModal(false);
-                setShowDetails(true);
-              }}
-              activeOpacity={0.8}
-            >
-              <View style={{
-                width: 48,
-                height: 48,
-                borderRadius: 24,
-                backgroundColor: theme.colors.border + '40',
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginRight: theme.spacing.md
-              }}>
-                <Ionicons name="volume-high" size={24} color={theme.colors.text} />
-              </View>
-              <View style={styles.audioChoiceTextContainer}>
-                <Text style={[styles.audioChoiceTitle, { color: theme.colors.text }]}>
-                  Original Video Audio
-                </Text>
-                <Text style={[styles.audioChoiceSubtitle, { color: theme.colors.textSecondary }]}>
-                  Keep the original sound from your video
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[
-                styles.modalCancelButton, 
-                { 
-                  borderColor: theme.colors.border,
-                  marginTop: theme.spacing.md
-                }
-              ]}
-              onPress={() => {
-                setShowAudioChoiceModal(false);
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.modalCancelText, { color: theme.colors.textSecondary }]}>
-                Cancel
-              </Text>
-            </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        onClose={() => setShowAudioChoiceModal(false)}
+        mode={mode}
+        onSelectBackgroundMusic={() => {
+          setAudioChoice('background');
+          setShowAudioChoiceModal(false);
+          setShowSongSelector(true);
+        }}
+        onSelectOriginalAudio={() => {
+          setAudioChoice('original');
+          setSelectedSong(null);
+          setShowAudioChoiceModal(false);
+          setShowDetails(true);
+        }}
+      />
 
       <SongSelector
         visible={showSongSelector}
@@ -5767,317 +5627,42 @@ export default function PostScreen() {
       />
 
       {/* Detect Place Modal */}
-      <Modal
+      <DetectPlaceModal
         visible={showDetectPlaceModal}
-        transparent
-        animationType="slide"
-        statusBarTranslucent={true}
-        onRequestClose={() => {
+        onClose={() => {
           setShowDetectPlaceModal(false);
           setDetectPlaceName('');
           setDetectedPlace(null);
         }}
-      >
-        <KeyboardAvoidingView
-          style={{
-            flex: 1,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            justifyContent: 'flex-end',
-          }}
-          behavior="padding"
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
-        >
-          <View style={{
-            borderTopLeftRadius: 24,
-            borderTopRightRadius: 24,
-            overflow: 'hidden',
-            borderWidth: 1,
-            borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.45)',
-            maxHeight: Dimensions.get('window').height * 0.85,
-            minHeight: 300,
-            ...theme.shadows.large
-          }}>
-            <BlurView
-              intensity={80}
-              tint={mode === 'dark' ? 'dark' : 'light'}
-              style={StyleSheet.absoluteFillObject}
-            />
-            <View style={[StyleSheet.absoluteFillObject, { backgroundColor: mode === 'dark' ? 'rgba(10, 18, 32, 0.75)' : 'rgba(255, 255, 255, 0.65)' }]} />
-            <LinearGradient
-              colors={
-                mode === 'dark'
-                  ? ['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0.02)']
-                  : ['rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.1)']
-              }
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0.4, y: 0.4 }}
-              style={StyleSheet.absoluteFillObject}
-              pointerEvents="none"
-            />
-            <View style={{ flex: 1, zIndex: 1 }}>
-            {/* Fixed Header */}
-            <View style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingHorizontal: theme.spacing.lg,
-              paddingTop: theme.spacing.lg,
-              marginBottom: theme.spacing.lg,
-            }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.spacing.sm }}>
-                <View style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: 20,
-                  backgroundColor: theme.colors.primary + '15',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }}>
-                  <Ionicons name="location" size={20} color={theme.colors.primary} />
-                </View>
-                <Text style={{
-                  fontSize: theme.typography.h3.fontSize,
-                  fontWeight: '600',
-                  color: theme.colors.text,
-                }}>
-                  Detect Place
-                </Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => {
-                  setShowDetectPlaceModal(false);
-                  setDetectPlaceName('');
-                  setDetectedPlace(null);
-                }}
-              >
-                <Ionicons name="close" size={24} color={theme.colors.text} />
-              </TouchableOpacity>
-            </View>
-
-            {/* Scrollable Content */}
-            <ScrollView 
-              style={{ 
-                maxHeight: Dimensions.get('window').height * 0.7,
-              }}
-              contentContainerStyle={{ 
-                paddingHorizontal: theme.spacing.lg,
-                paddingBottom: theme.spacing.xl,
-                flexGrow: 1,
-              }}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={true}
-              nestedScrollEnabled={true}
-            >
-              <View style={{ marginBottom: theme.spacing.md }}>
-                <Text style={{
-                  fontSize: theme.typography.body.fontSize,
-                  fontWeight: '600',
-                  color: theme.colors.text,
-                  marginBottom: theme.spacing.sm,
-                }}>
-                  Enter Place Name
-                </Text>
-                <View style={{ flexDirection: 'row', gap: theme.spacing.sm }}>
-                  <TextInput
-                    style={[
-                      {
-                        flex: 1,
-                        backgroundColor: mode === 'dark' ? '#1E1E1E' : '#FFFFFF',
-                        borderRadius: theme.borderRadius.md,
-                        paddingHorizontal: theme.spacing.md,
-                        paddingVertical: theme.spacing.md,
-                        fontSize: theme.typography.body.fontSize,
-                        color: theme.colors.text,
-                        borderWidth: 1.5,
-                        borderColor: theme.colors.border,
-                      },
-                      Platform.OS === 'web' && ({ outlineStyle: 'none' } as any)
-                    ]}
-                    placeholder="e.g., Museum of Anthropology"
-                    placeholderTextColor={theme.colors.textSecondary}
-                    value={detectPlaceName}
-                    onChangeText={setDetectPlaceName}
-                    onSubmitEditing={handleSearchPlace}
-                    returnKeyType="search"
-                  />
-                  <TouchableOpacity
-                    onPress={handleSearchPlace}
-                    disabled={isSearchingPlace || !detectPlaceName.trim()}
-                    style={{
-                      borderRadius: 9999,
-                      shadowColor: '#14B8A6',
-                      shadowOffset: { width: 0, height: 4 },
-                      shadowOpacity: 0.25,
-                      shadowRadius: 8,
-                      elevation: 3,
-                      overflow: 'hidden',
-                      opacity: (isSearchingPlace || !detectPlaceName.trim()) ? 0.5 : 1,
-                    }}
-                  >
-                    <LinearGradient
-                      colors={['#38BDF8', '#14B8A6', '#34D399']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={{
-                        paddingHorizontal: theme.spacing.lg,
-                        paddingVertical: theme.spacing.md,
-                        borderRadius: 9999,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        borderWidth: 1,
-                        borderColor: 'rgba(255, 255, 255, 0.35)',
-                      }}
-                    >
-                      <LinearGradient
-                        colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 0, y: 0.4 }}
-                        style={StyleSheet.absoluteFillObject}
-                        pointerEvents="none"
-                      />
-                      {isSearchingPlace ? (
-                        <LoadingGlobe size="small" color="#FFFFFF" style={{ zIndex: 1 }} />
-                      ) : (
-                        <Ionicons name="search" size={20} color="#FFFFFF" style={{ zIndex: 1 }} />
-                      )}
-                    </LinearGradient>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {detectedPlace && (
-                <View style={{
-                  marginBottom: theme.spacing.lg,
-                  padding: theme.spacing.md,
-                  backgroundColor: theme.colors.secondary + '10',
-                  borderRadius: theme.borderRadius.md,
-                  borderWidth: 1,
-                  borderColor: theme.colors.secondary + '30',
-                }}>
-                  <View style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    marginBottom: theme.spacing.sm,
-                  }}>
-                    <Ionicons name="checkmark-circle" size={20} color={theme.colors.secondary} style={{ marginRight: theme.spacing.xs }} />
-                    <Text style={{
-                      fontSize: theme.typography.body.fontSize,
-                      fontWeight: '600',
-                      color: theme.colors.text,
-                    }}>
-                      Place Found!
-                    </Text>
-                  </View>
-                  <View style={{ gap: theme.spacing.xs }}>
-                    <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.text }}>
-                      <Text style={{ fontWeight: '600' }}>Name:</Text> {detectedPlace.name}
-                    </Text>
-                    <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.text }}>
-                      <Text style={{ fontWeight: '600' }}>Address:</Text> {detectedPlace.formattedAddress}
-                    </Text>
-                    {detectedPlace.city && (
-                      <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.text }}>
-                        <Text style={{ fontWeight: '600' }}>City:</Text> {detectedPlace.city}
-                      </Text>
-                    )}
-                    {detectedPlace.stateProvince && (
-                      <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.text }}>
-                        <Text style={{ fontWeight: '600' }}>State/Province:</Text> {detectedPlace.stateProvince}
-                      </Text>
-                    )}
-                    {detectedPlace.country && (
-                      <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.text }}>
-                        <Text style={{ fontWeight: '600' }}>Country:</Text> {detectedPlace.country} {detectedPlace.countryCode ? `(${detectedPlace.countryCode})` : ''}
-                      </Text>
-                    )}
-                    {detectedPlace.continent && (
-                      <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.text }}>
-                        <Text style={{ fontWeight: '600' }}>Continent:</Text> {detectedPlace.continent}
-                      </Text>
-                    )}
-                    <Text style={{ fontSize: theme.typography.small.fontSize, color: theme.colors.textSecondary, marginTop: theme.spacing.xs }}>
-                      Coordinates: {detectedPlace.lat.toFixed(6)}, {detectedPlace.lng.toFixed(6)}
-                    </Text>
-                  </View>
-                </View>
-              )}
-
-              {detectedPlace && (
-                <TouchableOpacity
-                  onPress={() => {
-                    if (detectedPlace && setFieldValueRef.current) {
-                      // Populate place name field using Formik's setFieldValue
-                      setFieldValueRef.current('placeName', detectedPlace.name || detectPlaceName);
-                      
-                      // Store detected place data
-                      setDetectedPlaceData({
-                        name: detectedPlace.name,
-                        country: detectedPlace.country,
-                        countryCode: detectedPlace.countryCode,
-                        city: detectedPlace.city,
-                        stateProvince: detectedPlace.stateProvince,
-                        latitude: detectedPlace.lat,
-                        longitude: detectedPlace.lng,
-                      });
-
-                      // Update location if coordinates are available
-                      if (detectedPlace.lat && detectedPlace.lng) {
-                        setLocation({ lat: detectedPlace.lat, lng: detectedPlace.lng });
-                        setAddress(detectedPlace.formattedAddress || detectedPlace.name || '');
-                      }
-
-                      setShowDetectPlaceModal(false);
-                      setDetectPlaceName('');
-                      setDetectedPlace(null);
-                      Alert.alert('Success', 'Place details populated! The place will be sent for admin review when you submit the post.');
-                    }
-                  }}
-                  style={{
-                    borderRadius: 9999,
-                    shadowColor: '#14B8A6',
-                    shadowOffset: { width: 0, height: 6 },
-                    shadowOpacity: 0.3,
-                    shadowRadius: 12,
-                    elevation: 4,
-                    overflow: 'hidden',
-                    marginTop: theme.spacing.sm,
-                  }}
-                >
-                  <LinearGradient
-                    colors={['#38BDF8', '#14B8A6', '#34D399']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={{
-                      paddingVertical: theme.spacing.md,
-                      borderRadius: 9999,
-                      alignItems: 'center',
-                      borderWidth: 1,
-                      borderColor: 'rgba(255, 255, 255, 0.35)',
-                    }}
-                  >
-                    <LinearGradient
-                      colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 0, y: 0.4 }}
-                      style={StyleSheet.absoluteFillObject}
-                      pointerEvents="none"
-                    />
-                    <Text style={{
-                      color: '#FFFFFF',
-                      fontSize: theme.typography.body.fontSize,
-                      fontWeight: '700',
-                      zIndex: 1,
-                    }}>
-                      Use This Place
-                    </Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              )}
-            </ScrollView>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+        mode={mode}
+        detectPlaceName={detectPlaceName}
+        onChangeDetectPlaceName={setDetectPlaceName}
+        isSearchingPlace={isSearchingPlace}
+        detectedPlace={detectedPlace}
+        onSearchPlace={handleSearchPlace}
+        onUsePlace={() => {
+          if (detectedPlace && setFieldValueRef.current) {
+            setFieldValueRef.current('placeName', detectedPlace.name || detectPlaceName);
+            setDetectedPlaceData({
+              name: detectedPlace.name,
+              country: detectedPlace.country,
+              countryCode: detectedPlace.countryCode,
+              city: detectedPlace.city,
+              stateProvince: detectedPlace.stateProvince,
+              latitude: detectedPlace.lat,
+              longitude: detectedPlace.lng,
+            });
+            if (detectedPlace.lat && detectedPlace.lng) {
+              setLocation({ lat: detectedPlace.lat, lng: detectedPlace.lng });
+              setAddress(detectedPlace.formattedAddress || detectedPlace.name || '');
+            }
+            setShowDetectPlaceModal(false);
+            setDetectPlaceName('');
+            setDetectedPlace(null);
+            Alert.alert('Success', 'Place details populated! The place will be sent for admin review when you submit the post.');
+          }
+        }}
+      />
 
         {/* Copyright Confirmation Modal */}
         <CopyrightConfirmationModal
@@ -6118,179 +5703,26 @@ export default function PostScreen() {
         />
 
         {/* Selection Manager Modal (Ticket 4) */}
-        <Modal
+        <MediaManagerModal
           visible={showMediaManagerModal}
-          animationType="slide"
-          transparent
-          onRequestClose={() => setShowMediaManagerModal(false)}
-        >
-          <View style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' }}>
-            <View style={{
-              height: '75%',
-              borderTopLeftRadius: 24,
-              borderTopRightRadius: 24,
-              borderWidth: 1,
-              borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.45)',
-              overflow: 'hidden',
-              backgroundColor: mode === 'dark' ? 'rgba(10, 18, 32, 0.92)' : 'rgba(255, 255, 255, 0.85)',
-              paddingBottom: Platform.OS === 'ios' ? 34 : 24,
-            }}>
-              <BlurView
-                intensity={80}
-                tint={mode === 'dark' ? 'dark' : 'light'}
-                style={StyleSheet.absoluteFillObject}
-              />
-              <View style={{ flex: 1, zIndex: 1 }}>
-                {/* Modal Header */}
-                <View style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  paddingHorizontal: 20,
-                  paddingVertical: 16,
-                  borderBottomWidth: 1,
-                  borderBottomColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                }}>
-                  <View>
-                    <Text style={{ fontSize: 20, fontWeight: '700', color: theme.colors.text }}>Selected Photos</Text>
-                    <Text style={{ fontSize: 12, color: theme.colors.textSecondary, marginTop: 2 }}>
-                      {selectedImages.length} of 10 photos selected
-                    </Text>
-                  </View>
-                  <TouchableOpacity onPress={() => setShowMediaManagerModal(false)} hitSlop={12}>
-                    <Ionicons name="close" size={28} color={theme.colors.text} />
-                  </TouchableOpacity>
-                </View>
-
-                {/* Modal Content */}
-                <ScrollView 
-                  style={{ flex: 1 }} 
-                  contentContainerStyle={{ padding: 16 }}
-                  showsVerticalScrollIndicator={false}
-                >
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-                    {selectedImages.map((image, index) => (
-                      <View 
-                        key={image.uri || index} 
-                        style={{ 
-                          width: (screenWidth - 32 - 24) / 3, 
-                          aspectRatio: 1, 
-                          position: 'relative', 
-                          borderRadius: 12, 
-                          overflow: 'hidden',
-                          backgroundColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0,0,0,0.05)',
-                          borderWidth: 1,
-                          borderColor: mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-                        }}
-                      >
-                        <Image source={{ uri: image.uri }} style={{ width: '100%', height: '100%', resizeMode: 'cover' }} />
-                        <TouchableOpacity
-                          onPress={() => {
-                            setSelectedImages(prev => {
-                              const updated = prev.filter((_, i) => i !== index);
-                              if (updated.length === 0) {
-                                setShowMediaManagerModal(false);
-                                setShowDetails(false);
-                              }
-                              return updated;
-                            });
-                          }}
-                          style={{
-                            position: 'absolute',
-                            top: 6,
-                            right: 6,
-                            backgroundColor: 'rgba(239, 68, 68, 0.9)',
-                            borderRadius: 12,
-                            width: 24,
-                            height: 24,
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                            shadowColor: '#000',
-                            shadowOffset: { width: 0, height: 2 },
-                            shadowOpacity: 0.25,
-                            shadowRadius: 3.84,
-                            elevation: 5,
-                          }}
-                        >
-                          <Ionicons name="close" size={14} color="white" />
-                        </TouchableOpacity>
-                      </View>
-                    ))}
-
-                    {/* Add More slot if less than 10 */}
-                    {selectedImages.length < 10 && (
-                      <TouchableOpacity
-                        onPress={() => {
-                          appendMoreImages();
-                        }}
-                        style={{
-                          width: (screenWidth - 32 - 24) / 3,
-                          aspectRatio: 1,
-                          borderRadius: 12,
-                          borderWidth: 2,
-                          borderStyle: 'dashed',
-                          borderColor: '#0095F6',
-                          justifyContent: 'center',
-                          alignItems: 'center',
-                          backgroundColor: mode === 'dark' ? 'rgba(0, 149, 246, 0.08)' : 'rgba(0, 149, 246, 0.04)',
-                        }}
-                      >
-                        <Ionicons name="add" size={32} color="#0095F6" />
-                        <Text style={{ fontSize: 10, color: '#0095F6', fontWeight: '600', marginTop: 4 }}>Add More</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </ScrollView>
-
-                {/* Done Button */}
-                <TouchableOpacity
-                  onPress={() => setShowMediaManagerModal(false)}
-                  style={{
-                    marginHorizontal: 20,
-                    marginTop: 8,
-                    borderRadius: 9999,
-                    shadowColor: '#14B8A6',
-                    shadowOffset: { width: 0, height: 6 },
-                    shadowOpacity: 0.3,
-                    shadowRadius: 12,
-                    elevation: 4,
-                    overflow: 'hidden',
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <LinearGradient
-                    colors={['#38BDF8', '#14B8A6', '#34D399']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={{
-                      paddingVertical: 16,
-                      borderRadius: 9999,
-                      alignItems: 'center',
-                      borderWidth: 1,
-                      borderColor: 'rgba(255, 255, 255, 0.35)',
-                    }}
-                  >
-                    <LinearGradient
-                      colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 0, y: 0.4 }}
-                      style={StyleSheet.absoluteFillObject}
-                      pointerEvents="none"
-                    />
-                    <Text style={{
-                      color: '#FFFFFF',
-                      fontSize: 16,
-                      fontWeight: '700',
-                      zIndex: 1,
-                    }}>
-                      Done
-                    </Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
+          onClose={() => setShowMediaManagerModal(false)}
+          mode={mode}
+          theme={theme}
+          selectedImages={selectedImages}
+          onRemoveImage={(index) => {
+            setSelectedImages(prev => {
+              const updated = prev.filter((_, i) => i !== index);
+              if (updated.length === 0) {
+                setShowMediaManagerModal(false);
+                setShowDetails(false);
+              }
+              return updated;
+            });
+          }}
+          onAppendMoreImages={() => {
+            appendMoreImages();
+          }}
+        />
 
         {/* Image edit: aspect ratio & filter */}
         <ImageEditModal
@@ -6350,57 +5782,6 @@ const styles = StyleSheet.create({
     marginBottom: isTablet ? theme.spacing.sm : 8,
     textAlign: 'center',
     lineHeight: isTablet ? 26 : 22,
-    ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
-    } as any),
-  },
-  audioChoiceButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: isTablet ? theme.spacing.xl : 20,
-    borderRadius: isTablet ? theme.borderRadius.lg : 16,
-    marginBottom: isTablet ? theme.spacing.lg : 16,
-    ...(isWeb && {
-      cursor: 'pointer',
-      transition: 'all 0.2s ease',
-    } as any),
-  },
-  audioChoiceTextContainer: {
-    flex: 1,
-  },
-  audioChoiceTitle: {
-    fontSize: isTablet ? theme.typography.body.fontSize + 3 : 17,
-    fontFamily: getFontFamily('600'),
-    fontWeight: '600',
-    color: 'white',
-    marginBottom: isTablet ? 8 : 6,
-    ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
-    } as any),
-  },
-  audioChoiceSubtitle: {
-    fontSize: isTablet ? theme.typography.body.fontSize : 13,
-    fontFamily: getFontFamily('400'),
-    color: 'rgba(255, 255, 255, 0.85)',
-    lineHeight: isTablet ? 22 : 18,
-    ...(isWeb && {
-      fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
-    } as any),
-  },
-  modalCancelButton: {
-    padding: isTablet ? theme.spacing.lg : 16,
-    borderRadius: isTablet ? theme.borderRadius.lg : 16,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    ...(isWeb && {
-      cursor: 'pointer',
-      transition: 'all 0.2s ease',
-    } as any),
-  },
-  modalCancelText: {
-    fontSize: isTablet ? theme.typography.body.fontSize + 2 : 16,
-    fontFamily: getFontFamily('600'),
-    fontWeight: '600',
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
     } as any),

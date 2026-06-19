@@ -88,7 +88,7 @@ const OptimizedVisitedMarker = React.memo(({
     <SafeMarker
       ref={markerRef}
       zIndex={isSelected ? 99999 : index}
-      anchor={isSelected ? { x: 0.5, y: 1.0 } : { x: 0.5, y: 0.5 }}
+      anchor={{ x: 0.5, y: 0.5 }}
       coordinate={{
         latitude: location.coordinates!.latitude,
         longitude: location.coordinates!.longitude,
@@ -470,10 +470,41 @@ export default function CountryMapScreen() {
   }, [visitedMarkers, selectedLocation]);
 
   useEffect(() => {
+    const webLocations = getMapLocations(displayCountryName || '');
+    const webSelectedIndex = selectedLocation ? webLocations.findIndex(
+      (loc) =>
+        loc.name === selectedLocation.name &&
+        loc.coordinates?.latitude === selectedLocation.coordinates?.latitude &&
+        loc.coordinates?.longitude === selectedLocation.coordinates?.longitude
+    ) : -1;
+
+    if (mapRef.current && (Platform.OS === 'web' || Platform.OS === 'android')) {
+      const jsCode = `
+        if (window.markersList) {
+          window.markersList.forEach((div, idx) => {
+            if (div) {
+              const coreDot = div.querySelector('.core-dot');
+              if (coreDot) {
+                if (idx === ${webSelectedIndex}) {
+                  coreDot.classList.add('active');
+                  div.style.zIndex = '99999';
+                } else {
+                  coreDot.classList.remove('active');
+                  div.style.zIndex = idx;
+                }
+              }
+            }
+          });
+        }
+        true;
+      `;
+      mapRef.current.injectJavaScript(jsCode);
+    }
+
     if (selectedLocation) {
       centerMapOnLocation(selectedLocation);
     }
-  }, [selectedLocation, centerMapOnLocation]);
+  }, [selectedLocation, centerMapOnLocation, displayCountryName]);
 
   useEffect(() => {
     if (selectedLocation && !isScrollingCarouselRef.current) {
@@ -533,7 +564,7 @@ export default function CountryMapScreen() {
   };
 
   // Generate HTML for WebView map (web platform)
-  const getWebMapHTML = (countryDisplayName: string) => {
+  const getWebMapHTML = useCallback((countryDisplayName: string) => {
     const locations = getMapLocations(countryDisplayName);
     const center = getCountryCenter(countryDisplayName || '');
     const delta = getCountryDelta(countryDisplayName || '');
@@ -542,27 +573,15 @@ export default function CountryMapScreen() {
     const markers = locations.map((loc, i) => {
       const lat = loc.coordinates?.latitude || center.latitude;
       const lng = loc.coordinates?.longitude || center.longitude;
-      const isPinned = pinnedLocation && (
-        pinnedLocation.name === loc.name &&
-        pinnedLocation.coordinates?.latitude === loc.coordinates?.latitude &&
-        pinnedLocation.coordinates?.longitude === loc.coordinates?.longitude
-      );
 
       return `
         var pos = new google.maps.LatLng(${lat}, ${lng});
         var div = document.createElement('div');
         div.style.cssText = 'position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
         
-        var isSel = ${!!isPinned};
-        if (isSel) {
-          div.setAttribute('data-anchor', 'bottom');
-          div.innerHTML = \`${LOCATION_PIN_SVG}\`;
-          div.style.zIndex = 99999;
-        } else {
-          div.setAttribute('data-anchor', 'center');
-          div.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
-          div.style.zIndex = ${i};
-        }
+        div.setAttribute('data-anchor', 'center');
+        div.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
+        div.style.zIndex = ${i};
         
         div.addEventListener('click', function(e) {
           e.stopPropagation();
@@ -572,6 +591,8 @@ export default function CountryMapScreen() {
         });
         
         new PhotoOverlay(pos, div);
+        window.markersList = window.markersList || [];
+        window.markersList[${i}] = div;
       `;
     }).join('');
 
@@ -609,6 +630,11 @@ export default function CountryMapScreen() {
             background: linear-gradient(135deg, #2DD4BF 0%, #3B82F6 100%);
             border: 2.5px solid #FFFFFF;
             box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+          }
+          .core-dot.active {
+            background: linear-gradient(135deg, #FF6E7F 0%, #FF6B6B 100%) !important;
+            transform: scale(1.25);
+            box-shadow: 0 0 12px rgba(255, 110, 127, 0.8) !important;
           }
           @keyframes pulse {
             0% { transform: scale(0.6); opacity: 1; }
@@ -683,7 +709,12 @@ export default function CountryMapScreen() {
       </body>
       </html>
     `;
-  };
+  }, [data, isDark, mapStyle.customMapStyle]);
+
+  const webViewSource = useMemo(() => ({
+    html: getWebMapHTML(displayCountryName || ''),
+    baseUrl: 'https://maps.googleapis.com'
+  }), [getWebMapHTML, displayCountryName]);
 
   // Handle WebView messages (marker clicks)
   const handleWebViewMessage = (event: any, countryDisplayName: string) => {
@@ -740,10 +771,7 @@ export default function CountryMapScreen() {
           <WebView
             ref={(ref: any) => { mapRef.current = ref; }}
             style={styles.map}
-            source={{ 
-              html: getWebMapHTML(displayCountryName || ''),
-              baseUrl: 'https://maps.googleapis.com'
-            }}
+            source={webViewSource}
             javaScriptEnabled={true}
             domStorageEnabled={true}
             cacheEnabled={true}
@@ -766,6 +794,7 @@ export default function CountryMapScreen() {
             style={styles.map}
             {...mapStyle.nativeMapProps}
             minZoomLevel={3}
+            cameraZoomRange={{ maxCenterCoordinateDistance: 5000000 }}
             initialRegion={{
               latitude: getCountryCenter(displayCountryName || '').latitude,
               longitude: getCountryCenter(displayCountryName || '').longitude,

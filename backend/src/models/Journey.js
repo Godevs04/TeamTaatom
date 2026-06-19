@@ -344,13 +344,8 @@ journeySchema.methods.canBeViewedBy = async function(viewerUser) {
 
   // Followers privacy: check if viewer follows journey owner
   if (this.privacy === 'followers') {
-    // Get the journey owner's user document
-    const User = require('./User');
-    const owner = await User.findById(this.user).select('followers').lean();
-    if (owner && owner.followers) {
-      return owner.followers.some(f => f.toString() === viewerUser._id.toString());
-    }
-    return false;
+    const Follow = require('./Follow');
+    return !!(await Follow.exists({ follower: viewerUser._id, following: this.user }));
   }
 
   return false;

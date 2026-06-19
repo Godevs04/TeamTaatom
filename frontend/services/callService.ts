@@ -86,12 +86,12 @@ class CallService {
   }
 
   private async getCurrentUserId(): Promise<string> {
-    const userDataString = await AsyncStorage.getItem('userData');
-    if (!userDataString) {
+    const { getUserFromStorage } = require('./auth');
+    const userData = await getUserFromStorage();
+    if (!userData) {
       throw new Error('User not authenticated');
     }
     
-    const userData = JSON.parse(userDataString);
     const currentUserId = userData._id || userData.id;
     
     if (!currentUserId) {
