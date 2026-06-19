@@ -85,6 +85,21 @@ export const SongBar: React.FC<SongBarProps> = ({
     };
   }, []);
 
+  // Unload previous sound when song changes
+  useEffect(() => {
+    if (soundRef.current) {
+      const oldSound = soundRef.current;
+      soundRef.current = null;
+      setIsPlaying(false);
+      if (statusIntervalRef.current) {
+        clearInterval(statusIntervalRef.current);
+        statusIntervalRef.current = null;
+      }
+      oldSound.stopAsync().catch(() => {});
+      oldSound.unloadAsync().catch(() => {});
+    }
+  }, [song.s3Url]);
+
   // Play/pause preview
   const togglePlay = useCallback(async () => {
     try {

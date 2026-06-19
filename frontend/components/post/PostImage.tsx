@@ -584,6 +584,8 @@ export default function PostImage({
     };
   });
 
+  if (!imageUri) return null;
+
   return (
     <ReAnimated.View onLayout={handleLayout} style={[styles.imageContainer, { aspectRatio: aspectRatioValue }, containerAnimatedStyle]}>
       {imageLoading && (

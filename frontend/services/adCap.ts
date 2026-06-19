@@ -17,7 +17,7 @@ import { trackPostView } from './analytics';
 import logger from '../utils/logger';
 
 const STORAGE_KEY = '@taatom/adCap/v1';
-const MAX_GOOGLE_ADS = 5;
+const MAX_GOOGLE_ADS = 10;
 const WINDOW_MS = 8 * 60 * 60 * 1000; // 8 hours
 const LAUNCH_DELAY_MS = __DEV__ ? 1000 : 30000; // 30 seconds (1s in dev)
 const VIEW_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -167,12 +167,22 @@ export function getAdCapSnapshot(): AdCapState {
 
 /** True iff a Google AdMob ad slot is allowed to render right now. */
 export function canShowGoogleAd(): boolean {
-  return true;
+  const state = getAdCapSnapshot();
+  const now = Date.now();
+  if (isWindowExpired(state, now)) {
+    return true;
+  }
+  return state.count < MAX_GOOGLE_ADS;
 }
 
 /** Returns 0..MAX_GOOGLE_ADS — useful for remaining ads math. */
 export function getRemainingGoogleAdSlots(): number {
-  return MAX_GOOGLE_ADS;
+  const state = getAdCapSnapshot();
+  const now = Date.now();
+  if (isWindowExpired(state, now)) {
+    return MAX_GOOGLE_ADS;
+  }
+  return Math.max(0, MAX_GOOGLE_ADS - state.count);
 }
 
 /** Record one Google AdMob impression. Starts the 8h window if this is the first impression. */
@@ -314,7 +324,7 @@ function injectPositionalFeedAds<T>(
   everyN: number,
   options: FeedAdCapOptions
 ): (T | { type: 'ad'; adIndex: number })[] {
-  if (items.length === 0) {
+  if (items.length === 0 || options.isCapped) {
     return items;
   }
 
@@ -434,12 +444,14 @@ export function useAdCap() {
 
   const now = Date.now();
   const expired = snapshot.windowStart != null && isWindowExpired(snapshot, now);
+  const currentCount = expired ? 0 : snapshot.count;
+  const isCapped = expired ? false : currentCount >= MAX_GOOGLE_ADS;
 
   return {
-    count: 0,
-    isCapped: false,
-    remainingSlots: MAX_GOOGLE_ADS,
-    windowStart: null,
+    count: currentCount,
+    isCapped: isCapped,
+    remainingSlots: Math.max(0, MAX_GOOGLE_ADS - currentCount),
+    windowStart: expired ? null : snapshot.windowStart,
     postDelayViews: expired ? [] : snapshot.postDelayViews,
     ignoredIds: snapshot.ignoredIds,
     appLaunchTimestamp: snapshot.appLaunchTimestamp,

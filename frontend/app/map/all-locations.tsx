@@ -1907,6 +1907,7 @@ function initMap(){
         provider={getMapProvider()}
         {...mapStyle.nativeMapProps}
         minZoomLevel={3}
+        cameraZoomRange={{ maxCenterCoordinateDistance: 5000000 }}
         initialRegion={region}
         onRegionChangeComplete={handleRegionChangeComplete}
         onPress={() => {

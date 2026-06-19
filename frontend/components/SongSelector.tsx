@@ -237,9 +237,23 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   // Stop preview when screen loses focus (user navigates away)
   useEffect(() => {
     if (!isFocused) {
+      loadRequestIdRef.current++;
       stopAudio();
     }
   }, [isFocused]);
+
+  // Stop preview and unload sound when component unmounts
+  useEffect(() => {
+    return () => {
+      loadRequestIdRef.current++;
+      if (soundRef.current) {
+        const soundToUnload = soundRef.current;
+        soundRef.current = null;
+        soundToUnload.stopAsync().catch(() => {});
+        soundToUnload.unloadAsync().catch(() => {});
+      }
+    };
+  }, []);
   const [currentTime, setCurrentTime] = useState(0);
   const [startTime, setStartTime] = useState(selectedStartTime);
   const [endTime, setEndTime] = useState(selectedEndTime);
@@ -277,6 +291,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   const previewTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isDraggingRef = useRef<boolean>(false); // Sync ref to avoid stale closure in PanResponder
   const lastSearchQueryRef = useRef<string>(''); // tracks last query we kicked a search for; prevents double-load on modal open
+  const loadRequestIdRef = useRef<number>(0);
 
   useEffect(() => {
     if (visible) {
@@ -300,10 +315,12 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
         setStartTime(selectedStartTime);
         setEndTime(selectedEndTime);
         setCurrentPage('trimmer'); // Go straight to trimmer if re-opening with a song
+        loadAudio(selectedSong, false, true);
       } else {
         setCurrentPage('list');
       }
     } else {
+      loadRequestIdRef.current++;
       setSearchQuery('');
       setPage(1);
       setSongs([]);
@@ -491,10 +508,12 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     return MAX_SELECTION_DURATION;
   }, [videoDuration]);
 
-  const loadAudio = async (song: Song) => {
+  const loadAudio = async (song: Song, autoPlay: boolean = true, preserveTrim: boolean = false) => {
+    const requestId = ++loadRequestIdRef.current;
     try {
       if (soundRef.current) {
         await soundRef.current?.unloadAsync().catch(() => {});
+        soundRef.current = null;
       }
 
       const { sound, status } = await Audio.Sound.createAsync(
@@ -507,6 +526,11 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
         null,
         false // Disable downloadFirst to enable instant streaming
       );
+
+      if (requestId !== loadRequestIdRef.current) {
+        await sound.unloadAsync().catch(() => {});
+        return false;
+      }
 
       soundRef.current = sound;
 
@@ -531,37 +555,48 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       };
       setCurrentSong(correctedSong);
 
-      // Use video duration if provided, otherwise use song duration or max
-      const maxDuration = getMaxSelectionDuration();
-      const songDuration = correctedSong.duration;
-      const finalDuration = Math.min(maxDuration, songDuration);
+      if (!preserveTrim) {
+        // Use video duration if provided, otherwise use song duration or max
+        const maxDuration = getMaxSelectionDuration();
+        const songDuration = correctedSong.duration;
+        const finalDuration = Math.min(maxDuration, songDuration);
 
-      // Set initial times - start at 0, end at video duration (or max)
-      setStartTime(0);
-      setEndTime(finalDuration);
-      setCurrentTime(0);
+        // Set initial times - start at 0, end at video duration (or max)
+        setStartTime(0);
+        setEndTime(finalDuration);
+        setCurrentTime(0);
+      } else {
+        await sound.setPositionAsync(startTimeRef.current * 1000).catch(() => {});
+        setCurrentTime(startTimeRef.current);
+      }
 
-      // Auto-play the selected segment immediately
-      await sound.playAsync();
-      setIsPlaying(true);
+      if (autoPlay) {
+        // Auto-play the selected segment immediately
+        await sound.playAsync();
+        setIsPlaying(true);
+      }
 
-      logger.debug('Audio loaded and auto-playing:', {
+      logger.debug('Audio loaded successfully:', {
         videoDuration,
-        maxDuration,
-        songDuration,
-        finalDuration,
-        startTime: 0,
-        endTime: finalDuration,
-        willLoop: true
+        songDuration: correctedSong.duration,
+        startTime: preserveTrim ? startTimeRef.current : 0,
+        endTime: preserveTrim ? endTimeRef.current : correctedSong.duration,
+        autoPlay
       });
+      return true;
     } catch (error) {
-      logger.error('Error loading audio:', error);
-      Alert.alert('Error', 'Failed to load audio preview');
+      if (requestId === loadRequestIdRef.current) {
+        logger.error('Error loading audio:', error);
+        Alert.alert('Error', 'Failed to load audio preview');
+      } else {
+        logger.debug('Ignored error for cancelled audio load request:', error);
+      }
+      return false;
     }
   };
 
   const playAudio = async () => {
-    if (!soundRef.current || !currentSong) return;
+    if (!currentSong) return;
     // Reject re-entry: a double-tap on the toggle within ~50ms would
     // otherwise queue pauseAsync + playAsync (or vice-versa) on the same
     // expo-av Audio.Sound, which on Android sometimes leaves the player
@@ -570,23 +605,31 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     playToggleInFlightRef.current = true;
 
     try {
-      if (isPlaying) {
-        await soundRef.current?.pauseAsync().catch(() => {});
-        setIsPlaying(false);
+      if (!soundRef.current) {
+        const success = await loadAudio(currentSong, true, true);
+        if (!success) {
+          playToggleInFlightRef.current = false;
+          return;
+        }
       } else {
-        // Always start playback from startTime to ensure it loops within selected range
-        await soundRef.current?.setPositionAsync(startTime * 1000).catch(() => {});
-        setCurrentTime(startTime);
-        await soundRef.current?.playAsync().catch(() => {});
-        setIsPlaying(true);
+        if (isPlaying) {
+          await soundRef.current?.pauseAsync().catch(() => {});
+          setIsPlaying(false);
+        } else {
+          // Always start playback from startTime to ensure it loops within selected range
+          await soundRef.current?.setPositionAsync(startTime * 1000).catch(() => {});
+          setCurrentTime(startTime);
+          await soundRef.current?.playAsync().catch(() => {});
+          setIsPlaying(true);
 
-        logger.debug('Playback started:', {
-          startTime,
-          endTime,
-          selectionDuration: endTime - startTime,
-          videoDuration,
-          willLoop: true
-        });
+          logger.debug('Playback started:', {
+            startTime,
+            endTime,
+            selectionDuration: endTime - startTime,
+            videoDuration,
+            willLoop: true
+          });
+        }
       }
     } catch (error) {
       logger.error('Error playing audio:', error);
@@ -630,10 +673,12 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     // (otherwise the trimmer briefly shows 0:00 / no playback while createAsync runs).
     setLoadingSongId(song._id);
     try {
-      await loadAudio(song);
-      setCurrentPage('trimmer');
+      const success = await loadAudio(song);
+      if (success) {
+        setCurrentPage('trimmer');
+      }
     } finally {
-      setLoadingSongId(null);
+      setLoadingSongId(prev => prev === song._id ? null : prev);
     }
   }, [getMaxSelectionDuration]);
 
@@ -661,6 +706,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   };
 
   const handleRemove = () => {
+    loadRequestIdRef.current++;
     stopAudio();
     setCurrentSong(null);
     setStartTime(0);
@@ -1072,6 +1118,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
 
   // Go back to song list from trimmer
   const handleBackToList = () => {
+    loadRequestIdRef.current++;
     stopAudio();
     setCurrentSong(null);
     setCurrentPage('list');

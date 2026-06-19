@@ -6,9 +6,11 @@ const Notification = require('../models/Notification');
 const UserInteraction = require('../models/UserInteraction');
 const Activity = require('../models/Activity');
 const Hashtag = require('../models/Hashtag');
+const Like = require('../models/Like');
+const Follow = require('../models/Follow');
 const { getOptimizedImageUrl } = require('../config/cloudinary');
 const { buildMediaKey, uploadObject, deleteObject } = require('../services/storage');
-const { generateSignedUrl, generateSignedUrls, resolveProfilePic, resolveSong } = require('../services/mediaService');
+const { generateSignedUrl, generateSignedUrls, resolveProfilePic, resolveSong, extractStorageKeyFromUrl } = require('../services/mediaService');
 const { getFollowers } = require('../utils/socketBus');
 const { getIO } = require('../socket');
 const logger = require('../utils/logger');
@@ -150,9 +152,11 @@ async function getAllowedPostAuthorIds(viewerId) {
   const publicUsers = await User.find(publicQuery).select('_id').lean();
   const publicIds = publicUsers.map(u => u._id);
 
+  const follows = await Follow.find({ follower: viewerObjId }).select('following').lean();
+  const followingIds = follows.map(f => f.following);
   const restrictedAuthors = await User.find({
-    'settings.privacy.profileVisibility': { $in: ['followers', 'private'] },
-    followers: viewerObjId
+    _id: { $in: followingIds },
+    'settings.privacy.profileVisibility': { $in: ['followers', 'private'] }
   }).select('_id').lean();
   const restrictedIds = restrictedAuthors.map(u => u._id);
 
@@ -194,11 +198,8 @@ const getPosts = async (req, res) => {
 
       // Friends feed: only posts from users the viewer follows
       if (feedMode === 'friends' && viewerId) {
-        const viewer = await User.findById(viewerId).select('following').lean();
-        const followingIds = (viewer?.following || []).map(id => (id && (id._id || id)).toString()).filter(Boolean);
-        const followingObjIds = followingIds
-          .filter(id => mongoose.Types.ObjectId.isValid(id))
-          .map(id => new mongoose.Types.ObjectId(id));
+        const followsList = await Follow.find({ follower: new mongoose.Types.ObjectId(viewerId) }).select('following').lean();
+        const followingObjIds = followsList.map(f => f.following);
         if (followingObjIds.length > 0) {
           const allowedSet = new Set(allowedFiltered.map(id => id.toString()));
           allowedFiltered = followingObjIds.filter(id => allowedSet.has(id.toString()));
@@ -223,23 +224,71 @@ const getPosts = async (req, res) => {
       // Add cursor-based filtering if cursor is provided
       if (useCursor && cursor) {
         try {
-          const cursorDate = new Date(cursor);
-          matchQuery.createdAt = { $lt: cursorDate };
+          const decoded = Buffer.from(cursor, 'base64').toString('ascii');
+          const parsed = JSON.parse(decoded);
+          if (parsed && parsed.createdAt && parsed._id) {
+            const cursorDate = new Date(parsed.createdAt);
+            const cursorId = new mongoose.Types.ObjectId(parsed._id);
+            if (feedMode === 'popular') {
+              const cursorLikes = parseInt(parsed.likesCount) || 0;
+              matchQuery.$or = [
+                { likesCount: { $lt: cursorLikes } },
+                { likesCount: cursorLikes, createdAt: { $lt: cursorDate } },
+                { likesCount: cursorLikes, createdAt: cursorDate, _id: { $lt: cursorId } }
+              ];
+            } else {
+              matchQuery.$or = [
+                { createdAt: { $lt: cursorDate } },
+                { createdAt: cursorDate, _id: { $lt: cursorId } }
+              ];
+            }
+          }
         } catch (e) {
-          logger.warn('Invalid cursor provided, using offset pagination');
+          logger.warn('Invalid cursor provided, using offset pagination fallback');
         }
       }
 
-      // For popular sort we need likesCount before $sort
-      const addLikesCountStage = { $addFields: { likesCount: { $size: { $ifNull: ['$likes', []] } } } };
       const sortStage = feedMode === 'popular'
-        ? { $sort: { likesCount: -1, createdAt: -1 } }
-        : { $sort: { createdAt: -1 } };
+        ? { $sort: { likesCount: -1, createdAt: -1, _id: -1 } }
+        : { $sort: { createdAt: -1, _id: -1 } };
+
+      const viewerIdObj = viewerId ? new mongoose.Types.ObjectId(viewerId) : null;
+      const viewerLikeLookup = viewerIdObj ? [
+        {
+          $lookup: {
+            from: 'likes',
+            let: { postId: '$_id' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ['$post', '$$postId'] },
+                      { $eq: ['$user', viewerIdObj] }
+                    ]
+                  }
+                }
+              }
+            ],
+            as: 'viewerLike'
+          }
+        },
+        {
+          $addFields: {
+            isLiked: { $gt: [{ $size: '$viewerLike' }, 0] }
+          }
+        }
+      ] : [
+        {
+          $addFields: {
+            isLiked: false
+          }
+        }
+      ];
 
       // Use aggregation pipeline for better performance (single query instead of populate)
       const posts = await Post.aggregate([
         { $match: matchQuery },
-        ...(feedMode === 'popular' ? [addLikesCountStage] : []),
         sortStage,
         ...(useCursor && cursor ? [] : [{ $skip: skip }]), // Skip only for offset pagination
         { $limit: limit },
@@ -347,15 +396,17 @@ const getPosts = async (req, res) => {
                 else: null
               }
             },
-            likesCount: { $size: { $ifNull: ['$likes', []] } },
+            likesCount: { $ifNull: ['$likesCount', 0] },
             commentsCount: { $size: { $ifNull: ['$comments', []] } },
             viewsCount: { $ifNull: ['$views', 0] } // Include views count
           }
         },
+        ...viewerLikeLookup,
         {
           $project: {
             commentUsers: 0, // Remove temporary field
-            songData: 0 // Remove temporary field
+            songData: 0, // Remove temporary field
+            viewerLike: 0 // Remove temporary field
           }
         }
       ]);
@@ -494,10 +545,7 @@ const getPosts = async (req, res) => {
       }
       // For new R2 URLs, use as-is (no optimization needed - URLs are already pre-signed)
 
-      // Check if user liked this post (optimized)
-      const isLiked = userId && post.likes 
-        ? post.likes.some(like => like.toString() === userId)
-        : false;
+      const isLiked = post.isLiked || false;
 
       const postOwnerId = post.user?._id?.toString();
       const hideLocation = postOwnerId !== userId && post.user?.settings?.privacy?.showLocation === false;
@@ -518,10 +566,19 @@ const getPosts = async (req, res) => {
       logger.warn('All posts filtered out due to missing image URLs or author data');
     }
 
-    // Determine next cursor (last post's createdAt)
-    const nextCursor = postsWithLikeStatus.length > 0 
-      ? postsWithLikeStatus[postsWithLikeStatus.length - 1].createdAt 
-      : null;
+    // Determine next cursor (last post's parameters base64-encoded)
+    let nextCursor = null;
+    if (postsWithLikeStatus.length > 0) {
+      const lastPost = postsWithLikeStatus[postsWithLikeStatus.length - 1];
+      const cursorObj = {
+        createdAt: lastPost.createdAt,
+        _id: lastPost._id.toString()
+      };
+      if (feedMode === 'popular') {
+        cursorObj.likesCount = lastPost.likesCount || 0;
+      }
+      nextCursor = Buffer.from(JSON.stringify(cursorObj)).toString('base64');
+    }
 
     const totalPages = Math.ceil(totalPosts / limit);
     const hasNextPage = useCursor ? (postsWithLikeStatus.length === limit) : (page < totalPages);
@@ -727,12 +784,8 @@ const getPostById = async (req, res) => {
     const postAuthorId = post.user?._id?.toString();
     const visibility = post.user?.settings?.privacy?.profileVisibility || 'public';
     if (visibility !== 'public' && postAuthorId !== userId) {
-      const viewerObjId = userId ? new mongoose.Types.ObjectId(userId) : null;
-      
-      // Fetch fresh author data for followers check to avoid cache staleness
-      const freshAuthor = await User.findById(postAuthorId).select('followers').lean();
-      const authorFollowers = (freshAuthor?.followers || []).map(f => f.toString());
-      const isFollower = viewerObjId ? authorFollowers.includes(viewerObjId.toString()) : false;
+      // Check follow status in Follow collection
+      const isFollower = userId ? !!(await Follow.exists({ follower: userId, following: postAuthorId })) : false;
 
       if (visibility === 'followers' && !isFollower) {
         return sendError(res, 'AUTH_1006', 'This post is not available');
@@ -853,34 +906,24 @@ const getPostById = async (req, res) => {
             logger.warn(`Failed to generate signed URL for HLS short thumbnail ${post._id}:`, error.message);
           }
         }
-      } else if (post.storageKey) {
-        try {
-          const freshVideoUrl = await generateSignedUrl(post.storageKey, 'VIDEO');
-          post.videoUrl = freshVideoUrl;
-          // Also generate thumbnail URL
-          if (post.storageKeys && post.storageKeys.length > 1) {
-            post.imageUrl = await generateSignedUrl(post.storageKeys[1], 'IMAGE');
-          } else {
-            post.imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE');
+      } else {
+        const videoKey = post.storageKey || (post.storageKeys && post.storageKeys.length > 0 ? post.storageKeys[0] : null) || extractStorageKeyFromUrl(post.videoUrl);
+        if (videoKey) {
+          try {
+            const freshVideoUrl = await generateSignedUrl(videoKey, 'VIDEO');
+            post.videoUrl = freshVideoUrl;
+            // Also generate thumbnail URL
+            if (post.storageKeys && post.storageKeys.length > 1) {
+              post.imageUrl = await generateSignedUrl(post.storageKeys[1], 'IMAGE');
+            } else {
+              post.imageUrl = await generateSignedUrl(videoKey, 'IMAGE');
+            }
+            logger.debug(`Generated fresh signed URLs for short ${post._id}`);
+          } catch (error) {
+            logger.warn(`Failed to generate signed URL for short ${post._id}:`, error.message);
+            // Fallback to stored URLs if generation fails
+            post.videoUrl = post.videoUrl || post.imageUrl || null;
           }
-          logger.debug(`Generated fresh signed URLs for short ${post._id}`);
-        } catch (error) {
-          logger.warn(`Failed to generate signed URL for short ${post._id}:`, error.message);
-          // Fallback to stored URLs if generation fails
-          post.videoUrl = post.videoUrl || post.imageUrl || null;
-        }
-      } else if (post.storageKeys && post.storageKeys.length > 0) {
-        try {
-          post.videoUrl = await generateSignedUrl(post.storageKeys[0], 'VIDEO');
-          if (post.storageKeys.length > 1) {
-            post.imageUrl = await generateSignedUrl(post.storageKeys[1], 'IMAGE');
-          } else {
-            post.imageUrl = await generateSignedUrl(post.storageKeys[0], 'IMAGE');
-          }
-          logger.debug(`Generated fresh signed URLs from storageKeys for short ${post._id}`);
-        } catch (error) {
-          logger.warn(`Failed to generate signed URL from storageKeys for short ${post._id}:`, error.message);
-          post.videoUrl = post.videoUrl || post.imageUrl || null;
         }
       }
       // Set mediaUrl for shorts (virtual field)
@@ -896,11 +939,9 @@ const getPostById = async (req, res) => {
     if (userId) {
       isLiked = post.likes && post.likes.some(like => like.toString() === userId);
       
-      // Check follow status (user data already populated in aggregation)
-      if (post.user && post.user.followers) {
-        isFollowing = post.user.followers.some(follower => 
-          follower.toString() === userId
-        );
+      // Check follow status in Follow collection
+      if (post.user && post.user._id) {
+        isFollowing = !!(await Follow.exists({ follower: userId, following: post.user._id }));
       }
     }
 
@@ -1189,7 +1230,7 @@ const createPost = async (req, res) => {
 
     // Invalidate cache for post lists
     await deleteCacheByPattern('posts:*');
-    await deleteCache(CacheKeys.userPosts(req.user._id.toString(), 1, 20));
+    await deleteCacheByPattern(`user:${req.user._id.toString()}:posts:*`);
 
     // Update hashtag counts asynchronously (don't block post creation)
     if (allHashtags.length > 0) {
@@ -1353,34 +1394,11 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
     const profileVisibility = user.settings?.privacy?.profileVisibility || 'public';
     const isOwnProfile = req.user ? req.user._id.toString() === userId : false;
 
-    // For "followers only" profiles, requester must be in profile owner's followers list
-    if (!isOwnProfile && profileVisibility === 'followers') {
-      const isFollowing = req.user && user.followers ?
-        user.followers.some(follower => {
-          const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
-          return followerId === req.user._id.toString();
-        }) :
-        false;
-
-      if (!isFollowing) {
-        return sendSuccess(res, 200, 'Shorts fetched successfully', {
-          shorts: [],
-          totalShorts: 0,
-          nextCursor: null,
-          hasNextPage: false
-        });
-      }
-    }
-
-    // For "private" profiles, requester must be in profile owner's followers list
-    // (i.e. the viewer follows the profile owner).
-    if (!isOwnProfile && profileVisibility === 'private') {
-      const isFollowing = req.user && user.followers ?
-        user.followers.some(follower => {
-          const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
-          return followerId === req.user._id.toString();
-        }) :
-        false;
+    // For "followers only" and "private" profiles, requester must follow profile owner
+    if (!isOwnProfile && (profileVisibility === 'followers' || profileVisibility === 'private')) {
+      const isFollowing = req.user
+        ? await Follow.exists({ follower: req.user._id, following: userId })
+        : false;
 
       if (!isFollowing) {
         return sendSuccess(res, 200, 'Shorts fetched successfully', {
@@ -1560,6 +1578,12 @@ const cursor = req.query.cursor || (req.query.page && isNaN(Number(req.query.pag
     const shortsWithProfilePics = await Promise.all(shorts.map(async (short) => {
       if (short.user) {
         short.user.profilePic = await resolveProfilePic(short.user);
+        // Add follow check using Follow.exists
+        if (currentUserId) {
+          short.isFollowing = !!(await Follow.exists({ follower: currentUserId, following: short.user._id }));
+        } else {
+          short.isFollowing = false;
+        }
       }
 
       // Generate signed URL for song if present (same logic as getShorts)
@@ -1947,7 +1971,7 @@ const getUserPosts = async (req, res) => {
     const skip = (page - 1) * limit;
 
     // Check if user exists and get privacy settings
-    const user = await User.findById(userId).select('fullName profilePic settings.privacy.profileVisibility settings.privacy.showLocation followers following');
+    const user = await User.findById(userId).select('fullName profilePic settings.privacy.profileVisibility settings.privacy.showLocation');
     if (!user) {
       return res.status(404).json({
         error: 'User not found',
@@ -1959,34 +1983,11 @@ const getUserPosts = async (req, res) => {
     const profileVisibility = user.settings?.privacy?.profileVisibility || 'public';
     const isOwnProfile = req.user ? req.user._id.toString() === userId : false;
 
-    // For "followers only" profiles, requester must be in profile owner's followers list
-    if (!isOwnProfile && profileVisibility === 'followers') {
-      const isFollowing = req.user && user.followers ?
-        user.followers.some(follower => {
-          const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
-          return followerId === req.user._id.toString();
-        }) :
-        false;
-
-      if (!isFollowing) {
-        return sendSuccess(res, 200, 'Posts fetched successfully', {
-          posts: [],
-          totalPosts: 0,
-          currentPage: page,
-          totalPages: 0
-        });
-      }
-    }
-
-    // For "private" profiles, requester must be in profile owner's followers list
-    // (i.e. the viewer follows the profile owner).
-    if (!isOwnProfile && profileVisibility === 'private') {
-      const isFollowing = req.user && user.followers ?
-        user.followers.some(follower => {
-          const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
-          return followerId === req.user._id.toString();
-        }) :
-        false;
+    // For "followers only" and "private" profiles, requester must follow profile owner
+    if (!isOwnProfile && (profileVisibility === 'followers' || profileVisibility === 'private')) {
+      const isFollowing = req.user
+        ? await Follow.exists({ follower: req.user._id, following: userId })
+        : false;
 
       if (!isFollowing) {
         return sendSuccess(res, 200, 'Posts fetched successfully', {
@@ -2006,17 +2007,44 @@ const getUserPosts = async (req, res) => {
       const userIdObj = new mongoose.Types.ObjectId(userId);
       const currentUserId = req.user ? new mongoose.Types.ObjectId(req.user._id) : null;
 
+      const viewerLikeLookup = currentUserId ? [
+        {
+          $lookup: {
+            from: 'likes',
+            let: { postId: '$_id' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ['$post', '$$postId'] },
+                      { $eq: ['$user', currentUserId] }
+                    ]
+                  }
+                }
+              }
+            ],
+            as: 'viewerLike'
+          }
+        },
+        {
+          $addFields: {
+            isLiked: { $gt: [{ $size: '$viewerLike' }, 0] }
+          }
+        }
+      ] : [
+        {
+          $addFields: {
+            isLiked: false
+          }
+        }
+      ];
+
       const posts = await Post.aggregate([
         {
           $match: {
             user: userIdObj,
             isActive: true,
-            // Hidden / archived posts must not appear on the profile —
-            // not for the owner (they live in Settings → Manage Posts) and
-            // definitely not for other users viewing the profile. Without
-            // these, hide/archive only removed the post from the home feed
-            // (getPosts already filters them) but it stayed visible on the
-            // author's profile to everyone, defeating the feature.
             isHidden: { $ne: true },
             isArchived: { $ne: true },
             type: 'photo',
@@ -2116,16 +2144,17 @@ const getUserPosts = async (req, res) => {
                 else: null
               }
             },
-            likesCount: { $size: { $ifNull: ['$likes', []] } },
+            likesCount: { $ifNull: ['$likesCount', 0] },
             commentsCount: { $size: { $ifNull: ['$comments', []] } },
-            viewsCount: { $ifNull: ['$views', 0] },
-            isLiked: currentUserId ? { $in: [currentUserId, { $ifNull: ['$likes', []] }] } : false
+            viewsCount: { $ifNull: ['$views', 0] }
           }
         },
+        ...viewerLikeLookup,
         {
           $project: {
             commentUsers: 0,
-            songData: 0
+            songData: 0,
+            viewerLike: 0
           }
         }
       ]);
@@ -2250,62 +2279,71 @@ const toggleLike = async (req, res) => {
     const postOwnerId = post.user?.toString();
     if (postOwnerId && postOwnerId !== req.user._id.toString()) {
       const postAuthor = await User.findById(postOwnerId)
-        .select('settings.privacy.profileVisibility followers')
+        .select('settings.privacy.profileVisibility')
         .lean();
       const vis = postAuthor?.settings?.privacy?.profileVisibility || 'public';
       if (vis !== 'public') {
-        const isFollower = (postAuthor?.followers || []).some(
-          f => f.toString() === req.user._id.toString()
-        );
+        const isFollower = await Follow.exists({ follower: req.user._id, following: postOwnerId });
         if (!isFollower) {
-          return sendError(res, 'AUTH_1003', 'You cannot interact with this post');
+          return sendError(res, 'AUTH_1006', 'You cannot interact with this post');
         }
       }
     }
 
-    // Check current like status BEFORE update
-    const currentlyLiked = post.likes.some(like => like.toString() === req.user._id.toString());
+    // Check current like status BEFORE update in Like collection
+    const existingLike = await Like.findOne({ post: req.params.id, user: req.user._id });
+    const currentlyLiked = !!existingLike;
     
-    let updatedPost;
     let operationExecuted = false;
+    let finalIsLiked = false;
+    let updatedLikesCount = 0;
 
     if (currentlyLiked) {
-      // We want to UNLIKE. Only match if user is currently in likes.
-      updatedPost = await Post.findOneAndUpdate(
-        { _id: req.params.id, likes: req.user._id },
-        { $pull: { likes: req.user._id } },
-        { new: true }
-      );
-      if (updatedPost) {
+      // We want to UNLIKE. Delete the like document.
+      const deleteResult = await Like.deleteOne({ post: req.params.id, user: req.user._id });
+      if (deleteResult.deletedCount > 0) {
         operationExecuted = true;
+        finalIsLiked = false;
+        // Atomically decrement likesCount
+        const updatedPost = await Post.findByIdAndUpdate(
+          req.params.id,
+          { $inc: { likesCount: -1 } },
+          { new: true }
+        );
+        updatedLikesCount = updatedPost ? updatedPost.likesCount : 0;
       }
     } else {
-      // We want to LIKE. Only match if user is NOT currently in likes.
-      updatedPost = await Post.findOneAndUpdate(
-        { _id: req.params.id, likes: { $ne: req.user._id } },
-        { $addToSet: { likes: req.user._id } },
-        { new: true }
-      );
-      if (updatedPost) {
+      // We want to LIKE. Create the like document.
+      try {
+        await Like.create({ post: req.params.id, user: req.user._id });
         operationExecuted = true;
+        finalIsLiked = true;
+        // Atomically increment likesCount
+        const updatedPost = await Post.findByIdAndUpdate(
+          req.params.id,
+          { $inc: { likesCount: 1 } },
+          { new: true }
+        );
+        updatedLikesCount = updatedPost ? updatedPost.likesCount : 0;
+      } catch (err) {
+        // If duplicate key error, it means another request liked it concurrently
+        if (err.code === 11000) {
+          operationExecuted = false;
+        } else {
+          throw err;
+        }
       }
     }
 
-    let finalIsLiked;
-    let updatedLikesCount;
-
-    if (operationExecuted) {
-      finalIsLiked = !currentlyLiked;
-      updatedLikesCount = updatedPost.likes.length;
-    } else {
+    if (!operationExecuted) {
       // Duplicate concurrent request, state was already updated.
       // Fetch fresh post to return accurate status to client.
       const freshPost = await Post.findById(req.params.id).lean();
       if (!freshPost) {
         return sendError(res, 'RES_3001', 'Post does not exist');
       }
-      finalIsLiked = freshPost.likes.some(like => like.toString() === req.user._id.toString());
-      updatedLikesCount = freshPost.likes.length;
+      finalIsLiked = await Like.exists({ post: req.params.id, user: req.user._id });
+      updatedLikesCount = freshPost.likesCount || 0;
     }
 
     if (operationExecuted) {
@@ -2347,7 +2385,7 @@ const toggleLike = async (req, res) => {
       // Invalidate cache
       await deleteCache(CacheKeys.post(req.params.id));
       await deleteCacheByPattern('posts:*');
-      await deleteCache(CacheKeys.userPosts(post.user.toString(), 1, 20));
+      await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
       // Update user's total likes if this is their post - use final verified state
       if (finalIsLiked) {
@@ -2458,15 +2496,13 @@ const addComment = async (req, res) => {
     const commentPostOwnerId = post.user?._id?.toString();
     if (commentPostOwnerId && commentPostOwnerId !== req.user._id.toString()) {
       const commentPostAuthor = await User.findById(commentPostOwnerId)
-        .select('settings.privacy.profileVisibility followers')
+        .select('settings.privacy.profileVisibility')
         .lean();
       const commentVis = commentPostAuthor?.settings?.privacy?.profileVisibility || 'public';
       if (commentVis !== 'public') {
-        const isCommentFollower = (commentPostAuthor?.followers || []).some(
-          f => f.toString() === req.user._id.toString()
-        );
+        const isCommentFollower = await Follow.exists({ follower: req.user._id, following: commentPostOwnerId });
         if (!isCommentFollower) {
-          return sendError(res, 'AUTH_1003', 'You cannot interact with this post');
+          return sendError(res, 'AUTH_1006', 'You cannot interact with this post');
         }
       }
     }
@@ -2700,11 +2736,6 @@ const deletePost = async (req, res) => {
     const postId = post._id;
     const userId = post.user.toString();
 
-    // Invalidate cache before deletion
-    await deleteCache(CacheKeys.post(req.params.id));
-    await deleteCacheByPattern('posts:*');
-    await deleteCache(CacheKeys.userPosts(userId, 1, 20));
-
     // Cascade delete all related data FIRST (before deleting the post)
     await cascadeDeletePost(postId, post);
 
@@ -2715,6 +2746,12 @@ const deletePost = async (req, res) => {
     // Decrement user's postCount atomically
     await User.findByIdAndUpdate(userId, { $inc: { postCount: -1 } });
     logger.info(`Decremented postCount for user ${userId}`);
+
+    // Invalidate cache after database deletion is complete to prevent concurrent reads from caching stale/deleted post
+    await deleteCache(CacheKeys.post(req.params.id));
+    await deleteCacheByPattern('posts:*');
+    await deleteCacheByPattern(`user:${userId}:posts:*`);
+
 
     // Emit socket events
     const io = getIO();
@@ -2752,6 +2789,11 @@ const archivePost = async (req, res) => {
     post.isArchived = true;
     await post.save();
 
+    // Invalidate cache
+    await deleteCache(CacheKeys.post(post._id.toString()));
+    await deleteCacheByPattern('posts:*');
+    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
+
     return sendSuccess(res, 200, 'Post archived successfully', { post });
   } catch (error) {
     logger.error('Archive post error:', error);
@@ -2775,6 +2817,11 @@ const unarchivePost = async (req, res) => {
 
     post.isArchived = false;
     await post.save();
+
+    // Invalidate cache
+    await deleteCache(CacheKeys.post(post._id.toString()));
+    await deleteCacheByPattern('posts:*');
+    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     return sendSuccess(res, 200, 'Post unarchived successfully', { post });
   } catch (error) {
@@ -2836,11 +2883,15 @@ const getArchivedPosts = async (req, res) => {
       }
     }
 
+    const postIds = posts.map(p => p._id);
+    const userLikes = await Like.find({ user: req.user._id, post: { $in: postIds } }).lean();
+    const likedPostIds = new Set(userLikes.map(l => l.post.toString()));
+
     const postsWithLikeStatus = posts.map(post => ({
       ...post,
-      isLiked: post.likes.some(like => like.toString() === req.user._id.toString()),
-      likesCount: post.likes.length,
-      commentsCount: post.comments.length
+      isLiked: likedPostIds.has(post._id.toString()),
+      likesCount: post.likesCount || 0,
+      commentsCount: post.comments ? post.comments.length : 0
     }));
 
     return sendSuccess(res, 200, 'Archived posts fetched successfully', {
@@ -2868,6 +2919,11 @@ const hidePost = async (req, res) => {
     post.isHidden = true;
     await post.save();
 
+    // Invalidate cache
+    await deleteCache(CacheKeys.post(post._id.toString()));
+    await deleteCacheByPattern('posts:*');
+    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
+
     return sendSuccess(res, 200, 'Post hidden successfully', { post });
   } catch (error) {
     logger.error('Hide post error:', error);
@@ -2891,6 +2947,11 @@ const unhidePost = async (req, res) => {
 
     post.isHidden = false;
     await post.save();
+
+    // Invalidate cache
+    await deleteCache(CacheKeys.post(post._id.toString()));
+    await deleteCacheByPattern('posts:*');
+    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     return sendSuccess(res, 200, 'Post unhidden successfully', { post });
   } catch (error) {
@@ -2950,11 +3011,15 @@ const getHiddenPosts = async (req, res) => {
       }
     }
 
+    const postIds = posts.map(p => p._id);
+    const userLikes = await Like.find({ user: req.user._id, post: { $in: postIds } }).lean();
+    const likedPostIds = new Set(userLikes.map(l => l.post.toString()));
+
     const postsWithLikeStatus = posts.map(post => ({
       ...post,
-      isLiked: post.likes.some(like => like.toString() === req.user._id.toString()),
-      likesCount: post.likes.length,
-      commentsCount: post.comments.length
+      isLiked: likedPostIds.has(post._id.toString()),
+      likesCount: post.likesCount || 0,
+      commentsCount: post.comments ? post.comments.length : 0
     }));
 
     return sendSuccess(res, 200, 'Hidden posts fetched successfully', {
@@ -3028,7 +3093,7 @@ const updatePost = async (req, res) => {
     // Invalidate cache
     await deleteCache(CacheKeys.post(req.params.id));
     await deleteCacheByPattern('posts:*');
-    await deleteCache(CacheKeys.userPosts(post.user.toString(), 1, 20));
+    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     // Update hashtag counts (decrement old, increment new)
     const newHashtags = extractedHashtags.length > 0 ? extractedHashtags : (post.tags || []);
@@ -3174,7 +3239,7 @@ const getShorts = async (req, res) => {
 
     // Retrieve up to 200 candidate unseen shorts sorted by date (indexed query)
     const candidateShorts = await Post.find(baseConditions)
-      .populate('user', 'fullName username profilePic profilePicStorageKey followers')
+      .populate('user', 'fullName username profilePic profilePicStorageKey followersCount')
       .populate('comments.user', 'fullName username profilePic profilePicStorageKey')
       .populate('song.songId')
       .sort({ createdAt: -1 })
@@ -3229,7 +3294,7 @@ const getShorts = async (req, res) => {
       const rewatches = short.rewatchesCount || 0;
       const shares = short.sharesCount || 0;
       const saves = short.savesCount || 0;
-      const likes = short.likes ? short.likes.length : 0;
+      const likes = short.likesCount || 0;
       const views = short.views || 0;
       
       const totalEngagementWeight = (completions * 4) + (rewatches * 3) + (shares * 2) + (saves * 2) + likes;
@@ -3336,7 +3401,7 @@ const getShorts = async (req, res) => {
       }
 
       const seenShortsFromDb = await Post.find(seenConditions)
-        .populate('user', 'fullName username profilePic profilePicStorageKey followers')
+        .populate('user', 'fullName username profilePic profilePicStorageKey followersCount')
         .populate('comments.user', 'fullName username profilePic profilePicStorageKey')
         .populate('song.songId')
         .lean();
@@ -3384,7 +3449,7 @@ const getShorts = async (req, res) => {
       }
 
       const repeatedShortsFromDb = await Post.find(repeatedConditions)
-        .populate('user', 'fullName username profilePic profilePicStorageKey followers')
+        .populate('user', 'fullName username profilePic profilePicStorageKey followersCount')
         .populate('comments.user', 'fullName username profilePic profilePicStorageKey')
         .populate('song.songId')
         .lean();
@@ -3404,16 +3469,21 @@ const getShorts = async (req, res) => {
       drawFromPool(scoredRepeated, safeLimit - selectedShorts.length);
     }
 
+    // Resolve user liked status for the final blended shorts
+    let likedShortIdsSet = new Set();
+    if (req.user && selectedShorts.length > 0) {
+      const shortIds = selectedShorts.map(s => s._id);
+      const userLikes = await Like.find({ user: req.user._id, post: { $in: shortIds } }).lean();
+      likedShortIdsSet = new Set(userLikes.map(l => l.post.toString()));
+    }
+
     // Generate signed URLs and resolve assets for client delivery
     const shortsWithLikeStatus = await Promise.all(selectedShorts.map(async (short) => {
       let isFollowing = false;
       
       if (req.user && short.user) {
-        if (short.user.followers && Array.isArray(short.user.followers)) {
-          isFollowing = short.user.followers.some(follower => 
-            (typeof follower === 'object' ? follower.toString() : follower) === req.user._id.toString()
-          );
-        }
+        const creatorId = short.user._id ? short.user._id.toString() : short.user.toString();
+        isFollowing = await Follow.exists({ follower: req.user._id, following: creatorId });
       }
       
       if (short.user) {
@@ -3448,45 +3518,28 @@ const getShorts = async (req, res) => {
             logger.warn(`Failed to generate signed URL for HLS short thumbnail ${short._id}:`, error.message);
           }
         }
-      } else if (short.storageKey) {
-        try {
-          const freshVideoUrl = await generateSignedUrl(short.storageKey, 'VIDEO');
-          if (freshVideoUrl) {
-            videoUrl = freshVideoUrl;
-          }
-          if (short.storageKeys && short.storageKeys.length > 1) {
-            const freshImageUrl = await generateSignedUrl(short.storageKeys[1], 'IMAGE');
-            if (freshImageUrl) {
-              imageUrl = freshImageUrl;
+      } else {
+        const videoKey = short.storageKey || (short.storageKeys && short.storageKeys.length > 0 ? short.storageKeys[0] : null) || extractStorageKeyFromUrl(short.videoUrl);
+        if (videoKey) {
+          try {
+            const freshVideoUrl = await generateSignedUrl(videoKey, 'VIDEO');
+            if (freshVideoUrl) {
+              videoUrl = freshVideoUrl;
             }
-          } else {
-            const freshImageUrl = await generateSignedUrl(short.storageKey, 'IMAGE');
-            if (freshImageUrl) {
-              imageUrl = freshImageUrl;
+            if (short.storageKeys && short.storageKeys.length > 1) {
+              const freshImageUrl = await generateSignedUrl(short.storageKeys[1], 'IMAGE');
+              if (freshImageUrl) {
+                imageUrl = freshImageUrl;
+              }
+            } else {
+              const freshImageUrl = await generateSignedUrl(videoKey, 'IMAGE');
+              if (freshImageUrl) {
+                imageUrl = freshImageUrl;
+              }
             }
+          } catch (error) {
+            logger.warn(`Failed to generate signed URL for short ${short._id}:`, error.message);
           }
-        } catch (error) {
-          logger.warn(`Failed to generate signed URL for short ${short._id}:`, error.message);
-        }
-      } else if (short.storageKeys && short.storageKeys.length > 0) {
-        try {
-          const freshVideoUrl = await generateSignedUrl(short.storageKeys[0], 'VIDEO');
-          if (freshVideoUrl) {
-            videoUrl = freshVideoUrl;
-          }
-          if (short.storageKeys.length > 1) {
-            const freshImageUrl = await generateSignedUrl(short.storageKeys[1], 'IMAGE');
-            if (freshImageUrl) {
-              imageUrl = freshImageUrl;
-            }
-          } else {
-            const freshImageUrl = await generateSignedUrl(short.storageKeys[0], 'IMAGE');
-            if (freshImageUrl) {
-              imageUrl = freshImageUrl;
-            }
-          }
-        } catch (error) {
-          logger.warn(`Failed to generate signed URL from storageKeys for short ${short._id}:`, error.message);
         }
       }
       
@@ -3498,11 +3551,9 @@ const getShorts = async (req, res) => {
         videoUrl: videoUrl || short.videoUrl || null,
         imageUrl: imageUrl || short.imageUrl || null,
         mediaUrl,
-        isLiked: req.user ? (short.likes || []).some(like => 
-          (typeof like === 'object' ? like.toString() : like) === req.user._id.toString()
-        ) : false,
-        likesCount: Math.max(typeof short.likesCount === 'number' ? short.likesCount : 0, Array.isArray(short.likes) ? short.likes.length : 0),
-        commentsCount: Math.max(typeof short.commentsCount === 'number' ? short.commentsCount : 0, Array.isArray(short.comments) ? short.comments.length : 0),
+        isLiked: req.user ? likedShortIdsSet.has(short._id.toString()) : false,
+        likesCount: short.likesCount || 0,
+        commentsCount: short.comments ? short.comments.length : 0,
         viewsCount: short.viewsCount || 0,
         user: {
           ...short.user,
@@ -3760,7 +3811,7 @@ const createShort = async (req, res) => {
     await short.save();
 
     await deleteCacheByPattern('posts:*');
-    await deleteCache(CacheKeys.userPosts(req.user._id.toString(), 1, 20));
+    await deleteCacheByPattern(`user:${req.user._id.toString()}:posts:*`);
 
     // Create TranscodeJob
     const TranscodeJob = mongoose.model('TranscodeJob');
@@ -3923,7 +3974,7 @@ const incrementShare = async (req, res) => {
     // Invalidate cache
     await deleteCache(CacheKeys.post(req.params.id));
     await deleteCacheByPattern('posts:*');
-    await deleteCache(CacheKeys.userPosts(post.user.toString(), 1, 20));
+    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     // Emit real-time post share update if socket is configured
     try {
@@ -3955,13 +4006,19 @@ const getPostLikers = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    const post = await Post.findById(id).select('likes').lean();
-    if (!post) {
+    const postExists = await Post.exists({ _id: id });
+    if (!postExists) {
       return sendError(res, 'RES_3001', 'Post does not exist');
     }
 
-    const likerIds = (post.likes || []).slice(skip, skip + limit);
-    const totalLikes = (post.likes || []).length;
+    const totalLikes = await Like.countDocuments({ post: id });
+    const likes = await Like.find({ post: id })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const likerIds = likes.map(l => l.user);
 
     const likers = await User.find({ _id: { $in: likerIds } })
       .select('fullName username profilePic profilePicStorageKey settings.privacy.profileVisibility')

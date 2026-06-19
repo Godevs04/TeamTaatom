@@ -131,10 +131,10 @@ const postSchema = new mongoose.Schema({
     enum: ['Drivable', 'Hiking', 'Water Transport', 'Flight', 'Train', null],
     default: null
   },
-  likes: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
-  }],
+  likesCount: {
+    type: Number,
+    default: 0
+  },
   comments: [commentSchema],
   isActive: {
     type: Boolean,
@@ -288,13 +288,8 @@ postSchema.index({ type: 1, isActive: 1, createdAt: -1 }); // Type-based feed qu
 postSchema.index({ user: 1, type: 1, isActive: 1, createdAt: -1 }); // User posts by type
 postSchema.index({ tags: 1 }); // For hashtag/tag searches
 postSchema.index({ 'location.coordinates': '2dsphere' }); // For geospatial location queries
-postSchema.index({ likes: 1 }); // For like count queries
+postSchema.index({ likesCount: -1, createdAt: -1 }); // Compound index for sorting popular feed
 postSchema.index({ isHidden: 1, isActive: 1 }); // For filtering visible posts
-
-// Virtual for like count
-postSchema.virtual('likesCount').get(function() {
-  return this.likes ? this.likes.length : 0;
-});
 
 // Virtual for comments count
 postSchema.virtual('commentsCount').get(function() {
@@ -319,27 +314,24 @@ postSchema.set('toJSON', { virtuals: true });
 postSchema.set('toObject', { virtuals: true });
 
 // Method to check if user liked the post
-postSchema.methods.isLikedBy = function(userId) {
-  return this.likes ? this.likes.some(like => like.toString() === userId.toString()) : false;
+postSchema.methods.isLikedBy = async function(userId) {
+  if (!userId) return false;
+  return await mongoose.model('Like').exists({ post: this._id, user: userId });
 };
 
 // Method to toggle like
-postSchema.methods.toggleLike = function(userId) {
-  if (!this.likes) {
-    this.likes = [];
-  }
-  
-  const likeIndex = this.likes.findIndex(like => like.toString() === userId.toString());
-  
-  if (likeIndex > -1) {
-    // Unlike
-    this.likes.splice(likeIndex, 1);
+postSchema.methods.toggleLike = async function(userId) {
+  if (!userId) return false;
+  const Like = mongoose.model('Like');
+  const existingLike = await Like.findOneAndDelete({ post: this._id, user: userId });
+  if (existingLike) {
+    this.likesCount = Math.max(0, (this.likesCount || 0) - 1);
+    await this.save();
     return false; // unliked
   } else {
-    // Like
-    if (!this.likes.some(like => like.toString() === userId.toString())) {
-      this.likes.push(userId);
-    }
+    await Like.create({ post: this._id, user: userId });
+    this.likesCount = (this.likesCount || 0) + 1;
+    await this.save();
     return true; // liked
   }
 };
@@ -365,16 +357,37 @@ postSchema.methods.removeComment = function(commentId) {
   this.comments = this.comments.filter(comment => comment._id.toString() !== commentId.toString());
 };
 
-// Static method to get posts with user data
+// Static method to get posts with user data using cursor pagination
 postSchema.statics.getPostsWithUserData = function(filter = {}, options = {}) {
-  const { page = 1, limit = 20, sortBy = '-createdAt' } = options;
-  const skip = (page - 1) * limit;
+  const { cursor, limit = 20, sortBy = '-createdAt', useCursor = true } = options;
 
-  return this.find({ isActive: true, ...filter })
+  let query = { isActive: true, ...filter };
+
+  if (useCursor && cursor) {
+    let parsedCursor = cursor;
+    if (typeof cursor === 'string') {
+      try {
+        parsedCursor = JSON.parse(Buffer.from(cursor, 'base64').toString('ascii'));
+      } catch (e) {
+        // Ignore parsing errors and fallback
+      }
+    }
+
+    if (parsedCursor && parsedCursor.createdAt && parsedCursor._id) {
+      const cursorDate = new Date(parsedCursor.createdAt);
+      const cursorId = new mongoose.Types.ObjectId(parsedCursor._id);
+      
+      query.$or = [
+        { createdAt: { $lt: cursorDate } },
+        { createdAt: cursorDate, _id: { $lt: cursorId } }
+      ];
+    }
+  }
+
+  return this.find(query)
     .populate('user', 'fullName profilePic')
     .populate('comments.user', 'fullName profilePic')
     .sort(sortBy)
-    .skip(skip)
     .limit(limit)
     .lean();
 };

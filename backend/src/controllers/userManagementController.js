@@ -239,9 +239,7 @@ const syncUserData = async (req, res) => {
   try {
     const userId = req.user._id;
     const user = await User.findById(userId)
-      .select('fullName username email profilePic followers following blockedUsers isVerified lastLogin createdAt')
-      .populate('followers', 'fullName username profilePic')
-      .populate('following', 'fullName username profilePic');
+      .select('fullName username email profilePic followersCount followingCount blockedUsers isVerified lastLogin createdAt');
     
     if (!user) {
       return sendError(res, 'RES_3001', 'User does not exist');
@@ -258,8 +256,8 @@ const syncUserData = async (req, res) => {
         isVerified: user.isVerified,
         lastLogin: user.lastLogin,
         createdAt: user.createdAt,
-        followersCount: user.followers?.length || 0,
-        followingCount: user.following?.length || 0,
+        followersCount: user.followersCount || 0,
+        followingCount: user.followingCount || 0,
         blockedUsersCount: user.blockedUsers?.length || 0
       },
       syncedAt: new Date()
@@ -381,11 +379,12 @@ const hashId = (id) => {
 const exportUserData = async (req, res) => {
   try {
     const userId = req.user._id;
-    const user = await User.findById(userId)
-      .select('-password -otp -otpExpires')
-      .populate('followers', 'fullName username email')
-      .populate('following', 'fullName username email')
-      .lean();
+    const Follow = require('../models/Follow');
+    const [user, followersDocs, followingDocs] = await Promise.all([
+      User.findById(userId).select('-password -otp -otpExpires').lean(),
+      Follow.find({ following: userId }).populate('follower', 'fullName username email').lean(),
+      Follow.find({ follower: userId }).populate('following', 'fullName username email').lean()
+    ]);
 
     if (!user) {
       return sendError(res, 'RES_3001', 'User does not exist');
@@ -419,6 +418,9 @@ const exportUserData = async (req, res) => {
       .limit(100)
       .lean();
 
+    const followers = followersDocs.map(f => f.follower).filter(Boolean);
+    const following = followingDocs.map(f => f.following).filter(Boolean);
+
     // Compile export data with sanitization
     const exportData = {
       exportDate: new Date().toISOString(),
@@ -445,18 +447,18 @@ const exportUserData = async (req, res) => {
           }
         } : null,
       },
-      followers: user.followers?.map(f => ({
+      followers: followers.map(f => ({
         id: hashId(f._id), // Hashed ID
         fullName: f.fullName,
         username: f.username,
         email: maskEmail(f.email) // Masked email
-      })) || [],
-      following: user.following?.map(f => ({
+      })),
+      following: following.map(f => ({
         id: hashId(f._id), // Hashed ID
         fullName: f.fullName,
         username: f.username,
         email: maskEmail(f.email) // Masked email
-      })) || [],
+      })),
       posts: posts.map(p => ({
         id: hashId(p._id), // Hashed ID
         caption: p.caption,

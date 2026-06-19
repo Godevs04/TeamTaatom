@@ -13,6 +13,7 @@ const logger = require('../utils/logger');
 const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } = require('../utils/cache');
 const Activity = require('../models/Activity');
 const TripVisit = require('../models/TripVisit');
+const Follow = require('../models/Follow');
 const { VERIFIED_STATUSES } = require('../config/tripScoreConfig');
 const { lookupByCoords } = require('../utils/coordsToCountry');
 const { sendNotificationToUser } = require('../utils/sendNotification');
@@ -35,16 +36,16 @@ async function checkProfilePrivacy(targetUserId, viewerId) {
     return { allowed: true, showLocation: true };
   }
   const targetUser = await User.findById(targetUserId)
-    .select('settings.privacy.profileVisibility settings.privacy.showLocation followers')
+    .select('settings.privacy.profileVisibility settings.privacy.showLocation')
     .lean();
   if (!targetUser) return { allowed: false, reason: 'User not found' };
 
   const visibility = targetUser.settings?.privacy?.profileVisibility || 'public';
   if (visibility === 'public') return { allowed: true, showLocation: targetUser.settings?.privacy?.showLocation !== false };
 
-  // For followers/private: check if viewer is in the target's followers array
+  // For followers/private: check if viewer follows target
   const isFollower = viewerId
-    ? (targetUser.followers || []).some(f => f.toString() === viewerId.toString())
+    ? await Follow.exists({ follower: viewerId, following: targetUserId })
     : false;
 
   if (!isFollower) {
@@ -99,42 +100,9 @@ const getProfile = async (req, res) => {
     // Cache key
     const cacheKey = CacheKeys.user(id);
 
-    // Use cache wrapper with optimized query using aggregation to avoid N+1
+    // Use cache wrapper with optimized query
     const user = await cacheWrapper(cacheKey, async () => {
-      // Use aggregation pipeline to efficiently fetch user with followers/following
-      const users = await User.aggregate([
-        { $match: { _id: new mongoose.Types.ObjectId(id) } },
-        {
-          $lookup: {
-            from: 'users',
-            localField: 'followers',
-            foreignField: '_id',
-            as: 'followers',
-            pipeline: [
-              { $project: { fullName: 1, profilePic: 1 } }
-            ]
-          }
-        },
-        {
-          $lookup: {
-            from: 'users',
-            localField: 'following',
-            foreignField: '_id',
-            as: 'following',
-            pipeline: [
-              { $project: { fullName: 1, profilePic: 1 } }
-            ]
-          }
-        },
-        {
-          $project: {
-            password: 0,
-            otp: 0,
-            otpExpires: 0
-          }
-        }
-      ]);
-      return users[0] || null;
+      return await User.findById(id).select('-password -otp -otpExpires').lean();
     }, CACHE_TTL.USER_PROFILE);
 
     // Backend Defensive Guards: Guard against null/missing profile data
@@ -219,13 +187,15 @@ const getProfile = async (req, res) => {
       areas: []
     };
 
-    // Check if current user is following this profile (requester is in profile's followers)
-    const isFollowing = req.user && user.followers ?
-      user.followers.some(follower => {
-        const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
-        return followerId === req.user._id.toString();
-      }) :
-      false;
+    // Check if current user is following this profile
+    const isFollowing = req.user
+      ? !!(await Follow.exists({ follower: req.user._id, following: id }))
+      : false;
+
+    // Check if profile owner follows the current user
+    const isFollowedBy = req.user
+      ? !!(await Follow.exists({ follower: id, following: req.user._id }))
+      : false;
 
     // Check if current user has sent a follow request
     const hasSentFollowRequest = req.user && user.followRequests ? 
@@ -293,18 +263,9 @@ const getProfile = async (req, res) => {
     const tripScore = canViewProfile ? tripScoreData : null;
 
     // user is already a lean object, so we can spread it directly
-    // Calculate followers/following counts (they are populated objects)
-    const followersCount = user.followers ? 
-      user.followers.filter((follower) => {
-        const followerId = typeof follower === 'object' && follower._id ? follower._id.toString() : follower.toString();
-        return followerId !== id.toString();
-      }).length : 0;
-    
-    const followingCount = user.following ? 
-      user.following.filter((following) => {
-        const followingId = typeof following === 'object' && following._id ? following._id.toString() : following.toString();
-        return followingId !== id.toString();
-      }).length : 0;
+    // Use the counts fields directly from the User schema
+    const followersCount = user.followersCount || 0;
+    const followingCount = user.followingCount || 0;
 
     // Generate signed URL for profile picture dynamically
     let profilePicUrl = null;
@@ -586,9 +547,7 @@ const toggleFollow = async (req, res) => {
     }
     // Mongoose stores ObjectIds; req.params.id is a string — `.includes(id)` is always false.
     const targetIdStr = id.toString();
-    const isFollowing = (targetUser.followers || []).some(
-      (fid) => fid.toString() === currentUserId.toString()
-    );
+    const isFollowing = await Follow.exists({ follower: currentUserId, following: id });
 
     const notifyFollowUpdated = () => {
       void (async () => {
@@ -608,9 +567,12 @@ const toggleFollow = async (req, res) => {
     };
 
     if (isFollowing) {
-      // Unfollow - remove from both users
-      currentUser.following.pull(id);
-      targetUser.followers.pull(currentUserId);
+      // Unfollow - remove Follow document
+      const deleteResult = await Follow.deleteOne({ follower: currentUserId, following: id });
+      if (deleteResult.deletedCount > 0) {
+        await User.findByIdAndUpdate(currentUserId, { $inc: { followingCount: -1 } });
+        await User.findByIdAndUpdate(id, { $inc: { followersCount: -1 } });
+      }
       
       // Remove any pending follow requests
       currentUser.sentFollowRequests = currentUser.sentFollowRequests.filter(
@@ -642,10 +604,13 @@ const toggleFollow = async (req, res) => {
 
       notifyFollowUpdated();
 
+      const freshCurrentUser = await User.findById(currentUserId).select('followingCount');
+      const freshTargetUser = await User.findById(id).select('followersCount');
+
       return sendSuccess(res, 200, 'User unfollowed', {
         isFollowing: false,
-        followersCount: targetUser.followers.filter(followerId => followerId.toString() !== id.toString()).length,
-        followingCount: currentUser.following.filter(followingId => followingId.toString() !== currentUserId.toString()).length,
+        followersCount: freshTargetUser ? freshTargetUser.followersCount : 0,
+        followingCount: freshCurrentUser ? freshCurrentUser.followingCount : 0,
         followRequestSent: false
       });
     } else {
@@ -695,8 +660,8 @@ const toggleFollow = async (req, res) => {
 
           return sendSuccess(res, 200, 'Follow request cancelled', {
             isFollowing: false,
-            followersCount: targetUser.followers.filter(followerId => followerId.toString() !== id.toString()).length,
-            followingCount: currentUser.following.filter(followingId => followingId.toString() !== currentUserId.toString()).length,
+            followersCount: targetUser.followersCount || 0,
+            followingCount: currentUser.followingCount || 0,
             followRequestSent: false
           });
         }
@@ -788,20 +753,23 @@ const toggleFollow = async (req, res) => {
 
         notifyFollowUpdated();
 
+        const freshCurrentUser = await User.findById(currentUserId).select('followingCount');
+        const freshTargetUser = await User.findById(id).select('followersCount');
         return sendSuccess(res, 200, 'Follow request sent', {
           isFollowing: false,
-          followersCount: targetUser.followers.filter(followerId => followerId.toString() !== id.toString()).length,
-          followingCount: currentUser.following.filter(followingId => followingId.toString() !== currentUserId.toString()).length,
+          followersCount: freshTargetUser ? freshTargetUser.followersCount : 0,
+          followingCount: freshCurrentUser ? freshCurrentUser.followingCount : 0,
           followRequestSent: true
         });
       } else {
         // Direct follow (no approval required)
-        currentUser.following.pull(id);
-        currentUser.following.push(id);
-        targetUser.followers.pull(currentUserId);
-        targetUser.followers.push(currentUserId);
-
-        await Promise.all([currentUser.save(), targetUser.save()]);
+        await Follow.findOneAndUpdate(
+          { follower: currentUserId, following: id },
+          { follower: currentUserId, following: id },
+          { upsert: true, new: true }
+        );
+        await User.findByIdAndUpdate(currentUserId, { $inc: { followingCount: 1 } });
+        await User.findByIdAndUpdate(id, { $inc: { followersCount: 1 } });
 
         // Invalidate cache
         await Promise.all([
@@ -870,10 +838,13 @@ const toggleFollow = async (req, res) => {
 
         notifyFollowUpdated();
 
+        const freshCurrentUser = await User.findById(currentUserId).select('followingCount');
+        const freshTargetUser = await User.findById(id).select('followersCount');
+
         return sendSuccess(res, 200, 'User followed', {
           isFollowing: true,
-          followersCount: targetUser.followers.filter(followerId => followerId.toString() !== id.toString()).length,
-          followingCount: currentUser.following.filter(followingId => followingId.toString() !== currentUserId.toString()).length,
+          followersCount: freshTargetUser ? freshTargetUser.followersCount : 0,
+          followingCount: freshCurrentUser ? freshCurrentUser.followingCount : 0,
           followRequestSent: false
         });
       }
@@ -1017,8 +988,8 @@ const searchUsers = async (req, res) => {
             email: 1,
             profilePic: 1,
             profilePicStorageKey: 1,
-            followers: 1,
-            following: 1,
+            followersCount: 1,
+            followingCount: 1,
             totalLikes: 1,
             matchScore: 1,
             'settings.privacy.profileVisibility': 1,
@@ -1081,13 +1052,25 @@ const searchUsers = async (req, res) => {
     }));
 
     const currentUserId = req.user?._id?.toString();
+    const userIds = users.map(u => u._id);
+    
+    let followingSet = new Set();
+    let followerSet = new Set();
+    
+    if (currentUserId) {
+      const [followings, followers] = await Promise.all([
+        Follow.find({ follower: currentUserId, following: { $in: userIds } }).select('following').lean(),
+        Follow.find({ follower: { $in: userIds }, following: currentUserId }).select('follower').lean()
+      ]);
+      followingSet = new Set(followings.map(f => f.following.toString()));
+      followerSet = new Set(followers.map(f => f.follower.toString()));
+    }
+
     const usersWithFollowStatus = usersWithProfilePics.map(user => {
       const visibility = user.settings?.privacy?.profileVisibility || 'public';
       const showEmail = user.settings?.privacy?.showEmail !== false;
       const isOwner = currentUserId && user._id?.toString() === currentUserId;
-      const isFollower = currentUserId && user.followers
-        ? user.followers.some(f => f.toString() === currentUserId)
-        : false;
+      const isFollower = currentUserId ? followerSet.has(user._id?.toString()) : false;
       const canSeeDetails = isOwner || visibility === 'public' || isFollower;
 
       const result = {
@@ -1095,11 +1078,9 @@ const searchUsers = async (req, res) => {
         username: user.username,
         fullName: user.fullName,
         profilePic: user.profilePic,
-        followersCount: user.followers ? user.followers.length : 0,
-        followingCount: user.following ? user.following.length : 0,
-        isFollowing: currentUserId && user.followers
-          ? user.followers.some(follower => follower.toString() === currentUserId)
-          : false,
+        followersCount: user.followersCount || 0,
+        followingCount: user.followingCount || 0,
+        isFollowing: currentUserId ? followingSet.has(user._id?.toString()) : false,
         profileVisibility: visibility
       };
 
@@ -1150,22 +1131,37 @@ const getFollowersList = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // First get the user to check if it exists and get total count
-    const user = await User.findById(id).select('followers');
-    if (!user) return sendError(res, 'RES_3001', 'User does not exist');
+    // Check if the user exists
+    const userExists = await User.exists({ _id: id });
+    if (!userExists) return sendError(res, 'RES_3001', 'User does not exist');
+
+    // Get total count of followers
+    const totalFollowers = await Follow.countDocuments({ following: id, follower: { $ne: id } });
     
-    const totalFollowers = user.followers.filter(followerId => followerId.toString() !== id.toString()).length;
+    // Get paginated followers IDs
+    const followDocs = await Follow.find({ following: id, follower: { $ne: id } })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
     
-    // Get paginated followers IDs (exclude self)
-    const paginatedFollowersIds = user.followers
-      .filter(followerId => followerId.toString() !== id.toString())
-      .slice(skip, skip + limit);
+    const paginatedFollowersIds = followDocs.map(doc => doc.follower);
     
     // Populate the paginated followers users
     const followers = await User.find({ _id: { $in: paginatedFollowersIds } })
-      .select('fullName profilePic profilePicStorageKey email followers following totalLikes isVerified followRequests settings.privacy');
+      .select('fullName profilePic profilePicStorageKey email followersCount followingCount totalLikes isVerified followRequests settings.privacy');
 
     const currentUserId = req.user ? req.user._id.toString() : null;
+
+    // Get following status for these users in batch
+    let followedByUserIds = new Set();
+    if (currentUserId) {
+      const followings = await Follow.find({
+        follower: currentUserId,
+        following: { $in: paginatedFollowersIds }
+      }).select('following').lean();
+      followedByUserIds = new Set(followings.map(f => f.following.toString()));
+    }
 
     // Generate signed URLs for profile pictures
     const followersWithStatus = await Promise.all(followers.map(async (f) => {
@@ -1179,7 +1175,7 @@ const getFollowersList = async (req, res) => {
         profilePicUrl = await resolveProfilePic(f);
       }
 
-      const isFollowing = currentUserId ? f.followers.map(String).includes(currentUserId) : false;
+      const isFollowing = currentUserId ? followedByUserIds.has(f._id.toString()) : false;
       const followRequestSent = currentUserId && !isFollowing
         ? (f.followRequests || []).some(req => req.user.toString() === currentUserId && req.status === 'pending')
         : false;
@@ -1190,8 +1186,8 @@ const getFollowersList = async (req, res) => {
         profilePic: profilePicUrl,
         totalLikes: f.totalLikes,
         isVerified: f.isVerified,
-        followers: f.followers,
-        following: f.following,
+        followers: f.followersCount || 0,
+        following: f.followingCount || 0,
         isFollowing,
         followRequestSent,
       };
@@ -1231,22 +1227,37 @@ const getFollowingList = async (req, res) => {
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
 
-    // First get the user to check if it exists and get total count
-    const user = await User.findById(id).select('following');
-    if (!user) return sendError(res, 'RES_3001', 'User does not exist');
+    // Check if the user exists
+    const userExists = await User.exists({ _id: id });
+    if (!userExists) return sendError(res, 'RES_3001', 'User does not exist');
+
+    // Get total count of following
+    const totalFollowing = await Follow.countDocuments({ follower: id, following: { $ne: id } });
     
-    const totalFollowing = user.following.filter(followingId => followingId.toString() !== id.toString()).length;
+    // Get paginated following IDs
+    const followDocs = await Follow.find({ follower: id, following: { $ne: id } })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
     
-    // Get paginated following IDs (exclude self)
-    const paginatedFollowingIds = user.following
-      .filter(followingId => followingId.toString() !== id.toString())
-      .slice(skip, skip + limit);
+    const paginatedFollowingIds = followDocs.map(doc => doc.following);
     
     // Populate the paginated following users
     const following = await User.find({ _id: { $in: paginatedFollowingIds } })
-      .select('fullName profilePic profilePicStorageKey email followers following totalLikes isVerified followRequests settings.privacy');
+      .select('fullName profilePic profilePicStorageKey email followersCount followingCount totalLikes isVerified followRequests settings.privacy');
 
     const currentUserId = req.user ? req.user._id.toString() : null;
+
+    // Get following status for these users in batch
+    let followedByUserIds = new Set();
+    if (currentUserId) {
+      const followings = await Follow.find({
+        follower: currentUserId,
+        following: { $in: paginatedFollowingIds }
+      }).select('following').lean();
+      followedByUserIds = new Set(followings.map(f => f.following.toString()));
+    }
 
     // Generate signed URLs for profile pictures
     const followingWithStatus = await Promise.all(following.map(async (f) => {
@@ -1260,7 +1271,7 @@ const getFollowingList = async (req, res) => {
         profilePicUrl = await resolveProfilePic(f);
       }
 
-      const isFollowing = currentUserId ? f.followers.map(String).includes(currentUserId) : false;
+      const isFollowing = currentUserId ? followedByUserIds.has(f._id.toString()) : false;
       const followRequestSent = currentUserId && !isFollowing
         ? (f.followRequests || []).some(req => req.user.toString() === currentUserId && req.status === 'pending')
         : false;
@@ -1271,8 +1282,8 @@ const getFollowingList = async (req, res) => {
         profilePic: profilePicUrl,
         totalLikes: f.totalLikes,
         isVerified: f.isVerified,
-        followers: f.followers,
-        following: f.following,
+        followers: f.followersCount || 0,
+        following: f.followingCount || 0,
         isFollowing,
         followRequestSent,
       };
@@ -1373,9 +1384,7 @@ const approveFollowRequest = async (req, res) => {
     });
 
     // Check if requester is already a follower (idempotency - allow re-approval)
-    const isAlreadyFollower = user.followers.some(followerId => 
-      followerId.toString() === requestId.toString()
-    );
+    const isAlreadyFollower = await Follow.exists({ follower: requestId, following: currentUserId });
 
     // Find the pending follow request by requester ID (since requestId is actually the requester's user ID)
     const request = user.followRequests.find(req => 
@@ -1408,7 +1417,7 @@ const approveFollowRequest = async (req, res) => {
     if (isAlreadyFollower) {
       logger.debug('✅ Request already processed - returning success (idempotent)');
       return sendSuccess(res, 200, 'Follow request already approved', {
-        followersCount: user.followers.length,
+        followersCount: user.followersCount || 0,
         alreadyProcessed: true
       });
     }
@@ -1433,14 +1442,6 @@ const approveFollowRequest = async (req, res) => {
     if (requesterId.toString() === currentUserId.toString()) {
       logger.debug('❌ Self-approval attempt');
       return sendError(res, 'BIZ_7001', 'You cannot approve your own follow request');
-    }
-
-    // Add to followers/following (prevent duplicates)
-    if (!user.followers.some(followerId => followerId.toString() === requesterId.toString())) {
-      user.followers.push(requesterId);
-    }
-    if (!requester.following.some(followingId => followingId.toString() === currentUserId.toString())) {
-      requester.following.push(currentUserId);
     }
 
     // Update request status
@@ -1470,14 +1471,6 @@ const approveFollowRequest = async (req, res) => {
           const freshUser = await User.findById(currentUserId);
           const freshRequester = await User.findById(requesterId);
           
-          // Re-apply the changes (check for duplicates first)
-          if (!freshUser.followers.some(followerId => followerId.toString() === requesterId.toString())) {
-            freshUser.followers.push(requesterId);
-          }
-          if (!freshRequester.following.some(followingId => followingId.toString() === currentUserId.toString())) {
-            freshRequester.following.push(currentUserId);
-          }
-          
           // Find the request by requester ID (not by _id)
           const freshRequest = freshUser.followRequests.find(req => 
             req.user.toString() === requestId.toString() && req.status === 'pending'
@@ -1500,6 +1493,16 @@ const approveFollowRequest = async (req, res) => {
           throw error;
         }
       }
+    }
+
+    // Create Follow relationship and increment counts if not already exists
+    const followExists = await Follow.exists({ follower: requesterId, following: currentUserId });
+    if (!followExists) {
+      await Follow.create({ follower: requesterId, following: currentUserId });
+      await User.findByIdAndUpdate(currentUserId, { $inc: { followersCount: 1 } });
+      await User.findByIdAndUpdate(requesterId, { $inc: { followingCount: 1 } });
+      // Reload user so we have the updated followersCount
+      user = await User.findById(currentUserId);
     }
 
     // Invalidate cache
@@ -1566,7 +1569,7 @@ const approveFollowRequest = async (req, res) => {
     }
 
     return sendSuccess(res, 200, 'Follow request approved', {
-      followersCount: user.followers.length
+      followersCount: user.followersCount || 0
     });
   } catch (error) {
     logger.error('Approve follow request error:', error);
@@ -2304,7 +2307,7 @@ const getTravelMapData = async (req, res) => {
     }
 
     // Privacy check: respect showLocation toggle and profileVisibility
-    const targetUser = await User.findById(id).select('settings.privacy followers following').lean();
+    const targetUser = await User.findById(id).select('settings.privacy').lean();
     if (!targetUser) {
       return sendError(res, 'RES_3001', 'User does not exist');
     }
@@ -2317,29 +2320,12 @@ const getTravelMapData = async (req, res) => {
       if (!showLocation) {
         return sendSuccess(res, 200, 'Travel map data fetched successfully', emptyResponse);
       }
-      if (profileVisibility === 'followers') {
-        // Followers: requester must be in the profile owner's followers list
+      if (profileVisibility === 'followers' || profileVisibility === 'private') {
         if (!req.user) {
           return sendSuccess(res, 200, 'Travel map data fetched successfully', emptyResponse);
         }
         const requesterId = req.user._id.toString();
-        const isFollower = (targetUser.followers || []).some(f => {
-          const fId = typeof f === 'object' && f._id ? f._id.toString() : f.toString();
-          return fId === requesterId;
-        });
-        if (!isFollower) {
-          return sendSuccess(res, 200, 'Travel map data fetched successfully', emptyResponse);
-        }
-      } else if (profileVisibility === 'private') {
-        // Private: requester must be in the profile owner's followers list
-        if (!req.user) {
-          return sendSuccess(res, 200, 'Travel map data fetched successfully', emptyResponse);
-        }
-        const requesterId = req.user._id.toString();
-        const isFollower = (targetUser.followers || []).some(f => {
-          const fId = typeof f === 'object' && f._id ? f._id.toString() : f.toString();
-          return fId === requesterId;
-        });
+        const isFollower = await Follow.exists({ follower: requesterId, following: id });
         if (!isFollower) {
           return sendSuccess(res, 200, 'Travel map data fetched successfully', emptyResponse);
         }
@@ -2866,11 +2852,18 @@ const toggleBlockUser = async (req, res) => {
       }
       currentUser.blockedUsers.push(id);
       
-      // Remove from following/followers if exists
-      currentUser.following.pull(id);
-      currentUser.followers.pull(id);
-      targetUser.following.pull(currentUserId);
-      targetUser.followers.pull(currentUserId);
+      // Remove follow relationships if they exist
+      const deleteResult1 = await Follow.deleteOne({ follower: currentUserId, following: id });
+      if (deleteResult1.deletedCount > 0) {
+        await User.findByIdAndUpdate(currentUserId, { $inc: { followingCount: -1 } });
+        await User.findByIdAndUpdate(id, { $inc: { followersCount: -1 } });
+      }
+      
+      const deleteResult2 = await Follow.deleteOne({ follower: id, following: currentUserId });
+      if (deleteResult2.deletedCount > 0) {
+        await User.findByIdAndUpdate(id, { $inc: { followingCount: -1 } });
+        await User.findByIdAndUpdate(currentUserId, { $inc: { followersCount: -1 } });
+      }
       
       // Remove follow requests
       currentUser.followRequests = currentUser.followRequests.filter(
@@ -2953,10 +2946,13 @@ const getSuggestedUsers = async (req, res) => {
     const userId = req.user._id || req.user.id;
     const limit = parseInt(req.query.limit) || 6;
 
-    const currentUser = await User.findById(userId).select('following interests').lean();
-    const followingIds = (currentUser.following || []).map(f => f.toString());
-    followingIds.push(userId.toString());
+    const currentUser = await User.findById(userId).select('interests').lean();
+    if (!currentUser) return sendError(res, 'RES_3001', 'User does not exist');
     const userInterests = Array.isArray(currentUser.interests) ? currentUser.interests : [];
+
+    const follows = await Follow.find({ follower: userId }).select('following').lean();
+    const followingIds = follows.map(f => f.following.toString());
+    followingIds.push(userId.toString());
 
     let suggestedUsers = [];
     const seenIds = new Set(followingIds);
@@ -2968,7 +2964,7 @@ const getSuggestedUsers = async (req, res) => {
         _id: { $nin: followingIds },
         interests: { $in: userInterests },
       })
-        .select('username fullName profilePic profilePicStorageKey bio followers isVerified createdAt interests')
+        .select('username fullName profilePic profilePicStorageKey bio followersCount isVerified createdAt interests')
         .limit(limit * 2)
         .lean();
 
@@ -2980,7 +2976,7 @@ const getSuggestedUsers = async (req, res) => {
       withMatchCount.sort((a, b) => {
         if (b._matchCount !== a._matchCount) return b._matchCount - a._matchCount;
         if (a.isVerified !== b.isVerified) return b.isVerified ? 1 : -1;
-        return (b.followers?.length || 0) - (a.followers?.length || 0);
+        return (b.followersCount || 0) - (a.followersCount || 0);
       });
       const chosen = withMatchCount.slice(0, limit).map(({ _matchCount, ...u }) => u);
       suggestedUsers = chosen;
@@ -2996,18 +2992,18 @@ const getSuggestedUsers = async (req, res) => {
         _id: { $nin: excludeIds },
         isVerified: true,
       })
-        .select('username fullName profilePic profilePicStorageKey bio followers isVerified createdAt')
+        .select('username fullName profilePic profilePicStorageKey bio followersCount isVerified createdAt')
         .limit(need * 2)
-        .sort({ followers: -1, createdAt: -1 })
+        .sort({ followersCount: -1, createdAt: -1 })
         .lean();
 
       if (fillUsers.length < need) {
         const more = await User.find({
           _id: { $nin: [...excludeIds, ...fillUsers.map((u) => u._id.toString())] },
         })
-          .select('username fullName profilePic profilePicStorageKey bio followers isVerified createdAt')
+          .select('username fullName profilePic profilePicStorageKey bio followersCount isVerified createdAt')
           .limit(need * 2 - fillUsers.length)
-          .sort({ followers: -1, createdAt: -1 })
+          .sort({ followersCount: -1, createdAt: -1 })
           .lean();
         fillUsers = fillUsers.concat(more);
       }
@@ -3031,7 +3027,7 @@ const getSuggestedUsers = async (req, res) => {
         return {
           ...rest,
           postsCount: postCount,
-          followersCount: user.followers?.length || 0,
+          followersCount: user.followersCount || 0,
         };
       })
     );

@@ -7,6 +7,17 @@ import { isRateLimitError, handleRateLimitError } from '../utils/rateLimitHandle
 import { parseError } from '../utils/errorCodes';
 import { clearCachedAuthToken, getCachedAuthToken, setCachedAuthToken } from '../utils/authTokenCache';
 import { getLoginLocationHint, LoginLocationHint } from '../utils/loginLocation';
+import { encryptData, decryptData } from '../utils/crypto';
+
+export const saveUserToStorage = async (user: UserType): Promise<void> => {
+  try {
+    const serialized = JSON.stringify(user);
+    const encrypted = encryptData(serialized);
+    await AsyncStorage.setItem('userData', encrypted);
+  } catch (error) {
+    logger.error('saveUserToStorage', error);
+  }
+};
 
 const isWeb = Platform.OS === 'web';
 
@@ -152,7 +163,7 @@ export const signIn = async (data: SignInData): Promise<AuthResponse> => {
     }
     
     if (user) {
-      await AsyncStorage.setItem('userData', JSON.stringify(user));
+      await saveUserToStorage(user);
     }
     
     return response.data;
@@ -185,7 +196,7 @@ export const getCurrentUser = async (): Promise<UserType | null | 'network-error
     
     const response = await api.get('/api/v1/auth/me');
     const user = response.data.user;
-    await AsyncStorage.setItem('userData', JSON.stringify(user));
+    await saveUserToStorage(user);
     lastAuthError = null;
     return user;
   } catch (error: any) {
@@ -245,9 +256,28 @@ export const getCurrentUser = async (): Promise<UserType | null | 'network-error
 // Get user from storage
 export const getUserFromStorage = async (): Promise<UserType | null> => {
   try {
-    const userData = await AsyncStorage.getItem('userData');
-    return userData ? JSON.parse(userData) : null;
+    const rawData = await AsyncStorage.getItem('userData');
+    if (!rawData) return null;
+
+    // Try to parse directly (backward compatibility for unencrypted storage)
+    try {
+      const parsed = JSON.parse(rawData);
+      if (parsed && typeof parsed === 'object') {
+        // Plaintext found, encrypt it in the background for security
+        saveUserToStorage(parsed).catch(err => {
+          logger.warn('Failed to encrypt legacy user storage in background:', err);
+        });
+        return parsed;
+      }
+    } catch {
+      // Direct parsing failed, it is likely encrypted. Proceed to decrypt.
+    }
+
+    const decrypted = decryptData(rawData);
+    if (!decrypted) return null;
+    return JSON.parse(decrypted);
   } catch (error) {
+    logger.error('getUserFromStorage', error);
     return null;
   }
 };

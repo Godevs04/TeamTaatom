@@ -57,14 +57,14 @@ const userSchema = new mongoose.Schema({
     type: String,
     required: false
   },
-  followers: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
-  }],
-  following: [{
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
-  }],
+  followersCount: {
+    type: Number,
+    default: 0
+  },
+  followingCount: {
+    type: Number,
+    default: 0
+  },
   blockedUsers: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
@@ -373,8 +373,12 @@ userSchema.methods.clearOTP = function() {
   this.otpExpires = null;
 };
 
-// Get public profile
-userSchema.methods.getPublicProfile = function() {
+// Get public profile (async to resolve followingIds from Follow collection)
+userSchema.methods.getPublicProfile = async function() {
+  const Follow = mongoose.model('Follow');
+  const followingList = await Follow.find({ follower: this._id }).select('following').lean();
+  const followingIds = followingList.map(f => f.following.toString());
+
   return {
     _id: this._id,
     username: this.username,
@@ -382,9 +386,9 @@ userSchema.methods.getPublicProfile = function() {
     bio: this.bio,
     email: this.email,
     profilePic: this.profilePic,
-    followers: this.followers.length,
-    following: this.following.length,
-    followingIds: this.following ? this.following.map(f => (f && (f._id || f)).toString()).filter(Boolean) : [],
+    followers: this.followersCount || 0,
+    following: this.followingCount || 0,
+    followingIds: followingIds,
     totalLikes: this.totalLikes,
     isVerified: this.isVerified,
     createdAt: this.createdAt,

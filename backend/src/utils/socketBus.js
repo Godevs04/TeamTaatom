@@ -1,9 +1,8 @@
-const User = require('../models/User');
+const Follow = require('../models/Follow');
 
 async function getFollowers(userId) {
-  const user = await User.findById(userId).select('followers');
-  if (!user || !user.followers) return [];
-  return user.followers.map(f => f.toString());
+  const follows = await Follow.find({ following: userId }).select('follower').lean();
+  return follows.map(f => f.follower.toString());
 }
 
 module.exports = { getFollowers };
