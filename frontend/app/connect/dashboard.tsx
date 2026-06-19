@@ -13,6 +13,7 @@ import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import { theme as themeConstants } from '../../constants/theme';
 import {
@@ -365,24 +366,50 @@ export default function ConnectDashboardScreen() {
             ].map((f) => (
               <TouchableOpacity
                 key={f.value}
-                style={[
-                  styles.filterButton,
-                  {
-                    backgroundColor: statusFilter === f.value ? theme.colors.primary : theme.colors.background,
-                    borderColor: statusFilter === f.value ? theme.colors.primary : theme.colors.border,
-                  },
-                ]}
                 onPress={() => setStatusFilter(f.value)}
                 activeOpacity={0.7}
               >
-                <Text
-                  style={[
-                    styles.filterButtonText,
-                    { color: statusFilter === f.value ? '#fff' : theme.colors.textSecondary },
-                  ]}
-                >
-                  {f.label} ({f.count})
-                </Text>
+                {statusFilter === f.value ? (
+                  <LinearGradient
+                    colors={theme.colors.gradient?.button || ['#1C73B4', '#50C878']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={[
+                      styles.filterButton,
+                      {
+                        borderColor: 'transparent',
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.filterButtonText,
+                        { color: '#fff' },
+                      ]}
+                    >
+                      {f.label} ({f.count})
+                    </Text>
+                  </LinearGradient>
+                ) : (
+                  <View
+                    style={[
+                      styles.filterButton,
+                      {
+                        backgroundColor: theme.colors.background,
+                        borderColor: theme.colors.border,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.filterButtonText,
+                        { color: theme.colors.textSecondary },
+                      ]}
+                    >
+                      {f.label} ({f.count})
+                    </Text>
+                  </View>
+                )}
               </TouchableOpacity>
             ))}
           </ScrollView>

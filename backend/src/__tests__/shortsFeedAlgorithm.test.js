@@ -54,6 +54,23 @@ jest.mock('../models/User', () => {
     })
   };
 });
+jest.mock('../models/Like', () => {
+  return {
+    find: jest.fn().mockReturnValue({
+      lean: jest.fn().mockResolvedValue([])
+    }),
+    exists: jest.fn().mockResolvedValue(false)
+  };
+});
+
+jest.mock('../models/Follow', () => {
+  return {
+    find: jest.fn().mockReturnValue({
+      lean: jest.fn().mockResolvedValue([])
+    }),
+    exists: jest.fn().mockResolvedValue(false)
+  };
+});
 
 jest.mock('../utils/logger', () => ({
   info: jest.fn(),

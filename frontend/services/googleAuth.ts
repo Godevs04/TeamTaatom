@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GOOGLE_CLIENT_ID, GOOGLE_REDIRECT_URI } from '../utils/config';
 import logger from '../utils/logger';
 import { clearCachedAuthToken, setCachedAuthToken } from '../utils/authTokenCache';
+import { saveUserToStorage } from './auth';
 
 const isWeb = Platform.OS === 'web';
 
@@ -71,7 +72,7 @@ export const signInWithGoogle = async (): Promise<GoogleAuthResponse> => {
       }
       
       if (user) {
-        await AsyncStorage.setItem('userData', JSON.stringify(user));
+        await saveUserToStorage(user);
       }
       return response.data;
     } else if (authResponse.type === 'cancel') {

@@ -9,7 +9,7 @@ import { getPostById } from '../../services/posts';
 import { trackPostView } from '../../services/analytics';
 import OptimizedPhotoCard from '../../components/OptimizedPhotoCard';
 import { createLogger } from '../../utils/logger';
-import { savedEvents } from '../../utils/savedEvents';
+import { savedEvents, normalizeId } from '../../utils/savedEvents';
 
 const logger = createLogger('PostDetail');
 
@@ -19,7 +19,16 @@ export default function PostDetail() {
   const { mode } = useTheme();
   const isDark = mode === 'dark';
 
-  const [post, setPost] = useState<any>(null);
+  const [post, setRawPost] = useState<any>(null);
+  const setPost = (value: React.SetStateAction<any>) => {
+    setRawPost((prev) => {
+      const resolved = typeof value === 'function' ? (value as any)(prev) : value;
+      if (resolved && (savedEvents.isDeleted(resolved._id) || savedEvents.isDeleted(resolved.id))) {
+        return null;
+      }
+      return resolved;
+    });
+  };
   const [loading, setLoading] = useState(true);
 
   // Fetch post details
@@ -31,10 +40,17 @@ export default function PostDetail() {
       }
       const response = await getPostById(id as string);
       if (response?.post) {
+        if (savedEvents.isDeleted(response.post._id)) {
+          router.back();
+          return;
+        }
         setPost(response.post);
+      } else {
+        router.back();
       }
     } catch (error) {
       logger.error('Failed to fetch post:', error);
+      router.back();
     } finally {
       setLoading(false);
     }
@@ -47,7 +63,7 @@ export default function PostDetail() {
   useEffect(() => {
     if (!id) return;
     const unsubscribeLocalActions = savedEvents.addPostActionListener((likedPostId, action, data) => {
-      if (likedPostId !== id) return;
+      if (normalizeId(likedPostId) !== normalizeId(id)) return;
 
       if (action === 'like' || action === 'unlike') {
         const isLiked = action === 'like';
@@ -56,6 +72,8 @@ export default function PostDetail() {
       } else if (action === 'save' || action === 'unsave') {
         const isSaved = action === 'save';
         setPost(prev => prev ? { ...prev, isSaved } : null);
+      } else if (action === 'delete') {
+        router.back();
       }
     });
 

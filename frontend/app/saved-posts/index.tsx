@@ -20,7 +20,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createLogger } from '../../utils/logger';
 import { PostType } from '../../types/post';
 import { realtimePostsService } from '../../services/realtimePosts';
-import { savedEvents } from '../../utils/savedEvents';
+import { savedEvents, normalizeId } from '../../utils/savedEvents';
 import { audioManager } from '../../utils/audioManager';
 import { getImageAspectRatio } from '../../components/post/PostImage';
 
@@ -124,7 +124,13 @@ export default function SavedPostsScreen() {
     }
   }
 
-  const [posts, setPosts] = useState<PostType[]>([]);
+  const [posts, setRawPosts] = useState<PostType[]>([]);
+  const setPosts = (value: React.SetStateAction<PostType[]>) => {
+    setRawPosts((prev) => {
+      const resolved = typeof value === 'function' ? (value as any)(prev) : value;
+      return savedEvents.filterDeleted(resolved);
+    });
+  };
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const flatListRef = useRef<FlatList>(null);
@@ -297,17 +303,19 @@ export default function SavedPostsScreen() {
         const isLiked = action === 'like';
         const likesCount = data?.likesCount ?? 0;
         setPosts(prev => prev.map(post => (
-          post._id === likedPostId
+          normalizeId(post._id) === normalizeId(likedPostId)
             ? { ...post, isLiked, likesCount } as any
             : post
         )));
       } else if (action === 'save' || action === 'unsave') {
         const isBookmarked = action === 'save';
         setPosts(prev => prev.map(post => (
-          post._id === likedPostId
+          normalizeId(post._id) === normalizeId(likedPostId)
             ? { ...post, isSaved: isBookmarked } as any
             : post
         )));
+      } else if (action === 'delete') {
+        setPosts(prev => prev.filter(post => normalizeId(post._id) !== normalizeId(likedPostId)));
       }
     });
 

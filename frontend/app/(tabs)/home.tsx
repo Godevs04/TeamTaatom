@@ -290,12 +290,14 @@ export default function HomeScreen() {
   const postsRef = useRef<PostType[]>(posts);
   const setPosts = useCallback((value: React.SetStateAction<PostType[]>) => {
     setRawPosts((prev) => {
-      const resolved = typeof value === 'function' ? (value as any)(prev) : value;
+      const resolved: PostType[] = typeof value === 'function' ? (value as any)(prev) : value;
+      const resolvedFiltered = savedEvents.filterDeleted(resolved);
       const seen = new Set<string>();
-      const filtered = resolved.filter((p: PostType) => {
-        if (!p || !p._id) return false;
-        if (seen.has(p._id)) return false;
-        seen.add(p._id);
+      const filtered = resolvedFiltered.filter((p: PostType) => {
+        const idStr = normalizeId(p._id);
+        if (!p || !idStr) return false;
+        if (seen.has(idStr)) return false;
+        seen.add(idStr);
         return true;
       });
       postsRef.current = filtered;
@@ -409,6 +411,19 @@ export default function HomeScreen() {
               }
               return post;
             });
+          }
+        });
+      } else if (action === 'delete') {
+        const normDeletedId = normalizeId(postId);
+        // Update posts state
+        setPosts(prev => prev.filter(post => normalizeId(post._id) !== normDeletedId));
+
+        // Update tab caches
+        const modes: FeedMode[] = ['recents', 'friends', 'popular'];
+        modes.forEach(mode => {
+          const cache = feedCacheRef.current[mode];
+          if (cache && cache.posts) {
+            cache.posts = cache.posts.filter(post => normalizeId(post._id) !== normDeletedId);
           }
         });
       }
@@ -620,18 +635,8 @@ export default function HomeScreen() {
         });
       } else {
         const merged = mergeLikedIntoPosts(response.posts);
-        if (pageNum === 1 && postsRef.current.length > 0) {
-          setPosts(prev => {
-            const newIds = new Set(merged.map(p => p._id));
-            const uniqueOld = prev.filter(p => !newIds.has(p._id));
-            const combined = [...merged, ...uniqueOld];
-            feedCacheRef.current[requestFeedMode] = { posts: combined, page: pageNum, hasMore: true };
-            return combined;
-          });
-        } else {
-          setPosts(merged);
-          feedCacheRef.current[requestFeedMode] = { posts: merged, page: pageNum, hasMore: true };
-        }
+        setPosts(merged);
+        feedCacheRef.current[requestFeedMode] = { posts: merged, page: pageNum, hasMore: true };
       }
 
       // If fewer posts returned than requested, we've reached the end regardless
@@ -1445,16 +1450,11 @@ export default function HomeScreen() {
     },
   });
 
-  // Interleave native ad slots through the shared ad/view engine.
   const feedData = useMemo((): FeedItem[] => {
     if (isWeb || posts.length === 0) return posts as FeedItem[];
-    const rawFeed = injectHomeFeedAds(posts, {
-      isCapped: false,
-      count: 0,
-      remainingSlots: 9999,
-    }) as FeedItem[];
+    const rawFeed = injectHomeFeedAds(posts, adCap) as FeedItem[];
     return rawFeed;
-  }, [posts]);
+  }, [posts, adCap]);
 
   const renderTopHeader = () => (
     <AnimatedHeader

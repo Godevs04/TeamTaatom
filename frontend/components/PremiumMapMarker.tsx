@@ -184,11 +184,15 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
   }
 
   // Handle standard location markers as dots if specified
-  if (!activeState && renderAsDot) {
+  if (renderAsDot) {
+    const dotColors = activeState
+      ? ['#FF6E7F', '#FF6B6B'] as const
+      : ['#3B82F6', '#10B981'] as const;
+
     return (
       <Animated.View style={[styles.dotContainer, containerStyle]}>
         <LinearGradient
-          colors={['#3B82F6', '#10B981'] as const}
+          colors={dotColors}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={[

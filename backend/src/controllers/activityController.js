@@ -1,5 +1,6 @@
 const Activity = require('../models/Activity');
 const User = require('../models/User');
+const Follow = require('../models/Follow');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 
@@ -47,17 +48,15 @@ const getUserActivity = async (req, res) => {
     }
 
     // Check privacy settings
-    const fullUser = await User.findById(userId).select('settings.privacy.profileVisibility followers').lean();
+    const fullUser = await User.findById(userId).select('settings.privacy.profileVisibility').lean();
     const profileVisibility = fullUser?.settings?.privacy?.profileVisibility || 'public';
     const isOwn = req.user && userId === req.user._id.toString();
     
     // If private or followers-only, requester must be a follower (or the owner)
     if (!isOwn && (profileVisibility === 'private' || profileVisibility === 'followers')) {
-      const isFollower = req.user && fullUser.followers ?
-        fullUser.followers.some(f => {
-          const fId = typeof f === 'object' && f._id ? f._id.toString() : f.toString();
-          return fId === req.user._id.toString();
-        }) : false;
+      const isFollower = req.user
+        ? await Follow.exists({ follower: req.user._id, following: userId })
+        : false;
         
       if (!isFollower) {
         return sendSuccess(res, 200, 'Activity fetched successfully', {

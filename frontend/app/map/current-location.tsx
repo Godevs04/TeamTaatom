@@ -481,9 +481,10 @@ export default function CurrentLocationMap() {
       // Watch position for more accurate updates
       const subscription = await Location.watchPositionAsync(
         {
-          accuracy: Location.Accuracy.Balanced,
-          timeInterval: 10000, // Update every 10 seconds
-          distanceInterval: 20, // Update every 20 meters — reduces jitter from small GPS noise
+          accuracy: Location.Accuracy.BestForNavigation,
+          timeInterval: 2000, // Update every 2 seconds
+          distanceInterval: 3, // Update every 3 meters — reduces jitter while keeping path density
+          mayShowUserSettingsDialog: true,
         },
         (newLocation) => {
           setLocation(newLocation);
@@ -1096,6 +1097,8 @@ function initMap(){
         style={[styles.map, Platform.OS === 'android' && { flex: 1, minHeight: 200 }]}
         provider={getMapProvider()}
         {...mapStyle.nativeMapProps}
+        minZoomLevel={3}
+        cameraZoomRange={{ maxCenterCoordinateDistance: 5000000 }}
         initialRegion={{
           latitude: isPostLocation ? postLatitude! : location.coords.latitude,
           longitude: isPostLocation ? postLongitude! : location.coords.longitude,

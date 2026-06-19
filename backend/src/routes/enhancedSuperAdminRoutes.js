@@ -671,7 +671,7 @@ router.get('/analytics/realtime', async (req, res) => {
         { $match: { createdAt: timeFilter } },
         { $group: { 
           _id: null, 
-          totalLikes: { $sum: { $size: '$likes' } }, 
+          totalLikes: { $sum: { $ifNull: ['$likesCount', 0] } }, 
           totalComments: { $sum: { $size: '$comments' } }
         }}
       ])
@@ -813,7 +813,7 @@ router.get('/users', checkPermission('canManageUsers'), async (req, res) => {
       { $group: {
         _id: '$user',
         totalPosts: { $sum: 1 },
-        totalLikes: { $sum: { $size: { $ifNull: ['$likes', []] } } }
+        totalLikes: { $sum: { $ifNull: ['$likesCount', 0] } }
       } }
     ])
     
@@ -826,13 +826,13 @@ router.get('/users', checkPermission('canManageUsers'), async (req, res) => {
       })
     })
     
-    // 2. Batch fetch followers count (users already loaded, just extract followers array length)
+    // 2. Batch fetch followers count
     const usersWithFollowers = await User.find({ _id: { $in: userIds } })
-      .select('_id followers')
+      .select('_id followersCount')
       .lean()
     const followersMap = new Map()
     usersWithFollowers.forEach(user => {
-      followersMap.set(user._id.toString(), user.followers?.length || 0)
+      followersMap.set(user._id.toString(), user.followersCount || 0)
     })
     
     // 3. Batch fetch TripVisit data for all users and calculate unique places
@@ -3046,7 +3046,7 @@ async function getTopPerformingRegions() {
       $group: { 
         _id: '$location.address', 
         count: { $sum: 1 }, 
-        totalLikes: { $sum: { $size: '$likes' } } 
+        totalLikes: { $sum: { $ifNull: ['$likesCount', 0] } } 
       } 
     },
     { $sort: { totalLikes: -1 } },
@@ -3091,7 +3091,7 @@ async function getVIPUsers() {
     {
       $addFields: {
         totalPosts: { $size: '$posts' },
-        totalLikes: { $sum: { $map: { input: '$posts', as: 'post', in: { $size: '$$post.likes' } } } } 
+        totalLikes: { $sum: { $map: { input: '$posts', as: 'post', in: { $ifNull: ['$post.likesCount', 0] } } } } 
       }
     },
     {
@@ -3162,7 +3162,7 @@ async function getContentStats(timeFilter) {
       $group: {
         _id: null,
         totalPosts: { $sum: 1 },
-        totalLikes: { $sum: { $size: '$likes' } },
+        totalLikes: { $sum: { $ifNull: ['$likesCount', 0] } },
         totalComments: { $sum: { $size: '$comments' } }
       }
     }
@@ -3188,7 +3188,7 @@ async function getEngagementMetrics(timeFilter) {
     {
       $group: {
         _id: null,
-        avgLikes: { $avg: { $size: '$likes' } },
+        avgLikes: { $avg: { $ifNull: ['$likesCount', 0] } },
         avgComments: { $avg: { $size: '$comments' } }
       }
     }

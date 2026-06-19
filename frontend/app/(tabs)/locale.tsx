@@ -566,7 +566,7 @@ export default function LocaleScreen() {
   const { showSuccess, showError, showInfo } = useAlert();
   const { handleScroll } = useScrollToHideNav();
   const insets = useSafeAreaInsets();
-  const [headerHeight, setHeaderHeight] = useState(0);
+  const [headerHeight, setHeaderHeight] = useState(insets.top > 0 ? insets.top + 130 : 170);
   const [savedLocales, setSavedLocales] = useState<Locale[]>([]);
   const [adminLocales, setAdminLocales] = useState<Locale[]>([]);
   const [filteredLocales, setFilteredLocales] = useState<Locale[]>([]);
@@ -746,7 +746,7 @@ export default function LocaleScreen() {
 
   const roundedUserLocStr = useMemo(() => {
     if (!userLocation) return null;
-    return `${userLocation.latitude.toFixed(3)}_${userLocation.longitude.toFixed(3)}`;
+    return `${userLocation.latitude.toFixed(1)}_${userLocation.longitude.toFixed(1)}`;
   }, [userLocation]);
 
   const {

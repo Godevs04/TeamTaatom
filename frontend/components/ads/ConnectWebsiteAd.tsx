@@ -31,7 +31,12 @@ function ConnectWebsiteAdComponent({ pageId, skipAds }: ConnectWebsiteAdProps) {
   const markedGoogleRef = useRef(false);
 
   const kind = useMemo(
-    () => resolveConnectWebsiteAdKind(pageId, { skipAds: skipAds || isWeb || isExpoGo }),
+    () => {
+      if (adCap.isCapped) {
+        return 'taatom';
+      }
+      return resolveConnectWebsiteAdKind(pageId, { skipAds: skipAds || isWeb || isExpoGo });
+    },
     // Re-evaluate when cap flips so a mount during load can pick up persisted state.
     [pageId, skipAds, adCap.isCapped, adCap.count],
   );
