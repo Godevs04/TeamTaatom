@@ -66,7 +66,7 @@ jobs:
           EXPO_PUBLIC_SENTRY_DSN: ${{ vars.EXPO_PUBLIC_SENTRY_DSN || secrets.EXPO_PUBLIC_SENTRY_DSN || '' }}
           EXPO_PUBLIC_SENTRY_ENVIRONMENT: production
         run: |
-          npm ci || npm install
+          npm ci --include=dev || npm install --include=dev
           npm run lint
           npm run build:web
 
@@ -75,7 +75,7 @@ jobs:
         env:
           NODE_ENV: production
         run: |
-          npm ci || npm install
+          npm ci --include=dev || npm install --include=dev
           npm run lint
           npm run typecheck
           npm run build
@@ -85,7 +85,7 @@ jobs:
         env:
           CI: true
         run: |
-          npm ci
+          npm ci --include=dev
           npm run check
           npm test
 
@@ -94,7 +94,7 @@ jobs:
         env:
           NODE_ENV: production
         run: |
-          npm ci || npm install
+          npm ci --include=dev || npm install --include=dev
           npm run check
           npm run build
 
