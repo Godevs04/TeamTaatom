@@ -57,7 +57,7 @@ import { ShortsNativeAd } from '../../components/ads/ShortsNativeAd';
 import { useAdCap, recordGoogleAdImpression, logContentView } from '../../services/adCap';
 import { realtimePostsService } from '../../services/realtimePosts';
 import Constants from 'expo-constants';
-import { savedEvents } from '../../utils/savedEvents';
+import { savedEvents, normalizeId } from '../../utils/savedEvents';
 import { triggerHaptic } from '../../utils/hapticFeedback';
 import { shortsEvents } from '../../utils/shortsEvents';
 import { preloadVideoAsync, getLocalVideoUri, removeCachedVideo, getLocalVideoUriSync, addCacheListener } from '../../src/utils/videoCache';
@@ -183,1766 +183,9 @@ const getVideoSource = (uri: string | null | undefined) => {
   return videoSourceCache.get(uri);
 };
 
-interface MarqueeTextProps {
-  text: string;
-  style?: any;
-  containerStyle?: any;
-  icon?: React.ReactNode;
-}
-
-const MarqueeText = React.memo(({ text, style, containerStyle, icon }: MarqueeTextProps) => {
-  const animatedValue = useRef(new Animated.Value(0)).current;
-  const [textWidth, setTextWidth] = useState(0);
-  const [containerWidth, setContainerWidth] = useState(0);
-
-  useEffect(() => {
-    animatedValue.setValue(0);
-    if (textWidth > 0 && containerWidth > 0 && textWidth > containerWidth) {
-      const offset = textWidth - containerWidth + 24; // 24px extra buffer
-      
-      const startAnimation = () => {
-        Animated.loop(
-          Animated.sequence([
-            Animated.delay(1500),
-            Animated.timing(animatedValue, {
-              toValue: -offset,
-              duration: offset * 30, // 30ms per pixel
-              useNativeDriver: true,
-            }),
-            Animated.delay(1500),
-            Animated.timing(animatedValue, {
-              toValue: 0,
-              duration: offset * 30,
-              useNativeDriver: true,
-            }),
-          ])
-        ).start();
-      };
-
-      startAnimation();
-    }
-    return () => {
-      animatedValue.stopAnimation();
-    };
-  }, [textWidth, containerWidth, text]);
-
-  const onTextLayout = (e: any) => {
-    const { width } = e.nativeEvent.layout;
-    setTextWidth(width);
-  };
-
-  const onContainerLayout = (e: any) => {
-    const { width } = e.nativeEvent.layout;
-    setContainerWidth(width);
-  };
-
-  return (
-    <View 
-      style={[{ flexDirection: 'row', alignItems: 'center', overflow: 'hidden' }, containerStyle]}
-      onLayout={onContainerLayout}
-    >
-      {icon}
-      <View style={{ overflow: 'hidden', flex: 1, marginLeft: icon ? 6 : 0 }}>
-        <Animated.View
-          style={{
-            flexDirection: 'row',
-            transform: [{ translateX: animatedValue }],
-            alignSelf: 'flex-start',
-          }}
-        >
-          <Text
-            style={[style, { flexShrink: 0, flexGrow: 0 }]}
-            onLayout={onTextLayout}
-            numberOfLines={1}
-          >
-            {text}
-          </Text>
-        </Animated.View>
-      </View>
-    </View>
-  );
-});
-
-MarqueeText.displayName = 'MarqueeText';
-
-interface CyclingMetadataProps {
-  song?: {
-    songId?: {
-      title?: string;
-      artist?: string;
-    } | string | null;
-  } | null;
-  location?: {
-    address?: string;
-  } | null;
-  onLocationPress: (e: any) => void;
-}
-
-const CyclingMetadata = React.memo(({ song, location, onLocationPress }: CyclingMetadataProps) => {
-  const songIdObj = typeof song?.songId === 'object' ? song?.songId : null;
-  const songTitle = songIdObj?.title;
-  const songArtist = songIdObj?.artist;
-  const hasSong = !!(songTitle || songArtist);
-  const hasLocation = !!location?.address;
-
-  // If neither is present, show nothing
-  if (!hasSong && !hasLocation) return null;
-
-  // If only one is present, show it statically without animation
-  if (hasSong && !hasLocation) {
-    const displayText = `${songTitle || 'Unknown Song'} · ${songArtist || 'Unknown Artist'}`;
-    return (
-      <View style={styles.cyclingContainer}>
-        <Ionicons name="musical-notes" size={12} color="#38BDF8" />
-        <Text style={styles.cyclingText} numberOfLines={1}>
-          {displayText}
-        </Text>
-      </View>
-    );
-  }
-
-  if (!hasSong && hasLocation) {
-    return (
-      <TouchableOpacity 
-        style={styles.cyclingContainer} 
-        onPress={onLocationPress}
-        activeOpacity={0.7}
-      >
-        <Ionicons name="location" size={12} color="#38BDF8" />
-        <Text style={styles.cyclingText} numberOfLines={1}>
-          {location.address}
-        </Text>
-      </TouchableOpacity>
-    );
-  }
-
-  // Both song and location are present -> cycle every 2 seconds
-  const [showLocation, setShowLocation] = useState(false);
-  const fadeAnim = useRef(new Animated.Value(1)).current;
-  const translateAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      // Step 1: Fade out & Slide up
-      Animated.parallel([
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-        Animated.timing(translateAnim, {
-          toValue: -10,
-          duration: 300,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        // Step 2: Toggle content and position text below
-        setShowLocation(prev => !prev);
-        translateAnim.setValue(10);
-        
-        // Step 3: Fade in & Slide back to center
-        Animated.parallel([
-          Animated.timing(fadeAnim, {
-            toValue: 1,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-          Animated.timing(translateAnim, {
-            toValue: 0,
-            duration: 300,
-            useNativeDriver: true,
-          }),
-        ]).start();
-      });
-    }, 2000); // 2 seconds delay
-
-    return () => clearInterval(interval);
-  }, []);
-
-  const songText = `${songTitle || 'Unknown Song'} · ${songArtist || 'Unknown Artist'}`;
-
-  return (
-    <Animated.View
-      style={[
-        styles.cyclingAnimatedWrapper,
-        {
-          opacity: fadeAnim,
-          transform: [{ translateY: translateAnim }],
-        }
-      ]}
-    >
-      {showLocation ? (
-        <TouchableOpacity 
-          style={styles.cyclingContainer} 
-          onPress={onLocationPress}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="location" size={12} color="#38BDF8" />
-          <Text style={styles.cyclingText} numberOfLines={1}>
-            {location.address}
-          </Text>
-        </TouchableOpacity>
-      ) : (
-        <View style={styles.cyclingContainer}>
-          <Ionicons name="musical-notes" size={12} color="#38BDF8" />
-          <Text style={styles.cyclingText} numberOfLines={1}>
-            {songText}
-          </Text>
-        </View>
-      )}
-    </Animated.View>
-  );
-});
-
-CyclingMetadata.displayName = 'CyclingMetadata';
-
-
-/**
- * Memo wrapper around a single shorts cell. The parent computes a small
- * `cacheKey` string of every state slice that affects this cell's rendered
- * output (visibility, isPlaying, isMuted, isSaved, isFollowing, like state,
- * pause-button overlay, like-animation overlay, source-version key, etc.)
- * and passes the cell's JSX as a thunk via `render`.
- *
- * React.memo's custom comparator only checks `cacheKey`. When a sibling
- * cell's state changes, that sibling's cacheKey changes but THIS cell's
- * doesn't, so React.memo skips re-rendering this cell entirely — even
- * though the parent's `renderShortItem` ran with a fresh closure. That's
- * what stops the "tap Like on cell A also re-renders cells B and C" cost
- * that was the dominant remaining stutter source after the in-cell state-
- * coalescing pass.
- *
- * If we ever need to invalidate every visible cell at once (e.g. on theme
- * change), include the relevant value in the cacheKey.
- */
-interface ShortsCellProps {
-  item: PostType;
-  index: number;
-  currentVisibleIndex: number;
-  isVideoPlaying: boolean;
-  isScreenFocused: boolean;
-  isMuted: boolean;
-  currentUser: any;
-  containerHeight: number;
-  isFollowing: boolean;
-  isSaved: boolean;
-  isLiked: boolean;
-  localVideoUris: Record<string, string>;
-  isCacheChecked: boolean;
-  isSavedShorts?: boolean;
-  effectiveUserId?: string | null;
-  handlers: any;
-  videoRefs: React.MutableRefObject<Record<string, Video | null>>;
-  currentPlayerRef: React.MutableRefObject<Audio.Sound | null>;
-  progressCallbacks: React.MutableRefObject<Record<string, (position: number, duration: number) => void>>;
-  lastVideoPositionRef: React.MutableRefObject<Record<string, number>>;
-  activeStartedWithRemoteRef: React.MutableRefObject<Record<string, boolean>>;
-  showSwipeHint: boolean;
-  fadeAnimation: Animated.Value;
-  likedShortIdsRef: React.MutableRefObject<Set<string>>;
-  videoCacheRef: React.MutableRefObject<Map<string, { url: string; timestamp: number }>>;
-  appState: AppStateStatus;
-}
-
-const ShortsCell = React.memo((props: ShortsCellProps) => {
-  const {
-    item,
-    index,
-    currentVisibleIndex,
-    isVideoPlaying,
-    isScreenFocused,
-    isMuted: isMutedProp,
-    currentUser,
-    containerHeight,
-    isFollowing,
-    isSaved,
-    isLiked,
-    localVideoUris,
-    isCacheChecked,
-    isSavedShorts,
-    effectiveUserId,
-    handlers,
-    videoRefs,
-    currentPlayerRef,
-    progressCallbacks,
-    lastVideoPositionRef,
-    activeStartedWithRemoteRef,
-    showSwipeHint,
-    fadeAnimation,
-    likedShortIdsRef,
-    videoCacheRef,
-    appState,
-  } = props;
-
-  const isActive = index === currentVisibleIndex;
-
-  // Local States
-  const [videoReady, setVideoReady] = useState(false);
-  const [showPauseButton, setShowPauseButton] = useState(false);
-  const [showLikeAnimation, setShowLikeAnimation] = useState(false);
-  const [isCaptionExpanded, setIsCaptionExpanded] = useState(false);
-  const [sourceVersion, setSourceVersion] = useState(0);
-  const [userPaused, setUserPaused] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [likeParticles, setLikeAnimationParticles] = useState<Array<{ id: string; x: number; y: number }>>([]);
-  const [isMuted, setIsMuted] = useState(isMutedProp);
-
-  // Sync mute state from props
-  useEffect(() => {
-    setIsMuted(isMutedProp);
-  }, [isMutedProp]);
-
-  // Reset user-paused state when scrolling away so it auto-plays next time
-  useEffect(() => {
-    if (!isActive) {
-      setUserPaused(false);
-    }
-  }, [isActive]);
-
-  const router = useRouter();
-
-  // Local Refs
-  const videoRef = useRef<Video | null>(null);
-  const pauseTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const likeAnimTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const lastTapRef = useRef<number>(0);
-  const tapTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  
-  const likeAnimationVal = useRef(new Animated.Value(0)).current;
-  const particleAnims = useRef<Record<string, any>>({});
-  const lastMuteEnforceAtRef = useRef<number>(0);
-
-  // Clean up timeouts on unmount
-  useEffect(() => {
-    return () => {
-      if (pauseTimeoutRef.current) clearTimeout(pauseTimeoutRef.current);
-      if (likeAnimTimeoutRef.current) clearTimeout(likeAnimTimeoutRef.current);
-      if (tapTimeoutRef.current) clearTimeout(tapTimeoutRef.current);
-    };
-  }, []);
-
-  const retryVideoLoadLocally = () => {
-    setTimeout(() => {
-      setSourceVersion(prev => prev + 1);
-      setVideoReady(false);
-    }, 1000);
-  };
-
-  // Sync playback state based on visibility and focus
-  const shouldPlay = isActive && isVideoPlaying && isScreenFocused && !userPaused && appState === 'active';
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    if (shouldPlay) {
-      video.playAsync().then(() => {
-        setIsPlaying(true);
-      }).catch(() => {});
-    } else {
-      video.pauseAsync().then(() => {
-        setIsPlaying(false);
-        video.setPositionAsync(0).catch(() => {});
-      }).catch(() => {});
-    }
-  }, [shouldPlay]);
-
-  // Sync native video player's mute/volume when isMuted, isActive, or song changes
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-    const shouldMuteVideo = !isActive || hasMusic || isMuted;
-    video.setIsMutedAsync(shouldMuteVideo).catch(() => {});
-    video.setVolumeAsync(shouldMuteVideo ? 0.0 : 1.0).catch(() => {});
-  }, [isMuted, isActive, item.song]);
-
-  // Recovery check inside ShortsCell
-  useEffect(() => {
-    if (!isActive || videoReady || !isScreenFocused || appState !== 'active') return;
-    
-    const timer = setTimeout(() => {
-      const video = videoRef.current;
-      if (video) {
-        video.getStatusAsync().then((status) => {
-          if (!status.isLoaded) {
-            logger.warn(`Video ${item._id} still not loaded after 1.5s - triggering URL refetch recovery`);
-            handlers.refetchShortWithFreshUrl(item._id)
-              .then((freshShort: PostType | null) => {
-                if (freshShort) {
-                  setSourceVersion(prev => prev + 1);
-                  setVideoReady(false);
-                  logger.info(`Successfully recovered visible video ${item._id} with fresh signed URL`);
-                } else {
-                  retryVideoLoadLocally();
-                }
-              })
-              .catch(() => {
-                retryVideoLoadLocally();
-              });
-          }
-        }).catch(() => {});
-      }
-    }, 1500);
-
-    return () => clearTimeout(timer);
-  }, [isActive, videoReady, isScreenFocused, appState]);
-
-  const showLikeAnimationTemporarily = () => {
-    likeAnimationVal.setValue(0);
-    setShowLikeAnimation(true);
-    setShowPauseButton(false);
-
-    if (pauseTimeoutRef.current) {
-      clearTimeout(pauseTimeoutRef.current);
-      pauseTimeoutRef.current = null;
-    }
-
-    const particleCount = 6;
-    const particles: Array<{ id: string; x: number; y: number }> = [];
-    const localParticleAnims: Record<string, any> = {};
-
-    for (let i = 0; i < particleCount; i++) {
-      const particleId = `${item._id}-${Date.now()}-${i}`;
-      const angle = (Math.PI * 2 * i) / particleCount + (Math.random() - 0.5) * 0.5;
-      const distance = 30 + Math.random() * 40;
-      const x = Math.cos(angle) * distance;
-      const y = Math.sin(angle) * distance;
-
-      particles.push({ id: particleId, x, y });
-      localParticleAnims[particleId] = {
-        scale: new Animated.Value(0),
-        opacity: new Animated.Value(0),
-        translateY: new Animated.Value(0),
-        translateX: new Animated.Value(0),
-      };
-    }
-
-    particleAnims.current = localParticleAnims;
-    setLikeAnimationParticles(particles);
-
-    Animated.sequence([
-      Animated.parallel([
-        Animated.timing(likeAnimationVal, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.spring(likeAnimationVal, {
-        toValue: 1.2,
-        tension: 100,
-        friction: 3,
-        useNativeDriver: true,
-      }),
-      Animated.spring(likeAnimationVal, {
-        toValue: 1,
-        tension: 100,
-        friction: 3,
-        useNativeDriver: true,
-      }),
-      Animated.timing(likeAnimationVal, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    particles.forEach((particle, particleIndex) => {
-      const anims = localParticleAnims[particle.id];
-      if (!anims) return;
-
-      setTimeout(() => {
-        Animated.parallel([
-          Animated.sequence([
-            Animated.timing(anims.scale, {
-              toValue: 1,
-              duration: 150,
-              useNativeDriver: true,
-            }),
-            Animated.timing(anims.scale, {
-              toValue: 0.6,
-              duration: 400,
-              useNativeDriver: true,
-            }),
-          ]),
-          Animated.sequence([
-            Animated.timing(anims.opacity, {
-              toValue: 0.4,
-              duration: 150,
-              useNativeDriver: true,
-            }),
-            Animated.timing(anims.opacity, {
-              toValue: 0,
-              duration: 400,
-              useNativeDriver: true,
-            }),
-          ]),
-          Animated.timing(anims.translateY, {
-            toValue: -80 - Math.random() * 40,
-            duration: 550,
-            useNativeDriver: true,
-          }),
-          Animated.timing(anims.translateX, {
-            toValue: particle.x,
-            duration: 550,
-            useNativeDriver: true,
-          }),
-        ]).start();
-      }, particleIndex * 30);
-    });
-
-    if (likeAnimTimeoutRef.current) {
-      clearTimeout(likeAnimTimeoutRef.current);
-    }
-    likeAnimTimeoutRef.current = setTimeout(() => {
-      setShowLikeAnimation(false);
-      setLikeAnimationParticles([]);
-    }, 1500);
-  };
-
-  const handleCellVideoTap = () => {
-    const now = Date.now();
-    const delay = 300;
-    const videoId = item._id;
-
-    if (now - lastTapRef.current < delay) {
-      if (tapTimeoutRef.current) {
-        clearTimeout(tapTimeoutRef.current);
-        tapTimeoutRef.current = null;
-      }
-      
-      const originalIsLiked = likedShortIdsRef.current.has(videoId) || item.isLiked || false;
-      
-      if (originalIsLiked) {
-        showLikeAnimationTemporarily();
-        return;
-      }
-
-      handlers.handleLike(videoId, true);
-      showLikeAnimationTemporarily();
-      
-      lastTapRef.current = 0;
-    } else {
-      lastTapRef.current = now;
-      if (tapTimeoutRef.current) {
-        clearTimeout(tapTimeoutRef.current);
-      }
-      
-      tapTimeoutRef.current = setTimeout(() => {
-        setUserPaused(prev => {
-          const next = !prev;
-          setShowPauseButton(true);
-          if (pauseTimeoutRef.current) {
-            clearTimeout(pauseTimeoutRef.current);
-          }
-          pauseTimeoutRef.current = setTimeout(() => {
-            setShowPauseButton(false);
-          }, 1500);
-          
-          return next;
-        });
-        tapTimeoutRef.current = null;
-      }, delay);
-    }
-  };
-
-  const distanceFromVisible = index - currentVisibleIndex;
-  const isCached = isCacheChecked && !!localVideoUris[item._id];
-  const shouldRenderVideo = isActive || (Math.abs(distanceFromVisible) <= 2 && isCached);
-
-  const isCellVideoPlaying = isPlaying && isVideoPlaying;
-  const isOwn = item.user._id === currentUser?._id;
-  const isScopedView = !!effectiveUserId || isSavedShorts;
-  const progressBottom = isScopedView ? (Platform.OS === 'web' ? 8 : 20) : (Platform.OS === 'web' ? 8 : 77);
-  const progressHeight = 24;
-  const clearance = 16;
-  const bottomContentOffset = progressBottom + progressHeight + clearance;
-  
-  const shouldShowPauseButton = !showLikeAnimation && showPauseButton;
-  const pauseButtonIcon = isPlaying ? "pause" : "play";
-
-  return (
-    <View style={[
-      styles.shortItem, 
-      { 
-        height: containerHeight,
-        paddingBottom: isScopedView ? 0 : TAB_BAR_HEIGHT,
-      }
-    ]}>
-        {/* Video Player with Gesture Handling */}
-        <View
-          style={[
-            styles.videoContainer,
-            { bottom: isScopedView ? 100 : 0 }
-          ]}
-          onTouchStart={handlers.handleTouchStart}
-          onTouchMove={handlers.handleTouchMove}
-          onTouchEnd={(event) => handlers.handleTouchEnd(event, item.user._id)}
-          onTouchCancel={handlers.handleTouchCancel}
-        >
-          <TouchableWithoutFeedback
-            onPress={handleCellVideoTap}
-            onLongPress={() => {
-              if (item.user._id === currentUser?._id) {
-                handlers.handleDeleteShort(item._id);
-              }
-            }}
-            accessible={true}
-            accessibilityLabel="Tap to play or pause video"
-            accessibilityRole="button"
-          >
-            <View style={[
-              styles.shortVideo,
-              StyleSheet.absoluteFillObject
-            ]}>
-            {(item.thumbnailUrl || item.imageUrl) ? (
-              <ExpoImage
-                source={{ uri: item.thumbnailUrl || item.imageUrl }}
-                style={[styles.shortVideo as ImageStyle, StyleSheet.absoluteFillObject]}
-                contentFit="contain"
-                cachePolicy="memory-disk"
-                transition={0}
-                onError={(e: any) => logger.warn('[shorts thumbnail] load failed', {
-                  shortId: item._id,
-                  url: (item.thumbnailUrl || item.imageUrl)?.substring(0, 120),
-                  error: e?.error || e?.nativeEvent?.error || String(e),
-                })}
-              />
-            ) : (
-              <View style={[styles.shortVideo, StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }]}>
-                <LoadingGlobe size="small" color="rgba(255,255,255,0.6)" />
-              </View>
-            )}
-            {shouldRenderVideo && (
-              <ShortsVideoPlayerComponent
-              key={`video-${item._id}-${sourceVersion}`}
-              ref={(ref) => {
-                videoRef.current = ref;
-                if (ref) {
-                  videoRefs.current[item._id] = ref;
-                } else {
-                  delete videoRefs.current[item._id];
-                }
-              }}
-              source={getVideoSource(handlers.getVideoUrl(item))}
-              style={[
-                styles.shortVideo,
-                StyleSheet.absoluteFillObject,
-                { opacity: videoReady ? 1 : 0 }
-              ]}
-              resizeMode={ResizeMode.CONTAIN}
-              shouldPlay={shouldPlay}
-              isLooping
-              progressUpdateIntervalMillis={100}
-              isMuted={!isActive || !!(item.song?.songId?._id || item.song?.songId) || isMuted}
-              volume={(!!(item.song?.songId?._id || item.song?.songId) || isMuted) ? 0.0 : 1.0}
-              onLoadStart={() => {
-                logger.debug(`Video ${item._id} load started, index: ${index}, currentVisible: ${currentVisibleIndex}`);
-              }}
-              onReadyForDisplay={() => {
-                logger.debug(`Video ${item._id} ready for display`);
-                setVideoReady(true);
-                if (handlers.onVideoReady) {
-                  handlers.onVideoReady(item._id);
-                }
-              }}
-              onError={(error) => {
-                logger.error(`Video ${item._id} failed to load:`, error);
-                videoCacheRef.current.delete(item._id);
-                if (localVideoUris[item._id]) {
-                  handlers.removeLocalVideoUri(item._id);
-                }
-                delete activeStartedWithRemoteRef.current[item._id];
-                setIsPlaying(false);
-                setVideoReady(false);
-
-                const errorMessage = typeof error === 'string' ? error : (error as any)?.message || '';
-                const errorCode = (error as any)?.code;
-                const errorDomain = (error as any)?.domain;
-                const isTimeoutError =
-                  errorCode === -1001 ||
-                  errorCode === '-1001' ||
-                  errorDomain === 'NSURLErrorDomain' ||
-                  /(-1001|NSURLErrorDomain|timeout|Timeout|timed out)/.test(errorMessage);
-                const isExpiredUrl = /(403|404|Forbidden|expired|ExpiredRequest)/.test(errorMessage);
-
-                if (isExpiredUrl || isTimeoutError) {
-                  const errorType = isTimeoutError ? 'timeout' : 'expired URL';
-                  logger.debug(`Video ${item._id} ${errorType} — refetching fresh signed URL`, { errorCode, errorDomain, errorMessage });
-                  handlers.refetchShortWithFreshUrl(item._id)
-                    .then((freshShort: PostType | null) => {
-                      const freshVideoUrl = freshShort?.videoUrl || freshShort?.mediaUrl || freshShort?.imageUrl;
-                      if (!freshShort || !freshVideoUrl) {
-                        retryVideoLoadLocally();
-                        return;
-                      }
-                      setSourceVersion(prev => prev + 1);
-                      setVideoReady(false);
-                    })
-                    .catch((refetchError: any) => {
-                      logger.error(`Failed to refetch fresh URL for video ${item._id}:`, refetchError);
-                      retryVideoLoadLocally();
-                    });
-                } else {
-                  retryVideoLoadLocally();
-                }
-              }}
-              onPlaybackStatusUpdate={(status: AVPlaybackStatus) => {
-                if (status.isLoaded) {
-                  if (isActive) {
-                    const cb = progressCallbacks.current[item._id];
-                    if (cb) {
-                      cb(status.positionMillis, status.durationMillis || 1);
-                    }
-                  }
-                  const wasPlaying = isPlaying;
-                  const isNowPlaying = status.isPlaying;
-                  
-                  const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                  const shouldMuteVideo = !isActive || hasMusic || isMuted;
-                  if (isActive) {
-                    const video = videoRef.current;
-                    if (video) {
-                      if (shouldMuteVideo && !status.isMuted) {
-                        const now = Date.now();
-                        const lastEnforce = lastMuteEnforceAtRef.current;
-                        if (now - lastEnforce > 1000) {
-                          lastMuteEnforceAtRef.current = now;
-                          video.setIsMutedAsync(true).catch(() => {});
-                          video.setVolumeAsync(0.0).catch(() => {});
-                        }
-                      } else if (!shouldMuteVideo && status.isMuted) {
-                        const now = Date.now();
-                        const lastEnforce = lastMuteEnforceAtRef.current;
-                        if (now - lastEnforce > 1000) {
-                          lastMuteEnforceAtRef.current = now;
-                          video.setIsMutedAsync(false).catch(() => {});
-                          video.setVolumeAsync(1.0).catch(() => {});
-                        }
-                      }
-                    }
-                  }
-                  
-                  if (isNowPlaying && (!isActive || !isScreenFocused)) {
-                    videoRef.current?.pauseAsync().catch(() => {});
-                    return;
-                  }
-                  
-                  if (isNowPlaying && isActive && status.positionMillis !== undefined) {
-                    const lastPos = lastVideoPositionRef.current[item._id] ?? 0;
-                    const curPos = status.positionMillis;
-                    if (lastPos > 500 && curPos < lastPos - 500) {
-                      const audio = audioManager.getCurrentSound() || currentPlayerRef.current;
-                      if (hasMusic && audio) {
-                        const startSec = item.song?.startTime || 0;
-                        const endSec = item.song?.endTime;
-                        const songStartMs = startSec * 1000;
-                        const segmentMs = endSec && endSec > startSec ? (endSec - startSec) * 1000 : 60000;
-                        const audioOffsetMs = curPos % segmentMs;
-                        audio.setPositionAsync(songStartMs + audioOffsetMs).catch(() => {});
-                      }
-                    }
-                    lastVideoPositionRef.current[item._id] = curPos;
-                  }
-                  
-                  if (isNowPlaying && wasPlaying !== true) {
-                    logger.debug(`Video ${item._id} playing`);
-                    setIsPlaying(true);
-                  }
-                } else if ((status as any).error) {
-                  logger.error(`Video ${item._id} playback error:`, (status as any).error);
-                  if (isActive) {
-                    videoCacheRef.current.delete(item._id);
-                    if (localVideoUris[item._id]) {
-                      handlers.removeLocalVideoUri(item._id);
-                    }
-                  }
-                }
-              }}
-              onLoad={(status) => {
-                if (status.isLoaded) {
-                  logger.debug(`Video ${item._id} loaded successfully, isPlaying: ${status.isPlaying}, shouldPlay: ${isActive}`);
-                  setIsPlaying(status.isPlaying);
-                  
-                  if (isActive && isScreenFocused && !userPaused) {
-                    const video = videoRef.current;
-                    if (video) {
-                      const hasMusic = !!(item.song?.songId?._id || item.song?.songId);
-                      const shouldMuteVideo = hasMusic || isMuted;
-                      video.setIsMutedAsync(shouldMuteVideo).catch(() => {});
-                      video.setVolumeAsync(shouldMuteVideo ? 0.0 : 1.0).catch(() => {});
-
-                      if (!status.isPlaying) {
-                        video.playAsync().then(() => {
-                          setIsPlaying(true);
-                          logger.debug(`Video ${item._id} started playing after load`);
-                        }).catch((error) => {
-                          logger.error(`Video ${item._id} failed to play after load:`, error);
-                        });
-                      }
-                    }
-                  }
-                }
-              }}
-            />
-            )}
-            </View>
-          </TouchableWithoutFeedback>
-        </View>
-        
-        <LinearGradient
-          colors={['transparent', 'transparent']}
-          style={styles.topGradient}
-        />
-        <LinearGradient
-          colors={['transparent', 'transparent']}
-          style={styles.bottomGradient}
-        />
-        
-        {showLikeAnimation && (() => {
-          const opacity = likeAnimationVal.interpolate({
-            inputRange: [0, 0.5, 1, 1.2],
-            outputRange: [0, 0.4, 0.5, 0.5],
-          });
-          
-          const scale = likeAnimationVal.interpolate({
-            inputRange: [0, 0.5, 1, 1.2],
-            outputRange: [0.3, 0.8, 1, 1.2],
-          });
-          
-          return (
-            <Animated.View 
-              style={[
-                styles.likeAnimationContainer,
-                {
-                  opacity,
-                  transform: [{ scale }],
-                },
-              ]}
-              pointerEvents="none"
-            >
-              <MaskedView
-                style={{ width: 80, height: 80 }}
-                maskElement={
-                  <Ionicons name="heart" size={80} color="#000000" />
-                }
-              >
-                <LinearGradient
-                  colors={['#50C878', '#1C73B4']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={{ flex: 1 }}
-                />
-              </MaskedView>
-            </Animated.View>
-          );
-        })()}
-
-        {likeParticles.map((particle) => {
-          const anims = particleAnims.current[particle.id];
-          if (!anims) return null;
-          
-          return (
-            <Animated.View
-              key={particle.id}
-              style={[
-                styles.likeAnimationContainer,
-                {
-                  position: 'absolute',
-                  transform: [
-                    { translateX: anims.translateX },
-                    { translateY: anims.translateY },
-                    { scale: anims.scale },
-                  ],
-                  opacity: anims.opacity,
-                },
-              ]}
-              pointerEvents="none"
-            >
-              <Ionicons name="heart" size={24} color="#50C878" />
-            </Animated.View>
-          );
-        })}
-
-        {shouldShowPauseButton && (
-          <View 
-            style={styles.playButton} 
-            pointerEvents="none"
-            collapsable={false}
-          >
-            <View style={styles.playButtonBlur}>
-              <Ionicons 
-                name={pauseButtonIcon} 
-                size={50} 
-                color="white" 
-              />
-            </View>
-          </View>
-        )}
-
-        {showSwipeHint && !effectiveUserId && isActive && (
-          <Animated.View style={[styles.swipeHint, { opacity: fadeAnimation }]}>
-            <View style={styles.swipeHintBlur}>
-              <Ionicons name="arrow-back" size={24} color="white" />
-              <Text style={styles.swipeHintText}>Swipe left for profile</Text>
-            </View>
-          </Animated.View>
-        )}
-      
-        <LocalShortsActionRail
-          short={item}
-          shortId={item._id}
-          userId={item.user._id}
-          username={item.user.username}
-          profilePic={item.user.profilePic}
-          initialIsLiked={isLiked}
-          initialLikesCount={typeof item.likesCount === 'number' ? item.likesCount : 0}
-          commentsCount={item.commentsCount || 0}
-          isSaved={isSaved}
-          isFollowing={isFollowing}
-          isOwn={isOwn}
-          currentUserLoaded={!!currentUser?._id}
-          onProfilePress={handlers.handleProfilePress}
-          onLikePress={handlers.handleLike}
-          onCommentPress={handlers.handleComment}
-          onSharePress={handlers.handleShare}
-          onSavePress={handlers.handleSave}
-          isScopedView={isScopedView}
-          isPlaying={isCellVideoPlaying}
-        />
-
-        <View 
-          style={[
-            styles.bottomContent, 
-            { bottom: bottomContentOffset }
-          ]}
-        >
-          <LinearGradient
-            colors={['transparent', 'transparent', 'transparent']}
-            style={styles.bottomGradientOverlay}
-          />
-          
-          <View style={styles.bottomContentInner}>
-            <View style={styles.userProfileSection}>
-              <TouchableOpacity
-                style={styles.bottomAvatarContainer}
-                onPress={(e) => {
-                  e.stopPropagation?.();
-                  handlers.handleProfilePress(item.user._id);
-                }}
-                activeOpacity={0.7}
-                accessibilityLabel={`View ${item.user.username || 'user'}'s profile`}
-                accessibilityRole="button"
-              >
-                <LinearGradient
-                  colors={['#50C878', '#1C73B4']}
-                  style={styles.bottomGradientBorder}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                >
-                  <ExpoImage
-                    source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
-                    style={styles.bottomProfileImage as ImageStyle}
-                    cachePolicy="memory-disk"
-                    placeholder={require('../../assets/avatars/male_avatar.png')}
-                    contentFit="cover"
-                    transition={200}
-                    onError={(e: any) => logger.warn('[shorts bottom avatar] load failed', {
-                      userId: item.user._id,
-                      url: item.user.profilePic?.substring(0, 120),
-                      error: e?.error || e?.nativeEvent?.error || String(e),
-                    })}
-                  />
-                </LinearGradient>
-              </TouchableOpacity>
-
-              <View style={styles.userDetails}>
-                <View style={styles.usernameRow}>
-                  <TouchableOpacity
-                    onPress={(e) => {
-                      e.stopPropagation?.();
-                      handlers.handleProfilePress(item.user._id);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.username}>@{item.user.username || item.user._id}</Text>
-                  </TouchableOpacity>
-                  
-                  {isFollowing && (
-                    <View style={styles.followingBadge}>
-                      <Text style={styles.followingText}>Following</Text>
-                    </View>
-                  )}
-                </View>
-
-                <CyclingMetadata
-                  song={item.song}
-                  location={item.location}
-                  onLocationPress={async (e) => {
-                    e.stopPropagation?.();
-                    try {
-                      const address = item.location?.address;
-                      if (address) {
-                        const coordinates = await geocodeAddress(address);
-                        if (coordinates) {
-                          router.push({
-                            pathname: '/map/current-location',
-                            params: {
-                              latitude: coordinates.latitude.toString(),
-                              longitude: coordinates.longitude.toString(),
-                              address,
-                               photo: item.thumbnailUrl || item.imageUrl || '',
-                            }
-                          });
-                        } else {
-                          router.push('/map/current-location');
-                        }
-                      }
-                    } catch (error) {
-                      logger.warn('Failed to geocode location:', error);
-                      router.push('/map/current-location');
-                    }
-                  }}
-                />
-              </View>
-            </View>
-
-            {item.caption ? (
-              <TouchableOpacity
-                activeOpacity={0.85}
-                onPress={(e) => {
-                  e.stopPropagation?.();
-                  setIsCaptionExpanded(prev => !prev);
-                }}
-              >
-                <Text 
-                  style={styles.caption} 
-                  numberOfLines={isCaptionExpanded ? undefined : 2}
-                >
-                  {item.caption}
-                </Text>
-              </TouchableOpacity>
-            ) : null}
-            
-            {!!(item.song?.songId && (item.song.songId._id || typeof item.song.songId === 'string')) && (
-                <View style={styles.hiddenSongPlayer} pointerEvents="none">
-                  <SongPlayer
-                    post={item}
-                    isVisible={isScreenFocused && isActive}
-                    shouldPreload={isScreenFocused && index === currentVisibleIndex + 1}
-                    autoPlay={isCellVideoPlaying}
-                    externalMuted={isMuted}
-                    onPlayingChange={handlers.handleSongPlayingChange}
-                  />
-                </View>
-            )}
-          </View>
-        </View>
-        {shouldRenderVideo && (
-          <ShortsProgressBar
-            shortId={item._id}
-            index={index}
-            currentVisibleIndex={currentVisibleIndex}
-            getVideoRef={() => videoRef.current}
-            hasMusic={!!(item.song?.songId?._id || item.song?.songId)}
-            songStartSec={item.song?.startTime}
-            songEndSec={item.song?.endTime}
-            currentPlayerRef={currentPlayerRef}
-            progressCallbacks={progressCallbacks}
-            lastVideoPositionRef={lastVideoPositionRef}
-            isScopedView={isScopedView}
-          />
-        )}
-    </View>
-  );
-});
-ShortsCell.displayName = 'ShortsCell';
-
-const ShortsVideoPlayerComponent = React.forwardRef<Video, React.ComponentProps<typeof Video>>((props, ref) => {
-  const localRef = useRef<Video | null>(null);
-
-  const combinedRef = useCallback((node: Video | null) => {
-    localRef.current = node;
-    if (typeof ref === 'function') {
-      ref(node);
-    } else if (ref) {
-      (ref as any).current = node;
-    }
-  }, [ref]);
-
-  useEffect(() => {
-    return () => {
-      if (localRef.current) {
-        logger.debug(`[ShortsVideoPlayerComponent] Unloading video player on unmount`);
-        localRef.current.unloadAsync().catch((err) => {
-          logger.debug(`[ShortsVideoPlayerComponent] Failed to unload video on unmount:`, err);
-        });
-      }
-    };
-  }, []);
-
-  return <Video ref={combinedRef} {...props} />;
-});
-ShortsVideoPlayerComponent.displayName = 'ShortsVideoPlayerComponent';
-
-const MemoizedVideo = React.memo(
-  ShortsVideoPlayerComponent,
-  (prev, next) => {
-    const prevUri = prev.source && typeof prev.source === 'object' && 'uri' in prev.source ? (prev.source as any).uri : null;
-    const nextUri = next.source && typeof next.source === 'object' && 'uri' in next.source ? (next.source as any).uri : null;
-
-    // Native expo-av players are fragile when parent UI state changes. Only
-    // playback, mute, volume, or source changes are allowed to reach the native Video.
-    return (
-      prev.shouldPlay === next.shouldPlay &&
-      prev.isMuted === next.isMuted &&
-      prev.volume === next.volume &&
-      prevUri === nextUri
-    );
-  }
-);
-MemoizedVideo.displayName = 'MemoizedShortsVideo';
-
-interface ShortsProgressBarProps {
-  shortId: string;
-  index: number;
-  currentVisibleIndex: number;
-  getVideoRef: () => Video | null;
-  hasMusic: boolean;
-  songStartSec?: number;
-  songEndSec?: number;
-  currentPlayerRef: React.MutableRefObject<Audio.Sound | null>;
-  progressCallbacks: React.MutableRefObject<Record<string, (position: number, duration: number) => void>>;
-  lastVideoPositionRef: React.MutableRefObject<Record<string, number>>;
-  isScopedView?: boolean;
-}
-
-const ShortsProgressBar = ({
-  shortId,
-  index,
-  currentVisibleIndex,
-  getVideoRef,
-  hasMusic,
-  songStartSec,
-  songEndSec,
-  currentPlayerRef,
-  progressCallbacks,
-  lastVideoPositionRef,
-  isScopedView,
-}: ShortsProgressBarProps) => {
-  const [progress, setProgress] = useState(0);
-  const [duration, setDuration] = useState(0);
-  const [isPressing, setIsPressing] = useState(false);
-
-  const progressRef = useRef(0);
-  const durationRef = useRef(0);
-
-  const lastSeekTimeRef = useRef(0);
-  const pendingSeekTimeoutRef = useRef<any>(null);
-  const isPressingRef = useRef(false);
-
-  const lastTouchTimeRef = useRef(0);
-  const lastTouchXRef = useRef(0);
-  const lastHapticProgressRef = useRef(0);
-
-  useEffect(() => {
-    if (index !== currentVisibleIndex) {
-      setProgress(0);
-      progressRef.current = 0;
-      return;
-    }
-
-    progressCallbacks.current[shortId] = (pos: number, dur: number) => {
-      setDuration(dur);
-      durationRef.current = dur;
-      if (dur > 0 && !isPressingRef.current) {
-        const newProg = pos / dur;
-        setProgress(newProg);
-        progressRef.current = newProg;
-      }
-    };
-
-    return () => {
-      delete progressCallbacks.current[shortId];
-      if (pendingSeekTimeoutRef.current) {
-        clearTimeout(pendingSeekTimeoutRef.current);
-      }
-    };
-  }, [shortId, index, currentVisibleIndex]);
-
-  const handleTouch = (event: any, forceSeek = false) => {
-    if (durationRef.current <= 0) return;
-    
-    const pageX = event.nativeEvent.pageX;
-    const leftOffset = (SCREEN_WIDTH - 226) / 2;
-    const newProgress = Math.max(0, Math.min(1, (pageX - leftOffset) / 226));
-    setProgress(newProgress);
-    progressRef.current = newProgress;
-
-    const now = Date.now();
-    const timeDelta = now - lastTouchTimeRef.current;
-    const xDelta = pageX - lastTouchXRef.current;
-    const velocity = timeDelta > 0 ? Math.abs(xDelta / timeDelta) : 0;
-    lastTouchTimeRef.current = now;
-    lastTouchXRef.current = pageX;
-
-    // Kinesthetic Feedback: haptic ticks on 10% steps
-    const currentStep = Math.floor(newProgress * 10);
-    const lastStep = Math.floor(lastHapticProgressRef.current * 10);
-    if (currentStep !== lastStep) {
-      triggerHaptic('light');
-    }
-
-    lastHapticProgressRef.current = newProgress;
-
-    const targetMs = newProgress * durationRef.current;
-    
-    // Calculate music seek offset
-    const startSec = songStartSec || 0;
-    const endSec = songEndSec;
-    const songStartMs = startSec * 1000;
-    const segmentMs = endSec && endSec > startSec ? (endSec - startSec) * 1000 : 60000;
-    const audioOffsetMs = targetMs % segmentMs;
-    const finalAudioMs = songStartMs + audioOffsetMs;
-
-    const performSeek = () => {
-      const video = getVideoRef();
-      if (video) {
-        // Fast seek always, no tolerance parameters to avoid UI freeze/stutter
-        video.setPositionAsync(targetMs).catch(() => {});
-      }
-      const audio = hasMusic ? (audioManager.getCurrentSound() || currentPlayerRef.current) : null;
-      if (forceSeek && audio) {
-        audio.setPositionAsync(finalAudioMs).catch(() => {});
-      }
-      // Update last video position immediately to prevent false loop detection triggers
-      lastVideoPositionRef.current[shortId] = targetMs;
-    };
-
-    if (forceSeek) {
-      if (pendingSeekTimeoutRef.current) {
-        clearTimeout(pendingSeekTimeoutRef.current);
-        pendingSeekTimeoutRef.current = null;
-      }
-      lastSeekTimeRef.current = now;
-      performSeek();
-    } else {
-      const timeSinceLastSeek = now - lastSeekTimeRef.current;
-      const throttleDelay = 80; // Fixed 80ms throttle window for continuous seeks
-      
-      if (timeSinceLastSeek > throttleDelay) {
-        if (pendingSeekTimeoutRef.current) {
-          clearTimeout(pendingSeekTimeoutRef.current);
-          pendingSeekTimeoutRef.current = null;
-        }
-        lastSeekTimeRef.current = now;
-        performSeek();
-      } else {
-        // Schedule a trailing edge seek to catch final move coordinates
-        if (pendingSeekTimeoutRef.current) {
-          clearTimeout(pendingSeekTimeoutRef.current);
-        }
-        pendingSeekTimeoutRef.current = setTimeout(() => {
-          lastSeekTimeRef.current = Date.now();
-          performSeek();
-          pendingSeekTimeoutRef.current = null;
-        }, throttleDelay - timeSinceLastSeek);
-      }
-    }
-  };
-
-  const formatSeconds = (ms: number) => {
-    const totalSecs = Math.floor(ms / 1000);
-    const mins = Math.floor(totalSecs / 60);
-    const secs = totalSecs % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const lineThick = isPressing ? 8 : 3;
-
-  return (
-    <View
-      style={[
-        styles.progressBarContainer,
-        isScopedView && { bottom: isWeb ? 8 : 20 }
-      ]}
-      onTouchStart={(e) => {
-        setIsPressing(true);
-        isPressingRef.current = true;
-        triggerHaptic('medium');
-        
-        // Pause players immediately when dragging starts to prevent auditory stuttering and visual racing
-        const video = getVideoRef();
-        if (video) {
-          video.pauseAsync().catch(() => {});
-        }
-        const audio = hasMusic ? (audioManager.getCurrentSound() || currentPlayerRef.current) : null;
-        if (audio) {
-          audio.pauseAsync().catch(() => {});
-        }
-        
-        lastTouchTimeRef.current = Date.now();
-        lastTouchXRef.current = e.nativeEvent.pageX;
-        handleTouch(e, true);
-      }}
-      onTouchMove={(e) => handleTouch(e, false)}
-      onTouchEnd={(e) => {
-        setIsPressing(false);
-        isPressingRef.current = false;
-        triggerHaptic('success');
-        
-        if (pendingSeekTimeoutRef.current) {
-          clearTimeout(pendingSeekTimeoutRef.current);
-          pendingSeekTimeoutRef.current = null;
-        }
-        
-        // Calculate final exact seek coordinates on release using refs to ensure accurate coordinates
-        const finalTargetMs = progressRef.current * durationRef.current;
-        const startSec = songStartSec || 0;
-        const endSec = songEndSec;
-        const songStartMs = startSec * 1000;
-        const segmentMs = endSec && endSec > startSec ? (endSec - startSec) * 1000 : 60000;
-        const audioOffsetMs = finalTargetMs % segmentMs;
-        const finalAudioMs = songStartMs + audioOffsetMs;
-
-        const video = getVideoRef();
-        
-        // Seek to final precise destination simultaneously and resume play smoothly
-        const executeFinalSeekAndPlay = async () => {
-          const video = getVideoRef();
-          const audio = hasMusic ? (audioManager.getCurrentSound() || currentPlayerRef.current) : null;
-
-          try {
-            // Pause explicitly first to reset players stream state (prevents stale buffer playing)
-            if (video) {
-              await video.pauseAsync().catch(() => {});
-            }
-            if (audio) {
-              await audio.pauseAsync().catch(() => {});
-            }
-
-            // Update last video position immediately to prevent false loop detection triggers
-            lastVideoPositionRef.current[shortId] = finalTargetMs;
-
-            // Wait for both seeks to complete (ignoring individual catch rejections so one doesn't abort the other)
-            await Promise.all([
-              video ? video.setPositionAsync(finalTargetMs).catch((err) => logger.error("Final video seek failed:", err)) : Promise.resolve(),
-              audio ? audio.setPositionAsync(finalAudioMs).catch((err) => logger.error("Final audio seek failed:", err)) : Promise.resolve(),
-            ]);
-
-            // Once seeking is completed, resume playback
-            if (video) {
-              await video.playAsync().catch(() => {});
-            }
-            if (audio) {
-              await audio.playAsync().catch(() => {});
-            }
-          } catch (err) {
-            logger.error("Error in executeFinalSeekAndPlay:", err);
-            // Safe fallback
-            if (video) video.playAsync().catch(() => {});
-            if (audio) audio.playAsync().catch(() => {});
-          }
-        };
-        
-        executeFinalSeekAndPlay();
-      }}
-    >
-      {/* Straight line horizontal bar */}
-      <View style={[styles.progressBarBackground, { height: lineThick, borderRadius: lineThick / 2 }]}>
-        <View
-          style={[
-            styles.progressBarFill,
-            { width: `${progress * 100}%`, height: lineThick, borderRadius: lineThick / 2, overflow: 'hidden' }
-          ]}
-        >
-          <LinearGradient
-            colors={['#50C878', '#1C73B4']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={StyleSheet.absoluteFillObject}
-          />
-        </View>
-      </View>
-
-
-
-      {/* Tooltip on scrubbing */}
-      {isPressing && duration > 0 && (
-        <View style={[styles.scrubberTooltip, { left: `${Math.max(10, Math.min(80, progress * 100))}%` }]}>
-          <Text style={styles.scrubberTooltipText}>
-            {formatSeconds(progress * duration)} / {formatSeconds(duration)}
-          </Text>
-        </View>
-      )}
-    </View>
-  );
-};
-
-const likeRailListeners = new Map<string, Set<(isLiked: boolean) => void>>();
-
-const emitLikeRailState = (shortId: string, isLiked: boolean) => {
-  likeRailListeners.get(shortId)?.forEach((listener) => listener(isLiked));
-};
-
-interface LocalShortsActionRailProps {
-  short: PostType;
-  shortId: string;
-  userId: string;
-  username?: string;
-  profilePic?: string;
-  initialIsLiked: boolean;
-  initialLikesCount: number;
-  commentsCount: number;
-  isSaved: boolean;
-  isFollowing: boolean;
-  isOwn: boolean;
-  currentUserLoaded: boolean;
-  onProfilePress: (userId: string) => void;
-  onLikePress: (shortId: string) => void;
-  onCommentPress: (shortId: string) => void;
-  onSharePress: (short: PostType) => void;
-  onSavePress: (shortId: string) => void;
-  isScopedView?: boolean;
-  isPlaying: boolean;
-}
-
-function GradientIcon({ name, size }: { name: any; size: number }) {
-  return (
-    <MaskedView
-      style={{ width: size, height: size }}
-      pointerEvents="none"
-      maskElement={
-        <Ionicons name={name} size={size} color="#000000" />
-      }
-    >
-      <LinearGradient
-        colors={['#1C73B4', '#50C878']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={{ flex: 1 }}
-      />
-    </MaskedView>
-  );
-}
-
-const LocalShortsActionRail = React.memo(({
-  shortId,
-  short,
-  userId,
-  username,
-  profilePic,
-  initialIsLiked,
-  initialLikesCount,
-  commentsCount,
-  isSaved,
-  isFollowing,
-  isOwn,
-  currentUserLoaded,
-  onProfilePress,
-  onLikePress,
-  onCommentPress,
-  onSharePress,
-  onSavePress,
-  isScopedView,
-  isPlaying,
-}: LocalShortsActionRailProps) => {
-  const [localIsLiked, setLocalIsLiked] = useState(initialIsLiked);
-  const [localLikesCount, setLocalLikesCount] = useState(initialLikesCount);
-  const { showOptions, showSuccess } = useAlert();
-  const router = useRouter();
-  const { theme } = useTheme();
-  const [showModal, setShowModal] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [likers, setLikers] = useState<any[]>([]);
-
-  // 360-degree rotation animation setup for the album art disc
-  const spinValue = useRef(new Animated.Value(0)).current;
-  const spinAnimRef = useRef<Animated.CompositeAnimation | null>(null);
-
-  useEffect(() => {
-    if (isPlaying) {
-      // Smooth linear looping rotation
-      spinValue.setValue(0);
-      spinAnimRef.current = Animated.loop(
-        Animated.timing(spinValue, {
-          toValue: 1,
-          duration: 4000, // 4 seconds for one full loop
-          useNativeDriver: true,
-          easing: Easing.linear,
-        })
-      );
-      spinAnimRef.current.start();
-    } else {
-      if (spinAnimRef.current) {
-        spinAnimRef.current.stop();
-        spinAnimRef.current = null;
-      }
-    }
-    return () => {
-      if (spinAnimRef.current) {
-        spinAnimRef.current.stop();
-      }
-    };
-  }, [isPlaying]);
-
-  const spin = spinValue.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
-
-  const albumArtSource = useMemo(() => {
-    const DEFAULT_ALBUM_ART = 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=120&auto=format&fit=crop';
-    const thumbnailUrl = short.song?.songId?.thumbnailUrl || (typeof short.song?.songId === 'object' && short.song?.songId?.thumbnailUrl);
-    return thumbnailUrl ? { uri: thumbnailUrl } : { uri: DEFAULT_ALBUM_ART };
-  }, [short.song]);
-
-  useEffect(() => {
-    setLocalIsLiked(initialIsLiked);
-    setLocalLikesCount(initialLikesCount);
-  }, [shortId, initialIsLiked, initialLikesCount]);
-
-  useEffect(() => {
-    const listener = (nextLiked: boolean) => {
-      setLocalIsLiked((wasLiked) => {
-        if (wasLiked === nextLiked) return wasLiked;
-        setLocalLikesCount((count) => nextLiked ? count + 1 : Math.max(count - 1, 0));
-        return nextLiked;
-      });
-    };
-    const listeners = likeRailListeners.get(shortId) ?? new Set<(isLiked: boolean) => void>();
-    listeners.add(listener);
-    likeRailListeners.set(shortId, listeners);
-    return () => {
-      listeners.delete(listener);
-      if (listeners.size === 0) {
-        likeRailListeners.delete(shortId);
-      }
-    };
-  }, [shortId]);
-
-
-  const handleProfilePressLocal = useCallback(() => {
-    onProfilePress(userId);
-  }, [onProfilePress, userId]);
-
-  const handleLikePressLocal = useCallback(() => {
-    setLocalIsLiked((wasLiked) => {
-      const nextLiked = !wasLiked;
-      setLocalLikesCount((count) => nextLiked ? count + 1 : Math.max(count - 1, 0));
-      return nextLiked;
-    });
-    onLikePress(shortId);
-  }, [onLikePress, shortId]);
-
-  const handleLikesPress = useCallback(async () => {
-    setShowModal(true);
-    setLoading(true);
-    try {
-      const data = await getPostById(shortId);
-      const likes = data?.data?.post?.likes || data?.post?.likes || data?.likes || [];
-      if (likes.length > 0) {
-        const profiles = await Promise.all(
-          likes.map(async (uid: string) => {
-            try {
-              const res = await getProfile(uid);
-              return res?.profile || null;
-            } catch (err) {
-              return null;
-            }
-          })
-        );
-        setLikers(profiles.filter(Boolean));
-      } else {
-        setLikers([]);
-      }
-    } catch (error) {
-      logger.warn('Failed to load likers for short:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [shortId]);
-
-  const handleCommentPressLocal = useCallback(() => {
-    onCommentPress(shortId);
-  }, [onCommentPress, shortId]);
-
-  const handleSharePressLocal = useCallback(() => {
-    onSharePress(short);
-  }, [onSharePress, short]);
-
-  const handleOptionsPress = useCallback(() => {
-    logger.debug('Options menu pressed for short:', shortId);
-    showOptions(
-      'Reel Options',
-      [
-        {
-          text: isSaved ? 'Remove from Saved' : 'Save Reel',
-          onPress: () => onSavePress(shortId),
-        },
-        {
-          text: 'Share Reel',
-          onPress: handleSharePressLocal,
-        },
-        {
-          text: 'Report Reel',
-          onPress: () => {
-            showSuccess('Thank you for reporting. We will review this content shortly.', 'Report Submitted');
-          },
-          style: 'destructive',
-        },
-      ],
-      undefined,
-      true,
-      'Cancel'
-    );
-  }, [showOptions, showSuccess, isSaved, shortId, onSavePress, handleSharePressLocal]);
-
-  const profileSource = useMemo(
-    () => profilePic ? { uri: profilePic } : require('../../assets/avatars/male_avatar.png'),
-    [profilePic]
-  );
-
-  return (
-    <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
-      {/* Vertical actions rail (moved higher, containing Profile, Like, Comment, Share) */}
-      <View style={[styles.rightActions, isScopedView && { bottom: Platform.OS === 'ios' ? 94 : 88 }]} pointerEvents="box-none">
-        <View style={styles.profileButton}>
-          <Animated.View style={[styles.actionsAvatarContainer, { transform: [{ rotate: spin }] }]}>
-            <View style={styles.albumArtContainer}>
-              <ExpoImage
-                source={albumArtSource}
-                style={styles.albumArtImage as ImageStyle}
-                cachePolicy="memory-disk"
-                placeholder={{ uri: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?q=80&w=120&auto=format&fit=crop' }}
-                contentFit="cover"
-                transition={200}
-              />
-              <View style={styles.albumArtInnerRing} />
-            </View>
-          </Animated.View>
-        </View>
-
-        <View style={styles.actionButton}>
-          <Pressable
-            onPress={handleLikePressLocal}
-            accessibilityLabel={localIsLiked ? `Unlike` : `Like`}
-            accessibilityRole="button"
-          >
-            <View style={[styles.actionIconContainer, localIsLiked && styles.likedContainer]}>
-              {localIsLiked ? (
-                <GradientIcon name="heart" size={28} />
-              ) : (
-                <Ionicons
-                  name="heart-outline"
-                  size={28}
-                  color="white"
-                />
-              )}
-            </View>
-          </Pressable>
-          <TouchableOpacity
-            onPress={handleLikesPress}
-            activeOpacity={0.7}
-            hitSlop={{ top: 8, bottom: 8, left: 12, right: 12 }}
-          >
-            <Text style={styles.actionText}>{localLikesCount}</Text>
-          </TouchableOpacity>
-        </View>
-
-        <Pressable
-          style={styles.actionButton}
-          onPress={handleCommentPressLocal}
-          accessibilityLabel={`Comment, ${commentsCount || 0} comments`}
-          accessibilityRole="button"
-        >
-          <View style={styles.actionIconContainer}>
-            <GradientIcon name="chatbubble-outline" size={28} />
-          </View>
-          <Text style={styles.actionText}>{commentsCount || 0}</Text>
-        </Pressable>
-
-        <Pressable
-          style={styles.actionButton}
-          onPress={handleSharePressLocal}
-          accessibilityLabel="Share"
-          accessibilityRole="button"
-        >
-          <View style={styles.actionIconContainer}>
-            <GradientIcon name="paper-plane-outline" size={28} />
-          </View>
-        </Pressable>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={handleOptionsPress}
-          accessibilityLabel="More options"
-          accessibilityRole="button"
-          activeOpacity={0.7}
-        >
-          <View style={styles.actionIconContainer}>
-            <GradientIcon name="ellipsis-vertical" size={28} />
-          </View>
-        </TouchableOpacity>
-      </View>
-
-      {/* Likes Detail View Modal */}
-      <GlassModal visible={showModal} onClose={() => setShowModal(false)} style={styles.modalContentStyle}>
-        <View style={styles.modalHeader}>
-          <Text style={[styles.modalTitle, { color: theme.colors.text }]}>Likes</Text>
-          <TouchableOpacity onPress={() => setShowModal(false)} style={styles.closeButton}>
-            <Ionicons name="close" size={24} color={theme.colors.text} />
-          </TouchableOpacity>
-        </View>
-
-        {loading ? (
-          <View style={styles.modalLoadingContainer}>
-            <ActivityIndicator size="large" color={theme.colors.primary} />
-          </View>
-        ) : likers.length === 0 ? (
-          <View style={styles.modalEmptyContainer}>
-            <Text style={[styles.modalEmptyText, { color: theme.colors.textSecondary }]}>No likes yet</Text>
-          </View>
-        ) : (
-          <FlatList
-            data={likers}
-            keyExtractor={(item) => item._id}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.userRow}
-                onPress={() => {
-                  setShowModal(false);
-                  router.push(`/profile/${item._id}`);
-                }}
-              >
-                {item.profilePic ? (
-                  <Image source={{ uri: item.profilePic }} style={styles.avatar as ImageStyle} />
-                ) : (
-                  <View style={[styles.avatarPlaceholder, { backgroundColor: theme.colors.border }]}>
-                    <Ionicons name="person" size={20} color={theme.colors.textSecondary} />
-                  </View>
-                )}
-                <View style={styles.userInfo}>
-                  <Text style={[styles.fullName, { color: theme.colors.text }]}>{item.fullName}</Text>
-                  {item.username && (
-                    <Text style={[styles.modalUsername, { color: theme.colors.textSecondary }]}>@{item.username}</Text>
-                  )}
-                </View>
-              </TouchableOpacity>
-            )}
-            style={styles.list}
-            contentContainerStyle={styles.listContent}
-            nestedScrollEnabled={true}
-          />
-        )}
-      </GlassModal>
-    </View>
-  );
-});
-
-LocalShortsActionRail.displayName = 'LocalShortsActionRail';
-
+import { MarqueeText } from './shorts_split/MarqueeText';
+import { CyclingMetadata } from './shorts_split/CyclingMetadata';
+import { ShortsCell, emitLikeRailState } from './shorts_split/ShortsCellFeed';
 // Module-level global mute state for shorts feed to persist across mounts/unmounts
 let globalIsFeedMuted = false;
 
@@ -1956,9 +199,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     props.initialShortId ?? normalizeSearchParam(params.shortId as string | string[] | undefined);
   const isGeneralFeed = !props.isSavedShorts && !effectiveUserId && !effectiveShortId;
 
-  const [shorts, setShorts] = useState<PostType[]>(() => {
+  const [shorts, setRawShorts] = useState<PostType[]>(() => {
     return isGeneralFeed ? globalCachedShorts : [];
   });
+  const setShorts = useCallback((value: React.SetStateAction<PostType[]>) => {
+    setRawShorts((prev) => {
+      const resolved = typeof value === 'function' ? (value as any)(prev) : value;
+      return savedEvents.filterDeleted(resolved);
+    });
+  }, []);
   const [loading, setLoading] = useState(() => {
     return isGeneralFeed ? globalCachedShorts.length === 0 : true;
   });
@@ -2000,6 +249,18 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     }
     return globalIsFeedMuted;
   });
+
+  useEffect(() => {
+    const unsubscribeDelete = savedEvents.addPostActionListener((postId, action) => {
+      if (action === 'delete') {
+        const normDeletedId = normalizeId(postId);
+        setShorts(prev => prev.filter(s => normalizeId(s._id) !== normDeletedId));
+      }
+    });
+    return () => {
+      unsubscribeDelete();
+    };
+  }, []);
 
   useEffect(() => {
     const unsub = audioManager.addSessionMuteListener((muted) => {
@@ -3267,6 +1528,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       likedShortIdsRef.current = finalSet;
       AsyncStorage.setItem(LIKED_SHORTS_STORAGE_KEY, JSON.stringify([...finalSet])).catch(() => {});
 
+      // Sync the parent state with final confirmed values from server
+      setShorts(prevShorts => 
+        prevShorts.map(s => 
+          s._id === shortId 
+            ? { ...s, isLiked: response.isLiked, likesCount: response.likesCount } 
+            : s
+        )
+      );
+
       trackEngagement('like', 'short', shortId, {
         isLiked: response.isLiked
       });
@@ -3279,9 +1549,21 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       likedShortIdsRef.current = revertSet;
       AsyncStorage.setItem(LIKED_SHORTS_STORAGE_KEY, JSON.stringify([...revertSet])).catch(() => {});
 
+      // Revert parent state
+      setShorts(prevShorts => 
+        prevShorts.map(s => 
+          s._id === shortId 
+            ? { ...s, isLiked: pending.originalState, likesCount: pending.originalLikesCount } 
+            : s
+        )
+      );
+
+      // Revert rail child state
+      emitLikeRailState(shortId, pending.originalState);
+
       showError('Failed to update like status');
     }
-  }, [showError]);
+  }, [showError, setShorts]);
 
   const handleLike = useCallback(async (shortId: string, forceLike: boolean = false) => {
     // Find current short
@@ -3314,6 +1596,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     likedShortIdsRef.current = newPersistSet;
     AsyncStorage.setItem(LIKED_SHORTS_STORAGE_KEY, JSON.stringify([...newPersistSet])).catch(() => {});
 
+    // Update parent state optimistically
+    setShorts(prevShorts => 
+      prevShorts.map(s => 
+        s._id === shortId 
+          ? { ...s, isLiked: newIsLiked, likesCount: newLikesCount } 
+          : s
+      )
+    );
+
     // Debounce & coalesce API call
     const pending = likeDebounceRefs.current[shortId];
     if (pending) {
@@ -3332,7 +1623,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         timer: setTimeout(() => executeLikeApiCall(shortId), 500)
       };
     }
-  }, [executeLikeApiCall]);
+  }, [executeLikeApiCall, setShorts]);
 
 
 
@@ -3526,6 +1817,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       async () => {
         try {
           await deleteShort(shortId);
+          savedEvents.emitPostAction(shortId, 'delete');
           
           // Remove from local state
           setShorts(prev => prev.filter(short => short._id !== shortId));
@@ -3653,7 +1945,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   //   2. Per-session counter (defense-in-depth, resets on app restart).
   //   3. Persistent 5-per-8h cap (adCap, shared with home feed).
   // Whichever is most restrictive wins.
-  const showShortsAds = !isWeb && !isExpoGo && !shortsAdsBroken;
+  const showShortsAds = !isWeb && !isExpoGo && !shortsAdsBroken && !adCap.isCapped;
   const shortsData = useMemo((): ShortsItem[] => {
     if (!showShortsAds || shorts.length === 0) return shorts as ShortsItem[];
     const result: ShortsItem[] = [];
@@ -3731,6 +2023,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   useEffect(() => {
     if (!shortsData || shortsData.length === 0) return;
 
+    // Helper to prefetch video thumbnail using ExpoImage
+    const prefetchThumbnail = (item: ShortsItem) => {
+      if (!isAdItem(item)) {
+        const thumbUrl = item.thumbnailUrl || item.imageUrl;
+        if (thumbUrl) {
+          ExpoImage.prefetch(thumbUrl);
+        }
+      }
+    };
+
     // 1. Always preload active video immediately if not cached
     const activeItem = shortsData[currentVisibleIndex];
     if (activeItem && !isAdItem(activeItem)) {
@@ -3738,6 +2040,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       if (baseUrl) {
         preloadVideoAsync(activeItem._id, baseUrl);
       }
+      prefetchThumbnail(activeItem);
     }
 
     // 2. Preload previous video (backward scrolling support) immediately
@@ -3749,6 +2052,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         if (baseUrl) {
           preloadVideoAsync(prevItem._id, baseUrl);
         }
+        prefetchThumbnail(prevItem);
       }
     }
 
@@ -3764,6 +2068,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           if (baseUrl) {
             preloadVideoAsync(nextItem._id, baseUrl);
           }
+          prefetchThumbnail(nextItem);
         }
       }
 
@@ -3779,9 +2084,11 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             
             if (isNextCached) {
               preloadVideoAsync(secondNextItem._id, baseUrl);
+              prefetchThumbnail(secondNextItem);
             } else {
               staggerTimeout = setTimeout(() => {
                 preloadVideoAsync(secondNextItem._id, baseUrl);
+                prefetchThumbnail(secondNextItem);
               }, 1200);
             }
           }
@@ -4011,12 +2318,17 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     const isFollowing = followStates[item.user._id] || false;
     const isSaved = savedShorts.has(item._id);
     const isLiked = item.isLiked || false;
+    const isActive = index === currentVisibleIndex;
+    const shouldPreload = isScreenFocused && index === currentVisibleIndex + 1;
+    const shouldRenderVideo = Math.abs(index - currentVisibleIndex) <= 1;
 
     return (
       <ShortsCell
         item={item}
         index={index}
-        currentVisibleIndex={currentVisibleIndex}
+        isActive={isActive}
+        shouldPreload={shouldPreload}
+        shouldRenderVideo={shouldRenderVideo}
         isVideoPlaying={isVideoPlaying}
         isScreenFocused={isScreenFocused}
         isMuted={props.isMuted !== undefined ? props.isMuted : isFeedMuted}
@@ -4025,7 +2337,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         isFollowing={isFollowing}
         isSaved={isSaved}
         isLiked={isLiked}
-        localVideoUris={localVideoUris}
+        localVideoUri={localVideoUris[item._id]}
         isCacheChecked={checkedVideoCacheIds.has(item._id)}
         isSavedShorts={props.isSavedShorts}
         effectiveUserId={effectiveUserId}

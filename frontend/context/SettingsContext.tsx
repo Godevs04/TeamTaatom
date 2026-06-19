@@ -17,18 +17,16 @@ import logger from '../utils/logger';
  * eventually consistent.
  */
 const syncSettingsIntoUserData = (next: UserSettings) => {
-  AsyncStorage.getItem('userData')
-    .then((raw) => {
-      if (!raw) return;
-      try {
-        const parsed = JSON.parse(raw);
-        parsed.settings = next;
-        return AsyncStorage.setItem('userData', JSON.stringify(parsed));
-      } catch {
-        // userData blob is corrupt — leave it; sign-in will rewrite it.
-      }
+  const { getUserFromStorage, saveUserToStorage } = require('../services/auth');
+  getUserFromStorage()
+    .then((parsed: any) => {
+      if (!parsed) return;
+      parsed.settings = next;
+      return saveUserToStorage(parsed);
     })
-    .catch(() => { /* fire-and-forget */ });
+    .catch((err: any) => {
+      logger.error('Failed to sync settings into userData:', err);
+    });
 };
 
 interface SettingsContextType {

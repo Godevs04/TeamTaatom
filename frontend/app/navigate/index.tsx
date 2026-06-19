@@ -24,6 +24,8 @@ import JourneyCard from '../../components/JourneyCard';
 import { getUserJourneys, deleteJourney } from '../../services/journey';
 import NavBar from '../../components/NavBar';
 
+import { getUserFromStorage } from '../../services/auth';
+
 const GROWTH_GREEN = '#22C55E';
 const ACTION_BLUE = '#3B82F6';
 const ALERT_RED = '#EF4444';
@@ -88,10 +90,9 @@ export default function NavigateIndexScreen() {
   useEffect(() => {
     const loadUserId = async () => {
       try {
-        const userData = await AsyncStorage.getItem('userData');
-        if (userData) {
-          const parsed = JSON.parse(userData);
-          setUserId(parsed._id || '');
+        const user = await getUserFromStorage();
+        if (user) {
+          setUserId(user._id || '');
         }
       } catch (err) {
         console.error('Failed to get user data:', err);

@@ -1,6 +1,6 @@
 import { Redirect } from 'expo-router';
 import { useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getCachedAuthToken } from '../utils/authTokenCache';
 import { getUserFromStorage } from '../services/auth';
 
 export default function Index() {
@@ -9,7 +9,7 @@ export default function Index() {
     const checkAuth = async () => {
       try {
         const user = await getUserFromStorage();
-        const token = await AsyncStorage.getItem('authToken');
+        const token = await getCachedAuthToken();
         // If user exists and has token, _layout.tsx will handle navigation
         // Don't redirect to signin if user is authenticated
         if (user && token) {

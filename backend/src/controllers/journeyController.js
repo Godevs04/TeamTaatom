@@ -5,6 +5,7 @@ const logger = require('../utils/logger');
 const Journey = require('../models/Journey');
 const Post = require('../models/Post');
 const User = require('../models/User');
+const Follow = require('../models/Follow');
 const { matchTrajectory } = require('../utils/mapMatcher');
 
 // ─── Road Snap ──────────────────────────────────────────────────────
@@ -901,7 +902,7 @@ const addWaypoint = async (req, res) => {
   }
 };
 
-const checkRouteAccess = (owner, viewerId) => {
+const checkRouteAccess = async (owner, viewerId) => {
   // owner is the user object of the journey owner. viewerId is the logged-in user's ID
   const isOwner = viewerId && owner._id.toString() === viewerId.toString();
   if (isOwner) return true;
@@ -921,8 +922,7 @@ const checkRouteAccess = (owner, viewerId) => {
   // If routeVisibility is 'everyone', follow standard profileVisibility rules
   const profileVisibility = owner.settings?.privacy?.profileVisibility || 'public';
   if (profileVisibility === 'private' || profileVisibility === 'followers') {
-    const followers = owner.followers || [];
-    return viewerId && followers.some(id => id.toString() === viewerId.toString());
+    return viewerId ? await Follow.exists({ follower: viewerId, following: owner._id }) : false;
   }
 
   return true;
@@ -976,7 +976,7 @@ const getJourneyDetail = async (req, res) => {
     }
 
     let journey = await Journey.findById(journeyId)
-      .populate('user', 'fullName profilePic followers settings routeAccessApprovedUsers');
+      .populate('user', 'fullName profilePic settings routeAccessApprovedUsers');
 
     if (!journey) {
       return sendError(res, 'RES_3001', 'Journey not found');
@@ -1003,13 +1003,14 @@ const getJourneyDetail = async (req, res) => {
     }
 
     // Check route privacy access
-    if (!isOwner && !checkRouteAccess(journey.user, viewerId)) {
+    if (!isOwner && !(await checkRouteAccess(journey.user, viewerId))) {
       return sendError(res, 'AUTH_1001', 'You do not have permission to view this journey');
     }
 
     // Check per-journey privacy
-    const isFollower = req.user && journey.user.followers &&
-      journey.user.followers.some(f => f.toString() === req.user._id.toString());
+    const isFollower = (req.user && journey.user)
+      ? await Follow.exists({ follower: req.user._id, following: journey.user._id })
+      : false;
 
     if (!isOwner && journey.privacy === 'followers' && !isFollower) {
       return sendError(res, 'AUTH_1001', 'You do not have permission to view this journey');
@@ -1049,7 +1050,7 @@ const getUserJourneys = async (req, res) => {
       return sendError(res, 'VAL_2001', 'Invalid user ID');
     }
 
-    const targetUser = await User.findById(userId).select('followers privacy settings routeAccessApprovedUsers');
+    const targetUser = await User.findById(userId).select('privacy settings routeAccessApprovedUsers');
     if (!targetUser) {
       return sendError(res, 'RES_3001', 'User not found');
     }
@@ -1059,7 +1060,7 @@ const getUserJourneys = async (req, res) => {
     const isOwner = viewerId && targetUser._id.toString() === userId;
 
     // Check route privacy access
-    if (!isOwner && !checkRouteAccess(targetUser, viewerId)) {
+    if (!isOwner && !(await checkRouteAccess(targetUser, viewerId))) {
       return sendSuccess(res, 200, 'Journeys retrieved (privacy filtered)', {
         journeys: [],
         pagination: { page, limit, total: 0 }
@@ -1082,8 +1083,9 @@ const getUserJourneys = async (req, res) => {
       journeyQuery.status = { $in: ['active', 'paused', 'completed'] };
     } else {
       journeyQuery.status = 'completed'; // Non-owners only see completed journeys
-      const isFollower = req.user && targetUser.followers &&
-        targetUser.followers.some(f => f.toString() === req.user._id.toString());
+      const isFollower = req.user
+        ? await Follow.exists({ follower: req.user._id, following: userId })
+        : false;
       if (isFollower) {
         journeyQuery.privacy = { $in: ['public', 'followers'] };
       } else {

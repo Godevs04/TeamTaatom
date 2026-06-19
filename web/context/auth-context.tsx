@@ -4,8 +4,9 @@ import * as React from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { authLogout, authMe, authSignIn, getProfile, getGlobalSubscriptionStatus } from "../lib/api";
+import { applyWebAuthSession, clearWebAuthSession } from "../lib/auth-session";
+import { getLoginLocationHint } from "../lib/login-location";
 import type { User } from "../types/user";
-import { STORAGE_KEYS } from "../lib/constants";
 import { PROFILE_ONBOARDING_VERSION } from "../lib/profile-onboarding-version";
 
 type AuthState = {
@@ -14,7 +15,7 @@ type AuthState = {
   isPremium: boolean;
   isPremiumLoading: boolean;
   refresh: () => Promise<void>;
-  signIn: (input: { email: string; password: string }) => Promise<void>;
+  signIn: (input: { email: string; password: string }) => Promise<User>;
   signOut: () => Promise<void>;
 };
 
@@ -68,22 +69,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (authUser?._id) {
       await qc.invalidateQueries({ queryKey: ["profile", authUser._id] });
     }
+    await qc.refetchQueries({ queryKey: ["auth", "me"] });
   }, [qc, authUser?._id]);
 
   const signIn = React.useCallback(
     async (input: { email: string; password: string }) => {
-      const res = await authSignIn(input);
+      const loginLocation = await getLoginLocationHint();
+      const res = await authSignIn({ ...input, loginLocation });
 
-      // Cross-origin dev fallback: backend may return { token } instead of cookie
-      if (res?.token && typeof window !== "undefined") {
-        sessionStorage.setItem(STORAGE_KEYS.webFallbackToken, res.token);
-        // Flag for middleware in dev (does not contain the token)
-        document.cookie = "devAuth=1; path=/; max-age=86400; samesite=lax";
+      applyWebAuthSession(res?.token ?? null);
+
+      if (res?.user) {
+        qc.setQueryData(["auth", "me"], { user: res.user });
       }
 
-      await refresh();
+      await qc.invalidateQueries({ queryKey: ["auth", "me"] });
+      const refreshed = await qc.fetchQuery({ queryKey: ["auth", "me"], queryFn: authMe });
+      const signedInUser = refreshed?.user ?? res?.user ?? null;
+
+      if (!signedInUser) {
+        throw new Error("Sign-in succeeded but user profile is unavailable");
+      }
+
+      return signedInUser;
     },
-    [refresh]
+    [qc]
   );
 
   const signOut = React.useCallback(async () => {
@@ -92,13 +102,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       // Still sign out locally if backend fails (e.g. session already expired, network error)
     } finally {
-      if (typeof window !== "undefined") {
-        sessionStorage.removeItem(STORAGE_KEYS.webFallbackToken);
-        document.cookie = "devAuth=; path=/; max-age=0; samesite=lax";
-        document.cookie = "authToken=; path=/; max-age=0; samesite=lax";
-      }
-      await qc.invalidateQueries({ queryKey: ["auth", "me"] });
-      await qc.invalidateQueries({ queryKey: ["auth", "premiumStatus"] });
+      clearWebAuthSession();
+      qc.removeQueries({ queryKey: ["auth"] });
+      qc.removeQueries({ queryKey: ["profile"] });
       router.replace("/auth/login");
     }
   }, [qc, router]);
@@ -128,4 +134,3 @@ export function useAuth() {
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");
   return ctx;
 }
-

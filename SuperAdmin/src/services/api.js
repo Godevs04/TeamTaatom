@@ -18,7 +18,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? '' :
 
 // Debug logging to help diagnose environment variable issues
 if (isProduction) {
-  console.log('🔍 Environment Check:', {
+  console.debug('🔍 Environment Check:', {
     PROD: import.meta.env.PROD,
     MODE: import.meta.env.MODE,
     VITE_API_URL: import.meta.env.VITE_API_URL ? '✅ Set' : '❌ Missing',

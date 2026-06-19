@@ -425,14 +425,14 @@ export default function ShareModal({
       // Retrieve current logged in user ID from AsyncStorage if not set
       let myId = currentUserId;
       if (!myId) {
-        const userData = await AsyncStorage.getItem('userData');
-        if (userData) {
-          try {
-            const parsed = JSON.parse(userData);
+        try {
+          const { getUserFromStorage } = require('../services/auth');
+          const parsed = await getUserFromStorage();
+          if (parsed) {
             myId = parsed._id || '';
             setCurrentUserId(myId);
-          } catch {}
-        }
+          }
+        } catch {}
       }
 
       // Build active chat recipients

@@ -45,6 +45,12 @@ export interface PendingReviewsResponse {
   }
 }
 
+export interface VerificationApiResponse {
+  success?: boolean
+  message?: string
+  data?: unknown
+}
+
 /**
  * Fetch pending travel verifications for admin review
  */
@@ -71,7 +77,7 @@ export const getPendingApprovals = async (
 /**
  * Approve a travel verification
  */
-export const approveVerification = async (contentId: string): Promise<any> => {
+export const approveVerification = async (contentId: string): Promise<VerificationApiResponse> => {
   try {
     const response = await api.post(
       `/api/v1/superadmin/tripscore/review/${contentId}/approve`
@@ -94,7 +100,7 @@ export const approveVerification = async (contentId: string): Promise<any> => {
 export const rejectVerification = async (
   contentId: string,
   reason?: string
-): Promise<any> => {
+): Promise<VerificationApiResponse> => {
   try {
     const response = await api.post(
       `/api/v1/superadmin/tripscore/review/${contentId}/reject`,
@@ -126,7 +132,7 @@ export const updateTripVisitDetails = async (
     lat?: number
     lng?: number
   }
-): Promise<any> => {
+): Promise<VerificationApiResponse> => {
   try {
     const response = await api.patch(
       `/api/v1/superadmin/tripscore/review/${contentId}`,

@@ -21,6 +21,12 @@ const PROTECTED_PREFIXES = [
   "/activity",
   "/chat",
   "/notifications",
+  "/journeys",
+  "/navigate",
+  "/connect",
+  "/discover",
+  "/hashtag",
+  "/help",
 ];
 
 function isAuthRoute(pathname: string) {
@@ -177,6 +183,18 @@ export const config = {
     "/chat/:path*",
     "/notifications",
     "/notifications/:path*",
+    "/journeys",
+    "/journeys/:path*",
+    "/navigate",
+    "/navigate/:path*",
+    "/connect",
+    "/connect/:path*",
+    "/discover",
+    "/discover/:path*",
+    "/hashtag",
+    "/hashtag/:path*",
+    "/help",
+    "/help/:path*",
     "/connect/page/:path*",
   ],
 };

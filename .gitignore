@@ -37,8 +37,8 @@ de/rules/byterover-rules.md
 !.vscode/launch.json
 
 # Exclude superAdmin from git to fix EAS build casing issues
-superAdmin/
-superAdmin/**
+# superAdmin/
+# superAdmin/**
 
 # Claude setup
 .claude/
@@ -84,3 +84,8 @@ backend/scripts/check_locales.js
 backend/scripts/check_specific_locales.js
 frontend/app.json
 frontend/app.json
+frontend/app.json
+
+# Scratch and test setup directories
+backend/scratch/
+SuperAdmin/setups/

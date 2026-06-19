@@ -86,7 +86,7 @@ export const parseError = (error) => {
     
     // Debug logging to see what we're getting
     if (process.env.NODE_ENV === 'development') {
-      console.log('[parseError] Extracted:', {
+      console.debug('[parseError] Extracted:', {
         code,
         apiMessage,
         hasApiMessage,
@@ -180,7 +180,7 @@ export const handleError = (error, toast, fallbackMessage = 'An unexpected error
   
   // Debug logging (can be removed later)
   if (process.env.NODE_ENV === 'development') {
-    console.log('[handleError] Error object:', {
+    console.debug('[handleError] Error object:', {
       hasParsedError: !!error?.parsedError,
       parsedErrorAdminMessage: parsedError?.adminMessage,
       directApiMessage: directApiMessage,

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { Search, PlusSquare, User2, Bell } from "lucide-react";
+import { Search, PlusSquare, User2, Bell, LogOut } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { useAuth } from "../../context/auth-context";
@@ -106,9 +106,14 @@ export function SiteHeader() {
                 </Button>
               </Link>
               {!isLoading && (
-                <Button variant="ghost" onClick={signOut} className="hidden md:inline-flex">
-                  Sign out
-                </Button>
+                <>
+                  <Button variant="ghost" size="icon" onClick={signOut} className="md:hidden" aria-label="Sign out">
+                    <LogOut className="h-5 w-5" />
+                  </Button>
+                  <Button variant="ghost" onClick={signOut} className="hidden md:inline-flex">
+                    Sign out
+                  </Button>
+                </>
               )}
             </>
           ) : (

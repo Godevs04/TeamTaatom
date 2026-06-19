@@ -60,20 +60,26 @@ export default function OnboardingSuggestedUsersPage() {
   };
 
   const finish = async () => {
+    let completed = false;
     try {
       await completeProfileOnboarding();
       await refresh();
+      completed = true;
     } catch {
-      toast.error("Could not mark onboarding complete. You can continue — we will retry later.");
+      toast.error("Could not complete onboarding. Please try again.");
+      return;
     }
-    try {
-      if (typeof window !== "undefined") {
-        localStorage.setItem(STORAGE_KEYS.onboardingCompletedWeb, "true");
+
+    if (completed) {
+      try {
+        if (typeof window !== "undefined") {
+          localStorage.setItem(STORAGE_KEYS.onboardingCompletedWeb, "true");
+        }
+      } catch {
+        /* ignore */
       }
-    } catch {
-      /* ignore */
+      router.replace("/feed");
     }
-    router.replace("/feed");
   };
 
   return (
