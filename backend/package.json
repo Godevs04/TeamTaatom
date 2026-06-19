@@ -60,7 +60,7 @@
     "multer": "^2.2.0",
     "music-metadata": "^11.12.3",
     "node-fetch": "^3.3.2",
-    "nodemailer": "^8.0.5",
+    "nodemailer": "^9.0.1",
     "socket.io": "^4.8.1",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
