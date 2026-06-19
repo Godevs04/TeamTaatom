@@ -192,11 +192,6 @@ const getProfile = async (req, res) => {
       ? !!(await Follow.exists({ follower: req.user._id, following: id }))
       : false;
 
-    // Check if profile owner follows the current user
-    const isFollowedBy = req.user
-      ? !!(await Follow.exists({ follower: id, following: req.user._id }))
-      : false;
-
     // Check if current user has sent a follow request
     const hasSentFollowRequest = req.user && user.followRequests ? 
       user.followRequests.some(item => item.user && item.user.toString() === req.user._id.toString() && item.status === 'pending') :
