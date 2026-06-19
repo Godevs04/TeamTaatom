@@ -14,10 +14,21 @@ import { authResetPassword } from "@/lib/api";
 import { getFriendlyAuthErrorMessage } from "@/lib/auth-errors";
 import { Eye, EyeOff } from "lucide-react";
 
-const schema = z.object({
-  token: z.string().min(4, "Reset token is required"),
-  newPassword: z.string().min(8, "Minimum 8 characters"),
-});
+const schema = z
+  .object({
+    token: z.string().min(1, "Reset token is required"),
+    newPassword: z
+      .string()
+      .min(8, "Password must be at least 8 characters")
+      .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
+      .regex(/[a-z]/, "Password must contain at least one lowercase letter")
+      .regex(/[0-9]/, "Password must contain at least one number"),
+    confirmPassword: z.string().min(1, "Confirm password is required"),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "Passwords must match",
+    path: ["confirmPassword"],
+  });
 type FormValues = z.infer<typeof schema>;
 
 export default function ResetPasswordClient({ email: emailProp }: { email?: string }) {
@@ -25,10 +36,11 @@ export default function ResetPasswordClient({ email: emailProp }: { email?: stri
   const searchParams = useSearchParams();
   const email = emailProp ?? searchParams.get("email") ?? undefined;
   const [showPassword, setShowPassword] = React.useState(false);
+  const [showConfirm, setShowConfirm] = React.useState(false);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { token: "", newPassword: "" },
+    defaultValues: { token: "", newPassword: "", confirmPassword: "" },
   });
 
   const onSubmit = async (values: FormValues) => {
@@ -53,7 +65,7 @@ export default function ResetPasswordClient({ email: emailProp }: { email?: stri
           <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-3">
             <div className="grid gap-1.5">
               <label className="text-sm font-semibold">Reset token</label>
-              <Input {...form.register("token")} placeholder="123456" />
+              <Input {...form.register("token")} placeholder="123456" inputMode="numeric" />
               {form.formState.errors.token && (
                 <p className="text-xs text-destructive">{form.formState.errors.token.message}</p>
               )}
@@ -78,6 +90,28 @@ export default function ResetPasswordClient({ email: emailProp }: { email?: stri
               </div>
               {form.formState.errors.newPassword && (
                 <p className="text-xs text-destructive">{form.formState.errors.newPassword.message}</p>
+              )}
+            </div>
+            <div className="grid gap-1.5">
+              <label className="text-sm font-semibold">Confirm password</label>
+              <div className="relative">
+                <Input
+                  {...form.register("confirmPassword")}
+                  type={showConfirm ? "text" : "password"}
+                  autoComplete="new-password"
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirm((v) => !v)}
+                  className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  aria-label={showConfirm ? "Hide password" : "Show password"}
+                >
+                  {showConfirm ? <EyeOff className="h-4 w-4" aria-hidden /> : <Eye className="h-4 w-4" aria-hidden />}
+                </button>
+              </div>
+              {form.formState.errors.confirmPassword && (
+                <p className="text-xs text-destructive">{form.formState.errors.confirmPassword.message}</p>
               )}
             </div>
 

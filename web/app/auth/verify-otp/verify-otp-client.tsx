@@ -1,20 +1,26 @@
 "use client";
 
+import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { z } from "zod";
-import { useForm } from "react-hook-form";
+import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { OtpInput } from "@/components/auth/otp-input";
 import { authResendOtp, authVerifyOtp } from "@/lib/api";
 import { STORAGE_KEYS } from "@/lib/constants";
 import { getFriendlyAuthErrorMessage } from "@/lib/auth-errors";
 
+const RESEND_COOLDOWN_SEC = 60;
+
 const schema = z.object({
-  otp: z.string().min(4, "OTP is required"),
+  otp: z
+    .string()
+    .length(6, "OTP must be 6 digits")
+    .regex(/^\d+$/, "OTP must contain only numbers"),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -22,6 +28,14 @@ export default function VerifyOtpClient({ email: emailProp }: { email?: string }
   const router = useRouter();
   const searchParams = useSearchParams();
   const email = emailProp ?? searchParams.get("email") ?? undefined;
+  const [resendLoading, setResendLoading] = React.useState(false);
+  const [countdown, setCountdown] = React.useState(0);
+
+  React.useEffect(() => {
+    if (countdown <= 0) return;
+    const timer = window.setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [countdown]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -31,38 +45,36 @@ export default function VerifyOtpClient({ email: emailProp }: { email?: string }
   const onSubmit = async (values: FormValues) => {
     try {
       if (!email) throw new Error("Missing email");
-      const res = await authVerifyOtp({ email, otp: values.otp });
-      if (res?.token && typeof window !== "undefined") {
-        sessionStorage.setItem(STORAGE_KEYS.webFallbackToken, res.token);
-      }
-      toast.success("Account verified");
+      await authVerifyOtp({ email, otp: values.otp });
+
+      toast.success("Account verified. Please sign in.");
+
       const runOnboarding =
         typeof window !== "undefined" && sessionStorage.getItem(STORAGE_KEYS.webOnboardingAfterVerify) === "1";
       if (runOnboarding) {
         sessionStorage.removeItem(STORAGE_KEYS.webOnboardingAfterVerify);
-        const next = encodeURIComponent("/onboarding/welcome");
-        const loginQs = email
-          ? `next=${next}&email=${encodeURIComponent(email)}`
-          : `next=${next}`;
-        router.replace(`/auth/login?${loginQs}`);
-      } else {
-        const onboarded =
-          typeof window !== "undefined" &&
-          localStorage.getItem(STORAGE_KEYS.onboardingCompletedWeb) === "true";
-        router.replace(onboarded ? "/feed" : "/onboarding/welcome");
       }
+
+      const next = runOnboarding ? encodeURIComponent("/onboarding/welcome") : encodeURIComponent("/feed");
+      const loginQs = `email=${encodeURIComponent(email)}&next=${next}`;
+      router.replace(`/auth/login?${loginQs}`);
     } catch (e: unknown) {
       toast.error(getFriendlyAuthErrorMessage(e));
     }
   };
 
   const resend = async () => {
+    if (countdown > 0 || resendLoading) return;
     try {
       if (!email) throw new Error("Missing email");
+      setResendLoading(true);
       await authResendOtp({ email });
-      toast.success("OTP resent");
+      setCountdown(RESEND_COOLDOWN_SEC);
+      toast.success("A new OTP has been sent. Check your inbox and spam folder.");
     } catch (e: unknown) {
       toast.error(getFriendlyAuthErrorMessage(e));
+    } finally {
+      setResendLoading(false);
     }
   };
 
@@ -71,23 +83,37 @@ export default function VerifyOtpClient({ email: emailProp }: { email?: string }
       <Card>
         <CardHeader>
           <CardTitle>Verify OTP</CardTitle>
-          <CardDescription>Enter the OTP sent to {email || "your email"}.</CardDescription>
+          <CardDescription>Enter the 6-digit code sent to {email || "your email"}.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-3">
-            <div className="grid gap-1.5">
-              <label className="text-sm font-semibold">OTP</label>
-              <Input {...form.register("otp")} inputMode="numeric" placeholder="123456" />
-              {form.formState.errors.otp && (
-                <p className="text-xs text-destructive">{form.formState.errors.otp.message}</p>
+          <form onSubmit={form.handleSubmit(onSubmit)} className="grid gap-4">
+            <Controller
+              control={form.control}
+              name="otp"
+              render={({ field }) => (
+                <OtpInput
+                  value={field.value}
+                  onChange={field.onChange}
+                  error={form.formState.errors.otp?.message}
+                  disabled={form.formState.isSubmitting}
+                />
               )}
-            </div>
-            <Button type="submit" disabled={form.formState.isSubmitting || !email}>
+            />
+            <Button type="submit" disabled={form.formState.isSubmitting || !email || form.watch("otp").length !== 6}>
               {form.formState.isSubmitting ? "Verifying…" : "Verify"}
             </Button>
             <div className="flex items-center justify-between text-sm">
-              <button type="button" onClick={resend} className="font-semibold text-muted-foreground hover:text-foreground">
-                Resend OTP
+              <button
+                type="button"
+                onClick={() => void resend()}
+                disabled={resendLoading || countdown > 0 || !email}
+                className="font-semibold text-muted-foreground hover:text-foreground disabled:opacity-50"
+              >
+                {resendLoading
+                  ? "Sending…"
+                  : countdown > 0
+                    ? `Resend in ${countdown}s`
+                    : "Resend OTP"}
               </button>
               <Link href="/auth/login" className="font-semibold hover:underline">
                 Back to login

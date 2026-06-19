@@ -11,7 +11,8 @@ import { motion } from "framer-motion";
 import { Input } from "../../components/ui/input";
 import { Button } from "../../components/ui/button";
 import { useAuth } from "../../context/auth-context";
-import { getFriendlyAuthErrorMessage } from "../../lib/auth-errors";
+import { getFriendlyAuthErrorMessage, isVerifyRequiredError } from "../../lib/auth-errors";
+import { getPostSignInPath } from "../../lib/auth-routing";
 import { Camera, Compass, Eye, EyeOff, MapPin, Music2 } from "lucide-react";
 
 const LOTTIE_EMBED_URL =
@@ -88,16 +89,23 @@ export function LandingLoginClient({ nextUrl = "/feed" }: { nextUrl?: string }) 
   React.useEffect(() => {
     if (authLoading) return;
     if (user?._id) {
-      router.replace(nextUrl || "/feed");
+      router.replace(getPostSignInPath(user, nextUrl));
     }
   }, [user, authLoading, router, nextUrl]);
 
   const onSubmit = async (values: FormValues) => {
     try {
-      await signIn(values);
+      const signedInUser = await signIn(values);
       toast.success("Welcome back");
-      router.replace(nextUrl || "/feed");
+      router.replace(getPostSignInPath(signedInUser, nextUrl));
     } catch (e: unknown) {
+      if (isVerifyRequiredError(e)) {
+        const msg = getFriendlyAuthErrorMessage(e);
+        if (window.confirm(`${msg}\n\nGo to verification now?`)) {
+          router.push(`/auth/verify-otp?email=${encodeURIComponent(values.email)}`);
+        }
+        return;
+      }
       toast.error(getFriendlyAuthErrorMessage(e));
     }
   };

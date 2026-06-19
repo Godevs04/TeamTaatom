@@ -15,7 +15,9 @@
     "migrate:status": "node ./node_modules/migrate-mongo/bin/migrate-mongo.js status",
     "migrate:create": "node scripts/migrate-create.js",
     "copy-policies": "node scripts/copy-policies.js",
-    "lint": "eslint . --max-warnings 99999"
+    "lint": "eslint src --ignore-pattern 'src/__tests__/**' --max-warnings 0",
+    "lint:scripts": "eslint scripts --max-warnings 0",
+    "check": "npm run lint"
   },
   "keywords": [
     "express",
