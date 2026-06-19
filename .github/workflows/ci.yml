@@ -182,7 +182,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: ./frontend
-        run: npm ci || npm install
+        run: npm ci --include=dev || npm install --include=dev
 
       - name: Lint (typecheck)
         working-directory: ./frontend
@@ -242,7 +242,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: ./web
-        run: npm ci || npm install
+        run: npm ci --include=dev || npm install --include=dev
 
       - name: Lint
         working-directory: ./web
@@ -275,7 +275,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: ./backend
-        run: npm ci
+        run: npm ci --include=dev
 
       - name: Lint
         working-directory: ./backend
@@ -312,7 +312,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: ./SuperAdmin
-        run: npm ci || npm install
+        run: npm ci --include=dev || npm install --include=dev
 
       - name: Check (typecheck + lint)
         working-directory: ./SuperAdmin
