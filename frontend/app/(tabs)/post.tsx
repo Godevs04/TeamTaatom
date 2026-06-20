@@ -2732,6 +2732,17 @@ export default function PostScreen() {
         audioSource: audioSource
       });
 
+      // Pre-process video thumbnail before FormData upload (Bug fix / fallback)
+      let preparedThumbnail: { uri: string; type: string; name: string } | undefined = undefined;
+      if (videoThumbnail && videoThumbnail.trim()) {
+        try {
+          logger.debug('[PostScreen] Preparing video thumbnail for upload:', videoThumbnail);
+          preparedThumbnail = await prepareImageForUpload(videoThumbnail, 'thumbnail.jpg');
+        } catch (thumbErr) {
+          logger.warn('[PostScreen] Failed to prepare video thumbnail for upload, proceeding without it', thumbErr);
+        }
+      }
+
       // If user_original, show copyright confirmation modal
       if (audioSource === 'user_original') {
         // Store upload data to proceed after copyright confirmation
@@ -2741,11 +2752,7 @@ export default function PostScreen() {
             type: type,
             name: filename,
           },
-          image: videoThumbnail ? {
-            uri: videoThumbnail,
-            type: 'image/jpeg',
-            name: 'thumbnail.jpg',
-          } : undefined,
+          image: preparedThumbnail,
           caption: validateAndSanitizeCaption(values.caption) || '',
           songId: audioChoice === 'background' && selectedSong ? selectedSong._id : undefined,
           songStartTime: audioChoice === 'background' && selectedSong ? songStartTime : undefined,
@@ -2794,11 +2801,7 @@ export default function PostScreen() {
           type: type,
           name: filename,
         },
-        image: videoThumbnail ? {
-          uri: videoThumbnail,
-          type: 'image/jpeg',
-          name: 'thumbnail.jpg',
-        } : undefined,
+        image: preparedThumbnail,
         caption: validateAndSanitizeCaption(values.caption) || '',
         // CRITICAL BUG FIX: Preserve both audio tracks
         // If background music is selected, send music data with volume 1.0

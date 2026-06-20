@@ -98,6 +98,7 @@ export const updateProfile = async (userId: string, data: UpdateProfileData): Pr
     });
 
     const response = await api.put(`/api/v1/profile/${userId}`, formData, {
+      timeout: 120000, // 2 minutes timeout for profile update (profile pic upload)
       headers: {
         'Content-Type': 'multipart/form-data',
       },

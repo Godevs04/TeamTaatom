@@ -198,6 +198,7 @@ export const createConnectPage = async (data: {
     }
 
     const response = await api.post('/api/v1/connect/create', formData, {
+      timeout: 120000, // 2 minutes timeout for page creation (banner image upload)
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     return response.data;
@@ -396,6 +397,7 @@ export const uploadContentImage = async (pageId: string, imageUri: string): Prom
     } as any);
 
     const response = await api.post(`/api/v1/connect/page/${pageId}/content-image`, formData, {
+      timeout: 120000, // 2 minutes timeout for content image upload
       headers: { 'Content-Type': 'multipart/form-data' },
     });
     return response.data;

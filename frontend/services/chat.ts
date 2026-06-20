@@ -178,7 +178,7 @@ export const uploadChatMedia = async (
 
     const response = await api.post('/api/v1/chat/upload', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
-      timeout: 60000, // 60s timeout for file uploads
+      timeout: 600000, // 10 minutes timeout for file uploads (can include large video files)
     });
     return response.data;
   } catch (error: any) {

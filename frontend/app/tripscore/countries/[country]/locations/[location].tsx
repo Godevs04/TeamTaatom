@@ -167,8 +167,7 @@ export default function LocationDetailScreen() {
   const hasPreSeededDistanceRef = useRef(false);
   const [distance, setDistance] = useState<number | null>(() => {
     const paramVal = Array.isArray(distanceKmParam) ? distanceKmParam[0] : distanceKmParam;
-    const isDrivingStr = Array.isArray(isDrivingDistance) ? isDrivingDistance[0] : isDrivingDistance;
-    if (paramVal && paramVal !== '' && isDrivingStr === 'true') {
+    if (paramVal && paramVal !== '') {
       const parsed = parseFloat(paramVal as string);
       if (!isNaN(parsed)) {
         hasPreSeededDistanceRef.current = true;
@@ -228,8 +227,7 @@ export default function LocationDetailScreen() {
   useEffect(() => {
     if (!isMountedRef.current) return;
     const paramVal = Array.isArray(distanceKmParam) ? distanceKmParam[0] : distanceKmParam;
-    const isDrivingStr = Array.isArray(isDrivingDistance) ? isDrivingDistance[0] : isDrivingDistance;
-    if (paramVal && paramVal !== '' && isDrivingStr === 'true') {
+    if (paramVal && paramVal !== '') {
       const parsed = parseFloat(paramVal as string);
       if (!isNaN(parsed) && !hasPreSeededDistanceRef.current) {
         logger.debug('Syncing pre-seeded distance from param:', parsed);
@@ -237,7 +235,7 @@ export default function LocationDetailScreen() {
         setDistance(parsed);
       }
     }
-  }, [distanceKmParam, isDrivingDistance]);
+  }, [distanceKmParam]);
 
   // Navigation & Lifecycle Safety: Setup and cleanup
   useEffect(() => {
@@ -536,9 +534,18 @@ export default function LocationDetailScreen() {
           }
         }
         
-        // Try to calculate Google Distance Matrix driving distance
+        // Check straight line distance first. If > 1000 km, bypass Google Maps driving distance to avoid timeouts
+        const straightLineDistance = calculateDistance(
+          currentLat,
+          currentLng,
+          targetLat,
+          targetLng
+        );
+
         let calculatedDistance = null;
-        if (calculatedDistance === null || isNaN(calculatedDistance) || calculatedDistance < 0) {
+        if (straightLineDistance !== null && straightLineDistance > 1000) {
+          calculatedDistance = straightLineDistance;
+        } else {
           try {
             calculatedDistance = await calculateDrivingDistanceKm(
               currentLat,
@@ -551,14 +558,9 @@ export default function LocationDetailScreen() {
           }
         }
 
-        // Fallback to straight-line distance (Haversine) if Google APIs fail
+        // Fallback to straight-line distance (Haversine) if Google API fails
         if (calculatedDistance === null || isNaN(calculatedDistance) || calculatedDistance < 0) {
-          calculatedDistance = calculateDistance(
-            currentLat,
-            currentLng,
-            targetLat,
-            targetLng
-          );
+          calculatedDistance = straightLineDistance;
         }
         
         // Distance Calculation Guards: Validate calculated distance

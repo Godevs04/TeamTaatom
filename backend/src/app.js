@@ -182,6 +182,7 @@ app.use(cors({
     const devPatterns = [
       /^http:\/\/localhost:\d+$/,
       /^http:\/\/192\.168\.\d+\.\d+:\d+$/,
+      /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,
     ];
     
     // Check exact matches first
