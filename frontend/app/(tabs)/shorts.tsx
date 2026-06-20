@@ -183,9 +183,9 @@ const getVideoSource = (uri: string | null | undefined) => {
   return videoSourceCache.get(uri);
 };
 
-import { MarqueeText } from './shorts_split/MarqueeText';
-import { CyclingMetadata } from './shorts_split/CyclingMetadata';
-import { ShortsCell, emitLikeRailState } from './shorts_split/ShortsCellFeed';
+import { MarqueeText } from './_shorts_split/MarqueeText';
+import { CyclingMetadata } from './_shorts_split/CyclingMetadata';
+import { ShortsCell, emitLikeRailState } from './_shorts_split/ShortsCellFeed';
 // Module-level global mute state for shorts feed to persist across mounts/unmounts
 let globalIsFeedMuted = false;
 
@@ -1815,23 +1815,27 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     showConfirm(
       'Are you sure you want to delete this short?',
       async () => {
+        const previousShorts = [...shorts];
         try {
-          await deleteShort(shortId);
+          // Update UI optimistically and register deletion immediately (Bug fix)
           savedEvents.emitPostAction(shortId, 'delete');
-          
-          // Remove from local state
           setShorts(prev => prev.filter(short => short._id !== shortId));
           
+          await deleteShort(shortId);
+          
           // Remove from saved shorts if it exists there
-          const savedShorts = await AsyncStorage.getItem('savedShorts');
-          if (savedShorts) {
-            const savedIds = JSON.parse(savedShorts);
+          const savedShortsData = await AsyncStorage.getItem('savedShorts');
+          if (savedShortsData) {
+            const savedIds = JSON.parse(savedShortsData);
             const updatedIds = savedIds.filter((id: string) => id !== shortId);
             await AsyncStorage.setItem('savedShorts', JSON.stringify(updatedIds));
           }
           
           showSuccess('Short deleted successfully!');
         } catch (error: any) {
+          // Revert optimistic updates on error (Bug fix)
+          savedEvents.emitPostAction(shortId, 'undelete');
+          setShorts(previousShorts);
           showError(error.message || 'Failed to delete short');
         }
       },

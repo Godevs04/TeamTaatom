@@ -49,6 +49,7 @@ import { getProfile } from "../../services/profile";
 import { UserType } from "../../types/user";
 import ProgressAlert from "../../components/ProgressAlert";
 import { optimizeImageForUpload, shouldOptimizeImage, getOptimalQuality, processImageToAspect } from "../../utils/imageOptimization";
+import { shouldCompressVideo, compressVideo } from "../../utils/videoOptimization";
 import { prepareImageForUpload } from "../../services/mediaService";
 import * as VideoThumbnails from "expo-video-thumbnails";
 import { Video, Audio, ResizeMode, AVPlaybackStatus } from "expo-av";
@@ -58,9 +59,9 @@ import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { sanitizeErrorForDisplay } from '../../utils/errorSanitizer';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AudioChoiceModal } from './post_split/AudioChoiceModal';
-import { DetectPlaceModal } from './post_split/DetectPlaceModal';
-import { MediaManagerModal } from './post_split/MediaManagerModal';
+import { AudioChoiceModal } from './_post_split/AudioChoiceModal';
+import { DetectPlaceModal } from './_post_split/DetectPlaceModal';
+import { MediaManagerModal } from './_post_split/MediaManagerModal';
 import * as FileSystem from 'expo-file-system/legacy';
 import { SongSelector } from '../../components/SongSelector';
 import { audioManager } from '../../utils/audioManager';
@@ -781,6 +782,8 @@ export default function PostScreen() {
     video: string | null;
   }>({ images: [], video: null });
 
+  const compressedVideoUriRef = useRef<string | null>(null);
+
   // Auto-match song selection duration with video duration when video is selected
   useEffect(() => {
     if (selectedVideo && videoDuration && videoDuration > 0) {
@@ -934,6 +937,64 @@ export default function PostScreen() {
     return () => clearTimeout(timeoutId);
   }, [selectedImages, selectedVideo, videoThumbnail, location, address, locationMetadata, postType, selectedSong, songStartTime, songEndTime, audioChoice, selectedFilter, draftComment, draftCaption, draftTags, draftPlaceName, hasDraftContent]);
 
+  // Auto-process selected video (Bug 010)
+  useEffect(() => {
+    let active = true;
+    const processVideo = async () => {
+      if (!selectedVideo || !selectedVideo.trim()) return;
+      logger.debug('[Video Process Effect] processing selectedVideo:', selectedVideo);
+
+      // Generate thumbnail if missing
+      if (!videoThumbnail) {
+        try {
+          const { uri } = await VideoThumbnails.getThumbnailAsync(selectedVideo, { time: 1000 });
+          if (active) {
+            if (uri && uri.trim()) {
+              setVideoThumbnail(uri);
+              logger.debug('[Video Process Effect] thumbnail generated:', uri);
+            } else {
+              setVideoThumbnail(null);
+            }
+          }
+        } catch (e) {
+          logger.warn('[Video Process Effect] Thumbnail generation failed', e);
+          if (active) setVideoThumbnail(null);
+        }
+      }
+
+      // Fetch duration if missing or 0
+      if (!videoDuration || videoDuration === 0) {
+        let soundInstance: Audio.Sound | null = null;
+        try {
+          const { sound } = await Audio.Sound.createAsync(
+            { uri: selectedVideo },
+            { shouldPlay: false }
+          );
+          soundInstance = sound;
+          const status = await sound.getStatusAsync();
+          if (status.isLoaded && status.durationMillis && active) {
+            const actualDuration = status.durationMillis / 1000;
+            const MAX_SHORT_DURATION = 60;
+            const shortDuration = Math.min(actualDuration, MAX_SHORT_DURATION);
+            setVideoDuration(shortDuration);
+            logger.info('[Video Process Effect] video duration captured:', shortDuration);
+          }
+        } catch (videoError) {
+          logger.warn('[Video Process Effect] Failed to get video duration:', videoError);
+          if (active) setVideoDuration(60);
+        } finally {
+          if (soundInstance) {
+            await soundInstance.unloadAsync().catch(() => {});
+          }
+        }
+      }
+    };
+    processVideo();
+    return () => {
+      active = false;
+    };
+  }, [selectedVideo]);
+
   const restoreDraftData = useCallback((draft: any) => {
     // Restore media
     if (draft.selectedImages) setSelectedImages(draft.selectedImages);
@@ -1059,6 +1120,15 @@ export default function PostScreen() {
       clearInterval(uploadSessionRef.current.progressWatchdog);
     }
     uploadSessionRef.current = { isActive: false };
+    
+    // Clean up temporary compressed video file if it exists
+    if (compressedVideoUriRef.current) {
+      const tempPath = compressedVideoUriRef.current;
+      compressedVideoUriRef.current = null;
+      FileSystem.deleteAsync(tempPath).catch(err => {
+        logger.warn('[PostScreen] Failed to delete temporary compressed video on clearUploadState:', err);
+      });
+    }
   };
 
   // Upload cancellation: cleanup on back/tab switch/app background
@@ -1075,6 +1145,15 @@ export default function PostScreen() {
     // Clear progress watchdog
     if (uploadSessionRef.current.progressWatchdog) {
       clearInterval(uploadSessionRef.current.progressWatchdog);
+    }
+    
+    // Clean up temporary compressed video file if it exists
+    if (compressedVideoUriRef.current) {
+      const tempPath = compressedVideoUriRef.current;
+      compressedVideoUriRef.current = null;
+      FileSystem.deleteAsync(tempPath).catch(err => {
+        logger.warn('[PostScreen] Failed to delete temporary compressed video on cancel:', err);
+      });
     }
     
     // Persist current draft state before clearing
@@ -1111,6 +1190,16 @@ export default function PostScreen() {
   // Media memory safety: release references when no longer needed
   const releaseMediaReferences = useCallback(() => {
     mediaRefsRef.current = { images: [], video: null };
+    
+    // Clean up temporary compressed video file if it exists
+    if (compressedVideoUriRef.current) {
+      const tempPath = compressedVideoUriRef.current;
+      compressedVideoUriRef.current = null;
+      FileSystem.deleteAsync(tempPath).catch(err => {
+        logger.warn('[PostScreen] Failed to delete temporary compressed video on release:', err);
+      });
+    }
+    
     logger.debug('Media references released');
   }, []);
 
@@ -2627,8 +2716,48 @@ export default function PostScreen() {
     try {
       logger.debug('Creating short with video:', selectedVideo);
       
+      let uploadVideoPath = selectedVideo;
+      let wasCompressed = false;
+      
+      // Check if video should be compressed
+      const needsCompression = await shouldCompressVideo(selectedVideo);
+      if (needsCompression) {
+        try {
+          logger.info('[PostScreen] Large video detected. Compressing before upload...');
+          
+          // Perform video compression and capture progress
+          const compressedPath = await compressVideo(selectedVideo, (progress) => {
+            if (!uploadSessionRef.current.isActive) {
+              return;
+            }
+            // Watchdog refresh
+            uploadSessionRef.current.lastProgressTime = Date.now();
+            setUploadProgress({
+              current: 1,
+              total: 1,
+              percentage: Math.round(progress * 0.5) // Compression maps to 0% - 50%
+            });
+          });
+          
+          if (!uploadSessionRef.current.isActive) {
+            logger.debug('[PostScreen] Upload session is no longer active after compression, aborting');
+            if (compressedPath) {
+              FileSystem.deleteAsync(compressedPath).catch(() => {});
+            }
+            return;
+          }
+          
+          compressedVideoUriRef.current = compressedPath;
+          uploadVideoPath = compressedPath;
+          wasCompressed = true;
+          logger.info('[PostScreen] Video compressed successfully:', compressedPath);
+        } catch (compressErr) {
+          logger.warn('[PostScreen] Video compression failed, falling back to original raw video:', compressErr);
+        }
+      }
+
       // Extract filename from URI
-      const filename = selectedVideo.split('/').pop() || 'short_video.mp4';
+      const filename = uploadVideoPath.split('/').pop() || 'short_video.mp4';
       const match = /\.(\w+)$/.exec(filename);
       const type = match ? `video/${match[1]}` : 'video/mp4';
 
@@ -2674,20 +2803,27 @@ export default function PostScreen() {
         audioSource: audioSource
       });
 
+      // Pre-process video thumbnail before FormData upload (Bug fix / fallback)
+      let preparedThumbnail: { uri: string; type: string; name: string } | undefined = undefined;
+      if (videoThumbnail && videoThumbnail.trim()) {
+        try {
+          logger.debug('[PostScreen] Preparing video thumbnail for upload:', videoThumbnail);
+          preparedThumbnail = await prepareImageForUpload(videoThumbnail, 'thumbnail.jpg');
+        } catch (thumbErr) {
+          logger.warn('[PostScreen] Failed to prepare video thumbnail for upload, proceeding without it', thumbErr);
+        }
+      }
+
       // If user_original, show copyright confirmation modal
       if (audioSource === 'user_original') {
         // Store upload data to proceed after copyright confirmation
         setPendingShortData({
           video: {
-            uri: selectedVideo,
+            uri: uploadVideoPath,
             type: type,
             name: filename,
           },
-          image: videoThumbnail ? {
-            uri: videoThumbnail,
-            type: 'image/jpeg',
-            name: 'thumbnail.jpg',
-          } : undefined,
+          image: preparedThumbnail,
           caption: validateAndSanitizeCaption(values.caption) || '',
           songId: audioChoice === 'background' && selectedSong ? selectedSong._id : undefined,
           songStartTime: audioChoice === 'background' && selectedSong ? songStartTime : undefined,
@@ -2715,7 +2851,7 @@ export default function PostScreen() {
       // If taatom_library, proceed directly with upload
       logger.debug('Sending data to createShort:', {
         video: {
-          uri: selectedVideo,
+          uri: uploadVideoPath,
           type: type,
           name: filename,
         },
@@ -2732,15 +2868,11 @@ export default function PostScreen() {
 
       const shortData = {
         video: {
-          uri: selectedVideo,
+          uri: uploadVideoPath,
           type: type,
           name: filename,
         },
-        image: videoThumbnail ? {
-          uri: videoThumbnail,
-          type: 'image/jpeg',
-          name: 'thumbnail.jpg',
-        } : undefined,
+        image: preparedThumbnail,
         caption: validateAndSanitizeCaption(values.caption) || '',
         // CRITICAL BUG FIX: Preserve both audio tracks
         // If background music is selected, send music data with volume 1.0
@@ -2827,7 +2959,10 @@ export default function PostScreen() {
         // Update progress state in real-time
         // Progress is 0-95% during upload, 95-100% during backend processing
         setUploadProgress(prev => {
-          const newPercentage = Math.min(progress, 99); // Cap at 99% until success
+          const scaledProgress = wasCompressed
+            ? 50 + (progress * 0.49)
+            : progress;
+          const newPercentage = Math.min(scaledProgress, 99); // Cap at 99% until success
           // Never go backward
           if (newPercentage < prev.percentage) {
             logger.warn('Progress attempted to go backward, keeping previous value');
@@ -2876,6 +3011,7 @@ export default function PostScreen() {
       const requiresVerification = source === 'gallery_no_exif' || source === 'manual_only';
       
       // Flush form context immediately to reset to standard gallery view in background
+      clearUploadState();
       resetFormState();
       setVideoDuration(null);
       setHasExistingShorts(true);
@@ -2961,7 +3097,8 @@ export default function PostScreen() {
     try {
       setIsLoading(true);
       setIsUploading(true);
-      setUploadProgress({ current: 0, total: 1, percentage: 0 }); // Initialize progress for shorts
+      const isCompressed = !!compressedVideoUriRef.current;
+      setUploadProgress({ current: 0, total: 1, percentage: isCompressed ? 50 : 0 }); // Initialize progress for shorts
       
       // Validate pendingShortData before attempting upload
       if (!pendingShortData.video || !pendingShortData.video.uri) {
@@ -2999,7 +3136,11 @@ export default function PostScreen() {
         
         // Update progress state in real-time
         setUploadProgress(prev => {
-          const newPercentage = Math.min(progress, 99); // Cap at 99% until success
+          const isCompressed = !!compressedVideoUriRef.current;
+          const scaledProgress = isCompressed
+            ? 50 + (progress * 0.49)
+            : progress;
+          const newPercentage = Math.min(scaledProgress, 99); // Cap at 99% until success
           // Never go backward
           if (newPercentage < prev.percentage) {
             logger.warn('Progress attempted to go backward, keeping previous value');
@@ -3145,6 +3286,15 @@ export default function PostScreen() {
     isSubmittingRef.current = false;
     setIsLoading(false);
     setIsUploading(false);
+    
+    // Cleanup temporary compressed video file if it exists, since they cancelled
+    if (compressedVideoUriRef.current) {
+      const tempPath = compressedVideoUriRef.current;
+      compressedVideoUriRef.current = null;
+      FileSystem.deleteAsync(tempPath).catch(err => {
+        logger.warn('[PostScreen] Failed to delete temporary compressed video on copyright cancel:', err);
+      });
+    }
   };
 
   return (
@@ -3437,7 +3587,14 @@ export default function PostScreen() {
             ) : isFocused && selectedVideo && selectedVideo.trim() ? (
               <View>
                 {/* Video preview */}
-                <View style={{ width: "100%", aspectRatio: 9 / 16, borderRadius: theme.borderRadius.lg, overflow: 'hidden', backgroundColor: theme.colors.surface }}>
+                <View style={{ width: "100%", aspectRatio: 9 / 16, borderRadius: theme.borderRadius.lg, overflow: 'hidden', backgroundColor: theme.colors.surface, position: 'relative' }}>
+                  {videoThumbnail ? (
+                    <Image
+                      source={{ uri: videoThumbnail }}
+                      style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: -1, width: '100%', height: '100%' }}
+                      resizeMode="cover"
+                    />
+                  ) : null}
                   <Video
                     key={selectedVideo}
                     ref={videoRef}
@@ -3452,6 +3609,8 @@ export default function PostScreen() {
                     // Dual-audio mixing: video audio at 60% volume, music will overlay at 100%
                     isMuted={false}
                     volume={audioChoice === 'background' && selectedSong ? 0.6 : 1.0}
+                    shouldPlay={true}
+                    isLooping={true}
                   />
                 </View>
               </View>
@@ -5009,7 +5168,11 @@ export default function PostScreen() {
                           paddingVertical: 2,
                           borderRadius: 4,
                         }}>
-                          {Math.floor(item.duration / 60)}:{(item.duration % 60).toString().padStart(2, '0')}
+                          {(() => {
+                            const durationInSecs = (isAndroid && item.duration > 100) ? item.duration / 1000 : item.duration;
+                            const roundedSecs = Math.max(1, Math.round(durationInSecs));
+                            return `${roundedSecs}s`;
+                          })()}
                         </Text>
                       )}
                     </View>
@@ -5535,6 +5698,7 @@ export default function PostScreen() {
         visible={showAudioChoiceModal}
         onClose={() => setShowAudioChoiceModal(false)}
         mode={mode}
+        selectedChoice={audioChoice}
         onSelectBackgroundMusic={() => {
           setAudioChoice('background');
           setShowAudioChoiceModal(false);

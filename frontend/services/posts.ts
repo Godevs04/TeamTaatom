@@ -279,6 +279,7 @@ export const createPostWithProgress = async (
     }
 
     const response = await api.post('/api/v1/posts', formData, {
+      timeout: 300000, // 5 minutes timeout for uploading posts/images
       headers: {
         'Content-Type': 'multipart/form-data', // Let client set boundary for FormData
       },
@@ -380,6 +381,7 @@ export const createPost = async (data: CreatePostData): Promise<{ message: strin
     }
 
     const response = await api.post('/api/v1/posts', formData, {
+      timeout: 300000, // 5 minutes timeout for uploading posts/images
       headers: {
         'Content-Type': 'multipart/form-data', // Explicitly remove Content-Type for FormData
       },
@@ -713,6 +715,7 @@ export const createShortWithProgress = async (
     }
 
     const response = await api.post('/api/v1/shorts', formData, {
+      timeout: 600000, // 10 minutes timeout for video upload and transcode enqueue
       headers: {
         'Content-Type': 'multipart/form-data', // let client set boundary
       },
@@ -812,6 +815,7 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
     }
 
     const response = await api.post('/api/v1/shorts', formData, {
+      timeout: 600000, // 10 minutes timeout for video upload and transcode enqueue
       headers: {
         'Content-Type': 'multipart/form-data',
       },

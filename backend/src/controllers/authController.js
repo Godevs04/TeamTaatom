@@ -343,7 +343,7 @@ const getMe = async (req, res) => {
       followers: user.followersCount ?? 0,
       following: user.followingCount ?? 0,
       followingIds: followingIds,
-      totalLikes: user.totalLikes ?? 0,
+      totalLikes: Math.max(0, user.totalLikes ?? 0),
       isVerified: user.isVerified,
       createdAt: user.createdAt,
       lastLogin: user.lastLogin,

@@ -63,6 +63,7 @@ import {
 } from '../../components/cloud';
 import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 import type { CloudLocaleCardData } from '../../components/cloud/CloudLocaleCard';
+import { LocaleCardSkeleton } from '../../components/ui/Skeleton';
 
 const logger = createLogger('LocaleScreen');
 
@@ -528,6 +529,19 @@ const ExpoImageWithShimmer = React.memo(({ source, style, contentFit = 'cover', 
   const displayUri = cachedUri || sourceUri;
   const isLocal = displayUri && (displayUri.startsWith('file://') || displayUri.startsWith('/') || displayUri.startsWith('data:'));
   const finalLoading = loading && !isLocal;
+
+  if (hasError) {
+    return (
+      <LinearGradient
+        colors={['#D4EDDA', '#A8DADC']}
+        style={[style, { justifyContent: 'center', alignItems: 'center' }]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <Ionicons name="location" size={40} color="#2C5530" />
+      </LinearGradient>
+    );
+  }
 
   return (
     <View style={[style, { overflow: 'hidden' }]}>
@@ -3567,7 +3581,7 @@ export default function LocaleScreen() {
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
                 onEndReached={handleLoadMore}
-                onEndReachedThreshold={0.5}
+                                onEndReachedThreshold={0.7}
                 estimatedItemSize={220}
                 contentContainerStyle={{
                   paddingHorizontal: isTabletLocal ? 24 : 16,
@@ -3599,11 +3613,9 @@ export default function LocaleScreen() {
                   (localesToShow || []).length > 0 ? (
                     <View style={{ paddingTop: 20, paddingBottom: 16 }}>
                       {loadingMore ? (
-                        <View style={styles.loadMoreContainer}>
-                          <LoadingGlobe size="small" color={theme.colors.secondary} />
-                          <Text style={[styles.loadMoreText, { color: theme.colors.textSecondary, marginLeft: 8 }]}>
-                            Loading more locales...
-                          </Text>
+                        <View style={{ gap: 20 }}>
+                          <LocaleCardSkeleton width={CARD_WIDTH} height={CARD_HEIGHT} />
+                          <LocaleCardSkeleton width={CARD_WIDTH} height={CARD_HEIGHT} />
                         </View>
                       ) : null}
                     </View>

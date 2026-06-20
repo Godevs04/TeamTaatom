@@ -29,7 +29,8 @@ import { featureFlagsService } from '../services/featureFlags';
 import { crashReportingService } from '../services/crashReporting';
 import { ErrorBoundary } from '../utils/errorBoundary';
 import { registerServiceWorker } from '../utils/serviceWorker';
-import { JourneyProvider, useJourney } from '../context/JourneyContext';
+import { JourneyProvider, useJourney, useJourneyDuration } from '../context/JourneyContext';
+import JourneyStatusBar from '../components/JourneyStatusBar';
 import { SubscriptionProvider } from '../context/SubscriptionContext';
 import * as Sentry from '@sentry/react-native';
 import * as Location from 'expo-location';
@@ -131,6 +132,18 @@ function RootLayoutInner() {
     resumeJourneyRecording,
     stopJourneyRecording,
   } = useJourney();
+  const duration = useJourneyDuration();
+
+  const handleStopJourney = useCallback(async () => {
+    try {
+      await stopJourneyRecording();
+      showSuccess('Journey Saved!', 'Your journey has been saved successfully.');
+      router.push('/navigate/complete');
+    } catch (err: any) {
+      logger.error('[RootLayout] Failed to stop journey from status bar:', err);
+      showWarning('Error', err.message || 'Failed to end journey');
+    }
+  }, [stopJourneyRecording, showSuccess, showWarning, router]);
 
   // Apply web optimizations
   useWebOptimizations();
@@ -1119,6 +1132,18 @@ function RootLayoutInner() {
             <Text style={styles.sessionExpiredDismissText}>✕</Text>
           </TouchableOpacity>
         </View>
+      )}
+
+      {((isTracking || isPaused) && pathname !== '/navigate/tracking' && !pathname?.includes('/navigate/tracking')) && (
+        <JourneyStatusBar
+          isTracking={isTracking}
+          isPaused={isPaused}
+          distance={distance}
+          duration={duration}
+          onPause={pauseJourneyRecording}
+          onContinue={resumeJourneyRecording}
+          onStop={handleStopJourney}
+        />
       )}
 
       <Suspense

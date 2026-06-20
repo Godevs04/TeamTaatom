@@ -143,8 +143,8 @@ const validateGPSPoint = (
   diagnostics.totalPointsReceived += 1;
   diagnostics.totalAccuracySum += coord.accuracy;
 
-  // Rule 1: accuracy check (reject if accuracy > 25m)
-  if (coord.accuracy > 25) {
+  // Rule 1: accuracy check (reject if accuracy > 80m) - relaxed to allow signal fluctuations (Bug 009)
+  if (coord.accuracy > 80) {
     diagnostics.rejectedAccuracy += 1;
     return false;
   }
@@ -487,7 +487,14 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
   const queuePolylineUpdate = useCallback((coord: Coordinate) => {
     queuedPolylineCoordsRef.current.push(coord);
-    if (!polylineUpdateTimeoutRef.current) {
+    // If it's the first coordinate, flush immediately to render the starting point instantly (Bug 009)
+    if (!lastCoordinateRef.current || queuedPolylineCoordsRef.current.length === 1) {
+      if (polylineUpdateTimeoutRef.current) {
+        clearTimeout(polylineUpdateTimeoutRef.current);
+        polylineUpdateTimeoutRef.current = null;
+      }
+      flushPolylineQueue();
+    } else if (!polylineUpdateTimeoutRef.current) {
       polylineUpdateTimeoutRef.current = setTimeout(() => {
         polylineUpdateTimeoutRef.current = null;
         flushPolylineQueue();
@@ -973,6 +980,64 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
             return;
           }
 
+          if (statusOnServer === 'active') {
+            // If this instance is already active and tracking, do not overwrite the live state.
+            if (isTrackingRef.current && !isPausedRef.current && journeyIdRef.current === storedJourneyId) {
+              logger.debug('[Journey] Already active and tracking journey:', storedJourneyId);
+              return;
+            }
+
+            logger.debug('[Journey] Restoring active journey state on startup:', storedJourneyId);
+            journeyIdRef.current = storedJourneyId;
+            setJourney(fetchedJourney);
+            
+            // Rehydrate polyline and other stats
+            let restoredPolyline: Coordinate[] = [];
+            try {
+              const localStateRaw = await AsyncStorage.getItem('@active_journey_state');
+              if (localStateRaw) {
+                const localState = JSON.parse(localStateRaw);
+                restoredPolyline = localState.polyline || [];
+                setPolyline(restoredPolyline);
+                setDistance(localState.distance || 0);
+                setDuration(localState.duration || 0);
+              } else if (fetchedJourney) {
+                restoredPolyline = normalizeJourneyPolyline(fetchedJourney);
+                setPolyline(restoredPolyline);
+                setDistance(fetchedJourney.distanceTraveled || fetchedJourney.distance || 0);
+                setDuration(getJourneyActiveDuration(fetchedJourney));
+              }
+            } catch (rehydrateErr) {
+              logger.warn('[Journey] Error rehydrating active journey stats:', rehydrateErr);
+            }
+
+            if (restoredPolyline.length > 0) {
+              const lastPt = restoredPolyline[restoredPolyline.length - 1];
+              kalmanFilterRef.current = new KalmanFilter(
+                lastPt.latitude,
+                lastPt.longitude,
+                lastPt.accuracy || 10,
+                lastPt.timestamp || Date.now()
+              );
+              lastCoordinateRef.current = lastPt;
+            }
+            lastStationaryMarkerUpdateRef.current = Date.now();
+            pendingSegmentBreakRef.current = false;
+            batchCoordinatesRef.current = [];
+
+            // Restore start time ref if possible, or fallback to now minus duration
+            const createdAtTime = fetchedJourney?.createdAt ? new Date(fetchedJourney.createdAt).getTime() : Date.now();
+            startTimeRef.current = createdAtTime;
+
+            setIsTracking(true);
+            setIsPaused(false);
+
+            // Spin up background updates and location watcher
+            await startBackgroundUpdates().catch(() => {});
+            await startLocationWatcher().catch(() => {});
+            return;
+          }
+
           logger.debug('[Journey] App was terminated with active journey, auto-saving:', storedJourneyId);
           
           // Stop background task updates first
@@ -1192,10 +1257,21 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       // re-prepend so they ride out on the next attempt.
       const coords = batchCoordinatesRef.current.splice(0);
       try {
-        await updateJourneyLocation(id, coords);
+        const response = await updateJourneyLocation(id, coords);
         logger.debug(`[Journey] Sent ${coords.length} coordinates to backend`);
         // Persisted-batch matches the (now empty) in-memory batch.
         clearPersistedCoords(id);
+
+        if (response?.journey) {
+          setJourney(response.journey);
+          const snapped = normalizeJourneyPolyline(response.journey);
+          if (snapped.length > 0) {
+            // Merge road-snapped coordinates with any unsent coordinates in the current batch queue
+            const unsent = batchCoordinatesRef.current;
+            setPolyline([...snapped, ...unsent]);
+            setDistance(response.journey.distanceTraveled || response.journey.distance || 0);
+          }
+        }
       } catch (err) {
         logger.error('[Journey] Failed to update location, requeuing:', err);
         batchCoordinatesRef.current.unshift(...coords);
@@ -1419,8 +1495,16 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       if (batchCoordinatesRef.current.length > 0) {
         const coords = batchCoordinatesRef.current.splice(0);
         try {
-          await updateJourneyLocation(journeyIdRef.current, coords);
+          const response = await updateJourneyLocation(journeyIdRef.current, coords);
           clearPersistedCoords(journeyIdRef.current);
+          if (response?.journey) {
+            setJourney(response.journey);
+            const snapped = normalizeJourneyPolyline(response.journey);
+            if (snapped.length > 0) {
+              setPolyline(snapped);
+              setDistance(response.journey.distanceTraveled || response.journey.distance || 0);
+            }
+          }
         } catch (err) {
           logger.error('[Journey] Failed to send final coordinates:', err);
           // Re-queue + re-persist so resume / next foreground session can flush.
@@ -1513,25 +1597,31 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       }
 
       const isCurrentlyPaused = isPausedRef.current;
+      let explicitEndCoords: { lat: number; lng: number } | undefined = undefined;
 
-      if (!isCurrentlyPaused) {
-        // Capture one final high-accuracy coordinate to guarantee the exact ending location pin is precise
-        try {
-          const finalLoc = await Promise.race([
-            Location.getCurrentPositionAsync({
-              accuracy: Location.Accuracy.High,
-            }),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)) // 4s timeout fallback
-          ]);
+      // Capture final precise GPS position for the End Marker, even if paused (Bug 013)
+      try {
+        const finalLoc = await Promise.race([
+          Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.High,
+          }),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)) // 4s timeout fallback
+        ]);
 
-          if (finalLoc) {
-            const finalCoord: Coordinate = {
-              latitude: finalLoc.coords.latitude,
-              longitude: finalLoc.coords.longitude,
-              timestamp: finalLoc.timestamp,
-              accuracy: finalLoc.coords.accuracy || 0,
-            };
+        if (finalLoc) {
+          explicitEndCoords = {
+            lat: finalLoc.coords.latitude,
+            lng: finalLoc.coords.longitude
+          };
 
+          const finalCoord: Coordinate = {
+            latitude: finalLoc.coords.latitude,
+            longitude: finalLoc.coords.longitude,
+            timestamp: finalLoc.timestamp,
+            accuracy: finalLoc.coords.accuracy || 0,
+          };
+
+          if (!isCurrentlyPaused) {
             if (!finalCoord.accuracy || finalCoord.accuracy <= 80) { // Increased from 35 to match overall accuracy threshold
               // Avoid duplicate points if final location is virtually identical to the last tracked point
               const lastTracked = lastCoordinateRef.current;
@@ -1551,9 +1641,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
               }
             }
           }
-        } catch (locErr) {
-          logger.warn('[Journey] Could not fetch final high-accuracy location for stop:', locErr);
         }
+      } catch (locErr) {
+        logger.warn('[Journey] Could not fetch final high-accuracy location for stop:', locErr);
       }
 
       // Stop location tracking
@@ -1583,8 +1673,16 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       if (!isCurrentlyPaused && batchCoordinatesRef.current.length > 0) {
         const coords = batchCoordinatesRef.current.splice(0);
         try {
-          await updateJourneyLocation(completingJourneyId, coords);
+          const response = await updateJourneyLocation(completingJourneyId, coords);
           clearPersistedCoords(completingJourneyId);
+          if (response?.journey) {
+            setJourney(response.journey);
+            const snapped = normalizeJourneyPolyline(response.journey);
+            if (snapped.length > 0) {
+              setPolyline(snapped);
+              setDistance(response.journey.distanceTraveled || response.journey.distance || 0);
+            }
+          }
         } catch (err) {
           logger.error('[Journey] Failed to send final coordinates:', err);
           batchCoordinatesRef.current.unshift(...coords);
@@ -1645,7 +1743,10 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       (async () => {
         try {
           logger.debug(`[Journey] Sending completion request for ${completingJourneyId}`);
-          const { journey: resJourney } = await completeJourney(completingJourneyId, { snapToRoads });
+          const { journey: resJourney } = await completeJourney(completingJourneyId, { 
+            snapToRoads,
+            endCoords: explicitEndCoords
+          });
           if (resJourney) {
             setJourney(resJourney);
           }

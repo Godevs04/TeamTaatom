@@ -89,6 +89,9 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
     try { onLoadFailedRef.current?.(); } catch { /* swallow */ }
   };
 
+  const onImpressionRef = useRef(onImpression);
+  onImpressionRef.current = onImpression;
+
   useEffect(() => {
     if (isWeb || isExpoGo) {
       setLoading(false);
@@ -147,7 +150,7 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
       .then(() =>
         adsModule.NativeAd.createForAdRequest(unitId, {
           startVideoMuted: true,
-          aspectRatio: adsModule.NativeMediaAspectRatio.PORTRAIT,
+          aspectRatio: adsModule.NativeMediaAspectRatio.ANY,
           adChoicesPlacement: adsModule.NativeAdChoicesPlacement.TOP_RIGHT,
         })
       )
@@ -179,7 +182,7 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
         // Observe impression only; do not manipulate
         if (adsModule.AdEventType?.IMPRESSION && typeof ad.addAdEventListener === 'function') {
           ad.addAdEventListener(adsModule.AdEventType.IMPRESSION as any, () => {
-            onImpression?.();
+            onImpressionRef.current?.();
           });
         }
         setNativeAd(ad);
@@ -208,7 +211,7 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
         return null;
       });
     };
-  }, [adsModule, unitId, adIndex, onImpression]);
+  }, [adsModule, unitId, adIndex]);
 
   // Fade in over 200ms when ad is ready (must be before any early return to keep hook order stable)
   useEffect(() => {

@@ -53,8 +53,11 @@ export default function FloatingTabBar({ state, descriptors, navigation }: Botto
   const activeIndex = state.index;
   const activeRoute = state.routes[activeIndex];
 
-  const leftRoutes = state.routes.slice(0, activeIndex);
-  const rightRoutes = state.routes.slice(activeIndex + 1);
+  const ALLOWED_TABS = ['home', 'shorts', 'post', 'locale', 'profile'];
+  const routesWithIndex = state.routes.map((route, index) => ({ route, index }));
+
+  const leftRoutes = routesWithIndex.slice(0, activeIndex).filter(item => ALLOWED_TABS.includes(item.route.name));
+  const rightRoutes = routesWithIndex.slice(activeIndex + 1).filter(item => ALLOWED_TABS.includes(item.route.name));
 
   const renderInactiveTab = (route: any, indexInState: number) => {
     const { options } = descriptors[route.key];
@@ -195,7 +198,7 @@ export default function FloatingTabBar({ state, descriptors, navigation }: Botto
               isDark ? styles.pillDark : styles.pillLight,
             ]}
           >
-            {leftRoutes.map((route, idx) => renderInactiveTab(route, idx))}
+            {leftRoutes.map(({ route, index }) => renderInactiveTab(route, index))}
           </BlurView>
         </View>
       )}
@@ -213,7 +216,7 @@ export default function FloatingTabBar({ state, descriptors, navigation }: Botto
               isDark ? styles.pillDark : styles.pillLight,
             ]}
           >
-            {rightRoutes.map((route, idx) => renderInactiveTab(route, leftRoutes.length + 1 + idx))}
+            {rightRoutes.map(({ route, index }) => renderInactiveTab(route, index))}
           </BlurView>
         </View>
       )}

@@ -125,6 +125,8 @@ class ImageCacheManager {
    */
   private async cleanupCache() {
     try {
+      const dirInfo = await FileSystem.getInfoAsync(this.cacheDir);
+      if (!dirInfo.exists) return;
       const files = await FileSystem.readDirectoryAsync(this.cacheDir);
       const fileInfos = await Promise.all(
         files.map(async (file) => {
@@ -162,6 +164,8 @@ class ImageCacheManager {
    */
   async clearCache(): Promise<void> {
     try {
+      const dirInfo = await FileSystem.getInfoAsync(this.cacheDir);
+      if (!dirInfo.exists) return;
       const files = await FileSystem.readDirectoryAsync(this.cacheDir);
       await Promise.all(
         files.map(file => FileSystem.deleteAsync(`${this.cacheDir}${file}`))
@@ -176,6 +180,8 @@ class ImageCacheManager {
    */
   async getCacheSize(): Promise<number> {
     try {
+      const dirInfo = await FileSystem.getInfoAsync(this.cacheDir);
+      if (!dirInfo.exists) return 0;
       const files = await FileSystem.readDirectoryAsync(this.cacheDir);
       const fileInfos = await Promise.all(
         files.map(async (file) => {

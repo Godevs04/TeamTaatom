@@ -792,8 +792,10 @@ function PhotoCard({
           onPress: async () => {
             try {
               setIsMenuLoading(true);
-              await deletePost(post._id);
+              // Update UI optimistically and register deletion immediately (Bug fix)
               savedEvents.emitPostAction(post._id, 'delete');
+              
+              await deletePost(post._id);
               await audioManager.stopAll();
 
               // Clear AsyncStorage cache (all feed-mode variants) to prevent deleted post
@@ -821,6 +823,9 @@ function PhotoCard({
               showCustomAlertMessage('Success', 'Post deleted successfully!', 'success');
               if (onRefresh) onRefresh();
             } catch (error: any) {
+              // Revert optimistic updates on error (Bug fix)
+              savedEvents.emitPostAction(post._id, 'undelete');
+              if (onRefresh) onRefresh();
               logger.error('Error deleting post', error);
               showCustomAlertMessage('Error', sanitizeErrorForDisplay(error, 'PhotoCard.deletePost') || 'Failed to delete post.', 'error');
             } finally {

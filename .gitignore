@@ -89,3 +89,4 @@ frontend/app.json
 # Scratch and test setup directories
 backend/scratch/
 SuperAdmin/setups/
+Bugs-recent-description.md

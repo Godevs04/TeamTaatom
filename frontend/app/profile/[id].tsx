@@ -9,6 +9,7 @@ import api from '../../services/api';
 import { toggleFollow, getTravelMapData, toggleBlockUser, getBlockStatus, requestRouteAccess } from '../../services/profile';
 import AlertService from '../../services/alertService';
 import { createReport } from '../../services/report';
+import { savedEvents } from '../../utils/savedEvents';
 import { getUserFromStorage } from '../../services/auth';
 import ReportReasonModal, { ReportReasonType } from '../../components/ReportReasonModal';
 import WorldMap from '../../components/WorldMap';
@@ -130,6 +131,17 @@ export default function UserProfileScreen() {
   useEffect(() => {
     userShortsRef.current = userShorts;
   }, [userShorts]);
+
+  // Sync follow state with other screens/components
+  useEffect(() => {
+    const unsubscribe = savedEvents.addFollowActionListener((targetUserId, state) => {
+      if (profile && targetUserId === profile._id) {
+        setIsFollowing(state === 'FOLLOWING');
+        setFollowRequestSent(state === 'REQUESTED');
+      }
+    });
+    return unsubscribe;
+  }, [profile]);
 
   // Derived followState to prevent out-of-sync bugs and blank renders on unfollow
   const followState = useMemo(() => {
@@ -688,6 +700,7 @@ export default function UserProfileScreen() {
       // Optimistic unfollow / cancel request
       setIsFollowing(false);
       setFollowRequestSent(false);
+      savedEvents.emitFollowAction(profile._id, 'NOT_FOLLOWING');
       updateProfileState((prev: any) => {
         if (!prev) return prev;
         const next = {
@@ -702,14 +715,16 @@ export default function UserProfileScreen() {
       });
     } else {
       // Optimistic follow based on visibility
-      const isPrivate = profile.profileVisibility === 'private';
+      const isPrivate = profile.profileVisibility === 'private' || profile.profileVisibility === 'followers';
       if (isPrivate) {
         setIsFollowing(false);
         setFollowRequestSent(true);
+        savedEvents.emitFollowAction(profile._id, 'REQUESTED');
         // Do NOT increment followersCount optimistically since it is only a pending request
       } else {
         setIsFollowing(true);
         setFollowRequestSent(false);
+        savedEvents.emitFollowAction(profile._id, 'FOLLOWING');
         updateProfileState((prev: any) => {
           if (!prev) return prev;
           const next = {
@@ -739,6 +754,8 @@ export default function UserProfileScreen() {
         followersCount: response.followersCount,
         followingCount: response.followingCount
       });
+      const finalState = response.isFollowing ? 'FOLLOWING' : (response.followRequestSent ? 'REQUESTED' : 'NOT_FOLLOWING');
+      savedEvents.emitFollowAction(profile._id, finalState);
 
       // CRITICAL: Keep the ref for a longer period to prevent cached profile fetches from overriding
       // Cached responses (304) can return stale isFollowing state, so we need to protect against that
@@ -751,6 +768,8 @@ export default function UserProfileScreen() {
       lastFollowApiResponse.current = null;
       setIsFollowing(prevIsFollowing);
       setFollowRequestSent(prevFollowRequestSent);
+      const revertedState = prevIsFollowing ? 'FOLLOWING' : (prevFollowRequestSent ? 'REQUESTED' : 'NOT_FOLLOWING');
+      savedEvents.emitFollowAction(profile._id, revertedState);
       updateProfileState((prev: any) => prev ? { ...prev, followersCount: prevFollowersCount, canViewPosts: prev.canViewPosts, canViewLocations: prev.canViewLocations } : prev);
 
       // Don't log conflict errors (follow request already pending) as they are expected
@@ -767,6 +786,7 @@ export default function UserProfileScreen() {
           isFollowing: false,
           followRequestSent: true
         });
+        savedEvents.emitFollowAction(profile._id, 'REQUESTED');
         showWarning('Follow Request Pending', errorMessage);
       } else {
         showError(errorMessage || 'Something went wrong');

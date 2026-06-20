@@ -13,6 +13,7 @@ import { theme } from '../constants/theme';
 import { parseError } from '../utils/errorCodes';
 import logger from '../utils/logger';
 import FollowButton from '../components/ui/FollowButton';
+import { savedEvents } from '../utils/savedEvents';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -53,6 +54,21 @@ export default function FollowersFollowingList() {
       return;
     }
   }, [userId, router]);
+
+  useEffect(() => {
+    const unsubscribe = savedEvents.addFollowActionListener((targetUserId, state) => {
+      setUsers(prev => prev.map(u => 
+        u._id === targetUserId 
+          ? { 
+              ...u, 
+              isFollowing: state === 'FOLLOWING', 
+              followRequestSent: state === 'REQUESTED' 
+            } 
+          : u
+      ));
+    });
+    return unsubscribe;
+  }, []);
 
   useEffect(() => {
     if (!userId) return;
@@ -170,8 +186,12 @@ export default function FollowersFollowingList() {
             {item._id !== userId && (
               <FollowButton 
                 userId={item._id} 
-                initialIsFollowing={isFollowing} 
-                isPrivate={(item as any).settings?.privacy?.profileVisibility === 'private'}
+                initialState={
+                  isFollowing 
+                    ? 'FOLLOWING' 
+                    : (isRequested ? 'REQUESTED' : 'NOT_FOLLOWING')
+                }
+                isPrivate={(item as any).profileVisibility === 'private' || (item as any).profileVisibility === 'followers' || (item as any).settings?.privacy?.profileVisibility === 'private' || (item as any).settings?.privacy?.profileVisibility === 'followers'}
                 onToggle={(newFollowState) => {
                   setUsers(prev => prev.map(u => 
                     u._id === item._id 

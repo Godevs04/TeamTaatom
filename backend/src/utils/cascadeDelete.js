@@ -186,18 +186,6 @@ const runCascadeDeletePost = async (postId, post = null, session = null) => {
 
     // Note: Embedded comments and likes in Post model are automatically removed when post is soft-deleted
     // They don't need explicit deletion as they're part of the post document
-    // However, we should update user stats for embedded comments
-    if (post.comments && post.comments.length > 0) {
-      // Get unique comment authors
-      const commentUserIds = [...new Set(post.comments.map(c => c.user.toString()))];
-      // Decrement comment counts for users who commented
-      await User.updateMany(
-        { _id: { $in: commentUserIds } },
-        { $inc: { totalComments: -1 } },
-        { session }
-      );
-      logger.debug(`Updated comment counts for ${commentUserIds.length} users`);
-    }
 
     // Update user's total likes count (decrement for each like)
     const postLikes = await Like.find({ post: postId }).session(session).select('user').lean();
@@ -206,6 +194,7 @@ const runCascadeDeletePost = async (postId, post = null, session = null) => {
       await User.findByIdAndUpdate(post.user, {
         $inc: { totalLikes: -likesCount }
       }, { session });
+      await User.updateOne({ _id: post.user, totalLikes: { $lt: 0 } }, { $set: { totalLikes: 0 } }).session(session);
       logger.debug(`Updated user ${post.user} totalLikes (decremented by ${likesCount})`);
       
       // Delete associated Like documents
@@ -300,6 +289,7 @@ const runCascadeDeleteUser = async (userId, session = null) => {
       }
       for (const [ownerId, count] of Object.entries(ownerLikesDecrement)) {
         await User.findByIdAndUpdate(ownerId, { $inc: { totalLikes: -count } }, { session });
+        await User.updateOne({ _id: ownerId, totalLikes: { $lt: 0 } }, { $set: { totalLikes: 0 } }).session(session);
       }
       logger.debug(`Decremented totalLikes for ${Object.keys(ownerLikesDecrement).length} post owners`);
       

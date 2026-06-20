@@ -5,6 +5,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { toggleFollow } from '../../services/profile';
 import logger from '../../utils/logger';
+import { savedEvents } from '../../utils/savedEvents';
 
 export type FollowState = 'FOLLOWING' | 'REQUESTED' | 'NOT_FOLLOWING';
 
@@ -47,6 +48,16 @@ export default function FollowButton({
     setFollowState(getInitialState());
   }, [initialState, initialIsFollowing]);
 
+  // Sync state with global follow action emitter
+  useEffect(() => {
+    const unsubscribe = savedEvents.addFollowActionListener((targetUserId, state) => {
+      if (targetUserId === userId) {
+        setFollowState(state);
+      }
+    });
+    return unsubscribe;
+  }, [userId]);
+
   const executeToggle = async () => {
     // Optimistic update
     const previousState = followState;
@@ -55,6 +66,7 @@ export default function FollowButton({
       : (isPrivate ? 'REQUESTED' : 'FOLLOWING');
     setFollowState(optimisticState);
     if (onToggle) onToggle(optimisticState);
+    savedEvents.emitFollowAction(userId, optimisticState);
 
     try {
       setLoading(true);
@@ -70,6 +82,7 @@ export default function FollowButton({
       if (actualState !== optimisticState) {
         setFollowState(actualState);
         if (onToggle) onToggle(actualState);
+        savedEvents.emitFollowAction(userId, actualState);
       }
 
       if (onSuccess) {
@@ -79,6 +92,7 @@ export default function FollowButton({
       // Revert on error
       setFollowState(previousState);
       if (onToggle) onToggle(previousState);
+      savedEvents.emitFollowAction(userId, previousState);
       
       if (error.isConflict) {
         showError('Follow request already pending');

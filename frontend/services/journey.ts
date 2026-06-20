@@ -175,10 +175,10 @@ export const updateJourneyLocation = async (
  */
 export const completeJourney = async (
   journeyId: string,
-  options?: { snapToRoads?: boolean }
+  options?: { snapToRoads?: boolean; endCoords?: { lat: number; lng: number } }
 ): Promise<{ journey: Journey }> => {
   try {
-    const payload = options ? { snapToRoads: options.snapToRoads } : {};
+    const payload = options ? { snapToRoads: options.snapToRoads, endCoords: options.endCoords } : {};
     const response = await api.post(`/api/v1/journey/${journeyId}/complete`, payload, { skipQueue: true } as any);
     return response.data;
   } catch (error: any) {
