@@ -22,8 +22,6 @@ export interface DirectionsRoute {
   distanceText: string;
   durationText: string;
   distanceValue?: number; // distance in meters
-  durationValue?: number; // duration in seconds
-  isFlight?: boolean; // Custom property to trace if it is flight route
 }
 
 const directionsCache = new Map<string, DirectionsRoute>();
@@ -151,7 +149,6 @@ export async function fetchDirectionsRoute(
 
 export function getManeuverIcon(maneuver?: string): ComponentProps<typeof Ionicons>['name'] {
   if (!maneuver) return 'arrow-up';
-  if (maneuver === 'flight') return 'airplane';
   if (maneuver.includes('left')) return 'arrow-back';
   if (maneuver.includes('right')) return 'arrow-forward';
   if (maneuver.includes('merge')) return 'git-merge';

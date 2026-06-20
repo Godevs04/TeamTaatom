@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type SavedListener = () => void;
 type FeedInvalidateListener = () => void;
-type PostActionListener = (postId: string, action: 'like' | 'unlike' | 'save' | 'unsave' | 'comment' | 'archive' | 'unarchive' | 'delete', data?: any) => void;
+type PostActionListener = (postId: string, action: 'like' | 'unlike' | 'save' | 'unsave' | 'comment' | 'archive' | 'unarchive' | 'delete' | 'undelete', data?: any) => void;
 
 export type FollowState = 'FOLLOWING' | 'REQUESTED' | 'NOT_FOLLOWING';
 export type FollowActionListener = (userId: string, followState: FollowState) => void;
@@ -61,6 +61,14 @@ class SavedEvents {
     }
   }
 
+  removeDeletedPost(postId: string) {
+    const normId = normalizeId(postId);
+    if (normId && this.deletedPostIds.has(normId)) {
+      this.deletedPostIds.delete(normId);
+      this.saveDeletedPosts();
+    }
+  }
+
   isDeleted(postId: string): boolean {
     const normId = normalizeId(postId);
     return normId ? this.deletedPostIds.has(normId) : false;
@@ -109,9 +117,11 @@ class SavedEvents {
     });
   }
 
-  emitPostAction(postId: string, action: 'like' | 'unlike' | 'save' | 'unsave' | 'comment' | 'archive' | 'unarchive' | 'delete', data?: any) {
+  emitPostAction(postId: string, action: 'like' | 'unlike' | 'save' | 'unsave' | 'comment' | 'archive' | 'unarchive' | 'delete' | 'undelete', data?: any) {
     if (action === 'delete') {
       this.addDeletedPost(postId);
+    } else if (action === 'undelete') {
+      this.removeDeletedPost(postId);
     }
     this.postActionListeners.forEach((l) => {
       try { l(postId, action, data); } catch {}

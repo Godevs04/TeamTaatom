@@ -1342,7 +1342,9 @@ export default function ProfileScreen() {
         const previousProfileData = profileData;
         
         try {
-          // Update UI optimistically
+          // Update UI optimistically and register the deletion immediately (Bug fix)
+          savedEvents.emitPostAction(postId, 'delete');
+
           if (isShort) {
             setUserShorts(prev => prev.filter(short => normalizeId(short._id) !== normalizeId(postId)));
           } else {
@@ -1365,11 +1367,9 @@ export default function ProfileScreen() {
           // Perform actual deletion
           if (isShort) {
             await deleteShort(postId);
-            savedEvents.emitPostAction(postId, 'delete');
           } else {
             await deletePost(postId);
             await AsyncStorage.removeItem('postDraft');
-            savedEvents.emitPostAction(postId, 'delete');
           }
           const { audioManager } = await import('../../utils/audioManager');
           await audioManager.stopAll();
@@ -1379,7 +1379,8 @@ export default function ProfileScreen() {
           // Invalidate/refresh profile count in the background with forceRefresh = true
           void loadUserData(true, true);
         } catch (error: any) {
-          // Revert optimistic update on error
+          // Revert optimistic update on error (Bug fix)
+          savedEvents.emitPostAction(postId, 'undelete');
           setPosts(previousPosts);
           setUserShorts(previousShorts);
           setSavedPosts(previousSavedPosts);
@@ -1413,14 +1414,15 @@ export default function ProfileScreen() {
           setIsSelectionMode(false);
           setSelectedItemIds([]);
 
+          // Mark all as deleted optimistically (Bug fix)
+          idsToDelete.forEach(id => savedEvents.emitPostAction(id, 'delete'));
+
           if (activeTab === 'shorts') {
             setUserShorts(prev => prev.filter(s => !idsToDelete.map(id => normalizeId(id)).includes(normalizeId(s._id))));
             await Promise.all(idsToDelete.map(id => deleteShort(id)));
-            idsToDelete.forEach(id => savedEvents.emitPostAction(id, 'delete'));
           } else {
             setPosts(prev => prev.filter(p => !idsToDelete.map(id => normalizeId(id)).includes(normalizeId(p._id))));
             await Promise.all(idsToDelete.map(id => deletePost(id)));
-            idsToDelete.forEach(id => savedEvents.emitPostAction(id, 'delete'));
           }
 
           if (profileData) {
@@ -1435,7 +1437,8 @@ export default function ProfileScreen() {
           // Invalidate/refresh profile count in the background with forceRefresh = true
           void loadUserData(true, true);
         } catch (error: any) {
-          // Revert optimistic updates
+          // Revert optimistic updates (Bug fix)
+          idsToDelete.forEach(id => savedEvents.emitPostAction(id, 'undelete'));
           setPosts(previousPosts);
           setUserShorts(previousShorts);
           setProfileData(previousProfileData);

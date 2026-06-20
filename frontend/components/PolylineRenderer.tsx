@@ -13,8 +13,8 @@ import { MapView } from '../utils/mapsWrapper';
  */
 export function kalmanFilter(
   rawCoords: Array<{ latitude: number; longitude: number }>,
-  processNoise: number = 0.05,
-  measurementNoise: number = 0.05
+  processNoise: number = 0.01,
+  measurementNoise: number = 0.1
 ): Array<{ latitude: number; longitude: number }> {
   if (rawCoords.length === 0) return [];
   if (rawCoords.length === 1) return rawCoords;
@@ -227,7 +227,6 @@ interface PolylineRendererProps {
   applyKalman?: boolean; // Whether to apply Kalman filter for smoothing
   onPress?: () => void;
   latitudeDelta?: number; // Zoom-dynamic latitude span for epsilon calculation
-  lineDashPattern?: number[];
 }
 
 /**
@@ -249,7 +248,6 @@ export default function PolylineRenderer({
   applyKalman = false,
   onPress,
   latitudeDelta,
-  lineDashPattern,
 }: PolylineRendererProps) {
   if (coordinates.length < 2) {
     return null;
@@ -358,7 +356,6 @@ export default function PolylineRenderer({
           geodesic={true}
           tappable={!!onPress}
           onPress={onPress}
-          lineDashPattern={lineDashPattern}
         />
       );
       return polylines;
