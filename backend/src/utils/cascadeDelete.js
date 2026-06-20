@@ -186,18 +186,6 @@ const runCascadeDeletePost = async (postId, post = null, session = null) => {
 
     // Note: Embedded comments and likes in Post model are automatically removed when post is soft-deleted
     // They don't need explicit deletion as they're part of the post document
-    // However, we should update user stats for embedded comments
-    if (post.comments && post.comments.length > 0) {
-      // Get unique comment authors
-      const commentUserIds = [...new Set(post.comments.map(c => c.user.toString()))];
-      // Decrement comment counts for users who commented
-      await User.updateMany(
-        { _id: { $in: commentUserIds } },
-        { $inc: { totalComments: -1 } },
-        { session }
-      );
-      logger.debug(`Updated comment counts for ${commentUserIds.length} users`);
-    }
 
     // Update user's total likes count (decrement for each like)
     const postLikes = await Like.find({ post: postId }).session(session).select('user').lean();

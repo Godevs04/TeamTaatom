@@ -2743,10 +2743,6 @@ const deletePost = async (req, res) => {
     await Post.findByIdAndDelete(postId);
     logger.info(`Hard deleted post ${postId} from database`);
 
-    // Decrement user's postCount atomically
-    await User.findByIdAndUpdate(userId, { $inc: { postCount: -1 } });
-    logger.info(`Decremented postCount for user ${userId}`);
-
     // Invalidate cache after database deletion is complete to prevent concurrent reads from caching stale/deleted post
     await deleteCache(CacheKeys.post(req.params.id));
     await deleteCacheByPattern('posts:*');
