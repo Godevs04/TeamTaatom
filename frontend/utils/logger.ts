@@ -288,6 +288,65 @@ const trackError = (context: string, error: any, args?: any[]) => {
     return; // Don't send to Sentry
   }
 
+  // 1. Filter out network connection drops and timeouts (both Axios and native)
+  const isNetworkError = 
+    errorCode === 'ERR_NETWORK' ||
+    errorCode === -1009 || // iOS offline
+    errorCode === -1005 || // iOS connection lost
+    errorMessage.includes('Network Error') ||
+    errorMessage.includes('timeout') ||
+    errorMessage.includes('Unable to connect to the server') ||
+    errorMessage.includes('network error occurred');
+
+  if (isNetworkError) {
+    if (isDev) {
+      console.debug('Logger: Ignoring connectivity warning/error:', error);
+    }
+    return; // Don't send to Sentry
+  }
+
+  // 2. Filter out HTTP 4xx errors (client-side validation/auth/not found/conflict)
+  const httpStatus = error?.response?.status || error?.status;
+  if (httpStatus && httpStatus >= 400 && httpStatus < 500) {
+    if (isDev) {
+      console.debug('Logger: Ignoring HTTP client error:', httpStatus, error);
+    }
+    return; // Don't send to Sentry
+  }
+
+  // 3. Filter out parsed frontend business logic & validation codes (from parseError)
+  const parsedCode = error?.code || (error && typeof error === 'object' && error.code);
+  if (typeof parsedCode === 'string' && 
+      (parsedCode.startsWith('AUTH_') || 
+       parsedCode.startsWith('VAL_') || 
+       parsedCode.startsWith('RES_') || 
+       parsedCode.startsWith('BIZ_'))) {
+    if (isDev) {
+      console.debug('Logger: Ignoring parsed business/validation error code:', parsedCode, error);
+    }
+    return; // Don't send to Sentry
+  }
+
+  // 4. Filter out common minor warnings to clean up Sentry board noise
+  const isWarning = context === 'warning';
+  if (isWarning) {
+    const isMinorWarning =
+      errorMessage.includes('Image failed to load') ||
+      errorMessage.includes('downloading image') ||
+      errorMessage.includes('not loaded after 1.5s') ||
+      errorMessage.includes('AdMob') ||
+      errorMessage.includes('ad request') ||
+      errorMessage.includes('distance calculation failed') ||
+      errorMessage.includes('StartupDiagnostics');
+      
+    if (isMinorWarning) {
+      if (isDev) {
+        console.debug('Logger: Ignoring minor warning:', errorMessage);
+      }
+      return; // Don't send to Sentry
+    }
+  }
+
   if (!isDev) {
     // In production, send to Sentry error tracking service
     // DO NOT use console in production - send to tracking service only

@@ -238,6 +238,8 @@ class ImageCacheManager {
    */
   async cleanupOldFiles(maxAgeDays: number = 3): Promise<void> {
     try {
+      const dirInfo = await FileSystem.getInfoAsync(R2_CACHE_DIR);
+      if (!dirInfo.exists) return;
       const files = await FileSystem.readDirectoryAsync(R2_CACHE_DIR);
       const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
       const now = Date.now();
