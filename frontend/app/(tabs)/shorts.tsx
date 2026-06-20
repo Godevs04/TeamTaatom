@@ -183,9 +183,9 @@ const getVideoSource = (uri: string | null | undefined) => {
   return videoSourceCache.get(uri);
 };
 
-import { MarqueeText } from './shorts_split/MarqueeText';
-import { CyclingMetadata } from './shorts_split/CyclingMetadata';
-import { ShortsCell, emitLikeRailState } from './shorts_split/ShortsCellFeed';
+import { MarqueeText } from './_shorts_split/MarqueeText';
+import { CyclingMetadata } from './_shorts_split/CyclingMetadata';
+import { ShortsCell, emitLikeRailState } from './_shorts_split/ShortsCellFeed';
 // Module-level global mute state for shorts feed to persist across mounts/unmounts
 let globalIsFeedMuted = false;
 
