@@ -34,6 +34,7 @@ import {
 } from "lucide-react";
 import { ImageCropModal } from "../../../components/create/image-crop-modal";
 import { SongPickerModal } from "../../../components/create/song-picker-modal";
+import { LocationPreviewMap } from "../../../components/maps/location-preview-map";
 
 const CAPTION_MAX = 500;
 const PLACE_NAME_MAX = 100;
@@ -985,18 +986,10 @@ export default function CreateTripPage() {
             {placeNameError && <p className="text-xs text-destructive">{placeNameError}</p>}
 
             {/* Map preview when we have coordinates */}
-            {detectedPlace && typeof detectedPlace.lat === "number" && typeof detectedPlace.lng === "number" && process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && (
+            {detectedPlace && typeof detectedPlace.lat === "number" && typeof detectedPlace.lng === "number" && (
               <div className="grid gap-2 pt-2">
                 <label className="text-sm font-semibold text-slate-900 dark:text-zinc-50">Map</label>
-                <div className="overflow-hidden rounded-2xl border border-slate-200/85 bg-muted shadow-sm ring-1 ring-slate-100/80 dark:border-zinc-700 dark:ring-zinc-800/80">
-                  <iframe
-                    title="Location map"
-                    className="h-48 w-full border-0"
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                    src={`https://www.google.com/maps/embed/v1/place?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&q=${encodeURIComponent(detectedPlace.lat + "," + detectedPlace.lng)}&zoom=14`}
-                  />
-                </div>
+                <LocationPreviewMap latitude={detectedPlace.lat} longitude={detectedPlace.lng} className="h-48 w-full" />
               </div>
             )}
           </section>
@@ -1235,16 +1228,12 @@ export default function CreateTripPage() {
                       </div>
                     </dl>
                   </div>
-                  {typeof searchResult.lat === "number" && typeof searchResult.lng === "number" && process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY && (
-                    <div className="overflow-hidden rounded-xl border border-slate-200 bg-muted dark:border-zinc-700">
-                      <iframe
-                        title="Detected place on map"
-                        className="h-52 w-full border-0"
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                        src={`https://www.google.com/maps/embed/v1/place?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&q=${encodeURIComponent(searchResult.lat + "," + searchResult.lng)}&zoom=15`}
-                      />
-                    </div>
+                  {typeof searchResult.lat === "number" && typeof searchResult.lng === "number" && (
+                    <LocationPreviewMap
+                      latitude={searchResult.lat}
+                      longitude={searchResult.lng}
+                      className="h-52 w-full"
+                    />
                   )}
                   <div className="flex items-center justify-end gap-3 pt-2">
                     <Button

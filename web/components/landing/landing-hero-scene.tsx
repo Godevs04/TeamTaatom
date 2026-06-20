@@ -39,9 +39,47 @@ const POLAROIDS = [
   },
 ] as const;
 
+const VB = { w: 400, h: 480 } as const;
+
+/** Map layout % to viewBox coords (matches preserveAspectRatio="none" stretch). */
+function vb(leftPct: number, topPct: number) {
+  return { x: (leftPct / 100) * VB.w, y: (topPct / 100) * VB.h };
+}
+
+// Polaroid card footprint as % of hero container (148px / 520px wide, ~162px tall)
+const CARD_W = 28.5;
+const CARD_H = 33.5;
+
+const HUB = vb(38, 28);
+
+// Wireframe anchors — card edge midpoints, not free-floating arcs
+const ANCHORS = {
+  kyotoRight: vb(6 + CARD_W, 14 + CARD_H * 0.42),
+  lisbonTopLeft: vb(52, 38),
+  lisbonBottom: vb(52 + CARD_W / 2, 38 + CARD_H),
+  daylightTop: vb(100 - 6 - 38.5 / 2, 100 - 8 - 15),
+} as const;
+
+// Kyoto → hub → Lisbon → Daylight (single journey wire, no stray arcs)
 const ROUTES = [
-  "M 80 120 Q 140 80 200 100 T 280 140",
-  "M 120 200 Q 180 160 240 180 T 320 120",
+  {
+    d: `M ${ANCHORS.kyotoRight.x} ${ANCHORS.kyotoRight.y} Q ${(ANCHORS.kyotoRight.x + HUB.x) / 2} ${ANCHORS.kyotoRight.y - 6} ${HUB.x} ${HUB.y}`,
+    opacity: 0.55,
+    width: 1.5,
+    delay: 0.3,
+  },
+  {
+    d: `M ${HUB.x} ${HUB.y} Q ${HUB.x + 28} ${HUB.y + 28} ${ANCHORS.lisbonTopLeft.x} ${ANCHORS.lisbonTopLeft.y}`,
+    opacity: 0.55,
+    width: 1.5,
+    delay: 0.45,
+  },
+  {
+    d: `M ${ANCHORS.lisbonBottom.x} ${ANCHORS.lisbonBottom.y} Q ${ANCHORS.lisbonBottom.x + 18} ${ANCHORS.lisbonBottom.y + 18} ${ANCHORS.daylightTop.x} ${ANCHORS.daylightTop.y}`,
+    opacity: 0.5,
+    width: 1.35,
+    delay: 0.6,
+  },
 ] as const;
 
 export function LandingHeroScene() {
@@ -91,15 +129,22 @@ export function LandingHeroScene() {
         <motion.svg
           className="pointer-events-none absolute inset-0 z-[5] h-full w-full"
           viewBox="0 0 400 480"
+          preserveAspectRatio="none"
           aria-hidden
         >
-          {ROUTES.map((d, i) => (
-            <AnimatedRoutePath key={d} d={d} strokeWidth={1.5} strokeOpacity={0.55} delay={0.3 + i * 0.2} />
+          {ROUTES.map((route) => (
+            <AnimatedRoutePath
+              key={route.d}
+              d={route.d}
+              strokeWidth={route.width}
+              strokeOpacity={route.opacity}
+              delay={route.delay}
+            />
           ))}
         </motion.svg>
 
         <motion.div
-          className="absolute left-[38%] top-[28%] z-[8]"
+          className="absolute left-[38%] top-[28%] z-[8] -translate-x-1/2 -translate-y-1/2"
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.6, duration: 0.5, ease }}

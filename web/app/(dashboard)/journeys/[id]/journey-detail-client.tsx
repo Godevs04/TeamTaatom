@@ -3,7 +3,8 @@
 import * as React from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, MapPin } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { JourneyRouteMap } from "@/components/maps/journey-route-map";
 import { journeyGetDetail } from "@/lib/journey-api";
 
 export default function JourneyDetailClient({ id }: { id: string }) {
@@ -14,11 +15,6 @@ export default function JourneyDetailClient({ id }: { id: string }) {
   });
 
   const start = journey?.startCoords;
-  const mapsHref =
-    start && typeof start.lat === "number" && typeof start.lng === "number"
-      ? `https://www.google.com/maps?q=${start.lat},${start.lng}`
-      : null;
-
   const polyLen = journey?.polyline?.length ?? 0;
 
   return (
@@ -64,18 +60,11 @@ export default function JourneyDetailClient({ id }: { id: string }) {
                 <dd className="font-medium text-slate-900 dark:text-white">{journey.completedAt ?? "—"}</dd>
               </div>
             </dl>
-            {mapsHref && (
-              <a
-                href={mapsHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-4 inline-flex items-center gap-2 rounded-xl bg-primary/10 px-4 py-2 text-sm font-semibold text-primary hover:bg-primary/15"
-              >
-                <MapPin className="h-4 w-4" />
-                Open start location in Maps
-              </a>
-            )}
           </div>
+          <JourneyRouteMap
+            polyline={journey.polyline}
+            startCoords={start ?? null}
+          />
           <p className="text-xs text-slate-500 dark:text-zinc-400">
             Full route replay works best in the mobile app. On web, tracking runs while this tab stays open with location permission.
           </p>

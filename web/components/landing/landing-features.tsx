@@ -2,52 +2,17 @@
 
 import Image from "next/image";
 import { motion } from "framer-motion";
-import { MapPin, Play, UserRound } from "lucide-react";
+import { Play, UserRound } from "lucide-react";
 import { SectionReveal, RevealItem } from "./section-reveal";
 import { LANDING_IMAGES } from "@/lib/landing-images";
 import { HoverLiftCard, MotionImageWrap } from "./motion-primitives";
 import { TiltCard } from "./tilt-card";
+import { FeatureRouteMap } from "@/components/maps/feature-route-map";
 
 function AnimatedMap() {
   return (
     <HoverLiftCard className="relative aspect-[4/3] overflow-hidden rounded-[1.5rem] bg-[#e8ebe8]">
-      <svg className="absolute inset-0 h-full w-full opacity-30" aria-hidden>
-        <pattern id="map-grid" width="24" height="24" patternUnits="userSpaceOnUse">
-          <path d="M 24 0 L 0 0 0 24" fill="none" stroke="#94a3a0" strokeWidth="0.4" />
-        </pattern>
-        <rect width="100%" height="100%" fill="url(#map-grid)" />
-      </svg>
-      <svg viewBox="0 0 360 280" className="absolute inset-0 h-full w-full" aria-hidden>
-        <motion.path
-          d="M 40 200 Q 100 80 180 140 T 300 100"
-          fill="none"
-          stroke="var(--landing-accent)"
-          strokeWidth="2"
-          strokeDasharray="6 8"
-          initial={{ pathLength: 0 }}
-          whileInView={{ pathLength: 1 }}
-          viewport={{ once: true }}
-          transition={{ duration: 2.2 }}
-        />
-      </svg>
-      {[
-        { t: "32%", l: "18%", label: "Shibuya" },
-        { t: "45%", l: "52%", label: "Alfama" },
-        { t: "28%", l: "72%", label: "Reykjavík" },
-      ].map((pin) => (
-        <motion.div
-          key={pin.label}
-          className="absolute z-10"
-          style={{ top: pin.t, left: pin.l }}
-          animate={{ scale: [1, 1.08, 1] }}
-          transition={{ duration: 2.5, repeat: Infinity }}
-        >
-          <span className="flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold shadow-md">
-            <MapPin className="h-3 w-3 text-[var(--landing-accent)]" aria-hidden />
-            {pin.label}
-          </span>
-        </motion.div>
-      ))}
+      <FeatureRouteMap className="absolute inset-0" />
     </HoverLiftCard>
   );
 }
