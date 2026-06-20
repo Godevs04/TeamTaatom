@@ -4,6 +4,7 @@ import { API_V1_ABS } from "../../../../lib/constants";
 import { Card } from "../../../../components/ui/card";
 import type { Post } from "../../../../types/post";
 import { getPostDisplayLocation, getPostCoordinates } from "../../../../lib/post-utils";
+import { TripLocationMap } from "../../../../components/maps/trip-location-map";
 import { fetchWithAuth } from "../../../../lib/server-fetch";
 import { TripComments } from "../../../../components/trip/comments";
 import { CaptionWithLinks } from "../../../../components/caption-with-links";
@@ -136,34 +137,12 @@ export default async function TripDetailPage({ params }: { params: { id: string 
             <div className="rounded-3xl border bg-card p-4 shadow-card sm:p-5">
               <h2 className="text-lg font-semibold">Location</h2>
               <p className="mt-1 text-sm text-muted-foreground">{getPostDisplayLocation(post)}</p>
-              <div className="mt-4 overflow-hidden rounded-2xl border bg-muted">
-                {process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ? (
-                  <iframe
-                    title="Map"
-                    className="h-64 w-full border-0"
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                    src={`https://www.google.com/maps/embed/v1/place?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}&q=${encodeURIComponent(coords.lat + "," + coords.lng)}&zoom=14`}
-                  />
-                ) : (
-                  <iframe
-                    title="Map"
-                    className="h-64 w-full border-0"
-                    loading="lazy"
-                    referrerPolicy="no-referrer-when-downgrade"
-                    src={`https://www.openstreetmap.org/export/embed.html?marker=${coords.lat},${coords.lng}&zoom=13`}
-                  />
-                )}
-              </div>
-              <div className="mt-3 text-sm">
-                <Link
-                  className="font-semibold text-primary hover:underline"
-                  href={`https://www.google.com/maps?q=${coords.lat},${coords.lng}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Open in Google Maps
-                </Link>
+              <div className="mt-4">
+                <TripLocationMap
+                  latitude={coords.lat}
+                  longitude={coords.lng}
+                  label={getPostDisplayLocation(post)}
+                />
               </div>
             </div>
           ) : null}

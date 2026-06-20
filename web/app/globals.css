@@ -280,4 +280,12 @@
   .font-display {
     font-family: var(--font-display), ui-serif, Georgia, serif;
   }
+
+  .maplibregl-popup-content {
+    @apply bg-transparent p-0 shadow-none;
+  }
+
+  .maplibregl-popup-tip {
+    @apply hidden;
+  }
 }

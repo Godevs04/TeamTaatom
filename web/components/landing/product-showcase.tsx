@@ -3,6 +3,7 @@
 import * as React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FadeIn } from "./fade-in";
+import { ProductRouteMap } from "@/components/maps/product-route-map";
 
 type Tab = "feed" | "stories" | "maps" | "profiles";
 
@@ -69,18 +70,12 @@ function StoriesMock() {
 
 function MapsMock() {
   return (
-    <div className="relative aspect-[16/10] overflow-hidden rounded-xl bg-[#e8edf2]">
-      <svg className="absolute inset-0 h-full w-full opacity-40" aria-hidden>
-        <path d="M0 80h400M0 160h400M80 0v200M160 0v200" stroke="#94a3b8" strokeWidth="0.5" />
-      </svg>
-      <div className="absolute left-[20%] top-[30%] h-3 w-3 rounded-full bg-[var(--landing-accent)] ring-4 ring-[var(--landing-accent)]/20" />
-      <div className="absolute left-[55%] top-[45%] h-2.5 w-2.5 rounded-full bg-[var(--landing-success)]" />
-      <div className="absolute right-[18%] top-[25%] h-2.5 w-2.5 rounded-full bg-[var(--landing-accent-soft)]" />
-      <div className="absolute bottom-4 left-4 rounded-lg bg-white/95 px-3 py-2 text-xs shadow-sm">
-        <span className="font-medium text-[var(--landing-ink)]">Your route</span>
-        <span className="text-[var(--landing-subtle)]"> · 4 stops</span>
-      </div>
-    </div>
+    <ProductRouteMap
+      className="aspect-[16/10] w-full rounded-xl"
+      stopCount={4}
+      overlayLabel="Your route · 4 stops"
+      roundedClassName="rounded-xl"
+    />
   );
 }
 

@@ -10,6 +10,8 @@ import { Button } from "../../../../components/ui/button";
 import { MapPin, ArrowLeft, Navigation, Bookmark, BookmarkCheck } from "lucide-react";
 import { Skeleton } from "../../../../components/ui/skeleton";
 import { cn } from "../../../../lib/utils";
+import { LocationPreviewMap } from "@/components/maps/location-preview-map";
+import { hasValidCoords } from "@/lib/map-utils";
 
 function getSavedLocales(): Locale[] {
   if (typeof window === "undefined") return [];
@@ -30,28 +32,6 @@ function setSavedLocales(list: Locale[]) {
   } catch {
     // ignore
   }
-}
-
-function getMapsUrl(locale: {
-  name: string;
-  latitude?: number;
-  longitude?: number;
-  city?: string;
-  stateProvince?: string;
-  countryCode?: string;
-}): string {
-  const hasCoords =
-    typeof locale.latitude === "number" &&
-    typeof locale.longitude === "number" &&
-    locale.latitude !== 0 &&
-    locale.longitude !== 0;
-  if (hasCoords) {
-    return `https://www.google.com/maps?q=${locale.latitude},${locale.longitude}`;
-  }
-  const query = [locale.name, locale.city, locale.stateProvince, locale.countryCode]
-    .filter(Boolean)
-    .join(", ");
-  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
 export default function LocaleDetailPage() {
@@ -196,18 +176,29 @@ export default function LocaleDetailPage() {
           {locale.description && (
             <p className="mt-3 text-[15px] leading-6 text-slate-700 dark:text-zinc-300">{locale.description}</p>
           )}
+          {hasValidCoords(locale.latitude, locale.longitude) && (
+            <div className="mt-4">
+              <LocationPreviewMap
+                latitude={locale.latitude as number}
+                longitude={locale.longitude as number}
+                className="h-56 w-full"
+              />
+            </div>
+          )}
           <div className="mt-4 flex flex-wrap gap-3">
-            <Button variant="outline" className="rounded-xl" asChild>
-              <a
-                href={getMapsUrl(locale)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2"
-              >
-                <Navigation className="h-4 w-4" />
-                Navigate
-              </a>
-            </Button>
+            {hasValidCoords(locale.latitude, locale.longitude) ? (
+              <Button variant="outline" className="rounded-xl" asChild>
+                <Link href={`/locale/${locale._id}/navigate`} className="inline-flex items-center gap-2">
+                  <Navigation className="h-4 w-4" />
+                  Navigate
+                </Link>
+              </Button>
+            ) : (
+              <Button variant="outline" className="rounded-xl" disabled>
+                <Navigation className="mr-2 h-4 w-4" />
+                Navigate unavailable
+              </Button>
+            )}
             <Button className="rounded-xl" asChild>
               <Link href={`/search?q=${encodeURIComponent(locale.name)}`}>
                 Find posts at this place

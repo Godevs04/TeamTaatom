@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { Heart, MapPin, MessageCircle, MoreHorizontal } from "lucide-react";
 import { LANDING_IMAGES } from "@/lib/landing-images";
+import { ProductRouteMap } from "@/components/maps/product-route-map";
 
 const FEED_IMG = LANDING_IMAGES.product.feed;
 const STORY_IMG = LANDING_IMAGES.product.story;
@@ -90,11 +91,15 @@ export function ScreenTimeline() {
 export function ScreenMap() {
   return (
     <div className="relative mx-auto aspect-[4/3] w-full max-w-md overflow-hidden rounded-3xl bg-[#dfe6e2] shadow-[0_24px_64px_rgba(20,20,20,0.08)]">
-      <div className="absolute inset-4 rounded-2xl border border-white/60 bg-white/40 backdrop-blur-sm">
-        <p className="p-4 text-sm font-semibold text-slate-800">Your route · 5 stops</p>
-        <div className="absolute left-[22%] top-[38%] h-3 w-3 rounded-full bg-[var(--landing-accent)] ring-4 ring-[var(--landing-accent)]/20" />
-        <div className="absolute left-[48%] top-[52%] h-2.5 w-2.5 rounded-full bg-[var(--landing-accent-soft)]" />
-        <div className="absolute right-[24%] top-[30%] h-2.5 w-2.5 rounded-full bg-[var(--landing-accent)]" />
+      <div className="absolute inset-4 overflow-hidden rounded-2xl border border-white/60 bg-white/40 backdrop-blur-sm">
+        <p className="absolute left-0 right-0 top-0 z-10 p-4 text-sm font-semibold text-slate-800">
+          Your route · 5 stops
+        </p>
+        <ProductRouteMap
+          className="absolute inset-0 pt-12"
+          stopCount={5}
+          roundedClassName="rounded-none"
+        />
       </div>
     </div>
   );
