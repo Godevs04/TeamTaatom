@@ -1343,7 +1343,7 @@ export default function LocationDetailScreen() {
                 <BlurView
                   intensity={95}
                   tint={isDark ? 'dark' : 'light'}
-                  style={[styles.quickInfoCard, { flex: 2, overflow: 'hidden', backgroundColor: isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.4)', borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.6)', borderWidth: 1 }]}
+                  style={[styles.quickInfoCard, { flex: 1, overflow: 'hidden', backgroundColor: isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.4)', borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.6)', borderWidth: 1 }]}
                 >
                   <View style={styles.quickInfoHeader}>
                     <Ionicons name="car" size={18} color={theme.colors.primary} />
@@ -1360,7 +1360,7 @@ export default function LocationDetailScreen() {
 
                 {/* Right Box - Explore on Map */}
                 <TouchableOpacity
-                  style={[styles.quickInfoCard, styles.clickableCard, { flex: 3, overflow: 'hidden', padding: 0, borderWidth: 0, backgroundColor: 'transparent' }]}
+                  style={[styles.quickInfoCard, styles.clickableCard, { flex: 1, overflow: 'hidden', padding: 0, borderWidth: 0, backgroundColor: 'transparent' }]}
                   activeOpacity={0.7}
                   disabled={navigatingToMap}
                   onPress={async () => {

@@ -143,8 +143,8 @@ const validateGPSPoint = (
   diagnostics.totalPointsReceived += 1;
   diagnostics.totalAccuracySum += coord.accuracy;
 
-  // Rule 1: accuracy check (reject if accuracy > 25m)
-  if (coord.accuracy > 25) {
+  // Rule 1: accuracy check (reject if accuracy > 65m) - relaxed to allow signal fluctuations (Bug 009)
+  if (coord.accuracy > 65) {
     diagnostics.rejectedAccuracy += 1;
     return false;
   }
@@ -487,7 +487,14 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
   const queuePolylineUpdate = useCallback((coord: Coordinate) => {
     queuedPolylineCoordsRef.current.push(coord);
-    if (!polylineUpdateTimeoutRef.current) {
+    // If it's the first coordinate, flush immediately to render the starting point instantly (Bug 009)
+    if (!lastCoordinateRef.current || queuedPolylineCoordsRef.current.length === 1) {
+      if (polylineUpdateTimeoutRef.current) {
+        clearTimeout(polylineUpdateTimeoutRef.current);
+        polylineUpdateTimeoutRef.current = null;
+      }
+      flushPolylineQueue();
+    } else if (!polylineUpdateTimeoutRef.current) {
       polylineUpdateTimeoutRef.current = setTimeout(() => {
         polylineUpdateTimeoutRef.current = null;
         flushPolylineQueue();
@@ -1513,25 +1520,31 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       }
 
       const isCurrentlyPaused = isPausedRef.current;
+      let explicitEndCoords: { lat: number; lng: number } | undefined = undefined;
 
-      if (!isCurrentlyPaused) {
-        // Capture one final high-accuracy coordinate to guarantee the exact ending location pin is precise
-        try {
-          const finalLoc = await Promise.race([
-            Location.getCurrentPositionAsync({
-              accuracy: Location.Accuracy.High,
-            }),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)) // 4s timeout fallback
-          ]);
+      // Capture final precise GPS position for the End Marker, even if paused (Bug 013)
+      try {
+        const finalLoc = await Promise.race([
+          Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.High,
+          }),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)) // 4s timeout fallback
+        ]);
 
-          if (finalLoc) {
-            const finalCoord: Coordinate = {
-              latitude: finalLoc.coords.latitude,
-              longitude: finalLoc.coords.longitude,
-              timestamp: finalLoc.timestamp,
-              accuracy: finalLoc.coords.accuracy || 0,
-            };
+        if (finalLoc) {
+          explicitEndCoords = {
+            lat: finalLoc.coords.latitude,
+            lng: finalLoc.coords.longitude
+          };
 
+          const finalCoord: Coordinate = {
+            latitude: finalLoc.coords.latitude,
+            longitude: finalLoc.coords.longitude,
+            timestamp: finalLoc.timestamp,
+            accuracy: finalLoc.coords.accuracy || 0,
+          };
+
+          if (!isCurrentlyPaused) {
             if (!finalCoord.accuracy || finalCoord.accuracy <= 80) { // Increased from 35 to match overall accuracy threshold
               // Avoid duplicate points if final location is virtually identical to the last tracked point
               const lastTracked = lastCoordinateRef.current;
@@ -1551,9 +1564,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
               }
             }
           }
-        } catch (locErr) {
-          logger.warn('[Journey] Could not fetch final high-accuracy location for stop:', locErr);
         }
+      } catch (locErr) {
+        logger.warn('[Journey] Could not fetch final high-accuracy location for stop:', locErr);
       }
 
       // Stop location tracking
@@ -1645,7 +1658,10 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       (async () => {
         try {
           logger.debug(`[Journey] Sending completion request for ${completingJourneyId}`);
-          const { journey: resJourney } = await completeJourney(completingJourneyId, { snapToRoads });
+          const { journey: resJourney } = await completeJourney(completingJourneyId, { 
+            snapToRoads,
+            endCoords: explicitEndCoords
+          });
           if (resJourney) {
             setJourney(resJourney);
           }

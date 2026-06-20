@@ -934,6 +934,64 @@ export default function PostScreen() {
     return () => clearTimeout(timeoutId);
   }, [selectedImages, selectedVideo, videoThumbnail, location, address, locationMetadata, postType, selectedSong, songStartTime, songEndTime, audioChoice, selectedFilter, draftComment, draftCaption, draftTags, draftPlaceName, hasDraftContent]);
 
+  // Auto-process selected video (Bug 010)
+  useEffect(() => {
+    let active = true;
+    const processVideo = async () => {
+      if (!selectedVideo || !selectedVideo.trim()) return;
+      logger.debug('[Video Process Effect] processing selectedVideo:', selectedVideo);
+
+      // Generate thumbnail if missing
+      if (!videoThumbnail) {
+        try {
+          const { uri } = await VideoThumbnails.getThumbnailAsync(selectedVideo, { time: 1000 });
+          if (active) {
+            if (uri && uri.trim()) {
+              setVideoThumbnail(uri);
+              logger.debug('[Video Process Effect] thumbnail generated:', uri);
+            } else {
+              setVideoThumbnail(null);
+            }
+          }
+        } catch (e) {
+          logger.warn('[Video Process Effect] Thumbnail generation failed', e);
+          if (active) setVideoThumbnail(null);
+        }
+      }
+
+      // Fetch duration if missing or 0
+      if (!videoDuration || videoDuration === 0) {
+        let soundInstance: Audio.Sound | null = null;
+        try {
+          const { sound } = await Audio.Sound.createAsync(
+            { uri: selectedVideo },
+            { shouldPlay: false }
+          );
+          soundInstance = sound;
+          const status = await sound.getStatusAsync();
+          if (status.isLoaded && status.durationMillis && active) {
+            const actualDuration = status.durationMillis / 1000;
+            const MAX_SHORT_DURATION = 60;
+            const shortDuration = Math.min(actualDuration, MAX_SHORT_DURATION);
+            setVideoDuration(shortDuration);
+            logger.info('[Video Process Effect] video duration captured:', shortDuration);
+          }
+        } catch (videoError) {
+          logger.warn('[Video Process Effect] Failed to get video duration:', videoError);
+          if (active) setVideoDuration(60);
+        } finally {
+          if (soundInstance) {
+            await soundInstance.unloadAsync().catch(() => {});
+          }
+        }
+      }
+    };
+    processVideo();
+    return () => {
+      active = false;
+    };
+  }, [selectedVideo]);
+
   const restoreDraftData = useCallback((draft: any) => {
     // Restore media
     if (draft.selectedImages) setSelectedImages(draft.selectedImages);
@@ -2876,6 +2934,7 @@ export default function PostScreen() {
       const requiresVerification = source === 'gallery_no_exif' || source === 'manual_only';
       
       // Flush form context immediately to reset to standard gallery view in background
+      clearUploadState();
       resetFormState();
       setVideoDuration(null);
       setHasExistingShorts(true);
@@ -3437,7 +3496,14 @@ export default function PostScreen() {
             ) : isFocused && selectedVideo && selectedVideo.trim() ? (
               <View>
                 {/* Video preview */}
-                <View style={{ width: "100%", aspectRatio: 9 / 16, borderRadius: theme.borderRadius.lg, overflow: 'hidden', backgroundColor: theme.colors.surface }}>
+                <View style={{ width: "100%", aspectRatio: 9 / 16, borderRadius: theme.borderRadius.lg, overflow: 'hidden', backgroundColor: theme.colors.surface, position: 'relative' }}>
+                  {videoThumbnail ? (
+                    <Image
+                      source={{ uri: videoThumbnail }}
+                      style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: -1, width: '100%', height: '100%' }}
+                      resizeMode="cover"
+                    />
+                  ) : null}
                   <Video
                     key={selectedVideo}
                     ref={videoRef}
@@ -3452,6 +3518,8 @@ export default function PostScreen() {
                     // Dual-audio mixing: video audio at 60% volume, music will overlay at 100%
                     isMuted={false}
                     volume={audioChoice === 'background' && selectedSong ? 0.6 : 1.0}
+                    shouldPlay={true}
+                    isLooping={true}
                   />
                 </View>
               </View>
@@ -5009,7 +5077,12 @@ export default function PostScreen() {
                           paddingVertical: 2,
                           borderRadius: 4,
                         }}>
-                          {Math.floor(item.duration / 60)}:{(item.duration % 60).toString().padStart(2, '0')}
+                          {(() => {
+                            const totalSecs = Math.round(item.duration);
+                            const mins = Math.floor(totalSecs / 60);
+                            const secs = totalSecs % 60;
+                            return `${mins}:${secs.toString().padStart(2, '0')}`;
+                          })()}
                         </Text>
                       )}
                     </View>
@@ -5535,6 +5608,7 @@ export default function PostScreen() {
         visible={showAudioChoiceModal}
         onClose={() => setShowAudioChoiceModal(false)}
         mode={mode}
+        selectedChoice={audioChoice}
         onSelectBackgroundMusic={() => {
           setAudioChoice('background');
           setShowAudioChoiceModal(false);

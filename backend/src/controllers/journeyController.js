@@ -719,7 +719,7 @@ const updateLocation = async (req, res) => {
 const completeJourney = async (req, res) => {
   try {
     const { journeyId } = req.params;
-    const { snapToRoads: shouldSnap } = req.body;
+    const { snapToRoads: shouldSnap, endCoords } = req.body;
 
     if (!mongoose.Types.ObjectId.isValid(journeyId)) {
       return sendError(res, 'VAL_2001', 'Invalid journey ID');
@@ -743,7 +743,12 @@ const completeJourney = async (req, res) => {
     const currentSession = journey.sessions[journey.sessions.length - 1];
     if (currentSession && !currentSession.stoppedAt) {
       currentSession.stoppedAt = new Date();
-      if (journey.snapped_polyline.length > 0) {
+      if (endCoords && typeof endCoords.lat === 'number' && typeof endCoords.lng === 'number') {
+        currentSession.endCoords = {
+          lat: endCoords.lat,
+          lng: endCoords.lng
+        };
+      } else if (journey.snapped_polyline.length > 0) {
         const lastPoint = journey.snapped_polyline[journey.snapped_polyline.length - 1];
         currentSession.endCoords = {
           lat: lastPoint.lat,
@@ -756,10 +761,13 @@ const completeJourney = async (req, res) => {
     journey.completedAt = new Date();
     journey.autoEnded = false;
 
-    // Set endCoords to last polyline point before snapping to roads.
-    // This ensures that the final destination pin marks the exact physical end location
-    // of the user, even if the travel route line is snapped/smoothed to vehicle roads.
-    if (journey.snapped_polyline.length > 0) {
+    // Store explicit endCoords passed from the client, or fallback to the last polyline point (Bug 013)
+    if (endCoords && typeof endCoords.lat === 'number' && typeof endCoords.lng === 'number') {
+      journey.endCoords = {
+        lat: endCoords.lat,
+        lng: endCoords.lng
+      };
+    } else if (journey.snapped_polyline.length > 0) {
       const lastPoint = journey.snapped_polyline[journey.snapped_polyline.length - 1];
       journey.endCoords = {
         lat: lastPoint.lat,

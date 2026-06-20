@@ -34,6 +34,7 @@ interface AudioChoiceModalProps {
   mode: 'light' | 'dark' | 'auto';
   onSelectBackgroundMusic: () => void;
   onSelectOriginalAudio: () => void;
+  selectedChoice?: 'background' | 'original' | 'none' | string | null;
 }
 
 export const AudioChoiceModal = ({
@@ -42,7 +43,11 @@ export const AudioChoiceModal = ({
   mode,
   onSelectBackgroundMusic,
   onSelectOriginalAudio,
+  selectedChoice,
 }: AudioChoiceModalProps) => {
+  const isBackgroundSelected = selectedChoice === 'background';
+  const isOriginalSelected = selectedChoice === 'original';
+
   return (
     <Modal
       visible={visible}
@@ -99,93 +104,185 @@ export const AudioChoiceModal = ({
               </Text>
             </View>
             
-            <TouchableOpacity
-              style={{
-                borderRadius: 16,
-                overflow: 'hidden',
-                marginBottom: 16,
-                shadowColor: '#14B8A6',
-                shadowOffset: { width: 0, height: 4 },
-                shadowOpacity: 0.25,
-                shadowRadius: 8,
-                elevation: 3,
-              }}
-              onPress={onSelectBackgroundMusic}
-              activeOpacity={0.8}
-            >
-              <LinearGradient
-                colors={['#38BDF8', '#14B8A6', '#34D399']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
+            {isBackgroundSelected ? (
+              <TouchableOpacity
                 style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  padding: isTablet ? theme.spacing.xl : 20,
                   borderRadius: 16,
-                  borderWidth: 1,
-                  borderColor: 'rgba(255, 255, 255, 0.35)',
+                  overflow: 'hidden',
+                  marginBottom: 16,
+                  shadowColor: '#14B8A6',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.25,
+                  shadowRadius: 8,
+                  elevation: 3,
                 }}
+                onPress={onSelectBackgroundMusic}
+                activeOpacity={0.8}
               >
                 <LinearGradient
-                  colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
+                  colors={['#38BDF8', '#14B8A6', '#34D399']}
                   start={{ x: 0, y: 0 }}
-                  end={{ x: 0, y: 0.4 }}
-                  style={StyleSheet.absoluteFillObject}
-                  pointerEvents="none"
-                />
+                  end={{ x: 1, y: 0 }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    padding: isTablet ? theme.spacing.xl : 20,
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: 'rgba(255, 255, 255, 0.35)',
+                  }}
+                >
+                  <LinearGradient
+                    colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 0, y: 0.4 }}
+                    style={StyleSheet.absoluteFillObject}
+                    pointerEvents="none"
+                  />
+                  <View style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginRight: theme.spacing.md,
+                    zIndex: 1,
+                  }}>
+                    <Ionicons name="musical-notes" size={24} color="white" />
+                  </View>
+                  <View style={[styles.audioChoiceTextContainer, { zIndex: 1 }]}>
+                    <Text style={styles.audioChoiceTitle}>Background Music</Text>
+                    <Text style={styles.audioChoiceSubtitle}>Add a song from our library</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color="white" style={{ zIndex: 1 }} />
+                </LinearGradient>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[
+                  styles.audioChoiceButton, 
+                  { 
+                    backgroundColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.03)',
+                    borderWidth: 1,
+                    borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'
+                  }
+                ]}
+                onPress={onSelectBackgroundMusic}
+                activeOpacity={0.8}
+              >
                 <View style={{
                   width: 48,
                   height: 48,
                   borderRadius: 24,
-                  backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                  backgroundColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
                   justifyContent: 'center',
                   alignItems: 'center',
-                  marginRight: theme.spacing.md,
-                  zIndex: 1,
+                  marginRight: theme.spacing.md
                 }}>
-                  <Ionicons name="musical-notes" size={24} color="white" />
+                  <Ionicons name="musical-notes" size={24} color={theme.colors.text} />
                 </View>
-                <View style={[styles.audioChoiceTextContainer, { zIndex: 1 }]}>
-                  <Text style={styles.audioChoiceTitle}>Background Music</Text>
-                  <Text style={styles.audioChoiceSubtitle}>Add a song from our library</Text>
+                <View style={styles.audioChoiceTextContainer}>
+                  <Text style={[styles.audioChoiceTitle, { color: theme.colors.text }]}>
+                    Background Music
+                  </Text>
+                  <Text style={[styles.audioChoiceSubtitle, { color: theme.colors.textSecondary }]}>
+                    Add a song from our library
+                  </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={20} color="white" style={{ zIndex: 1 }} />
-              </LinearGradient>
-            </TouchableOpacity>
+                <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+              </TouchableOpacity>
+            )}
 
-            <TouchableOpacity
-              style={[
-                styles.audioChoiceButton, 
-                { 
-                  backgroundColor: mode === 'dark' ? '#1E1E1E' : '#FFFFFF',
-                  borderWidth: 2,
-                  borderColor: theme.colors.border
-                }
-              ]}
-              onPress={onSelectOriginalAudio}
-              activeOpacity={0.8}
-            >
-              <View style={{
-                width: 48,
-                height: 48,
-                borderRadius: 24,
-                backgroundColor: theme.colors.border + '40',
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginRight: theme.spacing.md
-              }}>
-                <Ionicons name="volume-high" size={24} color={theme.colors.text} />
-              </View>
-              <View style={styles.audioChoiceTextContainer}>
-                <Text style={[styles.audioChoiceTitle, { color: theme.colors.text }]}>
-                  Original Video Audio
-                </Text>
-                <Text style={[styles.audioChoiceSubtitle, { color: theme.colors.textSecondary }]}>
-                  Keep the original sound from your video
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
-            </TouchableOpacity>
+            {isOriginalSelected ? (
+              <TouchableOpacity
+                style={{
+                  borderRadius: 16,
+                  overflow: 'hidden',
+                  marginBottom: 16,
+                  shadowColor: '#14B8A6',
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.25,
+                  shadowRadius: 8,
+                  elevation: 3,
+                }}
+                onPress={onSelectOriginalAudio}
+                activeOpacity={0.8}
+              >
+                <LinearGradient
+                  colors={['#38BDF8', '#14B8A6', '#34D399']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    padding: isTablet ? theme.spacing.xl : 20,
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: 'rgba(255, 255, 255, 0.35)',
+                  }}
+                >
+                  <LinearGradient
+                    colors={['rgba(255, 255, 255, 0.25)', 'transparent']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 0, y: 0.4 }}
+                    style={StyleSheet.absoluteFillObject}
+                    pointerEvents="none"
+                  />
+                  <View style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: 24,
+                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginRight: theme.spacing.md,
+                    zIndex: 1,
+                  }}>
+                    <Ionicons name="volume-high" size={24} color="white" />
+                  </View>
+                  <View style={[styles.audioChoiceTextContainer, { zIndex: 1 }]}>
+                    <Text style={styles.audioChoiceTitle}>Original Video Audio</Text>
+                    <Text style={styles.audioChoiceSubtitle}>Keep the original sound from your video</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color="white" style={{ zIndex: 1 }} />
+                </LinearGradient>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[
+                  styles.audioChoiceButton, 
+                  { 
+                    backgroundColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.03)',
+                    borderWidth: 1,
+                    borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.08)'
+                  }
+                ]}
+                onPress={onSelectOriginalAudio}
+                activeOpacity={0.8}
+              >
+                <View style={{
+                  width: 48,
+                  height: 48,
+                  borderRadius: 24,
+                  backgroundColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  marginRight: theme.spacing.md
+                }}>
+                  <Ionicons name="volume-high" size={24} color={theme.colors.text} />
+                </View>
+                <View style={styles.audioChoiceTextContainer}>
+                  <Text style={[styles.audioChoiceTitle, { color: theme.colors.text }]}>
+                    Original Video Audio
+                  </Text>
+                  <Text style={[styles.audioChoiceSubtitle, { color: theme.colors.textSecondary }]}>
+                    Keep the original sound from your video
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity
               style={[
@@ -207,7 +304,7 @@ export const AudioChoiceModal = ({
       </View>
     </Modal>
   );
-};
+}
 
 const styles = StyleSheet.create({
   modalOverlay: {

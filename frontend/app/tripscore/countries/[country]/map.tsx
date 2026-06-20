@@ -234,11 +234,7 @@ export default function CountryMapScreen() {
   };
 
   const handleLocationPress = (location: Location) => {
-    const isAlreadyPinned = pinnedLocation && (
-      pinnedLocation.name === location.name &&
-      pinnedLocation.coordinates?.latitude === location.coordinates?.latitude &&
-      pinnedLocation.coordinates?.longitude === location.coordinates?.longitude
-    );
+    const isAlreadyPinned = pinnedLocation && (pinnedLocation as any).stableId === (location as any).stableId;
 
     if (isAlreadyPinned) {
       // Toggle off
@@ -414,6 +410,7 @@ export default function CountryMapScreen() {
         ...loc,
         stableId, // Add stable ID for key generation
         coordinates: finalCoords,
+        hasValidCoords,
       };
     });
 
@@ -459,11 +456,7 @@ export default function CountryMapScreen() {
     const index = Math.round(contentOffsetX / screenWidth);
     if (index >= 0 && index < visitedMarkers.length) {
       const nextLocation = visitedMarkers[index];
-      if (
-        selectedLocation?.name !== nextLocation.name ||
-        selectedLocation?.coordinates?.latitude !== nextLocation.coordinates.latitude ||
-        selectedLocation?.coordinates?.longitude !== nextLocation.coordinates.longitude
-      ) {
+      if ((selectedLocation as any)?.stableId !== nextLocation.stableId) {
         setSelectedLocation(nextLocation);
       }
     }
@@ -472,10 +465,7 @@ export default function CountryMapScreen() {
   useEffect(() => {
     const webLocations = getMapLocations(displayCountryName || '');
     const webSelectedIndex = selectedLocation ? webLocations.findIndex(
-      (loc) =>
-        loc.name === selectedLocation.name &&
-        loc.coordinates?.latitude === selectedLocation.coordinates?.latitude &&
-        loc.coordinates?.longitude === selectedLocation.coordinates?.longitude
+      (loc) => (loc as any).stableId === (selectedLocation as any).stableId
     ) : -1;
 
     if (mapRef.current && (Platform.OS === 'web' || Platform.OS === 'android')) {
@@ -509,10 +499,7 @@ export default function CountryMapScreen() {
   useEffect(() => {
     if (selectedLocation && !isScrollingCarouselRef.current) {
       const index = visitedMarkers.findIndex(
-        (loc) =>
-          loc.name === selectedLocation.name &&
-          loc.coordinates?.latitude === selectedLocation.coordinates?.latitude &&
-          loc.coordinates?.longitude === selectedLocation.coordinates?.longitude
+        (loc) => loc.stableId === (selectedLocation as any).stableId
       );
       if (index !== -1 && carouselRef.current) {
         carouselRef.current.scrollToIndex({ index, animated: true });
@@ -523,29 +510,8 @@ export default function CountryMapScreen() {
   // Get locations with coordinates for map rendering
   // CRITICAL: Only show locations with valid coordinates (no random coordinates)
   const getMapLocations = (countryDisplayName: string): Location[] => {
-    if (!data) return [];
-    
-    // Filter locations to only include those with valid coordinates
-    const validMarkers = data.locations.filter(
-      loc => isValidMapCoordinate(loc.coordinates) &&
-             loc.coordinates.latitude !== 0 &&
-             loc.coordinates.longitude !== 0
-    );
-
-    // Dedupe by ~11m precision so GPS-noise variants of the same spot collapse
-    // to one pin (matches the native visitedMarkers and the My Location map).
-    const seen = new Set<string>();
-    const markers: Location[] = [];
-    for (const m of validMarkers) {
-      const key = `${m.coordinates!.latitude.toFixed(4)},${m.coordinates!.longitude.toFixed(4)}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        markers.push(m);
-      }
-    }
-
-    // If no valid locations, show center marker as fallback
-    if (markers.length === 0) {
+    const valid = visitedMarkers.filter((m: any) => m.hasValidCoords);
+    if (valid.length === 0) {
       const center = getCountryCenter(countryDisplayName || '');
       return [{
         name: countryDisplayName || 'Center',
@@ -557,10 +523,11 @@ export default function CountryMapScreen() {
           latitude: center.latitude,
           longitude: center.longitude,
         },
-      } as Location];
+        stableId: 'fallback-center',
+        hasValidCoords: true,
+      } as any];
     }
-    
-    return markers;
+    return valid;
   };
 
   // Generate HTML for WebView map (web platform)
@@ -586,7 +553,7 @@ export default function CountryMapScreen() {
         div.addEventListener('click', function(e) {
           e.stopPropagation();
           if (window.ReactNativeWebView) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'marker', index: ${i} }));
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'marker', stableId: '${(loc as any).stableId}' }));
           }
         });
         
@@ -720,10 +687,10 @@ export default function CountryMapScreen() {
   const handleWebViewMessage = (event: any, countryDisplayName: string) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'marker' && typeof data.index === 'number') {
-        const locations = getMapLocations(countryDisplayName);
-        if (locations[data.index]) {
-          handleLocationPress(locations[data.index]);
+      if (data.type === 'marker' && data.stableId) {
+        const matchedLocation = visitedMarkers.find(loc => loc.stableId === data.stableId);
+        if (matchedLocation) {
+          handleLocationPress(matchedLocation);
         }
       }
     } catch (error) {
@@ -893,11 +860,7 @@ export default function CountryMapScreen() {
               style={styles.carouselFlatList}
               contentContainerStyle={styles.carouselContent}
               renderItem={({ item }) => {
-                const isSelected = selectedLocation && (
-                  selectedLocation.name === item.name &&
-                  selectedLocation.coordinates?.latitude === item.coordinates?.latitude &&
-                  selectedLocation.coordinates?.longitude === item.coordinates?.longitude
-                );
+                const isSelected = selectedLocation && (selectedLocation as any).stableId === item.stableId;
                 return (
                   <View style={styles.carouselCardWrapper}>
                     <GlassMapPanel style={[styles.previewCard, isSelected && styles.previewCardActive]} tint="dark">

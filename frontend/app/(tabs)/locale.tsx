@@ -63,6 +63,7 @@ import {
 } from '../../components/cloud';
 import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 import type { CloudLocaleCardData } from '../../components/cloud/CloudLocaleCard';
+import { LocaleCardSkeleton } from '../../components/ui/Skeleton';
 
 const logger = createLogger('LocaleScreen');
 
@@ -3567,7 +3568,7 @@ export default function LocaleScreen() {
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
                 onEndReached={handleLoadMore}
-                onEndReachedThreshold={0.5}
+                                onEndReachedThreshold={0.7}
                 estimatedItemSize={220}
                 contentContainerStyle={{
                   paddingHorizontal: isTabletLocal ? 24 : 16,
@@ -3599,11 +3600,9 @@ export default function LocaleScreen() {
                   (localesToShow || []).length > 0 ? (
                     <View style={{ paddingTop: 20, paddingBottom: 16 }}>
                       {loadingMore ? (
-                        <View style={styles.loadMoreContainer}>
-                          <LoadingGlobe size="small" color={theme.colors.secondary} />
-                          <Text style={[styles.loadMoreText, { color: theme.colors.textSecondary, marginLeft: 8 }]}>
-                            Loading more locales...
-                          </Text>
+                        <View style={{ gap: 20 }}>
+                          <LocaleCardSkeleton width={CARD_WIDTH} height={CARD_HEIGHT} />
+                          <LocaleCardSkeleton width={CARD_WIDTH} height={CARD_HEIGHT} />
                         </View>
                       ) : null}
                     </View>

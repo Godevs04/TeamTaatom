@@ -85,6 +85,8 @@ export default function JourneyMapView({
   };
 
   const [mapReady, setMapReady] = useState(false);
+  // Waypoint detail Bottom Sheet visibility state.
+  // CRITICAL: Must be initialized to null so details remain hidden by default until explicit marker click (Bug 006).
   const [selectedWaypoint, setSelectedWaypoint] = useState<Waypoint | null>(null);
   const [activeJourneyDetails, setActiveJourneyDetails] = useState<{
     title: string;

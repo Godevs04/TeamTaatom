@@ -101,6 +101,43 @@ export function PostCardSkeleton() {
   );
 }
 
+export function LocaleCardSkeleton({ width, height }: { width: DimensionValue; height: DimensionValue }) {
+  const { theme, mode } = useTheme();
+  
+  const cardBg = mode === 'dark' 
+    ? 'rgba(18, 34, 54, 0.72)' 
+    : 'rgba(255, 255, 255, 0.72)';
+  
+  return (
+    <View style={[
+      { 
+        backgroundColor: cardBg, 
+        borderColor: theme.colors.border, 
+        width, 
+        height, 
+        borderRadius: 24, 
+        overflow: 'hidden',
+        borderWidth: 1,
+        alignSelf: 'center',
+      }
+    ]}>
+      {/* Media Image Area */}
+      <Skeleton width="100%" height="70%" borderRadius={0} />
+      
+      {/* Bottom Panel */}
+      <View style={{ height: '30%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16 }}>
+        <View style={{ flex: 1, marginRight: 12 }}>
+          <Skeleton width="60%" height={16} borderRadius={4} />
+          <View style={{ height: 6 }} />
+          <Skeleton width="40%" height={12} borderRadius={4} />
+        </View>
+        <Skeleton width={70} height={20} borderRadius={10} />
+      </View>
+    </View>
+  );
+}
+
+
 const styles = StyleSheet.create({
   card: {
     padding: 16,

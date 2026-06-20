@@ -55,6 +55,7 @@ import ScrollEdgeFades from '../../components/ScrollEdgeFades';
 import { cloudDesign } from '../../constants/cloudDesign';
 import CloudGlassSurface from '../../components/cloud/CloudGlassSurface';
 import ShortsCard from '../../components/shorts/ShortsCard';
+import FastImage from '../../components/ui/FastImage';
 
 
 const logger = createLogger('ProfileScreen');
@@ -1535,12 +1536,12 @@ export default function ProfileScreen() {
         >
           {validImageUrl ? (
             <>
-              <Image 
+              <FastImage 
                 source={{ uri: validImageUrl }} 
                 style={styles.thumbnailImage as ImageStyle}
-                resizeMode="cover"
-                onError={(error) => {
-                  const errorMessage = error?.nativeEvent?.error?.message || '';
+                contentFit="cover"
+                onError={(error: any) => {
+                  const errorMessage = error?.message || error?.nativeEvent?.error?.message || '';
                   const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
                   if (__DEV__ && !is403) {
                     console.warn('⚠️ [Profile] Image failed:', { postId: post._id, url: validImageUrl.substring(0, 80), error: errorMessage || 'Unknown' });
@@ -1649,12 +1650,12 @@ export default function ProfileScreen() {
             }}
           >
             {validImageUrl ? (
-              <Image 
+              <FastImage 
                 source={{ uri: validImageUrl }} 
                 style={styles.thumbnailImage as ImageStyle}
-                resizeMode="cover"
-                onError={(error) => {
-                  const errorMessage = error?.nativeEvent?.error?.message || '';
+                contentFit="cover"
+                onError={(error: any) => {
+                  const errorMessage = error?.message || error?.nativeEvent?.error?.message || '';
                   const is403 = errorMessage.includes('403') || errorMessage.includes('Forbidden');
                   if (!is403) {
                     logger.warn('Saved item image failed to load', {
