@@ -583,14 +583,100 @@ export default function CurrentLocationMap() {
         `);
       } else {
         // iOS / Native MapView: Fetch route directly from Google Directions API
-        const routeData = await fetchDirectionsRoute(
-          coords,
-          { latitude: postLatitude!, longitude: postLongitude! }
+        const distanceKm = calculateDistance(
+          coords.latitude,
+          coords.longitude,
+          postLatitude!,
+          postLongitude!
         );
-        if (routeData) {
-          setRoute(routeData);
+        
+        if (distanceKm > 1000) {
+          const mockRoute: DirectionsRoute = {
+            distanceText: `${distanceKm.toFixed(1)} km`,
+            distanceValue: Math.round(distanceKm * 1000),
+            durationText: distanceKm / 800 + 1 < 2 
+              ? `${Math.round((distanceKm / 800 + 1) * 60)} min`
+              : `${Math.round(distanceKm / 800 + 1)} hours`,
+            durationValue: Math.round((distanceKm / 800 + 1) * 3600),
+            coordinates: [
+              { latitude: coords.latitude, longitude: coords.longitude },
+              { latitude: postLatitude!, longitude: postLongitude! }
+            ],
+            steps: [
+              {
+                instruction: `Board a flight to ${locationName || postAddress || 'destination'}`,
+                distanceText: `${distanceKm.toFixed(1)} km`,
+                durationText: '',
+                maneuver: 'flight',
+                endLocation: { latitude: postLatitude!, longitude: postLongitude! }
+              }
+            ],
+            isFlight: true
+          };
+          setRoute(mockRoute);
+          setRouteLoading(false);
+        } else {
+          try {
+            const routeData = await fetchDirectionsRoute(
+              coords,
+              { latitude: postLatitude!, longitude: postLongitude! }
+            );
+            if (routeData) {
+              setRoute(routeData);
+            } else {
+              // Fallback to flight route if directions fetch returned null
+              const mockRoute: DirectionsRoute = {
+                distanceText: `${distanceKm.toFixed(1)} km`,
+                distanceValue: Math.round(distanceKm * 1000),
+                durationText: distanceKm / 800 + 1 < 2 
+                  ? `${Math.round((distanceKm / 800 + 1) * 60)} min`
+                  : `${Math.round(distanceKm / 800 + 1)} hours`,
+                durationValue: Math.round((distanceKm / 800 + 1) * 3600),
+                coordinates: [
+                  { latitude: coords.latitude, longitude: coords.longitude },
+                  { latitude: postLatitude!, longitude: postLongitude! }
+                ],
+                steps: [
+                  {
+                    instruction: `Board a flight to ${locationName || postAddress || 'destination'}`,
+                    distanceText: `${distanceKm.toFixed(1)} km`,
+                    durationText: '',
+                    maneuver: 'flight',
+                    endLocation: { latitude: postLatitude!, longitude: postLongitude! }
+                  }
+                ],
+                isFlight: true
+              };
+              setRoute(mockRoute);
+            }
+          } catch (e) {
+            // Fallback to flight route on exception
+            const mockRoute: DirectionsRoute = {
+              distanceText: `${distanceKm.toFixed(1)} km`,
+              distanceValue: Math.round(distanceKm * 1000),
+              durationText: distanceKm / 800 + 1 < 2 
+                ? `${Math.round((distanceKm / 800 + 1) * 60)} min`
+                : `${Math.round(distanceKm / 800 + 1)} hours`,
+              durationValue: Math.round((distanceKm / 800 + 1) * 3600),
+              coordinates: [
+                { latitude: coords.latitude, longitude: coords.longitude },
+                { latitude: postLatitude!, longitude: postLongitude! }
+              ],
+              steps: [
+                {
+                  instruction: `Board a flight to ${locationName || postAddress || 'destination'}`,
+                  distanceText: `${distanceKm.toFixed(1)} km`,
+                  durationText: '',
+                  maneuver: 'flight',
+                  endLocation: { latitude: postLatitude!, longitude: postLongitude! }
+                }
+              ],
+              isFlight: true
+            };
+            setRoute(mockRoute);
+          }
+          setRouteLoading(false);
         }
-        setRouteLoading(false);
       }
 
       // Trigger a background refresh of the position to ensure we get a precise/fresh lock
@@ -791,13 +877,52 @@ function initMap(){
   var userCoords = null;
   var destination = new google.maps.LatLng(${lat}, ${lng});
 
-  function drawRoute(path) {
+  function haversineDistance(coords1, coords2) {
+    var R = 6371; // km
+    var dLat = (coords2.lat() - coords1.lat()) * Math.PI / 180;
+    var dLon = (coords2.lng() - coords1.lng()) * Math.PI / 180;
+    var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(coords1.lat() * Math.PI / 180) * Math.cos(coords2.lat() * Math.PI / 180) *
+            Math.sin(dLon/2) * Math.sin(dLon/2);
+    var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  }
+
+  function drawRoute(path, isFlight) {
     if (path.length > 1) {
       if (window.polyline1) window.polyline1.setMap(null);
       if (window.polyline2) window.polyline2.setMap(null);
       
-      window.polyline1 = new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:0.22,strokeWeight:14,map:map});
-      window.polyline2 = new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:5,map:map});
+      if (isFlight) {
+        var lineSymbol = {
+          path: 'M 0,-1 0,1',
+          strokeOpacity: 1,
+          scale: 3,
+          strokeColor: '${mapStyle.routeColor}'
+        };
+        window.polyline1 = new google.maps.Polyline({
+          path: path,
+          geodesic: true,
+          strokeColor: '${mapStyle.routeColor}',
+          strokeOpacity: 0.15,
+          strokeWeight: 14,
+          map: map
+        });
+        window.polyline2 = new google.maps.Polyline({
+          path: path,
+          geodesic: true,
+          strokeOpacity: 0,
+          icons: [{
+            icon: lineSymbol,
+            offset: '0',
+            repeat: '15px'
+          }],
+          map: map
+        });
+      } else {
+        window.polyline1 = new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:0.22,strokeWeight:14,map:map});
+        window.polyline2 = new google.maps.Polyline({path:path,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:5,map:map});
+      }
       var bounds=new google.maps.LatLngBounds();
       path.forEach(function(p){bounds.extend(p);});
       map.fitBounds(bounds,64);
@@ -858,59 +983,11 @@ function initMap(){
         var directionsService = new google.maps.DirectionsService();
         var origin = new google.maps.LatLng(userCoords.latitude, userCoords.longitude);
         
-        directionsService.route({
-          origin: origin,
-          destination: destination,
-          travelMode: google.maps.TravelMode.DRIVING
-        }, function(response, status) {
-          if (status === 'OK') {
-            var path = response.routes[0].overview_path;
-            drawRoute(path);
-            
-            if (window.userDotOverlay) {
-              window.userDotOverlay.setMap(null);
-            }
-            window.userDotOverlay = drawUserDot(origin);
-            
-            if (window.destinationOverlay) {
-              window.destinationOverlay.setMap(null);
-            }
-            window.destinationOverlay = drawDestinationMarker(true, false);
-            
-            if (window.ReactNativeWebView) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({
-                type: 'ROUTE_LOADED',
-                distanceText: response.routes[0].legs[0].distance.text,
-                distanceValue: response.routes[0].legs[0].distance.value,
-                durationText: response.routes[0].legs[0].duration.text,
-                durationValue: response.routes[0].legs[0].duration.value
-              }));
-            }
-          } else {
-            var fallbackPath = [origin, destination];
-            drawRoute(fallbackPath);
-            
-            if (window.userDotOverlay) {
-              window.userDotOverlay.setMap(null);
-            }
-            window.userDotOverlay = drawUserDot(origin);
-            
-            if (window.destinationOverlay) {
-              window.destinationOverlay.setMap(null);
-            }
-            window.destinationOverlay = drawDestinationMarker(true, false);
-            
-            if (window.ReactNativeWebView) {
-              window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_ERROR' }));
-            }
-          }
-        });
-      } catch (err) {
-        console.error(err);
-        if (userCoords) {
-          var origin = new google.maps.LatLng(userCoords.latitude, userCoords.longitude);
-          var fallbackPath = [origin, destination];
-          drawRoute(fallbackPath);
+        var distKm = haversineDistance(origin, destination);
+        
+        if (distKm > 1000) {
+          var path = [origin, destination];
+          drawRoute(path, true);
           
           if (window.userDotOverlay) {
             window.userDotOverlay.setMap(null);
@@ -921,9 +998,121 @@ function initMap(){
             window.destinationOverlay.setMap(null);
           }
           window.destinationOverlay = drawDestinationMarker(true, false);
+          
+          if (window.ReactNativeWebView) {
+            var distText = distKm.toFixed(1) + ' km';
+            var durationHours = (distKm / 800) + 1;
+            var durationText = durationHours < 2 
+              ? Math.round(durationHours * 60) + ' min' 
+              : Math.round(durationHours) + ' hours';
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'ROUTE_LOADED',
+              distanceText: distText,
+              distanceValue: Math.round(distKm * 1000),
+              durationText: durationText,
+              durationValue: Math.round(durationHours * 3600),
+              isFlight: true
+            }));
+          }
+        } else {
+          directionsService.route({
+            origin: origin,
+            destination: destination,
+            travelMode: google.maps.TravelMode.DRIVING
+          }, function(response, status) {
+            if (status === 'OK') {
+              var path = response.routes[0].overview_path;
+              drawRoute(path, false);
+              
+              if (window.userDotOverlay) {
+                window.userDotOverlay.setMap(null);
+              }
+              window.userDotOverlay = drawUserDot(origin);
+              
+              if (window.destinationOverlay) {
+                window.destinationOverlay.setMap(null);
+              }
+              window.destinationOverlay = drawDestinationMarker(true, false);
+              
+              if (window.ReactNativeWebView) {
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'ROUTE_LOADED',
+                  distanceText: response.routes[0].legs[0].distance.text,
+                  distanceValue: response.routes[0].legs[0].distance.value,
+                  durationText: response.routes[0].legs[0].duration.text,
+                  durationValue: response.routes[0].legs[0].duration.value,
+                  isFlight: false
+                }));
+              }
+            } else {
+              var path = [origin, destination];
+              drawRoute(path, true);
+              
+              if (window.userDotOverlay) {
+                window.userDotOverlay.setMap(null);
+              }
+              window.userDotOverlay = drawUserDot(origin);
+              
+              if (window.destinationOverlay) {
+                window.destinationOverlay.setMap(null);
+              }
+              window.destinationOverlay = drawDestinationMarker(true, false);
+              
+              if (window.ReactNativeWebView) {
+                var distText = distKm.toFixed(1) + ' km';
+                var durationHours = (distKm / 800) + 1;
+                var durationText = durationHours < 2 
+                  ? Math.round(durationHours * 60) + ' min' 
+                  : Math.round(durationHours) + ' hours';
+                window.ReactNativeWebView.postMessage(JSON.stringify({
+                  type: 'ROUTE_LOADED',
+                  distanceText: distText,
+                  distanceValue: Math.round(distKm * 1000),
+                  durationText: durationText,
+                  durationValue: Math.round(durationHours * 3600),
+                  isFlight: true
+                }));
+              }
+            }
+          });
         }
-        if (window.ReactNativeWebView) {
-          window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_ERROR' }));
+      } catch (err) {
+        console.error(err);
+        if (userCoords) {
+          var origin = new google.maps.LatLng(userCoords.latitude, userCoords.longitude);
+          var distKm = haversineDistance(origin, destination);
+          var path = [origin, destination];
+          drawRoute(path, true);
+          
+          if (window.userDotOverlay) {
+            window.userDotOverlay.setMap(null);
+          }
+          window.userDotOverlay = drawUserDot(origin);
+          
+          if (window.destinationOverlay) {
+            window.destinationOverlay.setMap(null);
+          }
+          window.destinationOverlay = drawDestinationMarker(true, false);
+          
+          if (window.ReactNativeWebView) {
+            var distText = distKm.toFixed(1) + ' km';
+            var durationHours = (distKm / 800) + 1;
+            var durationText = durationHours < 2 
+              ? Math.round(durationHours * 60) + ' min' 
+              : Math.round(durationHours) + ' hours';
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'ROUTE_LOADED',
+              distanceText: distText,
+              distanceValue: Math.round(distKm * 1000),
+              durationText: durationText,
+              durationValue: Math.round(durationHours * 3600),
+              isFlight: true
+            }));
+          }
+        } else {
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'ROUTE_ERROR' }));
+          }
         }
       }
     }
@@ -1066,7 +1255,18 @@ function initMap(){
                   distance: { text: data.distanceText, value: data.distanceValue },
                   duration: { text: data.durationText, value: data.durationValue },
                   coordinates: [], 
-                  steps: []
+                  steps: [
+                    {
+                      instruction: data.isFlight 
+                        ? `Board a flight to ${locationName || postAddress || 'destination'}`
+                        : `Drive to ${locationName || postAddress || 'destination'}`,
+                      distanceText: data.distanceText,
+                      durationText: data.durationText,
+                      maneuver: data.isFlight ? 'flight' : 'straight',
+                      endLocation: { latitude: postLatitude!, longitude: postLongitude! }
+                    }
+                  ],
+                  isFlight: data.isFlight
                 } as any);
                 setRouteLoading(false);
               } else if (data.type === 'ROUTE_ERROR') {
@@ -1129,6 +1329,7 @@ function initMap(){
               simplifyDistance={4}
               applyKalman={false}
               latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
+              lineDashPattern={route.isFlight ? [6, 6] : undefined}
             />
             <SafeMarker
               coordinate={route.coordinates[0]}

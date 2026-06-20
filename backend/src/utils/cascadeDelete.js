@@ -194,6 +194,7 @@ const runCascadeDeletePost = async (postId, post = null, session = null) => {
       await User.findByIdAndUpdate(post.user, {
         $inc: { totalLikes: -likesCount }
       }, { session });
+      await User.updateOne({ _id: post.user, totalLikes: { $lt: 0 } }, { $set: { totalLikes: 0 } }).session(session);
       logger.debug(`Updated user ${post.user} totalLikes (decremented by ${likesCount})`);
       
       // Delete associated Like documents
@@ -288,6 +289,7 @@ const runCascadeDeleteUser = async (userId, session = null) => {
       }
       for (const [ownerId, count] of Object.entries(ownerLikesDecrement)) {
         await User.findByIdAndUpdate(ownerId, { $inc: { totalLikes: -count } }, { session });
+        await User.updateOne({ _id: ownerId, totalLikes: { $lt: 0 } }, { $set: { totalLikes: 0 } }).session(session);
       }
       logger.debug(`Decremented totalLikes for ${Object.keys(ownerLikesDecrement).length} post owners`);
       

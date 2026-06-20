@@ -2447,6 +2447,7 @@ const toggleLike = async (req, res) => {
         }
       } else {
         await User.findByIdAndUpdate(post.user, { $inc: { totalLikes: -1 } });
+        await User.updateOne({ _id: post.user, totalLikes: { $lt: 0 } }, { $set: { totalLikes: 0 } });
       }
 
       // Emit real-time post like update to all connected users

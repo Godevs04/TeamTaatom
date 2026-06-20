@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -180,9 +180,40 @@ export default function LocationDetailScreen() {
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [bookmarkLoading, setBookmarkLoading] = useState(false);
   const [localeData, setLocaleData] = useState<Locale | null>(null);
+  const [imageError, setImageError] = useState(false);
   const [navigatingToMap, setNavigatingToMap] = useState(false);
   const [allCountryLocations, setAllCountryLocations] = useState<LocationDetail[]>([]); // Store all locations for nearby section
   const [nearbyLocations, setNearbyLocations] = useState<LocationDetail[]>([]); // Nearby locations sorted by distance
+
+  // Dynamic travel info based on calculated distance
+  const travelInfoText = useMemo(() => {
+    if (distance !== null && distance !== undefined) {
+      if (distance > 1000) return 'Flight';
+      if (distance <= 1.5) return 'Walkable';
+      return 'Drivable';
+    }
+    const rawVal = isTripScoreFlow 
+      ? (data?.category?.fromYou || 'Drivable')
+      : (localeData?.travelInfo || data?.category?.fromYou || 'Drivable');
+    return rawVal;
+  }, [distance, isTripScoreFlow, data, localeData]);
+
+  const travelInfoIcon = useMemo(() => {
+    const val = String(travelInfoText || '').toLowerCase();
+    if (val.includes('walk') || val.includes('hike') || val.includes('hiking')) {
+      return 'walk';
+    }
+    if (val.includes('flight') || val.includes('plane') || val.includes('airplane')) {
+      return 'airplane';
+    }
+    if (val.includes('train')) {
+      return 'train';
+    }
+    if (val.includes('boat') || val.includes('water') || val.includes('ship')) {
+      return 'boat';
+    }
+    return 'car';
+  }, [travelInfoText]);
 
   // Navigation & Lifecycle Safety: Track mounted state
   const isMountedRef = useRef(true);
@@ -329,10 +360,21 @@ export default function LocationDetailScreen() {
   }, [data?.coordinates, allCountryLocations, isTripScoreFlow, location]);
 
   // Helper functions - defined before use
-  const getLocationImage = (locationName: string) => {
-    // Generate dynamic Unsplash image URL based on location name
-    const encodedLocation = encodeURIComponent(locationName);
-    return `https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&h=600&fit=crop&q=80&auto=format&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=800&q=80`;
+  const getLocationImage = (locationName: string, spotType?: string) => {
+    const type = String(spotType || '').toLowerCase();
+    if (type.includes('beach') || type.includes('water') || type.includes('lake') || type.includes('ocean') || type.includes('harbour') || type.includes('sea')) {
+      return 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?w=800&h=600&fit=crop&q=80';
+    }
+    if (type.includes('historical') || type.includes('museum') || type.includes('cathedral') || type.includes('church') || type.includes('temple') || type.includes('monument') || type.includes('tower') || type.includes('cemetery') || type.includes('bridge') || type.includes('castle') || type.includes('estate') || type.includes('palace')) {
+      return 'https://images.unsplash.com/photo-1467269204594-9661b134dd2b?w=800&h=600&fit=crop&q=80';
+    }
+    if (type.includes('mountain') || type.includes('nature') || type.includes('park') || type.includes('outdoor') || type.includes('garden') || type.includes('hill') || type.includes('farm')) {
+      return 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&h=600&fit=crop&q=80';
+    }
+    if (type.includes('city') || type.includes('urban') || type.includes('street')) {
+      return 'https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=800&h=600&fit=crop&q=80';
+    }
+    return 'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&h=600&fit=crop&q=80';
   };
 
   const generateLocationDescription = async (locationName: string, caption: string) => {
@@ -719,7 +761,7 @@ export default function LocationDetailScreen() {
               id: `loc-${Date.now()}`,
               name: locationName.toUpperCase(),
               slug: locationSlug,
-              imageUrl: data?.imageUrl || getLocationImage(locationName),
+              imageUrl: data?.imageUrl || getLocationImage(locationName, data?.category?.typeOfSpot),
               type: data?.category?.typeOfSpot?.toLowerCase() || 'general',
               description: data?.description || `${locationName} is a beautiful destination`,
               savedDate: new Date().toISOString(),
@@ -867,7 +909,7 @@ export default function LocationDetailScreen() {
           }
         }
         
-        const fallbackImg = localeImageUrl || getLocationImage(locationName);
+        const fallbackImg = localeImageUrl || getLocationImage(locationName, localeSpotTypes[0]);
         const galleryUrls: string[] = (() => {
           const fromApi = fetchedLocale?.imageUrls?.filter((u) => typeof u === 'string' && u.length > 0);
           if (fromApi && fromApi.length > 0) return fromApi;
@@ -1218,12 +1260,15 @@ export default function LocationDetailScreen() {
               ) : (
                 <Image
                   source={{
-                    uri: isTripScoreFlow && data?.imageUrl
-                      ? data.imageUrl
-                      : isAdminLocale && localeData?.imageUrl
-                        ? localeData.imageUrl
-                        : data?.imageUrl || getLocationImage(data?.name || ''),
+                    uri: imageError
+                      ? getLocationImage(data?.name || '', data?.category?.typeOfSpot || (localeData?.spotTypes && localeData.spotTypes[0]))
+                      : (isTripScoreFlow && data?.imageUrl
+                        ? data.imageUrl
+                        : isAdminLocale && localeData?.imageUrl
+                          ? localeData.imageUrl
+                          : data?.imageUrl || getLocationImage(data?.name || '', data?.category?.typeOfSpot || (localeData?.spotTypes && localeData.spotTypes[0]))),
                   }}
+                  onError={() => setImageError(true)}
                   style={styles.heroImage}
                   resizeMode="contain"
                 />
@@ -1346,14 +1391,11 @@ export default function LocationDetailScreen() {
                   style={[styles.quickInfoCard, { flex: 1, overflow: 'hidden', backgroundColor: isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.4)', borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.6)', borderWidth: 1 }]}
                 >
                   <View style={styles.quickInfoHeader}>
-                    <Ionicons name="car" size={18} color={theme.colors.primary} />
+                    <Ionicons name={travelInfoIcon} size={18} color={theme.colors.primary} />
                     <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Travel Info</Text>
                   </View>
                   <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>
-                    {isTripScoreFlow 
-                      ? (data?.category?.fromYou || 'Drivable')
-                      : (localeData?.travelInfo || data?.category?.fromYou || 'Drivable')
-                    }
+                    {travelInfoText}
                   </Text>
                   <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>FROM YOU</Text>
                 </BlurView>

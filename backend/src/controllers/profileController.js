@@ -230,6 +230,7 @@ const getProfile = async (req, res) => {
           canViewProfile = true;
           canViewPosts = isFollowing;
           canViewLocations = isFollowing;
+          followRequestSent = hasSentFollowRequest;
           break;
           
         case 'private':
@@ -610,7 +611,9 @@ const toggleFollow = async (req, res) => {
       });
     } else {
       // Check if target user requires follow approval
-      const requiresApproval = targetUser.settings.privacy.requireFollowApproval;
+      const requiresApproval = targetUser.settings.privacy.requireFollowApproval ||
+                               targetUser.settings.privacy.profileVisibility === 'private' ||
+                               targetUser.settings.privacy.profileVisibility === 'followers';
       
       if (requiresApproval) {
         // Check if follow request already exists (check both sides)
@@ -1051,14 +1054,23 @@ const searchUsers = async (req, res) => {
     
     let followingSet = new Set();
     let followerSet = new Set();
+    let pendingFollowRequestUserIds = new Set();
     
     if (currentUserId) {
-      const [followings, followers] = await Promise.all([
+      const [followings, followers, currentUserDoc] = await Promise.all([
         Follow.find({ follower: currentUserId, following: { $in: userIds } }).select('following').lean(),
-        Follow.find({ follower: { $in: userIds }, following: currentUserId }).select('follower').lean()
+        Follow.find({ follower: { $in: userIds }, following: currentUserId }).select('follower').lean(),
+        User.findById(currentUserId).select('sentFollowRequests').lean()
       ]);
       followingSet = new Set(followings.map(f => f.following.toString()));
       followerSet = new Set(followers.map(f => f.follower.toString()));
+      if (currentUserDoc && currentUserDoc.sentFollowRequests) {
+        currentUserDoc.sentFollowRequests.forEach(req => {
+          if (req.status === 'pending' && req.user) {
+            pendingFollowRequestUserIds.add(req.user.toString());
+          }
+        });
+      }
     }
 
     const usersWithFollowStatus = usersWithProfilePics.map(user => {
@@ -1067,15 +1079,17 @@ const searchUsers = async (req, res) => {
       const isOwner = currentUserId && user._id?.toString() === currentUserId;
       const isFollower = currentUserId ? followerSet.has(user._id?.toString()) : false;
       const canSeeDetails = isOwner || visibility === 'public' || isFollower;
+      const userIdStr = user._id?.toString() || user._id;
 
       const result = {
-        _id: user._id?.toString() || user._id,
+        _id: userIdStr,
         username: user.username,
         fullName: user.fullName,
         profilePic: user.profilePic,
         followersCount: user.followersCount || 0,
         followingCount: user.followingCount || 0,
-        isFollowing: currentUserId ? followingSet.has(user._id?.toString()) : false,
+        isFollowing: currentUserId ? followingSet.has(userIdStr) : false,
+        followRequestSent: currentUserId ? pendingFollowRequestUserIds.has(userIdStr) : false,
         profileVisibility: visibility
       };
 
@@ -1085,7 +1099,7 @@ const searchUsers = async (req, res) => {
       }
       // Only expose totalLikes for accessible profiles
       if (canSeeDetails) {
-        result.totalLikes = user.totalLikes;
+        result.totalLikes = Math.max(0, user.totalLikes || 0);
       }
 
       return result;
@@ -1179,12 +1193,13 @@ const getFollowersList = async (req, res) => {
         fullName: f.fullName,
         email: f.email,
         profilePic: profilePicUrl,
-        totalLikes: f.totalLikes,
+        totalLikes: Math.max(0, f.totalLikes || 0),
         isVerified: f.isVerified,
         followers: f.followersCount || 0,
         following: f.followingCount || 0,
         isFollowing,
         followRequestSent,
+        profileVisibility: f.settings?.privacy?.profileVisibility || 'public',
       };
     }));
 
@@ -1275,12 +1290,13 @@ const getFollowingList = async (req, res) => {
         fullName: f.fullName,
         email: f.email,
         profilePic: profilePicUrl,
-        totalLikes: f.totalLikes,
+        totalLikes: Math.max(0, f.totalLikes || 0),
         isVerified: f.isVerified,
         followers: f.followersCount || 0,
         following: f.followingCount || 0,
         isFollowing,
         followRequestSent,
+        profileVisibility: f.settings?.privacy?.profileVisibility || 'public',
       };
     }));
     

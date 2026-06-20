@@ -227,6 +227,7 @@ interface PolylineRendererProps {
   applyKalman?: boolean; // Whether to apply Kalman filter for smoothing
   onPress?: () => void;
   latitudeDelta?: number; // Zoom-dynamic latitude span for epsilon calculation
+  lineDashPattern?: number[];
 }
 
 /**
@@ -248,6 +249,7 @@ export default function PolylineRenderer({
   applyKalman = false,
   onPress,
   latitudeDelta,
+  lineDashPattern,
 }: PolylineRendererProps) {
   if (coordinates.length < 2) {
     return null;
@@ -356,6 +358,7 @@ export default function PolylineRenderer({
           geodesic={true}
           tappable={!!onPress}
           onPress={onPress}
+          lineDashPattern={lineDashPattern}
         />
       );
       return polylines;

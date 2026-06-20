@@ -530,6 +530,19 @@ const ExpoImageWithShimmer = React.memo(({ source, style, contentFit = 'cover', 
   const isLocal = displayUri && (displayUri.startsWith('file://') || displayUri.startsWith('/') || displayUri.startsWith('data:'));
   const finalLoading = loading && !isLocal;
 
+  if (hasError) {
+    return (
+      <LinearGradient
+        colors={['#D4EDDA', '#A8DADC']}
+        style={[style, { justifyContent: 'center', alignItems: 'center' }]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      >
+        <Ionicons name="location" size={40} color="#2C5530" />
+      </LinearGradient>
+    );
+  }
+
   return (
     <View style={[style, { overflow: 'hidden' }]}>
       {finalLoading && (

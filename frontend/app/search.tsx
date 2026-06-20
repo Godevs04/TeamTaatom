@@ -35,6 +35,7 @@ import logger from '../utils/logger';
 import { getUserFromStorage } from '../services/auth';
 import FastImage from '../components/ui/FastImage';
 import FollowButton from '../components/ui/FollowButton';
+import { savedEvents } from '../utils/savedEvents';
 
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
@@ -90,6 +91,24 @@ export default function SearchScreen() {
       setSearchResults({ users: [], posts: [], hashtags: [] });
     }
   }, [searchQuery]);
+
+  useEffect(() => {
+    const unsubscribe = savedEvents.addFollowActionListener((targetUserId, state) => {
+      setSearchResults(prev => ({
+        ...prev,
+        users: prev.users.map(u => 
+          u._id === targetUserId 
+            ? { 
+                ...u, 
+                isFollowing: state === 'FOLLOWING', 
+                followRequestSent: state === 'REQUESTED' 
+              } 
+            : u
+        )
+      }));
+    });
+    return unsubscribe;
+  }, []);
 
   const loadSearchHistory = async () => {
     try {
@@ -308,15 +327,19 @@ export default function SearchScreen() {
               followers
             </Text>
             <Text style={[styles.statText, { color: theme.colors.textSecondary }]}>
-              • {item.totalLikes || 0} likes
+              • {Math.max(0, item.totalLikes || 0)} likes
             </Text>
           </View>
         </View>
         
         <FollowButton 
           userId={item._id} 
-          initialIsFollowing={item.isFollowing} 
-          isPrivate={(item as any).settings?.privacy?.profileVisibility === 'private'}
+          initialState={
+            item.isFollowing 
+              ? 'FOLLOWING' 
+              : (item.followRequestSent ? 'REQUESTED' : 'NOT_FOLLOWING')
+          }
+          isPrivate={(item as any).profileVisibility === 'private' || (item as any).profileVisibility === 'followers'}
           size="small" 
         />
       </View>

@@ -4,6 +4,9 @@ type SavedListener = () => void;
 type FeedInvalidateListener = () => void;
 type PostActionListener = (postId: string, action: 'like' | 'unlike' | 'save' | 'unsave' | 'comment' | 'archive' | 'unarchive' | 'delete', data?: any) => void;
 
+export type FollowState = 'FOLLOWING' | 'REQUESTED' | 'NOT_FOLLOWING';
+export type FollowActionListener = (userId: string, followState: FollowState) => void;
+
 export const normalizeId = (id: any): string => {
   if (!id) return '';
   if (typeof id === 'string') return id;
@@ -23,6 +26,7 @@ class SavedEvents {
   private savedListeners: Set<SavedListener> = new Set();
   private feedInvalidateListeners: Set<FeedInvalidateListener> = new Set();
   private postActionListeners: Set<PostActionListener> = new Set();
+  private followActionListeners: Set<FollowActionListener> = new Set();
   private deletedPostIds: Set<string> = new Set();
 
   constructor() {
@@ -111,6 +115,19 @@ class SavedEvents {
     }
     this.postActionListeners.forEach((l) => {
       try { l(postId, action, data); } catch {}
+    });
+  }
+
+  addFollowActionListener(listener: FollowActionListener) {
+    this.followActionListeners.add(listener);
+    return () => {
+      this.followActionListeners.delete(listener);
+    };
+  }
+
+  emitFollowAction(userId: string, followState: FollowState) {
+    this.followActionListeners.forEach((l) => {
+      try { l(userId, followState); } catch {}
     });
   }
 }
