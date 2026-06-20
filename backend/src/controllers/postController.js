@@ -1055,8 +1055,7 @@ const createPost = async (req, res) => {
     req.storageKeys = storageKeys;
     
     try {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
+      const uploadPromises = files.map(async (file, i) => {
         const extension = file.originalname.split('.').pop() || 'jpg';
         const storageKey = buildMediaKey({
           type: 'post',
@@ -1067,9 +1066,13 @@ const createPost = async (req, res) => {
         
         await uploadObject(file.buffer, storageKey, file.mimetype);
         logger.debug(`Image ${i + 1} uploaded successfully:`, { storageKey });
-        
-        storageKeys.push(storageKey);
-      }
+        return { index: i, key: storageKey };
+      });
+      
+      const uploadResults = await Promise.all(uploadPromises);
+      // Sort by original index to preserve order
+      uploadResults.sort((a, b) => a.index - b.index);
+      uploadResults.forEach(result => storageKeys.push(result.key));
     } catch (uploadError) {
       logger.error('Image upload error:', uploadError);
       // Clean up any successfully uploaded images if subsequent uploads fail
@@ -3674,7 +3677,14 @@ const createShort = async (req, res) => {
       userId: req.user._id.toString(),
     });
 
-    try {
+    let videoUploadResult;
+    let thumbnailUrl = '';
+    let thumbnailStorageKey = null;
+
+    const uploadPromises = [];
+
+    // Promise for video upload
+    const uploadVideoPromise = (async () => {
       const uploadStartTime = Date.now();
       videoUploadResult = await uploadObject(videoFile.buffer, videoStorageKey, videoFile.mimetype);
       const uploadDuration = ((Date.now() - uploadStartTime) / 1000).toFixed(2);
@@ -3687,8 +3697,33 @@ const createShort = async (req, res) => {
       
       if (!videoUploadResult || !videoUploadResult.url) {
         logger.error('Raw video upload succeeded but no URL returned');
-        return sendError(res, 'FILE_4005', 'Video upload completed but URL is missing. Please try again.');
+        throw new Error('Video upload completed but URL is missing');
       }
+    })();
+    uploadPromises.push(uploadVideoPromise);
+
+    // Promise for thumbnail upload (if provided)
+    if (imageFile) {
+      const uploadThumbPromise = (async () => {
+        try {
+          const thumbExtension = imageFile.originalname.split('.').pop() || 'jpg';
+          thumbnailStorageKey = buildMediaKey({
+            type: 'short',
+            userId: req.user._id.toString(),
+            filename: `thumb_${imageFile.originalname}`,
+            extension: thumbExtension
+          });
+          const thumbResult = await uploadObject(imageFile.buffer, thumbnailStorageKey, imageFile.mimetype);
+          thumbnailUrl = thumbResult.url;
+        } catch (imgErr) {
+          logger.error('Thumbnail image upload failed:', imgErr);
+        }
+      })();
+      uploadPromises.push(uploadThumbPromise);
+    }
+
+    try {
+      await Promise.all(uploadPromises);
     } catch (uploadErr) {
       logger.error('Storage upload error:', {
         error: uploadErr.message || uploadErr,
@@ -3713,26 +3748,6 @@ const createShort = async (req, res) => {
     const extractedAITags = extractAITags(caption || '');
     // Merge extracted tags with provided tags (remove duplicates)
     const allHashtags = [...new Set([...parsedTags, ...extractedAITags])];
-
-    // Create short
-    // If user provided a custom thumbnail image, upload it
-    let thumbnailUrl = '';
-    let thumbnailStorageKey = null;
-    if (imageFile) {
-      try {
-        const thumbExtension = imageFile.originalname.split('.').pop() || 'jpg';
-        thumbnailStorageKey = buildMediaKey({
-          type: 'short',
-          userId: req.user._id.toString(),
-          filename: `thumb_${imageFile.originalname}`,
-          extension: thumbExtension
-        });
-        const thumbResult = await uploadObject(imageFile.buffer, thumbnailStorageKey, imageFile.mimetype);
-        thumbnailUrl = thumbResult.url;
-      } catch (imgErr) {
-        logger.error('Thumbnail image upload failed:', imgErr);
-      }
-    }
     
     // CRITICAL: Normalize audioSource early for consistent comparison
     const normalizedAudioSource = audioSource ? String(audioSource).trim() : null;

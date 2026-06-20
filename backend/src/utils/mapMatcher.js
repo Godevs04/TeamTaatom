@@ -4,8 +4,8 @@ const { projectPointToSegment, calculateHaversine } = require('./projection');
 
 // Configuration parameters for HMM & Viterbi MapSnapping
 const SIGMA_Z = 8.0;          // GPS accuracy noise standard deviation in meters
-const BETA = 25.0;            // Transition scale parameter in meters
-const MAX_SEARCH_RADIUS = 30.0; // Max radius (meters) to query candidate road segments
+const BETA = 35.0;            // Transition scale parameter in meters
+const MAX_SEARCH_RADIUS = 45.0; // Max radius (meters) to query candidate road segments
 const MIN_PROBABILITY = 1e-12;
 
 /**

@@ -1287,25 +1287,25 @@ export default function LocationDetailScreen() {
               </View>
             </View>
 
-            {/* Quick Info Cards */}
+            {/* Quick Info Grid */}
             <View style={styles.quickInfoContainer}>
+              {/* Card 1: Distance */}
               <BlurView
                 intensity={95}
                 tint={isDark ? 'dark' : 'light'}
                 style={[styles.quickInfoCard, { overflow: 'hidden', backgroundColor: isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.4)', borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.6)', borderWidth: 1 }]}
               >
-                <View style={styles.quickInfoHeader}>
+                <View style={styles.iconContainer}>
                   <Ionicons name="navigate" size={18} color={theme.colors.primary} />
-                  <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Distance</Text>
                 </View>
+                <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Distance</Text>
                 <Text 
                   style={[
                     styles.quickInfoValue, 
-                    { color: theme.colors.text },
-                    distance !== null && distance !== undefined && { fontSize: 16, lineHeight: 22 }
+                    styles.distanceValue,
+                    { color: theme.colors.text }
                   ]}
-                  numberOfLines={2}
-                  adjustsFontSizeToFit
+                  numberOfLines={1}
                 >
                   {distance !== null && distance !== undefined
                     ? distance < 1
@@ -1313,118 +1313,145 @@ export default function LocationDetailScreen() {
                       : `${distance.toFixed(1)} km`
                     : 'Calculating...'}
                 </Text>
-                <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>
+                <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]} numberOfLines={1}>
                   from your location
                 </Text>
               </BlurView>
 
+              {/* Card 2: Spot Type */}
               <BlurView
                 intensity={95}
                 tint={isDark ? 'dark' : 'light'}
                 style={[styles.quickInfoCard, { overflow: 'hidden', backgroundColor: isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.4)', borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.6)', borderWidth: 1 }]}
               >
-                <View style={styles.quickInfoHeader}>
+                <View style={styles.iconContainer}>
                   <Ionicons name="leaf" size={18} color="#4CAF50" />
-                  <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Spot Type</Text>
                 </View>
-                <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>
+                <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Spot Type</Text>
+                <Text style={[styles.quickInfoValue, styles.spotTypeValue, { color: theme.colors.text }]} numberOfLines={2}>
                   {isTripScoreFlow 
                     ? (data?.category?.typeOfSpot || 'General')
                     : (localeData?.spotTypes?.[0] || data?.category?.typeOfSpot || 'Natural')
                   }
                 </Text>
-                <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>outdoor destination</Text>
+                <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                  outdoor destination
+                </Text>
               </BlurView>
-            </View>
 
-            {/* Travel Info and Explore on Map - Two Box Model */}
-            <View style={styles.quickInfoContainer}>
-                {/* Left Box - Travel Info */}
-                <BlurView
-                  intensity={95}
-                  tint={isDark ? 'dark' : 'light'}
-                  style={[styles.quickInfoCard, { flex: 2, overflow: 'hidden', backgroundColor: isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.4)', borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.6)', borderWidth: 1 }]}
-                >
-                  <View style={styles.quickInfoHeader}>
-                    <Ionicons name="car" size={18} color={theme.colors.primary} />
-                    <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Travel Info</Text>
-                  </View>
-                  <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>
-                    {isTripScoreFlow 
-                      ? (data?.category?.fromYou || 'Drivable')
-                      : (localeData?.travelInfo || data?.category?.fromYou || 'Drivable')
-                    }
-                  </Text>
-                  <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>FROM YOU</Text>
-                </BlurView>
+              {/* Card 3: Travel Info */}
+              <BlurView
+                intensity={95}
+                tint={isDark ? 'dark' : 'light'}
+                style={[styles.quickInfoCard, { overflow: 'hidden', backgroundColor: isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.4)', borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.6)', borderWidth: 1 }]}
+              >
+                <View style={styles.iconContainer}>
+                  <Ionicons name="car" size={18} color={theme.colors.primary} />
+                </View>
+                <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Travel Info</Text>
+                <Text style={[styles.quickInfoValue, styles.travelValue, { color: theme.colors.text }]} numberOfLines={1}>
+                  {isTripScoreFlow 
+                    ? (data?.category?.fromYou || 'Drivable')
+                    : (localeData?.travelInfo || data?.category?.fromYou || 'Drivable')
+                  }
+                </Text>
+                <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                  FROM YOU
+                </Text>
+              </BlurView>
 
-                {/* Right Box - Explore on Map */}
-                <TouchableOpacity
-                  style={[styles.quickInfoCard, styles.clickableCard, { flex: 3, overflow: 'hidden', padding: 0, borderWidth: 0, backgroundColor: 'transparent' }]}
-                  activeOpacity={0.7}
-                  disabled={navigatingToMap}
-                  onPress={async () => {
-                    if (navigatingToMap) return;
-                    setNavigatingToMap(true);
-                    try {
-                    // CRITICAL: For locale flow, use EXACT coordinates from database (localeData)
-                    // For tripscore flow, use coordinates from data
-                    let coords: { latitude: number; longitude: number } | undefined = undefined;
+              {/* Card 4: Navigate */}
+              <TouchableOpacity
+                style={[styles.quickInfoCard, styles.clickableCard, { overflow: 'hidden', padding: 0, borderWidth: 0, backgroundColor: 'transparent' }]}
+                activeOpacity={0.7}
+                disabled={navigatingToMap}
+                onPress={async () => {
+                  if (navigatingToMap) return;
+                  setNavigatingToMap(true);
+                  try {
+                  // CRITICAL: For locale flow, use EXACT coordinates from database (localeData)
+                  // For tripscore flow, use coordinates from data
+                  let coords: { latitude: number; longitude: number } | undefined = undefined;
 
-                    // Helper: validate coordinate sanity
-                    const isValidCoord = (lat?: number, lng?: number) =>
-                      !!lat && !!lng && lat !== 0 && lng !== 0 &&
-                      !isNaN(lat) && !isNaN(lng) &&
-                      lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+                  // Helper: validate coordinate sanity
+                  const isValidCoord = (lat?: number, lng?: number) =>
+                    !!lat && !!lng && lat !== 0 && lng !== 0 &&
+                    !isNaN(lat) && !isNaN(lng) &&
+                    lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
 
-                    // Bound any geocoding call so a stalled fetch can never
-                    // freeze the button. Without this, a slow network or a
-                    // throttled / restricted Google API key leaves the user
-                    // staring at an unresponsive screen for tens of seconds
-                    // before falling back. 3s is enough for a healthy
-                    // connection and short enough to feel responsive.
-                    const GEOCODE_TIMEOUT_MS = 3000;
-                    const geocodeWithTimeout = (
-                      address: string,
-                      cc?: string
-                    ): Promise<{ latitude: number; longitude: number } | null> =>
-                      Promise.race([
-                        geocodeAddress(address, cc),
-                        new Promise<null>((resolve) =>
-                          setTimeout(() => resolve(null), GEOCODE_TIMEOUT_MS)
-                        ),
-                      ]);
+                  // Bound any geocoding call so a stalled fetch can never
+                  // freeze the button.
+                  const GEOCODE_TIMEOUT_MS = 3000;
+                  const geocodeWithTimeout = (
+                    address: string,
+                    cc?: string
+                  ): Promise<{ latitude: number; longitude: number } | null> =>
+                    Promise.race([
+                      geocodeAddress(address, cc),
+                      new Promise<null>((resolve) =>
+                        setTimeout(() => resolve(null), GEOCODE_TIMEOUT_MS)
+                      ),
+                    ]);
 
-                    if (isAdminLocale && localeData) {
-                      // Admin locales are curated, so trust the DB coords on the
-                      // happy path and navigate immediately. The previous
-                      // implementation always geocoded first to guard against
-                      // mis-pinned admin entries (Mysore Palace pinned in
-                      // Chennai), but the round-trip blocks the entire button
-                      // and was the user-visible "no response" symptom. Only
-                      // geocode when the DB row has no usable coords.
-                      const dbHasCoords = isValidCoord(localeData.latitude, localeData.longitude);
-                      const dbCoords = dbHasCoords ? {
-                        latitude: localeData.latitude!,
-                        longitude: localeData.longitude!
-                      } : null;
+                  if (isAdminLocale && localeData) {
+                    const dbHasCoords = isValidCoord(localeData.latitude, localeData.longitude);
+                    const dbCoords = dbHasCoords ? {
+                      latitude: localeData.latitude!,
+                      longitude: localeData.longitude!
+                    } : null;
 
+                    if (dbCoords) {
+                      coords = dbCoords;
+                    } else {
+                     try {
+                      const nameQuery = [
+                        localeData.name,
+                        localeData.city,
+                        localeData.stateProvince,
+                        localeData.country
+                      ].filter(Boolean).join(', ');
+                      const ccForGeocode = (localeData.countryCode || countryParam || 'IN').toUpperCase();
+                      const geocoded = await geocodeWithTimeout(nameQuery || localeData.name, ccForGeocode);
+
+                      if (geocoded && isValidCoord(geocoded.latitude, geocoded.longitude)) {
+                        if (dbCoords) {
+                          const drift = calculateDistance(
+                            dbCoords.latitude, dbCoords.longitude,
+                            geocoded.latitude, geocoded.longitude
+                          );
+                          if (drift <= 50) {
+                            coords = dbCoords;
+                            logger.debug('✅ DB coords match geocode (drift ' + drift.toFixed(1) + 'km), using DB:', coords);
+                          } else {
+                            coords = geocoded;
+                            logger.warn('⚠️ DB coords drift ' + drift.toFixed(1) + 'km from geocode — using geocoded coords for accuracy:', coords);
+                          }
+                        } else {
+                          coords = geocoded;
+                          logger.debug('✅ Using geocoded coordinates (no DB coords):', coords);
+                        }
+                      } else if (dbCoords) {
+                        coords = dbCoords;
+                        logger.debug('✅ Geocode failed, falling back to DB coords:', coords);
+                      }
+                    } catch (e) {
                       if (dbCoords) {
                         coords = dbCoords;
-                      } else {
-                       try {
-                        const nameQuery = [
-                          localeData.name,
-                          localeData.city,
-                          localeData.stateProvince,
-                          localeData.country
-                        ].filter(Boolean).join(', ');
-                        const ccForGeocode = (localeData.countryCode || countryParam || 'IN').toUpperCase();
-                        const geocoded = await geocodeWithTimeout(nameQuery || localeData.name, ccForGeocode);
+                        logger.warn('⚠️ Geocode threw, falling back to DB coords:', coords);
+                      }
+                    }
+                    }
+                  } else if (data?.coordinates || data?.name) {
+                    const dbCoords = (data?.coordinates && isValidCoord(data.coordinates.latitude, data.coordinates.longitude))
+                      ? { latitude: data.coordinates.latitude, longitude: data.coordinates.longitude }
+                      : null;
+
+                    if (data?.name) {
+                      try {
+                        const ccForGeocode = (countryParam && countryParam !== 'general' ? countryParam : 'IN').toUpperCase();
+                        const geocoded = await geocodeWithTimeout(data.name, ccForGeocode);
 
                         if (geocoded && isValidCoord(geocoded.latitude, geocoded.longitude)) {
-                          // If DB has coords AND they're close to geocoded (<50km), trust the DB
-                          // (admin may have refined the pin). Otherwise prefer geocoded result.
                           if (dbCoords) {
                             const drift = calculateDistance(
                               dbCoords.latitude, dbCoords.longitude,
@@ -1435,7 +1462,7 @@ export default function LocationDetailScreen() {
                               logger.debug('✅ DB coords match geocode (drift ' + drift.toFixed(1) + 'km), using DB:', coords);
                             } else {
                               coords = geocoded;
-                              logger.warn('⚠️ DB coords drift ' + drift.toFixed(1) + 'km from geocode — using geocoded coords for accuracy:', coords);
+                              logger.warn('⚠️ DB coords drift ' + drift.toFixed(1) + 'km from geocode — using geocoded coords:', coords);
                             }
                           } else {
                             coords = geocoded;
@@ -1445,158 +1472,98 @@ export default function LocationDetailScreen() {
                           coords = dbCoords;
                           logger.debug('✅ Geocode failed, falling back to DB coords:', coords);
                         }
-                      } catch (e) {
+                      } catch {
                         if (dbCoords) {
                           coords = dbCoords;
                           logger.warn('⚠️ Geocode threw, falling back to DB coords:', coords);
                         }
                       }
-                      }
-                    } else if (data?.coordinates || data?.name) {
-                      // Tripscore flow: some posts were saved with wrong coords (e.g. a photo
-                      // tagged with the wrong place). Geocode the stored address first and
-                      // only trust DB coords when they agree with the geocoded result.
-                      const dbCoords = (data?.coordinates && isValidCoord(data.coordinates.latitude, data.coordinates.longitude))
-                        ? { latitude: data.coordinates.latitude, longitude: data.coordinates.longitude }
-                        : null;
-
-                      if (data?.name) {
-                        try {
-                          const ccForGeocode = (countryParam && countryParam !== 'general' ? countryParam : 'IN').toUpperCase();
-                          const geocoded = await geocodeWithTimeout(data.name, ccForGeocode);
-
-                          if (geocoded && isValidCoord(geocoded.latitude, geocoded.longitude)) {
-                            if (dbCoords) {
-                              const drift = calculateDistance(
-                                dbCoords.latitude, dbCoords.longitude,
-                                geocoded.latitude, geocoded.longitude
-                              );
-                              if (drift <= 50) {
-                                coords = dbCoords;
-                                logger.debug('✅ DB coords match geocode (drift ' + drift.toFixed(1) + 'km), using DB:', coords);
-                              } else {
-                                coords = geocoded;
-                                logger.warn('⚠️ DB coords drift ' + drift.toFixed(1) + 'km from geocode — using geocoded coords:', coords);
-                              }
-                            } else {
-                              coords = geocoded;
-                              logger.debug('✅ Using geocoded coordinates (no DB coords):', coords);
-                            }
-                          } else if (dbCoords) {
-                            coords = dbCoords;
-                            logger.debug('✅ Geocode failed, falling back to DB coords:', coords);
-                          }
-                        } catch {
-                          if (dbCoords) {
-                            coords = dbCoords;
-                            logger.warn('⚠️ Geocode threw, falling back to DB coords:', coords);
-                          }
-                        }
-                      } else if (dbCoords) {
-                        coords = dbCoords;
-                      }
+                    } else if (dbCoords) {
+                      coords = dbCoords;
                     }
+                  }
+                  
+                  if (!coords && data?.name) {
+                    try {
+                      const countryCodeForGeocoding = countryParam && countryParam !== 'general' ? countryParam.toUpperCase() : 'IN';
+                      const geocodedCoords = await geocodeWithTimeout(data.name, countryCodeForGeocoding);
+                      if (geocodedCoords && geocodedCoords.latitude && geocodedCoords.longitude &&
+                          geocodedCoords.latitude !== 0 && geocodedCoords.longitude !== 0) {
+                        coords = geocodedCoords;
+                        logger.debug('✅ Using geocoded coordinates from API as fallback:', coords);
+                      } else {
+                        logger.warn('⚠️ Geocoding API returned invalid coordinates for:', data.name);
+                      }
+                    } catch (geocodeError) {
+                      const errorToLog = geocodeError instanceof Error
+                        ? geocodeError
+                        : new Error(String(geocodeError) || 'Geocoding API failed');
+                      logger.error('❌ Geocoding API failed for:', errorToLog, { locationName: data.name });
+                    }
+                  }
+                  
+                  if (coords && coords.latitude && coords.longitude) {
+                    logger.debug('📍 Navigating to map with database coordinates:', {
+                      locationName: data?.name,
+                      coordinates: coords,
+                      source: isAdminLocale ? 'Database (localeData)' : 'Data coordinates'
+                    });
                     
-                    // PRODUCTION-GRADE: Fallback to geocoding API with country context if coordinates not available
-                    if (!coords && data?.name) {
-                      try {
-                        // Use country code for better geocoding accuracy
-                        const countryCodeForGeocoding = countryParam && countryParam !== 'general' ? countryParam.toUpperCase() : 'IN';
-                        const geocodedCoords = await geocodeWithTimeout(data.name, countryCodeForGeocoding);
-                        if (geocodedCoords && geocodedCoords.latitude && geocodedCoords.longitude &&
-                            geocodedCoords.latitude !== 0 && geocodedCoords.longitude !== 0) {
-                          coords = geocodedCoords;
-                          logger.debug('✅ Using geocoded coordinates from API as fallback:', coords);
-                        } else {
-                          logger.warn('⚠️ Geocoding API returned invalid coordinates for:', data.name);
-                        }
-                      } catch (geocodeError) {
-                        const errorToLog = geocodeError instanceof Error
-                          ? geocodeError
-                          : new Error(String(geocodeError) || 'Geocoding API failed');
-                        logger.error('❌ Geocoding API failed for:', errorToLog, { locationName: data.name });
-                      }
-                    }
-                    
-                    if (coords && coords.latitude && coords.longitude) {
-                      // Navigate to map with EXACT database coordinates from locale
-                      // These coordinates come from the database (admin locale) and should be displayed on the map
-                      logger.debug('📍 Navigating to map with database coordinates:', {
-                        locationName: data?.name,
-                        coordinates: coords,
-                        source: isAdminLocale ? 'Database (localeData)' : 'Data coordinates'
-                      });
-                      
-                      router.push({
-                        pathname: '/map/current-location',
-                        params: {
-                          latitude: coords.latitude.toString(),
-                          longitude: coords.longitude.toString(),
-                          address: data?.name || '',
-                          locationName: data?.name || '',
-                          // Pass locale context to help map navigate back correctly
-                          country: countryParam || 'general',
-                          userId: isAdminLocale ? 'admin-locale' : (userIdParam || 'current-user'),
-                          // Preserve locale data for map screen
-                          imageUrl: isAdminLocale && localeData?.imageUrl ? localeData.imageUrl : (data?.imageUrl || ''),
-                          description: isAdminLocale && localeData?.description ? localeData.description : (data?.description || ''),
-                          spotTypes: isAdminLocale && localeData?.spotTypes ? localeData.spotTypes.join(', ') : '',
-                        },
-                      });
-                    } else {
-                      logger.warn('❌ Location coordinates not available for:', {
-                        locationName: data?.name,
-                        isAdminLocale,
-                        localeData: localeData ? {
-                          hasLatitude: !!localeData.latitude,
-                          hasLongitude: !!localeData.longitude,
-                          latitude: localeData.latitude,
-                          longitude: localeData.longitude
-                        } : 'null',
-                        dataCoordinates: data?.coordinates
-                      });
-                      Alert.alert('Location Error', 'Unable to determine exact location coordinates. Please try again.');
-                    }
-                    } finally {
-                      setNavigatingToMap(false);
-                    }
-                  }}
+                    router.push({
+                      pathname: '/map/current-location',
+                      params: {
+                        latitude: coords.latitude.toString(),
+                        longitude: coords.longitude.toString(),
+                        address: data?.name || '',
+                        locationName: data?.name || '',
+                        country: countryParam || 'general',
+                        userId: isAdminLocale ? 'admin-locale' : (userIdParam || 'current-user'),
+                        imageUrl: isAdminLocale && localeData?.imageUrl ? localeData.imageUrl : (data?.imageUrl || ''),
+                        description: isAdminLocale && localeData?.description ? localeData.description : (data?.description || ''),
+                        spotTypes: isAdminLocale && localeData?.spotTypes ? localeData.spotTypes.join(', ') : '',
+                      },
+                    });
+                  } else {
+                    logger.warn('❌ Location coordinates not available for:', {
+                      locationName: data?.name,
+                      isAdminLocale,
+                      localeData: localeData ? {
+                        hasLatitude: !!localeData.latitude,
+                        hasLongitude: !!localeData.longitude,
+                        latitude: localeData.latitude,
+                        longitude: localeData.longitude
+                      } : 'null',
+                      dataCoordinates: data?.coordinates
+                    });
+                    Alert.alert('Location Error', 'Unable to determine exact location coordinates. Please try again.');
+                  }
+                  } finally {
+                    setNavigatingToMap(false);
+                  }
+                }}
+              >
+                <BlurView
+                  intensity={95}
+                  tint={isDark ? 'dark' : 'light'}
+                  style={[styles.quickInfoCardInner, { overflow: 'hidden', backgroundColor: isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.4)', borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.6)', borderWidth: 1, borderRadius: 24, flex: 1, width: '100%', height: '100%' }]}
                 >
-                  <BlurView
-                    intensity={95}
-                    tint={isDark ? 'dark' : 'light'}
-                    style={{ flex: 1, padding: 16, width: '100%', height: '100%', justifyContent: 'space-between', borderWidth: 1, borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(255, 255, 255, 0.6)', borderRadius: 16, overflow: 'hidden', backgroundColor: isDark ? 'rgba(15, 23, 42, 0.4)' : 'rgba(255, 255, 255, 0.4)' }}
-                  >
-                    <View style={styles.quickInfoHeader}>
-                      <View style={styles.headerLeft}>
-                        <Ionicons name="globe-outline" size={18} color="#4CAF50" />
-                        <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Explore on Map</Text>
-                      </View>
-                    </View>
-                    <Text style={[styles.quickInfoValue, { color: theme.colors.text }]}>{navigatingToMap ? 'Opening…' : 'Navigate'}</Text>
-                    <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]}>View {data.name} location</Text>
-                    
-                    <View style={{
-                      position: 'absolute',
-                      bottom: 16,
-                      right: 16,
-                      backgroundColor: 'rgba(76, 175, 80, 0.1)',
-                      borderRadius: 16,
-                      padding: 5,
-                      width: 28,
-                      height: 28,
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                    }}>
-                      {navigatingToMap ? (
-                        <LoadingGlobe size="small" color="#4CAF50" />
-                      ) : (
-                        <Ionicons name="chevron-forward" size={16} color="#4CAF50" />
-                      )}
-                    </View>
-                  </BlurView>
-                </TouchableOpacity>
-              </View>
+                  <View style={styles.iconContainer}>
+                    <Ionicons name="globe-outline" size={18} color="#4CAF50" />
+                  </View>
+                  <Text style={[styles.quickInfoTitle, { color: theme.colors.text }]}>Explore on Map</Text>
+                  <Text style={[styles.quickInfoValue, styles.navigateValue, { color: theme.colors.text }]}>{navigatingToMap ? 'Opening…' : 'Navigate'}</Text>
+                  <Text style={[styles.quickInfoSubtext, { color: theme.colors.textSecondary }]} numberOfLines={1}>View {data.name} location</Text>
+                  
+                  <View style={styles.navigateArrowContainer}>
+                    {navigatingToMap ? (
+                      <LoadingGlobe size="small" color="#4CAF50" />
+                    ) : (
+                      <Ionicons name="chevron-forward" size={16} color="#4CAF50" />
+                    )}
+                  </View>
+                </BlurView>
+              </TouchableOpacity>
+            </View>
 
             {/* Nearby Locations Section - Only for TripScore flow */}
             {isTripScoreFlow && nearbyLocations.length > 0 && (
@@ -1863,45 +1830,72 @@ const createStyles = () => {
   // Quick Info Cards
   quickInfoContainer: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    gap: 12,
+    justifyContent: 'space-between',
+    rowGap: 16,
+    columnGap: 16,
   },
   quickInfoCard: {
-    flex: 1,
-    padding: 16,
-    borderRadius: 16,
-    minHeight: 120,
-    justifyContent: 'space-between',
+    width: (Dimensions.get('window').width - 32 - 16) / 2,
+    height: 140,
+    borderRadius: 24,
     borderWidth: StyleSheet.hairlineWidth,
+    position: 'relative',
+    overflow: 'hidden',
   },
-  quickInfoHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  quickInfoCardInner: {
     flex: 1,
+    borderRadius: 24,
+    position: 'relative',
+  },
+  iconContainer: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
   },
   quickInfoTitle: {
+    position: 'absolute',
+    top: 44,
+    left: 20,
     fontSize: 11,
     fontWeight: '600',
-    marginLeft: 8,
     letterSpacing: 0.6,
     textTransform: 'uppercase',
     opacity: 0.85,
   },
   quickInfoValue: {
+    position: 'absolute',
+    top: 72,
+    left: 20,
+    right: 20,
     fontSize: 20,
     fontWeight: '600',
-    marginBottom: 4,
-    lineHeight: 26,
     letterSpacing: -0.5,
   },
+  distanceValue: {
+    fontSize: 20,
+    fontWeight: '600',
+    lineHeight: 26,
+  },
+  spotTypeValue: {
+    lineHeight: 18,
+    fontSize: 15,
+  },
+  travelValue: {
+    lineHeight: 26,
+    fontSize: 20,
+  },
+  navigateValue: {
+    lineHeight: 26,
+    fontSize: 20,
+  },
   quickInfoSubtext: {
+    position: 'absolute',
+    top: 108,
+    left: 20,
+    right: 20,
     fontSize: 12,
     opacity: 0.65,
     lineHeight: 16,
@@ -1911,15 +1905,17 @@ const createStyles = () => {
   clickableCard: {
     position: 'relative',
   },
-  clickableIndicator: {
+  navigateArrowContainer: {
+    position: 'absolute',
+    bottom: 16,
+    right: 16,
     backgroundColor: 'rgba(76, 175, 80, 0.1)',
     borderRadius: 16,
     padding: 5,
-    justifyContent: 'center',
-    alignItems: 'center',
     width: 28,
     height: 28,
-    marginTop: -8,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 
   // Detailed Info Section

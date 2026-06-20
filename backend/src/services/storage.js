@@ -159,8 +159,8 @@ const getDownloadUrl = async (key, expiresIn = 3600) => {
  * @returns {Promise<Object>} Upload result with key and URL
  */
 const uploadObjectMultipart = async (buffer, key, contentType) => {
-  const MULTIPART_THRESHOLD = 100 * 1024 * 1024; // 100MB - use multipart for files larger than this
-  const PART_SIZE = 10 * 1024 * 1024; // 10MB per part (minimum 5MB, but 10MB is more efficient)
+  const MULTIPART_THRESHOLD = 5 * 1024 * 1024; // 5MB - use multipart for files larger than this
+  const PART_SIZE = 5 * 1024 * 1024; // 5MB per part (minimum 5MB, and works well for parallel upload)
   
   let uploadId = null; // Track uploadId for cleanup on error
   

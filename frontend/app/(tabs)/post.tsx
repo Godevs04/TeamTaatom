@@ -49,6 +49,7 @@ import { getProfile } from "../../services/profile";
 import { UserType } from "../../types/user";
 import ProgressAlert from "../../components/ProgressAlert";
 import { optimizeImageForUpload, shouldOptimizeImage, getOptimalQuality, processImageToAspect } from "../../utils/imageOptimization";
+import { shouldCompressVideo, compressVideo } from "../../utils/videoOptimization";
 import { prepareImageForUpload } from "../../services/mediaService";
 import * as VideoThumbnails from "expo-video-thumbnails";
 import { Video, Audio, ResizeMode, AVPlaybackStatus } from "expo-av";
@@ -781,6 +782,8 @@ export default function PostScreen() {
     video: string | null;
   }>({ images: [], video: null });
 
+  const compressedVideoUriRef = useRef<string | null>(null);
+
   // Auto-match song selection duration with video duration when video is selected
   useEffect(() => {
     if (selectedVideo && videoDuration && videoDuration > 0) {
@@ -1117,6 +1120,15 @@ export default function PostScreen() {
       clearInterval(uploadSessionRef.current.progressWatchdog);
     }
     uploadSessionRef.current = { isActive: false };
+    
+    // Clean up temporary compressed video file if it exists
+    if (compressedVideoUriRef.current) {
+      const tempPath = compressedVideoUriRef.current;
+      compressedVideoUriRef.current = null;
+      FileSystem.deleteAsync(tempPath).catch(err => {
+        logger.warn('[PostScreen] Failed to delete temporary compressed video on clearUploadState:', err);
+      });
+    }
   };
 
   // Upload cancellation: cleanup on back/tab switch/app background
@@ -1133,6 +1145,15 @@ export default function PostScreen() {
     // Clear progress watchdog
     if (uploadSessionRef.current.progressWatchdog) {
       clearInterval(uploadSessionRef.current.progressWatchdog);
+    }
+    
+    // Clean up temporary compressed video file if it exists
+    if (compressedVideoUriRef.current) {
+      const tempPath = compressedVideoUriRef.current;
+      compressedVideoUriRef.current = null;
+      FileSystem.deleteAsync(tempPath).catch(err => {
+        logger.warn('[PostScreen] Failed to delete temporary compressed video on cancel:', err);
+      });
     }
     
     // Persist current draft state before clearing
@@ -1169,6 +1190,16 @@ export default function PostScreen() {
   // Media memory safety: release references when no longer needed
   const releaseMediaReferences = useCallback(() => {
     mediaRefsRef.current = { images: [], video: null };
+    
+    // Clean up temporary compressed video file if it exists
+    if (compressedVideoUriRef.current) {
+      const tempPath = compressedVideoUriRef.current;
+      compressedVideoUriRef.current = null;
+      FileSystem.deleteAsync(tempPath).catch(err => {
+        logger.warn('[PostScreen] Failed to delete temporary compressed video on release:', err);
+      });
+    }
+    
     logger.debug('Media references released');
   }, []);
 
@@ -2685,8 +2716,48 @@ export default function PostScreen() {
     try {
       logger.debug('Creating short with video:', selectedVideo);
       
+      let uploadVideoPath = selectedVideo;
+      let wasCompressed = false;
+      
+      // Check if video should be compressed
+      const needsCompression = await shouldCompressVideo(selectedVideo);
+      if (needsCompression) {
+        try {
+          logger.info('[PostScreen] Large video detected. Compressing before upload...');
+          
+          // Perform video compression and capture progress
+          const compressedPath = await compressVideo(selectedVideo, (progress) => {
+            if (!uploadSessionRef.current.isActive) {
+              return;
+            }
+            // Watchdog refresh
+            uploadSessionRef.current.lastProgressTime = Date.now();
+            setUploadProgress({
+              current: 1,
+              total: 1,
+              percentage: Math.round(progress * 0.5) // Compression maps to 0% - 50%
+            });
+          });
+          
+          if (!uploadSessionRef.current.isActive) {
+            logger.debug('[PostScreen] Upload session is no longer active after compression, aborting');
+            if (compressedPath) {
+              FileSystem.deleteAsync(compressedPath).catch(() => {});
+            }
+            return;
+          }
+          
+          compressedVideoUriRef.current = compressedPath;
+          uploadVideoPath = compressedPath;
+          wasCompressed = true;
+          logger.info('[PostScreen] Video compressed successfully:', compressedPath);
+        } catch (compressErr) {
+          logger.warn('[PostScreen] Video compression failed, falling back to original raw video:', compressErr);
+        }
+      }
+
       // Extract filename from URI
-      const filename = selectedVideo.split('/').pop() || 'short_video.mp4';
+      const filename = uploadVideoPath.split('/').pop() || 'short_video.mp4';
       const match = /\.(\w+)$/.exec(filename);
       const type = match ? `video/${match[1]}` : 'video/mp4';
 
@@ -2748,7 +2819,7 @@ export default function PostScreen() {
         // Store upload data to proceed after copyright confirmation
         setPendingShortData({
           video: {
-            uri: selectedVideo,
+            uri: uploadVideoPath,
             type: type,
             name: filename,
           },
@@ -2780,7 +2851,7 @@ export default function PostScreen() {
       // If taatom_library, proceed directly with upload
       logger.debug('Sending data to createShort:', {
         video: {
-          uri: selectedVideo,
+          uri: uploadVideoPath,
           type: type,
           name: filename,
         },
@@ -2797,7 +2868,7 @@ export default function PostScreen() {
 
       const shortData = {
         video: {
-          uri: selectedVideo,
+          uri: uploadVideoPath,
           type: type,
           name: filename,
         },
@@ -2888,7 +2959,10 @@ export default function PostScreen() {
         // Update progress state in real-time
         // Progress is 0-95% during upload, 95-100% during backend processing
         setUploadProgress(prev => {
-          const newPercentage = Math.min(progress, 99); // Cap at 99% until success
+          const scaledProgress = wasCompressed
+            ? 50 + (progress * 0.49)
+            : progress;
+          const newPercentage = Math.min(scaledProgress, 99); // Cap at 99% until success
           // Never go backward
           if (newPercentage < prev.percentage) {
             logger.warn('Progress attempted to go backward, keeping previous value');
@@ -3023,7 +3097,8 @@ export default function PostScreen() {
     try {
       setIsLoading(true);
       setIsUploading(true);
-      setUploadProgress({ current: 0, total: 1, percentage: 0 }); // Initialize progress for shorts
+      const isCompressed = !!compressedVideoUriRef.current;
+      setUploadProgress({ current: 0, total: 1, percentage: isCompressed ? 50 : 0 }); // Initialize progress for shorts
       
       // Validate pendingShortData before attempting upload
       if (!pendingShortData.video || !pendingShortData.video.uri) {
@@ -3061,7 +3136,11 @@ export default function PostScreen() {
         
         // Update progress state in real-time
         setUploadProgress(prev => {
-          const newPercentage = Math.min(progress, 99); // Cap at 99% until success
+          const isCompressed = !!compressedVideoUriRef.current;
+          const scaledProgress = isCompressed
+            ? 50 + (progress * 0.49)
+            : progress;
+          const newPercentage = Math.min(scaledProgress, 99); // Cap at 99% until success
           // Never go backward
           if (newPercentage < prev.percentage) {
             logger.warn('Progress attempted to go backward, keeping previous value');
@@ -3207,6 +3286,15 @@ export default function PostScreen() {
     isSubmittingRef.current = false;
     setIsLoading(false);
     setIsUploading(false);
+    
+    // Cleanup temporary compressed video file if it exists, since they cancelled
+    if (compressedVideoUriRef.current) {
+      const tempPath = compressedVideoUriRef.current;
+      compressedVideoUriRef.current = null;
+      FileSystem.deleteAsync(tempPath).catch(err => {
+        logger.warn('[PostScreen] Failed to delete temporary compressed video on copyright cancel:', err);
+      });
+    }
   };
 
   return (
@@ -5081,10 +5169,9 @@ export default function PostScreen() {
                           borderRadius: 4,
                         }}>
                           {(() => {
-                            const totalSecs = Math.round(item.duration);
-                            const mins = Math.floor(totalSecs / 60);
-                            const secs = totalSecs % 60;
-                            return `${mins}:${secs.toString().padStart(2, '0')}`;
+                            const durationInSecs = (isAndroid && item.duration > 100) ? item.duration / 1000 : item.duration;
+                            const roundedSecs = Math.max(1, Math.round(durationInSecs));
+                            return `${roundedSecs}s`;
                           })()}
                         </Text>
                       )}
