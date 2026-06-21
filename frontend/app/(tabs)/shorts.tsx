@@ -2277,6 +2277,25 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     handleVideoReady,
   ]);
 
+  // Refs to stabilize the renderShortItem callback reference
+  const isVideoPlayingRef = useRef(isVideoPlaying);
+  const feedMutedRef = useRef(isFeedMuted);
+  const currentUserRef = useRef(currentUser);
+  const followStatesRef = useRef(followStates);
+  const savedShortsRef = useRef(savedShorts);
+  const localVideoUrisRef = useRef(localVideoUris);
+  const checkedVideoCacheIdsRef = useRef(checkedVideoCacheIds);
+
+  useEffect(() => {
+    isVideoPlayingRef.current = isVideoPlaying;
+    feedMutedRef.current = isFeedMuted;
+    currentUserRef.current = currentUser;
+    followStatesRef.current = followStates;
+    savedShortsRef.current = savedShorts;
+    localVideoUrisRef.current = localVideoUris;
+    checkedVideoCacheIdsRef.current = checkedVideoCacheIds;
+  });
+
   // Memoized video item component to prevent unnecessary re-renders
   // Renders either a reel (PostType) or a full-screen ShortsNativeAd (after every 5 reels, max 3).
   const renderShortItem = useCallback(({ item, index }: { item: ShortsItem; index: number }) => {
@@ -2319,12 +2338,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     }
 
     // Reel item
-    const isFollowing = followStates[item.user._id] || false;
-    const isSaved = savedShorts.has(item._id);
+    const isFollowing = followStatesRef.current[item.user._id] || false;
+    const isSaved = savedShortsRef.current.has(item._id);
     const isLiked = item.isLiked || false;
-    const isActive = index === currentVisibleIndex;
-    const shouldPreload = isScreenFocused && index === currentVisibleIndex + 1;
-    const shouldRenderVideo = Math.abs(index - currentVisibleIndex) <= 1;
+    const isActive = index === currentVisibleIndexRef.current;
+    const shouldPreload = isScreenFocusedRef.current && index === currentVisibleIndexRef.current + 1;
+    const shouldRenderVideo = Math.abs(index - currentVisibleIndexRef.current) <= 1;
 
     return (
       <ShortsCell
@@ -2333,16 +2352,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         isActive={isActive}
         shouldPreload={shouldPreload}
         shouldRenderVideo={shouldRenderVideo}
-        isVideoPlaying={isVideoPlaying}
-        isScreenFocused={isScreenFocused}
-        isMuted={props.isMuted !== undefined ? props.isMuted : isFeedMuted}
-        currentUser={currentUser}
+        isVideoPlaying={isVideoPlayingRef.current}
+        isScreenFocused={isScreenFocusedRef.current}
+        isMuted={props.isMuted !== undefined ? props.isMuted : feedMutedRef.current}
+        currentUser={currentUserRef.current}
         containerHeight={containerHeight}
         isFollowing={isFollowing}
         isSaved={isSaved}
         isLiked={isLiked}
-        localVideoUri={localVideoUris[item._id]}
-        isCacheChecked={checkedVideoCacheIds.has(item._id)}
+        localVideoUri={localVideoUrisRef.current[item._id]}
+        isCacheChecked={checkedVideoCacheIdsRef.current.has(item._id)}
         isSavedShorts={props.isSavedShorts}
         effectiveUserId={effectiveUserId}
         handlers={handlersRef.current}
@@ -2359,21 +2378,34 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       />
     );
   }, [
-    currentVisibleIndex,
-    isVideoPlaying,
-    isScreenFocused,
-    props.isMuted,
-    isFeedMuted,
-    currentUser,
     containerHeight,
-    followStates,
-    savedShorts,
-    localVideoUris,
     props.isSavedShorts,
+    props.isMuted,
     effectiveUserId,
     showSwipeHint,
     fadeAnimation,
     appState,
+  ]);
+
+  const shortsExtraData = useMemo(() => ({
+    currentVisibleIndex,
+    isVideoPlaying,
+    isScreenFocused,
+    isFeedMuted,
+    currentUser,
+    followStates,
+    savedShorts,
+    localVideoUris,
+    checkedVideoCacheIds,
+  }), [
+    currentVisibleIndex,
+    isVideoPlaying,
+    isScreenFocused,
+    isFeedMuted,
+    currentUser,
+    followStates,
+    savedShorts,
+    localVideoUris,
     checkedVideoCacheIds,
   ]);
 
@@ -2552,6 +2584,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         data={shortsData}
         renderItem={renderShortItem}
         keyExtractor={keyExtractor}
+        extraData={shortsExtraData}
         initialScrollIndex={(() => {
           if (!effectiveShortId || shorts.length === 0) return undefined;
           const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);

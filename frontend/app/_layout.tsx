@@ -30,7 +30,6 @@ import { crashReportingService } from '../services/crashReporting';
 import { ErrorBoundary } from '../utils/errorBoundary';
 import { registerServiceWorker } from '../utils/serviceWorker';
 import { JourneyProvider, useJourney, useJourneyDuration } from '../context/JourneyContext';
-import JourneyStatusBar from '../components/JourneyStatusBar';
 import { SubscriptionProvider } from '../context/SubscriptionContext';
 import * as Sentry from '@sentry/react-native';
 import * as Location from 'expo-location';
@@ -1134,17 +1133,7 @@ function RootLayoutInner() {
         </View>
       )}
 
-      {((isTracking || isPaused) && pathname !== '/navigate/tracking' && !pathname?.includes('/navigate/tracking')) && (
-        <JourneyStatusBar
-          isTracking={isTracking}
-          isPaused={isPaused}
-          distance={distance}
-          duration={duration}
-          onPause={pauseJourneyRecording}
-          onContinue={resumeJourneyRecording}
-          onStop={handleStopJourney}
-        />
-      )}
+
 
       <Suspense
         fallback={<LottieSplashScreen visible={true} />}

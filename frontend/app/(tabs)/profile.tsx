@@ -1505,7 +1505,7 @@ export default function ProfileScreen() {
     );
   }
 
-  const renderProfileItem = ({ item, index }: { item: PostType; index: number }) => {
+  const renderProfileItem = useCallback(({ item, index }: { item: PostType; index: number }) => {
     if (activeTab === 'posts') {
       const post = item;
       const imageUrl = post.imageUrl 
@@ -1708,7 +1708,7 @@ export default function ProfileScreen() {
       }
     }
     return null;
-  };
+  }, [activeTab, activeSavedSubTab, selectedItemIds, isSelectionMode, user?._id, profileTheme, theme, router]);
 
   return (
     <ErrorBoundary level="route">

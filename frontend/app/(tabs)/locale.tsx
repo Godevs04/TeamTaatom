@@ -575,6 +575,349 @@ const ExpoImageWithShimmer = React.memo(({ source, style, contentFit = 'cover', 
   );
 });
 
+// Standalone Memoized Featured Locale Card Component to avoid re-creating interpolations
+interface FeaturedLocaleCardProps {
+  locale: Locale;
+  index: number;
+  scrollY: Animated.Value;
+  screenHeight: number;
+  cardWidth: number;
+  cardHeight: number;
+  userLocation: any;
+  resolveLocaleDistance: (locale: Locale) => number | null;
+  formatLocaleDistance: (locale: Locale) => string;
+  openLocaleDetail: (locale: Locale) => void;
+  skeletonAnim: Animated.Value;
+  theme: any;
+  isDark: boolean;
+}
+
+const FeaturedLocaleCard = React.memo(({
+  locale,
+  index,
+  scrollY,
+  screenHeight,
+  cardWidth,
+  cardHeight,
+  userLocation,
+  resolveLocaleDistance,
+  formatLocaleDistance,
+  openLocaleDetail,
+  skeletonAnim,
+  theme,
+  isDark,
+}: FeaturedLocaleCardProps) => {
+  const d = resolveLocaleDistance(locale);
+  const distanceText = formatLocaleDistance(locale);
+
+  const cardTop = 40 + index * (cardHeight + 20); // 40px estimated ListHeaderComponent height
+  const translateY = scrollY.interpolate({
+    inputRange: [cardTop - screenHeight, cardTop + cardHeight],
+    outputRange: [-24, 24],
+    extrapolate: 'clamp',
+  });
+
+  return (
+    <TouchableOpacity
+      style={[
+        styles.locationCard,
+        {
+          width: cardWidth,
+          height: cardHeight,
+          alignSelf: 'center',
+          marginBottom: 0,
+        }
+      ]}
+      onPress={() => openLocaleDetail(locale)}
+      accessibilityLabel={`${locale.name}, ${locale.countryCode}`}
+      accessibilityRole="button"
+      accessibilityHint="Opens locale details"
+    >
+      {locale.imageUrl ? (
+        <Animated.View
+          key={String(locale._id)}
+          style={{
+            width: '100%',
+            height: cardHeight + 64,
+            position: 'absolute',
+            top: -32,
+            left: 0,
+            transform: [{ translateY }, { scale: 1.05 }],
+          }}
+        >
+          <ExpoImageWithShimmer
+            source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: 400, height: 300 }) }}
+            style={{ width: '100%', height: '100%' }}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={200}
+            placeholder={(locale as any).blurhash || 'L6PZ|Ye.dHNGo~WhZ~StH?S#xZ$*'}
+          />
+        </Animated.View>
+      ) : (
+        <LinearGradient
+          colors={['#D4EDDA', '#A8DADC']}
+          style={styles.cardImage}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <View style={styles.mapPlaceholder}>
+            <Ionicons name="location" size={40} color="#2C5530" />
+          </View>
+        </LinearGradient>
+      )}
+
+      {/* Bottom Glassmorphic Metadata Panel */}
+      <View
+        style={{
+          position: 'absolute',
+          bottom: -1,
+          left: -1,
+          right: -1,
+          height: '30%',
+          overflow: 'hidden',
+          borderBottomLeftRadius: 24,
+          borderBottomRightRadius: 24,
+          borderTopWidth: 1,
+          borderTopColor: 'rgba(255, 255, 255, 0.15)',
+        }}
+      >
+        <BlurView
+          intensity={45}
+          tint="dark"
+          style={{
+            flex: 1,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            paddingHorizontal: 16,
+            paddingVertical: 8,
+            borderBottomLeftRadius: 24,
+            borderBottomRightRadius: 24,
+            overflow: 'hidden',
+          }}
+        >
+          {/* Left Column: Primary Title & Location Tag */}
+          <View style={{ flex: 1, marginRight: 12, justifyContent: 'center' }}>
+            <Text 
+              style={{
+                color: '#FFFFFF',
+                fontSize: 16,
+                fontWeight: '700',
+                fontFamily: getFontFamily('700'),
+                marginBottom: 2,
+              }}
+              numberOfLines={1}
+            >
+              {locale.name}
+            </Text>
+            <Text 
+              style={{
+                color: 'rgba(255, 255, 255, 0.7)',
+                fontSize: 12,
+                fontWeight: '500',
+                fontFamily: getFontFamily('500'),
+              }}
+              numberOfLines={1}
+            >
+              {locale.countryCode}
+            </Text>
+          </View>
+          {distanceText === 'Calculating...' ? (
+            <Animated.View
+              style={[
+                styles.distanceBadge,
+                {
+                  opacity: skeletonAnim,
+                  width: 70,
+                  height: 20,
+                  backgroundColor: 'rgba(255, 255, 255, 0.25)',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }
+              ]}
+            >
+              <View style={{ width: 45, height: 8, backgroundColor: 'rgba(255,255,255,0.4)', borderRadius: 4 }} />
+            </Animated.View>
+          ) : distanceText && distanceText !== '-- km' ? (
+            <View style={[styles.distanceBadge, { flexShrink: 1 }]}>
+              <Ionicons name="location-outline" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
+              <Text style={[styles.distanceText, { flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
+                {distanceText}
+              </Text>
+            </View>
+          ) : null}
+        </BlurView>
+      </View>
+    </TouchableOpacity>
+  );
+}, (prevProps, nextProps) => {
+  return (
+    prevProps.locale._id === nextProps.locale._id &&
+    prevProps.locale.name === nextProps.locale.name &&
+    prevProps.locale.countryCode === nextProps.locale.countryCode &&
+    prevProps.locale.imageUrl === nextProps.locale.imageUrl &&
+    prevProps.locale.latitude === nextProps.locale.latitude &&
+    prevProps.locale.longitude === nextProps.locale.longitude &&
+    prevProps.locale.distanceKm === nextProps.locale.distanceKm &&
+    prevProps.index === nextProps.index &&
+    prevProps.cardWidth === nextProps.cardWidth &&
+    prevProps.cardHeight === nextProps.cardHeight &&
+    prevProps.screenHeight === nextProps.screenHeight &&
+    prevProps.isDark === nextProps.isDark &&
+    prevProps.userLocation === nextProps.userLocation
+  );
+});
+
+// Standalone Memoized Saved Locale Card Component
+interface SavedLocaleCardProps {
+  locale: Locale;
+  index: number;
+  userLocation: any;
+  resolveLocaleDistance: (locale: Locale) => number | null;
+  formatLocaleDistance: (locale: Locale) => string;
+  openLocaleDetail: (locale: Locale) => void;
+  unsaveLocale: (localeId: string) => void;
+  skeletonAnim: Animated.Value;
+  styles: any;
+}
+
+const SavedLocaleCard = React.memo(({
+  locale,
+  index,
+  userLocation,
+  resolveLocaleDistance,
+  formatLocaleDistance,
+  openLocaleDetail,
+  unsaveLocale,
+  skeletonAnim,
+  styles,
+}: SavedLocaleCardProps) => {
+  const safeName = typeof locale?.name === 'string' ? locale.name : '';
+  const safeCountryCode = typeof locale?.countryCode === 'string' ? locale.countryCode : '';
+  const safeDescription = typeof locale?.description === 'string' ? locale.description : '';
+  const safeImageUrl = typeof locale?.imageUrl === 'string' && locale.imageUrl ? locale.imageUrl : '';
+
+  const d = resolveLocaleDistance(locale);
+  const distanceText = formatLocaleDistance(locale);
+
+  return (
+    <TouchableOpacity
+      style={[
+        styles.locationCard,
+        styles.wideCard,
+        { marginBottom: 16 }
+      ]}
+      onPress={() => openLocaleDetail(locale)}
+      accessibilityLabel={`${safeName}, ${safeCountryCode}`}
+      accessibilityRole="button"
+      accessibilityHint="Opens locale details"
+    >
+      {safeImageUrl ? (
+        <View style={StyleSheet.absoluteFillObject}>
+          <ExpoImageWithShimmer
+            source={{ uri: optimizeCloudinaryUrl(safeImageUrl, { width: 300, height: 200 }) }}
+            style={styles.cardImage as ImageStyle}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            transition={200}
+            placeholder={(locale as any).blurhash || 'L6PZ|Ye.dHNGo~WhZ~StH?S#xZ$*'}
+          />
+        </View>
+      ) : (
+        <LinearGradient
+          colors={['#D4EDDA', '#A8DADC']}
+          style={StyleSheet.absoluteFillObject}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <View style={styles.mapPlaceholder}>
+            <Ionicons name="location" size={40} color="#2C5530" />
+          </View>
+        </LinearGradient>
+      )}
+      <LinearGradient
+        colors={['transparent', 'rgba(0,0,0,0.45)', 'rgba(0,0,0,0.85)']}
+        locations={[0, 0.5, 1]}
+        style={styles.cardGradient}
+      />
+      <View style={styles.cardContent}>
+        <View style={styles.cardTitleRow}>
+          <Ionicons name="location" size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
+          <Text style={styles.cardTitle}>{safeName}</Text>
+        </View>
+        <Text style={[styles.cardSubtitle, { color: '#FFFFFF' }]}>
+          {safeCountryCode}
+        </Text>
+        {safeDescription ? (
+          <Text style={[styles.cardSubtitle, { color: '#FFFFFF', marginTop: 4 }]} numberOfLines={1}>
+            {safeDescription}
+          </Text>
+        ) : null}
+      </View>
+      {distanceText === 'Calculating...' ? (
+        <Animated.View
+          style={[
+            styles.distanceBadgeAbsolute,
+            {
+              opacity: skeletonAnim,
+              width: 70,
+              height: 22,
+              backgroundColor: 'rgba(255, 255, 255, 0.25)',
+              justifyContent: 'center',
+              alignItems: 'center',
+            }
+          ]}
+        >
+          <View style={{ width: 45, height: 8, backgroundColor: 'rgba(255,255,255,0.4)', borderRadius: 4 }} />
+        </Animated.View>
+      ) : distanceText && distanceText !== '-- km' ? (
+        <View style={[styles.distanceBadgeAbsolute, { flexShrink: 1 }]}>
+          <Ionicons name="location-outline" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
+          <Text style={[styles.distanceText, { flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
+            {distanceText}
+          </Text>
+        </View>
+      ) : null}
+
+      <TouchableOpacity
+        style={styles.saveButton}
+        onPress={(e) => {
+          e?.stopPropagation?.();
+          if (locale?._id) unsaveLocale(locale._id);
+        }}
+        accessibilityLabel={`Remove ${safeName} from saved`}
+        accessibilityRole="button"
+      >
+        <MaskedView
+          style={{ width: 20, height: 20 }}
+          maskElement={
+            <Ionicons name="bookmark" size={20} color="#000000" />
+          }
+        >
+          <LinearGradient
+            colors={['#1C73B4', '#50C878']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={{ flex: 1 }}
+          />
+        </MaskedView>
+      </TouchableOpacity>
+    </TouchableOpacity>
+  );
+}, (prevProps, nextProps) => {
+  return (
+    prevProps.locale._id === nextProps.locale._id &&
+    prevProps.locale.name === nextProps.locale.name &&
+    prevProps.locale.countryCode === nextProps.locale.countryCode &&
+    prevProps.locale.imageUrl === nextProps.locale.imageUrl &&
+    prevProps.locale.latitude === nextProps.locale.latitude &&
+    prevProps.locale.longitude === nextProps.locale.longitude &&
+    prevProps.locale.distanceKm === nextProps.locale.distanceKm &&
+    prevProps.index === nextProps.index &&
+    prevProps.userLocation === nextProps.userLocation
+  );
+});
 
 export default function LocaleScreen() {
   const { showSuccess, showError, showInfo } = useAlert();
@@ -3145,160 +3488,68 @@ export default function LocaleScreen() {
 
 
 
-  // List Rendering Performance: Memoize render functions
-  const renderAdminLocaleCard = useCallback(({ locale, index }: { locale: Locale; index: number }) => {
-    // Use distanceKm from locale object (always available if coordinates exist)
-    const d = resolveLocaleDistance(locale);
-    // Fix distance display formatting - ensure correct units
-    const distanceText = formatLocaleDistance(locale);
-    
-    // Debug: Log distance calculation
-    if (__DEV__) {
-      logger.debug(`Locale ${locale.name}: distance=${d}, distanceText=${distanceText}, hasCoords=${!!(locale.latitude && locale.longitude)}, userLocation=${!!userLocation}`);
-    }
+  // Stable refs to prevent list item renderers from recreating on location/callback changes
+  const openLocaleDetailRef = useRef(openLocaleDetail);
+  const resolveLocaleDistanceRef = useRef(resolveLocaleDistance);
+  const formatLocaleDistanceRef = useRef(formatLocaleDistance);
+  const unsaveLocaleRef = useRef(unsaveLocale);
 
-    const cardTop = 40 + index * (CARD_HEIGHT + 20); // 40px estimated ListHeaderComponent height
-    const translateY = scrollY.interpolate({
-      inputRange: [cardTop - screenHeight, cardTop + CARD_HEIGHT],
-      outputRange: [-24, 24],
-      extrapolate: 'clamp',
-    });
-    
-    return (
-      <TouchableOpacity
-        style={[
-          styles.locationCard,
-          {
-            width: CARD_WIDTH,
-            height: CARD_HEIGHT,
-            alignSelf: 'center',
-            marginBottom: 0,
-          }
-        ]}
-        onPress={() => openLocaleDetail(locale)}
-        accessibilityLabel={`${locale.name}, ${locale.countryCode}`}
-        accessibilityRole="button"
-        accessibilityHint="Opens locale details"
-      >
-        {locale.imageUrl ? (
-          <Animated.View
-            key={String(locale._id)}
-            style={{
-              width: '100%',
-              height: CARD_HEIGHT + 64,
-              position: 'absolute',
-              top: -32,
-              left: 0,
-              transform: [{ translateY }, { scale: 1.05 }],
-            }}
-          >
-            <ExpoImageWithShimmer
-              source={{ uri: optimizeCloudinaryUrl(locale.imageUrl, { width: 400, height: 300 }) }}
-              style={{ width: '100%', height: '100%' }}
-              contentFit="cover"
-              cachePolicy="memory-disk"
-              transition={200}
-              placeholder={(locale as any).blurhash || 'L6PZ|Ye.dHNGo~WhZ~StH?S#xZ$*'}
-            />
-          </Animated.View>
-        ) : (
-          <LinearGradient
-            colors={['#D4EDDA', '#A8DADC']}
-            style={styles.cardImage}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <View style={styles.mapPlaceholder}>
-              <Ionicons name="location" size={40} color="#2C5530" />
-            </View>
-          </LinearGradient>
-        )}
+  useEffect(() => {
+    openLocaleDetailRef.current = openLocaleDetail;
+    resolveLocaleDistanceRef.current = resolveLocaleDistance;
+    formatLocaleDistanceRef.current = formatLocaleDistance;
+    unsaveLocaleRef.current = unsaveLocale;
+  });
 
-        {/* Bottom Glassmorphic Metadata Panel */}
-        <View
-          style={{
-            position: 'absolute',
-            bottom: -1,
-            left: -1,
-            right: -1,
-            height: '30%',
-            overflow: 'hidden',
-            borderBottomLeftRadius: 24,
-            borderBottomRightRadius: 24,
-            borderTopWidth: 1,
-            borderTopColor: 'rgba(255, 255, 255, 0.15)',
-          }}
-        >
-          <BlurView
-            intensity={45}
-            tint="dark"
-            style={{
-              flex: 1,
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between',
-              paddingHorizontal: 16,
-              paddingVertical: 8,
-              borderBottomLeftRadius: 24,
-              borderBottomRightRadius: 24,
-              overflow: 'hidden',
-            }}
-          >
-            {/* Left Column: Primary Title & Location Tag */}
-            <View style={{ flex: 1, marginRight: 12, justifyContent: 'center' }}>
-              <Text 
-                style={{
-                  color: '#FFFFFF',
-                  fontSize: 16,
-                  fontWeight: '700',
-                  fontFamily: getFontFamily('700'),
-                  marginBottom: 2,
-                }}
-                numberOfLines={1}
-              >
-                {locale.name}
-              </Text>
-              <Text 
-                style={{
-                  color: 'rgba(255, 255, 255, 0.7)',
-                  fontSize: 12,
-                  fontWeight: '500',
-                  fontFamily: getFontFamily('500'),
-                }}
-                numberOfLines={1}
-              >
-                {locale.countryCode}
-              </Text>
-            </View>
-            {distanceText === 'Calculating...' ? (
-              <Animated.View
-                style={[
-                  styles.distanceBadge,
-                  {
-                    opacity: skeletonAnim,
-                    width: 70,
-                    height: 20,
-                    backgroundColor: 'rgba(255, 255, 255, 0.25)',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                  }
-                ]}
-              >
-                <View style={{ width: 45, height: 8, backgroundColor: 'rgba(255,255,255,0.4)', borderRadius: 4 }} />
-              </Animated.View>
-            ) : distanceText && distanceText !== '-- km' ? (
-              <View style={[styles.distanceBadge, { flexShrink: 1 }]}>
-                <Ionicons name="location-outline" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
-                <Text style={[styles.distanceText, { flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
-                  {distanceText}
-                </Text>
-              </View>
-            ) : null}
-          </BlurView>
-        </View>
-      </TouchableOpacity>
-    );
-  }, [openLocaleDetail, resolveLocaleDistance, formatLocaleDistance, userLocation, CARD_WIDTH, CARD_HEIGHT, scrollY, screenHeight]);
+  const renderAdminLocaleItem = useCallback(
+    ({ item, index }: { item: Locale; index: number }) => (
+      <FeaturedLocaleCard
+        locale={item}
+        index={index}
+        scrollY={scrollY}
+        screenHeight={screenHeight}
+        cardWidth={CARD_WIDTH}
+        cardHeight={CARD_HEIGHT}
+        userLocation={userLocationRef.current}
+        resolveLocaleDistance={resolveLocaleDistanceRef.current}
+        formatLocaleDistance={formatLocaleDistanceRef.current}
+        openLocaleDetail={openLocaleDetailRef.current}
+        skeletonAnim={skeletonAnim}
+        theme={theme}
+        isDark={isDark}
+      />
+    ),
+    [scrollY, screenHeight, CARD_WIDTH, CARD_HEIGHT, skeletonAnim, theme, isDark]
+  );
+
+  const renderSavedLocaleItem = useCallback(
+    ({ item, index }: { item: Locale; index: number }) => (
+      <SavedLocaleCard
+        locale={item}
+        index={index}
+        userLocation={userLocationRef.current}
+        resolveLocaleDistance={resolveLocaleDistanceRef.current}
+        formatLocaleDistance={formatLocaleDistanceRef.current}
+        openLocaleDetail={openLocaleDetailRef.current}
+        unsaveLocale={unsaveLocaleRef.current}
+        skeletonAnim={skeletonAnim}
+        styles={styles}
+      />
+    ),
+    [skeletonAnim, styles]
+  );
+
+  const savedLocaleSeparator = useCallback(() => <View style={{ height: 20 }} />, []);
+
+  const featuredExtraData = useMemo(() => ({
+    userLocation,
+    loadingLocales
+  }), [userLocation, loadingLocales]);
+
+  const savedExtraData = useMemo(() => ({
+    userLocation,
+    filteredSavedLocales
+  }), [userLocation, filteredSavedLocales]);
 
   const renderAdminLocales = () => {
     // Always use filteredLocales when filters are active, even if empty
@@ -3330,7 +3581,21 @@ export default function LocaleScreen() {
         <View style={styles.localesList}>
           {localesToShow.map((locale, index) => (
             <View key={locale._id}>
-              {renderAdminLocaleCard({ locale, index })}
+              <FeaturedLocaleCard
+                locale={locale}
+                index={index}
+                scrollY={scrollY}
+                screenHeight={screenHeight}
+                cardWidth={CARD_WIDTH}
+                cardHeight={CARD_HEIGHT}
+                userLocation={userLocationRef.current}
+                resolveLocaleDistance={resolveLocaleDistanceRef.current}
+                formatLocaleDistance={formatLocaleDistanceRef.current}
+                openLocaleDetail={openLocaleDetailRef.current}
+                skeletonAnim={skeletonAnim}
+                theme={theme}
+                isDark={isDark}
+              />
             </View>
           ))}
         </View>
@@ -3370,13 +3635,7 @@ export default function LocaleScreen() {
     );
   };
 
-  // Stable callbacks for the locale-tab FlatList. Using a separate render
-  // function (not the useCallback'd renderAdminLocaleCard) keeps the FlatList
-  // happy with a `(item) =>` signature without re-allocating per render.
-  const renderAdminLocaleItem = useCallback(
-    ({ item, index }: { item: Locale; index: number }) => renderAdminLocaleCard({ locale: item, index }),
-    [renderAdminLocaleCard],
-  );
+  // Stable callbacks for the locale-tab FlatList are now declared above.
 
   const localeKeyExtractor = useCallback((item: Locale & { localeId?: string }) => {
     if (!item || (!item.localeId && !item._id)) {
@@ -3398,127 +3657,7 @@ export default function LocaleScreen() {
     );
   }, [filteredLocales, sortedAdminLocales, loadingLocales, theme, searchQuery, filters]);
 
-  // List Rendering Performance: Memoize render functions
-  const renderSavedLocaleCard = useCallback(({ locale, index }: { locale: Locale; index: number }) => {
-    // Defensive: AsyncStorage data can be malformed (older app versions, corrupt
-    // entries). Coerce every field we render or pass into router params to a
-    // safe primitive so the card render never throws "Objects are not valid as
-    // a React child" or "Cannot read property 'toLowerCase' of undefined".
-    const safeName = typeof locale?.name === 'string' ? locale.name : '';
-    const safeCountryCode = typeof locale?.countryCode === 'string' ? locale.countryCode : '';
-    const safeDescription = typeof locale?.description === 'string' ? locale.description : '';
-    const safeImageUrl = typeof locale?.imageUrl === 'string' && locale.imageUrl ? locale.imageUrl : '';
-
-    // Use distanceKm from locale object (always available if coordinates exist)
-    const d = resolveLocaleDistance(locale);
-    // Fix distance display formatting - ensure correct units
-    const distanceText = formatLocaleDistance(locale);
-
-    return (
-      <TouchableOpacity
-        style={[
-          styles.locationCard,
-          styles.wideCard,
-          { marginBottom: 16 }
-        ]}
-        onPress={() => openLocaleDetail(locale)}
-        accessibilityLabel={`${safeName}, ${safeCountryCode}`}
-        accessibilityRole="button"
-        accessibilityHint="Opens locale details"
-      >
-        {safeImageUrl ? (
-          <View style={StyleSheet.absoluteFillObject}>
-            <ExpoImageWithShimmer
-              source={{ uri: optimizeCloudinaryUrl(safeImageUrl, { width: 300, height: 200 }) }}
-              style={styles.cardImage as ImageStyle}
-              contentFit="cover"
-              cachePolicy="memory-disk"
-              transition={200}
-              placeholder={(locale as any).blurhash || 'L6PZ|Ye.dHNGo~WhZ~StH?S#xZ$*'}
-            />
-          </View>
-        ) : (
-          <LinearGradient
-            colors={['#D4EDDA', '#A8DADC']}
-            style={StyleSheet.absoluteFillObject}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-          >
-            <View style={styles.mapPlaceholder}>
-              <Ionicons name="location" size={40} color="#2C5530" />
-            </View>
-          </LinearGradient>
-        )}
-        <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.45)', 'rgba(0,0,0,0.85)']}
-          locations={[0, 0.5, 1]}
-          style={styles.cardGradient}
-        />
-        <View style={styles.cardContent}>
-          <View style={styles.cardTitleRow}>
-            <Ionicons name="location" size={14} color="#FFFFFF" style={{ marginRight: 6 }} />
-            <Text style={styles.cardTitle}>{safeName}</Text>
-          </View>
-          <Text style={[styles.cardSubtitle, { color: '#FFFFFF' }]}>
-            {safeCountryCode}
-          </Text>
-          {safeDescription ? (
-            <Text style={[styles.cardSubtitle, { color: '#FFFFFF', marginTop: 4 }]} numberOfLines={1}>
-              {safeDescription}
-            </Text>
-          ) : null}
-        </View>
-        {distanceText === 'Calculating...' ? (
-          <Animated.View
-            style={[
-              styles.distanceBadgeAbsolute,
-              {
-                opacity: skeletonAnim,
-                width: 70,
-                height: 22,
-                backgroundColor: 'rgba(255, 255, 255, 0.25)',
-                justifyContent: 'center',
-                alignItems: 'center',
-              }
-            ]}
-          >
-            <View style={{ width: 45, height: 8, backgroundColor: 'rgba(255,255,255,0.4)', borderRadius: 4 }} />
-          </Animated.View>
-        ) : distanceText && distanceText !== '-- km' ? (
-          <View style={[styles.distanceBadgeAbsolute, { flexShrink: 1 }]}>
-            <Ionicons name="location-outline" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
-            <Text style={[styles.distanceText, { flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
-              {distanceText}
-            </Text>
-          </View>
-        ) : null}
-
-        <TouchableOpacity
-          style={styles.saveButton}
-          onPress={(e) => {
-            e?.stopPropagation?.();
-            if (locale?._id) unsaveLocale(locale._id);
-          }}
-          accessibilityLabel={`Remove ${safeName} from saved`}
-          accessibilityRole="button"
-        >
-          <MaskedView
-            style={{ width: 20, height: 20 }}
-            maskElement={
-              <Ionicons name="bookmark" size={20} color="#000000" />
-            }
-          >
-            <LinearGradient
-              colors={['#1C73B4', '#50C878']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={{ flex: 1 }}
-            />
-          </MaskedView>
-        </TouchableOpacity>
-      </TouchableOpacity>
-    );
-  }, [openLocaleDetail, resolveLocaleDistance, formatLocaleDistance, unsaveLocale]);
+  // SavedLocaleCard is now declared as a standalone component above.
 
   const renderEmptySavedState = () => null;
 
@@ -3648,6 +3787,7 @@ export default function LocaleScreen() {
                 data={localesToShow || []}
                 renderItem={renderAdminLocaleItem}
                 keyExtractor={localeKeyExtractor}
+                extraData={featuredExtraData}
                 showsVerticalScrollIndicator={true}
                 onScroll={handleVerticalScroll}
                 scrollEventThrottle={16}
@@ -3756,16 +3896,17 @@ export default function LocaleScreen() {
         ) : (
           <FlatList
             data={filteredSavedLocales}
-            renderItem={({ item, index }) => renderSavedLocaleCard({ locale: item, index })}
+            renderItem={renderSavedLocaleItem}
             keyExtractor={(item) => {
               if (!item || !item._id) {
                 return `invalid-saved-id-${item?.name || 'unknown'}`;
               }
               return String(item._id);
             }}
+            extraData={savedExtraData}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
-            ItemSeparatorComponent={() => <View style={{ height: 20 }} />}
+            ItemSeparatorComponent={savedLocaleSeparator}
             ListHeaderComponent={
               filteredSavedLocales.length > 0 ? (
                 <Text
