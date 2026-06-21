@@ -1467,44 +1467,6 @@ export default function ProfileScreen() {
     );
   };
 
-  if (loading || checkingUser) {
-    return (
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
-        <NavBar title="Profile" />
-        <View style={styles.loadingContainer}>
-          <LoadingGlobe size={36} />
-        </View>
-      </View>
-    );
-  }
-
-  if (!user || !profileData) {
-    return (
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <NavBar title="Profile" />
-        <View style={styles.errorContainer}>
-          <Text style={[styles.errorText, { color: theme.colors.text }]}>
-            Failed to load profile
-          </Text>
-          <TouchableOpacity
-            style={[styles.retryButton, { overflow: 'hidden' }]}
-            onPress={() => loadUserData()}
-          >
-            <LinearGradient
-              colors={['#50C878', '#1C73B4']}
-              style={StyleSheet.absoluteFillObject}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            />
-            <Text style={[styles.retryButtonText, { color: '#FFFFFF' }]}>
-              Retry
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
   const renderProfileItem = useCallback(({ item, index }: { item: PostType; index: number }) => {
     if (activeTab === 'posts') {
       const post = item;
@@ -1709,6 +1671,46 @@ export default function ProfileScreen() {
     }
     return null;
   }, [activeTab, activeSavedSubTab, selectedItemIds, isSelectionMode, user?._id, profileTheme, theme, router]);
+
+  if (loading || checkingUser) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
+        <NavBar title="Profile" />
+        <View style={styles.loadingContainer}>
+          <LoadingGlobe size={36} />
+        </View>
+      </View>
+    );
+  }
+
+  if (!user || !profileData) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <NavBar title="Profile" />
+        <View style={styles.errorContainer}>
+          <Text style={[styles.errorText, { color: theme.colors.text }]}>
+            Failed to load profile
+          </Text>
+          <TouchableOpacity
+            style={[styles.retryButton, { overflow: 'hidden' }]}
+            onPress={() => loadUserData()}
+          >
+            <LinearGradient
+              colors={['#50C878', '#1C73B4']}
+              style={StyleSheet.absoluteFillObject}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            />
+            <Text style={[styles.retryButtonText, { color: '#FFFFFF' }]}>
+              Retry
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+
 
   return (
     <ErrorBoundary level="route">

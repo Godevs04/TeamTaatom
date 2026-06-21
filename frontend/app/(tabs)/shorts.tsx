@@ -183,9 +183,9 @@ const getVideoSource = (uri: string | null | undefined) => {
   return videoSourceCache.get(uri);
 };
 
-import { MarqueeText } from './_shorts_split/MarqueeText';
-import { CyclingMetadata } from './_shorts_split/CyclingMetadata';
-import { ShortsCell, emitLikeRailState } from './_shorts_split/ShortsCellFeed';
+import { MarqueeText } from '../../components/shorts/MarqueeText';
+import { CyclingMetadata } from '../../components/shorts/CyclingMetadata';
+import { ShortsCell, emitLikeRailState } from '../../components/shorts/ShortsCellFeed';
 // Module-level global mute state for shorts feed to persist across mounts/unmounts
 let globalIsFeedMuted = false;
 
@@ -272,6 +272,22 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [selectedShortId, setSelectedShortId] = useState<string | null>(null);
   const [selectedShortComments, setSelectedShortComments] = useState<any[]>([]);
+
+  const upsertSelectedComment = useCallback((incomingComment: any) => {
+    if (!incomingComment) return;
+    setSelectedShortComments((prev) => {
+      const next = [...prev];
+      if (incomingComment._id) {
+        const existingIndex = next.findIndex((c) => c._id === incomingComment._id);
+        if (existingIndex !== -1) {
+          next[existingIndex] = incomingComment;
+          return next;
+        }
+      }
+      return [incomingComment, ...next];
+    });
+  }, []);
+
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [selectedShortForShare, setSelectedShortForShare] = useState<PostType | null>(null);
@@ -334,6 +350,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
 
 
+  const selectedShortIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedShortIdRef.current = selectedShortId;
+  }, [selectedShortId]);
+
+  const upsertSelectedCommentRef = useRef<((incomingComment: any) => void) | null>(null);
+  useEffect(() => {
+    upsertSelectedCommentRef.current = upsertSelectedComment;
+  }, [upsertSelectedComment]);
+
   useEffect(() => {
     const unsubscribeViews = realtimePostsService.subscribeToViews(({ postId, viewsCount }) => {
       setShorts(prev => prev.map(short => (
@@ -375,9 +401,22 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
     });
 
+    const unsubscribeComments = realtimePostsService.subscribeToComments((data) => {
+      setShorts(prev => prev.map(short => (
+        short._id === data.postId
+          ? { ...short, commentsCount: data.commentsCount } as any
+          : short
+      )));
+
+      if (selectedShortIdRef.current === data.postId && data.comment) {
+        upsertSelectedCommentRef.current?.(data.comment);
+      }
+    });
+
     return () => {
       unsubscribeViews();
       unsubscribeLikes();
+      unsubscribeComments();
     };
   }, []);
 
@@ -499,7 +538,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           logger.warn(`Error pausing current video:`, error);
         }
       }
-      activeVideoIdRef.current = null;
+      // Do not clear activeVideoIdRef.current here so we can remember
+      // which video was active when we resume/return.
     }
   }, []);
 
@@ -1714,21 +1754,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     }
   };
 
-  const upsertSelectedComment = useCallback((incomingComment: any) => {
-    if (!incomingComment) return;
-    setSelectedShortComments((prev) => {
-      const next = [...prev];
-      if (incomingComment._id) {
-        const existingIndex = next.findIndex((c) => c._id === incomingComment._id);
-        if (existingIndex !== -1) {
-          next[existingIndex] = incomingComment;
-          return next;
-        }
-      }
-      return [incomingComment, ...next];
-    });
-  }, []);
-
   const handleComment = async (shortId: string) => {
     setShowCommentModal(true);
     setSelectedShortId(shortId);
@@ -2277,25 +2302,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     handleVideoReady,
   ]);
 
-  // Refs to stabilize the renderShortItem callback reference
-  const isVideoPlayingRef = useRef(isVideoPlaying);
-  const feedMutedRef = useRef(isFeedMuted);
-  const currentUserRef = useRef(currentUser);
-  const followStatesRef = useRef(followStates);
-  const savedShortsRef = useRef(savedShorts);
-  const localVideoUrisRef = useRef(localVideoUris);
-  const checkedVideoCacheIdsRef = useRef(checkedVideoCacheIds);
-
-  useEffect(() => {
-    isVideoPlayingRef.current = isVideoPlaying;
-    feedMutedRef.current = isFeedMuted;
-    currentUserRef.current = currentUser;
-    followStatesRef.current = followStates;
-    savedShortsRef.current = savedShorts;
-    localVideoUrisRef.current = localVideoUris;
-    checkedVideoCacheIdsRef.current = checkedVideoCacheIds;
-  });
-
   // Memoized video item component to prevent unnecessary re-renders
   // Renders either a reel (PostType) or a full-screen ShortsNativeAd (after every 5 reels, max 3).
   const renderShortItem = useCallback(({ item, index }: { item: ShortsItem; index: number }) => {
@@ -2338,12 +2344,12 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     }
 
     // Reel item
-    const isFollowing = followStatesRef.current[item.user._id] || false;
-    const isSaved = savedShortsRef.current.has(item._id);
+    const isFollowing = followStates[item.user._id] || false;
+    const isSaved = savedShorts.has(item._id);
     const isLiked = item.isLiked || false;
-    const isActive = index === currentVisibleIndexRef.current;
-    const shouldPreload = isScreenFocusedRef.current && index === currentVisibleIndexRef.current + 1;
-    const shouldRenderVideo = Math.abs(index - currentVisibleIndexRef.current) <= 1;
+    const isActive = index === currentVisibleIndex;
+    const shouldPreload = isScreenFocused && index === currentVisibleIndex + 1;
+    const shouldRenderVideo = Math.abs(index - currentVisibleIndex) <= 1;
 
     return (
       <ShortsCell
@@ -2352,16 +2358,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         isActive={isActive}
         shouldPreload={shouldPreload}
         shouldRenderVideo={shouldRenderVideo}
-        isVideoPlaying={isVideoPlayingRef.current}
-        isScreenFocused={isScreenFocusedRef.current}
-        isMuted={props.isMuted !== undefined ? props.isMuted : feedMutedRef.current}
-        currentUser={currentUserRef.current}
+        isVideoPlaying={isVideoPlaying}
+        isScreenFocused={isScreenFocused}
+        isMuted={props.isMuted !== undefined ? props.isMuted : isFeedMuted}
+        currentUser={currentUser}
         containerHeight={containerHeight}
         isFollowing={isFollowing}
         isSaved={isSaved}
         isLiked={isLiked}
-        localVideoUri={localVideoUrisRef.current[item._id]}
-        isCacheChecked={checkedVideoCacheIdsRef.current.has(item._id)}
+        localVideoUri={localVideoUris[item._id]}
+        isCacheChecked={checkedVideoCacheIds.has(item._id)}
         isSavedShorts={props.isSavedShorts}
         effectiveUserId={effectiveUserId}
         handlers={handlersRef.current}
@@ -2378,34 +2384,21 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       />
     );
   }, [
-    containerHeight,
-    props.isSavedShorts,
+    currentVisibleIndex,
+    isVideoPlaying,
+    isScreenFocused,
     props.isMuted,
+    isFeedMuted,
+    currentUser,
+    containerHeight,
+    followStates,
+    savedShorts,
+    localVideoUris,
+    props.isSavedShorts,
     effectiveUserId,
     showSwipeHint,
     fadeAnimation,
     appState,
-  ]);
-
-  const shortsExtraData = useMemo(() => ({
-    currentVisibleIndex,
-    isVideoPlaying,
-    isScreenFocused,
-    isFeedMuted,
-    currentUser,
-    followStates,
-    savedShorts,
-    localVideoUris,
-    checkedVideoCacheIds,
-  }), [
-    currentVisibleIndex,
-    isVideoPlaying,
-    isScreenFocused,
-    isFeedMuted,
-    currentUser,
-    followStates,
-    savedShorts,
-    localVideoUris,
     checkedVideoCacheIds,
   ]);
 
@@ -2584,7 +2577,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
         data={shortsData}
         renderItem={renderShortItem}
         keyExtractor={keyExtractor}
-        extraData={shortsExtraData}
         initialScrollIndex={(() => {
           if (!effectiveShortId || shorts.length === 0) return undefined;
           const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
@@ -2732,7 +2724,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     ...(isWeb && {
       cursor: 'pointer',
-      ['transition']: 'all 0.2s ease',
+      transition: 'all 0.2s ease',
     } as any),
   },
   createShortGradient: {

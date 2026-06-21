@@ -11,8 +11,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
-import { theme } from '../../../constants/theme';
-import { useTheme } from '../../../context/ThemeContext';
+import { theme } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;

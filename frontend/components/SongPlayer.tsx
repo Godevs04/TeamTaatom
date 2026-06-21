@@ -19,6 +19,7 @@ interface SongPlayerProps {
   /** Called when this instance becomes the active player or stops (for Shorts to pause on tab/focus change) */
   onPlayingChange?: (sound: Audio.Sound | null) => void;
   shouldPreload?: boolean;
+  getVideoPosition?: () => number; // Optional getter for video's current playback position in ms
 }
 
 /**
@@ -96,7 +97,7 @@ const cacheSongLocally = async (remoteUrl: string, forceRefresh: boolean = false
   }
 };
 
-function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, autoPlay = false, showPlayPause = false, externalMuted, onPlayingChange }: SongPlayerProps) {
+function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, autoPlay = false, showPlayPause = false, externalMuted, onPlayingChange, getVideoPosition }: SongPlayerProps) {
   const isFocused = useIsFocused();
   const isEffectiveVisible = isVisible && isFocused;
 
@@ -141,6 +142,7 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
   const startTime = post.song?.startTime || 0;
   const endTime = post.song?.endTime || null;
   const volume = post.song?.volume || 0.5;
+  const segmentMs = endTime && endTime > startTime ? (endTime - startTime) * 1000 : 60000;
 
   // Debug: Log song data
   useEffect(() => {
@@ -335,6 +337,11 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
 
       const effectiveMuted = externalMuted !== undefined ? externalMuted : isMuted;
 
+      // Calculate initial sync position if video position getter is provided
+      const initialVideoPosition = getVideoPosition ? getVideoPosition() : 0;
+      const offsetMs = initialVideoPosition % segmentMs;
+      const targetPositionMillis = startTime * 1000 + offsetMs;
+
       // Load sound - since it is local, it initializes instantly
       await newSound.loadAsync(
         { uri: audioUrl },
@@ -344,7 +351,7 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
           isLooping: !endTime,
           isMuted: effectiveMuted,
           volume: effectiveMuted ? 0 : volume,
-          positionMillis: startTime * 1000,
+          positionMillis: targetPositionMillis,
         },
         false // Keep false to allow fast initialization
       );
@@ -490,7 +497,7 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
       
       throw error;
     }
-  }, [post._id, song?.s3Url, (song as any)?.cloudinaryUrl, fetchedUrl, autoPlay, isMuted, volume, startTime, endTime, onPlayingChange]);
+  }, [post._id, song?.s3Url, (song as any)?.cloudinaryUrl, fetchedUrl, autoPlay, isMuted, volume, startTime, endTime, onPlayingChange, getVideoPosition]);
 
   useEffect(() => {
     // For shorts and home page: sync with visibility and autoPlay prop
@@ -524,19 +531,38 @@ function SongPlayerComponent({ post, isVisible = true, shouldPreload = false, au
               await soundRef.current?.setIsMutedAsync(effectiveMuted).catch(() => {});
               await soundRef.current?.setVolumeAsync(effectiveMuted ? 0 : volume).catch(() => {});
 
+              const initialVideoPosition = getVideoPosition ? getVideoPosition() : 0;
+              const offsetMs = initialVideoPosition % segmentMs;
+              const targetPositionMillis = startTime * 1000 + offsetMs;
+
               if (wasPreloaded && post._id) {
                 logger.debug('[SONGPLAYER] Playing preloaded audio immediately for sync');
+                if (initialVideoPosition > 0) {
+                  logger.debug(`[SONGPLAYER] Seeking preloaded audio to ${targetPositionMillis}`);
+                  await soundRef.current?.setPositionAsync(targetPositionMillis).catch(() => {});
+                }
                 await soundRef.current?.playAsync().catch(() => {});
                 audioManager.unfreeze();
                 if (soundRef.current) await audioManager.playSound(soundRef.current, post._id.toString()).catch(() => {});
               } else if (post._id && currentPostId === post._id.toString()) {
                 logger.debug('[SONGPLAYER] Resuming same post audio immediately');
+                if (initialVideoPosition > 0) {
+                  logger.debug(`[SONGPLAYER] Seeking resumed audio to ${targetPositionMillis}`);
+                  await soundRef.current?.setPositionAsync(targetPositionMillis).catch(() => {});
+                }
                 await soundRef.current?.playAsync().catch(() => {});
               } else if (post._id) {
                 logger.debug('[SONGPLAYER] Playing audio via audioManager');
+                if (initialVideoPosition > 0) {
+                  logger.debug(`[SONGPLAYER] Seeking new audio to ${targetPositionMillis}`);
+                  await soundRef.current?.setPositionAsync(targetPositionMillis).catch(() => {});
+                }
                 audioManager.unfreeze();
                 if (soundRef.current) await audioManager.playSound(soundRef.current, post._id.toString());
               } else {
+                if (initialVideoPosition > 0) {
+                  await soundRef.current?.setPositionAsync(targetPositionMillis).catch(() => {});
+                }
                 await soundRef.current?.playAsync().catch(() => {});
               }
               setIsPlaying(true);

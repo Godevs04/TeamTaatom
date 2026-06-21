@@ -2666,8 +2666,6 @@ const addComment = async (req, res) => {
       // Also emit legacy events
       const followers = await getFollowers(post.user);
       const audience = [post.user.toString(), ...followers];
-      nsp.emitInvalidateFeed(audience);
-      nsp.emitInvalidateProfile(post.user.toString());
       nsp.emitEvent('comment:created', audience, { postId: post._id });
     }
 
