@@ -71,6 +71,9 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const destroyedRef = useRef(false);
+  // Fire onImpression at most once per ad load. Cleared when the ad is
+  // destroyed (effect cleanup) so a re-load fires it again.
+  const impressionFiredRef = useRef(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const unitId = Platform.OS === 'android' ? ADMOB.android.native : ADMOB.ios.native;
@@ -179,10 +182,14 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
           unitId: maskAdUnitId(unitId),
           adIndex,
         });
-        // Observe impression only; do not manipulate
+        // Observe impression only; do not count immediately on load.
+        // Guarded so a render thrash can't double-count the same load.
         if (adsModule.AdEventType?.IMPRESSION && typeof ad.addAdEventListener === 'function') {
           ad.addAdEventListener(adsModule.AdEventType.IMPRESSION as any, () => {
-            onImpressionRef.current?.();
+            if (!impressionFiredRef.current) {
+              impressionFiredRef.current = true;
+              try { onImpressionRef.current?.(); } catch { /* swallow */ }
+            }
           });
         }
         setNativeAd(ad);
@@ -206,6 +213,7 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
     return () => {
       destroyedRef.current = true;
       if (timeoutId) clearTimeout(timeoutId);
+      impressionFiredRef.current = false;
       setNativeAd((prev: any) => {
         if (prev) prev.destroy();
         return null;
