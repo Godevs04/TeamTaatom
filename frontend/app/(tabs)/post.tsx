@@ -28,6 +28,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
 import { useAlert } from "../../context/AlertContext";
+import { useJourney } from "../../context/JourneyContext";
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -261,6 +262,7 @@ export default function PostScreen() {
   const isJourneyCapture = params.journeyCapture === 'true';
 
   const [permission, requestPermission] = useCameraPermissions();
+  const journeyContext = useJourney();
   const [latestAssetUri, setLatestAssetUri] = useState<string | null>(null);
 
   // Helper to resolve iOS ph:// URI to standard file:// URI using MediaLibrary
@@ -2572,6 +2574,11 @@ export default function PostScreen() {
       await clearDraft();
       
       trackFeatureUsage('post_created', {});
+      if (journeyContext?.isTracking && journeyContext?.refreshActiveJourney) {
+        journeyContext.refreshActiveJourney().catch((err) => {
+          logger.error('Failed to refresh journey after post:', err);
+        });
+      }
       // Wait a moment to show 100% progress
       setTimeout(() => {
         clearUploadState();
@@ -3007,6 +3014,11 @@ export default function PostScreen() {
         logger.error('Failed to set shorts refresh flags', err);
       }
       trackFeatureUsage('short_created', {});
+      if (journeyContext?.isTracking && journeyContext?.refreshActiveJourney) {
+        journeyContext.refreshActiveJourney().catch((err) => {
+          logger.error('Failed to refresh journey after short:', err);
+        });
+      }
       // Check if short requires verification (pending review)
       const requiresVerification = source === 'gallery_no_exif' || source === 'manual_only';
       
@@ -3185,6 +3197,11 @@ export default function PostScreen() {
         logger.error('Failed to set shorts refresh flags', err);
       }
       trackFeatureUsage('short_created', {});
+      if (journeyContext?.isTracking && journeyContext?.refreshActiveJourney) {
+        journeyContext.refreshActiveJourney().catch((err) => {
+          logger.error('Failed to refresh journey after short:', err);
+        });
+      }
       // Check if short requires verification (pending review)
       const requiresVerification = pendingShortData.source === 'gallery_no_exif' || pendingShortData.source === 'manual_only';
       

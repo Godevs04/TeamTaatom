@@ -31,11 +31,19 @@ interface JourneyCardProps {
   journey: Journey;
   onPress: () => void;
   onLongPress?: () => void;
+  isSelected?: boolean;
+  isSelectMode?: boolean;
 }
 
 const GROWTH_GREEN = '#22C55E';
 
-export default function JourneyCard({ journey, onPress, onLongPress }: JourneyCardProps) {
+export default function JourneyCard({
+  journey,
+  onPress,
+  onLongPress,
+  isSelected = false,
+  isSelectMode = false,
+}: JourneyCardProps) {
   const { theme } = useTheme();
 
   const handleLongPress = () => {
@@ -142,9 +150,17 @@ export default function JourneyCard({ journey, onPress, onLongPress }: JourneyCa
         </View>
       </View>
 
-      {/* Chevron */}
+      {/* Chevron or Checkbox */}
       <View style={styles.chevronWrap}>
-        <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
+        {isSelectMode ? (
+          <Ionicons
+            name={isSelected ? "checkmark-circle" : "ellipse-outline"}
+            size={22}
+            color={isSelected ? GROWTH_GREEN : theme.colors.textSecondary}
+          />
+        ) : (
+          <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
+        )}
       </View>
     </TouchableOpacity>
   );

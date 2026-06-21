@@ -30,6 +30,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { sanitizeLatitudeDelta, sanitizeMapRegion } from '../../utils/mapSafety';
+import * as ImagePicker from 'expo-image-picker';
+import { prepareImageForUpload } from '../../services/mediaService';
+import { createPost, createShort } from '../../services/posts';
+import { getAddressFromCoords } from '../../utils/locationUtils';
+import { createLogger } from '../../utils/logger';
+
+const logger = createLogger('TrackingScreen');
 
 const GROWTH_GREEN = '#22C55E';
 const ACTION_BLUE = '#3B82F6';
@@ -219,26 +226,130 @@ export default function TrackingScreen() {
   const handleStopJourney = async () => {
     try {
       setIsLoading(true);
+      isNavigatingAwayRef.current = true; // Set this first to prevent redirect race conditions
       await stopJourneyRecording();
-      isNavigatingAwayRef.current = true;
       showSuccess('Journey Saved!', 'Your journey has been saved successfully.');
       router.push('/navigate/complete');
     } catch (err: any) {
+      isNavigatingAwayRef.current = false; // Reset on failure
       showError(err.message || 'Unknown error', 'Failed to end journey');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const openJourneyCapture = (type: 'photo' | 'short') => {
-    router.push({
-      pathname: '/(tabs)/post',
-      params: {
-        journeyCapture: 'true',
-        postType: type,
-        source: 'journey',
-      },
-    });
+  const openJourneyCapture = async (type: 'photo' | 'short') => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== ImagePicker.PermissionStatus.GRANTED) {
+        Alert.alert('Permission needed', 'Please grant camera permissions to capture waypoints.');
+        return;
+      }
+
+      // Check current location from GPS context
+      const lat = currentLocation?.latitude || currentCoordinate?.latitude;
+      const lng = currentLocation?.longitude || currentCoordinate?.longitude;
+
+      if (!lat || !lng) {
+        Alert.alert('Location not available', 'Please wait until your GPS location is resolved.');
+        return;
+      }
+
+      if (type === 'photo') {
+        const result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ['images'],
+          allowsEditing: false,
+          quality: 0.8,
+          exif: true,
+        });
+
+        if (!result || result.canceled || !result.assets?.[0]) {
+          return;
+        }
+
+        setIsLoading(true);
+        const asset = result.assets[0];
+
+        // 1. Get address
+        let addressText = '';
+        try {
+          addressText = await getAddressFromCoords(lat, lng);
+        } catch (e) {
+          logger.warn('Failed to get address:', e);
+        }
+
+        // 2. Prepare image for upload (compresses and strips EXIF for privacy)
+        const prepared = await prepareImageForUpload(asset.uri, asset.fileName || `photo_${Date.now()}.jpg`);
+
+        // 3. Post
+        const postData = {
+          images: [prepared],
+          caption: '',
+          address: addressText || 'Journey Waypoint',
+          latitude: lat,
+          longitude: lng,
+          hasExifGps: true,
+          fromCamera: true,
+          source: 'taatom_camera_live' as const,
+        };
+
+        await createPost(postData);
+        showSuccess('Waypoint Posted', 'Your photo waypoint has been posted successfully!');
+      } else {
+        // short (video)
+        const result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ['videos'],
+          allowsEditing: true,
+          aspect: [9, 16],
+          quality: 0.8,
+          exif: true,
+          videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720,
+          videoMaxDuration: 60,
+          videoQuality: 1,
+        });
+
+        if (!result || result.canceled || !result.assets?.[0]) {
+          return;
+        }
+
+        setIsLoading(true);
+        const asset = result.assets[0];
+
+        // 1. Get address
+        let addressText = '';
+        try {
+          addressText = await getAddressFromCoords(lat, lng);
+        } catch (e) {
+          logger.warn('Failed to get address:', e);
+        }
+
+        // 2. Post Short
+        const shortData = {
+          video: {
+            uri: asset.uri,
+            type: 'video/mp4',
+            name: asset.fileName || `video_${Date.now()}.mp4`,
+          },
+          caption: '',
+          address: addressText || 'Journey Waypoint',
+          latitude: lat,
+          longitude: lng,
+          hasExifGps: true,
+          fromCamera: true,
+          source: 'taatom_camera_live' as const,
+          audioSource: 'user_original' as const,
+          copyrightAccepted: true,
+          copyrightAcceptedAt: new Date().toISOString(),
+        };
+
+        await createShort(shortData);
+        showSuccess('Waypoint Posted', 'Your reel waypoint has been posted successfully!');
+      }
+    } catch (err: any) {
+      showError(err.message || 'Unknown error', 'Failed to post waypoint');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const formatDistance = () => {

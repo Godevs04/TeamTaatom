@@ -107,17 +107,14 @@ export default function UserPostsScreen() {
     }
   }
 
-  const [posts, setRawPosts] = useState<any[]>(() => {
-    const initial = initialPost.current ? [initialPost.current] : [];
-    return savedEvents.filterDeleted(initial);
-  });
+  const [posts, setRawPosts] = useState<any[]>([]);
   const setPosts = (value: React.SetStateAction<any[]>) => {
     setRawPosts((prev) => {
       const resolved = typeof value === 'function' ? (value as any)(prev) : value;
       return savedEvents.filterDeleted(resolved);
     });
   };
-  const [loading, setLoading] = useState(!initialPost.current);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!loading && posts.length === 0) {
@@ -192,17 +189,17 @@ export default function UserPostsScreen() {
       
       const limit = 20;
       let targetIndex = 0;
-      if (postId && posts.length > 0) {
+      if (index) {
+        targetIndex = parseInt(index as string, 10);
+      } else if (postId && posts.length > 0) {
         const foundIndex = posts.findIndex((p: any) => p._id === postId);
         if (foundIndex !== -1) {
           targetIndex = foundIndex;
         }
-      } else if (index) {
-        targetIndex = parseInt(index as string, 10);
       }
 
       const targetPage = Math.floor(targetIndex / limit) + 1;
-      const maxPageToFetch = Math.min(Math.max(1, targetPage), 5);
+      const maxPageToFetch = Math.min(Math.max(1, targetPage), 25); // Cap at 25 pages (500 posts)
 
       const pagePromises = [];
       for (let p = 1; p <= maxPageToFetch; p++) {
@@ -235,7 +232,29 @@ export default function UserPostsScreen() {
 
       let finalTargetIndex = targetIndex;
       if (postId) {
-        const foundIndex = fetchedPosts.findIndex((p: any) => normalizeId(p._id) === normalizeId(postId));
+        let foundIndex = fetchedPosts.findIndex((p: any) => normalizeId(p._id) === normalizeId(postId));
+        
+        // If not found in the initial batch of pages, fetch more pages to search for the post
+        if (foundIndex === -1 && maxPageToFetch < 15) {
+          logger.debug('Post not found in initial fetch, fetching additional pages...');
+          const additionalPromises = [];
+          for (let p = maxPageToFetch + 1; p <= maxPageToFetch + 5; p++) {
+            additionalPromises.push(api.get(`/posts/user/${userId}?page=${p}&limit=${limit}`).catch(() => ({ data: { posts: [] } })));
+          }
+          const additionalResponses = await Promise.all(additionalPromises);
+          for (const res of additionalResponses) {
+            fetchedPosts = [...fetchedPosts, ...(res.data?.posts || [])];
+          }
+          // De-duplicate and sort again
+          fetchedPosts = fetchedPosts.filter((p, i, self) => self.findIndex(t => t._id === p._id) === i);
+          fetchedPosts.sort((a: any, b: any) => {
+            const dateA = new Date(a.createdAt || a.created_at || 0).getTime();
+            const dateB = new Date(b.createdAt || b.created_at || 0).getTime();
+            return dateB - dateA;
+          });
+          foundIndex = fetchedPosts.findIndex((p: any) => normalizeId(p._id) === normalizeId(postId));
+        }
+
         if (foundIndex === -1) {
           // Specific post is deleted or no longer available, go back immediately
           router.back();
@@ -252,21 +271,6 @@ export default function UserPostsScreen() {
       const lastPageResponse = pagesResponses[pagesResponses.length - 1];
       const lastPagePosts = lastPageResponse?.data?.posts || [];
       setHasMorePosts(lastPagePosts.length === limit);
-
-      // Scroll to target index programmatically once posts are loaded
-      if (fetchedPosts.length > 0 && finalTargetIndex > 0) {
-        requestAnimationFrame(() => {
-          try {
-            flatListRef.current?.scrollToIndex({
-              index: finalTargetIndex,
-              animated: false,
-              viewPosition: 0,
-            });
-          } catch (err) {
-            logger.debug('Programmatic scroll to index failed:', err);
-          }
-        });
-      }
       
     } catch (error) {
       logger.error('Error fetching user posts:', error);

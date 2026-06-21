@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,6 +6,8 @@ import {
   TouchableOpacity,
   Animated,
   Platform,
+  PanResponder,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -46,6 +48,48 @@ export default function JourneyStatusBar({
   const [pulseAnimation] = useState(new Animated.Value(1));
   const [formattedDistance, setFormattedDistance] = useState('0 km');
   const [formattedDuration, setFormattedDuration] = useState('0m');
+
+  const initialY = insets.top + (Platform.OS === 'android' ? 56 : 44);
+  const pan = useRef(new Animated.ValueXY({ x: 0, y: initialY })).current;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Threshold of 5 pixels to set pan responder
+        return Math.abs(gestureState.dx) > 5 || Math.abs(gestureState.dy) > 5;
+      },
+      onPanResponderGrant: () => {
+        pan.setOffset({
+          x: (pan.x as any)._value,
+          y: (pan.y as any)._value
+        });
+        pan.setValue({ x: 0, y: 0 });
+      },
+      onPanResponderMove: Animated.event(
+        [null, { dx: pan.x, dy: pan.y }],
+        { useNativeDriver: false }
+      ),
+      onPanResponderRelease: () => {
+        pan.flattenOffset();
+        const screenWidth = Dimensions.get('window').width;
+        const screenHeight = Dimensions.get('window').height;
+        
+        let currentX = (pan.x as any)._value;
+        let currentY = (pan.y as any)._value;
+        
+        const clampedY = Math.max(insets.top, Math.min(currentY, screenHeight - 100));
+        const clampedX = Math.max(-screenWidth + 100, Math.min(currentX, screenWidth - 100));
+        
+        Animated.spring(pan, {
+          toValue: { x: clampedX, y: clampedY },
+          useNativeDriver: false,
+          tension: 40,
+          friction: 8,
+        }).start();
+      }
+    })
+  ).current;
 
   // Format distance
   useEffect(() => {
@@ -113,94 +157,103 @@ export default function JourneyStatusBar({
   const statusText = isPaused ? 'Paused' : 'Recording';
 
   return (
-    <TouchableOpacity
+    <Animated.View
+      {...panResponder.panHandlers}
       style={[
         styles.container,
         {
           backgroundColor: theme.colors.surface,
           borderBottomColor: theme.colors.border,
-          top: insets.top + (Platform.OS === 'android' ? 56 : 44), // Below header
+          top: 0,
+          transform: [
+            { translateX: pan.x },
+            { translateY: pan.y }
+          ]
         },
       ]}
-      activeOpacity={0.7}
-      onPress={() => router.push('/navigate/tracking')}
     >
-      {/* Status Indicator */}
-      <View style={styles.statusContainer}>
-        {isTracking && !isPaused && (
-          <>
-            {/* Outer pulsing ring */}
-            <Animated.View
-              style={[
-                styles.pulseRing,
-                {
-                  transform: [{ scale: dotScale }],
-                  opacity: dotOpacity,
-                  borderColor: statusColor,
-                },
-              ]}
-            />
-            {/* Inner solid dot */}
+      <TouchableOpacity
+        style={styles.innerTouchable}
+        activeOpacity={0.7}
+        onPress={() => router.push('/navigate/tracking')}
+      >
+        {/* Status Indicator */}
+        <View style={styles.statusContainer}>
+          {isTracking && !isPaused && (
+            <>
+              {/* Outer pulsing ring */}
+              <Animated.View
+                style={[
+                  styles.pulseRing,
+                  {
+                    transform: [{ scale: dotScale }],
+                    opacity: dotOpacity,
+                    borderColor: statusColor,
+                  },
+                ]}
+              />
+              {/* Inner solid dot */}
+              <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
+            </>
+          )}
+
+          {isPaused && (
             <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-          </>
-        )}
-
-        {isPaused && (
-          <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-        )}
-      </View>
-
-      {/* Status Text and Metrics */}
-      <View style={styles.infoContainer}>
-        <View style={styles.statusRow}>
-          <Text style={[styles.statusLabel, { color: statusColor }]}>
-            {statusText}
-          </Text>
+          )}
         </View>
 
-        <View style={styles.metricsRow}>
-          <Text style={[styles.metric, { color: theme.colors.textSecondary }]}>
-            {formattedDistance}
-          </Text>
-          <Text style={[styles.metricSeparator, { color: theme.colors.textSecondary }]}>
-            •
-          </Text>
-          <Text style={[styles.metric, { color: theme.colors.textSecondary }]}>
-            {formattedDuration}
-          </Text>
-        </View>
-      </View>
+        {/* Status Text and Metrics */}
+        <View style={styles.infoContainer}>
+          <View style={styles.statusRow}>
+            <Text style={[styles.statusLabel, { color: statusColor }]}>
+              {statusText}
+            </Text>
+          </View>
 
-      {/* Action Buttons */}
-      <View style={styles.actionsContainer}>
-        {isPaused ? (
-          <>
-            <TouchableOpacity
-              style={[styles.actionButton, { borderColor: statusColor }]}
-              onPress={onContinue}
-              accessibilityLabel="Continue tracking"
-            >
-              <Ionicons name="play-circle" size={20} color={statusColor} />
-            </TouchableOpacity>
+          <View style={styles.metricsRow}>
+            <Text style={[styles.metric, { color: theme.colors.textSecondary }]}>
+              {formattedDistance}
+            </Text>
+            <Text style={[styles.metricSeparator, { color: theme.colors.textSecondary }]}>
+              •
+            </Text>
+            <Text style={[styles.metric, { color: theme.colors.textSecondary }]}>
+              {formattedDuration}
+            </Text>
+          </View>
+        </View>
+
+        {/* Action Buttons */}
+        <View style={styles.actionsContainer}>
+          {isPaused ? (
+            <>
+              <TouchableOpacity
+                style={[styles.actionButton, { borderColor: statusColor }]}
+                onPress={onContinue}
+                accessibilityLabel="Continue tracking"
+              >
+                <Ionicons name="play-circle" size={20} color={statusColor} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionButton, { borderColor: ALERT_RED }]}
+                onPress={onStop}
+                accessibilityLabel="End journey"
+              >
+                <Ionicons name="stop-circle" size={20} color={ALERT_RED} />
+              </TouchableOpacity>
+            </>
+          ) : (
             <TouchableOpacity
               style={[styles.actionButton, { borderColor: ALERT_RED }]}
-              onPress={onStop}
-              accessibilityLabel="End journey"
+              onPress={onPause}
+              accessibilityLabel="Pause tracking"
             >
-              <Ionicons name="stop-circle" size={20} color={ALERT_RED} />
+              <Ionicons name="pause-circle" size={20} color={ALERT_RED} />
             </TouchableOpacity>
-          </>
-        ) : (
-          <TouchableOpacity
-            style={[styles.actionButton, { borderColor: ALERT_RED }]}
-            onPress={onPause}
-            accessibilityLabel="Pause tracking"
-          >
-            <Ionicons name="pause-circle" size={20} color={ALERT_RED} />
-          </TouchableOpacity>
-        )}
-      </View>
-    </TouchableOpacity>
+          )}
+        </View>
+      </TouchableOpacity>
+    </Animated.View>
   );
 }
 
@@ -210,11 +263,14 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 100,
+    borderBottomWidth: 1,
+  },
+  innerTouchable: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 10,
-    borderBottomWidth: 1,
+    width: '100%',
   },
   statusContainer: {
     position: 'relative',

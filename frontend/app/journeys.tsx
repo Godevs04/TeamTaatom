@@ -7,6 +7,7 @@ import {
   RefreshControl,
   LayoutAnimation,
   Animated,
+  TouchableOpacity,
 } from 'react-native';
 import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +20,7 @@ import { getUserJourneys, deleteJourney } from '../services/journey';
 import { getUserFromStorage } from '../services/auth';
 import { getProfile } from '../services/profile';
 import { ErrorBoundary } from '../utils/errorBoundary';
+import { useJourney } from '../context/JourneyContext';
 
 const GROWTH_GREEN = '#22C55E';
 
@@ -40,6 +42,9 @@ function JourneysListInner() {
   const decodedUserName = userNameParam ? safeDecodeParam(userNameParam).trim() : '';
 
   const [journeys, setJourneys] = useState<any[]>([]);
+  const journeyContext = useJourney();
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [headerTitle, setHeaderTitle] = useState(decodedUserName ? `${decodedUserName}'s Journeys` : 'My Journeys');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -70,6 +75,60 @@ function JourneysListInner() {
     });
   };
 
+  const toggleSelection = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      if (next.size === 0) {
+        setIsSelectMode(false);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleDeleteSelected = () => {
+    if (selectedIds.size === 0) return;
+    showDestructiveConfirm(
+      `Are you sure you want to delete the ${selectedIds.size} selected journey${selectedIds.size !== 1 ? 's' : ''}? This action cannot be undone.`,
+      async () => {
+        const previousJourneys = [...journeys];
+        const idsToDelete = new Set(selectedIds);
+        
+        // Optimistic UI Update
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setJourneys((prev) => prev.filter((j) => !idsToDelete.has(j._id)));
+        
+        // Exit select mode
+        setIsSelectMode(false);
+        setSelectedIds(new Set());
+
+        try {
+          // Delete on backend
+          await Promise.all(Array.from(idsToDelete).map((id) => deleteJourney(id)));
+          showToast(`Successfully deleted ${idsToDelete.size} journey${idsToDelete.size !== 1 ? 's' : ''}.`);
+          
+          // If any of the deleted journeys was the active journey, stop/reset tracking
+          const activeId = journeyContext?.journey?._id;
+          if (activeId && idsToDelete.has(activeId)) {
+            journeyContext.stopJourneyRecording({ snapToRoads: false }).catch(() => {});
+          }
+        } catch (err: any) {
+          // Revert state
+          LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+          setJourneys(previousJourneys);
+          showToast('Failed to delete some journeys. Please check your connection.');
+        }
+      },
+      'Delete Journeys',
+      'Delete',
+      'Cancel'
+    );
+  };
+
   const handleDeleteJourney = (journeyItem: any) => {
     showDestructiveConfirm(
       'Are you sure you want to delete this journey? This action cannot be undone.',
@@ -81,6 +140,11 @@ function JourneysListInner() {
 
         try {
           await deleteJourney(journeyItem._id);
+          // If the deleted journey was the active journey, stop/reset tracking
+          const activeId = journeyContext?.journey?._id;
+          if (activeId && journeyItem._id === activeId) {
+            journeyContext.stopJourneyRecording({ snapToRoads: false }).catch(() => {});
+          }
         } catch (err: any) {
           // Revert state
           LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -206,7 +270,21 @@ function JourneysListInner() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      <NavBar title={headerTitle} showBack onBack={() => router.back()} />
+      <NavBar 
+        title={isSelectMode ? `Selected (${selectedIds.size})` : headerTitle} 
+        showBack 
+        onBack={isSelectMode ? () => {
+          setIsSelectMode(false);
+          setSelectedIds(new Set());
+        } : () => router.back()}
+        rightComponent={
+          isSelectMode ? (
+            <TouchableOpacity onPress={handleDeleteSelected}>
+              <Ionicons name="trash-outline" size={24} color="#EF4444" style={{ marginRight: 6 }} />
+            </TouchableOpacity>
+          ) : null
+        }
+      />
 
       <FlatList
         data={journeys}
@@ -221,8 +299,23 @@ function JourneysListInner() {
         renderItem={({ item }) => (
           <JourneyCard
             journey={item}
-            onPress={() => router.push(`/navigate/detail?journeyId=${item._id}`)}
-            onLongPress={() => handleDeleteJourney(item)}
+            onPress={() => {
+              if (isSelectMode) {
+                toggleSelection(item._id);
+              } else {
+                router.push(`/navigate/detail?journeyId=${item._id}`);
+              }
+            }}
+            onLongPress={() => {
+              if (!isSelectMode) {
+                setIsSelectMode(true);
+                setSelectedIds(new Set([item._id]));
+              } else {
+                toggleSelection(item._id);
+              }
+            }}
+            isSelected={selectedIds.has(item._id)}
+            isSelectMode={isSelectMode}
           />
         )}
         ListEmptyComponent={renderEmptyState}

@@ -384,6 +384,7 @@ interface UseJourneyTrackingReturn {
   pauseJourneyRecording: () => Promise<void>;
   resumeJourneyRecording: () => Promise<void>;
   stopJourneyRecording: (options?: { snapToRoads?: boolean }) => Promise<void>;
+  refreshActiveJourney: () => Promise<void>;
 }
 
 /**
@@ -1990,6 +1991,32 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     adjustWatcherAdaptiveThrottling(effectiveSpeed);
   };
 
+  const refreshActiveJourney = useCallback(async () => {
+    try {
+      const storedJourneyId = await AsyncStorage.getItem('activeJourneyId');
+      if (storedJourneyId) {
+        const data = await getJourneyDetail(storedJourneyId);
+        if (data?.journey && isMountedRef.current) {
+          setJourney(data.journey);
+          // Save updated journey state to AsyncStorage
+          const stateToSave = {
+            journey: data.journey,
+            polyline,
+            distance,
+            duration,
+            timestamp: Date.now(),
+          };
+          await AsyncStorage.setItem('@active_journey_state', JSON.stringify(stateToSave)).catch(() => {});
+          
+          suppressNextSyncRef.current = true;
+          broadcastJourneyStateChanged();
+        }
+      }
+    } catch (err) {
+      logger.error('[Journey] refreshActiveJourney failed:', err);
+    }
+  }, [polyline, distance, duration]);
+
   return {
     initialized,
     isTracking,
@@ -2005,5 +2032,6 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     pauseJourneyRecording,
     resumeJourneyRecording,
     stopJourneyRecording,
+    refreshActiveJourney,
   };
 }

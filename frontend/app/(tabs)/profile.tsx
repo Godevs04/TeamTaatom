@@ -159,11 +159,25 @@ const isSavedItemUnavailable = (reason: any): boolean => {
 const isVideoUrl = (url: any, videoUrl?: string) => {
   if (typeof url !== 'string') return false;
   const cleanUrl = url.split('?')[0].toLowerCase();
+  
+  // If the URL has a common image extension, it's not a video
+  if (
+    cleanUrl.endsWith('.jpg') ||
+    cleanUrl.endsWith('.jpeg') ||
+    cleanUrl.endsWith('.png') ||
+    cleanUrl.endsWith('.webp') ||
+    cleanUrl.endsWith('.gif') ||
+    cleanUrl.endsWith('.heic')
+  ) {
+    return false;
+  }
+
   return (
     cleanUrl.endsWith('.mp4') ||
     cleanUrl.endsWith('.mov') ||
     cleanUrl.endsWith('.m4v') ||
     cleanUrl.endsWith('.webm') ||
+    cleanUrl.endsWith('.m3u8') ||
     cleanUrl.includes('/videos/') ||
     cleanUrl.includes('/shorts/') ||
     (videoUrl !== undefined && url === videoUrl)

@@ -715,6 +715,7 @@ export default function LocaleScreen() {
   const isSearchingRef = useRef(false);
   const isPaginatingRef = useRef(false);
   const currentPageRef = useRef(1);
+  const loadedPagesCountRef = useRef(0);
   const geospatialCursorRef = useRef<string | number | null>(null);
   const [totalPages, setTotalPages] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -806,29 +807,102 @@ export default function LocaleScreen() {
     staleTime: 5 * 60 * 1000,
   });
 
-  // Synchronize adminLocales with query pages and drivingDistances
+  // Synchronize adminLocales with query pages and drivingDistances in a stable way
   useEffect(() => {
-    if (!data?.pages) return;
-    const rawLocales = data.pages.flatMap((page) => page.locales || []);
-    const mapped = rawLocales.map((locale) => {
-      const drivingDist = drivingDistances[locale._id];
-      if (drivingDist !== undefined) {
-        return { ...locale, distanceKm: drivingDist };
-      }
-      if (locale.latitude && locale.longitude && userLocation && locationPermissionGranted) {
-        const straightLineDistance = calculateDistance(
-          userLocation.latitude,
-          userLocation.longitude,
-          locale.latitude,
-          locale.longitude
-        );
-        return { ...locale, distanceKm: straightLineDistance };
-      }
-      return locale;
-    });
+    if (!data?.pages || data.pages.length === 0) {
+      setAdminLocales([]);
+      loadedPagesCountRef.current = 0;
+      return;
+    }
 
-    setAdminLocales(mapped);
-  }, [data, drivingDistances, userLocation, locationPermissionGranted]);
+    const currentPagesCount = data.pages.length;
+    const currentUserLoc = userLocationRef.current;
+
+    const mapLocaleDistances = (locale: Locale) => {
+      const drivingDist = drivingDistances[locale._id];
+      const distanceKm = drivingDist !== undefined ? drivingDist : (
+        locale.latitude && locale.longitude && currentUserLoc && locationPermissionGranted
+          ? calculateDistance(currentUserLoc.latitude, currentUserLoc.longitude, locale.latitude, locale.longitude)
+          : null
+      );
+      
+      return {
+        ...locale,
+        localeId: String(locale._id),
+        distanceKm,
+      };
+    };
+
+    const sortMappedLocales = (localesToSort: any[]) => {
+      if (currentUserLoc) {
+        const INFINITY = Number.POSITIVE_INFINITY;
+        return [...localesToSort].sort((a, b) => {
+          const dA = a.distanceKm;
+          const dB = b.distanceKm;
+          const effA = (dA !== null && dA !== undefined && !isNaN(dA)) ? dA : INFINITY;
+          const effB = (dB !== null && dB !== undefined && !isNaN(dB)) ? dB : INFINITY;
+          return effA - effB;
+        });
+      }
+      
+      return [...localesToSort].sort((a, b) => {
+        const dateA = new Date(a.createdAt || 0).getTime();
+        const dateB = new Date(b.createdAt || 0).getTime();
+        return dateB - dateA;
+      });
+    };
+
+    if (currentPagesCount === 1) {
+      const page1Locales = data.pages[0].locales || [];
+      const mapped = page1Locales.map(mapLocaleDistances);
+      const sorted = sortMappedLocales(mapped);
+      setAdminLocales(sorted);
+      loadedPagesCountRef.current = 1;
+    } else if (currentPagesCount > loadedPagesCountRef.current) {
+      let newMappedList = [...adminLocales];
+      for (let i = loadedPagesCountRef.current; i < currentPagesCount; i++) {
+        const newPageLocales = data.pages[i].locales || [];
+        const mappedPage = newPageLocales.map(mapLocaleDistances);
+        const sortedPage = sortMappedLocales(mappedPage);
+        newMappedList = [...newMappedList, ...sortedPage];
+      }
+      setAdminLocales(newMappedList);
+      loadedPagesCountRef.current = currentPagesCount;
+    }
+  }, [data, locationPermissionGranted]);
+
+  // Update distances in-place when userLocation or drivingDistances change, WITHOUT re-sorting
+  useEffect(() => {
+    if (!userLocation || !locationPermissionGranted || adminLocales.length === 0) return;
+    
+    setAdminLocales(prev => {
+      let changed = false;
+      const updated = prev.map(locale => {
+        const drivingDist = drivingDistances[locale._id];
+        if (drivingDist !== undefined) {
+          if (locale.distanceKm !== drivingDist) {
+            changed = true;
+            return { ...locale, distanceKm: drivingDist };
+          }
+          return locale;
+        }
+        if (locale.latitude && locale.longitude) {
+          const straightLineDistance = calculateDistance(
+            userLocation.latitude,
+            userLocation.longitude,
+            locale.latitude,
+            locale.longitude
+          );
+          if (locale.distanceKm !== straightLineDistance) {
+            changed = true;
+            return { ...locale, distanceKm: straightLineDistance };
+          }
+        }
+        return locale;
+      });
+      return changed ? updated : prev;
+    });
+  }, [userLocation, locationPermissionGranted, drivingDistances]);
 
   useEffect(() => {
     setHasMore(!!hasNextPage);
@@ -1984,12 +2058,11 @@ export default function LocaleScreen() {
     searchInput.trim() !== ''
   ), [filters, searchInput]);
 
-  // Memoized sorted admin locales - always sorted by distance (or createdAt if no location)
-  // This ensures locales are always in the correct order for display
-  // CRITICAL: Include userState in dependencies so sorting updates when state is detected
+  // Memoized sorted admin locales - returns the stable adminLocales array
+  // which is already sorted page-by-page. Order is frozen after initial render.
   const sortedAdminLocales = useMemo(() => {
-    return sortLocalesByDistance(adminLocales);
-  }, [adminLocales, sortLocalesByDistance]);
+    return adminLocales;
+  }, [adminLocales]);
 
   // The list the locale-tab FlatList actually renders. Lifted from
   // renderAdminLocales() so the FlatList can read it directly and so it
@@ -3305,11 +3378,11 @@ export default function LocaleScreen() {
     [renderAdminLocaleCard],
   );
 
-  const localeKeyExtractor = useCallback((item: Locale) => {
-    if (!item || !item._id) {
+  const localeKeyExtractor = useCallback((item: Locale & { localeId?: string }) => {
+    if (!item || (!item.localeId && !item._id)) {
       return `invalid-id-${item?.name || 'unknown'}`;
     }
-    return String(item._id);
+    return String(item.localeId || item._id);
   }, []);
 
   const localeGetItemLayout = useCallback((_data: ArrayLike<Locale> | null | undefined, index: number) => {
@@ -3580,8 +3653,7 @@ export default function LocaleScreen() {
                 scrollEventThrottle={16}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
-                onEndReached={handleLoadMore}
-                                onEndReachedThreshold={0.7}
+                maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
                 estimatedItemSize={220}
                 contentContainerStyle={{
                   paddingHorizontal: isTabletLocal ? 24 : 16,
@@ -3612,12 +3684,50 @@ export default function LocaleScreen() {
                 ListFooterComponent={
                   (localesToShow || []).length > 0 ? (
                     <View style={{ paddingTop: 20, paddingBottom: 16 }}>
-                      {loadingMore ? (
-                        <View style={{ gap: 20 }}>
-                          <LocaleCardSkeleton width={CARD_WIDTH} height={CARD_HEIGHT} />
-                          <LocaleCardSkeleton width={CARD_WIDTH} height={CARD_HEIGHT} />
+                      {hasMore && (
+                        <View style={styles.loadMoreButtonContainer}>
+                          <TouchableOpacity
+                            style={[
+                              styles.loadMoreButton,
+                              {
+                                overflow: 'hidden',
+                                opacity: loadingMore ? 0.8 : 1,
+                                backgroundColor: loadingMore ? 'rgba(255, 255, 255, 0.1)' : undefined,
+                              },
+                            ]}
+                            onPress={handleLoadMore}
+                            activeOpacity={0.7}
+                            disabled={loadingMore}
+                          >
+                            {!loadingMore && (
+                              <LinearGradient
+                                colors={['#50C878', '#1C73B4']}
+                                style={StyleSheet.absoluteFillObject}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                              />
+                            )}
+                            {loadingMore ? (
+                              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <ActivityIndicator size="small" color={theme.colors.primary} />
+                                <Text style={[styles.loadMoreText, { color: theme.colors.text, marginLeft: 8 }]}>
+                                  Loading Places...
+                                </Text>
+                              </View>
+                            ) : (
+                              <>
+                                <Text style={[styles.loadMoreText, { color: '#FFFFFF' }]}>Load More Places</Text>
+                                <Ionicons
+                                  name="chevron-down"
+                                  size={20}
+                                  color="#FFFFFF"
+                                  style={{ marginLeft: 8 }}
+                                />
+                              </>
+                            )}
+                          </TouchableOpacity>
                         </View>
-                      ) : null}
+                      )}
                     </View>
                   ) : null
                 }
