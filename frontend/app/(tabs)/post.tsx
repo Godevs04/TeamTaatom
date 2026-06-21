@@ -80,6 +80,7 @@ import ImageEditModal, { ImageFilterType, FILTER_PREVIEW_OVERLAY } from '../../c
 import AspectImageCropper, { CropTransform } from '../../components/post/AspectImageCropper';
 import { applyFilterToImages } from '../../utils/applyImageFilter';
 import { Image as ExpoImage } from 'expo-image';
+import { calculateCoordinateDistance } from "../../components/PolylineRenderer";
 
 const logger = createLogger('PostScreen');
 
@@ -251,6 +252,117 @@ const FormikValueTracker = ({ values, onValuesChange }: FormikValueTrackerProps)
   useEffect(() => {
     onValuesChange(values);
   }, [values, onValuesChange]);
+  return null;
+};
+
+const resolveAndSnapLocation = async (
+  locationResult: any | null,
+  isCamera: boolean
+): Promise<{
+  lat: number;
+  lng: number;
+  address?: string;
+  hasExifGps: boolean;
+  takenAt: Date | null;
+  rawSource: 'exif' | 'asset' | 'manual' | 'none';
+} | null> => {
+  try {
+    // 1. Check if there is an active journey first
+    const activeStateRaw = await AsyncStorage.getItem('@active_journey_state');
+    let journeyCoords: { lat: number; lng: number } | null = null;
+    let polylinePoints: any[] = [];
+    
+    if (activeStateRaw) {
+      const activeState = JSON.parse(activeStateRaw);
+      polylinePoints = activeState.polyline || [];
+      if (polylinePoints.length > 0) {
+        const lastPt = polylinePoints[polylinePoints.length - 1];
+        if (lastPt?.latitude && lastPt?.longitude) {
+          journeyCoords = { lat: lastPt.latitude, lng: lastPt.longitude };
+        }
+      }
+    }
+
+    // 2. If no active journey, check if there's a recently completed journey endpoint (within 15 minutes)
+    if (!journeyCoords) {
+      const lastEndpointRaw = await AsyncStorage.getItem('@last_completed_journey_endpoint');
+      if (lastEndpointRaw) {
+        const lastEndpoint = JSON.parse(lastEndpointRaw);
+        const ageMs = Date.now() - (lastEndpoint.timestamp || 0);
+        if (ageMs < 15 * 60 * 1000) { // 15 minutes threshold
+          journeyCoords = { lat: lastEndpoint.latitude, lng: lastEndpoint.longitude };
+        }
+      }
+    }
+
+    // 3. If it's a camera capture, prioritize the active/recent journey coordinates
+    if (isCamera && journeyCoords) {
+      const addressText = await getAddressFromCoords(journeyCoords.lat, journeyCoords.lng).catch(() => '');
+      return {
+        lat: journeyCoords.lat,
+        lng: journeyCoords.lng,
+        address: addressText || 'Journey Location',
+        hasExifGps: true, // Treat as strong GPS evidence since it's verified by active journey tracking
+        takenAt: new Date(),
+        rawSource: 'exif',
+      };
+    }
+
+    // 4. If we have EXIF/metadata location
+    if (locationResult && typeof locationResult.lat === 'number' && typeof locationResult.lng === 'number') {
+      let finalLat = locationResult.lat;
+      let finalLng = locationResult.lng;
+      
+      // If we have an active journey with a path, snap the EXIF coordinates to the closest point in the polyline
+      if (polylinePoints.length > 0) {
+        let closestPoint = polylinePoints[0];
+        let minDistance = Infinity;
+        for (const pt of polylinePoints) {
+          if (pt.latitude && pt.longitude) {
+            const dist = calculateCoordinateDistance(
+              locationResult.lat,
+              locationResult.lng,
+              pt.latitude,
+              pt.longitude
+            );
+            if (dist < minDistance) {
+              minDistance = dist;
+              closestPoint = pt;
+            }
+          }
+        }
+        // Only snap if within 5km
+        if (minDistance < 5000 && closestPoint) {
+          finalLat = closestPoint.latitude;
+          finalLng = closestPoint.longitude;
+        }
+      }
+
+      return {
+        lat: finalLat,
+        lng: finalLng,
+        address: locationResult.address,
+        hasExifGps: locationResult.hasExifGps,
+        takenAt: locationResult.takenAt || null,
+        rawSource: locationResult.rawSource || 'exif',
+      };
+    }
+
+    // 5. Fallback: If no location metadata, but we have an active/recent journey, use it
+    if (journeyCoords) {
+      const addressText = await getAddressFromCoords(journeyCoords.lat, journeyCoords.lng).catch(() => '');
+      return {
+        lat: journeyCoords.lat,
+        lng: journeyCoords.lng,
+        address: addressText || 'Journey Location',
+        hasExifGps: true, // Treat as strong GPS evidence since it's verified by active journey tracking
+        takenAt: new Date(),
+        rawSource: 'exif',
+      };
+    }
+  } catch (e) {
+    logger.warn('Error in resolveAndSnapLocation:', e);
+  }
   return null;
 };
 
@@ -1466,23 +1578,19 @@ export default function PostScreen() {
           selectionStartTime
         );
         
-        if (locationResult) {
-          setLocation({ lat: locationResult.lat, lng: locationResult.lng });
-          if (locationResult.address) {
-            setAddress(locationResult.address);
+        const resolved = await resolveAndSnapLocation(locationResult, false);
+        if (resolved) {
+          setLocation({ lat: resolved.lat, lng: resolved.lng });
+          if (resolved.address) {
+            setAddress(resolved.address);
           }
-          // Store metadata for TripScore v2
           setLocationMetadata({
-            hasExifGps: locationResult.hasExifGps,
-            takenAt: locationResult.takenAt || null,
-            rawSource: locationResult.rawSource
+            hasExifGps: resolved.hasExifGps,
+            takenAt: resolved.takenAt,
+            rawSource: resolved.rawSource
           });
           setIsFromCameraFlow(false); // Gallery selection
-          logger.debug('Location extraction result: Found', {
-            hasExifGps: locationResult.hasExifGps,
-            rawSource: locationResult.rawSource,
-            takenAt: locationResult.takenAt
-          });
+          logger.debug('Location extraction result: Found', resolved);
         } else {
           logger.debug('Location extraction result: Not found');
           setLocationMetadata({
@@ -1604,15 +1712,16 @@ export default function PostScreen() {
           selectionStartTime
         );
         
-        if (locationResult) {
-          setLocation(prev => prev || { lat: locationResult.lat, lng: locationResult.lng });
-          if (locationResult.address) {
-            setAddress(prev => prev || locationResult.address || '');
+        const resolved = await resolveAndSnapLocation(locationResult, false);
+        if (resolved) {
+          setLocation(prev => prev || { lat: resolved.lat, lng: resolved.lng });
+          if (resolved.address) {
+            setAddress(prev => prev || resolved.address || '');
           }
           setLocationMetadata(prev => prev || {
-            hasExifGps: locationResult.hasExifGps,
-            takenAt: locationResult.takenAt || null,
-            rawSource: locationResult.rawSource
+            hasExifGps: resolved.hasExifGps,
+            takenAt: resolved.takenAt,
+            rawSource: resolved.rawSource
           });
           setIsFromCameraFlow(false);
         }
@@ -1827,23 +1936,20 @@ export default function PostScreen() {
             selectionStartTime
           );
           
-          if (locationResult) {
-            setLocation({ lat: locationResult.lat, lng: locationResult.lng });
-            if (locationResult.address) {
-              setAddress(locationResult.address);
+          const resolved = await resolveAndSnapLocation(locationResult, false);
+          if (resolved) {
+            setLocation({ lat: resolved.lat, lng: resolved.lng });
+            if (resolved.address) {
+              setAddress(resolved.address);
             }
             // Store location metadata for TripScore v2
             setLocationMetadata({
-              hasExifGps: locationResult.hasExifGps,
-              takenAt: locationResult.takenAt || null,
-              rawSource: locationResult.rawSource
+              hasExifGps: resolved.hasExifGps,
+              takenAt: resolved.takenAt,
+              rawSource: resolved.rawSource
             });
             setIsFromCameraFlow(false); // Gallery selection
-            logger.debug('Location extraction result for video: Found', {
-              hasExifGps: locationResult.hasExifGps,
-              rawSource: locationResult.rawSource,
-              takenAt: locationResult.takenAt
-            });
+            logger.debug('Location extraction result for video: Found', resolved);
           } else {
             logger.debug('Location extraction result for video: Not found');
             setLocationMetadata({
@@ -1936,21 +2042,22 @@ export default function PostScreen() {
           captureStartTime
         );
         
-        if (locationResult) {
-          setLocation({ lat: locationResult.lat, lng: locationResult.lng });
-          if (locationResult.address) {
-            setAddress(locationResult.address);
+        const resolved = await resolveAndSnapLocation(locationResult, true);
+        if (resolved) {
+          setLocation({ lat: resolved.lat, lng: resolved.lng });
+          if (resolved.address) {
+            setAddress(resolved.address);
           }
           // Store location metadata for TripScore v2
           setLocationMetadata({
-            hasExifGps: locationResult.hasExifGps,
-            takenAt: locationResult.takenAt || null,
-            rawSource: locationResult.rawSource
+            hasExifGps: resolved.hasExifGps,
+            takenAt: resolved.takenAt,
+            rawSource: resolved.rawSource
           });
           setIsFromCameraFlow(true); // Camera capture
         } else {
-          // No location from EXIF - get current location as fallback for Taatom camera
-          logger.debug('No EXIF location found, getting current location for Taatom camera');
+          // No location from EXIF and no active/recent journey - get current location as fallback for Taatom camera
+          logger.debug('No EXIF location and no active/recent journey found, getting current location for Taatom camera');
           try {
             const currentLocation = await getCurrentLocation();
             if (currentLocation && currentLocation.coords) {
@@ -2187,26 +2294,23 @@ export default function PostScreen() {
             captureStartTime
           );
           
-          if (locationResult) {
-            setLocation({ lat: locationResult.lat, lng: locationResult.lng });
-            if (locationResult.address) {
-              setAddress(locationResult.address);
+          const resolved = await resolveAndSnapLocation(locationResult, true);
+          if (resolved) {
+            setLocation({ lat: resolved.lat, lng: resolved.lng });
+            if (resolved.address) {
+              setAddress(resolved.address);
             }
             // Store location metadata for TripScore v2
             setLocationMetadata({
-              hasExifGps: locationResult.hasExifGps,
-              takenAt: locationResult.takenAt || null,
-              rawSource: locationResult.rawSource
+              hasExifGps: resolved.hasExifGps,
+              takenAt: resolved.takenAt,
+              rawSource: resolved.rawSource
             });
             setIsFromCameraFlow(true); // Camera capture
-            logger.debug('Location extraction result for camera video: Found', {
-              hasExifGps: locationResult.hasExifGps,
-              rawSource: locationResult.rawSource,
-              takenAt: locationResult.takenAt
-            });
+            logger.debug('Location extraction result for camera video: Found', resolved);
           } else {
-            // No location from EXIF - get current location as fallback for Taatom camera
-            logger.debug('No EXIF location found, getting current location for Taatom camera video');
+            // No location from EXIF and no active/recent journey - get current location as fallback for Taatom camera video
+            logger.debug('No EXIF location and no active/recent journey found, getting current location for Taatom camera video');
             try {
               const currentLocation = await getCurrentLocation();
               if (currentLocation && currentLocation.coords) {

@@ -1820,6 +1820,20 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       setIsTracking(false);
       setIsPaused(false);
 
+      // Save last completed endpoint to AsyncStorage for post screen snapping/fallback
+      try {
+        const lastPt = lastCoordinateRef.current || polyline[polyline.length - 1];
+        if (lastPt) {
+          await AsyncStorage.setItem('@last_completed_journey_endpoint', JSON.stringify({
+            latitude: lastPt.latitude,
+            longitude: lastPt.longitude,
+            timestamp: Date.now()
+          })).catch(() => {});
+        }
+      } catch (endpointErr) {
+        // ignore
+      }
+
       // Clear from storage
       await AsyncStorage.removeItem('activeJourneyId');
       await setActiveJourneyIdInCache(null);
@@ -1903,6 +1917,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       await AsyncStorage.removeItem('activeJourneyId');
       await setActiveJourneyIdInCache(null);
       await AsyncStorage.removeItem('@active_journey_state');
+      await AsyncStorage.removeItem('@last_completed_journey_endpoint').catch(() => {});
       
       if (storedJourneyId) {
         await AsyncStorage.removeItem(BG_QUEUE_KEY_PREFIX + storedJourneyId).catch(() => {});
