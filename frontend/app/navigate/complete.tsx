@@ -25,6 +25,27 @@ import PremiumMapMarker from '../../components/PremiumMapMarker';
 import SafeMarker from '../../components/SafeMarker';
 import { useMapStyle } from '../../hooks/useMapStyle';
 import NavBar from '../../components/NavBar';
+import { Image as ExpoImage } from 'expo-image';
+import { getApiUrl } from '../../utils/config';
+
+const resolvePhotoUrl = (url?: string | null): string | undefined => {
+  if (!url) return undefined;
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+    return url;
+  }
+  const cleanPath = url.startsWith('/') ? url : `/${url}`;
+  return getApiUrl(cleanPath);
+};
+
+const getWaypointPhotoUrl = (waypoint: any): string | undefined => {
+  if (!waypoint || !waypoint.post) return undefined;
+  const post = waypoint.post;
+  if (typeof post === 'object') {
+    const url = post.photo || post.imageUrl || post.mediaUrl || post.media?.url || post.thumbnailUrl;
+    return resolvePhotoUrl(url);
+  }
+  return undefined;
+};
 
 const GROWTH_GREEN = '#22C55E';
 const ACTION_BLUE = '#3B82F6';
@@ -223,17 +244,60 @@ function initMap(){
                   applyKalman={false}
                 />
               )}
-              {SafeMarker && journey.waypoints?.map((waypoint, index) => (
-                <SafeMarker
-                  key={`waypoint-${index}`}
-                  coordinate={{ latitude: waypoint.latitude, longitude: waypoint.longitude }}
-                  title={`${waypoint.type === 'photo' ? 'Photo' : 'Video'} #${index + 1}`}
-                  anchor={{ x: 0.5, y: 1.0 }}
-                  repaintTriggers={[waypoint.type]}
-                >
-                  <PremiumMapMarker icon={waypoint.type === 'photo' ? 'camera' : 'videocam'} />
-                </SafeMarker>
-              ))}
+              {SafeMarker && journey.waypoints?.map((waypoint, index) => {
+                const photoUrl = getWaypointPhotoUrl(waypoint);
+                const postId = waypoint.postId || (waypoint as any).post?._id || (waypoint as any).post;
+                const contentType = waypoint.type || (waypoint as any).contentType || (waypoint as any).post?.type || 'photo';
+                const targetUserId = journey.userId || (journey as any).user?._id || (journey as any).user;
+                const latitude = waypoint.latitude ?? (waypoint as any).lat;
+                const longitude = waypoint.longitude ?? (waypoint as any).lng;
+
+                if (latitude === undefined || longitude === undefined || isNaN(latitude) || isNaN(longitude)) return null;
+
+                return (
+                  <SafeMarker
+                    key={`waypoint-${index}`}
+                    coordinate={{ latitude, longitude }}
+                    title={`${contentType === 'video' ? 'Video' : 'Photo'} #${index + 1}`}
+                    anchor={photoUrl ? { x: 0.5, y: 0.5 } : { x: 0.5, y: 1.0 }}
+                    onPress={() => {
+                      if (postId) {
+                        if (contentType === 'short' || contentType === 'video') {
+                          router.push(`/user-shorts/${targetUserId}?shortId=${postId}`);
+                        } else {
+                          router.push(`/post/${postId}`);
+                        }
+                      }
+                    }}
+                    repaintTriggers={[waypoint.type, photoUrl]}
+                  >
+                    {photoUrl ? (
+                      <View style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 16,
+                        borderWidth: 2,
+                        borderColor: '#FFFFFF',
+                        backgroundColor: '#FFFFFF',
+                        overflow: 'hidden',
+                        shadowColor: '#000000',
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.25,
+                        shadowRadius: 4,
+                        elevation: 4,
+                      }}>
+                        <ExpoImage
+                          source={{ uri: photoUrl }}
+                          style={{ width: '100%', height: '100%', borderRadius: 14 }}
+                          contentFit="cover"
+                        />
+                      </View>
+                    ) : (
+                      <PremiumMapMarker icon={waypoint.type === 'photo' ? 'camera' : 'videocam'} />
+                    )}
+                  </SafeMarker>
+                );
+              })}
             </MapView>
           ) : (
             <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}>

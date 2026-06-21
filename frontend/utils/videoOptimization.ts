@@ -50,23 +50,27 @@ export const compressVideo = async (
 ): Promise<string> => {
   try {
     // Dynamically import FFmpegKit to prevent build/init issues on unsupported environments
-    const { FFmpegKit, ReturnCode, FFmpegKitConfig } = await import('@wokcito/ffmpeg-kit-react-native');
+    const ffmpegModule = await import('@wokcito/ffmpeg-kit-react-native');
+    if (!ffmpegModule || !ffmpegModule.FFmpegKit || !ffmpegModule.FFmpegKitConfig) {
+      throw new Error('FFmpegKit native module is not available on this platform/build');
+    }
     
+    const { FFmpegKit, ReturnCode, FFmpegKitConfig } = ffmpegModule;
     const outputPath = `${getCachePath()}optimized_video_${Date.now()}.mp4`;
     
     // Prepare the command.
     // -y overrides output files without asking.
-    // scale='min(720,iw)':-2 ensures we scale width to max 720 (if larger than 720),
+    // scale='min(1080,iw)':-2 ensures we scale width to max 1080 (if larger than 1080),
     // and let height auto-scale divisible by 2 to prevent H.264 encoding errors.
     const command = [
       '-y',
       `-i "${videoUri}"`,
       '-c:v libx264',
       '-preset ultrafast',
-      '-crf 28',
+      '-crf 23',
       '-c:a aac',
       '-b:a 128k',
-      `-vf "scale='min(720,iw)':-2"`,
+      `-vf "scale='min(1080,iw)':-2"`,
       '-movflags +faststart',
       `"${outputPath}"`
     ].join(' ');
@@ -137,8 +141,20 @@ export const compressVideo = async (
     }
 
     return outputPath;
-  } catch (error) {
-    logger.error('[VideoOptimization] Error during video compression, falling back to raw:', error);
+  } catch (error: any) {
+    const errorMessage = error?.message || String(error || '');
+    const isModuleMissing = 
+      errorMessage.includes('not available') || 
+      errorMessage.includes('Cannot read') || 
+      errorMessage.includes('not found') || 
+      errorMessage.includes('null') || 
+      errorMessage.includes('undefined');
+
+    if (isModuleMissing) {
+      logger.warn('[VideoOptimization] FFmpeg native module not available/loaded, falling back to raw video upload');
+    } else {
+      logger.error('[VideoOptimization] Error during video compression, falling back to raw:', error);
+    }
     throw error; // Let caller fallback to original video
   }
 };
@@ -148,10 +164,14 @@ export const compressVideo = async (
  */
 export const cancelCompression = async (): Promise<void> => {
   try {
-    const { FFmpegKit } = await import('@wokcito/ffmpeg-kit-react-native');
-    await FFmpegKit.cancel();
-    logger.info('[VideoOptimization] Cancelled all FFmpeg sessions');
+    const ffmpegModule = await import('@wokcito/ffmpeg-kit-react-native');
+    if (ffmpegModule && ffmpegModule.FFmpegKit && typeof ffmpegModule.FFmpegKit.cancel === 'function') {
+      await ffmpegModule.FFmpegKit.cancel();
+      logger.info('[VideoOptimization] Cancelled all FFmpeg sessions');
+    } else {
+      logger.debug('[VideoOptimization] FFmpegKit native module not available/loaded for cancellation');
+    }
   } catch (error) {
-    logger.error('[VideoOptimization] Error cancelling FFmpeg sessions:', error);
+    logger.debug('[VideoOptimization] Exception during FFmpeg cancellation check:', error);
   }
 };
