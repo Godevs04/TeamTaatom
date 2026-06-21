@@ -14,8 +14,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
-import LoadingGlobe from '../../../components/LoadingGlobe';
-import { theme } from '../../../constants/theme';
+import LoadingGlobe from '../LoadingGlobe';
+import { theme } from '../../constants/theme';
 
 interface DetectPlaceModalProps {
   visible: boolean;

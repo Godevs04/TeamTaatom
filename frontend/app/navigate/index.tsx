@@ -51,6 +51,7 @@ export default function NavigateIndexScreen() {
     distance,
     resumeJourneyRecording,
     stopJourneyRecording,
+    discardActiveJourney,
   } = useJourney();
   const duration = useJourneyDuration();
 
@@ -176,6 +177,10 @@ export default function NavigateIndexScreen() {
 
         try {
           await deleteJourney(journeyItem._id);
+          // If the deleted journey was the active/loaded journey, stop/reset tracking locally
+          if (journey?._id === journeyItem._id) {
+            await discardActiveJourney().catch(() => {});
+          }
         } catch (err: any) {
           // Revert state
           LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);

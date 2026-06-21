@@ -56,6 +56,7 @@ type AdsModule = {
   NativeMediaView: React.ComponentType<any>;
   NativeAsset: React.ComponentType<any>;
   NativeAssetType: typeof import('react-native-google-mobile-ads').NativeAssetType;
+  AdEventType: { IMPRESSION: string };
 };
 
 const maskAdUnitId = (unitId?: string) => {
@@ -84,6 +85,8 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
   const failureFiredRef = useRef(false);
   const onLoadFailedRef = useRef(onLoadFailed);
   onLoadFailedRef.current = onLoadFailed;
+  const onImpressionRef = useRef(onImpression);
+  onImpressionRef.current = onImpression;
   const fireLoadFailed = () => {
     if (failureFiredRef.current) return;
     failureFiredRef.current = true;
@@ -110,6 +113,7 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
         NativeMediaView: ads.NativeMediaView,
         NativeAsset: ads.NativeAsset,
         NativeAssetType: ads.NativeAssetType,
+        AdEventType: ads.AdEventType,
       });
     } catch (err) {
       logger.error('[AdMob] Failed to load react-native-google-mobile-ads module', err, {
@@ -174,12 +178,15 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
         });
         setNativeAd(ad);
         setLoading(false);
-        // Fire impression for the cap tracker as soon as the ad is loaded
-        // and accepted (not destroyed). Guarded so a render thrash can't
-        // double-count the same load.
-        if (!impressionFiredRef.current) {
-          impressionFiredRef.current = true;
-          try { onImpression?.(); } catch { /* swallow */ }
+        // Observe impression only; do not count immediately on load.
+        // Guarded so a render thrash can't double-count the same load.
+        if (adsModule.AdEventType?.IMPRESSION && typeof ad.addAdEventListener === 'function') {
+          ad.addAdEventListener(adsModule.AdEventType.IMPRESSION as any, () => {
+            if (!impressionFiredRef.current) {
+              impressionFiredRef.current = true;
+              try { onImpressionRef.current?.(); } catch { /* swallow */ }
+            }
+          });
         }
       })
       .catch((loadError) => {

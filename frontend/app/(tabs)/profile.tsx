@@ -159,11 +159,25 @@ const isSavedItemUnavailable = (reason: any): boolean => {
 const isVideoUrl = (url: any, videoUrl?: string) => {
   if (typeof url !== 'string') return false;
   const cleanUrl = url.split('?')[0].toLowerCase();
+  
+  // If the URL has a common image extension, it's not a video
+  if (
+    cleanUrl.endsWith('.jpg') ||
+    cleanUrl.endsWith('.jpeg') ||
+    cleanUrl.endsWith('.png') ||
+    cleanUrl.endsWith('.webp') ||
+    cleanUrl.endsWith('.gif') ||
+    cleanUrl.endsWith('.heic')
+  ) {
+    return false;
+  }
+
   return (
     cleanUrl.endsWith('.mp4') ||
     cleanUrl.endsWith('.mov') ||
     cleanUrl.endsWith('.m4v') ||
     cleanUrl.endsWith('.webm') ||
+    cleanUrl.endsWith('.m3u8') ||
     cleanUrl.includes('/videos/') ||
     cleanUrl.includes('/shorts/') ||
     (videoUrl !== undefined && url === videoUrl)
@@ -1453,45 +1467,7 @@ export default function ProfileScreen() {
     );
   };
 
-  if (loading || checkingUser) {
-    return (
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
-        <NavBar title="Profile" />
-        <View style={styles.loadingContainer}>
-          <LoadingGlobe size={36} />
-        </View>
-      </View>
-    );
-  }
-
-  if (!user || !profileData) {
-    return (
-      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <NavBar title="Profile" />
-        <View style={styles.errorContainer}>
-          <Text style={[styles.errorText, { color: theme.colors.text }]}>
-            Failed to load profile
-          </Text>
-          <TouchableOpacity
-            style={[styles.retryButton, { overflow: 'hidden' }]}
-            onPress={() => loadUserData()}
-          >
-            <LinearGradient
-              colors={['#50C878', '#1C73B4']}
-              style={StyleSheet.absoluteFillObject}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-            />
-            <Text style={[styles.retryButtonText, { color: '#FFFFFF' }]}>
-              Retry
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
-  const renderProfileItem = ({ item, index }: { item: PostType; index: number }) => {
+  const renderProfileItem = useCallback(({ item, index }: { item: PostType; index: number }) => {
     if (activeTab === 'posts') {
       const post = item;
       const imageUrl = post.imageUrl 
@@ -1694,7 +1670,47 @@ export default function ProfileScreen() {
       }
     }
     return null;
-  };
+  }, [activeTab, activeSavedSubTab, selectedItemIds, isSelectionMode, user?._id, profileTheme, theme, router]);
+
+  if (loading || checkingUser) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
+        <NavBar title="Profile" />
+        <View style={styles.loadingContainer}>
+          <LoadingGlobe size={36} />
+        </View>
+      </View>
+    );
+  }
+
+  if (!user || !profileData) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+        <NavBar title="Profile" />
+        <View style={styles.errorContainer}>
+          <Text style={[styles.errorText, { color: theme.colors.text }]}>
+            Failed to load profile
+          </Text>
+          <TouchableOpacity
+            style={[styles.retryButton, { overflow: 'hidden' }]}
+            onPress={() => loadUserData()}
+          >
+            <LinearGradient
+              colors={['#50C878', '#1C73B4']}
+              style={StyleSheet.absoluteFillObject}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+            />
+            <Text style={[styles.retryButtonText, { color: '#FFFFFF' }]}>
+              Retry
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+
 
   return (
     <ErrorBoundary level="route">
@@ -2270,7 +2286,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     ...(isWeb && {
       cursor: 'pointer',
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
       background: 'linear-gradient(135deg, #50C878 0%, #1C73B4 100%)',
     } as any),
   },
@@ -2711,7 +2727,7 @@ const styles = StyleSheet.create({
     gap: 8,
     ...(isWeb && {
       cursor: 'pointer',
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
     } as any),
   },
   editProfileButtonText: {

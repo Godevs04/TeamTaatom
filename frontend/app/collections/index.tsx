@@ -250,7 +250,7 @@ const styles = StyleSheet.create({
     marginLeft: isTablet ? -theme.spacing.sm : -8,
     ...(Platform.OS === 'web' && {
       cursor: 'pointer',
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
     } as any),
   },
   addButton: {
@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
     marginRight: isTablet ? -theme.spacing.sm : -8,
     ...(Platform.OS === 'web' && {
       cursor: 'pointer',
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
     } as any),
   },
   headerTitle: {

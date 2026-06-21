@@ -183,9 +183,9 @@ const getVideoSource = (uri: string | null | undefined) => {
   return videoSourceCache.get(uri);
 };
 
-import { MarqueeText } from './_shorts_split/MarqueeText';
-import { CyclingMetadata } from './_shorts_split/CyclingMetadata';
-import { ShortsCell, emitLikeRailState } from './_shorts_split/ShortsCellFeed';
+import { MarqueeText } from '../../components/shorts/MarqueeText';
+import { CyclingMetadata } from '../../components/shorts/CyclingMetadata';
+import { ShortsCell, emitLikeRailState } from '../../components/shorts/ShortsCellFeed';
 // Module-level global mute state for shorts feed to persist across mounts/unmounts
 let globalIsFeedMuted = false;
 
@@ -272,6 +272,22 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [selectedShortId, setSelectedShortId] = useState<string | null>(null);
   const [selectedShortComments, setSelectedShortComments] = useState<any[]>([]);
+
+  const upsertSelectedComment = useCallback((incomingComment: any) => {
+    if (!incomingComment) return;
+    setSelectedShortComments((prev) => {
+      const next = [...prev];
+      if (incomingComment._id) {
+        const existingIndex = next.findIndex((c) => c._id === incomingComment._id);
+        if (existingIndex !== -1) {
+          next[existingIndex] = incomingComment;
+          return next;
+        }
+      }
+      return [incomingComment, ...next];
+    });
+  }, []);
+
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [selectedShortForShare, setSelectedShortForShare] = useState<PostType | null>(null);
@@ -334,6 +350,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
 
 
+  const selectedShortIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedShortIdRef.current = selectedShortId;
+  }, [selectedShortId]);
+
+  const upsertSelectedCommentRef = useRef<((incomingComment: any) => void) | null>(null);
+  useEffect(() => {
+    upsertSelectedCommentRef.current = upsertSelectedComment;
+  }, [upsertSelectedComment]);
+
   useEffect(() => {
     const unsubscribeViews = realtimePostsService.subscribeToViews(({ postId, viewsCount }) => {
       setShorts(prev => prev.map(short => (
@@ -375,9 +401,22 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
     });
 
+    const unsubscribeComments = realtimePostsService.subscribeToComments((data) => {
+      setShorts(prev => prev.map(short => (
+        short._id === data.postId
+          ? { ...short, commentsCount: data.commentsCount } as any
+          : short
+      )));
+
+      if (selectedShortIdRef.current === data.postId && data.comment) {
+        upsertSelectedCommentRef.current?.(data.comment);
+      }
+    });
+
     return () => {
       unsubscribeViews();
       unsubscribeLikes();
+      unsubscribeComments();
     };
   }, []);
 
@@ -499,7 +538,8 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
           logger.warn(`Error pausing current video:`, error);
         }
       }
-      activeVideoIdRef.current = null;
+      // Do not clear activeVideoIdRef.current here so we can remember
+      // which video was active when we resume/return.
     }
   }, []);
 
@@ -1713,21 +1753,6 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       showError('Failed to open share options');
     }
   };
-
-  const upsertSelectedComment = useCallback((incomingComment: any) => {
-    if (!incomingComment) return;
-    setSelectedShortComments((prev) => {
-      const next = [...prev];
-      if (incomingComment._id) {
-        const existingIndex = next.findIndex((c) => c._id === incomingComment._id);
-        if (existingIndex !== -1) {
-          next[existingIndex] = incomingComment;
-          return next;
-        }
-      }
-      return [incomingComment, ...next];
-    });
-  }, []);
 
   const handleComment = async (shortId: string) => {
     setShowCommentModal(true);

@@ -126,7 +126,6 @@ export default function CountryMapScreen() {
   const [data, setData] = useState<TripScoreCountryResponse | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<Location | null>(null);
   const [pinnedLocation, setPinnedLocation] = useState<Location | null>(null);
-  const [initialSelectDone, setInitialSelectDone] = useState(false);
   const [renderedLocation, setRenderedLocation] = useState<Location | null>(null);
   const slideAnim = useRef(new Animated.Value(300)).current;
   const carouselRef = useRef<FlatList>(null);
@@ -433,15 +432,7 @@ export default function CountryMapScreen() {
     return deduped;
   }, [data?.locations?.length, displayCountryName]); // Only depend on locations count and country name (more stable)
 
-  // Auto-select latest location on screen entry once visitedMarkers has loaded
-  useEffect(() => {
-    if (visitedMarkers.length > 0 && !initialSelectDone) {
-      const latestLoc = visitedMarkers[visitedMarkers.length - 1];
-      setSelectedLocation(latestLoc);
-      setPinnedLocation(latestLoc);
-      setInitialSelectDone(true);
-    }
-  }, [visitedMarkers, initialSelectDone]);
+
 
   // Keep the pinned location in sync with the selected location (e.g. on carousel swipe)
   useEffect(() => {
@@ -761,7 +752,10 @@ export default function CountryMapScreen() {
             style={styles.map}
             {...mapStyle.nativeMapProps}
             minZoomLevel={3}
-            cameraZoomRange={{ maxCenterCoordinateDistance: 5000000 }}
+            cameraZoomRange={Platform.OS === 'ios' ? {
+              minCenterCoordinateDistance: 500,
+              maxCenterCoordinateDistance: 20000000,
+            } : undefined}
             initialRegion={{
               latitude: getCountryCenter(displayCountryName || '').latitude,
               longitude: getCountryCenter(displayCountryName || '').longitude,

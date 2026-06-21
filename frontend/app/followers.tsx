@@ -290,7 +290,7 @@ const styles = (theme: any) => StyleSheet.create({
     borderRadius: isTablet ? 24 : (isAndroid ? 24 : 22),
     ...(Platform.OS === 'web' && {
       cursor: 'pointer',
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
     } as any),
   },
   headerTitle: {
@@ -402,7 +402,7 @@ const styles = (theme: any) => StyleSheet.create({
     backgroundColor: theme.colors.primary,
     ...(isWeb && {
       cursor: 'pointer',
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
     } as any),
   },
   followButtonFollowing: {

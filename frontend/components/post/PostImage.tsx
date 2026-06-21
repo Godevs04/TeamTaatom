@@ -239,7 +239,7 @@ interface PostImageProps {
   onZoomStateChange?: (isZooming: boolean) => void; // Callback for pinch zoom state changes
 }
 
-export default function PostImage({
+function PostImage({
   post,
   onPress,
   imageUri,
@@ -584,6 +584,25 @@ export default function PostImage({
     };
   });
 
+  const carouselKeyExtractor = useCallback((_: string, index: number) => index.toString(), []);
+
+  const renderCarouselItem = useCallback(({ item, index }: { item: string; index: number }) => (
+    <CarouselItem
+      item={item}
+      index={index}
+      currentImageIndex={currentImageIndex}
+      scale={scale}
+      focalX={focalX}
+      focalY={focalY}
+      composedGesture={composedGesture}
+      animatedImageStyle={animatedImageStyle}
+      containerWidth={containerWidth}
+      filter={post.filter}
+      heartScale={heartScale}
+      heartOpacity={heartOpacity}
+    />
+  ), [currentImageIndex, scale, focalX, focalY, composedGesture, animatedImageStyle, containerWidth, post.filter, heartScale, heartOpacity]);
+
   if (!imageUri) return null;
 
   return (
@@ -619,23 +638,12 @@ export default function PostImage({
                   focalY.value = 0;
                   setScrollEnabled(true);
                 }}
-                renderItem={({ item, index }) => (
-                  <CarouselItem
-                    item={item}
-                    index={index}
-                    currentImageIndex={currentImageIndex}
-                    scale={scale}
-                    focalX={focalX}
-                    focalY={focalY}
-                    composedGesture={composedGesture}
-                    animatedImageStyle={animatedImageStyle}
-                    containerWidth={containerWidth}
-                    filter={post.filter}
-                    heartScale={heartScale}
-                    heartOpacity={heartOpacity}
-                  />
-                )}
-                keyExtractor={(item, index) => index.toString()}
+                renderItem={renderCarouselItem}
+                keyExtractor={carouselKeyExtractor}
+                windowSize={3}
+                initialNumToRender={1}
+                maxToRenderPerBatch={2}
+                removeClippedSubviews={Platform.OS === 'android'}
                 getItemLayout={(data, index) => ({
                   length: containerWidth,
                   offset: containerWidth * index,
@@ -990,5 +998,21 @@ const styles = StyleSheet.create({
     shadowRadius: 15,
     elevation: 10,
   },
+});
+
+export default React.memo(PostImage, (prevProps, nextProps) => {
+  return (
+    prevProps.imageUri === nextProps.imageUri &&
+    prevProps.imageLoading === nextProps.imageLoading &&
+    prevProps.imageError === nextProps.imageError &&
+    prevProps.isCurrentlyVisible === nextProps.isCurrentlyVisible &&
+    prevProps.shouldPreload === nextProps.shouldPreload &&
+    prevProps.post._id === nextProps.post._id &&
+    prevProps.post.filter === nextProps.post.filter &&
+    prevProps.post.aspectRatio === nextProps.post.aspectRatio &&
+    prevProps.post.song?.songId?.title === nextProps.post.song?.songId?.title &&
+    prevProps.post.song?.songId?.artist === nextProps.post.song?.songId?.artist &&
+    prevProps.post.images?.join(',') === nextProps.post.images?.join(',')
+  );
 });
 

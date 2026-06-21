@@ -333,10 +333,12 @@ const trackError = (context: string, error: any, args?: any[]) => {
     const isMinorWarning =
       errorMessage.includes('Image failed to load') ||
       errorMessage.includes('downloading image') ||
-      errorMessage.includes('not loaded after 1.5s') ||
+      errorMessage.includes('not loaded after') ||
       errorMessage.includes('AdMob') ||
       errorMessage.includes('ad request') ||
       errorMessage.includes('distance calculation failed') ||
+      errorMessage.includes('FCM native module not available') ||
+      errorMessage.includes('shorts thumbnail') ||
       errorMessage.includes('StartupDiagnostics');
       
     if (isMinorWarning) {

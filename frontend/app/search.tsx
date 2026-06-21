@@ -750,7 +750,7 @@ const styles = StyleSheet.create({
     padding: isTablet ? theme.spacing.sm : 8,
     ...(isWeb && {
       cursor: 'pointer',
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
     } as any),
   },
   searchContainer: {
