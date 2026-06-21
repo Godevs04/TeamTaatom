@@ -22,27 +22,27 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaskedView from '@react-native-masked-view/masked-view';
 import { useRouter } from 'expo-router';
-import LoadingGlobe from '../../../components/LoadingGlobe';
+import LoadingGlobe from '../LoadingGlobe';
 
 // Imports with rewritten relative paths (added an extra parent folder level)
-import { useTheme } from '../../../context/ThemeContext';
-import { getPostById, getPostLikers } from '../../../services/posts';
-import { getProfile } from '../../../services/profile';
-import { PostType } from '../../../types/post';
-import { useAlert } from '../../../context/AlertContext';
-import PostComments from '../../../components/post/PostComments';
-import { createLogger } from '../../../utils/logger';
-import SongPlayer from '../../../components/SongPlayer';
-import { GlassModal } from '../../../components/ui/GlassModal';
-import { theme } from '../../../constants/theme';
-import { audioManager } from '../../../utils/audioManager';
-import PostLocation from '../../../components/post/PostLocation';
-import { geocodeAddress } from '../../../utils/locationUtils';
-import { ErrorBoundary } from '../../../utils/errorBoundary';
-import { savedEvents } from '../../../utils/savedEvents';
-import { triggerHaptic } from '../../../utils/hapticFeedback';
-import { shortsEvents } from '../../../utils/shortsEvents';
-import { getLocalVideoUriSync } from '../../../src/utils/videoCache';
+import { useTheme } from '../../context/ThemeContext';
+import { getPostById, getPostLikers } from '../../services/posts';
+import { getProfile } from '../../services/profile';
+import { PostType } from '../../types/post';
+import { useAlert } from '../../context/AlertContext';
+import PostComments from '../post/PostComments';
+import { createLogger } from '../../utils/logger';
+import SongPlayer from '../SongPlayer';
+import { GlassModal } from '../ui/GlassModal';
+import { theme } from '../../constants/theme';
+import { audioManager } from '../../utils/audioManager';
+import PostLocation from '../post/PostLocation';
+import { geocodeAddress } from '../../utils/locationUtils';
+import { ErrorBoundary } from '../../utils/errorBoundary';
+import { savedEvents } from '../../utils/savedEvents';
+import { triggerHaptic } from '../../utils/hapticFeedback';
+import { shortsEvents } from '../../utils/shortsEvents';
+import { getLocalVideoUriSync } from '../../src/utils/videoCache';
 
 import { MarqueeText } from './MarqueeText';
 import { CyclingMetadata } from './CyclingMetadata';
@@ -914,10 +914,10 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
                   end={{ x: 1, y: 1 }}
                 >
                   <ExpoImage
-                    source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../../assets/avatars/male_avatar.png')}
+                    source={item.user.profilePic ? { uri: item.user.profilePic } : require('../../assets/avatars/male_avatar.png')}
                     style={styles.bottomProfileImage as ImageStyle}
                     cachePolicy="memory-disk"
-                    placeholder={require('../../../assets/avatars/male_avatar.png')}
+                    placeholder={require('../../assets/avatars/male_avatar.png')}
                     contentFit="cover"
                     transition={200}
                     onError={(e: any) => logger.warn('[shorts bottom avatar] load failed', {
@@ -1006,6 +1006,7 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
                     autoPlay={isCellVideoPlaying}
                     externalMuted={isMuted}
                     onPlayingChange={handlers.handleSongPlayingChange}
+                    getVideoPosition={() => lastVideoPositionRef.current[item._id] || 0}
                   />
                 </View>
             )}
@@ -1513,7 +1514,7 @@ const LocalShortsActionRail = React.memo(({
   }, [showOptions, showSuccess, isSaved, shortId, onSavePress, handleSharePressLocal]);
 
   const profileSource = useMemo(
-    () => profilePic ? { uri: profilePic } : require('../../../assets/avatars/male_avatar.png'),
+    () => profilePic ? { uri: profilePic } : require('../../assets/avatars/male_avatar.png'),
     [profilePic]
   );
 

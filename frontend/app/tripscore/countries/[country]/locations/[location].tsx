@@ -1683,7 +1683,7 @@ const createStyles = () => {
       marginLeft: isTabletLocal ? -10 : -8,
       ...(isWebLocal && {
         cursor: 'pointer',
-        transition: 'all 0.2s ease',
+        ['transition']: 'all 0.2s ease',
       } as any),
     },
   headerTitle: {
@@ -1710,7 +1710,7 @@ const createStyles = () => {
       backgroundColor: 'transparent',
       ...(isWebLocal && {
         cursor: 'pointer',
-        transition: 'all 0.2s ease',
+        ['transition']: 'all 0.2s ease',
       } as any),
     },
     bookmarkButtonActive: {
@@ -1726,7 +1726,7 @@ const createStyles = () => {
       borderRadius: isTabletLocal ? 24 : 20,
       ...(isWebLocal && {
         cursor: 'pointer',
-        transition: 'all 0.2s ease',
+        ['transition']: 'all 0.2s ease',
       } as any),
     },
   content: {

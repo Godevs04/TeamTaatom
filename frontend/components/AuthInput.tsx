@@ -108,7 +108,7 @@ const getStyles = (theme: any) => StyleSheet.create({
     ...(isWeb && {
       fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif',
       outlineStyle: 'none',
-      transition: 'border-color 0.2s ease',
+      ['transition']: 'border-color 0.2s ease',
     } as any),
     ...(isIOS && {
       fontFamily: 'System',

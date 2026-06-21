@@ -354,7 +354,7 @@ const styles = StyleSheet.create({
     borderRadius: isTablet ? 24 : 20,
     ...(isWeb && {
       cursor: 'pointer',
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
     } as any),
   },
   followButtonAndroid: {

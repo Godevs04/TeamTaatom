@@ -21,6 +21,7 @@ import { WebView } from 'react-native-webview';
 import { useTheme } from '../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAlert } from '../../context/AlertContext';
+import { useJourney } from '../../context/JourneyContext';
 import { getJourneyDetail, updateJourneyTitle, deleteJourney } from '../../services/journey';
 import { MapView, Marker, useWebViewFallback, getMapProvider } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
@@ -31,11 +32,32 @@ import SafeMarker from '../../components/SafeMarker';
 import ShareModal from '../../components/ShareModal';
 import { useMapStyle } from '../../hooks/useMapStyle';
 import logger from '../../utils/logger';
+import { Image as ExpoImage } from 'expo-image';
+import { getApiUrl } from '../../utils/config';
 import {
   isValidMapCoordinate,
   sanitizeLatitudeDelta,
   sanitizeMapRegion,
 } from '../../utils/mapSafety';
+
+const resolvePhotoUrl = (url?: string | null): string | undefined => {
+  if (!url) return undefined;
+  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) {
+    return url;
+  }
+  const cleanPath = url.startsWith('/') ? url : `/${url}`;
+  return getApiUrl(cleanPath);
+};
+
+const getWaypointPhotoUrl = (waypoint: any): string | undefined => {
+  if (!waypoint || !waypoint.post) return undefined;
+  const post = waypoint.post;
+  if (typeof post === 'object') {
+    const url = post.photo || post.imageUrl || post.mediaUrl || post.media?.url || post.thumbnailUrl;
+    return resolvePhotoUrl(url);
+  }
+  return undefined;
+};
 
 const GROWTH_GREEN = '#22C55E';
 const ACTION_BLUE = '#3B82F6';
@@ -85,6 +107,7 @@ export default function JourneyDetailScreen() {
   const insets = useSafeAreaInsets();
 
   const { showAlert, showSuccess, showError: showErrorAlert } = useAlert();
+  const { discardActiveJourney } = useJourney();
   const [journey, setJourney] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -185,10 +208,10 @@ export default function JourneyDetailScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Clear from AsyncStorage if this is the active journey
+              // Clear from AsyncStorage and reset local state if this is the active journey
               const storedId = await AsyncStorage.getItem('activeJourneyId');
               if (storedId === journeyId) {
-                await AsyncStorage.removeItem('activeJourneyId');
+                await discardActiveJourney().catch(() => {});
               }
               await deleteJourney(journeyId);
               router.back();
@@ -333,10 +356,46 @@ export default function JourneyDetailScreen() {
             })));
             const wps = (journey.waypoints || []).filter((w: any) => w.lat && w.lng);
             const wpMarkers = wps.map((w: any, i: number) => {
-              const wpIcon = w.contentType === 'video' 
-                ? '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="' + (isDark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.85)') + '" stroke="' + (isDark ? 'rgba(45,212,191,0.6)' : 'rgba(59,130,246,0.6)') + '" stroke-width="1.5"/><path d="M16 9.5l-3 2v-3.5a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.5v5a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5v-1.5l3 2a.3.3 0 0 0 .5-.2v-5.6a.3.3 0 0 0-.5-.2z" fill="' + (isDark ? '#2DD4BF' : '#3B82F6') + '"/></svg>'
-                : '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="' + (isDark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.85)') + '" stroke="' + (isDark ? 'rgba(45,212,191,0.6)' : 'rgba(59,130,246,0.6)') + '" stroke-width="1.5"/><circle cx="12" cy="12" r="3" fill="' + (isDark ? '#2DD4BF' : '#3B82F6') + '"/></svg>';
-              return `new google.maps.Marker({position:{lat:${w.lat},lng:${w.lng}},map:map,title:'Post #${i+1}',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('${wpIcon}'),size:new google.maps.Size(24,24),scaledSize:new google.maps.Size(24,24),anchor:new google.maps.Point(12,12)}});`;
+              const photoUrl = getWaypointPhotoUrl(w);
+              const postId = w.post?._id || w.post;
+              const contentType = w.contentType || w.post?.type || 'photo';
+              const targetUserId = journey.user?._id || journey.user;
+
+              if (photoUrl) {
+                return `
+                  (function() {
+                    var pos = new google.maps.LatLng(${w.lat}, ${w.lng});
+                    var div = document.createElement('div');
+                    div.style.cssText = 'position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
+                    div.setAttribute('data-anchor', 'center');
+                    div.innerHTML = '<div style="width: 32px; height: 32px; border-radius: 50%; border: 2.5px solid #FFFFFF; overflow: hidden; background-image: url(\\'${photoUrl}\\'); background-size: cover; background-position: center; transition: transform 0.2s ease; box-shadow: 0 2px 4px rgba(0,0,0,0.25);"></div>';
+                    
+                    div.firstChild.addEventListener('mouseenter', function() {
+                      div.firstChild.style.transform = 'scale(1.1)';
+                    });
+                    div.firstChild.addEventListener('mouseleave', function() {
+                      div.firstChild.style.transform = 'scale(1.0)';
+                    });
+                    div.addEventListener('click', function(e) {
+                      e.stopPropagation();
+                      if(window.ReactNativeWebView){
+                        window.ReactNativeWebView.postMessage(JSON.stringify({
+                          type: 'navigatePost',
+                          postId: '${postId}',
+                          contentType: '${contentType}',
+                          userId: '${targetUserId}'
+                        }));
+                      }
+                    });
+                    new PhotoOverlay(pos, div);
+                  })();
+                `;
+              } else {
+                const wpIcon = contentType === 'video' 
+                  ? '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="' + (isDark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.85)') + '" stroke="' + (isDark ? 'rgba(45,212,191,0.6)' : 'rgba(59,130,246,0.6)') + '" stroke-width="1.5"/><path d="M16 9.5l-3 2v-3.5a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.5v5a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5v-1.5l3 2a.3.3 0 0 0 .5-.2v-5.6a.3.3 0 0 0-.5-.2z" fill="' + (isDark ? '#2DD4BF' : '#3B82F6') + '"/></svg>'
+                  : '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="' + (isDark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.85)') + '" stroke="' + (isDark ? 'rgba(45,212,191,0.6)' : 'rgba(59,130,246,0.6)') + '" stroke-width="1.5"/><circle cx="12" cy="12" r="3" fill="' + (isDark ? '#2DD4BF' : '#3B82F6') + '"/></svg>';
+                return `new google.maps.Marker({position:{lat:${w.lat},lng:${w.lng}},map:map,title:'Post #${i+1}',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('${wpIcon}'),size:new google.maps.Size(24,24),scaledSize:new google.maps.Size(24,24),anchor:new google.maps.Point(12,12)}});`;
+              }
             }).join('\n');
             const html = `<!DOCTYPE html><html><head>
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
@@ -344,6 +403,33 @@ export default function JourneyDetailScreen() {
 <script>
 function initMap(){
   var map=new google.maps.Map(document.getElementById('map'),{center:{lat:${center.lat},lng:${center.lng}},zoom:13,mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true,gestureHandling:'greedy',isFractionalZoomEnabled:true});
+  
+  class PhotoOverlay extends google.maps.OverlayView {
+    constructor(pos, el) {
+      super();
+      this.position = pos;
+      this.div = el;
+      this.setMap(map);
+    }
+    onAdd() {
+      this.getPanes().overlayMouseTarget.appendChild(this.div);
+    }
+    draw() {
+      var pt = this.getProjection().fromLatLngToDivPixel(this.position);
+      if (pt) {
+        this.div.style.left = pt.x + 'px';
+        this.div.style.top = pt.y + 'px';
+        this.div.style.position = 'absolute';
+        this.div.style.transform = 'translate(-50%, -50%)';
+      }
+    }
+    onRemove() {
+      if (this.div && this.div.parentNode) {
+        this.div.parentNode.removeChild(this.div);
+      }
+    }
+  }
+
   var path=${polyCoords};
   var segments = [];
   var currentSegment = [];
@@ -380,6 +466,21 @@ function initMap(){
                 originWhitelist={['https://*', 'http://*', 'data:*', 'about:*']}
                 onShouldStartLoadWithRequest={(req) => req.url.startsWith('http') || req.url.startsWith('data:') || req.url.startsWith('about:')}
                 {...(Platform.OS === 'android' && { mixedContentMode: 'compatibility' as const, setSupportMultipleWindows: false })}
+                onMessage={(event) => {
+                  try {
+                    const data = JSON.parse(event.nativeEvent.data);
+                    if (data.type === 'navigatePost' && data.postId) {
+                      const targetUserId = data.userId;
+                      if (data.contentType === 'short' || data.contentType === 'video') {
+                        router.push(`/user-shorts/${targetUserId}?shortId=${data.postId}`);
+                      } else {
+                        router.push(`/post/${data.postId}`);
+                      }
+                    }
+                  } catch (err) {
+                    logger.error('[JourneyDetail] WebView message parse error:', err);
+                  }
+                }}
               />
             );
           })() : MapView && Marker ? (
@@ -423,13 +524,60 @@ function initMap(){
                   <PremiumMapMarker icon="flag" active latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
                 </SafeMarker>
               )}
-              {journey.waypoints?.map((w: any, i: number) => (
-                isValidMapCoordinate({ latitude: w.lat, longitude: w.lng }) && (
-                  <SafeMarker key={`wp-${i}`} coordinate={{ latitude: w.lat, longitude: w.lng }} title={`${w.contentType || 'Photo'} #${i + 1}`} anchor={{ x: 0.5, y: 1.0 }} repaintTriggers={[latitudeDelta, w.contentType]}>
-                    <PremiumMapMarker icon={w.contentType === 'video' ? 'videocam' : 'camera'} latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
+              {journey.waypoints?.map((w: any, i: number) => {
+                const photoUrl = getWaypointPhotoUrl(w);
+                const postId = w.post?._id || w.post;
+                const contentType = w.contentType || w.post?.type || 'photo';
+                const targetUserId = journey.user?._id || journey.user;
+                const latitude = w.latitude ?? w.lat;
+                const longitude = w.longitude ?? w.lng;
+                
+                if (!isValidMapCoordinate({ latitude, longitude })) return null;
+                
+                return (
+                  <SafeMarker
+                    key={`wp-${i}`}
+                    coordinate={{ latitude, longitude }}
+                    title={`${contentType === 'video' ? 'Video' : 'Photo'} #${i + 1}`}
+                    anchor={photoUrl ? { x: 0.5, y: 0.5 } : { x: 0.5, y: 1.0 }}
+                    onPress={() => {
+                      if (postId) {
+                        if (contentType === 'short' || contentType === 'video') {
+                          router.push(`/user-shorts/${targetUserId}?shortId=${postId}`);
+                        } else {
+                          router.push(`/post/${postId}`);
+                        }
+                      }
+                    }}
+                    repaintTriggers={[latitudeDelta, w.contentType, photoUrl]}
+                  >
+                    {photoUrl ? (
+                      <View style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 16,
+                        borderWidth: 2,
+                        borderColor: '#FFFFFF',
+                        backgroundColor: '#FFFFFF',
+                        overflow: 'hidden',
+                        shadowColor: '#000000',
+                        shadowOffset: { width: 0, height: 2 },
+                        shadowOpacity: 0.25,
+                        shadowRadius: 4,
+                        elevation: 4,
+                      }}>
+                        <ExpoImage
+                          source={{ uri: photoUrl }}
+                          style={{ width: '100%', height: '100%', borderRadius: 14 }}
+                          contentFit="cover"
+                        />
+                      </View>
+                    ) : (
+                      <PremiumMapMarker icon={w.contentType === 'video' ? 'videocam' : 'camera'} latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
+                    )}
                   </SafeMarker>
-                )
-              ))}
+                );
+              })}
             </MapView>
           ) : (
             <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}>

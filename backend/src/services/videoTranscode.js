@@ -511,6 +511,10 @@ async function runWorkerOnce() {
 
   try {
     const mongoose = require('mongoose');
+    if (mongoose.connection.readyState !== 1) {
+      // Mongoose connection not ready yet; skip this poll iteration
+      return;
+    }
     require('../models/Post');
     const TranscodeJob = mongoose.model('TranscodeJob');
     const Post = mongoose.model('Post');

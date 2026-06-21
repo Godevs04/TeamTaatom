@@ -11,7 +11,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
-import { theme } from '../../../constants/theme';
+import { theme } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -45,6 +46,7 @@ export const AudioChoiceModal = ({
   onSelectOriginalAudio,
   selectedChoice,
 }: AudioChoiceModalProps) => {
+  const { theme: activeTheme } = useTheme();
   const isBackgroundSelected = selectedChoice === 'background';
   const isOriginalSelected = selectedChoice === 'original';
 
@@ -84,22 +86,22 @@ export const AudioChoiceModal = ({
             pointerEvents="none"
           />
           <View style={{ zIndex: 1 }}>
-            <View style={{ alignItems: 'center', marginBottom: theme.spacing.lg }}>
+            <View style={{ alignItems: 'center', marginBottom: activeTheme.spacing.lg }}>
               <View style={{
                 width: 64,
                 height: 64,
                 borderRadius: 32,
-                backgroundColor: theme.colors.secondary + '15',
+                backgroundColor: activeTheme.colors.secondary + '15',
                 justifyContent: 'center',
                 alignItems: 'center',
-                marginBottom: theme.spacing.md
+                marginBottom: activeTheme.spacing.md
               }}>
-                <Ionicons name="musical-notes" size={32} color={theme.colors.secondary} />
+                <Ionicons name="musical-notes" size={32} color={activeTheme.colors.secondary} />
               </View>
-              <Text style={[styles.modalTitle, { color: theme.colors.text }]}>
+              <Text style={[styles.modalTitle, { color: activeTheme.colors.text }]}>
                 Choose Audio for Your Short
               </Text>
-              <Text style={[styles.modalDescription, { color: theme.colors.textSecondary }]}>
+              <Text style={[styles.modalDescription, { color: activeTheme.colors.textSecondary }]}>
                 Select how you want to handle audio for this video
               </Text>
             </View>
@@ -126,7 +128,7 @@ export const AudioChoiceModal = ({
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
-                    padding: isTablet ? theme.spacing.xl : 20,
+                    padding: isTablet ? activeTheme.spacing.xl : 20,
                     borderRadius: 16,
                     borderWidth: 1,
                     borderColor: 'rgba(255, 255, 255, 0.35)',
@@ -146,7 +148,7 @@ export const AudioChoiceModal = ({
                     backgroundColor: 'rgba(255, 255, 255, 0.2)',
                     justifyContent: 'center',
                     alignItems: 'center',
-                    marginRight: theme.spacing.md,
+                    marginRight: activeTheme.spacing.md,
                     zIndex: 1,
                   }}>
                     <Ionicons name="musical-notes" size={24} color="white" />
@@ -178,19 +180,19 @@ export const AudioChoiceModal = ({
                   backgroundColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
                   justifyContent: 'center',
                   alignItems: 'center',
-                  marginRight: theme.spacing.md
+                  marginRight: activeTheme.spacing.md
                 }}>
-                  <Ionicons name="musical-notes" size={24} color={theme.colors.text} />
+                  <Ionicons name="musical-notes" size={24} color={activeTheme.colors.text} />
                 </View>
                 <View style={styles.audioChoiceTextContainer}>
-                  <Text style={[styles.audioChoiceTitle, { color: theme.colors.text }]}>
+                  <Text style={[styles.audioChoiceTitle, { color: activeTheme.colors.text }]}>
                     Background Music
                   </Text>
-                  <Text style={[styles.audioChoiceSubtitle, { color: theme.colors.textSecondary }]}>
+                  <Text style={[styles.audioChoiceSubtitle, { color: activeTheme.colors.textSecondary }]}>
                     Add a song from our library
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+                <Ionicons name="chevron-forward" size={20} color={activeTheme.colors.textSecondary} />
               </TouchableOpacity>
             )}
 
@@ -216,7 +218,7 @@ export const AudioChoiceModal = ({
                   style={{
                     flexDirection: 'row',
                     alignItems: 'center',
-                    padding: isTablet ? theme.spacing.xl : 20,
+                    padding: isTablet ? activeTheme.spacing.xl : 20,
                     borderRadius: 16,
                     borderWidth: 1,
                     borderColor: 'rgba(255, 255, 255, 0.35)',
@@ -236,7 +238,7 @@ export const AudioChoiceModal = ({
                     backgroundColor: 'rgba(255, 255, 255, 0.2)',
                     justifyContent: 'center',
                     alignItems: 'center',
-                    marginRight: theme.spacing.md,
+                    marginRight: activeTheme.spacing.md,
                     zIndex: 1,
                   }}>
                     <Ionicons name="volume-high" size={24} color="white" />
@@ -268,19 +270,19 @@ export const AudioChoiceModal = ({
                   backgroundColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
                   justifyContent: 'center',
                   alignItems: 'center',
-                  marginRight: theme.spacing.md
+                  marginRight: activeTheme.spacing.md
                 }}>
-                  <Ionicons name="volume-high" size={24} color={theme.colors.text} />
+                  <Ionicons name="volume-high" size={24} color={activeTheme.colors.text} />
                 </View>
                 <View style={styles.audioChoiceTextContainer}>
-                  <Text style={[styles.audioChoiceTitle, { color: theme.colors.text }]}>
+                  <Text style={[styles.audioChoiceTitle, { color: activeTheme.colors.text }]}>
                     Original Video Audio
                   </Text>
-                  <Text style={[styles.audioChoiceSubtitle, { color: theme.colors.textSecondary }]}>
+                  <Text style={[styles.audioChoiceSubtitle, { color: activeTheme.colors.textSecondary }]}>
                     Keep the original sound from your video
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={20} color={theme.colors.textSecondary} />
+                <Ionicons name="chevron-forward" size={20} color={activeTheme.colors.textSecondary} />
               </TouchableOpacity>
             )}
 
@@ -288,14 +290,14 @@ export const AudioChoiceModal = ({
               style={[
                 styles.modalCancelButton, 
                 { 
-                  borderColor: theme.colors.border,
-                  marginTop: theme.spacing.md
+                  borderColor: activeTheme.colors.border,
+                  marginTop: activeTheme.spacing.md
                 }
               ]}
               onPress={onClose}
               activeOpacity={0.7}
             >
-              <Text style={[styles.modalCancelText, { color: theme.colors.textSecondary }]}>
+              <Text style={[styles.modalCancelText, { color: activeTheme.colors.textSecondary }]}>
                 Cancel
               </Text>
             </TouchableOpacity>
@@ -351,7 +353,7 @@ const styles = StyleSheet.create({
     marginBottom: isTablet ? theme.spacing.lg : 16,
     ...(isWeb && {
       cursor: 'pointer',
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
     } as any),
   },
   audioChoiceTextContainer: {
@@ -383,7 +385,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     ...(isWeb && {
       cursor: 'pointer',
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
     } as any),
   },
   modalCancelText: {

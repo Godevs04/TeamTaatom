@@ -462,7 +462,7 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.md,
     ...(isWeb && {
       cursor: 'pointer',
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
     } as any),
   },
   resetButtonText: {

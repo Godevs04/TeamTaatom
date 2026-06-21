@@ -44,7 +44,7 @@ export const getButtonStyle = (basePadding: number = 8) => ({
   padding: isTablet ? basePadding + 2 : (isAndroid ? basePadding + 2 : basePadding),
   ...(isWeb && {
     cursor: 'pointer' as const,
-    transition: 'all 0.2s ease' as const,
+    ['transition']: 'all 0.2s ease' as const,
   }),
 });
 

@@ -795,8 +795,30 @@ const completeJourney = async (req, res) => {
 
 
     await journey.save();
+
+    // Populate waypoint posts before sending back (so image previews render immediately)
+    try {
+      await journey.populate({
+        path: 'waypoints.post',
+        select: 'caption imageUrl images videoUrl thumbnailUrl storageKey storageKeys type location mediaType',
+        match: { _id: { $exists: true } }
+      });
+    } catch (popErr) {
+      logger.warn('Failed to populate waypoint posts in completeJourney:', popErr);
+    }
+
     const responseJourney = journey.toObject();
     responseJourney.polyline = buildDisplayPolyline(journey);
+
+    // Sign waypoint posts media URLs
+    if (responseJourney.waypoints && responseJourney.waypoints.length > 0) {
+      for (const w of responseJourney.waypoints) {
+        if (w.post) {
+          await signPostMedia(w.post);
+        }
+      }
+    }
+
     logger.info(`Journey completed for user ${req.user._id}:`, {
       journeyId: journey._id,
       distance: journey.distanceTraveled,
@@ -893,7 +915,7 @@ const addWaypoint = async (req, res) => {
 
     // Add waypoint
     journey.waypoints.push({
-      postId: mongoose.Types.ObjectId(postId),
+      post: mongoose.Types.ObjectId(postId),
       lat: parseFloat(lat),
       lng: parseFloat(lng),
       timestamp: new Date(),

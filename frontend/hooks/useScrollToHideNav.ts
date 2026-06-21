@@ -7,7 +7,9 @@ export function useScrollToHideNav() {
   const scrollThreshold = 50; // Minimum scroll distance to trigger hide/show
 
   const handleScroll = useCallback((event: any) => {
-    // Ignore horizontal or nested scroll events bubbling up
+    // Scroll state updates are currently disabled to prevent full-app re-renders during active scrolling.
+    // FloatingTabBar and headers do not consume isScrollingUp, so this state was dead but caused heavy lag.
+    /*
     if (event.target !== event.currentTarget) {
       return;
     }
@@ -25,7 +27,8 @@ export function useScrollToHideNav() {
       }
       lastScrollY.current = currentScrollY;
     }
-  }, [setScrollingUp]);
+    */
+  }, []);
 
   return { handleScroll };
 }

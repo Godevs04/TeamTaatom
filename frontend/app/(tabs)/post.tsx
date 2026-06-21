@@ -28,6 +28,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useTheme } from "../../context/ThemeContext";
 import { useAlert } from "../../context/AlertContext";
+import { useJourney } from "../../context/JourneyContext";
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -49,7 +50,8 @@ import { getProfile } from "../../services/profile";
 import { UserType } from "../../types/user";
 import ProgressAlert from "../../components/ProgressAlert";
 import { optimizeImageForUpload, shouldOptimizeImage, getOptimalQuality, processImageToAspect } from "../../utils/imageOptimization";
-import { shouldCompressVideo, compressVideo } from "../../utils/videoOptimization";
+import { shouldCompressVideo, compressVideo, cancelCompression } from "../../utils/videoOptimization";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { prepareImageForUpload } from "../../services/mediaService";
 import * as VideoThumbnails from "expo-video-thumbnails";
 import { Video, Audio, ResizeMode, AVPlaybackStatus } from "expo-av";
@@ -59,9 +61,9 @@ import { useScrollToHideNav } from '../../hooks/useScrollToHideNav';
 import { createLogger } from '../../utils/logger';
 import { sanitizeErrorForDisplay } from '../../utils/errorSanitizer';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AudioChoiceModal } from './_post_split/AudioChoiceModal';
-import { DetectPlaceModal } from './_post_split/DetectPlaceModal';
-import { MediaManagerModal } from './_post_split/MediaManagerModal';
+import { AudioChoiceModal } from '../../components/post/AudioChoiceModal';
+import { DetectPlaceModal } from '../../components/post/DetectPlaceModal';
+import { MediaManagerModal } from '../../components/post/MediaManagerModal';
 import * as FileSystem from 'expo-file-system/legacy';
 import { SongSelector } from '../../components/SongSelector';
 import { audioManager } from '../../utils/audioManager';
@@ -78,6 +80,7 @@ import ImageEditModal, { ImageFilterType, FILTER_PREVIEW_OVERLAY } from '../../c
 import AspectImageCropper, { CropTransform } from '../../components/post/AspectImageCropper';
 import { applyFilterToImages } from '../../utils/applyImageFilter';
 import { Image as ExpoImage } from 'expo-image';
+import { calculateCoordinateDistance } from "../../components/PolylineRenderer";
 
 const logger = createLogger('PostScreen');
 
@@ -252,6 +255,117 @@ const FormikValueTracker = ({ values, onValuesChange }: FormikValueTrackerProps)
   return null;
 };
 
+const resolveAndSnapLocation = async (
+  locationResult: any | null,
+  isCamera: boolean
+): Promise<{
+  lat: number;
+  lng: number;
+  address?: string;
+  hasExifGps: boolean;
+  takenAt: Date | null;
+  rawSource: 'exif' | 'asset' | 'manual' | 'none';
+} | null> => {
+  try {
+    // 1. Check if there is an active journey first
+    const activeStateRaw = await AsyncStorage.getItem('@active_journey_state');
+    let journeyCoords: { lat: number; lng: number } | null = null;
+    let polylinePoints: any[] = [];
+    
+    if (activeStateRaw) {
+      const activeState = JSON.parse(activeStateRaw);
+      polylinePoints = activeState.polyline || [];
+      if (polylinePoints.length > 0) {
+        const lastPt = polylinePoints[polylinePoints.length - 1];
+        if (lastPt?.latitude && lastPt?.longitude) {
+          journeyCoords = { lat: lastPt.latitude, lng: lastPt.longitude };
+        }
+      }
+    }
+
+    // 2. If no active journey, check if there's a recently completed journey endpoint (within 15 minutes)
+    if (!journeyCoords) {
+      const lastEndpointRaw = await AsyncStorage.getItem('@last_completed_journey_endpoint');
+      if (lastEndpointRaw) {
+        const lastEndpoint = JSON.parse(lastEndpointRaw);
+        const ageMs = Date.now() - (lastEndpoint.timestamp || 0);
+        if (ageMs < 15 * 60 * 1000) { // 15 minutes threshold
+          journeyCoords = { lat: lastEndpoint.latitude, lng: lastEndpoint.longitude };
+        }
+      }
+    }
+
+    // 3. If it's a camera capture, prioritize the active/recent journey coordinates
+    if (isCamera && journeyCoords) {
+      const addressText = await getAddressFromCoords(journeyCoords.lat, journeyCoords.lng).catch(() => '');
+      return {
+        lat: journeyCoords.lat,
+        lng: journeyCoords.lng,
+        address: addressText || 'Journey Location',
+        hasExifGps: true, // Treat as strong GPS evidence since it's verified by active journey tracking
+        takenAt: new Date(),
+        rawSource: 'exif',
+      };
+    }
+
+    // 4. If we have EXIF/metadata location
+    if (locationResult && typeof locationResult.lat === 'number' && typeof locationResult.lng === 'number') {
+      let finalLat = locationResult.lat;
+      let finalLng = locationResult.lng;
+      
+      // If we have an active journey with a path, snap the EXIF coordinates to the closest point in the polyline
+      if (polylinePoints.length > 0) {
+        let closestPoint = polylinePoints[0];
+        let minDistance = Infinity;
+        for (const pt of polylinePoints) {
+          if (pt.latitude && pt.longitude) {
+            const dist = calculateCoordinateDistance(
+              locationResult.lat,
+              locationResult.lng,
+              pt.latitude,
+              pt.longitude
+            );
+            if (dist < minDistance) {
+              minDistance = dist;
+              closestPoint = pt;
+            }
+          }
+        }
+        // Only snap if within 5km
+        if (minDistance < 5000 && closestPoint) {
+          finalLat = closestPoint.latitude;
+          finalLng = closestPoint.longitude;
+        }
+      }
+
+      return {
+        lat: finalLat,
+        lng: finalLng,
+        address: locationResult.address,
+        hasExifGps: locationResult.hasExifGps,
+        takenAt: locationResult.takenAt || null,
+        rawSource: locationResult.rawSource || 'exif',
+      };
+    }
+
+    // 5. Fallback: If no location metadata, but we have an active/recent journey, use it
+    if (journeyCoords) {
+      const addressText = await getAddressFromCoords(journeyCoords.lat, journeyCoords.lng).catch(() => '');
+      return {
+        lat: journeyCoords.lat,
+        lng: journeyCoords.lng,
+        address: addressText || 'Journey Location',
+        hasExifGps: true, // Treat as strong GPS evidence since it's verified by active journey tracking
+        takenAt: new Date(),
+        rawSource: 'exif',
+      };
+    }
+  } catch (e) {
+    logger.warn('Error in resolveAndSnapLocation:', e);
+  }
+  return null;
+};
+
 export default function PostScreen() {
   const { showSuccess, showError, showConfirm } = useAlert();
   const isFocused = useIsFocused();
@@ -261,6 +375,7 @@ export default function PostScreen() {
   const isJourneyCapture = params.journeyCapture === 'true';
 
   const [permission, requestPermission] = useCameraPermissions();
+  const journeyContext = useJourney();
   const [latestAssetUri, setLatestAssetUri] = useState<string | null>(null);
 
   // Helper to resolve iOS ph:// URI to standard file:// URI using MediaLibrary
@@ -1112,6 +1227,14 @@ export default function PostScreen() {
     setIsUploading(false);
     isSubmittingRef.current = false;
     
+    // Deactivate Keep Awake
+    deactivateKeepAwake();
+    
+    // Cancel FFmpeg compression if running
+    cancelCompression().catch(err => {
+      logger.warn('[PostScreen] Failed to cancel video compression:', err);
+    });
+    
     // Cleanup upload session
     if (uploadSessionRef.current.abortController) {
       uploadSessionRef.current.abortController.abort();
@@ -1455,23 +1578,19 @@ export default function PostScreen() {
           selectionStartTime
         );
         
-        if (locationResult) {
-          setLocation({ lat: locationResult.lat, lng: locationResult.lng });
-          if (locationResult.address) {
-            setAddress(locationResult.address);
+        const resolved = await resolveAndSnapLocation(locationResult, false);
+        if (resolved) {
+          setLocation({ lat: resolved.lat, lng: resolved.lng });
+          if (resolved.address) {
+            setAddress(resolved.address);
           }
-          // Store metadata for TripScore v2
           setLocationMetadata({
-            hasExifGps: locationResult.hasExifGps,
-            takenAt: locationResult.takenAt || null,
-            rawSource: locationResult.rawSource
+            hasExifGps: resolved.hasExifGps,
+            takenAt: resolved.takenAt,
+            rawSource: resolved.rawSource
           });
           setIsFromCameraFlow(false); // Gallery selection
-          logger.debug('Location extraction result: Found', {
-            hasExifGps: locationResult.hasExifGps,
-            rawSource: locationResult.rawSource,
-            takenAt: locationResult.takenAt
-          });
+          logger.debug('Location extraction result: Found', resolved);
         } else {
           logger.debug('Location extraction result: Not found');
           setLocationMetadata({
@@ -1593,15 +1712,16 @@ export default function PostScreen() {
           selectionStartTime
         );
         
-        if (locationResult) {
-          setLocation(prev => prev || { lat: locationResult.lat, lng: locationResult.lng });
-          if (locationResult.address) {
-            setAddress(prev => prev || locationResult.address || '');
+        const resolved = await resolveAndSnapLocation(locationResult, false);
+        if (resolved) {
+          setLocation(prev => prev || { lat: resolved.lat, lng: resolved.lng });
+          if (resolved.address) {
+            setAddress(prev => prev || resolved.address || '');
           }
           setLocationMetadata(prev => prev || {
-            hasExifGps: locationResult.hasExifGps,
-            takenAt: locationResult.takenAt || null,
-            rawSource: locationResult.rawSource
+            hasExifGps: resolved.hasExifGps,
+            takenAt: resolved.takenAt,
+            rawSource: resolved.rawSource
           });
           setIsFromCameraFlow(false);
         }
@@ -1816,23 +1936,20 @@ export default function PostScreen() {
             selectionStartTime
           );
           
-          if (locationResult) {
-            setLocation({ lat: locationResult.lat, lng: locationResult.lng });
-            if (locationResult.address) {
-              setAddress(locationResult.address);
+          const resolved = await resolveAndSnapLocation(locationResult, false);
+          if (resolved) {
+            setLocation({ lat: resolved.lat, lng: resolved.lng });
+            if (resolved.address) {
+              setAddress(resolved.address);
             }
             // Store location metadata for TripScore v2
             setLocationMetadata({
-              hasExifGps: locationResult.hasExifGps,
-              takenAt: locationResult.takenAt || null,
-              rawSource: locationResult.rawSource
+              hasExifGps: resolved.hasExifGps,
+              takenAt: resolved.takenAt,
+              rawSource: resolved.rawSource
             });
             setIsFromCameraFlow(false); // Gallery selection
-            logger.debug('Location extraction result for video: Found', {
-              hasExifGps: locationResult.hasExifGps,
-              rawSource: locationResult.rawSource,
-              takenAt: locationResult.takenAt
-            });
+            logger.debug('Location extraction result for video: Found', resolved);
           } else {
             logger.debug('Location extraction result for video: Not found');
             setLocationMetadata({
@@ -1925,21 +2042,22 @@ export default function PostScreen() {
           captureStartTime
         );
         
-        if (locationResult) {
-          setLocation({ lat: locationResult.lat, lng: locationResult.lng });
-          if (locationResult.address) {
-            setAddress(locationResult.address);
+        const resolved = await resolveAndSnapLocation(locationResult, true);
+        if (resolved) {
+          setLocation({ lat: resolved.lat, lng: resolved.lng });
+          if (resolved.address) {
+            setAddress(resolved.address);
           }
           // Store location metadata for TripScore v2
           setLocationMetadata({
-            hasExifGps: locationResult.hasExifGps,
-            takenAt: locationResult.takenAt || null,
-            rawSource: locationResult.rawSource
+            hasExifGps: resolved.hasExifGps,
+            takenAt: resolved.takenAt,
+            rawSource: resolved.rawSource
           });
           setIsFromCameraFlow(true); // Camera capture
         } else {
-          // No location from EXIF - get current location as fallback for Taatom camera
-          logger.debug('No EXIF location found, getting current location for Taatom camera');
+          // No location from EXIF and no active/recent journey - get current location as fallback for Taatom camera
+          logger.debug('No EXIF location and no active/recent journey found, getting current location for Taatom camera');
           try {
             const currentLocation = await getCurrentLocation();
             if (currentLocation && currentLocation.coords) {
@@ -2176,26 +2294,23 @@ export default function PostScreen() {
             captureStartTime
           );
           
-          if (locationResult) {
-            setLocation({ lat: locationResult.lat, lng: locationResult.lng });
-            if (locationResult.address) {
-              setAddress(locationResult.address);
+          const resolved = await resolveAndSnapLocation(locationResult, true);
+          if (resolved) {
+            setLocation({ lat: resolved.lat, lng: resolved.lng });
+            if (resolved.address) {
+              setAddress(resolved.address);
             }
             // Store location metadata for TripScore v2
             setLocationMetadata({
-              hasExifGps: locationResult.hasExifGps,
-              takenAt: locationResult.takenAt || null,
-              rawSource: locationResult.rawSource
+              hasExifGps: resolved.hasExifGps,
+              takenAt: resolved.takenAt,
+              rawSource: resolved.rawSource
             });
             setIsFromCameraFlow(true); // Camera capture
-            logger.debug('Location extraction result for camera video: Found', {
-              hasExifGps: locationResult.hasExifGps,
-              rawSource: locationResult.rawSource,
-              takenAt: locationResult.takenAt
-            });
+            logger.debug('Location extraction result for camera video: Found', resolved);
           } else {
-            // No location from EXIF - get current location as fallback for Taatom camera
-            logger.debug('No EXIF location found, getting current location for Taatom camera video');
+            // No location from EXIF and no active/recent journey - get current location as fallback for Taatom camera video
+            logger.debug('No EXIF location and no active/recent journey found, getting current location for Taatom camera video');
             try {
               const currentLocation = await getCurrentLocation();
               if (currentLocation && currentLocation.coords) {
@@ -2381,6 +2496,9 @@ export default function PostScreen() {
       abortController: new AbortController(),
       lastProgressTime: Date.now()
     };
+    activateKeepAwakeAsync().catch(err => {
+      logger.warn('[PostScreen] Failed to activate KeepAwake:', err);
+    });
     
     setIsLoading(true);
     setIsUploading(true);
@@ -2572,6 +2690,11 @@ export default function PostScreen() {
       await clearDraft();
       
       trackFeatureUsage('post_created', {});
+      if (journeyContext?.isTracking && journeyContext?.refreshActiveJourney) {
+        journeyContext.refreshActiveJourney().catch((err) => {
+          logger.error('Failed to refresh journey after post:', err);
+        });
+      }
       // Wait a moment to show 100% progress
       setTimeout(() => {
         clearUploadState();
@@ -2694,6 +2817,9 @@ export default function PostScreen() {
       abortController: new AbortController(),
       lastProgressTime: Date.now()
     };
+    activateKeepAwakeAsync().catch(err => {
+      logger.warn('[PostScreen] Failed to activate KeepAwake:', err);
+    });
     
     setIsLoading(true);
     setIsUploading(true);
@@ -3007,6 +3133,11 @@ export default function PostScreen() {
         logger.error('Failed to set shorts refresh flags', err);
       }
       trackFeatureUsage('short_created', {});
+      if (journeyContext?.isTracking && journeyContext?.refreshActiveJourney) {
+        journeyContext.refreshActiveJourney().catch((err) => {
+          logger.error('Failed to refresh journey after short:', err);
+        });
+      }
       // Check if short requires verification (pending review)
       const requiresVerification = source === 'gallery_no_exif' || source === 'manual_only';
       
@@ -3095,6 +3226,14 @@ export default function PostScreen() {
     
     // Resume upload with copyright acceptance
     try {
+      uploadSessionRef.current = {
+        isActive: true,
+        abortController: new AbortController(),
+        lastProgressTime: Date.now()
+      };
+      activateKeepAwakeAsync().catch(err => {
+        logger.warn('[PostScreen] Failed to activate KeepAwake:', err);
+      });
       setIsLoading(true);
       setIsUploading(true);
       const isCompressed = !!compressedVideoUriRef.current;
@@ -3185,6 +3324,11 @@ export default function PostScreen() {
         logger.error('Failed to set shorts refresh flags', err);
       }
       trackFeatureUsage('short_created', {});
+      if (journeyContext?.isTracking && journeyContext?.refreshActiveJourney) {
+        journeyContext.refreshActiveJourney().catch((err) => {
+          logger.error('Failed to refresh journey after short:', err);
+        });
+      }
       // Check if short requires verification (pending review)
       const requiresVerification = pendingShortData.source === 'gallery_no_exif' || pendingShortData.source === 'manual_only';
       

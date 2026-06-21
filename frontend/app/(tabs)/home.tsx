@@ -1602,18 +1602,21 @@ export default function HomeScreen() {
   }).current;
 
   visiblePostIdRef.current = visiblePostId;
+  visibleIndexRef.current = visibleIndex;
 
   const renderItem = useCallback(({ item, index }: { item: FeedItem; index: number }) => {
     return (
       <FeedListItem
         item={item}
-        isCurrentlyVisible={!isAdItem(item) && visiblePostId === item._id}
-        shouldPreload={visibleIndex !== null && index === visibleIndex + 1}
+        isCurrentlyVisible={!isAdItem(item) && visiblePostIdRef.current === item._id}
+        shouldPreload={visibleIndexRef.current !== null && index === visibleIndexRef.current + 1}
         onRefresh={handleRefresh}
         onAdLoadFailed={handleAdLoadFailed}
       />
     );
-  }, [handleRefresh, handleAdLoadFailed, visiblePostId, visibleIndex]);
+  }, [handleRefresh, handleAdLoadFailed]);
+
+  const feedExtraData = useMemo(() => ({ visiblePostId, visibleIndex }), [visiblePostId, visibleIndex]);
 
   const screenGradientColors =
     mode === 'dark'
@@ -1690,7 +1693,7 @@ export default function HomeScreen() {
               data={feedData}
               keyExtractor={keyExtractor}
               renderItem={renderItem}
-              extraData={visiblePostId}
+              extraData={feedExtraData}
               estimatedItemSize={580}
               overrideItemLayout={overrideItemLayout}
               style={styles.postsContainer}

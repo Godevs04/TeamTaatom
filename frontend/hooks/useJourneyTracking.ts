@@ -5,6 +5,36 @@ import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, Platform } from 'react-native';
 import { registerResetCallback } from '../services/auth';
+import * as FileSystem from 'expo-file-system/legacy';
+
+const getActiveJourneyIdFromCache = async (): Promise<string | null> => {
+  if (Platform.OS === 'web') return null;
+  const fileUri = `${FileSystem.cacheDirectory}activeJourneyId.txt`;
+  try {
+    const info = await FileSystem.getInfoAsync(fileUri);
+    if (info.exists) {
+      const id = await FileSystem.readAsStringAsync(fileUri);
+      return id ? id.trim() : null;
+    }
+  } catch (e) {
+    // ignore
+  }
+  return null;
+};
+
+const setActiveJourneyIdInCache = async (journeyId: string | null): Promise<void> => {
+  if (Platform.OS === 'web') return;
+  const fileUri = `${FileSystem.cacheDirectory}activeJourneyId.txt`;
+  try {
+    if (journeyId) {
+      await FileSystem.writeAsStringAsync(fileUri, journeyId);
+    } else {
+      await FileSystem.deleteAsync(fileUri, { idempotent: true });
+    }
+  } catch (e) {
+    // ignore
+  }
+};
 
 // True when running inside Expo Go. The native bits behind expo-task-manager
 // + the iOS background-location capability aren't bundled there, so any
@@ -217,7 +247,12 @@ const isDriftingStationary = (
   const METRES_PER_DEGREE = 111320.0;
   const stdDevMeters = Math.sqrt(stdDevLat * stdDevLat + stdDevLng * stdDevLng) * METRES_PER_DEGREE;
   
-  return stdDevMeters < driftThresholdMeters;
+  // If standard deviation is LARGE (points are scattered), it indicates GPS wander/drift while stationary.
+  // We reject (return true) to prevent noisy zig-zags.
+  // If standard deviation is SMALL (points are clustered), the user is stationary but signal is stable,
+  // or they are moving very slowly/smoothly. We do NOT reject (return false). The distance threshold check
+  // (dist >= adaptiveMinDistance) will naturally prevent adding too many clustered points.
+  return stdDevMeters > driftThresholdMeters;
 };
 
 // Background location task. Runs in a headless JS context when the app is
@@ -243,14 +278,29 @@ try {
     if (!Array.isArray(locations) || locations.length === 0) return;
 
     try {
-      const journeyId = await AsyncStorage.getItem('activeJourneyId');
+      let journeyId = await getActiveJourneyIdFromCache();
+      if (!journeyId) {
+        journeyId = await AsyncStorage.getItem('activeJourneyId');
+      }
       if (!journeyId) return; // Stale task firing after a stop — drop.
 
-      // 1. Get/Initialize background KalmanFilter
+      // 1. Get/Initialize background KalmanFilter (check Cache first, fallback to AsyncStorage)
       let filter = bgKalmanFilters.get(journeyId);
       if (!filter) {
-        const kalmanKey = `@kalman_state:${journeyId}`;
-        const savedKalmanRaw = await AsyncStorage.getItem(kalmanKey);
+        const filterUri = `${FileSystem.cacheDirectory}kalman_state_${journeyId}.json`;
+        let savedKalmanRaw: string | null = null;
+        try {
+          const kInfo = await FileSystem.getInfoAsync(filterUri);
+          if (kInfo.exists) {
+            savedKalmanRaw = await FileSystem.readAsStringAsync(filterUri);
+          }
+        } catch (e) {}
+
+        if (!savedKalmanRaw) {
+          const kalmanKey = `@kalman_state:${journeyId}`;
+          savedKalmanRaw = await AsyncStorage.getItem(kalmanKey);
+        }
+
         if (savedKalmanRaw) {
           try {
             filter = KalmanFilter.fromJSON(JSON.parse(savedKalmanRaw));
@@ -316,26 +366,35 @@ try {
 
       if (valid.length === 0) return;
 
-      // 4. Save Kalman Filter state to AsyncStorage
+      // 4. Save Kalman Filter state to FileSystem cache
       if (filter) {
-        const kalmanKey = `@kalman_state:${journeyId}`;
+        const filterUri = `${FileSystem.cacheDirectory}kalman_state_${journeyId}.json`;
         try {
-          await AsyncStorage.setItem(kalmanKey, JSON.stringify(filter.toJSON()));
+          await FileSystem.writeAsStringAsync(filterUri, JSON.stringify(filter.toJSON()));
         } catch (e) {
           // ignore save error
         }
       }
 
-      const queueKey = BG_QUEUE_KEY_PREFIX + journeyId;
-      const existingRaw = await AsyncStorage.getItem(queueKey);
+      // 5. Append valid coordinates to queue in FileSystem cache
+      const fileUri = `${FileSystem.cacheDirectory}bg_coords_${journeyId}.json`;
       let existing: Coordinate[] = [];
-      if (existingRaw) {
-        try {
-          const parsed = JSON.parse(existingRaw);
+      try {
+        const info = await FileSystem.getInfoAsync(fileUri);
+        if (info.exists) {
+          const raw = await FileSystem.readAsStringAsync(fileUri);
+          const parsed = JSON.parse(raw);
           if (Array.isArray(parsed)) existing = parsed;
-        } catch { /* keep existing empty */ }
+        }
+      } catch (e) {
+        // ignore read error
       }
-      await AsyncStorage.setItem(queueKey, JSON.stringify([...existing, ...valid]));
+      
+      try {
+        await FileSystem.writeAsStringAsync(fileUri, JSON.stringify([...existing, ...valid]));
+      } catch (e) {
+        // ignore write error
+      }
     } catch {
       // Background task must never throw — silent on error.
     }
@@ -384,7 +443,12 @@ interface UseJourneyTrackingReturn {
   pauseJourneyRecording: () => Promise<void>;
   resumeJourneyRecording: () => Promise<void>;
   stopJourneyRecording: (options?: { snapToRoads?: boolean }) => Promise<void>;
+  discardActiveJourney: () => Promise<void>;
+  refreshActiveJourney: () => Promise<void>;
 }
+
+// Module-level variable to detect if the JS bundle is running for the first time since process launch
+let isFreshLaunch = true;
 
 /**
  * useJourneyTracking
@@ -678,27 +742,42 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     const id = journeyIdRef.current;
     if (!id) return;
     const queueKey = BG_QUEUE_KEY_PREFIX + id;
+    const fileUri = `${FileSystem.cacheDirectory}bg_coords_${id}.json`;
+    const filterUri = `${FileSystem.cacheDirectory}kalman_state_${id}.json`;
+
     try {
-      const raw = await AsyncStorage.getItem(queueKey);
+      // 1. Read from FileSystem cache first
+      let raw: string | null = null;
+      try {
+        const info = await FileSystem.getInfoAsync(fileUri);
+        if (info.exists) {
+          raw = await FileSystem.readAsStringAsync(fileUri);
+        }
+      } catch (e) {
+        logger.warn('[Journey] Failed to read bg queue from FileSystem cache:', e);
+      }
+
+      // 2. Fallback to AsyncStorage
+      if (!raw) {
+        raw = await AsyncStorage.getItem(queueKey);
+      }
+
       if (!raw) return;
       let parsed: any;
       try {
         parsed = JSON.parse(raw);
       } catch {
+        await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
         await AsyncStorage.removeItem(queueKey).catch(() => {});
         return;
       }
       if (!Array.isArray(parsed) || parsed.length === 0) {
+        await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
         await AsyncStorage.removeItem(queueKey).catch(() => {});
         return;
       }
 
       // Validate + dedupe against current polyline by timestamp.
-      // Use a 500ms tolerance window because the OS occasionally replays a
-      // sample on the fg→bg handoff edge with a slightly different
-      // timestamp; an exact-match Set would let it through and double-
-      // count a single physical fix. Sorted-by-timestamp existing list
-      // lets the lookup short-circuit.
       const TS_TOLERANCE_MS = 500;
       const existingSorted = polylineRef.current
         .map(c => c.timestamp)
@@ -706,8 +785,6 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         .sort((a, b) => a - b);
       const isDuplicateTimestamp = (ts: number): boolean => {
         if (typeof ts !== 'number' || isNaN(ts)) return false;
-        // Linear scan is fine — polyline is small (<~few thousand even on
-        // a multi-day journey) and we only call this on bg-queue drain.
         for (const e of existingSorted) {
           if (Math.abs(e - ts) <= TS_TOLERANCE_MS) return true;
           if (e > ts + TS_TOLERANCE_MS) break;
@@ -725,9 +802,20 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         !isDuplicateTimestamp(c.timestamp)
       );
 
-      // Restore Kalman Filter state from background task
-      const kalmanKey = `@kalman_state:${id}`;
-      const savedKalmanRaw = await AsyncStorage.getItem(kalmanKey);
+      // Restore Kalman Filter state from background task (check FileSystem cache first, fallback to AsyncStorage)
+      let savedKalmanRaw: string | null = null;
+      try {
+        const kInfo = await FileSystem.getInfoAsync(filterUri);
+        if (kInfo.exists) {
+          savedKalmanRaw = await FileSystem.readAsStringAsync(filterUri);
+        }
+      } catch (e) {}
+
+      if (!savedKalmanRaw) {
+        const kalmanKey = `@kalman_state:${id}`;
+        savedKalmanRaw = await AsyncStorage.getItem(kalmanKey);
+      }
+
       let restoredFromBg = false;
       if (savedKalmanRaw) {
         try {
@@ -831,7 +919,11 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         logger.debug(`[Journey] Drained ${accepted.length} background coords (+${Math.round(addedDistance)}m)`);
       }
 
+      // Clean up both FileSystem cache files and AsyncStorage queues
+      await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
+      await FileSystem.deleteAsync(filterUri, { idempotent: true }).catch(() => {});
       await AsyncStorage.removeItem(queueKey).catch(() => {});
+      await AsyncStorage.removeItem(`@kalman_state:${id}`).catch(() => {});
     } catch (e) {
       logger.warn('[Journey] drainBackgroundQueue failed:', e);
     }
@@ -931,6 +1023,10 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         // Check if there's an active journey in storage
         const storedJourneyId = await AsyncStorage.getItem('activeJourneyId');
         if (storedJourneyId) {
+          const isCurrentLaunchFresh = isFreshLaunch;
+          isFreshLaunch = false;
+
+          await setActiveJourneyIdInCache(storedJourneyId);
           // Fetch the status from the server or check if it was paused in local storage
           let statusOnServer: string | null = null;
           let fetchedJourney: any = null;
@@ -952,7 +1048,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
             }
           }
 
-          if (statusOnServer === 'paused') {
+          if (statusOnServer === 'paused' && !isCurrentLaunchFresh) {
             logger.debug('[Journey] Restoring paused journey state on startup:', storedJourneyId);
             journeyIdRef.current = storedJourneyId;
             setJourney(fetchedJourney);
@@ -980,7 +1076,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
             return;
           }
 
-          if (statusOnServer === 'active') {
+          if (statusOnServer === 'active' && !isCurrentLaunchFresh) {
             // If this instance is already active and tracking, do not overwrite the live state.
             if (isTrackingRef.current && !isPausedRef.current && journeyIdRef.current === storedJourneyId) {
               logger.debug('[Journey] Already active and tracking journey:', storedJourneyId);
@@ -1096,6 +1192,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           // Reset local tracking state to clean up UI
           await resetTrackingState();
           await AsyncStorage.removeItem('activeJourneyId');
+          await setActiveJourneyIdInCache(null);
           await AsyncStorage.removeItem('@active_journey_state');
           await AsyncStorage.removeItem(BG_QUEUE_KEY_PREFIX + storedJourneyId).catch(() => {});
           await AsyncStorage.removeItem(`@kalman_state:${storedJourneyId}`).catch(() => {});
@@ -1119,6 +1216,8 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
           suppressNextSyncRef.current = true;
           broadcastJourneyStateChanged();
+        } else {
+          await setActiveJourneyIdInCache(null);
         }
       } catch (err) {
         logger.error('[Journey] Failed to initialize journey:', err);
@@ -1406,6 +1505,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
         // Save to local storage
         await AsyncStorage.setItem('activeJourneyId', newJourney._id);
+        await setActiveJourneyIdInCache(newJourney._id);
         // Wipe any stale persisted batch from a prior journey on this device.
         clearPersistedCoords(newJourney._id);
 
@@ -1720,8 +1820,23 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       setIsTracking(false);
       setIsPaused(false);
 
+      // Save last completed endpoint to AsyncStorage for post screen snapping/fallback
+      try {
+        const lastPt = lastCoordinateRef.current || polyline[polyline.length - 1];
+        if (lastPt) {
+          await AsyncStorage.setItem('@last_completed_journey_endpoint', JSON.stringify({
+            latitude: lastPt.latitude,
+            longitude: lastPt.longitude,
+            timestamp: Date.now()
+          })).catch(() => {});
+        }
+      } catch (endpointErr) {
+        // ignore
+      }
+
       // Clear from storage
       await AsyncStorage.removeItem('activeJourneyId');
+      await setActiveJourneyIdInCache(null);
       await AsyncStorage.removeItem('@active_journey_state');
 
       logger.debug('[Journey] Optimistically completed journey locally:', completingJourneyId);
@@ -1790,6 +1905,50 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       throw err;
     }
   }, [stopBackgroundUpdates, drainBackgroundQueue, persistPendingCoords, clearPersistedCoords, journey]);
+
+  const discardActiveJourney = useCallback(async () => {
+    try {
+      const storedJourneyId = journeyIdRef.current || journey?._id;
+      
+      // Reset local tracking state to clean up UI
+      await resetTrackingState();
+      
+      // Clear AsyncStorage keys and delete background cache
+      await AsyncStorage.removeItem('activeJourneyId');
+      await setActiveJourneyIdInCache(null);
+      await AsyncStorage.removeItem('@active_journey_state');
+      await AsyncStorage.removeItem('@last_completed_journey_endpoint').catch(() => {});
+      
+      if (storedJourneyId) {
+        await AsyncStorage.removeItem(BG_QUEUE_KEY_PREFIX + storedJourneyId).catch(() => {});
+        await AsyncStorage.removeItem(`@kalman_state:${storedJourneyId}`).catch(() => {});
+        bgKalmanFilters.delete(storedJourneyId);
+        bgPositionHistories.delete(storedJourneyId);
+      }
+      
+      journeyIdRef.current = null;
+      startTimeRef.current = null;
+      lastCoordinateRef.current = null;
+      pendingSegmentBreakRef.current = false;
+      batchCoordinatesRef.current = [];
+      setIsTracking(false);
+      setIsPaused(false);
+      setJourney(null);
+      setPolyline([]);
+      setDistance(0);
+      setDuration(0);
+      setAccuracy(null);
+      setCurrentCoordinate(null);
+      setError(null);
+
+      suppressNextSyncRef.current = true;
+      broadcastJourneyStateChanged();
+      logger.debug('[Journey] Discarded active journey complete');
+    } catch (e) {
+      logger.error('[Journey] Failed to discard active journey:', e);
+    }
+  }, [resetTrackingState, journey]);
+
 
   // Save active journey state to AsyncStorage whenever it updates to survive app force-closes
   useEffect(() => {
@@ -1990,6 +2149,32 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     adjustWatcherAdaptiveThrottling(effectiveSpeed);
   };
 
+  const refreshActiveJourney = useCallback(async () => {
+    try {
+      const storedJourneyId = await AsyncStorage.getItem('activeJourneyId');
+      if (storedJourneyId) {
+        const data = await getJourneyDetail(storedJourneyId);
+        if (data?.journey && isMountedRef.current) {
+          setJourney(data.journey);
+          // Save updated journey state to AsyncStorage
+          const stateToSave = {
+            journey: data.journey,
+            polyline,
+            distance,
+            duration,
+            timestamp: Date.now(),
+          };
+          await AsyncStorage.setItem('@active_journey_state', JSON.stringify(stateToSave)).catch(() => {});
+          
+          suppressNextSyncRef.current = true;
+          broadcastJourneyStateChanged();
+        }
+      }
+    } catch (err) {
+      logger.error('[Journey] refreshActiveJourney failed:', err);
+    }
+  }, [polyline, distance, duration]);
+
   return {
     initialized,
     isTracking,
@@ -2005,5 +2190,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     pauseJourneyRecording,
     resumeJourneyRecording,
     stopJourneyRecording,
+    discardActiveJourney,
+    refreshActiveJourney,
   };
 }
