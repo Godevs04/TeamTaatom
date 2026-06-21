@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
 import { addComment } from '../../services/posts';
 import { getUserFromStorage } from '../../services/auth';
@@ -464,26 +465,42 @@ export default function PostComments({
                       }, 300);
                     }}
                   />
-                  <TouchableOpacity
-                    style={[
-                      styles.sendButton,
-                      {
-                        backgroundColor: newComment.trim() ? theme.colors.primary : theme.colors.border,
-                      },
-                    ]}
-                    onPress={handleSubmitComment}
-                    disabled={!newComment.trim() || isSubmitting}
-                  >
-                    {isSubmitting ? (
-                      <Ionicons name="hourglass-outline" size={20} color={theme.colors.textSecondary} />
-                    ) : (
+                  {newComment.trim() ? (
+                    <TouchableOpacity
+                      onPress={handleSubmitComment}
+                      disabled={isSubmitting}
+                      activeOpacity={0.7}
+                    >
+                      <LinearGradient
+                        colors={['#50C878', '#1C73B4']}
+                        style={styles.sendButton}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                      >
+                        {isSubmitting ? (
+                          <Ionicons name="hourglass-outline" size={20} color="#ffffff" />
+                        ) : (
+                          <Ionicons name="send" size={20} color="#ffffff" />
+                        )}
+                      </LinearGradient>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      disabled={true}
+                      style={[
+                        styles.sendButton,
+                        {
+                          backgroundColor: theme.colors.border,
+                        },
+                      ]}
+                    >
                       <Ionicons
                         name="send"
                         size={20}
-                        color={newComment.trim() ? 'black' : theme.colors.textSecondary}
+                        color={theme.colors.textSecondary}
                       />
-                    )}
-                  </TouchableOpacity>
+                    </TouchableOpacity>
+                  )}
                 </View>
               )}
             </View>
