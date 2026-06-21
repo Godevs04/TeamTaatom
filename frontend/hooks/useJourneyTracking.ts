@@ -384,6 +384,7 @@ interface UseJourneyTrackingReturn {
   pauseJourneyRecording: () => Promise<void>;
   resumeJourneyRecording: () => Promise<void>;
   stopJourneyRecording: (options?: { snapToRoads?: boolean }) => Promise<void>;
+  discardActiveJourney: () => Promise<void>;
   refreshActiveJourney: () => Promise<void>;
 }
 
@@ -1792,6 +1793,48 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     }
   }, [stopBackgroundUpdates, drainBackgroundQueue, persistPendingCoords, clearPersistedCoords, journey]);
 
+  const discardActiveJourney = useCallback(async () => {
+    try {
+      const storedJourneyId = journeyIdRef.current || journey?._id;
+      
+      // Reset local tracking state to clean up UI
+      await resetTrackingState();
+      
+      // Clear AsyncStorage keys and delete background cache
+      await AsyncStorage.removeItem('activeJourneyId');
+      await AsyncStorage.removeItem('@active_journey_state');
+      
+      if (storedJourneyId) {
+        await AsyncStorage.removeItem(BG_QUEUE_KEY_PREFIX + storedJourneyId).catch(() => {});
+        await AsyncStorage.removeItem(`@kalman_state:${storedJourneyId}`).catch(() => {});
+        bgKalmanFilters.delete(storedJourneyId);
+        bgPositionHistories.delete(storedJourneyId);
+      }
+      
+      journeyIdRef.current = null;
+      startTimeRef.current = null;
+      lastCoordinateRef.current = null;
+      pendingSegmentBreakRef.current = false;
+      batchCoordinatesRef.current = [];
+      setIsTracking(false);
+      setIsPaused(false);
+      setJourney(null);
+      setPolyline([]);
+      setDistance(0);
+      setDuration(0);
+      setAccuracy(null);
+      setCurrentCoordinate(null);
+      setError(null);
+
+      suppressNextSyncRef.current = true;
+      broadcastJourneyStateChanged();
+      logger.debug('[Journey] Discarded active journey complete');
+    } catch (e) {
+      logger.error('[Journey] Failed to discard active journey:', e);
+    }
+  }, [resetTrackingState, journey]);
+
+
   // Save active journey state to AsyncStorage whenever it updates to survive app force-closes
   useEffect(() => {
     const id = journeyIdRef.current;
@@ -2032,6 +2075,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     pauseJourneyRecording,
     resumeJourneyRecording,
     stopJourneyRecording,
+    discardActiveJourney,
     refreshActiveJourney,
   };
 }

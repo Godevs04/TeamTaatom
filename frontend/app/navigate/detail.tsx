@@ -21,6 +21,7 @@ import { WebView } from 'react-native-webview';
 import { useTheme } from '../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAlert } from '../../context/AlertContext';
+import { useJourney } from '../../context/JourneyContext';
 import { getJourneyDetail, updateJourneyTitle, deleteJourney } from '../../services/journey';
 import { MapView, Marker, useWebViewFallback, getMapProvider } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
@@ -85,6 +86,7 @@ export default function JourneyDetailScreen() {
   const insets = useSafeAreaInsets();
 
   const { showAlert, showSuccess, showError: showErrorAlert } = useAlert();
+  const { discardActiveJourney } = useJourney();
   const [journey, setJourney] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -185,10 +187,10 @@ export default function JourneyDetailScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Clear from AsyncStorage if this is the active journey
+              // Clear from AsyncStorage and reset local state if this is the active journey
               const storedId = await AsyncStorage.getItem('activeJourneyId');
               if (storedId === journeyId) {
-                await AsyncStorage.removeItem('activeJourneyId');
+                await discardActiveJourney().catch(() => {});
               }
               await deleteJourney(journeyId);
               router.back();

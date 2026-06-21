@@ -181,7 +181,7 @@ const styles = StyleSheet.create({
     shadowRadius: 3,
     elevation: 1,
     ...(isWeb && {
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
     } as any),
   },
   iconWrap: {

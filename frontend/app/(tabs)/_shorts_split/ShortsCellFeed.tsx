@@ -240,6 +240,7 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
   const lastMuteEnforceAtRef = useRef<number>(0);
   // BUG 15: Animated opacity for crossfade from thumbnail -> video
   const videoOpacity = useRef(new Animated.Value(0)).current;
+  const hasAttemptedRecoveryRef = useRef(false);
 
   // Clean up timeouts on unmount
   useEffect(() => {
@@ -250,10 +251,11 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
     };
   }, []);
 
-  // BUG 15: Reset video ready state & opacity when cell is recycled for a new item
+  // BUG 15: Reset video ready state, opacity, and recovery ref when cell is recycled for a new item
   useEffect(() => {
     setVideoReady(false);
     videoOpacity.setValue(0);
+    hasAttemptedRecoveryRef.current = false;
   }, [item._id]);
 
   // Reset ready state when shouldRenderVideo changes to false (unmounted)
@@ -301,14 +303,15 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
 
   // Recovery check inside ShortsCell
   useEffect(() => {
-    if (!isActive || videoReady || !isScreenFocused || appState !== 'active') return;
+    if (!isActive || videoReady || !isScreenFocused || appState !== 'active' || hasAttemptedRecoveryRef.current) return;
     
     const timer = setTimeout(() => {
       const video = videoRef.current;
-      if (video) {
+      if (video && !videoReady && !hasAttemptedRecoveryRef.current) {
         video.getStatusAsync().then((status) => {
-          if (!status.isLoaded) {
-            logger.warn(`Video ${item._id} still not loaded after 1.5s - triggering URL refetch recovery`);
+          if (!status.isLoaded && !hasAttemptedRecoveryRef.current) {
+            hasAttemptedRecoveryRef.current = true;
+            logger.warn(`Video ${item._id} still not loaded after 5s - triggering URL refetch recovery`);
             handlers.refetchShortWithFreshUrl(item._id)
               .then((freshShort: PostType | null) => {
                 if (freshShort) {
@@ -325,7 +328,7 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
           }
         }).catch(() => {});
       }
-    }, 1500);
+    }, 5000);
 
     return () => clearTimeout(timer);
   }, [isActive, videoReady, isScreenFocused, appState]);
@@ -1736,7 +1739,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     ...(isWeb && {
       cursor: 'pointer',
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
     } as any),
   },
   createShortGradient: {

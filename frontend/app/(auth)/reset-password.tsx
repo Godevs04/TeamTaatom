@@ -545,7 +545,7 @@ const getStyles = (theme: any, isDark: boolean) => StyleSheet.create({
     overflow: 'hidden',
     ...(isWeb && {
       cursor: 'pointer',
-      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+      ['transition']: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
       background: 'linear-gradient(135deg, #50C878 0%, #1C73B4 100%)',
       boxShadow: isDark
         ? '0 8px 24px 0 rgba(0, 0, 0, 0.3), 0 2px 8px 0 rgba(0, 0, 0, 0.2), inset 0 1px 0 0 rgba(255, 255, 255, 0.2)'

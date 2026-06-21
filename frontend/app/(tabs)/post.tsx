@@ -50,7 +50,8 @@ import { getProfile } from "../../services/profile";
 import { UserType } from "../../types/user";
 import ProgressAlert from "../../components/ProgressAlert";
 import { optimizeImageForUpload, shouldOptimizeImage, getOptimalQuality, processImageToAspect } from "../../utils/imageOptimization";
-import { shouldCompressVideo, compressVideo } from "../../utils/videoOptimization";
+import { shouldCompressVideo, compressVideo, cancelCompression } from "../../utils/videoOptimization";
+import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { prepareImageForUpload } from "../../services/mediaService";
 import * as VideoThumbnails from "expo-video-thumbnails";
 import { Video, Audio, ResizeMode, AVPlaybackStatus } from "expo-av";
@@ -1113,6 +1114,14 @@ export default function PostScreen() {
     setUploadProgress({ current: 0, total: 0, percentage: 0 });
     setIsUploading(false);
     isSubmittingRef.current = false;
+    
+    // Deactivate Keep Awake
+    deactivateKeepAwake();
+    
+    // Cancel FFmpeg compression if running
+    cancelCompression().catch(err => {
+      logger.warn('[PostScreen] Failed to cancel video compression:', err);
+    });
     
     // Cleanup upload session
     if (uploadSessionRef.current.abortController) {
@@ -2383,6 +2392,9 @@ export default function PostScreen() {
       abortController: new AbortController(),
       lastProgressTime: Date.now()
     };
+    activateKeepAwakeAsync().catch(err => {
+      logger.warn('[PostScreen] Failed to activate KeepAwake:', err);
+    });
     
     setIsLoading(true);
     setIsUploading(true);
@@ -2701,6 +2713,9 @@ export default function PostScreen() {
       abortController: new AbortController(),
       lastProgressTime: Date.now()
     };
+    activateKeepAwakeAsync().catch(err => {
+      logger.warn('[PostScreen] Failed to activate KeepAwake:', err);
+    });
     
     setIsLoading(true);
     setIsUploading(true);
@@ -3107,6 +3122,14 @@ export default function PostScreen() {
     
     // Resume upload with copyright acceptance
     try {
+      uploadSessionRef.current = {
+        isActive: true,
+        abortController: new AbortController(),
+        lastProgressTime: Date.now()
+      };
+      activateKeepAwakeAsync().catch(err => {
+        logger.warn('[PostScreen] Failed to activate KeepAwake:', err);
+      });
       setIsLoading(true);
       setIsUploading(true);
       const isCompressed = !!compressedVideoUriRef.current;

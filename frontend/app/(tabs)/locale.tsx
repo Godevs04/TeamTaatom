@@ -3931,7 +3931,7 @@ const createStyles = () => {
       elevation: 5,
       ...(isWebLocal && {
         cursor: 'pointer',
-        transition: 'all 0.2s ease',
+        ['transition']: 'all 0.2s ease',
       } as any),
     },
     listContainer: {

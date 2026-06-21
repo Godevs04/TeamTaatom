@@ -15,7 +15,7 @@ function getCachePath(): string {
 
 /**
  * Check if the video needs compression.
- * We only compress videos that are larger than 15MB.
+ * We only compress videos that are larger than 8MB.
  * If size is unknown or retrieval fails, we assume it does not need compression to fail safe.
  */
 export const shouldCompressVideo = async (videoUri: string): Promise<boolean> => {
@@ -29,8 +29,8 @@ export const shouldCompressVideo = async (videoUri: string): Promise<boolean> =>
     const sizeMB = (info.size || 0) / (1024 * 1024);
     logger.debug(`[VideoOptimization] File size check for ${videoUri}: ${sizeMB.toFixed(2)} MB`);
     
-    // Compress if video is larger than 15MB
-    return sizeMB > 15;
+    // Compress if video is larger than 8MB
+    return sizeMB > 8;
   } catch (error) {
     logger.warn('[VideoOptimization] Failed to retrieve video file size, skipping compression:', error);
     return false;
@@ -140,5 +140,18 @@ export const compressVideo = async (
   } catch (error) {
     logger.error('[VideoOptimization] Error during video compression, falling back to raw:', error);
     throw error; // Let caller fallback to original video
+  }
+};
+
+/**
+ * Cancel any running FFmpeg compression sessions.
+ */
+export const cancelCompression = async (): Promise<void> => {
+  try {
+    const { FFmpegKit } = await import('@wokcito/ffmpeg-kit-react-native');
+    await FFmpegKit.cancel();
+    logger.info('[VideoOptimization] Cancelled all FFmpeg sessions');
+  } catch (error) {
+    logger.error('[VideoOptimization] Error cancelling FFmpeg sessions:', error);
   }
 };

@@ -114,7 +114,7 @@ function JourneysListInner() {
           // If any of the deleted journeys was the active journey, stop/reset tracking
           const activeId = journeyContext?.journey?._id;
           if (activeId && idsToDelete.has(activeId)) {
-            journeyContext.stopJourneyRecording({ snapToRoads: false }).catch(() => {});
+            journeyContext.discardActiveJourney().catch(() => {});
           }
         } catch (err: any) {
           // Revert state
@@ -143,7 +143,7 @@ function JourneysListInner() {
           // If the deleted journey was the active journey, stop/reset tracking
           const activeId = journeyContext?.journey?._id;
           if (activeId && journeyItem._id === activeId) {
-            journeyContext.stopJourneyRecording({ snapToRoads: false }).catch(() => {});
+            journeyContext.discardActiveJourney().catch(() => {});
           }
         } catch (err: any) {
           // Revert state

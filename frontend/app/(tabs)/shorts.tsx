@@ -2699,7 +2699,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     ...(isWeb && {
       cursor: 'pointer',
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
     } as any),
   },
   createShortGradient: {

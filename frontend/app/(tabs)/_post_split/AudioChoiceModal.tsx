@@ -351,7 +351,7 @@ const styles = StyleSheet.create({
     marginBottom: isTablet ? theme.spacing.lg : 16,
     ...(isWeb && {
       cursor: 'pointer',
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
     } as any),
   },
   audioChoiceTextContainer: {
@@ -383,7 +383,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     ...(isWeb && {
       cursor: 'pointer',
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
     } as any),
   },
   modalCancelText: {

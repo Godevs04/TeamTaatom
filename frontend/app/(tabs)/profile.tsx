@@ -2284,7 +2284,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     ...(isWeb && {
       cursor: 'pointer',
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
       background: 'linear-gradient(135deg, #50C878 0%, #1C73B4 100%)',
     } as any),
   },
@@ -2725,7 +2725,7 @@ const styles = StyleSheet.create({
     gap: 8,
     ...(isWeb && {
       cursor: 'pointer',
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
     } as any),
   },
   editProfileButtonText: {

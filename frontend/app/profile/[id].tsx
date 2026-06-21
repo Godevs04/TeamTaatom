@@ -1597,7 +1597,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     ...(Platform.OS === 'web' && {
       cursor: 'pointer',
-      transition: 'all 0.2s ease',
+      ['transition']: 'all 0.2s ease',
     } as any),
   },
 

@@ -34,6 +34,7 @@ interface JourneyContextValue {
   pauseJourneyRecording: () => Promise<void>;
   resumeJourneyRecording: () => Promise<void>;
   stopJourneyRecording: (options?: { snapToRoads?: boolean }) => Promise<void>;
+  discardActiveJourney: () => Promise<void>;
   refreshActiveJourney: () => Promise<void>;
 }
 
@@ -61,6 +62,7 @@ export const JourneyProvider: React.FC<{ children: ReactNode }> = ({ children })
     pauseJourneyRecording: stableValues.pauseJourneyRecording,
     resumeJourneyRecording: stableValues.resumeJourneyRecording,
     stopJourneyRecording: stableValues.stopJourneyRecording,
+    discardActiveJourney: stableValues.discardActiveJourney,
     refreshActiveJourney: stableValues.refreshActiveJourney,
   }), [
     stableValues.initialized,
@@ -76,6 +78,7 @@ export const JourneyProvider: React.FC<{ children: ReactNode }> = ({ children })
     stableValues.pauseJourneyRecording,
     stableValues.resumeJourneyRecording,
     stableValues.stopJourneyRecording,
+    stableValues.discardActiveJourney,
     stableValues.refreshActiveJourney,
   ]);
 
