@@ -11,6 +11,7 @@ const { getFollowers } = require('../utils/socketBus');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } = require('../utils/cache');
+const { getUserFollowCounts } = require('../utils/followCounts');
 const Activity = require('../models/Activity');
 const TripVisit = require('../models/TripVisit');
 const Follow = require('../models/Follow');
@@ -258,10 +259,9 @@ const getProfile = async (req, res) => {
     // Only hide tripScore if user can't view profile
     const tripScore = canViewProfile ? tripScoreData : null;
 
-    // user is already a lean object, so we can spread it directly
-    // Use the counts fields directly from the User schema
-    const followersCount = user.followersCount || 0;
-    const followingCount = user.followingCount || 0;
+    // Follow documents are the source of truth. The cached User fields can drift
+    // after deploys/migrations, so compute live counts and repair the cache.
+    const { followersCount, followingCount } = await getUserFollowCounts(id, { syncCache: true });
 
     // Generate signed URL for profile picture dynamically
     let profilePicUrl = null;
@@ -545,6 +545,17 @@ const toggleFollow = async (req, res) => {
     const targetIdStr = id.toString();
     const isFollowing = await Follow.exists({ follower: currentUserId, following: id });
 
+    const getCurrentAndTargetCounts = async () => {
+      const [currentCounts, targetCounts] = await Promise.all([
+        getUserFollowCounts(currentUserId, { syncCache: true }),
+        getUserFollowCounts(id, { syncCache: true }),
+      ]);
+      return {
+        followersCount: targetCounts.followersCount,
+        followingCount: currentCounts.followingCount,
+      };
+    };
+
     const notifyFollowUpdated = () => {
       void (async () => {
         try {
@@ -600,13 +611,12 @@ const toggleFollow = async (req, res) => {
 
       notifyFollowUpdated();
 
-      const freshCurrentUser = await User.findById(currentUserId).select('followingCount');
-      const freshTargetUser = await User.findById(id).select('followersCount');
+      const counts = await getCurrentAndTargetCounts();
 
       return sendSuccess(res, 200, 'User unfollowed', {
         isFollowing: false,
-        followersCount: freshTargetUser ? freshTargetUser.followersCount : 0,
-        followingCount: freshCurrentUser ? freshCurrentUser.followingCount : 0,
+        followersCount: counts.followersCount,
+        followingCount: counts.followingCount,
         followRequestSent: false
       });
     } else {
@@ -656,10 +666,12 @@ const toggleFollow = async (req, res) => {
 
           notifyFollowUpdated();
 
+          const counts = await getCurrentAndTargetCounts();
+
           return sendSuccess(res, 200, 'Follow request cancelled', {
             isFollowing: false,
-            followersCount: targetUser.followersCount || 0,
-            followingCount: currentUser.followingCount || 0,
+            followersCount: counts.followersCount,
+            followingCount: counts.followingCount,
             followRequestSent: false
           });
         }
@@ -751,12 +763,11 @@ const toggleFollow = async (req, res) => {
 
         notifyFollowUpdated();
 
-        const freshCurrentUser = await User.findById(currentUserId).select('followingCount');
-        const freshTargetUser = await User.findById(id).select('followersCount');
+        const counts = await getCurrentAndTargetCounts();
         return sendSuccess(res, 200, 'Follow request sent', {
           isFollowing: false,
-          followersCount: freshTargetUser ? freshTargetUser.followersCount : 0,
-          followingCount: freshCurrentUser ? freshCurrentUser.followingCount : 0,
+          followersCount: counts.followersCount,
+          followingCount: counts.followingCount,
           followRequestSent: true
         });
       } else {
@@ -836,13 +847,12 @@ const toggleFollow = async (req, res) => {
 
         notifyFollowUpdated();
 
-        const freshCurrentUser = await User.findById(currentUserId).select('followingCount');
-        const freshTargetUser = await User.findById(id).select('followersCount');
+        const counts = await getCurrentAndTargetCounts();
 
         return sendSuccess(res, 200, 'User followed', {
           isFollowing: true,
-          followersCount: freshTargetUser ? freshTargetUser.followersCount : 0,
-          followingCount: freshCurrentUser ? freshCurrentUser.followingCount : 0,
+          followersCount: counts.followersCount,
+          followingCount: counts.followingCount,
           followRequestSent: false
         });
       }
@@ -1427,8 +1437,9 @@ const approveFollowRequest = async (req, res) => {
     // If already a follower, return success (idempotent operation)
     if (isAlreadyFollower) {
       logger.debug('✅ Request already processed - returning success (idempotent)');
+      const { followersCount } = await getUserFollowCounts(currentUserId, { syncCache: true });
       return sendSuccess(res, 200, 'Follow request already approved', {
-        followersCount: user.followersCount || 0,
+        followersCount,
         alreadyProcessed: true
       });
     }
@@ -1579,8 +1590,10 @@ const approveFollowRequest = async (req, res) => {
       logger.error('Error marking follow_request notification as read:', notifReadError);
     }
 
+    const { followersCount } = await getUserFollowCounts(currentUserId, { syncCache: true });
+
     return sendSuccess(res, 200, 'Follow request approved', {
-      followersCount: user.followersCount || 0
+      followersCount
     });
   } catch (error) {
     logger.error('Approve follow request error:', error);
