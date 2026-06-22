@@ -7,7 +7,6 @@ import {
   Dimensions,
   Platform,
   Animated,
-  FlatList,
 } from 'react-native';
 import LoadingGlobe from '../../../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -41,6 +40,8 @@ const isTablet = screenWidth >= 768;
 
 interface Location {
   tripVisitId?: string;
+  stableId?: string;
+  postId?: string;
   name: string;
   score: number;
   date: string;
@@ -50,6 +51,10 @@ interface Location {
     typeOfSpot: string;
   };
   coordinates?: {
+    latitude: number;
+    longitude: number;
+  };
+  actualCoordinates?: {
     latitude: number;
     longitude: number;
   };
@@ -131,15 +136,7 @@ export default function CountryMapScreen() {
   const [pinnedLocation, setPinnedLocation] = useState<Location | null>(null);
   const [renderedLocation, setRenderedLocation] = useState<Location | null>(null);
   const slideAnim = useRef(new Animated.Value(300)).current;
-  const carouselRef = useRef<FlatList>(null);
-  const isScrollingCarouselRef = useRef(false);
   const [latitudeDelta, setLatitudeDelta] = useState(0.1);
-
-  const getCarouselItemLayout = useCallback((data: any, index: number) => ({
-    length: screenWidth,
-    offset: screenWidth * index,
-    index,
-  }), []);
 
   useEffect(() => {
     if (selectedLocation) {
@@ -228,6 +225,9 @@ export default function CountryMapScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      setSelectedLocation(null);
+      setPinnedLocation(null);
+      setRenderedLocation(null);
       loadCountryData();
     }, [loadCountryData])
   );
@@ -390,7 +390,24 @@ export default function CountryMapScreen() {
       return [];
     }
 
-    // Create stable markers with deterministic coordinates
+    const coordinateBuckets = new Map<string, number[]>();
+    data.locations.forEach((loc, i) => {
+      if (!isValidMapCoordinate(loc.coordinates)) return;
+      const key = `${loc.coordinates.latitude.toFixed(3)},${loc.coordinates.longitude.toFixed(3)}`;
+      const bucket = coordinateBuckets.get(key) || [];
+      bucket.push(i);
+      coordinateBuckets.set(key, bucket);
+    });
+
+    const bucketPositions = new Map<number, { index: number; total: number }>();
+    coordinateBuckets.forEach((indexes) => {
+      indexes.forEach((locationIndex, bucketIndex) => {
+        bucketPositions.set(locationIndex, { index: bucketIndex, total: indexes.length });
+      });
+    });
+
+    // Create stable markers with deterministic coordinates.
+    // `coordinates` is the tappable/display coordinate; `actualCoordinates` is the source-of-truth destination.
     const markers = data.locations.map((loc, i) => {
       const hasValidCoords =
         isValidMapCoordinate(loc.coordinates) &&
@@ -408,11 +425,25 @@ export default function CountryMapScreen() {
 
       // Create a unique stable ID for this marker (doesn't change across renders)
       const stableId = loc.tripVisitId || `${loc.name || `loc-${i}`}-${finalCoords.latitude.toFixed(6)}-${finalCoords.longitude.toFixed(6)}-${i}`;
+      const bucketPosition = bucketPositions.get(i);
+      let displayCoords = finalCoords;
+
+      if (hasValidCoords && bucketPosition && bucketPosition.total > 1) {
+        const angle = (Math.PI * 2 * bucketPosition.index) / bucketPosition.total;
+        const radius = 0.00014 + Math.min(bucketPosition.total, 6) * 0.000025;
+        const latRad = (finalCoords.latitude * Math.PI) / 180;
+        const lngScale = Math.max(Math.cos(latRad), 0.25);
+        displayCoords = {
+          latitude: finalCoords.latitude + Math.sin(angle) * radius,
+          longitude: finalCoords.longitude + (Math.cos(angle) * radius) / lngScale,
+        };
+      }
 
       return {
         ...loc,
         stableId, // Add stable ID for key generation
-        coordinates: finalCoords,
+        coordinates: displayCoords,
+        actualCoordinates: finalCoords,
         hasValidCoords,
       };
     });
@@ -431,18 +462,6 @@ export default function CountryMapScreen() {
       setPinnedLocation(selectedLocation);
     }
   }, [selectedLocation]);
-
-  const handleCarouselScroll = useCallback((event: any) => {
-    if (!isScrollingCarouselRef.current) return;
-    const contentOffsetX = event.nativeEvent.contentOffset.x;
-    const index = Math.round(contentOffsetX / screenWidth);
-    if (index >= 0 && index < visitedMarkers.length) {
-      const nextLocation = visitedMarkers[index];
-      if ((selectedLocation as any)?.stableId !== nextLocation.stableId) {
-        setSelectedLocation(nextLocation);
-      }
-    }
-  }, [visitedMarkers, selectedLocation]);
 
   useEffect(() => {
     const webLocations = getMapLocations(displayCountryName || '');
@@ -477,17 +496,6 @@ export default function CountryMapScreen() {
       centerMapOnLocation(selectedLocation);
     }
   }, [selectedLocation, centerMapOnLocation, displayCountryName]);
-
-  useEffect(() => {
-    if (selectedLocation && !isScrollingCarouselRef.current) {
-      const index = visitedMarkers.findIndex(
-        (loc) => loc.stableId === (selectedLocation as any).stableId
-      );
-      if (index !== -1 && carouselRef.current) {
-        carouselRef.current.scrollToIndex({ index, animated: true });
-      }
-    }
-  }, [selectedLocation, visitedMarkers]);
 
   // Get locations with coordinates for map rendering
   // CRITICAL: Only show locations with valid coordinates (no random coordinates)
@@ -828,82 +836,65 @@ export default function CountryMapScreen() {
               }
             ]}
           >
-            <FlatList
-              ref={carouselRef}
-              data={visitedMarkers}
-              horizontal
-              pagingEnabled
-              showsHorizontalScrollIndicator={false}
-              snapToInterval={screenWidth}
-              decelerationRate="fast"
-              onScrollBeginDrag={() => {
-                isScrollingCarouselRef.current = true;
-              }}
-              onMomentumScrollEnd={handleCarouselScroll}
-              getItemLayout={getCarouselItemLayout}
-              keyExtractor={(item) => `carousel-${item.stableId}`}
-              style={styles.carouselFlatList}
-              contentContainerStyle={styles.carouselContent}
-              renderItem={({ item }) => {
-                const isSelected = selectedLocation && (selectedLocation as any).stableId === item.stableId;
-                return (
-                  <View style={styles.carouselCardWrapper}>
-                    <GlassMapPanel style={[styles.previewCard, isSelected && styles.previewCardActive]} tint="dark">
-                      <View style={styles.previewContent}>
-                        {item.imageUrl ? (
-                          <ExpoImage
-                            source={{ uri: item.imageUrl }}
-                            style={styles.previewImage}
-                            contentFit="cover"
-                            cachePolicy="memory-disk"
-                            transition={180}
-                          />
-                        ) : (
-                          <View style={[styles.previewImage, styles.previewFallback]}>
-                            <Ionicons name="image-outline" size={18} color="#FF3B30" />
-                          </View>
-                        )}
-                        <View style={styles.previewText}>
-                          <Text style={[styles.previewTitle, { color: '#FFFFFF' }]} numberOfLines={1}>
-                            {item.name}
-                          </Text>
-                          <Text style={[styles.previewMeta, { color: '#94A3B8' }]} numberOfLines={1}>
-                            Score: {item.score} {item.category?.typeOfSpot ? `- ${item.category.typeOfSpot}` : ''}
-                          </Text>
-                          <View style={styles.previewActions}>
-                            <TouchableOpacity
-                              style={[styles.previewButton, styles.previewPrimaryButton, { backgroundColor: '#FF3B30' }]}
-                              onPress={() => {
-                                const locationSlug = item.name.toLowerCase().replace(/\s+/g, '-');
-                                const countryParam = Array.isArray(country) ? country[0] : country;
-                                router.push({
-                                  pathname: '/tripscore/countries/[country]/locations/[location]',
-                                  params: { 
-                                    country: countryParam as string, 
-                                    location: locationSlug, 
-                                    userId: (Array.isArray(userId) ? userId[0] : userId) as string 
-                                  }
-                                });
-                              }}
-                            >
-                              <Ionicons name="eye-outline" size={12} color="white" />
-                              <Text style={[styles.previewButtonText, { color: 'white' }]}>Details</Text>
-                            </TouchableOpacity>
-                          </View>
-                        </View>
-                        <TouchableOpacity
-                          style={styles.previewClose}
-                          onPress={() => setSelectedLocation(null)}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        >
-                          <Ionicons name="close" size={14} color="#94A3B8" />
-                        </TouchableOpacity>
-                      </View>
-                    </GlassMapPanel>
+            <View style={styles.carouselCardWrapper}>
+              <GlassMapPanel style={[styles.previewCard, styles.previewCardActive]} tint="dark">
+                <View style={styles.previewContent}>
+                  {renderedLocation.imageUrl ? (
+                    <ExpoImage
+                      source={{ uri: renderedLocation.imageUrl }}
+                      style={styles.previewImage}
+                      contentFit="cover"
+                      cachePolicy="memory-disk"
+                      transition={180}
+                    />
+                  ) : (
+                    <View style={[styles.previewImage, styles.previewFallback]}>
+                      <Ionicons name="image-outline" size={18} color="#FF3B30" />
+                    </View>
+                  )}
+                  <View style={styles.previewText}>
+                    <Text style={[styles.previewTitle, { color: '#FFFFFF' }]} numberOfLines={1}>
+                      {renderedLocation.name}
+                    </Text>
+                    <Text style={[styles.previewMeta, { color: '#94A3B8' }]} numberOfLines={1}>
+                      Score: {renderedLocation.score} {renderedLocation.category?.typeOfSpot ? `- ${renderedLocation.category.typeOfSpot}` : ''}
+                    </Text>
+                    <View style={styles.previewActions}>
+                      <TouchableOpacity
+                        style={[styles.previewButton, styles.previewPrimaryButton, { backgroundColor: '#FF3B30' }]}
+                        onPress={() => {
+                          const locationSlug = renderedLocation.name.toLowerCase().replace(/\s+/g, '-');
+                          const countryParam = Array.isArray(country) ? country[0] : country;
+                          const actualCoords = renderedLocation.actualCoordinates || renderedLocation.coordinates;
+                          router.push({
+                            pathname: '/tripscore/countries/[country]/locations/[location]',
+                            params: {
+                              country: countryParam as string,
+                              location: locationSlug,
+                              userId: (Array.isArray(userId) ? userId[0] : userId) as string,
+                              tripVisitId: renderedLocation.tripVisitId || renderedLocation.stableId || '',
+                              stableId: renderedLocation.stableId || '',
+                              latitude: actualCoords?.latitude?.toString() || '',
+                              longitude: actualCoords?.longitude?.toString() || '',
+                            }
+                          });
+                        }}
+                      >
+                        <Ionicons name="eye-outline" size={12} color="white" />
+                        <Text style={[styles.previewButtonText, { color: 'white' }]}>Details</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                );
-              }}
-            />
+                  <TouchableOpacity
+                    style={styles.previewClose}
+                    onPress={() => setSelectedLocation(null)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="close" size={14} color="#94A3B8" />
+                  </TouchableOpacity>
+                </View>
+              </GlassMapPanel>
+            </View>
           </Animated.View>
         )}
       </View>

@@ -2105,6 +2105,7 @@ const getTripScoreCountryDetails = async (req, res) => {
         
         locations.push({
           tripVisitId: locationKey,
+          postId: visit.post?._id ? visit.post._id.toString() : null,
           name: visit.address || 'Unknown Location',
           score: 1, // Each unique location counts as 1
           date: dateString, // ISO date string for consistent parsing
@@ -2249,6 +2250,7 @@ const getTripScoreLocations = async (req, res) => {
 
       locations.push({
         tripVisitId,
+        postId: visit.post?._id ? visit.post._id.toString() : null,
         name: visit.address || 'Unknown Location',
         score: Math.max(postsForVisit.length, 1),
         date: dateString,

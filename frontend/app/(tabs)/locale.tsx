@@ -1102,6 +1102,9 @@ export default function LocaleScreen() {
   const isLocationResolvingRef = useRef(true);
   isLocationResolvingRef.current = isLocationResolving;
 
+  // Ref to lock coordinates used for the current query session (ensures consistent sorting across page fetches)
+  const queryLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
+
   const roundedUserLocStr = useMemo(() => {
     if (!userLocation) return null;
     return `${userLocation.latitude.toFixed(1)}_${userLocation.longitude.toFixed(1)}`;
@@ -1126,6 +1129,14 @@ export default function LocaleScreen() {
       roundedUserLocStr,
     ],
     queryFn: async ({ pageParam }) => {
+      // First page fetch: lock the coordinates for this query session
+      if (pageParam === null || pageParam === undefined) {
+        queryLocationRef.current = userLocation
+          ? { latitude: userLocation.latitude, longitude: userLocation.longitude }
+          : null;
+      }
+
+      const activeLoc = queryLocationRef.current;
       const res = await getLocales(
         searchLocaleQuery.trim(),
         (activeLocaleFilters.countryCode && activeLocaleFilters.countryCode !== 'all') ? activeLocaleFilters.countryCode : '',
@@ -1136,8 +1147,8 @@ export default function LocaleScreen() {
         false,
         activeLocaleFilters.stateProvince || '',
         undefined,
-        userLocation?.latitude ?? undefined,
-        userLocation?.longitude ?? undefined,
+        activeLoc?.latitude ?? undefined,
+        activeLoc?.longitude ?? undefined,
         pageParam
       );
       return res;
@@ -1149,6 +1160,13 @@ export default function LocaleScreen() {
     enabled: !isLocationResolving,
     staleTime: 5 * 60 * 1000,
   });
+
+  // Reset loaded pages count on refetch so we reconstruct adminLocales from scratch
+  useEffect(() => {
+    if (isRefetching) {
+      loadedPagesCountRef.current = 0;
+    }
+  }, [isRefetching]);
 
   // Synchronize adminLocales with query pages and drivingDistances in a stable way
   useEffect(() => {
@@ -1204,7 +1222,7 @@ export default function LocaleScreen() {
       setAdminLocales(sorted);
       loadedPagesCountRef.current = 1;
     } else if (currentPagesCount > loadedPagesCountRef.current) {
-      let newMappedList = [...adminLocales];
+      let newMappedList = loadedPagesCountRef.current === 0 ? [] : [...adminLocales];
       for (let i = loadedPagesCountRef.current; i < currentPagesCount; i++) {
         const newPageLocales = data.pages[i].locales || [];
         const mappedPage = newPageLocales.map(mapLocaleDistances);
@@ -1249,14 +1267,7 @@ export default function LocaleScreen() {
         return locale;
       });
       if (!changed) return prev;
-      const INFINITY = Number.POSITIVE_INFINITY;
-      return [...updated].sort((a, b) => {
-        const dA = a.distanceKm;
-        const dB = b.distanceKm;
-        const effA = (dA !== null && dA !== undefined && !isNaN(dA)) ? dA : INFINITY;
-        const effB = (dB !== null && dB !== undefined && !isNaN(dB)) ? dB : INFINITY;
-        return effA - effB;
-      });
+      return updated;
     });
   }, [userLocation, locationPermissionGranted, drivingDistances, adminLocales.length]);
 
