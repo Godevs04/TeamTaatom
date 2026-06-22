@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -12,11 +12,12 @@ import {
 } from 'react-native';
 import LoadingGlobe from '../../../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../../../context/ThemeContext';
 import api from '../../../../services/api';
 import logger from '../../../../utils/logger';
+import { savedEvents } from '../../../../utils/savedEvents';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -45,10 +46,6 @@ export default function TripScoreCountriesScreen() {
   const { continent, userId } = useLocalSearchParams();
 
   useEffect(() => {
-    loadCountries();
-  }, []);
-
-  useEffect(() => {
     if (data) {
       const filtered = data.countries.filter(country =>
         country.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -57,7 +54,7 @@ export default function TripScoreCountriesScreen() {
     }
   }, [data, searchQuery]);
 
-  const loadCountries = async () => {
+  const loadCountries = useCallback(async () => {
     try {
       setLoading(true);
       const continentParam = Array.isArray(continent) ? continent[0] : continent;
@@ -70,7 +67,17 @@ export default function TripScoreCountriesScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [continent, userId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadCountries();
+    }, [loadCountries])
+  );
+
+  useEffect(() => {
+    return savedEvents.addFeedInvalidateListener(loadCountries);
+  }, [loadCountries]);
 
   const handleCountryPress = (country: string) => {
     const countrySlug = country.toLowerCase().replace(/\s+/g, '-');

@@ -1164,7 +1164,9 @@ export default function LocaleScreen() {
     const mapLocaleDistances = (locale: Locale) => {
       const drivingDist = drivingDistances[locale._id];
       const distanceKm = drivingDist !== undefined ? drivingDist : (
-        locale.latitude && locale.longitude && currentUserLoc && locationPermissionGranted
+        typeof locale.latitude === 'number' && Number.isFinite(locale.latitude) &&
+        typeof locale.longitude === 'number' && Number.isFinite(locale.longitude) &&
+        currentUserLoc && locationPermissionGranted
           ? calculateDistance(currentUserLoc.latitude, currentUserLoc.longitude, locale.latitude, locale.longitude)
           : null
       );
@@ -1214,7 +1216,7 @@ export default function LocaleScreen() {
     }
   }, [data, locationPermissionGranted]);
 
-  // Update distances in-place when userLocation or drivingDistances change, WITHOUT re-sorting
+  // Update distances and re-sort whenever user or driving distances change.
   useEffect(() => {
     if (!userLocation || !locationPermissionGranted || adminLocales.length === 0) return;
     
@@ -1229,7 +1231,10 @@ export default function LocaleScreen() {
           }
           return locale;
         }
-        if (locale.latitude && locale.longitude) {
+        if (
+          typeof locale.latitude === 'number' && Number.isFinite(locale.latitude) &&
+          typeof locale.longitude === 'number' && Number.isFinite(locale.longitude)
+        ) {
           const straightLineDistance = calculateDistance(
             userLocation.latitude,
             userLocation.longitude,
@@ -1243,9 +1248,17 @@ export default function LocaleScreen() {
         }
         return locale;
       });
-      return changed ? updated : prev;
+      if (!changed) return prev;
+      const INFINITY = Number.POSITIVE_INFINITY;
+      return [...updated].sort((a, b) => {
+        const dA = a.distanceKm;
+        const dB = b.distanceKm;
+        const effA = (dA !== null && dA !== undefined && !isNaN(dA)) ? dA : INFINITY;
+        const effB = (dB !== null && dB !== undefined && !isNaN(dB)) ? dB : INFINITY;
+        return effA - effB;
+      });
     });
-  }, [userLocation, locationPermissionGranted, drivingDistances]);
+  }, [userLocation, locationPermissionGranted, drivingDistances, adminLocales.length]);
 
   useEffect(() => {
     setHasMore(!!hasNextPage);

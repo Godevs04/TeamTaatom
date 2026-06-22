@@ -28,9 +28,14 @@ class SavedEvents {
   private postActionListeners: Set<PostActionListener> = new Set();
   private followActionListeners: Set<FollowActionListener> = new Set();
   private deletedPostIds: Set<string> = new Set();
+  private loadPromise: Promise<void>;
 
   constructor() {
-    this.loadDeletedPosts();
+    this.loadPromise = this.loadDeletedPosts();
+  }
+
+  async ensureLoaded() {
+    await this.loadPromise;
   }
 
   private async loadDeletedPosts() {

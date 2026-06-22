@@ -14,7 +14,6 @@ import {
   Dimensions,
   ScrollView,
   Keyboard,
-  Linking,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { Image as ExpoImage } from 'expo-image';
@@ -97,6 +96,10 @@ interface LocationPin {
   postId?: string;
   contentType?: string;
 }
+
+const getLocationIdentity = (loc: Pick<LocationPin, 'postId' | 'number'>) => (
+  loc.postId ? `post-${loc.postId}` : `location-${loc.number}`
+);
 
 interface JourneyPolyline {
   _id: string;
@@ -237,25 +240,17 @@ function AllLocationsMapInner() {
   const mapStyle = useMapStyle();
   const { showAlert, showError, showSuccess, showDestructiveConfirm } = useAlert();
 
-  const openDirections = (latitude: number, longitude: number, label?: string) => {
-    const url = Platform.select({
-      ios: `maps://0,0?q=${latitude},${longitude}(${encodeURIComponent(label || 'Location')})`,
-      android: `geo:0,0?q=${latitude},${longitude}(${encodeURIComponent(label || 'Location')})`,
-    });
-    if (url) {
-      Linking.canOpenURL(url).then((supported) => {
-        if (supported) {
-          Linking.openURL(url);
-        } else {
-          const browserUrl = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
-          Linking.openURL(browserUrl);
-        }
-      });
-    }
-  };
-
   const renderSelectedPostCard = () => {
     if (!selectedPost || mapFilter === 'journeys') return null;
+    const selectedIdentity = getLocationIdentity(selectedPost);
+    const selectedIndex = validLocations.findIndex((loc) => getLocationIdentity(loc) === selectedIdentity);
+    const carouselLocations = selectedIndex > 0
+      ? [
+          validLocations[selectedIndex],
+          ...validLocations.slice(0, selectedIndex),
+          ...validLocations.slice(selectedIndex + 1),
+        ]
+      : validLocations;
 
     return (
       <View
@@ -268,7 +263,7 @@ function AllLocationsMapInner() {
       >
         <FlatList
           ref={carouselRef}
-          data={validLocations}
+          data={carouselLocations}
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
@@ -279,7 +274,7 @@ function AllLocationsMapInner() {
           }}
           onMomentumScrollEnd={handleCarouselScroll}
           getItemLayout={getCarouselItemLayout}
-          keyExtractor={(item) => `carousel-${item.postId || item.number}`}
+          keyExtractor={(item) => `carousel-${getLocationIdentity(item)}`}
           renderItem={({ item }) => {
             const resolvedPhoto = resolvePhotoUrl(item.photo);
             const dateStr = item.date ? new Date(item.date).toLocaleDateString(undefined, {
@@ -356,14 +351,16 @@ function AllLocationsMapInner() {
                     {/* Directions Button */}
                     <TouchableOpacity
                       onPress={() => {
+                        const routePost = item;
                         router.push({
                           pathname: '/map/current-location',
                           params: {
-                            latitude: item.latitude.toString(),
-                            longitude: item.longitude.toString(),
-                            address: item.address || '',
-                            locationName: item.address || '',
-                            imageUrl: item.photo || '',
+                            latitude: routePost.latitude.toString(),
+                            longitude: routePost.longitude.toString(),
+                            address: routePost.address || '',
+                            locationName: routePost.address || '',
+                            imageUrl: routePost.photo || '',
+                            postId: routePost.postId || '',
                             userId: userId || 'current-user',
                             autoRoute: 'true',
                           }
@@ -617,10 +614,6 @@ function AllLocationsMapInner() {
   const mapRef = useRef<any>(null);
   const WEBVIEW_API_KEY = getGoogleMapsApiKeyForWebView();
 
-  const getLocationMarkerId = useCallback((loc: LocationPin) => (
-    loc.postId ? `post-${loc.postId}` : `location-${loc.number}`
-  ), []);
-
   const validLocations = useMemo(() => {
     return locations
       .map((loc) => ({
@@ -714,9 +707,10 @@ function AllLocationsMapInner() {
   // Scroll carousel to index when selectedPost is changed externally
   useEffect(() => {
     if (selectedPost && !isScrollingCarouselRef.current) {
-      const idx = validLocations.findIndex(l => l.postId === selectedPost.postId || l.number === selectedPost.number);
+      const selectedIdentity = getLocationIdentity(selectedPost);
+      const idx = validLocations.findIndex(l => getLocationIdentity(l) === selectedIdentity);
       if (idx !== -1 && carouselRef.current) {
-        carouselRef.current.scrollToIndex({ index: idx, animated: true });
+        carouselRef.current.scrollToIndex({ index: 0, animated: false });
       }
     }
   }, [selectedPost, validLocations]);
@@ -725,10 +719,21 @@ function AllLocationsMapInner() {
     if (!isScrollingCarouselRef.current) return;
     const contentOffsetX = event.nativeEvent.contentOffset.x;
     const index = Math.round(contentOffsetX / screenWidth);
-    if (index >= 0 && index < validLocations.length) {
-      const nextLoc = validLocations[index];
-      if (!selectedPost || (selectedPost.postId !== nextLoc.postId && selectedPost.number !== nextLoc.number)) {
-        setSelectedPost(nextLoc);
+    if (index >= 0 && selectedPost) {
+      const selectedIdentity = getLocationIdentity(selectedPost);
+      const selectedIndex = validLocations.findIndex((loc) => getLocationIdentity(loc) === selectedIdentity);
+      const carouselLocations = selectedIndex > 0
+        ? [
+            validLocations[selectedIndex],
+            ...validLocations.slice(0, selectedIndex),
+            ...validLocations.slice(selectedIndex + 1),
+          ]
+        : validLocations;
+      if (index < carouselLocations.length) {
+        const nextLoc = carouselLocations[index];
+        if (getLocationIdentity(selectedPost) !== getLocationIdentity(nextLoc)) {
+          setSelectedPost(nextLoc);
+        }
       }
     }
     isScrollingCarouselRef.current = false;
@@ -744,11 +749,11 @@ function AllLocationsMapInner() {
     const latDelta = sanitizeLatitudeDelta(currentRegion?.latitudeDelta, 0.1);
     
     const dedupedLocations: LocationPin[] = [];
-    const seenCoords = new Set<string>();
+    const seenLocationIds = new Set<string>();
     validLocations.forEach((m) => {
-      const key = `${m.latitude.toFixed(4)},${m.longitude.toFixed(4)}`;
-      if (!seenCoords.has(key)) {
-        seenCoords.add(key);
+      const key = getLocationIdentity(m);
+      if (!seenLocationIds.has(key)) {
+        seenLocationIds.add(key);
         dedupedLocations.push(m);
       }
     });
@@ -811,7 +816,7 @@ function AllLocationsMapInner() {
     const mapping = new Map<string, { isCluster: boolean; latitude: number; longitude: number; clusterId: string }>();
     clusteredLocations.forEach((c) => {
       c.locations.forEach((loc) => {
-        const id = loc.postId || loc.number;
+        const id = getLocationIdentity(loc);
         mapping.set(String(id), {
           isCluster: c.isCluster,
           latitude: c.latitude,
@@ -840,16 +845,6 @@ function AllLocationsMapInner() {
       logger.error('Error fitting to cluster coordinates:', err);
     }
   }, [useWebViewFallback]);
-
-  const handleMarkerPress = useCallback((loc: LocationPin) => {
-    if (!loc.postId) return;
-    const targetUserId = userId;
-    if (loc.contentType === 'short') {
-      router.push(`/user-shorts/${targetUserId}?shortId=${loc.postId}`);
-    } else {
-      router.push(`/post/${loc.postId}`);
-    }
-  }, [userId, router]);
 
   const handleRegionChangeComplete = useCallback((newRegion: any) => {
     const safeRegion = sanitizeMapRegion(newRegion, currentRegion ?? undefined);
@@ -1653,7 +1648,7 @@ function initMap(){
   (function(){
     var seen={},deduped=[];
     markers.forEach(function(m){
-      var key=m.lat.toFixed(4)+','+m.lng.toFixed(4);
+      var key=m.postId ? ('post-' + m.postId) : ('location-' + m.number);
       if(!seen[key]){seen[key]=true;deduped.push(m);}
     });
     markers=deduped;
@@ -1860,8 +1855,12 @@ function initMap(){
               } else if (data.type === 'selectPost' && data.location) {
                 const loc = {
                   ...data.location,
-                  latitude: typeof data.location.latitude === 'string' ? parseFloat(data.location.latitude) : data.location.latitude,
-                  longitude: typeof data.location.longitude === 'string' ? parseFloat(data.location.longitude) : data.location.longitude,
+                  latitude: typeof data.location.latitude === 'string'
+                    ? parseFloat(data.location.latitude)
+                    : data.location.latitude ?? data.location.lat,
+                  longitude: typeof data.location.longitude === 'string'
+                    ? parseFloat(data.location.longitude)
+                    : data.location.longitude ?? data.location.lng,
                 };
                 setSelectedPost(loc);
               } else if (data.type === 'selectJourney' && data.journeyId) {
@@ -2087,9 +2086,10 @@ function initMap(){
         {(mapFilter === 'posts') && (
           <>
             {validLocations.map((loc) => {
-              const state = clusterState.get(String(loc.postId || loc.number));
-              const isSelected = selectedPost && selectedPost.postId === loc.postId;
-              const locIndex = validLocations.findIndex(l => l.postId === loc.postId || l.number === loc.number);
+              const identity = getLocationIdentity(loc);
+              const state = clusterState.get(identity);
+              const isSelected = !!selectedPost && getLocationIdentity(selectedPost) === identity;
+              const locIndex = validLocations.findIndex(l => getLocationIdentity(l) === identity);
               const totalCount = validLocations.length;
               const showPin = locIndex !== -1 && (locIndex < Math.round(pinRatio * totalCount));
 
@@ -2099,7 +2099,7 @@ function initMap(){
 
               return (
                 <ClusteredMarker
-                  key={`loc-${loc.postId || loc.number}`}
+                  key={`loc-${identity}`}
                   location={loc}
                   targetCoordinate={{ latitude: targetLat, longitude: targetLng }}
                   visible={visible || isSelected}

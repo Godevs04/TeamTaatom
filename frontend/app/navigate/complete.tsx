@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -71,6 +71,22 @@ export default function CompleteScreen() {
   const { journey, polyline, distance } = useJourney();
   const duration = useJourneyDuration();
   const params = useLocalSearchParams();
+
+  const isNavigatingRef = useRef(false);
+
+  const navigateToPost = (postId: string, contentType: string, userId: string) => {
+    if (isNavigatingRef.current) return;
+    isNavigatingRef.current = true;
+    setTimeout(() => {
+      isNavigatingRef.current = false;
+    }, 1000);
+
+    if (contentType === 'short' || contentType === 'video') {
+      router.push(`/user-shorts/${userId}?shortId=${postId}`);
+    } else {
+      router.push(`/post/${postId}`);
+    }
+  };
 
   const [mapReady, setMapReady] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
@@ -262,11 +278,7 @@ function initMap(){
                     anchor={photoUrl ? { x: 0.5, y: 0.5 } : { x: 0.5, y: 1.0 }}
                     onPress={() => {
                       if (postId) {
-                        if (contentType === 'short' || contentType === 'video') {
-                          router.push(`/user-shorts/${targetUserId}?shortId=${postId}`);
-                        } else {
-                          router.push(`/post/${postId}`);
-                        }
+                        navigateToPost(postId, contentType, targetUserId);
                       }
                     }}
                     repaintTriggers={[waypoint.type, photoUrl]}

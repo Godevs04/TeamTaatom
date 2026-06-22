@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import LoadingGlobe from '../../../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import Constants from 'expo-constants';
@@ -31,6 +31,7 @@ import {
   sanitizeMapRegion,
 } from '../../../../utils/mapSafety';
 import { getGoogleMapsApiKeyForWebView } from '../../../../utils/maps';
+import { savedEvents } from '../../../../utils/savedEvents';
 
 const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKeyForWebView();
 
@@ -39,6 +40,7 @@ const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
 
 interface Location {
+  tripVisitId?: string;
   name: string;
   score: number;
   date: string;
@@ -112,6 +114,7 @@ const OptimizedVisitedMarker = React.memo(({
     prev.isSelected === next.isSelected &&
     prev.index === next.index &&
     prev.latitudeDelta === next.latitudeDelta &&
+    prev.location.stableId === next.location.stableId &&
     prev.location.imageUrl === next.location.imageUrl &&
     prev.location.name === next.location.name &&
     prev.location.coordinates?.latitude === next.location.coordinates?.latitude &&
@@ -205,16 +208,7 @@ export default function CountryMapScreen() {
 
 
 
-  // Load data on mount and when screen comes into focus (to persist markers after navigation)
-  useEffect(() => {
-    loadCountryData();
-  }, []);
-
-
-  // NOTE: We intentionally do not reload on focus. Re-fetching can re-order / change marker lists.
-  // Markers are made stable via deterministic fallback coordinates + stable keys.
-
-  const loadCountryData = async () => {
+  const loadCountryData = useCallback(async () => {
     try {
       setLoading(true);
       const countryParam = Array.isArray(country) ? country[0] : country;
@@ -230,7 +224,17 @@ export default function CountryMapScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [country, userId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadCountryData();
+    }, [loadCountryData])
+  );
+
+  useEffect(() => {
+    return savedEvents.addFeedInvalidateListener(loadCountryData);
+  }, [loadCountryData]);
 
   const handleLocationPress = (location: Location) => {
     const isAlreadyPinned = pinnedLocation && (pinnedLocation as any).stableId === (location as any).stableId;
@@ -403,7 +407,7 @@ export default function CountryMapScreen() {
           );
 
       // Create a unique stable ID for this marker (doesn't change across renders)
-      const stableId = `${loc.name || `loc-${i}`}-${finalCoords.latitude.toFixed(6)}-${finalCoords.longitude.toFixed(6)}`;
+      const stableId = loc.tripVisitId || `${loc.name || `loc-${i}`}-${finalCoords.latitude.toFixed(6)}-${finalCoords.longitude.toFixed(6)}-${i}`;
 
       return {
         ...loc,
@@ -413,24 +417,11 @@ export default function CountryMapScreen() {
       };
     });
 
-    // Dedupe by ~11m precision (4 decimal places) so multiple visits taken at
-    // the exact same spot (or within GPS noise) collapse to one marker. Same
-    // treatment as the My Location map — without this, overlapping pins look
-    // like one marker but inflate any future cluster/badge counts.
-    const seen = new Set<string>();
-    const deduped: typeof markers = [];
-    for (const m of markers) {
-      const key = `${m.coordinates.latitude.toFixed(4)},${m.coordinates.longitude.toFixed(4)}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        deduped.push(m);
-      }
-    }
-
-    // Cache markers to preserve them when navigating back
-    markersCacheRef.current = deduped;
-    return deduped;
-  }, [data?.locations?.length, displayCountryName]); // Only depend on locations count and country name (more stable)
+    // Keep every approved TripVisit visible/selectable, even when points are
+    // near each other or share the same coordinates.
+    markersCacheRef.current = markers;
+    return markers;
+  }, [data?.locations, displayCountryName]);
 
 
 
@@ -802,17 +793,17 @@ export default function CountryMapScreen() {
           )}
           {/* Markers for visited locations */}
           {visitedMarkers.map((location: any, index: number) => {
-            const isPinned = pinnedLocation && (
-              pinnedLocation.name === location.name &&
-              pinnedLocation.coordinates?.latitude === location.coordinates.latitude &&
-              pinnedLocation.coordinates?.longitude === location.coordinates.longitude
+            const isPinned = Boolean(
+              pinnedLocation &&
+              (pinnedLocation as any).stableId &&
+              (pinnedLocation as any).stableId === location.stableId
             );
 
             return (
               <OptimizedVisitedMarker
-                key={location.stableId || `${location.name}-${location.coordinates!.latitude.toFixed(6)}-${location.coordinates!.longitude.toFixed(6)}-${isPinned ? 'selected' : 'unselected'}`}
+                key={location.stableId}
                 location={location}
-                isSelected={!!isPinned}
+                isSelected={isPinned}
                 index={index}
                 latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
                 onPress={() => handleLocationPress(location)}
@@ -850,7 +841,7 @@ export default function CountryMapScreen() {
               }}
               onMomentumScrollEnd={handleCarouselScroll}
               getItemLayout={getCarouselItemLayout}
-              keyExtractor={(item, idx) => `carousel-${item.stableId || item.name}-${idx}`}
+              keyExtractor={(item) => `carousel-${item.stableId}`}
               style={styles.carouselFlatList}
               contentContainerStyle={styles.carouselContent}
               renderItem={({ item }) => {

@@ -63,9 +63,17 @@ import { realtimePostsService } from '../../services/realtimePosts';
 import type { FeedMode } from '../../services/posts';
 
 /** Feed list item: either a post or a native ad placeholder (inserted every 5 posts). */
-export type FeedItem = PostType | { type: 'ad'; adIndex: number };
+export type FeedItem = PostType | {
+  type: 'ad';
+  adIndex: number;
+  milestone: { placement: string; threshold: number };
+};
 
-function isAdItem(item: FeedItem): item is { type: 'ad'; adIndex: number } {
+function isAdItem(item: FeedItem): item is {
+  type: 'ad';
+  adIndex: number;
+  milestone: { placement: string; threshold: number };
+} {
   return 'type' in item && item.type === 'ad';
 }
 const POST_VIEW_DWELL_MS = 2500;
@@ -221,7 +229,7 @@ const FeedListItem = React.memo(
       return (
         <NativeAdCard
           adIndex={item.adIndex}
-          onImpression={recordGoogleAdImpression}
+          onImpression={() => recordGoogleAdImpression(item.milestone)}
           onLoadFailed={() => onAdLoadFailed(item.adIndex)}
         />
       );
@@ -949,6 +957,9 @@ export default function HomeScreen() {
     const loadInitialData = async () => {
       if (hasInitializedRef.current) return;
       hasInitializedRef.current = true;
+
+      // Await savedEvents initialization to ensure deleted posts are filtered correctly
+      await savedEvents.ensureLoaded();
 
       // Capture feed mode at load start. If the user switches tabs while we're
       // loading, this run is "stale" and must not setLoading(false) (the new run
