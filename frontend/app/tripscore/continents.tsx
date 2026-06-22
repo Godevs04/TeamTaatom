@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -10,12 +10,13 @@ import {
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
 import api from '../../services/api';
 import { theme } from '../../constants/theme';
 import logger from '../../utils/logger';
+import { savedEvents } from '../../utils/savedEvents';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -50,11 +51,7 @@ export default function TripScoreContinentsScreen() {
   const router = useRouter();
   const { userId } = useLocalSearchParams();
 
-  useEffect(() => {
-    loadContinents();
-  }, []);
-
-  const loadContinents = async () => {
+  const loadContinents = useCallback(async () => {
     try {
       setLoading(true);
       const response = await api.get(`/api/v1/profile/${userId}/tripscore/continents`);
@@ -64,7 +61,17 @@ export default function TripScoreContinentsScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [userId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadContinents();
+    }, [loadContinents])
+  );
+
+  useEffect(() => {
+    return savedEvents.addFeedInvalidateListener(loadContinents);
+  }, [loadContinents]);
 
   const handleContinentPress = (continent: string) => {
     const continentSlug = continent.toLowerCase().replace(/\s+/g, '-');

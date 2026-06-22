@@ -63,9 +63,17 @@ import { shortsEvents } from '../../utils/shortsEvents';
 import { preloadVideoAsync, getLocalVideoUri, removeCachedVideo, getLocalVideoUriSync, addCacheListener } from '../../src/utils/videoCache';
 
 /** Shorts list item: either a reel (PostType) or a full-screen native ad slot. */
-export type ShortsItem = PostType | { type: 'ad'; adIndex: number };
+export type ShortsItem = PostType | {
+  type: 'ad';
+  adIndex: number;
+  milestone: { placement: string; threshold: number };
+};
 
-function isAdItem(item: ShortsItem): item is { type: 'ad'; adIndex: number } {
+function isAdItem(item: ShortsItem): item is {
+  type: 'ad';
+  adIndex: number;
+  milestone: { placement: string; threshold: number };
+} {
   return 'type' in item && item.type === 'ad';
 }
 
@@ -1983,13 +1991,22 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       result.push(reel);
       if ((i + 1) % SHORTS_ADS_AFTER_EVERY === 0 && i < shorts.length - 1) {
         const currentAdIndex = adCount++;
-        if (!failedAdIndices.includes(currentAdIndex)) {
-          result.push({ type: 'ad', adIndex: currentAdIndex });
+        const threshold = i + 1;
+        const milestoneKey = `shorts:${threshold}`;
+        if (
+          !failedAdIndices.includes(currentAdIndex) &&
+          !adCap.shownAdMilestones.includes(milestoneKey)
+        ) {
+          result.push({
+            type: 'ad',
+            adIndex: currentAdIndex,
+            milestone: { placement: 'shorts', threshold },
+          });
         }
       }
     });
     return result;
-  }, [shorts, showShortsAds, failedAdIndices]);
+  }, [shorts, showShortsAds, failedAdIndices, adCap.shownAdMilestones]);
 
   useEffect(() => {
     shortsDataRef.current = shortsData;
@@ -2318,7 +2335,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
                setAdsShownThisSession((prev) => prev + 1);
               // Persistent 5-per-8h cap, shared with the home feed. Fire-and-forget;
               // adCap handles AsyncStorage write + listener notification internally.
-              recordGoogleAdImpression();
+              recordGoogleAdImpression(item.milestone);
             }}
             onLoadFailed={() => {
               consecutiveAdFailuresRef.current += 1;
@@ -2403,7 +2420,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   ]);
 
   const keyExtractor = useCallback((item: ShortsItem) => {
-    if (isAdItem(item)) return `ad-${item.adIndex}`;
+    if (isAdItem(item)) return `ad-${item.adIndex}-${item.milestone.threshold}`;
     return item._id;
   }, []);
 

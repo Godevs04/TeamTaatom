@@ -124,6 +124,10 @@ export default function UserProfileScreen() {
   const profileRef = useRef<any>(null);
   const userShortsRef = useRef<any[]>([]);
 
+  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollPositionRef = useRef<number>(0);
+  const pendingScrollRestoreRef = useRef<boolean>(false);
+
   useEffect(() => {
     profileRef.current = profile;
   }, [profile]);
@@ -361,23 +365,26 @@ export default function UserProfileScreen() {
       const cacheBuster = lastFollowApiResponse.current ? `?t=${Date.now()}` : '';
       
       // OPTIMIZATION: Try to load cached profile first for instant display (optimistic)
-      try {
-        const cachedProfile = await AsyncStorage.getItem(`cachedUserProfile_${id}`).catch(() => null);
-        if (cachedProfile) {
-          const parsed = JSON.parse(cachedProfile);
-          const cacheAge = Date.now() - (parsed.timestamp || 0);
-          if (cacheAge < 5 * 60 * 1000 && parsed.data) { // 5 min cache
-            updateProfileState(parsed.data);
-            // Pre-set follow state from cache to avoid flicker
-            const cachedIsFollowing = Boolean(parsed.data.isFollowing);
-            const cachedFollowRequestSent = Boolean(parsed.data.followRequestSent);
-            setIsFollowing(cachedIsFollowing);
-            setFollowRequestSent(cachedFollowRequestSent);
-            setLoading(false); // Show cached data immediately
+      // Only do this on initial load (non-background) and when we don't have a profile yet
+      if (!isBackground && !profileRef.current) {
+        try {
+          const cachedProfile = await AsyncStorage.getItem(`cachedUserProfile_${id}`).catch(() => null);
+          if (cachedProfile) {
+            const parsed = JSON.parse(cachedProfile);
+            const cacheAge = Date.now() - (parsed.timestamp || 0);
+            if (cacheAge < 5 * 60 * 1000 && parsed.data) { // 5 min cache
+              updateProfileState(parsed.data);
+              // Pre-set follow state from cache to avoid flicker
+              const cachedIsFollowing = Boolean(parsed.data.isFollowing);
+              const cachedFollowRequestSent = Boolean(parsed.data.followRequestSent);
+              setIsFollowing(cachedIsFollowing);
+              setFollowRequestSent(cachedFollowRequestSent);
+              setLoading(false); // Show cached data immediately
+            }
           }
+        } catch (cacheError) {
+          logger.debug('Cache load error (non-critical):', cacheError);
         }
-      } catch (cacheError) {
-        logger.debug('Cache load error (non-critical):', cacheError);
       }
       
       // OPTIMIZATION: Fetch profile, posts, and shorts in parallel if canViewPosts is true
@@ -674,6 +681,11 @@ export default function UserProfileScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      // Mark scroll restore intent if we have a saved position
+      if (scrollPositionRef.current > 0) {
+        pendingScrollRestoreRef.current = true;
+      }
+
       // Only clear stored API response if we're not in the middle of a follow action
       // This prevents clearing the correct state right after a follow/unfollow
       if (!isFollowActionInProgress.current) {
@@ -685,6 +697,24 @@ export default function UserProfileScreen() {
       fetchProfile(true, false);
     }, [fetchProfile])
   );
+
+  // Restore scroll position once loading finishes and ScrollView is mounted
+  useEffect(() => {
+    if (loading) return;
+    if (!pendingScrollRestoreRef.current) return;
+    pendingScrollRestoreRef.current = false;
+    
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (scrollViewRef.current && scrollPositionRef.current > 0) {
+          scrollViewRef.current.scrollTo({
+            y: scrollPositionRef.current,
+            animated: false,
+          });
+        }
+      });
+    });
+  }, [loading, profile]);
 
   const executeFollowToggle = async (wasFollowing: boolean, wasRequestSent: boolean) => {
     isFollowActionInProgress.current = true;
@@ -902,12 +932,17 @@ export default function UserProfileScreen() {
         pointerEvents="none"
       />
       <ScrollView
+        ref={scrollViewRef}
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
         scrollEventThrottle={16}
         onScroll={({ nativeEvent }) => {
           const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+          
+          // Save scroll position
+          scrollPositionRef.current = contentOffset.y;
+
           const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - 300;
           if (isCloseToBottom && activeTab === 'posts') {
             loadMorePosts();

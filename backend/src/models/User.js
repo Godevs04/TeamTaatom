@@ -376,8 +376,17 @@ userSchema.methods.clearOTP = function() {
 // Get public profile (async to resolve followingIds from Follow collection)
 userSchema.methods.getPublicProfile = async function() {
   const Follow = mongoose.model('Follow');
-  const followingList = await Follow.find({ follower: this._id }).select('following').lean();
+  const [followingList, followersCount, followingCount] = await Promise.all([
+    Follow.find({ follower: this._id }).select('following').lean(),
+    Follow.countDocuments({ following: this._id, follower: { $ne: this._id } }),
+    Follow.countDocuments({ follower: this._id, following: { $ne: this._id } })
+  ]);
   const followingIds = followingList.map(f => f.following.toString());
+
+  this.constructor.updateOne(
+    { _id: this._id },
+    { $set: { followersCount, followingCount } }
+  ).catch(() => {});
 
   return {
     _id: this._id,
@@ -386,8 +395,8 @@ userSchema.methods.getPublicProfile = async function() {
     bio: this.bio,
     email: this.email,
     profilePic: this.profilePic,
-    followers: this.followersCount || 0,
-    following: this.followingCount || 0,
+    followers: followersCount,
+    following: followingCount,
     followingIds: followingIds,
     totalLikes: this.totalLikes,
     isVerified: this.isVerified,

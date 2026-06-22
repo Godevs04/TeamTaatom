@@ -46,6 +46,12 @@ const getVideoUrlForShort = (short, req) => {
   return null;
 };
 
+const parseCoordinateOrZero = (value) => {
+  if (value === undefined || value === null || value === '') return 0;
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
 const handleHLSProxy = async (req, res) => {
   const { hls, postId, file } = req.query;
   
@@ -1129,8 +1135,8 @@ const createPost = async (req, res) => {
       location: {
         address: address || 'Unknown Location',
         coordinates: {
-          latitude: parseFloat(latitude) || 0,
-          longitude: parseFloat(longitude) || 0
+          latitude: parseCoordinateOrZero(latitude),
+          longitude: parseCoordinateOrZero(longitude)
         }
       },
       // CRITICAL: Dual-audio mixing support
@@ -3785,8 +3791,8 @@ const createShort = async (req, res) => {
       location: {
         address: address || 'Unknown Location',
         coordinates: {
-          latitude: parseFloat(latitude) || 0,
-          longitude: parseFloat(longitude) || 0
+          latitude: parseCoordinateOrZero(latitude),
+          longitude: parseCoordinateOrZero(longitude)
         }
       },
       // TripScore metadata from user dropdowns

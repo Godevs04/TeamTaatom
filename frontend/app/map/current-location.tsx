@@ -8,7 +8,6 @@ import {
   StatusBar,
   Platform,
   KeyboardAvoidingView,
-  Linking,
 } from 'react-native';
 import MaskedView from '@react-native-masked-view/masked-view';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -235,6 +234,7 @@ export default function CurrentLocationMap() {
   const postLongitude = params.longitude ? parseFloat(params.longitude as string) : null;
   const postAddress = params.address as string || null;
   const locationName = params.locationName as string || null; // For locale navigation
+  const postIdParam = params.postId as string || null;
   const countryParam = params.country as string || null;
   const userIdParam = params.userId as string || null;
   const isApproximate = params.isApproximate === 'true';
@@ -302,7 +302,7 @@ export default function CurrentLocationMap() {
 
   useEffect(() => {
     // Create a unique key for these params to avoid duplicate logging
-    const paramsKey = `${postLatitude || 'null'}-${postLongitude || 'null'}-${postAddress || 'null'}-${locationName || 'null'}`;
+    const paramsKey = `${postIdParam || 'null'}-${postLatitude || 'null'}-${postLongitude || 'null'}-${postAddress || 'null'}-${locationName || 'null'}`;
     
     // Only log once per unique param combination
     if (__DEV__ && hasLoggedParamsRef.current !== paramsKey) {
@@ -313,7 +313,7 @@ export default function CurrentLocationMap() {
       const hasAnyLocationParam = postLatitude !== null || postLongitude !== null || postAddress || locationName;
       
       if (hasValidCoordinates) {
-        logger.info('✅ Using EXACT coordinates from params:', { postLatitude, postLongitude });
+        logger.info('✅ Using EXACT coordinates from params:', { postId: postIdParam, postLatitude, postLongitude });
       } else if (hasAnyLocationParam) {
         // Only log if we have some location params but they're invalid
         // This indicates a potential issue (e.g., invalid coordinates passed)
@@ -326,13 +326,14 @@ export default function CurrentLocationMap() {
       }
       // Don't log when no params are provided - this is expected behavior for current location flow
     }
-  }, [params, postLatitude, postLongitude, postAddress, locationName, hasValidCoordinates, isPostLocation]);
+  }, [params, postIdParam, postLatitude, postLongitude, postAddress, locationName, hasValidCoordinates, isPostLocation]);
 
   useEffect(() => {
     // CRITICAL: Use exact coordinates from params if valid (for locale flow)
     // These coordinates come from the database (admin locale) and should be used instead of current location
     if (hasValidCoordinates) {
       logger.info('📍 Setting map location with EXACT database coordinates from locale:', { 
+        postId: postIdParam,
         postLatitude, 
         postLongitude,
         locationName,
@@ -403,7 +404,7 @@ export default function CurrentLocationMap() {
         }
       };
     }
-  }, [hasValidCoordinates, postLatitude, postLongitude, locationName, userIdParam]);
+  }, [hasValidCoordinates, postIdParam, postLatitude, postLongitude, locationName, userIdParam]);
 
   const getCurrentLocation = async () => {
     try {
@@ -570,6 +571,11 @@ export default function CurrentLocationMap() {
 
       // Route calculation is now delegated to the Maps JS SDK inside the WebView
       // Trigger calculation dynamically without reloading the WebView
+      logger.info('Calculating in-app route to selected post coordinates:', {
+        postId: postIdParam,
+        origin: coords,
+        destination: { latitude: postLatitude, longitude: postLongitude },
+      });
       if (mapRef.current && useWebViewFallback) {
         mapRef.current.injectJavaScript(`
           if (typeof window.updateUserLocation === 'function') {

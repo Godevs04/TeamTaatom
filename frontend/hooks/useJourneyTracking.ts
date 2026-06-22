@@ -137,6 +137,8 @@ const PENDING_COORDS_KEY_PREFIX = 'pendingJourneyCoords:';
 // TaskManager task below keeps writing locations here. On the next
 // foreground transition we drain this into the polyline + send batch.
 const BG_QUEUE_KEY_PREFIX = 'bgJourneyCoords:';
+const TRACKING_HEALTH_CHECK_INTERVAL = 15000;
+const TRACKING_STALE_THRESHOLD = 30000;
 // TaskManager task name. Defined at module scope so it's registered on
 // every JS bundle load (required by TaskManager's API contract — it must
 // be reachable before `startLocationUpdatesAsync` is called).
@@ -395,6 +397,16 @@ try {
       } catch (e) {
         // ignore write error
       }
+
+      try {
+        const queueKey = BG_QUEUE_KEY_PREFIX + journeyId;
+        const raw = await AsyncStorage.getItem(queueKey);
+        const parsed = raw ? JSON.parse(raw) : [];
+        const existingAsync = Array.isArray(parsed) ? parsed : [];
+        await AsyncStorage.setItem(queueKey, JSON.stringify([...existingAsync, ...valid]));
+      } catch (e) {
+        // ignore async queue write error
+      }
     } catch {
       // Background task must never throw — silent on error.
     }
@@ -484,6 +496,8 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   const lastCoordinateRef = useRef<Coordinate | null>(null);
   const durationTimerRef = useRef<NodeJS.Timeout | null>(null);
   const batchSendTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const healthCheckTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastGpsUpdateAtRef = useRef<number | null>(null);
   const appStateRef = useRef(AppState.currentState);
   const startTimeRef = useRef<number | null>(null);
   const pendingSegmentBreakRef = useRef(false);
@@ -683,6 +697,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       }
       if (durationTimerRef.current) clearInterval(durationTimerRef.current);
       if (batchSendTimerRef.current) clearInterval(batchSendTimerRef.current);
+      if (healthCheckTimerRef.current) clearInterval(healthCheckTimerRef.current);
       if (polylineUpdateTimeoutRef.current) clearTimeout(polylineUpdateTimeoutRef.current);
     };
   }, []);
@@ -738,8 +753,8 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
   // Drain coords accumulated by the background task while the app was
   // suspended. Called on app-foreground and on hook init for recovery.
-  const drainBackgroundQueue = useCallback(async () => {
-    const id = journeyIdRef.current;
+  const drainBackgroundQueue = useCallback(async (journeyIdOverride?: string) => {
+    const id = journeyIdOverride || journeyIdRef.current;
     if (!id) return;
     const queueKey = BG_QUEUE_KEY_PREFIX + id;
     const fileUri = `${FileSystem.cacheDirectory}bg_coords_${id}.json`;
@@ -907,6 +922,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
       if (accepted.length > 0) {
         lastCoordinateRef.current = accepted[accepted.length - 1];
+        lastGpsUpdateAtRef.current = Date.now();
         setPolyline(prev => [...prev, ...accepted]);
         setDistance(prev => prev + addedDistance);
         // Push into the send batch so the next 60s sync ships them.
@@ -940,10 +956,37 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       const remainingQueue: any[] = [];
 
       for (const item of queue) {
-        const { journeyId, snapToRoads } = item;
+        const { journeyId, snapToRoads, endCoords } = item;
+        const previousJourneyId = journeyIdRef.current;
         try {
           logger.debug(`[Journey] Retrying completion for journey: ${journeyId}`);
-          await completeJourney(journeyId, { snapToRoads });
+          journeyIdRef.current = journeyId;
+          await drainBackgroundQueue(journeyId);
+          const drainedCoords = batchCoordinatesRef.current.splice(0);
+
+          const persistedKey = PENDING_COORDS_KEY_PREFIX + journeyId;
+          const persistedRaw = await AsyncStorage.getItem(persistedKey);
+          let persistedCoords: Coordinate[] = [];
+          if (persistedRaw) {
+            const parsed = JSON.parse(persistedRaw);
+            if (Array.isArray(parsed)) {
+              persistedCoords = parsed.filter((c: any) =>
+                c &&
+                typeof c === 'object' &&
+                typeof c.latitude === 'number' &&
+                typeof c.longitude === 'number' &&
+                !Number.isNaN(c.latitude) &&
+                !Number.isNaN(c.longitude)
+              );
+            }
+          }
+          const coordsToFlush = [...persistedCoords, ...drainedCoords];
+          if (coordsToFlush.length > 0) {
+            await AsyncStorage.setItem(persistedKey, JSON.stringify(coordsToFlush)).catch(() => {});
+            await updateJourneyLocation(journeyId, coordsToFlush);
+            await AsyncStorage.removeItem(persistedKey).catch(() => {});
+          }
+          await completeJourney(journeyId, { snapToRoads, endCoords });
           logger.debug(`[Journey] Successfully synced completion for journey: ${journeyId}`);
         } catch (err: any) {
           if (err.message && err.message.includes('not active or paused')) {
@@ -951,6 +994,10 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           } else {
             logger.error(`[Journey] Failed to sync completion for journey ${journeyId}, will retry:`, err);
             remainingQueue.push(item);
+          }
+        } finally {
+          if (journeyIdRef.current === journeyId) {
+            journeyIdRef.current = previousJourneyId;
           }
         }
       }
@@ -979,6 +1026,10 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         clearInterval(batchSendTimerRef.current);
         batchSendTimerRef.current = null;
       }
+      if (healthCheckTimerRef.current) {
+        clearInterval(healthCheckTimerRef.current);
+        healthCheckTimerRef.current = null;
+      }
       await stopBackgroundUpdates();
       const id = journeyIdRef.current;
       if (id) {
@@ -993,6 +1044,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       kalmanFilterRef.current = null;
       lastStationaryMarkerUpdateRef.current = 0;
       currentCoordinateRef.current = null;
+      lastGpsUpdateAtRef.current = null;
       diagnosticsRef.current = {
         acceptedPoints: 0,
         rejectedAccuracy: 0,
@@ -1135,12 +1187,39 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           }
 
           logger.debug('[Journey] App was terminated with active journey, auto-saving:', storedJourneyId);
+          journeyIdRef.current = storedJourneyId;
+          setJourney(fetchedJourney);
+
+          let recoveryPolyline: Coordinate[] = [];
+          try {
+            const localStateRaw = await AsyncStorage.getItem('@active_journey_state');
+            if (localStateRaw) {
+              const localState = JSON.parse(localStateRaw);
+              if (Array.isArray(localState?.polyline)) {
+                recoveryPolyline = localState.polyline;
+              }
+            }
+          } catch {
+            // ignore local recovery parse failures
+          }
+
+          if (recoveryPolyline.length === 0 && fetchedJourney) {
+            recoveryPolyline = normalizeJourneyPolyline(fetchedJourney);
+          }
+
+          if (recoveryPolyline.length > 0) {
+            polylineRef.current = recoveryPolyline;
+            setPolyline(recoveryPolyline);
+            lastCoordinateRef.current = recoveryPolyline[recoveryPolyline.length - 1];
+          }
           
           // Stop background task updates first
           await stopBackgroundUpdates();
 
           // Drain any background location updates accumulated
-          await drainBackgroundQueue();
+          await drainBackgroundQueue(storedJourneyId);
+
+          let pendingCoordUploadFailed = false;
 
           // Fetch pending/unsent coordinates from local storage and upload them if possible
           try {
@@ -1163,12 +1242,36 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
               await AsyncStorage.removeItem(persistedKey).catch(() => {});
             }
           } catch (e) {
+            pendingCoordUploadFailed = true;
             logger.warn('[Journey] Failed to upload pending coords on auto-save:', e);
           }
 
+          if (batchCoordinatesRef.current.length > 0) {
+            const recoveredBatch = batchCoordinatesRef.current.splice(0);
+            try {
+              await updateJourneyLocation(storedJourneyId, recoveredBatch);
+              clearPersistedCoords(storedJourneyId);
+            } catch (e) {
+              pendingCoordUploadFailed = true;
+              batchCoordinatesRef.current.unshift(...recoveredBatch);
+              persistPendingCoords();
+              logger.warn('[Journey] Failed to upload recovered bg coords on auto-save:', e);
+            }
+          }
+
+          const recoveredEndCoord = lastCoordinateRef.current
+            ? {
+                lat: lastCoordinateRef.current.latitude,
+                lng: lastCoordinateRef.current.longitude,
+              }
+            : undefined;
+
           // Complete the journey on the backend
           try {
-            await completeJourney(storedJourneyId, { snapToRoads: true });
+            if (pendingCoordUploadFailed) {
+              throw new Error('Pending coordinates could not be uploaded before completion');
+            }
+            await completeJourney(storedJourneyId, { snapToRoads: true, endCoords: recoveredEndCoord });
             logger.debug('[Journey] Interrupted journey completed successfully on server:', storedJourneyId);
           } catch (err: any) {
             logger.error('[Journey] Failed to complete interrupted journey on server:', err);
@@ -1181,7 +1284,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
                 if (Array.isArray(parsed)) queue = parsed;
               }
               if (!queue.some((item: any) => item.journeyId === storedJourneyId)) {
-                queue.push({ journeyId: storedJourneyId, snapToRoads: true, timestamp: Date.now() });
+                queue.push({ journeyId: storedJourneyId, snapToRoads: true, endCoords: recoveredEndCoord, timestamp: Date.now() });
                 await AsyncStorage.setItem('@pending_journey_completions', JSON.stringify(queue));
               }
             } catch (storageErr) {
@@ -1414,11 +1517,45 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   // foreground (required for Android 12+) and remains active.
   useEffect(() => {
     if (isTracking && !isPaused) {
+      lastGpsUpdateAtRef.current = lastGpsUpdateAtRef.current || Date.now();
       startBackgroundUpdates().catch(() => {});
     } else {
       stopBackgroundUpdates().catch(() => {});
+      lastGpsUpdateAtRef.current = null;
     }
   }, [isTracking, isPaused, startBackgroundUpdates, stopBackgroundUpdates]);
+
+  useEffect(() => {
+    if (!isTracking || isPaused || Platform.OS === 'web') return;
+
+    healthCheckTimerRef.current = setInterval(async () => {
+      if (!isMountedRef.current || !isTrackingRef.current || isPausedRef.current) return;
+      const lastUpdateAt = lastGpsUpdateAtRef.current;
+      if (!lastUpdateAt || Date.now() - lastUpdateAt <= TRACKING_STALE_THRESHOLD) return;
+
+      logger.warn('[Journey] Tracking health stale; restarting location updates');
+      lastGpsUpdateAtRef.current = Date.now();
+      try {
+        await startBackgroundUpdates();
+        if (AppState.currentState === 'active') {
+          if (locationWatcherRef.current) {
+            try { locationWatcherRef.current.remove(); } catch { /* noop */ }
+            locationWatcherRef.current = null;
+          }
+          await startLocationWatcher();
+        }
+      } catch (e) {
+        logger.warn('[Journey] Tracking health recovery failed:', e);
+      }
+    }, TRACKING_HEALTH_CHECK_INTERVAL);
+
+    return () => {
+      if (healthCheckTimerRef.current) {
+        clearInterval(healthCheckTimerRef.current);
+        healthCheckTimerRef.current = null;
+      }
+    };
+  }, [isTracking, isPaused, startBackgroundUpdates, startLocationWatcher]);
 
   const handleAppStateChange = useCallback(
     async (nextAppState: any) => {
@@ -1530,6 +1667,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           initialCoord.timestamp
         );
         lastCoordinateRef.current = initialCoord;
+        lastGpsUpdateAtRef.current = Date.now();
         lastStationaryMarkerUpdateRef.current = Date.now();
         pendingSegmentBreakRef.current = false;
         setPolyline([initialCoord]);
@@ -1669,6 +1807,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       startTimeRef.current = Date.now() - resumedDuration * 1000;
       setDuration(resumedDuration);
       lastCoordinateRef.current = null; // Clear to guarantee first location fix starts a new segment
+      lastGpsUpdateAtRef.current = Date.now();
       pendingSegmentBreakRef.current = true;
       kalmanFilterRef.current = null; // Reset Kalman Filter on resume to avoid velocity projection jump from pause gap
       lastStationaryMarkerUpdateRef.current = Date.now();
@@ -1751,7 +1890,6 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         locationWatcherRef.current.remove();
         locationWatcherRef.current = null;
       }
-      lastCoordinateRef.current = null; // Clear on stop
       lastStationaryMarkerUpdateRef.current = 0;
       pendingSegmentBreakRef.current = false;
 
@@ -1759,6 +1897,13 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       // since the last drain so the final batch includes them.
       await stopBackgroundUpdates();
       await drainBackgroundQueue();
+
+      if (!explicitEndCoords && lastCoordinateRef.current) {
+        explicitEndCoords = {
+          lat: lastCoordinateRef.current.latitude,
+          lng: lastCoordinateRef.current.longitude,
+        };
+      }
 
       // Stop timers
       if (durationTimerRef.current) {
@@ -1888,7 +2033,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
               }
               // Add if not already in queue
               if (!queue.some((item: any) => item.journeyId === completingJourneyId)) {
-                queue.push({ journeyId: completingJourneyId, snapToRoads, timestamp: Date.now() });
+                queue.push({ journeyId: completingJourneyId, snapToRoads, endCoords: explicitEndCoords, timestamp: Date.now() });
                 await AsyncStorage.setItem('@pending_journey_completions', JSON.stringify(queue));
                 logger.debug(`[Journey] Saved completion retry to queue for journey: ${completingJourneyId}`);
               }
@@ -1982,6 +2127,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     const lat = location?.coords?.latitude;
     const lng = location?.coords?.longitude;
     if (typeof lat !== 'number' || typeof lng !== 'number' || isNaN(lat) || isNaN(lng)) return;
+    lastGpsUpdateAtRef.current = Date.now();
     const accuracy = location?.coords?.accuracy || 0;
     if (accuracy > 80) {
       logger.debug(`[Journey] Discarding low-accuracy coordinate (±${accuracy}m) immediately.`);
