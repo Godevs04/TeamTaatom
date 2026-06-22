@@ -75,7 +75,7 @@ const SafeMarker = React.forwardRef(({ children, repaintTriggers = [], ...props 
     <Marker
       ref={markerRef}
       {...props}
-      onSelect={props.onSelect || props.onPress}
+      onSelect={props.onSelect}
       tracksViewChanges={tracksViewChanges}
     >
       <View pointerEvents="none">

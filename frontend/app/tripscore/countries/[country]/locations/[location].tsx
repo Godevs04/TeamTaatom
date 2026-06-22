@@ -31,6 +31,9 @@ import logger from '../../../../../utils/logger';
 
 
 interface LocationDetail {
+  tripVisitId?: string;
+  stableId?: string;
+  postId?: string;
   name: string;
   score: number;
   date: string;
@@ -52,6 +55,32 @@ interface LocationDetail {
   travelInfo?: string;
   distanceFromCurrent?: number; // Distance from current location in km (for nearby locations)
 }
+
+const normalizeRouteParam = (value: string | string[] | undefined): string => {
+  if (Array.isArray(value)) return value[0] || '';
+  return value || '';
+};
+
+const parseRouteCoordinate = (value: string | string[] | undefined): number | null => {
+  const raw = normalizeRouteParam(value);
+  if (!raw) return null;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const hasUsableCoordinates = (coords?: { latitude: number; longitude: number } | null) => {
+  if (!coords) return false;
+  return (
+    Number.isFinite(coords.latitude) &&
+    Number.isFinite(coords.longitude) &&
+    coords.latitude !== 0 &&
+    coords.longitude !== 0 &&
+    coords.latitude >= -90 &&
+    coords.latitude <= 90 &&
+    coords.longitude >= -180 &&
+    coords.longitude <= 180
+  );
+};
 
 const ADMIN_LOCALE_CAROUSEL_MS = 3000;
 
@@ -149,7 +178,7 @@ export default function LocationDetailScreen() {
 
   const { theme, isDark } = useTheme();
   const router = useRouter();
-  const { country, location, userId, imageUrl, latitude, longitude, description, spotTypes, travelInfo, localeId, galleryUrls: galleryUrlsParam, distanceKm: distanceKmParam, isDrivingDistance } = useLocalSearchParams();
+  const { country, location, userId, imageUrl, latitude, longitude, description, spotTypes, travelInfo, localeId, galleryUrls: galleryUrlsParam, distanceKm: distanceKmParam, isDrivingDistance, tripVisitId, stableId } = useLocalSearchParams();
 
   // Check if coming from locale flow (general) or tripscore flow or admin locale
   const countryParam = Array.isArray(country) ? country[0] : country;
@@ -982,25 +1011,51 @@ export default function LocationDetailScreen() {
           try {
             const response = await api.get(`/api/v1/profile/${userIdParam}/tripscore/countries/${countryName}`);
             const locations = response.data.locations;
+            const routeTripVisitId = normalizeRouteParam(tripVisitId);
+            const routeStableId = normalizeRouteParam(stableId);
+            const routeLat = parseRouteCoordinate(latitude);
+            const routeLng = parseRouteCoordinate(longitude);
+            const routeCoords =
+              routeLat !== null && routeLng !== null
+                ? { latitude: routeLat, longitude: routeLng }
+                : undefined;
             
             // CRITICAL: Store all locations for nearby locations section
             // Process all locations with coordinates
-            const processedLocations = locations.map((loc: any) => ({
+            const processedLocations = locations.map((loc: any, index: number) => ({
               ...loc,
+              stableId: loc.tripVisitId || `${loc.name || `loc-${index}`}-${loc.coordinates?.latitude ?? 'na'}-${loc.coordinates?.longitude ?? 'na'}-${index}`,
               description: loc.description || `${loc.name} is a beautiful destination`,
               coordinates: loc.coordinates || undefined
             }));
             setAllCountryLocations(processedLocations);
           
-            // Find the specific location
-            const foundLocation = locations.find((loc: any) => 
-              loc.name.toLowerCase().replace(/\s+/g, '-') === locationParam
-            );
+            // Find the specific TripVisit first. Name slugs are not unique for nearby posts.
+            const foundLocation =
+              processedLocations.find((loc: any) => loc.tripVisitId && loc.tripVisitId === routeTripVisitId) ||
+              processedLocations.find((loc: any) => loc.stableId && loc.stableId === routeStableId) ||
+              (routeCoords
+                ? processedLocations.find((loc: any) =>
+                    hasUsableCoordinates(loc.coordinates) &&
+                    Math.abs(loc.coordinates.latitude - routeCoords.latitude) < 0.000001 &&
+                    Math.abs(loc.coordinates.longitude - routeCoords.longitude) < 0.000001
+                  )
+                : null) ||
+              processedLocations.find((loc: any) => 
+                loc.name.toLowerCase().replace(/\s+/g, '-') === locationParam
+              );
             
             if (foundLocation) {
-              // PRODUCTION-GRADE: Get coordinates from Google Geocoding API with country context
-              let finalCoords: { latitude: number; longitude: number } | undefined = undefined;
+              // TripScore coordinates from backend/route are the source of truth.
+              // Geocoding is fallback only; it must never override a post's saved GPS.
+              let finalCoords: { latitude: number; longitude: number } | undefined =
+                hasUsableCoordinates(foundLocation.coordinates)
+                  ? foundLocation.coordinates
+                  : hasUsableCoordinates(routeCoords)
+                    ? routeCoords
+                    : undefined;
               
+              if (!finalCoords) {
               try {
                 // Use country name for better geocoding accuracy
                 const countryCodeForGeocoding = countryName ? countryName.toUpperCase() : 'IN';
@@ -1017,6 +1072,7 @@ export default function LocationDetailScreen() {
                   ? geocodeError 
                   : new Error(String(geocodeError) || 'Geocoding failed');
                 logger.error('❌ Geocoding failed for TripScore location:', errorToLog, { locationName: foundLocation.name });
+              }
               }
               
               setData({
@@ -1446,6 +1502,14 @@ export default function LocationDetailScreen() {
                       ? { latitude: data.coordinates.latitude, longitude: data.coordinates.longitude }
                       : null;
 
+                    if (dbCoords) {
+                      coords = dbCoords;
+                      logger.debug('Using exact TripScore coordinates from selected post:', {
+                        tripVisitId: data.tripVisitId,
+                        locationName: data.name,
+                        coords,
+                      });
+                    } else
                     if (data?.name) {
                       try {
                         const ccForGeocode = (countryParam && countryParam !== 'general' ? countryParam : 'IN').toUpperCase();
@@ -1516,6 +1580,7 @@ export default function LocationDetailScreen() {
                         longitude: coords.longitude.toString(),
                         address: data?.name || '',
                         locationName: data?.name || '',
+                        postId: data?.postId || data?.tripVisitId || normalizeRouteParam(tripVisitId) || '',
                         country: countryParam || 'general',
                         userId: isAdminLocale ? 'admin-locale' : (userIdParam || 'current-user'),
                         imageUrl: isAdminLocale && localeData?.imageUrl ? localeData.imageUrl : (data?.imageUrl || ''),

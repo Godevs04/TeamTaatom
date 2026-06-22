@@ -47,6 +47,8 @@ export interface AdCapState {
   postDelayViews: string[];
   /** Set of unique IDs viewed during the 30-second app startup ignored window */
   ignoredIds: string[];
+  /** Placement + content-count milestones that already produced an ad impression. */
+  shownAdMilestones: string[];
 }
 
 const EMPTY_STATE: AdCapState = {
@@ -57,6 +59,7 @@ const EMPTY_STATE: AdCapState = {
   userContentViewMatrix: {},
   postDelayViews: [],
   ignoredIds: [],
+  shownAdMilestones: [],
 };
 
 // Module-level variables
@@ -89,7 +92,12 @@ function freshState(startupTime: number): AdCapState {
     userContentViewMatrix: {},
     postDelayViews: [],
     ignoredIds: [],
+    shownAdMilestones: [],
   };
+}
+
+function adMilestoneKey(placement: string, threshold: number): string {
+  return `${placement}:${threshold}`;
 }
 
 /** Resolve the in-memory cache, applying window-expiry pruning if needed. */
@@ -124,6 +132,9 @@ async function ensureLoaded(): Promise<AdCapState> {
             userContentViewMatrix: parsed.userContentViewMatrix || {},
             postDelayViews: Array.isArray(parsed.postDelayViews) ? parsed.postDelayViews : [],
             ignoredIds: Array.isArray(parsed.ignoredIds) ? parsed.ignoredIds : [],
+            shownAdMilestones: Array.isArray(parsed.shownAdMilestones)
+              ? parsed.shownAdMilestones.filter((m): m is string => typeof m === 'string')
+              : [],
           };
         }
       } catch {
@@ -185,8 +196,20 @@ export function getRemainingGoogleAdSlots(): number {
   return Math.max(0, MAX_GOOGLE_ADS - state.count);
 }
 
+type AdMilestone = {
+  placement: string;
+  threshold: number;
+};
+
+/** True when this placement/count milestone already produced an impression in the current window. */
+export function hasShownAdMilestone(milestone: AdMilestone): boolean {
+  return getAdCapSnapshot().shownAdMilestones.includes(
+    adMilestoneKey(milestone.placement, milestone.threshold)
+  );
+}
+
 /** Record one Google AdMob impression. Starts the 8h window if this is the first impression. */
-export async function recordGoogleAdImpression(): Promise<void> {
+export async function recordGoogleAdImpression(milestone?: AdMilestone): Promise<boolean> {
   const state = await ensureLoaded();
   const now = Date.now();
   if (isWindowExpired(state, now)) {
@@ -199,14 +222,31 @@ export async function recordGoogleAdImpression(): Promise<void> {
     await persist(cache);
   }
 
-  if (cache && cache.count < MAX_GOOGLE_ADS) {
+  if (!cache) {
+    return false;
+  }
+
+  const milestoneKey = milestone
+    ? adMilestoneKey(milestone.placement, milestone.threshold)
+    : null;
+  if (milestoneKey && cache.shownAdMilestones.includes(milestoneKey)) {
+    return false;
+  }
+
+  if (milestoneKey) {
+    cache.shownAdMilestones.push(milestoneKey);
+  }
+
+  if (cache.count < MAX_GOOGLE_ADS) {
     cache.count += 1;
     if (cache.windowStart == null) {
       cache.windowStart = now;
     }
-    await persist(cache);
-    notifyListeners();
   }
+
+  await persist(cache);
+  notifyListeners();
+  return true;
 }
 
 /** Has this website domain already been served a Google ad in the current window? */
@@ -317,18 +357,20 @@ type FeedAdCapOptions = {
   isCapped: boolean;
   count?: number;
   remainingSlots?: number;
+  shownAdMilestones?: string[];
 };
 
 function injectPositionalFeedAds<T>(
   items: T[],
   everyN: number,
+  placement: string,
   options: FeedAdCapOptions
-): (T | { type: 'ad'; adIndex: number })[] {
+): (T | { type: 'ad'; adIndex: number; milestone: AdMilestone })[] {
   if (items.length === 0 || options.isCapped) {
     return items;
   }
 
-  const result: (T | { type: 'ad'; adIndex: number })[] = [];
+  const result: (T | { type: 'ad'; adIndex: number; milestone: AdMilestone })[] = [];
   let contentCount = 0;
   let adIndex = 0;
 
@@ -336,7 +378,10 @@ function injectPositionalFeedAds<T>(
     result.push(item);
     contentCount += 1;
     if (contentCount % everyN === 0 && contentCount < items.length) {
-      result.push({ type: 'ad', adIndex });
+      const milestone = { placement, threshold: contentCount };
+      if (!options.shownAdMilestones?.includes(adMilestoneKey(placement, contentCount))) {
+        result.push({ type: 'ad', adIndex, milestone });
+      }
       adIndex += 1;
     }
   }
@@ -348,16 +393,16 @@ function injectPositionalFeedAds<T>(
 export function injectHomeFeedAds<T>(
   items: T[],
   options: FeedAdCapOptions
-): (T | { type: 'ad'; adIndex: number })[] {
-  return injectPositionalFeedAds(items, HOME_AD_EVERY_N_POSTS, options);
+): (T | { type: 'ad'; adIndex: number; milestone: AdMilestone })[] {
+  return injectPositionalFeedAds(items, HOME_AD_EVERY_N_POSTS, 'home', options);
 }
 
 /** Inserts ad slots after reels 5, 10, 15, 20, 25 (shared 5-per-8h impression cap). */
 export function injectShortsFeedAds<T>(
   items: T[],
   options: FeedAdCapOptions
-): (T | { type: 'ad'; adIndex: number })[] {
-  return injectPositionalFeedAds(items, SHORTS_AD_EVERY_N_REELS, options);
+): (T | { type: 'ad'; adIndex: number; milestone: AdMilestone })[] {
+  return injectPositionalFeedAds(items, SHORTS_AD_EVERY_N_REELS, 'shorts', options);
 }
 
 /**
@@ -373,8 +418,9 @@ export function injectAds<T extends { _id: string }>(
     postDelayViews: string[];
     ignoredIds: string[];
     appLaunchTimestamp: number;
+    shownAdMilestones?: string[];
   }
-): (T | { type: 'ad'; adIndex: number })[] {
+): (T | { type: 'ad'; adIndex: number; milestone: AdMilestone })[] {
   if (
     adCapState.isCapped ||
     adCapState.count >= MAX_GOOGLE_ADS ||
@@ -384,7 +430,7 @@ export function injectAds<T extends { _id: string }>(
     return items;
   }
 
-  const result: (T | { type: 'ad'; adIndex: number })[] = [];
+  const result: (T | { type: 'ad'; adIndex: number; milestone: AdMilestone })[] = [];
   let unviewedCount = 0;
 
   for (let i = 0; i < items.length; i++) {
@@ -415,7 +461,10 @@ export function injectAds<T extends { _id: string }>(
     ) {
       const adIndex = Math.floor(globalIndex / 6) - 1;
       if (adIndex >= 0 && adIndex < MAX_GOOGLE_ADS) {
-        result.push({ type: 'ad', adIndex });
+        const milestone = { placement: 'shorts', threshold: globalIndex };
+        if (!adCapState.shownAdMilestones?.includes(adMilestoneKey('shorts', globalIndex))) {
+          result.push({ type: 'ad', adIndex, milestone });
+        }
       }
     }
   }
@@ -455,6 +504,7 @@ export function useAdCap() {
     postDelayViews: expired ? [] : snapshot.postDelayViews,
     ignoredIds: snapshot.ignoredIds,
     appLaunchTimestamp: snapshot.appLaunchTimestamp,
+    shownAdMilestones: expired ? [] : snapshot.shownAdMilestones,
   };
 }
 

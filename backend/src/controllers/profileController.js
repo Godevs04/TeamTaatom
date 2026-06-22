@@ -11,6 +11,7 @@ const { getFollowers } = require('../utils/socketBus');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { cacheWrapper, CacheKeys, CACHE_TTL, deleteCache, deleteCacheByPattern } = require('../utils/cache');
+const { getUserFollowCounts } = require('../utils/followCounts');
 const Activity = require('../models/Activity');
 const TripVisit = require('../models/TripVisit');
 const Follow = require('../models/Follow');
@@ -258,10 +259,9 @@ const getProfile = async (req, res) => {
     // Only hide tripScore if user can't view profile
     const tripScore = canViewProfile ? tripScoreData : null;
 
-    // user is already a lean object, so we can spread it directly
-    // Use the counts fields directly from the User schema
-    const followersCount = user.followersCount || 0;
-    const followingCount = user.followingCount || 0;
+    // Follow documents are the source of truth. The cached User fields can drift
+    // after deploys/migrations, so compute live counts and repair the cache.
+    const { followersCount, followingCount } = await getUserFollowCounts(id, { syncCache: true });
 
     // Generate signed URL for profile picture dynamically
     let profilePicUrl = null;
@@ -545,6 +545,17 @@ const toggleFollow = async (req, res) => {
     const targetIdStr = id.toString();
     const isFollowing = await Follow.exists({ follower: currentUserId, following: id });
 
+    const getCurrentAndTargetCounts = async () => {
+      const [currentCounts, targetCounts] = await Promise.all([
+        getUserFollowCounts(currentUserId, { syncCache: true }),
+        getUserFollowCounts(id, { syncCache: true }),
+      ]);
+      return {
+        followersCount: targetCounts.followersCount,
+        followingCount: currentCounts.followingCount,
+      };
+    };
+
     const notifyFollowUpdated = () => {
       void (async () => {
         try {
@@ -600,13 +611,12 @@ const toggleFollow = async (req, res) => {
 
       notifyFollowUpdated();
 
-      const freshCurrentUser = await User.findById(currentUserId).select('followingCount');
-      const freshTargetUser = await User.findById(id).select('followersCount');
+      const counts = await getCurrentAndTargetCounts();
 
       return sendSuccess(res, 200, 'User unfollowed', {
         isFollowing: false,
-        followersCount: freshTargetUser ? freshTargetUser.followersCount : 0,
-        followingCount: freshCurrentUser ? freshCurrentUser.followingCount : 0,
+        followersCount: counts.followersCount,
+        followingCount: counts.followingCount,
         followRequestSent: false
       });
     } else {
@@ -656,10 +666,12 @@ const toggleFollow = async (req, res) => {
 
           notifyFollowUpdated();
 
+          const counts = await getCurrentAndTargetCounts();
+
           return sendSuccess(res, 200, 'Follow request cancelled', {
             isFollowing: false,
-            followersCount: targetUser.followersCount || 0,
-            followingCount: currentUser.followingCount || 0,
+            followersCount: counts.followersCount,
+            followingCount: counts.followingCount,
             followRequestSent: false
           });
         }
@@ -751,12 +763,11 @@ const toggleFollow = async (req, res) => {
 
         notifyFollowUpdated();
 
-        const freshCurrentUser = await User.findById(currentUserId).select('followingCount');
-        const freshTargetUser = await User.findById(id).select('followersCount');
+        const counts = await getCurrentAndTargetCounts();
         return sendSuccess(res, 200, 'Follow request sent', {
           isFollowing: false,
-          followersCount: freshTargetUser ? freshTargetUser.followersCount : 0,
-          followingCount: freshCurrentUser ? freshCurrentUser.followingCount : 0,
+          followersCount: counts.followersCount,
+          followingCount: counts.followingCount,
           followRequestSent: true
         });
       } else {
@@ -836,13 +847,12 @@ const toggleFollow = async (req, res) => {
 
         notifyFollowUpdated();
 
-        const freshCurrentUser = await User.findById(currentUserId).select('followingCount');
-        const freshTargetUser = await User.findById(id).select('followersCount');
+        const counts = await getCurrentAndTargetCounts();
 
         return sendSuccess(res, 200, 'User followed', {
           isFollowing: true,
-          followersCount: freshTargetUser ? freshTargetUser.followersCount : 0,
-          followingCount: freshCurrentUser ? freshCurrentUser.followingCount : 0,
+          followersCount: counts.followersCount,
+          followingCount: counts.followingCount,
           followRequestSent: false
         });
       }
@@ -1427,8 +1437,9 @@ const approveFollowRequest = async (req, res) => {
     // If already a follower, return success (idempotent operation)
     if (isAlreadyFollower) {
       logger.debug('✅ Request already processed - returning success (idempotent)');
+      const { followersCount } = await getUserFollowCounts(currentUserId, { syncCache: true });
       return sendSuccess(res, 200, 'Follow request already approved', {
-        followersCount: user.followersCount || 0,
+        followersCount,
         alreadyProcessed: true
       });
     }
@@ -1579,8 +1590,10 @@ const approveFollowRequest = async (req, res) => {
       logger.error('Error marking follow_request notification as read:', notifReadError);
     }
 
+    const { followersCount } = await getUserFollowCounts(currentUserId, { syncCache: true });
+
     return sendSuccess(res, 200, 'Follow request approved', {
-      followersCount: user.followersCount || 0
+      followersCount
     });
   } catch (error) {
     logger.error('Approve follow request error:', error);
@@ -1709,14 +1722,6 @@ const getTripScoreContinents = async (req, res) => {
     .limit(1000);
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
-    const roundCoordinate = (coord, _precision = 2) => {
-      return Math.round(coord * 100) / 100;
-    };
-    
-    const getLocationKey = (lat, lng) => {
-      return `${roundCoordinate(lat)},${roundCoordinate(lng)}`;
-    };
-
     // Calculate continent scores and distances based on unique visits
     const continentScores = {};
     const continentLocations = {}; // Store unique locations per continent for distance calculation
@@ -1750,7 +1755,7 @@ const getTripScoreContinents = async (req, res) => {
       }
 
       // Use rounded coordinates to group nearby locations (same as deduplication logic)
-      const locationKey = getLocationKey(visit.lat, visit.lng);
+      const locationKey = visit._id.toString();
       
       // Only count each unique location once (TripScore v2 deduplication with tolerance)
       if (!uniqueLocationKeys.has(locationKey)) {
@@ -1875,14 +1880,6 @@ const getTripScoreCountries = async (req, res) => {
     .lean();
 
     // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
-    const roundCoordinate = (coord, _precision = 2) => {
-      return Math.round(coord * 100) / 100;
-    };
-    
-    const getLocationKey = (lat, lng) => {
-      return `${roundCoordinate(lat)},${roundCoordinate(lng)}`;
-    };
-
     // Filter visits by continent and calculate country scores based on unique places
     const countryScores = {};
     const uniqueLocationKeys = new Set(); // Track unique locations
@@ -1905,7 +1902,7 @@ const getTripScoreCountries = async (req, res) => {
       if (visitContinent !== continentName) return;
 
       // Use rounded coordinates to group nearby locations (same as deduplication logic)
-      const locationKey = getLocationKey(visit.lat, visit.lng);
+      const locationKey = visit._id ? visit._id.toString() : `${visit.lat},${visit.lng}`;
 
       // Only count each unique location once (groups nearby locations together)
       if (!uniqueLocationKeys.has(locationKey)) {
@@ -2018,7 +2015,6 @@ const getTripScoreCountryDetails = async (req, res) => {
 
     // Filter visits by country and calculate locations (unique places only)
     const locations = [];
-    const uniqueLocations = new Set(); // Track unique locations
     let countryScore = 0;
     let totalDistance = 0;
     let previousLocation = null;
@@ -2032,14 +2028,10 @@ const getTripScoreCountryDetails = async (req, res) => {
       }
 
       // Use rounded coordinates to group nearby locations (same as deduplication logic)
-      const locationKey = getLocationKey(visit.lat, visit.lng);
+      const locationKey = visit._id ? visit._id.toString() : getLocationKey(visit.lat, visit.lng);
       
-      // Only count/show each unique location once (groups nearby locations together)
-      if (!uniqueLocations.has(locationKey)) {
-        uniqueLocations.add(locationKey);
-        
-        // Count unique places visited
-        countryScore += 1;
+      // Count each approved TripVisit as its own visible/selectable point.
+      countryScore += 1;
         
         // Get image URL from post (user-uploaded image)
         let imageUrl = null;
@@ -2125,6 +2117,8 @@ const getTripScoreCountryDetails = async (req, res) => {
         const dateString = visitDate ? (visitDate instanceof Date ? visitDate.toISOString() : new Date(visitDate).toISOString()) : new Date().toISOString();
         
         locations.push({
+          tripVisitId: locationKey,
+          postId: visit.post?._id ? visit.post._id.toString() : null,
           name: visit.address || 'Unknown Location',
           score: 1, // Each unique location counts as 1
           date: dateString, // ISO date string for consistent parsing
@@ -2153,11 +2147,10 @@ const getTripScoreCountryDetails = async (req, res) => {
         }
 
         // Update previous location
-        previousLocation = {
-          latitude: visit.lat,
-          longitude: visit.lng
-        };
-      }
+      previousLocation = {
+        latitude: visit.lat,
+        longitude: visit.lng
+      };
     }
 
     return sendSuccess(res, 200, 'TripScore country details fetched successfully', {
@@ -2240,31 +2233,23 @@ const getTripScoreLocations = async (req, res) => {
       return null;
     };
 
-    // First pass: group all visits by location key so multiple TripVisits at the same
-    // coordinates (one per post, since dedup is disabled for admin review) are merged.
-    const locationGroupMap = new Map(); // locationKey -> { firstVisit, allPosts }
+    // Build one visible/selectable location entry per approved TripVisit.
+    // Do not merge nearby or identical coordinates.
+    const locations = [];
     let countryScore = 0;
 
     for (const visit of trustedVisits) {
-      const locationKey = getLocationKey(visit.lat, visit.lng);
+      if (typeof visit.lat !== 'number' || typeof visit.lng !== 'number' ||
+          isNaN(visit.lat) || isNaN(visit.lng)) {
+        continue;
+      }
+      const tripVisitId = visit._id ? visit._id.toString() : getLocationKey(visit.lat, visit.lng);
       const postsForVisit = visit.posts && visit.posts.length > 0
         ? visit.posts
         : (visit.post ? [visit.post] : []);
 
-      if (!locationGroupMap.has(locationKey)) {
-        locationGroupMap.set(locationKey, { firstVisit: visit, allPosts: [...postsForVisit] });
-        countryScore += 1;
-      } else {
-        // Accumulate posts from additional TripVisits at the same location
-        locationGroupMap.get(locationKey).allPosts.push(...postsForVisit);
-      }
-    }
-
-    // Second pass: build location entries with all accumulated photos
-    const locations = [];
-    for (const { firstVisit: visit, allPosts } of locationGroupMap.values()) {
       const photos = [];
-      for (const p of allPosts) {
+      for (const p of postsForVisit) {
         const url = await getPostImageUrl(p, visit.contentType);
         if (url) photos.push(url);
       }
@@ -2277,8 +2262,10 @@ const getTripScoreLocations = async (req, res) => {
       const dateString = visitDate ? (visitDate instanceof Date ? visitDate.toISOString() : new Date(visitDate).toISOString()) : new Date().toISOString();
 
       locations.push({
+        tripVisitId,
+        postId: visit.post?._id ? visit.post._id.toString() : null,
         name: visit.address || 'Unknown Location',
-        score: allPosts.length, // Actual number of posts at this location
+        score: Math.max(postsForVisit.length, 1),
         date: dateString,
         caption: visit.post?.caption || '',
         category: {
@@ -2293,6 +2280,7 @@ const getTripScoreLocations = async (req, res) => {
           longitude: visit.lng
         }
       });
+      countryScore += 1;
     }
 
     return sendSuccess(res, 200, 'TripScore locations fetched successfully', {
@@ -2382,7 +2370,7 @@ const getTravelMapData = async (req, res) => {
         continue;
       }
 
-      const locationKey = getLocationKey(visit.lat, visit.lng);
+      const locationKey = visit._id ? visit._id.toString() : getLocationKey(visit.lat, visit.lng);
 
       if (!uniqueLocations.has(locationKey)) {
         uniqueLocations.set(locationKey, locationCounter);
@@ -2417,6 +2405,7 @@ const getTravelMapData = async (req, res) => {
 
         const idx = locations.length;
         locations.push({
+          tripVisitId: locationKey,
           number: locationCounter,
           latitude: visit.lat,
           longitude: visit.lng,

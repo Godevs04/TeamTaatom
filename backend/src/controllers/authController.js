@@ -7,6 +7,7 @@ const logger = require('../utils/logger');
 const { setAuthToken, clearAuthToken, resolveLoginContext } = require('../utils/authHelpers');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const { generateSignedUrl } = require('../services/mediaService');
+const { getUserFollowCounts } = require('../utils/followCounts');
 const { TAATOM_OFFICIAL_USER_ID, TAATOM_OFFICIAL_USER } = require('../constants/taatomOfficial');
 
 // Google OAuth client
@@ -332,6 +333,7 @@ const getMe = async (req, res) => {
     }
 
     const followingIds = followingDocs.map(f => f.following.toString());
+    const { followersCount, followingCount } = await getUserFollowCounts(req.user._id, { syncCache: true });
 
     const publicProfile = {
       _id: user._id,
@@ -340,8 +342,8 @@ const getMe = async (req, res) => {
       bio: user.bio,
       email: user.email,
       profilePic: profilePicUrl,
-      followers: user.followersCount ?? 0,
-      following: user.followingCount ?? 0,
+      followers: followersCount,
+      following: followingCount,
       followingIds: followingIds,
       totalLikes: Math.max(0, user.totalLikes ?? 0),
       isVerified: user.isVerified,

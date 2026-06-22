@@ -14,6 +14,9 @@ let lastPostByIdCall = 0;
 const MIN_SPACING_MS = 150; // space requests to avoid 429
 
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
+const hasFiniteCoordinate = (value: unknown): value is number => (
+  typeof value === 'number' && Number.isFinite(value)
+);
 
 export interface CreatePostData {
   images: Array<{
@@ -219,8 +222,8 @@ export const createPostWithProgress = async (
     // Add other fields
     formData.append('caption', data.caption);
     if (data.address) formData.append('address', data.address);
-    if (data.latitude) formData.append('latitude', data.latitude.toString());
-    if (data.longitude) formData.append('longitude', data.longitude.toString());
+    if (hasFiniteCoordinate(data.latitude)) formData.append('latitude', data.latitude.toString());
+    if (hasFiniteCoordinate(data.longitude)) formData.append('longitude', data.longitude.toString());
     
     // Add location metadata for TripScore v2
     if (data.hasExifGps !== undefined) {
@@ -319,8 +322,8 @@ export const createPost = async (data: CreatePostData): Promise<{ message: strin
     // Add other fields
     formData.append('caption', data.caption);
     if (data.address) formData.append('address', data.address);
-    if (data.latitude) formData.append('latitude', data.latitude.toString());
-    if (data.longitude) formData.append('longitude', data.longitude.toString());
+    if (hasFiniteCoordinate(data.latitude)) formData.append('latitude', data.latitude.toString());
+    if (hasFiniteCoordinate(data.longitude)) formData.append('longitude', data.longitude.toString());
     
     // Add location metadata for TripScore v2
     if (data.hasExifGps !== undefined) {
@@ -666,8 +669,8 @@ export const createShortWithProgress = async (
       formData.append('tags', JSON.stringify(data.tags));
     }
     if (data.address) formData.append('address', data.address);
-    if (data.latitude) formData.append('latitude', data.latitude.toString());
-    if (data.longitude) formData.append('longitude', data.longitude.toString());
+    if (hasFiniteCoordinate(data.latitude)) formData.append('latitude', data.latitude.toString());
+    if (hasFiniteCoordinate(data.longitude)) formData.append('longitude', data.longitude.toString());
     
     // Add location metadata for TripScore v2
     if (data.hasExifGps !== undefined) {
@@ -766,8 +769,8 @@ export const createShort = async (data: CreateShortData): Promise<{ message: str
       formData.append('tags', JSON.stringify(data.tags));
     }
     if (data.address) formData.append('address', data.address);
-    if (data.latitude) formData.append('latitude', data.latitude.toString());
-    if (data.longitude) formData.append('longitude', data.longitude.toString());
+    if (hasFiniteCoordinate(data.latitude)) formData.append('latitude', data.latitude.toString());
+    if (hasFiniteCoordinate(data.longitude)) formData.append('longitude', data.longitude.toString());
     
     // Add location metadata for TripScore v2
     if (data.hasExifGps !== undefined) {

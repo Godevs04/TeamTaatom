@@ -63,9 +63,17 @@ import { realtimePostsService } from '../../services/realtimePosts';
 import type { FeedMode } from '../../services/posts';
 
 /** Feed list item: either a post or a native ad placeholder (inserted every 5 posts). */
-export type FeedItem = PostType | { type: 'ad'; adIndex: number };
+export type FeedItem = PostType | {
+  type: 'ad';
+  adIndex: number;
+  milestone: { placement: string; threshold: number };
+};
 
-function isAdItem(item: FeedItem): item is { type: 'ad'; adIndex: number } {
+function isAdItem(item: FeedItem): item is {
+  type: 'ad';
+  adIndex: number;
+  milestone: { placement: string; threshold: number };
+} {
   return 'type' in item && item.type === 'ad';
 }
 const POST_VIEW_DWELL_MS = 2500;
@@ -221,7 +229,7 @@ const FeedListItem = React.memo(
       return (
         <NativeAdCard
           adIndex={item.adIndex}
-          onImpression={recordGoogleAdImpression}
+          onImpression={() => recordGoogleAdImpression(item.milestone)}
           onLoadFailed={() => onAdLoadFailed(item.adIndex)}
         />
       );
@@ -950,6 +958,9 @@ export default function HomeScreen() {
       if (hasInitializedRef.current) return;
       hasInitializedRef.current = true;
 
+      // Await savedEvents initialization to ensure deleted posts are filtered correctly
+      await savedEvents.ensureLoaded();
+
       // Capture feed mode at load start. If the user switches tabs while we're
       // loading, this run is "stale" and must not setLoading(false) (the new run
       // owns that state) and must not write the wrong tab's AsyncStorage cache.
@@ -1317,7 +1328,6 @@ export default function HomeScreen() {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: mode === 'dark' ? '#000000' : '#FFFFFF',
       ...(isWeb && {
         maxWidth: isTablet ? 800 : 600,
         alignSelf: 'center',
@@ -1619,12 +1629,12 @@ export default function HomeScreen() {
   const feedExtraData = useMemo(() => ({ visiblePostId, visibleIndex }), [visiblePostId, visibleIndex]);
 
   const screenGradientColors =
-    mode === 'dark'
+    isDark
       ? (['#000000', '#000000', '#000000'] as const)
       : (theme.colors.screenGradient as [string, string, ...string[]]);
   const screenGradientLocs = matchGradientLocations(
     screenGradientColors.length,
-    mode === 'dark' ? [0, 0.22, 1] : [0, 0.22, 0.55, 1],
+    isDark ? [0, 0.22, 1] : [0, 0.22, 0.55, 1],
   );
 
   const screenBg = (
@@ -1640,11 +1650,11 @@ export default function HomeScreen() {
 
   if (loading) {
     return (
-      <View style={styles.container}>
+      <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
         {screenBg}
         <View style={styles.safeArea}>
           <StatusBar
-            barStyle={mode === 'dark' ? 'light-content' : 'dark-content'}
+            barStyle={isDark ? 'light-content' : 'dark-content'}
             backgroundColor="transparent"
             translucent
           />
@@ -1677,10 +1687,10 @@ export default function HomeScreen() {
 
   return (
     <ErrorBoundary level="route">
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {screenBg}
       <StatusBar 
-        barStyle={mode === 'dark' ? 'light-content' : 'dark-content'} 
+        barStyle={isDark ? 'light-content' : 'dark-content'} 
         backgroundColor="transparent"
         translucent
       />

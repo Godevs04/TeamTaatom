@@ -726,6 +726,10 @@ export default function ProfileScreen() {
         setUser(userData);
         setCheckingUser(false);
 
+        // Await savedEvents initialization to ensure deleted posts are filtered correctly
+        await savedEvents.ensureLoaded();
+        if (!isMountedRef.current) return;
+
         // Try to load cached data first for instant display (optimistic)
         const [cachedProfile, cachedPosts] = await Promise.all([
           AsyncStorage.getItem(`cachedProfile_${userData._id}`).catch(() => null),
@@ -1053,8 +1057,8 @@ export default function ProfileScreen() {
         setUserShorts(prev => prev.filter(s => normalizeId(s._id) !== normalizeId(postId)));
         setSavedShorts(prev => prev.filter(s => normalizeId(s._id) !== normalizeId(postId)));
         
-        // Force refresh from backend to guarantee profile posts and count are synchronized
-        void loadUserData(true, true);
+        // Refresh profile data (like postsCount) without wiping current posts list pagination
+        void loadUserData(true, false);
       } else if (action === 'unarchive') {
         // Since it's restored, let's trigger a full background refresh of user data/posts to pull it back in
         void loadUserData(true, true);
@@ -1390,8 +1394,8 @@ export default function ProfileScreen() {
           
           showSuccess(`${isShort ? 'Short' : 'Post'} deleted successfully!`);
           
-          // Invalidate/refresh profile count in the background with forceRefresh = true
-          void loadUserData(true, true);
+          // Refresh profile data (like postsCount) without wiping current posts list pagination
+          void loadUserData(true, false);
         } catch (error: any) {
           // Revert optimistic update on error (Bug fix)
           savedEvents.emitPostAction(postId, 'undelete');
@@ -1448,8 +1452,8 @@ export default function ProfileScreen() {
 
           showSuccess(`${idsToDelete.length} ${typeLabel} deleted successfully!`);
           
-          // Invalidate/refresh profile count in the background with forceRefresh = true
-          void loadUserData(true, true);
+          // Refresh profile data (like postsCount) without wiping current posts list pagination
+          void loadUserData(true, false);
         } catch (error: any) {
           // Revert optimistic updates (Bug fix)
           idsToDelete.forEach(id => savedEvents.emitPostAction(id, 'undelete'));

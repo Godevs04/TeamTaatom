@@ -10,12 +10,13 @@ import {
   ScrollView,
   TextInput,
   KeyboardAvoidingView,
+  Keyboard,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import LoadingGlobe from '../LoadingGlobe';
-import { theme } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
 
 interface DetectPlaceModalProps {
   visible: boolean;
@@ -40,6 +41,8 @@ export const DetectPlaceModal = ({
   onSearchPlace,
   onUsePlace,
 }: DetectPlaceModalProps) => {
+  const { theme, isDark } = useTheme();
+
   return (
     <Modal
       visible={visible}
@@ -62,20 +65,20 @@ export const DetectPlaceModal = ({
           borderTopRightRadius: 24,
           overflow: 'hidden',
           borderWidth: 1,
-          borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.45)',
+          borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.45)',
           maxHeight: Dimensions.get('window').height * 0.85,
           minHeight: 300,
           ...theme.shadows.large
         }}>
           <BlurView
             intensity={80}
-            tint={mode === 'dark' ? 'dark' : 'light'}
+            tint={isDark ? 'dark' : 'light'}
             style={StyleSheet.absoluteFillObject}
           />
-          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: mode === 'dark' ? 'rgba(10, 18, 32, 0.75)' : 'rgba(255, 255, 255, 0.65)' }]} />
+          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: isDark ? 'rgba(10, 18, 32, 0.75)' : 'rgba(255, 255, 255, 0.65)' }]} />
           <LinearGradient
             colors={
-              mode === 'dark'
+              isDark
                 ? ['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0.02)']
                 : ['rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.1)']
             }
@@ -84,7 +87,7 @@ export const DetectPlaceModal = ({
             style={StyleSheet.absoluteFillObject}
             pointerEvents="none"
           />
-          <View style={{ flex: 1, zIndex: 1 }}>
+          <View style={{ flexShrink: 1, zIndex: 1 }}>
             {/* Fixed Header */}
             <View style={{
               flexDirection: 'row',
@@ -146,7 +149,7 @@ export const DetectPlaceModal = ({
                     style={[
                       {
                         flex: 1,
-                        backgroundColor: mode === 'dark' ? '#1E1E1E' : '#FFFFFF',
+                        backgroundColor: isDark ? '#1E1E1E' : '#FFFFFF',
                         borderRadius: theme.borderRadius.md,
                         paddingHorizontal: theme.spacing.md,
                         paddingVertical: theme.spacing.md,
@@ -161,11 +164,17 @@ export const DetectPlaceModal = ({
                     placeholderTextColor={theme.colors.textSecondary}
                     value={detectPlaceName}
                     onChangeText={onChangeDetectPlaceName}
-                    onSubmitEditing={onSearchPlace}
+                    onSubmitEditing={() => {
+                      Keyboard.dismiss();
+                      onSearchPlace();
+                    }}
                     returnKeyType="search"
                   />
                   <TouchableOpacity
-                    onPress={onSearchPlace}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      onSearchPlace();
+                    }}
                     disabled={isSearchingPlace || !detectPlaceName.trim()}
                     style={{
                       borderRadius: 9999,

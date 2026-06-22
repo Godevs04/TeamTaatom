@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -105,6 +105,21 @@ export default function JourneyDetailScreen() {
   const mapStyle = useMapStyle();
   const journeyId = typeof params.journeyId === 'string' ? params.journeyId : '';
   const insets = useSafeAreaInsets();
+
+  const navigateToPost = (postId: string, contentType: string, userId: string) => {
+    const globalObj = global as any;
+    if (globalObj.navigationLock) return;
+    globalObj.navigationLock = true;
+    setTimeout(() => {
+      globalObj.navigationLock = false;
+    }, 1000);
+
+    if (contentType === 'short' || contentType === 'video') {
+      router.push(`/user-shorts/${userId}?shortId=${postId}`);
+    } else {
+      router.push(`/post/${postId}`);
+    }
+  };
 
   const { showAlert, showSuccess, showError: showErrorAlert } = useAlert();
   const { discardActiveJourney } = useJourney();
@@ -470,12 +485,8 @@ function initMap(){
                   try {
                     const data = JSON.parse(event.nativeEvent.data);
                     if (data.type === 'navigatePost' && data.postId) {
-                      const targetUserId = data.userId;
-                      if (data.contentType === 'short' || data.contentType === 'video') {
-                        router.push(`/user-shorts/${targetUserId}?shortId=${data.postId}`);
-                      } else {
-                        router.push(`/post/${data.postId}`);
-                      }
+                      const targetUserId = data.userId || journey?.user?._id || journey?.user;
+                      navigateToPost(data.postId, data.contentType || 'photo', targetUserId);
                     }
                   } catch (err) {
                     logger.error('[JourneyDetail] WebView message parse error:', err);
@@ -542,11 +553,7 @@ function initMap(){
                     anchor={photoUrl ? { x: 0.5, y: 0.5 } : { x: 0.5, y: 1.0 }}
                     onPress={() => {
                       if (postId) {
-                        if (contentType === 'short' || contentType === 'video') {
-                          router.push(`/user-shorts/${targetUserId}?shortId=${postId}`);
-                        } else {
-                          router.push(`/post/${postId}`);
-                        }
+                        navigateToPost(postId, contentType, targetUserId);
                       }
                     }}
                     repaintTriggers={[latitudeDelta, w.contentType, photoUrl]}
@@ -681,11 +688,8 @@ function initMap(){
                     key={`post-${index}`}
                     style={[styles.postCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}
                     onPress={() => {
-                      if (waypoint.contentType === 'video' || waypoint.contentType === 'short' || post.type === 'short') {
-                        router.push(`/user-shorts/${journey.user}?shortId=${post._id}`);
-                      } else {
-                        router.push(`/post/${post._id}`);
-                      }
+                      const targetUserId = journey.user?._id || journey.user;
+                      navigateToPost(post._id, waypoint.contentType || post.type || 'photo', targetUserId);
                     }}
                     activeOpacity={0.7}
                   >

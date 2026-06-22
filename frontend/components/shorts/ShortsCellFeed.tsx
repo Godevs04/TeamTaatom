@@ -492,7 +492,7 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
   const isCellVideoPlaying = isPlaying && isVideoPlaying;
   const isOwn = item.user._id === currentUser?._id;
   const isScopedView = !!effectiveUserId || isSavedShorts;
-  const progressBottom = isScopedView ? (Platform.OS === 'web' ? 8 : 20) : (Platform.OS === 'web' ? 8 : 77);
+  const progressBottom = Platform.OS === 'web' ? 8 : 77;
   const progressHeight = 24;
   const clearance = 16;
   const bottomContentOffset = progressBottom + progressHeight + clearance;
@@ -512,7 +512,7 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
         <View
           style={[
             styles.videoContainer,
-            { bottom: isScopedView ? 100 : 0 }
+            { bottom: 0 }
           ]}
           onTouchStart={handlers.handleTouchStart}
           onTouchMove={handlers.handleTouchMove}
@@ -1012,7 +1012,7 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
             )}
           </View>
         </View>
-        {shouldRenderVideo && (
+        {shouldRenderVideo && isActive && (
           <ShortsProgressBar
             shortId={item._id}
             index={index}
@@ -1191,10 +1191,7 @@ const ShortsProgressBar = ({
 
   return (
     <View
-      style={[
-        styles.progressBarContainer,
-        isScopedView && { bottom: isWeb ? 8 : 20 }
-      ]}
+      style={styles.progressBarContainer}
       onTouchStart={(e) => {
         setIsPressing(true);
         isPressingRef.current = true;
@@ -1521,7 +1518,7 @@ const LocalShortsActionRail = React.memo(({
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       {/* Vertical actions rail (moved higher, containing Profile, Like, Comment, Share) */}
-      <View style={[styles.rightActions, isScopedView && { bottom: Platform.OS === 'ios' ? 94 : 88 }]} pointerEvents="box-none">
+      <View style={styles.rightActions} pointerEvents="box-none">
         <View style={styles.profileButton}>
           <Animated.View style={[styles.actionsAvatarContainer, { transform: [{ rotate: spin }] }]}>
             <View style={styles.albumArtContainer}>
