@@ -27,12 +27,10 @@ export function getDefaultZoom(countryName: string): number {
   return Math.max(3, Math.min(10, Math.log2(360 / delta.latitudeDelta)));
 }
 
-import type { FeatureCollection, Point } from "geojson";
-
 export function locationsToGeoJSON(
   locations: MapLocation[],
   countryName: string
-): FeatureCollection<Point> {
+): GeoJSON.FeatureCollection<GeoJSON.Point> {
   const features = locations.map((loc, index) => {
     const { latitude, longitude } = getMarkerCoordinates(loc, countryName, index);
     return {
