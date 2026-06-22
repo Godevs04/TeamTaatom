@@ -72,13 +72,12 @@ export default function CompleteScreen() {
   const duration = useJourneyDuration();
   const params = useLocalSearchParams();
 
-  const isNavigatingRef = useRef(false);
-
   const navigateToPost = (postId: string, contentType: string, userId: string) => {
-    if (isNavigatingRef.current) return;
-    isNavigatingRef.current = true;
+    const globalObj = global as any;
+    if (globalObj.navigationLock) return;
+    globalObj.navigationLock = true;
     setTimeout(() => {
-      isNavigatingRef.current = false;
+      globalObj.navigationLock = false;
     }, 1000);
 
     if (contentType === 'short' || contentType === 'video') {
