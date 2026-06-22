@@ -28,10 +28,19 @@ class SavedEvents {
   private postActionListeners: Set<PostActionListener> = new Set();
   private followActionListeners: Set<FollowActionListener> = new Set();
   private deletedPostIds: Set<string> = new Set();
+  private likesState: Map<string, { isLiked: boolean; likesCount: number }> = new Map();
   private loadPromise: Promise<void>;
 
   constructor() {
     this.loadPromise = this.loadDeletedPosts();
+  }
+
+  getLikesState(postId: string) {
+    return this.likesState.get(normalizeId(postId));
+  }
+
+  setLikesState(postId: string, isLiked: boolean, likesCount: number) {
+    this.likesState.set(normalizeId(postId), { isLiked, likesCount });
   }
 
   async ensureLoaded() {
@@ -127,6 +136,11 @@ class SavedEvents {
       this.addDeletedPost(postId);
     } else if (action === 'undelete') {
       this.removeDeletedPost(postId);
+    }
+    if (action === 'like' || action === 'unlike') {
+      const isLiked = action === 'like';
+      const likesCount = data?.likesCount ?? 0;
+      this.setLikesState(postId, isLiked, likesCount);
     }
     this.postActionListeners.forEach((l) => {
       try { l(postId, action, data); } catch {}

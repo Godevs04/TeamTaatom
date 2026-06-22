@@ -438,9 +438,12 @@ export const getUserPosts = async (userId: string, page: number = 1, limit: numb
 // Like/unlike post
 export const toggleLike = async (postId: string): Promise<{ message: string; isLiked: boolean; likesCount: number }> => {
   try {
+    postByIdCache.delete(postId);
     const response = await api.post(`/api/v1/posts/${postId}/like`);
+    postByIdCache.delete(postId);
     return response.data;
   } catch (error: any) {
+    postByIdCache.delete(postId);
     const parsedError = parseError(error);
     throw new Error(parsedError.userMessage);
   }

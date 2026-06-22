@@ -926,6 +926,7 @@ export default function LocaleScreen() {
   const [headerHeight, setHeaderHeight] = useState(insets.top > 0 ? insets.top + 130 : 170);
   const [savedLocales, setSavedLocales] = useState<Locale[]>([]);
   const [adminLocales, setAdminLocales] = useState<Locale[]>([]);
+  const [displayLimit, setDisplayLimit] = useState(20);
   const [filteredLocales, setFilteredLocales] = useState<Locale[]>([]);
   const [loadingLocales, setLoadingLocales] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -1131,8 +1132,8 @@ export default function LocaleScreen() {
     queryFn: async ({ pageParam }) => {
       // First page fetch: lock the coordinates for this query session
       if (pageParam === null || pageParam === undefined) {
-        queryLocationRef.current = userLocation
-          ? { latitude: userLocation.latitude, longitude: userLocation.longitude }
+        queryLocationRef.current = userLocationRef.current
+          ? { latitude: userLocationRef.current.latitude, longitude: userLocationRef.current.longitude }
           : null;
       }
 
@@ -1143,7 +1144,7 @@ export default function LocaleScreen() {
         (activeLocaleFilters.stateCode && activeLocaleFilters.stateCode !== 'all') ? activeLocaleFilters.stateCode : '',
         activeLocaleFilters.spotTypes && activeLocaleFilters.spotTypes.length > 0 ? activeLocaleFilters.spotTypes : '',
         1,
-        20,
+        40,
         false,
         activeLocaleFilters.stateProvince || '',
         undefined,
@@ -1177,15 +1178,15 @@ export default function LocaleScreen() {
     }
 
     const currentPagesCount = data.pages.length;
-    const currentUserLoc = userLocationRef.current;
+    const activeQueryLoc = queryLocationRef.current;
 
     const mapLocaleDistances = (locale: Locale) => {
       const drivingDist = drivingDistances[locale._id];
       const distanceKm = drivingDist !== undefined ? drivingDist : (
         typeof locale.latitude === 'number' && Number.isFinite(locale.latitude) &&
         typeof locale.longitude === 'number' && Number.isFinite(locale.longitude) &&
-        currentUserLoc && locationPermissionGranted
-          ? calculateDistance(currentUserLoc.latitude, currentUserLoc.longitude, locale.latitude, locale.longitude)
+        activeQueryLoc && locationPermissionGranted
+          ? calculateDistance(activeQueryLoc.latitude, activeQueryLoc.longitude, locale.latitude, locale.longitude)
           : null
       );
       
@@ -1197,7 +1198,7 @@ export default function LocaleScreen() {
     };
 
     const sortMappedLocales = (localesToSort: any[]) => {
-      if (currentUserLoc) {
+      if (activeQueryLoc) {
         const INFINITY = Number.POSITIVE_INFINITY;
         return [...localesToSort].sort((a, b) => {
           const dA = a.distanceKm;
@@ -1220,6 +1221,7 @@ export default function LocaleScreen() {
       const mapped = page1Locales.map(mapLocaleDistances);
       const sorted = sortMappedLocales(mapped);
       setAdminLocales(sorted);
+      setDisplayLimit(20);
       loadedPagesCountRef.current = 1;
     } else if (currentPagesCount > loadedPagesCountRef.current) {
       let newMappedList = loadedPagesCountRef.current === 0 ? [] : [...adminLocales];
@@ -1230,6 +1232,7 @@ export default function LocaleScreen() {
         newMappedList = [...newMappedList, ...sortedPage];
       }
       setAdminLocales(newMappedList);
+      setDisplayLimit(prev => prev + 20);
       loadedPagesCountRef.current = currentPagesCount;
     }
   }, [data, locationPermissionGranted]);
@@ -1272,8 +1275,8 @@ export default function LocaleScreen() {
   }, [userLocation, locationPermissionGranted, drivingDistances, adminLocales.length]);
 
   useEffect(() => {
-    setHasMore(!!hasNextPage);
-  }, [hasNextPage]);
+    setHasMore((displayLimit < adminLocales.length) || !!hasNextPage);
+  }, [hasNextPage, displayLimit, adminLocales.length]);
 
   useEffect(() => {
     setLoadingMore(isFetchingNextPage);
@@ -2437,8 +2440,9 @@ export default function LocaleScreen() {
   // Always derive display list from sorted data + live filters (search, spot types, radius)
   const localesToShow = useMemo(() => {
     if (isLocationResolving || sortedAdminLocales.length === 0) return [];
-    return applyFilters(sortedAdminLocales, false);
-  }, [sortedAdminLocales, applyFilters, searchLocaleInput, activeLocaleFilters, isLocationResolving]);
+    const filtered = applyFilters(sortedAdminLocales, false);
+    return filtered.slice(0, displayLimit);
+  }, [sortedAdminLocales, applyFilters, searchLocaleInput, activeLocaleFilters, isLocationResolving, displayLimit]);
 
   // Update filtered locales when adminLocales change (but NOT when filters/searchQuery change - handled in loadAdminLocales)
   // Also apply client-side filters for multiple spot types and search radius which require client-side processing
@@ -2889,10 +2893,14 @@ export default function LocaleScreen() {
   };
 
   const handleLoadMore = useCallback(() => {
-    if (activeTab === 'locale' && hasNextPage && !isFetchingNextPage && !loadingLocales) {
-      fetchNextPage();
+    if (activeTab === 'locale' && !loadingLocales) {
+      if (displayLimit < adminLocales.length) {
+        setDisplayLimit(prev => prev + 20);
+      } else if (hasNextPage && !isFetchingNextPage) {
+        fetchNextPage();
+      }
     }
-  }, [activeTab, hasNextPage, isFetchingNextPage, loadingLocales, fetchNextPage]);
+  }, [activeTab, hasNextPage, isFetchingNextPage, loadingLocales, fetchNextPage, displayLimit, adminLocales.length]);
 
   // Pagination & Filter Race Safety: Refresh with guards
   const handleRefresh = useCallback(async () => {

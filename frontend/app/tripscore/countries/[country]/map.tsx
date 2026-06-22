@@ -75,6 +75,8 @@ interface OptimizedVisitedMarkerProps {
   isSelected: boolean;
   index: number;
   latitudeDelta: number;
+  selectedLocationId: string | null;
+  renderedLocationId: string | null;
   onPress: () => void;
 }
 
@@ -83,6 +85,8 @@ const OptimizedVisitedMarker = React.memo(({
   isSelected,
   index,
   latitudeDelta,
+  selectedLocationId,
+  renderedLocationId,
   onPress
 }: OptimizedVisitedMarkerProps) => {
   const markerRef = useRef<any>(null);
@@ -101,7 +105,7 @@ const OptimizedVisitedMarker = React.memo(({
         longitude: location.coordinates!.longitude,
       }}
       onPress={onPress}
-      repaintTriggers={[isSelected, latitudeDelta]}
+      repaintTriggers={[isSelected, latitudeDelta, selectedLocationId, renderedLocationId]}
     >
       <PremiumMapMarker 
         active={isSelected} 
@@ -117,6 +121,8 @@ const OptimizedVisitedMarker = React.memo(({
 }, (prev, next) => {
   return (
     prev.isSelected === next.isSelected &&
+    prev.selectedLocationId === next.selectedLocationId &&
+    prev.renderedLocationId === next.renderedLocationId &&
     prev.index === next.index &&
     prev.latitudeDelta === next.latitudeDelta &&
     prev.location.stableId === next.location.stableId &&
@@ -236,7 +242,7 @@ export default function CountryMapScreen() {
     return savedEvents.addFeedInvalidateListener(loadCountryData);
   }, [loadCountryData]);
 
-  const handleLocationPress = (location: Location) => {
+  const handleLocationPress = useCallback((location: Location) => {
     const isAlreadyPinned = pinnedLocation && (pinnedLocation as any).stableId === (location as any).stableId;
 
     if (isAlreadyPinned) {
@@ -248,7 +254,7 @@ export default function CountryMapScreen() {
       setPinnedLocation(location);
       setSelectedLocation(location);
     }
-  };
+  }, [pinnedLocation]);
 
   const getCountryCenter = (countryName: string) => {
     const centers: { [key: string]: { latitude: number; longitude: number } } = {
@@ -674,7 +680,7 @@ export default function CountryMapScreen() {
   }), [getWebMapHTML, displayCountryName]);
 
   // Handle WebView messages (marker clicks)
-  const handleWebViewMessage = (event: any, countryDisplayName: string) => {
+  const handleWebViewMessage = useCallback((event: any) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
       if (data.type === 'marker' && data.stableId) {
@@ -686,7 +692,12 @@ export default function CountryMapScreen() {
     } catch (error) {
       logger.error('Error handling WebView message:', error);
     }
-  };
+  }, [visitedMarkers, handleLocationPress]);
+
+  const handleWebViewError = useCallback((syntheticEvent: any) => {
+    const { nativeEvent } = syntheticEvent;
+    logger.error('WebView error: ', nativeEvent);
+  }, []);
 
   if (loading) {
     return (
@@ -726,7 +737,7 @@ export default function CountryMapScreen() {
       <View style={styles.mapContainer}>
         {(Platform.OS === 'web' || Platform.OS === 'android') ? (
           <WebView
-            ref={(ref: any) => { mapRef.current = ref; }}
+            ref={mapRef}
             style={styles.map}
             source={webViewSource}
             javaScriptEnabled={true}
@@ -737,11 +748,8 @@ export default function CountryMapScreen() {
             startInLoadingState={true}
             scalesPageToFit={true}
             originWhitelist={['https://*', 'http://*', 'data:*', 'about:*']}
-            onMessage={(event) => handleWebViewMessage(event, displayCountryName || '')}
-            onError={(syntheticEvent) => {
-              const { nativeEvent } = syntheticEvent;
-              logger.error('WebView error: ', nativeEvent);
-            }}
+            onMessage={handleWebViewMessage}
+            onError={handleWebViewError}
           />
         ) : MapView ? (
           // Native MapView for iOS/Android
@@ -814,6 +822,8 @@ export default function CountryMapScreen() {
                 isSelected={isPinned}
                 index={index}
                 latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
+                selectedLocationId={selectedLocation?.stableId || null}
+                renderedLocationId={renderedLocation?.stableId || null}
                 onPress={() => handleLocationPress(location)}
               />
             );
