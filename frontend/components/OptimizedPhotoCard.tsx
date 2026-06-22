@@ -184,8 +184,14 @@ function PhotoCard({
   const { theme, isDark } = useTheme();
   const { settings } = useSettings();
   const router = useRouter();
-  const [isLiked, setIsLiked] = useState(post.isLiked || false);
-  const [likesCount, setLikesCount] = useState(post.likesCount || 0);
+  const [isLiked, setIsLiked] = useState(() => {
+    const local = savedEvents.getLikesState(post._id);
+    return local ? local.isLiked : (post.isLiked || false);
+  });
+  const [likesCount, setLikesCount] = useState(() => {
+    const local = savedEvents.getLikesState(post._id);
+    return local ? local.likesCount : (post.likesCount || 0);
+  });
   const [isZooming, setIsZooming] = useState(false);
   
   const [comments, setComments] = useState(post.comments || []);
@@ -457,8 +463,9 @@ function PhotoCard({
   const [prevPostId, setPrevPostId] = useState(post._id);
   if (post._id !== prevPostId) {
     setPrevPostId(post._id);
-    setIsLiked(post.isLiked || false);
-    setLikesCount(post.likesCount || 0);
+    const localLikesState = savedEvents.getLikesState(post._id);
+    setIsLiked(localLikesState ? localLikesState.isLiked : (post.isLiked || false));
+    setLikesCount(localLikesState ? localLikesState.likesCount : (post.likesCount || 0));
     setComments(post.comments || []);
     setIsSaved(isSavedSync(post._id));
     setCommentsDisabled((post as any).commentsDisabled || false);
@@ -468,8 +475,9 @@ function PhotoCard({
 
   // Synchronize component state when post prop fields change (fixing recycling/stale value leaks)
   React.useEffect(() => {
-    setIsLiked(post.isLiked || false);
-    setLikesCount(post.likesCount || 0);
+    const localLikesState = savedEvents.getLikesState(post._id);
+    setIsLiked(localLikesState ? localLikesState.isLiked : (post.isLiked || false));
+    setLikesCount(localLikesState ? localLikesState.likesCount : (post.likesCount || 0));
     setComments(post.comments || []);
     setIsSaved(isSavedSync(post._id));
     setCommentsDisabled(post.commentsDisabled || false);

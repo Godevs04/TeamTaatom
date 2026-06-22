@@ -144,7 +144,7 @@ const TRACKING_STALE_THRESHOLD = 30000;
 // be reachable before `startLocationUpdatesAsync` is called).
 const BG_LOCATION_TASK = 'taatom-journey-bg-location';
 const bgKalmanFilters = new Map<string, KalmanFilter>();
-const bgPositionHistories = new Map<string, { latitude: number; longitude: number }[]>();
+const bgPositionHistories = new Map<string, { latitude: number; longitude: number; timestamp?: number }[]>();
 
 const getAdaptiveMinDistance = (accuracy: number, speed?: number | null): number => {
   const accuracyFloor = Math.max(0, Number.isFinite(accuracy) ? accuracy : 0) * 0.5;
@@ -249,12 +249,19 @@ const isDriftingStationary = (
   const METRES_PER_DEGREE = 111320.0;
   const stdDevMeters = Math.sqrt(stdDevLat * stdDevLat + stdDevLng * stdDevLng) * METRES_PER_DEGREE;
   
-  // If standard deviation is LARGE (points are scattered), it indicates GPS wander/drift while stationary.
-  // We reject (return true) to prevent noisy zig-zags.
-  // If standard deviation is SMALL (points are clustered), the user is stationary but signal is stable,
-  // or they are moving very slowly/smoothly. We do NOT reject (return false). The distance threshold check
-  // (dist >= adaptiveMinDistance) will naturally prevent adding too many clustered points.
-  return stdDevMeters > driftThresholdMeters;
+  // Calculate displacement (distance between the oldest and newest point in the window)
+  const firstPt = points[0];
+  const lastPt = points[points.length - 1];
+  const displacement = calculateCoordinateDistance(
+    firstPt.latitude,
+    firstPt.longitude,
+    lastPt.latitude,
+    lastPt.longitude
+  );
+
+  // It's only stationary drift if standard deviation is LARGE (points are scattered)
+  // AND displacement is SMALL (the user is not progressing in any direction).
+  return stdDevMeters > driftThresholdMeters && displacement <= driftThresholdMeters;
 };
 
 // Background location task. Runs in a headless JS context when the app is
@@ -327,11 +334,25 @@ try {
         
         const speed = loc.coords?.speed;
         const heading = loc.coords?.heading;
-        const effectiveSpeed = typeof speed === 'number' && speed >= 0 ? speed : 0;
+        
+        // Estimate speed in background if missing or negative, matching foreground logic
+        let calculatedSpeed = speed;
+        if ((calculatedSpeed === null || calculatedSpeed === undefined || calculatedSpeed < 0) && bgHistory.length > 0) {
+          const lastH = bgHistory[bgHistory.length - 1];
+          const dist = calculateCoordinateDistance(
+            lastH.latitude,
+            lastH.longitude,
+            lat,
+            lng
+          );
+          const timeDiffSeconds = Math.max(0.1, (loc.timestamp - (lastH.timestamp || loc.timestamp)) / 1000);
+          calculatedSpeed = dist / timeDiffSeconds;
+        }
+        const effectiveSpeed = typeof calculatedSpeed === 'number' && calculatedSpeed >= 0 ? calculatedSpeed : 0;
 
         // 2. Stationary variance check (Jitter Mitigation)
         const isDrifting = isDriftingStationary(bgHistory, { latitude: lat, longitude: lng }, effectiveSpeed);
-        bgHistory = [...bgHistory, { latitude: lat, longitude: lng }].slice(-5);
+        bgHistory = [...bgHistory, { latitude: lat, longitude: lng, timestamp: loc.timestamp }].slice(-5);
         bgPositionHistories.set(journeyId, bgHistory);
 
         if (isDrifting) {
@@ -1100,7 +1121,13 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
             }
           }
 
-          if (statusOnServer === 'paused' && !isCurrentLaunchFresh) {
+          if (statusOnServer === 'paused') {
+            // If this instance is already paused and tracking, do not overwrite the live state.
+            if (isTrackingRef.current && isPausedRef.current && journeyIdRef.current === storedJourneyId) {
+              logger.debug('[Journey] Already paused journey:', storedJourneyId);
+              return;
+            }
+
             logger.debug('[Journey] Restoring paused journey state on startup:', storedJourneyId);
             journeyIdRef.current = storedJourneyId;
             setJourney(fetchedJourney);
@@ -1128,7 +1155,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
             return;
           }
 
-          if (statusOnServer === 'active' && !isCurrentLaunchFresh) {
+          if (statusOnServer === 'active') {
             // If this instance is already active and tracking, do not overwrite the live state.
             if (isTrackingRef.current && !isPausedRef.current && journeyIdRef.current === storedJourneyId) {
               logger.debug('[Journey] Already active and tracking journey:', storedJourneyId);
@@ -1848,16 +1875,19 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         ]);
 
         if (finalLoc) {
-          explicitEndCoords = {
-            lat: finalLoc.coords.latitude,
-            lng: finalLoc.coords.longitude
-          };
+          const accuracy = finalLoc.coords.accuracy || 0;
+          if (!accuracy || accuracy <= 80) { // Set explicit end coordinates only if high accuracy
+            explicitEndCoords = {
+              lat: finalLoc.coords.latitude,
+              lng: finalLoc.coords.longitude
+            };
+          }
 
           const finalCoord: Coordinate = {
             latitude: finalLoc.coords.latitude,
             longitude: finalLoc.coords.longitude,
             timestamp: finalLoc.timestamp,
-            accuracy: finalLoc.coords.accuracy || 0,
+            accuracy: accuracy,
           };
 
           if (!isCurrentlyPaused) {

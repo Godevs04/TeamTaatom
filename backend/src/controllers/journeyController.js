@@ -1051,6 +1051,7 @@ const getJourneyDetail = async (req, res) => {
     }
 
     const journeyObj = journey.toObject();
+    journeyObj.polyline = buildDisplayPolyline(journey);
 
     // Sign waypoint posts media URLs
     if (journeyObj.waypoints && journeyObj.waypoints.length > 0) {

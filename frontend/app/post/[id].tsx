@@ -44,7 +44,16 @@ export default function PostDetail() {
           router.back();
           return;
         }
-        setPost(response.post);
+        let postData = response.post;
+        const localLikesState = savedEvents.getLikesState(postData._id);
+        if (localLikesState) {
+          postData = {
+            ...postData,
+            isLiked: localLikesState.isLiked,
+            likesCount: localLikesState.likesCount
+          };
+        }
+        setPost(postData);
       } else {
         router.back();
       }

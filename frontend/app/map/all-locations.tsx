@@ -140,8 +140,8 @@ function getJourneyPolylineCoords(journey: JourneyPolyline) {
       sessionStarts.some((start) => start > prevTimestamp && start <= timestamp);
 
     return {
-      latitude: point.lat,
-      longitude: point.lng,
+      latitude: point.lat ?? (point as any).latitude,
+      longitude: point.lng ?? (point as any).longitude,
       timestamp,
       segmentBreak,
     };
