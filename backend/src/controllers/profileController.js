@@ -1996,7 +1996,7 @@ const getTripScoreCountryDetails = async (req, res) => {
       isActive: true,
       verificationStatus: { $in: VERIFIED_STATUSES }
     })
-    .select('lat lng address takenAt uploadedAt post contentType spotType travelInfo country')
+    .select('lat lng address takenAt uploadedAt post contentType spotType travelInfo country journey')
     .populate('post', 'caption imageUrl images storageKey storageKeys type videoUrl spotType travelInfo')
     .sort({ takenAt: 1, uploadedAt: 1 })
     .lean();
@@ -2125,6 +2125,8 @@ const getTripScoreCountryDetails = async (req, res) => {
         const dateString = visitDate ? (visitDate instanceof Date ? visitDate.toISOString() : new Date(visitDate).toISOString()) : new Date().toISOString();
         
         locations.push({
+          tripVisitId: visit._id ? visit._id.toString() : undefined,
+          journeyId: visit.journey ? visit.journey.toString() : null,
           name: visit.address || 'Unknown Location',
           score: 1, // Each unique location counts as 1
           date: dateString, // ISO date string for consistent parsing

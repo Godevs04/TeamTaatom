@@ -48,6 +48,7 @@ interface LocationDetail {
   photos?: string[];
   postType?: 'photo' | 'short';
   description?: string;
+  journeyId?: string | null;
   coordinates?: {
     latitude: number;
     longitude: number;
@@ -1697,6 +1698,46 @@ export default function LocationDetailScreen() {
                 </Text>
               </LinearGradient>
             </View>
+
+            {isTripScoreFlow && data?.journeyId ? (
+              <View style={styles.detailedInfoContainer}>
+                <TouchableOpacity
+                  activeOpacity={0.8}
+                  onPress={() => {
+                    router.push({
+                      pathname: '/navigate/detail',
+                      params: {
+                        journeyId: data.journeyId || '',
+                      }
+                    });
+                  }}
+                >
+                  <LinearGradient
+                    colors={isDark ? ['#3B82F6', '#10B981'] : ['#2563EB', '#059669']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={[styles.detailedCard, { borderRadius: 16, overflow: 'hidden', padding: 16 }]}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 }}>
+                        <View style={{ backgroundColor: 'rgba(255,255,255,0.2)', padding: 8, borderRadius: 12 }}>
+                          <Ionicons name="navigate" size={24} color="#FFFFFF" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: 'bold' }}>
+                            View Travel Journey
+                          </Text>
+                          <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12, marginTop: 2 }} numberOfLines={1}>
+                            Show path, speed and travel proof details
+                          </Text>
+                        </View>
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                    </View>
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            ) : null}
           </>
         )}
       </ScrollView>

@@ -1,10 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { StyleSheet, View, Platform } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming, withRepeat, Easing } from 'react-native-reanimated';
-import { Marker, AnimatedRegion } from '../utils/mapsWrapper';
+import { Marker } from '../utils/mapsWrapper';
 import { LinearGradient } from 'expo-linear-gradient';
 
-const AnimatedMarker = Marker ? Marker.Animated : null;
 
 interface ClusteredGroupMarkerProps {
   cluster: any;
@@ -21,15 +20,7 @@ const ClusteredGroupMarker = ({
   const [tracksViewChanges, setTracksViewChanges] = useState(true);
   const usesNativeIosMarker = Platform.OS === 'ios';
 
-  // Initialize at the cluster coordinate
-  const animatedCoordinate = useRef(
-    new AnimatedRegion({
-      latitude: cluster.latitude,
-      longitude: cluster.longitude,
-      latitudeDelta: 0,
-      longitudeDelta: 0,
-    })
-  ).current;
+
 
   // Pulse value for the dot pulse animation
   const pulse = useSharedValue(1);
@@ -57,15 +48,7 @@ const ClusteredGroupMarker = ({
     };
   }, []);
 
-  // Update coordinate when the centroid moves
-  useEffect(() => {
-    animatedCoordinate.timing({
-      latitude: cluster.latitude,
-      longitude: cluster.longitude,
-      duration: 350,
-      useNativeDriver: false,
-    }).start();
-  }, [cluster.latitude, cluster.longitude]);
+
 
   // Animate fade-in and scale-up of the badge
   const opacity = useSharedValue(0);
@@ -106,7 +89,7 @@ const ClusteredGroupMarker = ({
     };
   });
 
-  if (!AnimatedMarker) return null;
+  if (!Marker) return null;
 
   const count = cluster.locations.length;
   
@@ -122,8 +105,8 @@ const ClusteredGroupMarker = ({
   }
 
   return (
-    <AnimatedMarker
-      coordinate={animatedCoordinate as any}
+    <Marker
+      coordinate={{ latitude: cluster.latitude, longitude: cluster.longitude }}
       onPress={onPress}
       tracksViewChanges={tracksViewChanges}
       anchor={{ x: 0.5, y: 0.5 }}
@@ -148,7 +131,7 @@ const ClusteredGroupMarker = ({
           />
         </View>
       </Animated.View>
-    </AnimatedMarker>
+    </Marker>
   );
 };
 

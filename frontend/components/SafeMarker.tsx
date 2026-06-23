@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useImperativeHandle } from 'react';
-import { View } from 'react-native';
+import { View, Platform } from 'react-native';
 import { Marker } from '../utils/mapsWrapper';
 
 interface SafeMarkerProps {
@@ -71,12 +71,16 @@ const SafeMarker = React.forwardRef(({ children, repaintTriggers = [], ...props 
 
   if (!Marker) return null;
 
+  // On iOS, custom markers can disappear or fail to render when tracksViewChanges is false.
+  // We force tracksViewChanges to remain true on iOS to ensure stable rendering.
+  const activeTracksViewChanges = Platform.OS === 'ios' ? true : tracksViewChanges;
+
   return (
     <Marker
       ref={markerRef}
       {...props}
       onSelect={props.onSelect || props.onPress}
-      tracksViewChanges={tracksViewChanges}
+      tracksViewChanges={activeTracksViewChanges}
     >
       <View pointerEvents="none">
         {children}

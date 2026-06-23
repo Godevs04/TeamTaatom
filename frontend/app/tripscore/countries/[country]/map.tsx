@@ -60,6 +60,7 @@ interface Location {
   };
   imageUrl?: string;
   postType?: string;
+  journeyId?: string | null;
 }
 
 interface TripScoreCountryResponse {
@@ -893,6 +894,22 @@ export default function CountryMapScreen() {
                         <Ionicons name="eye-outline" size={12} color="white" />
                         <Text style={[styles.previewButtonText, { color: 'white' }]}>Details</Text>
                       </TouchableOpacity>
+                      {renderedLocation.journeyId ? (
+                        <TouchableOpacity
+                          style={[styles.previewButton, { borderColor: '#50C878', borderWidth: 1 }]}
+                          onPress={() => {
+                            router.push({
+                              pathname: '/navigate/detail',
+                              params: {
+                                journeyId: renderedLocation.journeyId || '',
+                              }
+                            });
+                          }}
+                        >
+                          <Ionicons name="navigate-outline" size={12} color="#50C878" />
+                          <Text style={[styles.previewButtonText, { color: '#50C878' }]}>Journey</Text>
+                        </TouchableOpacity>
+                      ) : null}
                     </View>
                   </View>
                   <TouchableOpacity
