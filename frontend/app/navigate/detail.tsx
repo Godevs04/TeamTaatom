@@ -132,6 +132,7 @@ export default function JourneyDetailScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [latitudeDelta, setLatitudeDelta] = useState(0.1);
+  const [loadedImages, setLoadedImages] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const fetchJourney = async () => {
@@ -556,7 +557,7 @@ function initMap(){
                         navigateToPost(postId, contentType, targetUserId);
                       }
                     }}
-                    repaintTriggers={[latitudeDelta, w.contentType, photoUrl]}
+                    repaintTriggers={[latitudeDelta, w.contentType, photoUrl, !!loadedImages[i]]}
                   >
                     {photoUrl ? (
                       <View style={{
@@ -577,6 +578,11 @@ function initMap(){
                           source={{ uri: photoUrl }}
                           style={{ width: '100%', height: '100%', borderRadius: 14 }}
                           contentFit="cover"
+                          onLoad={() => {
+                            if (!loadedImages[i]) {
+                              setLoadedImages(prev => ({ ...prev, [i]: true }));
+                            }
+                          }}
                         />
                       </View>
                     ) : (

@@ -275,6 +275,9 @@ export default function ConnectPageDetailScreen() {
     CFPaymentGatewayService.setCallback({
       onVerify(orderID: string): void {
         logger.info('Cashfree payment verified, orderID:', orderID);
+        // Reset loading states on verify
+        setCheckingOut(false);
+        setSubscribing(false);
         try {
           if (!id) throw new Error('Connect Page ID is missing during Cashfree callback');
 
@@ -347,6 +350,9 @@ export default function ConnectPageDetailScreen() {
           Alert.alert('Payment Failed', 'Could not complete payment. Please try again.');
         } catch (err) {
           logger.error('Error handling Cashfree onError callback:', err);
+        } finally {
+          setCheckingOut(false);
+          setSubscribing(false);
         }
       },
     });
@@ -426,11 +432,11 @@ export default function ConnectPageDetailScreen() {
         CFPaymentGatewayService.doSubscriptionPayment(session);
       } else {
         Alert.alert('Error', 'Unable to initiate payment session. Please try again.');
+        setSubscribing(false);
       }
     } catch (error: any) {
       logger.error('Error creating subscription:', error);
       Alert.alert('Error', error.message || 'Failed to initiate subscription.');
-    } finally {
       setSubscribing(false);
     }
   };
@@ -542,7 +548,6 @@ export default function ConnectPageDetailScreen() {
     } catch (error: any) {
       logger.error('Failed to initiate buy payment:', error);
       setCheckoutError(error.message || 'Failed to initiate payment. Please try again.');
-    } finally {
       setCheckingOut(false);
     }
   };

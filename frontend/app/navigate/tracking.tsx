@@ -576,11 +576,7 @@ window.updateMapData = function(path, currentLat, currentLng) {
                   latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
                 />
               )}
-              {currentLocation && SafeMarker && (
-                <SafeMarker coordinate={currentLocation} title="Current Location" anchor={{ x: 0.5, y: 0.5 }} repaintTriggers={[currentLocation, latitudeDelta]}>
-                  <PremiumMapMarker icon="navigate" active latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
-                </SafeMarker>
-              )}
+              {/* Rely on native showsUserLocation={true} for accurate hardware-fused user dot representation to prevent dual-dot desyncs */}
             </MapView>
           ) : (
             <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}>

@@ -385,7 +385,10 @@ export default function PostScreen() {
         const assetId = uri.substring(5); // strip "ph://"
         const info = await MediaLibrary.getAssetInfoAsync(assetId);
         if (info && info.localUri) {
-          return info.localUri;
+          // iOS 18+ appends query parameters like ?id=... to localUri, confusing expo-av and native players.
+          // Strip query parameters to ensure standard extension formatting (e.g. .MOV or .mp4) is visible.
+          const cleanedUri = info.localUri.replace(/(\.(mov|mp4|avi|m4v|quicktime))(\?.*)?$/i, '$1');
+          return cleanedUri;
         }
       } catch (e) {
         logger.warn('Failed to resolve ph:// URI using MediaLibrary:', e);

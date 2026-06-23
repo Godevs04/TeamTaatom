@@ -158,6 +158,7 @@ function AllLocationsMapInner() {
   const [mapFilter, setMapFilter] = useState<'posts' | 'journeys'>('posts');
   const [selectedPost, setSelectedPost] = useState<LocationPin | null>(null);
   const [selectedJourney, setSelectedJourney] = useState<JourneyPolyline | null>(null);
+  const [loadedImages, setLoadedImages] = useState<Record<string, boolean>>({});
 
   const carouselRef = useRef<FlatList>(null);
   const isScrollingCarouselRef = useRef(false);
@@ -2037,6 +2038,7 @@ function initMap(){
                 const postId = wp.post?._id || wp.post;
                 const contentType = wp.contentType || wp.post?.type || 'photo';
                 if (photoUrl && isValidMapCoordinate({ latitude: wp.lat, longitude: wp.lng })) {
+                  const wpKey = `${j._id}-${wpIdx}`;
                   elements.push(
                     <SafeMarker
                       key={`wp-${j._id}-${wpIdx}`}
@@ -2050,7 +2052,7 @@ function initMap(){
                           router.push(`/post/${postId}`);
                         }
                       }}
-                      repaintTriggers={[photoUrl]}
+                      repaintTriggers={[photoUrl, !!loadedImages[wpKey]]}
                     >
                       <View style={{
                         width: 32,
@@ -2070,6 +2072,11 @@ function initMap(){
                           source={{ uri: photoUrl }}
                           style={{ width: '100%', height: '100%', borderRadius: 14 }}
                           contentFit="cover"
+                          onLoad={() => {
+                            if (!loadedImages[wpKey]) {
+                              setLoadedImages(prev => ({ ...prev, [wpKey]: true }));
+                            }
+                          }}
                         />
                       </View>
                     </SafeMarker>

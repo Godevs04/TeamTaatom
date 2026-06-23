@@ -89,6 +89,7 @@ export default function CompleteScreen() {
 
   const [mapReady, setMapReady] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
+  const [loadedImages, setLoadedImages] = useState<Record<string, boolean>>({});
 
   // Ensure we have a journey to display
   useEffect(() => {
@@ -280,7 +281,7 @@ function initMap(){
                         navigateToPost(postId, contentType, targetUserId);
                       }
                     }}
-                    repaintTriggers={[waypoint.type, photoUrl]}
+                    repaintTriggers={[waypoint.type, photoUrl, !!loadedImages[index]]}
                   >
                     {photoUrl ? (
                       <View style={{
@@ -301,6 +302,11 @@ function initMap(){
                           source={{ uri: photoUrl }}
                           style={{ width: '100%', height: '100%', borderRadius: 14 }}
                           contentFit="cover"
+                          onLoad={() => {
+                            if (!loadedImages[index]) {
+                              setLoadedImages(prev => ({ ...prev, [index]: true }));
+                            }
+                          }}
                         />
                       </View>
                     ) : (

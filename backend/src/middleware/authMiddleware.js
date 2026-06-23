@@ -30,10 +30,22 @@ const authMiddleware = async (req, res, next) => {
         });
       }
       if (err.name === 'TokenExpiredError') {
-        return res.status(401).json({ 
-          error: 'Access denied',
-          message: 'Your session has expired. Please sign in again.' 
-        });
+        const isRefreshRoute = req.path.endsWith('/refresh') || req.path.endsWith('/refresh/');
+        if (isRefreshRoute) {
+          try {
+            decoded = jwt.verify(token, process.env.JWT_SECRET, { ignoreExpiration: true });
+          } catch (innerErr) {
+            return res.status(401).json({ 
+              error: 'Access denied',
+              message: 'Your session has expired. Please sign in again.' 
+            });
+          }
+        } else {
+          return res.status(401).json({ 
+            error: 'Access denied',
+            message: 'Your session has expired. Please sign in again.' 
+          });
+        }
       }
       return res.status(500).json({ 
         error: 'Internal server error',

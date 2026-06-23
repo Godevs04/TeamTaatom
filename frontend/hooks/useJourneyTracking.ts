@@ -737,7 +737,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       const already = await Location.hasStartedLocationUpdatesAsync(BG_LOCATION_TASK).catch(() => false);
       if (already) return true;
       await Location.startLocationUpdatesAsync(BG_LOCATION_TASK, {
-        accuracy: Location.Accuracy.High, // Upgraded for high-accuracy path tracking (safe for iOS)
+        accuracy: Location.Accuracy.BestForNavigation, // Upgraded for best accuracy path tracking (safe for iOS)
         timeInterval: 2000, // Query every 2 seconds for a denser track
         distanceInterval: 3, // Distance threshold of 3 meters
         showsBackgroundLocationIndicator: true, // Enable indicator to prevent OS suspension
@@ -1094,7 +1094,20 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     const initializeJourney = async () => {
       try {
         // Check if there's an active journey in storage
-        const storedJourneyId = await AsyncStorage.getItem('activeJourneyId');
+        let storedJourneyId = await AsyncStorage.getItem('activeJourneyId');
+        if (!storedJourneyId) {
+          try {
+            const activeRes = await getActiveJourney();
+            if (activeRes?.journey?._id) {
+              storedJourneyId = activeRes.journey._id;
+              await AsyncStorage.setItem('activeJourneyId', storedJourneyId);
+              await setActiveJourneyIdInCache(storedJourneyId);
+              logger.debug('[Journey] Recovered active journey from server:', storedJourneyId);
+            }
+          } catch (serverErr) {
+            logger.warn('[Journey] Failed to fetch active journey from server during init:', serverErr);
+          }
+        }
         if (storedJourneyId) {
           const isCurrentLaunchFresh = isFreshLaunch;
           isFreshLaunch = false;
@@ -1534,6 +1547,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   // identity stays stable across pause/resume. Without this, the AppState
   // listener was being torn down and re-added on every state flip — if
   // AppState happened to fire in that window the event vanished.
+  const isStartingRef = useRef(false);
   const isTrackingRef = useRef(isTracking);
   const isPausedRef = useRef(isPaused);
   useEffect(() => { isTrackingRef.current = isTracking; }, [isTracking]);
@@ -1627,6 +1641,11 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
   const startJourneyRecording = useCallback(
     async (title?: string) => {
+      if (isTrackingRef.current || isStartingRef.current) {
+        logger.warn('[Journey] Already tracking or starting, ignoring start request');
+        return;
+      }
+      isStartingRef.current = true;
       try {
         setError(null);
 
@@ -1722,6 +1741,8 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         setError(errorMsg);
         logger.error('[Journey] startJourneyRecording failed:', err);
         throw err;
+      } finally {
+        isStartingRef.current = false;
       }
     },
     []
@@ -2277,7 +2298,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           )
         : 0;
       const minDistance = getAdaptiveMinDistance(coord.accuracy, effectiveSpeed);
-      if (dist < Math.max(12, minDistance * 1.5)) {
+      if (dist < Math.max(6, minDistance * 1.2)) {
         logger.debug(`[Journey] User is stationary (speed: ${effectiveSpeed.toFixed(2)} m/s, dist: ${dist.toFixed(1)}m). Skipping polyline update.`);
         adjustWatcherAdaptiveThrottling(effectiveSpeed);
         return;

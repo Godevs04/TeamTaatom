@@ -2,6 +2,70 @@
 const Road = require('../models/Road');
 const { projectPointToSegment, calculateHaversine } = require('./projection');
 
+// Use dynamic import for node-fetch (ESM module in CommonJS context)
+const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
+
+/**
+ * Dynamically queries OpenStreetMap (OSM) via Overpass API for road geometries
+ * inside a bounding box, then stores them in MongoDB's Road collection as a cache.
+ */
+async function fetchAndImportOsmRoads(minLat, minLng, maxLat, maxLng) {
+  try {
+    const latSpan = maxLat - minLat;
+    const lngSpan = maxLng - minLng;
+    // Bounding box safety gate to prevent querying too large areas (max ~10km x 10km)
+    if (latSpan > 0.1 || lngSpan > 0.1) {
+      console.warn(`[OSM Import] Bounding box too large (latSpan: ${latSpan.toFixed(3)}, lngSpan: ${lngSpan.toFixed(3)}), skipping JIT import`);
+      return;
+    }
+
+    const query = `[out:json][timeout:25];
+way["highway"](${minLat},${minLng},${maxLat},${maxLng});
+out geom;`;
+
+    const url = 'https://overpass-api.de/api/interpreter';
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'TeamTaatomBackend/1.0 (Journey road-snapping; +https://openstreetmap.org)'
+      },
+      body: `data=${encodeURIComponent(query)}`
+    });
+
+    if (!response.ok) {
+      throw new Error(`Overpass API status ${response.status}`);
+    }
+
+    const data = await response.json();
+    const elements = data.elements || [];
+    const roadsToInsert = [];
+
+    for (const el of elements) {
+      if (el.type === 'way' && Array.isArray(el.geometry) && el.geometry.length >= 2) {
+        roadsToInsert.push({
+          osm_id: el.id.toString(),
+          name: el.tags?.name || 'Unnamed Road',
+          highway: el.tags?.highway || 'road',
+          oneWay: el.tags?.oneway === 'yes' || el.tags?.junction === 'roundabout',
+          geometry: {
+            type: 'LineString',
+            coordinates: el.geometry.map(g => [g.lon, g.lat]) // [lng, lat]
+          }
+        });
+      }
+    }
+
+    if (roadsToInsert.length > 0) {
+      // Skip duplicate keys (ordered: false) to gracefully ignore already imported roads
+      await Road.insertMany(roadsToInsert, { ordered: false });
+      console.log(`[OSM Import] Successfully imported ${roadsToInsert.length} roads to cache`);
+    }
+  } catch (err) {
+    console.error('[OSM Import] JIT road import failed:', err.message);
+  }
+}
+
 // Configuration parameters for HMM & Viterbi MapSnapping
 const SIGMA_Z = 8.0;          // GPS accuracy noise standard deviation in meters
 const BETA = 35.0;            // Transition scale parameter in meters
@@ -146,6 +210,48 @@ async function findCandidates(lat, lng, accuracy = 8.0) {
  */
 async function matchTrajectory(rawPoints) {
   if (!Array.isArray(rawPoints) || rawPoints.length === 0) return [];
+
+  // JIT Road geometry import for the bounding box of raw points
+  try {
+    const mongoose = require('mongoose');
+    if (mongoose.connection.readyState === 1) { // Only run if DB connection is active (skips buffering in offline unit tests)
+      let minLat = Infinity, maxLat = -Infinity;
+      let minLng = Infinity, maxLng = -Infinity;
+      for (const pt of rawPoints) {
+        const lat = pt.lat ?? pt.latitude;
+        const lng = pt.lng ?? pt.longitude;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+        if (lng < minLng) minLng = lng;
+        if (lng > maxLng) maxLng = lng;
+      }
+      if (minLat !== Infinity) {
+        const padding = 0.0018; // ~200 meters padding around trajectory
+        minLat -= padding;
+        maxLat += padding;
+        minLng -= padding;
+        maxLng += padding;
+
+        const roadsExist = await Road.exists({
+          geometry: {
+            $geoWithin: {
+              $box: [
+                [minLng, minLat],
+                [maxLng, maxLat]
+              ]
+            }
+          }
+        });
+
+        if (!roadsExist) {
+          await fetchAndImportOsmRoads(minLat, minLng, maxLat, maxLng);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[OSM Import] Bounding box JIT check failed (non-blocking):', err.message);
+  }
+
   if (rawPoints.length === 1) {
     const candidates = await findCandidates(rawPoints[0].lat, rawPoints[0].lng, rawPoints[0].accuracy);
     return candidates.length > 0 

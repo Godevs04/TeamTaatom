@@ -94,8 +94,8 @@ const getLocales = async (req, res) => {
     // Backend Defensive Guards: Validate and sanitize query params
     let { search, countryCode, stateCode, stateProvince, page = 1, limit = 50, includeInactive, spotType, spotTypes, lat, long, sort, cursor } = req.query;
     
-    // Validate and cap limit (max 50)
-    const parsedLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 50);
+    // Validate and cap limit (max 100)
+    const parsedLimit = Math.min(Math.max(parseInt(limit) || 50, 1), 100);
     const parsedPage = Math.max(parseInt(page) || 1, 1);
 
 
