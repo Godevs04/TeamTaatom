@@ -10,22 +10,18 @@ const checkAndAutoEndJourneys = async () => {
     const expiryThreshold = new Date(now - PAUSE_EXPIRY_MS);
 
     // Find all paused journeys that expired (paused > 24 hours ago)
+    // AND all active journeys that have been stale (no updates > 24 hours ago)
     const expiredJourneys = await Journey.find({
-      status: 'paused',
-      pausedAt: { $lt: expiryThreshold }
+      $or: [
+        { status: 'paused', pausedAt: { $lt: expiryThreshold } },
+        { status: 'active', updatedAt: { $lt: expiryThreshold } }
+      ]
     });
 
     for (const journey of expiredJourneys) {
       try {
-        // Set last polyline point as endCoords
-        if (journey.polyline && journey.polyline.length > 0) {
-          const lastPoint = journey.polyline[journey.polyline.length - 1];
-          journey.endCoords = {
-            lat: lastPoint.lat,
-            lng: lastPoint.lng
-          };
-        }
-
+        const oldStatus = journey.status;
+        
         // Set status to completed, mark as auto-ended
         journey.status = 'completed';
         journey.completedAt = new Date();
@@ -35,8 +31,28 @@ const checkAndAutoEndJourneys = async () => {
         const currentSession = journey.sessions[journey.sessions.length - 1];
         if (currentSession && !currentSession.stoppedAt) {
           currentSession.stoppedAt = new Date();
-          if (journey.polyline && journey.polyline.length > 0) {
-            const lastPoint = journey.polyline[journey.polyline.length - 1];
+        }
+
+        // Set last polyline point as endCoords
+        if (journey.polyline && journey.polyline.length > 0) {
+          const lastPoint = journey.polyline[journey.polyline.length - 1];
+          journey.endCoords = {
+            lat: lastPoint.lat,
+            lng: lastPoint.lng
+          };
+          if (currentSession) {
+            currentSession.endCoords = {
+              lat: lastPoint.lat,
+              lng: lastPoint.lng
+            };
+          }
+        } else if (journey.snapped_polyline && journey.snapped_polyline.length > 0) {
+          const lastPoint = journey.snapped_polyline[journey.snapped_polyline.length - 1];
+          journey.endCoords = {
+            lat: lastPoint.lat,
+            lng: lastPoint.lng
+          };
+          if (currentSession) {
             currentSession.endCoords = {
               lat: lastPoint.lat,
               lng: lastPoint.lng
@@ -45,14 +61,14 @@ const checkAndAutoEndJourneys = async () => {
         }
 
         await journey.save();
-        logger.info(`Auto-ended expired journey ${journey._id} for user ${journey.user}`);
+        logger.info(`Auto-ended stale/expired ${oldStatus} journey ${journey._id} for user ${journey.user}`);
       } catch (error) {
         logger.error(`Error auto-ending journey ${journey._id}:`, error);
       }
     }
 
     if (expiredJourneys.length > 0) {
-      logger.info(`Auto-ended ${expiredJourneys.length} expired journeys`);
+      logger.info(`Auto-ended ${expiredJourneys.length} stale/expired journeys`);
     }
   } catch (error) {
     logger.error('Journey auto-end check failed:', error);

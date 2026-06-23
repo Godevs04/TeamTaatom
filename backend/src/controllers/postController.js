@@ -1210,6 +1210,20 @@ const createPost = async (req, res) => {
           });
           await activeJourney.save();
           logger.info(`Auto-attached post ${post._id} to journey ${activeJourney._id}`);
+
+          // Link TripVisit to the active journey ID and recalculate TripScore
+          try {
+            const TripVisit = require('../models/TripVisit');
+            await TripVisit.findOneAndUpdate(
+              { post: post._id },
+              { journey: activeJourney._id }
+            );
+            logger.info(`Linked TripVisit for post ${post._id} to journey ${activeJourney._id}`);
+            const { recalculateJourneyTripScore } = require('../services/tripVisitService');
+            await recalculateJourneyTripScore(activeJourney._id);
+          } catch (linkError) {
+            logger.warn('Failed to link TripVisit to journey or recalculate score:', linkError);
+          }
         }
       }
     } catch (journeyError) {
@@ -3903,6 +3917,20 @@ const createShort = async (req, res) => {
           });
           await activeJourney.save();
           logger.info(`Auto-attached short ${short._id} to journey ${activeJourney._id}`);
+
+          // Link TripVisit to the active journey ID and recalculate TripScore
+          try {
+            const TripVisit = require('../models/TripVisit');
+            await TripVisit.findOneAndUpdate(
+              { post: short._id },
+              { journey: activeJourney._id }
+            );
+            logger.info(`Linked TripVisit for short ${short._id} to journey ${activeJourney._id}`);
+            const { recalculateJourneyTripScore } = require('../services/tripVisitService');
+            await recalculateJourneyTripScore(activeJourney._id);
+          } catch (linkError) {
+            logger.warn('Failed to link TripVisit to journey or recalculate score:', linkError);
+          }
         }
       }
     } catch (journeyError) {

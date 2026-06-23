@@ -18,6 +18,7 @@ import {
 import LoadingGlobe from '../components/LoadingGlobe';
 import { Image as ExpoImage } from 'expo-image';
 import { getSongs, Song } from '../services/songs';
+import AlertService from '../services/alertService';
 import { useTheme } from '../context/ThemeContext';
 import { useIsFocused } from '@react-navigation/native';
 import logger from '../utils/logger';
@@ -460,7 +461,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       setPage(pageNum);
     } catch (error) {
       logger.error('Error loading songs:', error);
-      Alert.alert('Error', 'Failed to load songs. Please try again.');
+      AlertService.showError('Error', 'Failed to load songs. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -587,7 +588,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     } catch (error) {
       if (requestId === loadRequestIdRef.current) {
         logger.error('Error loading audio:', error);
-        Alert.alert('Error', 'Failed to load audio preview');
+        AlertService.showError('Error', 'Failed to load audio preview');
       } else {
         logger.debug('Ignored error for cancelled audio load request:', error);
       }
@@ -690,7 +691,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       const finalEndTime = Math.min(maxEndTime, startTime + maxDuration);
       
       if (finalEndTime <= startTime) {
-        Alert.alert('Invalid Selection', 'Please select at least 0.5 seconds of the song.');
+        AlertService.showWarning('Invalid Selection', 'Please select at least 0.5 seconds of the song.');
         return;
       }
       
@@ -699,7 +700,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       const finalEndTime = Math.min(endTime, startTime + maxDuration);
       onSelect(selectedSong, startTime, finalEndTime);
     } else {
-      Alert.alert('No Song Selected', 'Please select a song first.');
+      AlertService.showWarning('No Song Selected', 'Please select a song first.');
       return;
     }
     onClose();

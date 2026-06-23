@@ -17,8 +17,8 @@ const { lookupByCoords } = require('./coordsToCountry');
 
 const CANONICAL_LANDMARKS = {
   'big ben': {
-    lat: 51.5007,
-    lng: -0.1246,
+    lat: 51.500729,
+    lng: -0.124625,
     formattedAddress: 'Big Ben, Westminster, London SW1A 0AA, UK',
     city: 'London',
     country: 'United Kingdom',
@@ -27,8 +27,8 @@ const CANONICAL_LANDMARKS = {
     continent: 'EUROPE'
   },
   'bigben': {
-    lat: 51.5007,
-    lng: -0.1246,
+    lat: 51.500729,
+    lng: -0.124625,
     formattedAddress: 'Big Ben, Westminster, London SW1A 0AA, UK',
     city: 'London',
     country: 'United Kingdom',
@@ -37,8 +37,8 @@ const CANONICAL_LANDMARKS = {
     continent: 'EUROPE'
   },
   'elizabeth tower': {
-    lat: 51.5007,
-    lng: -0.1246,
+    lat: 51.500729,
+    lng: -0.124625,
     formattedAddress: 'Elizabeth Tower, Westminster, London SW1A 0AA, UK',
     city: 'London',
     country: 'United Kingdom',
@@ -51,6 +51,26 @@ const CANONICAL_LANDMARKS = {
     lng: -0.119543,
     formattedAddress: 'London Eye, Riverside Building, County Hall, London SE1 7PB, UK',
     city: 'London',
+    country: 'United Kingdom',
+    countryCode: 'GB',
+    stateProvince: 'England',
+    continent: 'EUROPE'
+  },
+  'the eye': {
+    lat: 51.452214,
+    lng: -2.581687,
+    formattedAddress: 'The Eye, Glass Wharf, Bristol BS2 0DW, UK',
+    city: 'Bristol',
+    country: 'United Kingdom',
+    countryCode: 'GB',
+    stateProvince: 'England',
+    continent: 'EUROPE'
+  },
+  'the eye bristol': {
+    lat: 51.452214,
+    lng: -2.581687,
+    formattedAddress: 'The Eye, Glass Wharf, Bristol BS2 0DW, UK',
+    city: 'Bristol',
     country: 'United Kingdom',
     countryCode: 'GB',
     stateProvince: 'England',

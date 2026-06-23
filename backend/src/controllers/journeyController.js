@@ -775,25 +775,7 @@ const completeJourney = async (req, res) => {
       };
     }
 
-    // Snap raw GPS polyline to actual roads for a cleaner path display.
-    // Non-blocking — falls back to raw polyline on any error.
-    if (journey.raw_polyline.length >= 2 && shouldSnap !== false) {
-      try {
-        const segments = splitPolylineBySessions(journey.raw_polyline, journey.sessions);
-        const snappedSegments = await Promise.all(
-          segments.map(seg => snapToRoads(seg))
-        );
-        // Stripped of timestamps / segment-breaks forSnapped polyline storage optimization
-        journey.snapped_polyline = snappedSegments.flat().map(p => ({
-          lat: p.lat,
-          lng: p.lng
-        }));
-      } catch (snapErr) {
-        logger.warn('Road snap error (non-blocking):', snapErr.message);
-      }
-    }
-
-
+    // Save immediately so status is 'completed' in the database (resolving race conditions/lockouts)
     await journey.save();
 
     // Populate waypoint posts before sending back (so image previews render immediately)
@@ -825,7 +807,43 @@ const completeJourney = async (req, res) => {
       waypoints: journey.waypoints.length
     });
 
-    return sendSuccess(res, 200, 'Journey completed', { journey: responseJourney });
+    // Recalculate TripScore for the journey
+    try {
+      const { recalculateJourneyTripScore } = require('../services/tripVisitService');
+      const score = await recalculateJourneyTripScore(journeyId);
+      responseJourney.tripScoreAwarded = score;
+    } catch (scoreErr) {
+      logger.warn('Failed to recalculate journey TripScore:', scoreErr);
+    }
+
+    // Send successful response to client immediately
+    sendSuccess(res, 200, 'Journey completed', { journey: responseJourney });
+
+    // Snap raw GPS polyline to actual roads asynchronously in the background on the server
+    if (journey.raw_polyline.length >= 2 && shouldSnap !== false) {
+      // Use setTimeout to yield execution loop and let the response finish sending
+      setTimeout(async () => {
+        try {
+          const segments = splitPolylineBySessions(journey.raw_polyline, journey.sessions);
+          const snappedSegments = await Promise.all(
+            segments.map(seg => snapToRoads(seg))
+          );
+          // Refetch to prevent overwriting intermediate updates if any happened (unlikely but safe)
+          const freshJourney = await Journey.findById(journeyId);
+          if (freshJourney && freshJourney.status === 'completed') {
+            freshJourney.snapped_polyline = snappedSegments.flat().map(p => ({
+              lat: p.lat,
+              lng: p.lng
+            }));
+            await freshJourney.save();
+            logger.debug(`Successfully snapped polyline in background for journey: ${journeyId}`);
+          }
+        } catch (snapErr) {
+          logger.warn(`Road snap error (background) for journey ${journeyId}:`, snapErr.message);
+        }
+      }, 50);
+    }
+    return;
   } catch (error) {
     logger.error('Complete journey error:', error);
     return sendError(res, 'ERR_5001', 'Failed to complete journey');
@@ -840,28 +858,53 @@ const getActiveJourney = async (req, res) => {
       status: { $in: ['active', 'paused'] }
     });
 
-    // Check if paused journey is older than 24 hours
-    if (journey && journey.status === 'paused' && journey.pausedAt) {
+    // Auto-end stale active or paused journeys older than 24 hours
+    if (journey) {
       const now = new Date();
-      const pausedTime = new Date(journey.pausedAt);
       const twentyFourHoursMs = 24 * 60 * 60 * 1000;
+      let shouldAutoEnd = false;
 
-      if ((now - pausedTime) > twentyFourHoursMs) {
+      if (journey.status === 'paused' && journey.pausedAt) {
+        const pausedTime = new Date(journey.pausedAt);
+        if ((now - pausedTime) > twentyFourHoursMs) {
+          shouldAutoEnd = true;
+        }
+      } else if (journey.status === 'active') {
+        const lastUpdated = new Date(journey.updatedAt || journey.startedAt || now);
+        if ((now - lastUpdated) > twentyFourHoursMs) {
+          shouldAutoEnd = true;
+        }
+      }
+
+      if (shouldAutoEnd) {
         // Auto-complete the journey
         journey.status = 'completed';
         journey.completedAt = new Date();
         journey.autoEnded = true;
 
-        if (journey.polyline.length > 0) {
+        // End current session if exists
+        const currentSession = journey.sessions[journey.sessions.length - 1];
+        if (currentSession && !currentSession.stoppedAt) {
+          currentSession.stoppedAt = new Date();
+        }
+
+        // Set endCoords from the last polyline point
+        if (journey.polyline && journey.polyline.length > 0) {
           const lastPoint = journey.polyline[journey.polyline.length - 1];
-          journey.endCoords = {
-            lat: lastPoint.lat,
-            lng: lastPoint.lng
-          };
+          journey.endCoords = { lat: lastPoint.lat, lng: lastPoint.lng };
+          if (currentSession && !currentSession.stoppedAt) {
+            currentSession.endCoords = { lat: lastPoint.lat, lng: lastPoint.lng };
+          }
+        } else if (journey.snapped_polyline && journey.snapped_polyline.length > 0) {
+          const lastPoint = journey.snapped_polyline[journey.snapped_polyline.length - 1];
+          journey.endCoords = { lat: lastPoint.lat, lng: lastPoint.lng };
+          if (currentSession && !currentSession.stoppedAt) {
+            currentSession.endCoords = { lat: lastPoint.lat, lng: lastPoint.lng };
+          }
         }
 
         await journey.save();
-        logger.info(`Auto-ended paused journey for user ${req.user._id}:`, { journeyId: journey._id });
+        logger.info(`Auto-ended stale active/paused journey for user ${req.user._id}:`, { journeyId: journey._id });
 
         // Return null since journey is no longer active
         return sendSuccess(res, 200, 'No active journey', { journey: null });
@@ -924,6 +967,27 @@ const addWaypoint = async (req, res) => {
 
     await journey.save();
     logger.debug(`Waypoint added to journey ${journeyId}:`, { postId, contentType });
+
+    // Link TripVisit to the journey
+    try {
+      const TripVisit = require('../models/TripVisit');
+      await TripVisit.findOneAndUpdate(
+        { post: postId },
+        { journey: journeyId }
+      );
+      logger.info(`Linked TripVisit for post ${postId} to journey ${journeyId} in addWaypoint`);
+    } catch (linkError) {
+      logger.warn('Failed to link TripVisit in addWaypoint:', linkError);
+    }
+
+    // Recalculate TripScore
+    try {
+      const { recalculateJourneyTripScore } = require('../services/tripVisitService');
+      const score = await recalculateJourneyTripScore(journeyId);
+      journey.tripScoreAwarded = score;
+    } catch (scoreErr) {
+      logger.warn('Failed to recalculate journey TripScore:', scoreErr);
+    }
 
     return sendSuccess(res, 201, 'Waypoint added', { journey });
   } catch (error) {

@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 // backend/src/utils/mapMatcher.js
 const Road = require('../models/Road');
 const { projectPointToSegment, calculateHaversine } = require('./projection');
