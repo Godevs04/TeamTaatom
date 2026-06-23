@@ -64,7 +64,7 @@ describe('Geocoder Utility', () => {
 
   it('should successfully geocode and return parsed data', async () => {
     process.env.GOOGLE_MAPS_API_KEY = 'mock-key';
-    const res = await geocodeAddress('Big Ben');
+    const res = await geocodeAddress('Tower Bridge');
     expect(res).not.toBeNull();
     expect(res.lat).toBe(51.5007);
     expect(res.lng).toBe(-0.1246);

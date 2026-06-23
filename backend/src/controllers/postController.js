@@ -2556,6 +2556,11 @@ const addComment = async (req, res) => {
     }
     await post.save();
 
+    // Invalidate cache
+    await deleteCache(CacheKeys.post(post._id.toString()));
+    await deleteCacheByPattern('posts:*');
+    await deleteCacheByPattern(`user:${post.user._id.toString()}:posts:*`);
+
     // Create activity (respect user's privacy settings)
     const user = await User.findById(req.user._id).select('settings.privacy.shareActivity').lean();
     const shareActivity = user?.settings?.privacy?.shareActivity !== false; // Default to true if not set
@@ -2728,6 +2733,24 @@ const deleteComment = async (req, res) => {
 
     post.removeComment(commentId);
     await post.save();
+
+    // Invalidate cache
+    await deleteCache(CacheKeys.post(postId));
+    await deleteCacheByPattern('posts:*');
+    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
+
+    // Emit real-time post comment update to all connected users
+    const io = getIO();
+    if (io) {
+      const nsp = io.of('/app');
+      // Emit the delete real-time post comment update (with isDeleted flag)
+      nsp.emitPostComment(postId, { _id: commentId, isDeleted: true }, post.comments.length, req.user._id.toString());
+      
+      // Also emit legacy events
+      const followers = await getFollowers(post.user);
+      const audience = [post.user.toString(), ...followers];
+      nsp.emitEvent('comment:deleted', audience, { postId, commentId });
+    }
 
     return sendSuccess(res, 200, 'Comment deleted successfully', {
       commentsCount: post.comments.length

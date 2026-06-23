@@ -150,6 +150,9 @@ function getJourneyPolylineCoords(journey: JourneyPolyline) {
 
 
 
+// Module-level lock to prevent double-navigation in rapid succession
+let navigatePostLock = false;
+
 function AllLocationsMapInner() {
   const [locations, setLocations] = useState<LocationPin[]>([]);
   const [journeys, setJourneys] = useState<JourneyPolyline[]>([]);
@@ -242,6 +245,20 @@ function AllLocationsMapInner() {
   const { theme, mode, isDark } = useTheme();
   const mapStyle = useMapStyle();
   const { showAlert, showError, showSuccess, showDestructiveConfirm } = useAlert();
+
+  const navigateToPost = (postId: string, contentType: string, targetUserId: string) => {
+    if (navigatePostLock) return;
+    navigatePostLock = true;
+    setTimeout(() => {
+      navigatePostLock = false;
+    }, 1000);
+
+    if (contentType === 'short' || contentType === 'video') {
+      router.push(`/user-shorts/${targetUserId}?shortId=${postId}`);
+    } else {
+      router.push(`/post/${postId}`);
+    }
+  };
 
   const renderSelectedPostCard = () => {
     if (!selectedPost || mapFilter === 'journeys') return null;
@@ -386,11 +403,7 @@ function AllLocationsMapInner() {
                     <TouchableOpacity
                       onPress={() => {
                         const targetUserId = userId;
-                        if (isShort) {
-                          router.push(`/user-shorts/${targetUserId}?shortId=${item.postId}`);
-                        } else {
-                          router.push(`/post/${item.postId}`);
-                        }
+                        navigateToPost(item.postId || '', isShort ? 'short' : 'photo', targetUserId);
                         setSelectedPost(null);
                       }}
                       style={styles.previewViewBtn}
@@ -1874,11 +1887,7 @@ function initMap(){
               const data = JSON.parse(event.nativeEvent.data);
               if (data.type === 'navigatePost' && data.postId) {
                 const targetUserId = data.userId || userId;
-                if (data.contentType === 'short' || data.contentType === 'video') {
-                  router.push(`/user-shorts/${targetUserId}?shortId=${data.postId}`);
-                } else {
-                  router.push(`/post/${data.postId}`);
-                }
+                navigateToPost(data.postId, data.contentType || 'photo', targetUserId);
               } else if (data.type === 'selectPost' && data.location) {
                 const loc = {
                   ...data.location,
@@ -2076,11 +2085,7 @@ function initMap(){
                       anchor={{ x: 0.5, y: 0.5 }}
                       onPress={() => {
                         const targetUserId = j.user?._id || j.user || userId;
-                        if (contentType === 'short' || contentType === 'video') {
-                          router.push(`/user-shorts/${targetUserId}?shortId=${postId}`);
-                        } else {
-                          router.push(`/post/${postId}`);
-                        }
+                        navigateToPost(postId, contentType, targetUserId);
                       }}
                       repaintTriggers={[photoUrl, !!loadedImages[wpKey]]}
                     >

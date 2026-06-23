@@ -94,11 +94,21 @@ const ClusteredMarker = ({
   const markerWidth = showPin || isSelected ? 36 : 36;
   const markerHeight = showPin || isSelected ? 44 : 36;
 
+  const lastPressTime = useRef(0);
+  const handlePress = () => {
+    const now = Date.now();
+    if (now - lastPressTime.current < 500) return;
+    lastPressTime.current = now;
+    if (onPress) {
+      onPress();
+    }
+  };
+
   return (
     <Marker
       coordinate={targetCoordinate}
-      onPress={onPress}
-      onSelect={onPress}
+      onPress={handlePress}
+      onSelect={handlePress}
       tappable={visible || isSelected}
       tracksViewChanges={tracksViewChanges}
       anchor={{ x: 0.5, y: showPin || isSelected ? 0.86 : 0.5 }}

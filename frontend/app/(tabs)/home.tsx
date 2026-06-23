@@ -359,6 +359,32 @@ export default function HomeScreen() {
       });
     });
 
+    const unsubscribeComments = realtimePostsService.subscribeToComments(({ postId, commentsCount }) => {
+      setPosts(prev => prev.map(post => {
+        if (post._id === postId) {
+          if (post.commentsCount === commentsCount) {
+            return post;
+          }
+          return { ...post, commentsCount } as any;
+        }
+        return post;
+      }));
+
+      // Update tab caches (feedCacheRef.current)
+      const modes: FeedMode[] = ['recents', 'friends', 'popular'];
+      modes.forEach(mode => {
+        const cache = feedCacheRef.current[mode];
+        if (cache && cache.posts) {
+          cache.posts = cache.posts.map(post => {
+            if (post._id === postId) {
+              return { ...post, commentsCount } as any;
+            }
+            return post;
+          });
+        }
+      });
+    });
+
     const unsubscribeLocalActions = savedEvents.addPostActionListener((postId, action, data) => {
       if (action === 'like' || action === 'unlike') {
         const isLiked = action === 'like';
@@ -421,6 +447,33 @@ export default function HomeScreen() {
             });
           }
         });
+      } else if (action === 'comment') {
+        if (data && typeof data.commentsCount === 'number') {
+          // Update posts state
+          setPosts(prev => prev.map(post => {
+            if (post._id === postId) {
+              if (post.commentsCount === data.commentsCount) {
+                return post;
+              }
+              return { ...post, commentsCount: data.commentsCount } as any;
+            }
+            return post;
+          }));
+
+          // Update tab caches
+          const modes: FeedMode[] = ['recents', 'friends', 'popular'];
+          modes.forEach(mode => {
+            const cache = feedCacheRef.current[mode];
+            if (cache && cache.posts) {
+              cache.posts = cache.posts.map(post => {
+                if (post._id === postId) {
+                  return { ...post, commentsCount: data.commentsCount } as any;
+                }
+                return post;
+              });
+            }
+          });
+        }
       } else if (action === 'delete') {
         const normDeletedId = normalizeId(postId);
         // Update posts state
@@ -440,6 +493,7 @@ export default function HomeScreen() {
     return () => {
       unsubscribeViews();
       unsubscribeLikes();
+      unsubscribeComments();
       unsubscribeLocalActions();
     };
   }, [setPosts]);

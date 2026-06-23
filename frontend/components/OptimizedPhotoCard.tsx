@@ -186,15 +186,29 @@ function PhotoCard({
   const router = useRouter();
   const [isLiked, setIsLiked] = useState(() => {
     const local = savedEvents.getLikesState(post._id);
+    if (!local && post._id) {
+      savedEvents.setLikesState(post._id, post.isLiked || false, post.likesCount || 0);
+    }
     return local ? local.isLiked : (post.isLiked || false);
   });
   const [likesCount, setLikesCount] = useState(() => {
     const local = savedEvents.getLikesState(post._id);
+    if (!local && post._id) {
+      savedEvents.setLikesState(post._id, post.isLiked || false, post.likesCount || 0);
+    }
     return local ? local.likesCount : (post.likesCount || 0);
   });
   const [isZooming, setIsZooming] = useState(false);
   
   const [comments, setComments] = useState(post.comments || []);
+  const [commentsCount, setCommentsCount] = useState(() => {
+    const local = savedEvents.getCommentsCount(post._id);
+    if (local === undefined && post._id) {
+      const count = post.commentsCount || (post.comments ? post.comments.length : 0);
+      savedEvents.setCommentsCount(post._id, count);
+    }
+    return local !== undefined ? local : (post.commentsCount || (post.comments ? post.comments.length : 0));
+  });
   const [showMenu, setShowMenu] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -384,8 +398,17 @@ function PhotoCard({
     });
 
     const unsubscribeComments = realtimePostsService.subscribeToComments((data) => {
-      if (data.postId === post._id && data.comment) {
-        upsertComment(data.comment);
+      if (data.postId === post._id) {
+        if (data.comment) {
+          if (data.comment.isDeleted) {
+            setComments(prev => prev.filter(c => c._id !== data.comment._id));
+          } else {
+            upsertComment(data.comment);
+          }
+        }
+        if (typeof data.commentsCount === 'number') {
+          setCommentsCount(data.commentsCount);
+        }
       }
     });
 
@@ -423,7 +446,9 @@ function PhotoCard({
             setSavedInCache(post._id, !!data.isBookmarked);
             break;
           case 'comment':
-            // Update comments count if needed
+            if (data && typeof data.commentsCount === 'number') {
+              setCommentsCount(data.commentsCount);
+            }
             break;
         }
       }
@@ -466,9 +491,20 @@ function PhotoCard({
   if (post._id !== prevPostId) {
     setPrevPostId(post._id);
     const localLikesState = savedEvents.getLikesState(post._id);
-    setIsLiked(localLikesState ? localLikesState.isLiked : (post.isLiked || false));
-    setLikesCount(localLikesState ? localLikesState.likesCount : (post.likesCount || 0));
+    if (!localLikesState && post._id) {
+      savedEvents.setLikesState(post._id, post.isLiked || false, post.likesCount || 0);
+    }
+    const finalLikesState = localLikesState || savedEvents.getLikesState(post._id);
+    setIsLiked(finalLikesState ? finalLikesState.isLiked : (post.isLiked || false));
+    setLikesCount(finalLikesState ? finalLikesState.likesCount : (post.likesCount || 0));
     setComments(post.comments || []);
+    const localCommentsCount = savedEvents.getCommentsCount(post._id);
+    if (localCommentsCount === undefined && post._id) {
+      const count = post.commentsCount || (post.comments ? post.comments.length : 0);
+      savedEvents.setCommentsCount(post._id, count);
+    }
+    const finalCommentsCount = localCommentsCount !== undefined ? localCommentsCount : savedEvents.getCommentsCount(post._id);
+    setCommentsCount(finalCommentsCount !== undefined ? finalCommentsCount : (post.commentsCount || (post.comments ? post.comments.length : 0)));
     setIsSaved(isSavedSync(post._id));
     setCommentsDisabled((post as any).commentsDisabled || false);
     setEditCaption(post.caption || '');
@@ -478,9 +514,20 @@ function PhotoCard({
   // Synchronize component state when post prop fields change (fixing recycling/stale value leaks)
   React.useEffect(() => {
     const localLikesState = savedEvents.getLikesState(post._id);
-    setIsLiked(localLikesState ? localLikesState.isLiked : (post.isLiked || false));
-    setLikesCount(localLikesState ? localLikesState.likesCount : (post.likesCount || 0));
+    if (!localLikesState && post._id) {
+      savedEvents.setLikesState(post._id, post.isLiked || false, post.likesCount || 0);
+    }
+    const finalLikesState = localLikesState || savedEvents.getLikesState(post._id);
+    setIsLiked(finalLikesState ? finalLikesState.isLiked : (post.isLiked || false));
+    setLikesCount(finalLikesState ? finalLikesState.likesCount : (post.likesCount || 0));
     setComments(post.comments || []);
+    const localCommentsCount = savedEvents.getCommentsCount(post._id);
+    if (localCommentsCount === undefined && post._id) {
+      const count = post.commentsCount || (post.comments ? post.comments.length : 0);
+      savedEvents.setCommentsCount(post._id, count);
+    }
+    const finalCommentsCount = localCommentsCount !== undefined ? localCommentsCount : savedEvents.getCommentsCount(post._id);
+    setCommentsCount(finalCommentsCount !== undefined ? finalCommentsCount : (post.commentsCount || (post.comments ? post.comments.length : 0)));
     setIsSaved(isSavedSync(post._id));
     setCommentsDisabled(post.commentsDisabled || false);
     setEditCaption(post.caption || '');
@@ -490,6 +537,7 @@ function PhotoCard({
     post.isLiked,
     post.likesCount,
     post.comments,
+    post.commentsCount,
     post.caption,
     post.commentsDisabled,
     post.imageUrl,
@@ -781,13 +829,21 @@ function PhotoCard({
   const handleCommentAdded = useCallback((newComment: any) => {
     triggerCommentHaptic();
     upsertComment(newComment);
-  }, [upsertComment]);
+    
+    const exists = comments.some(c => c._id === newComment._id);
+    const newCount = exists ? comments.length : comments.length + 1;
+    setCommentsCount(newCount);
+    savedEvents.emitPostAction(post._id, 'comment', { commentsCount: newCount });
+  }, [upsertComment, post._id, comments]);
 
   const handleCommentDeleted = useCallback(async (commentId: string) => {
     let originalComments: any[] = [];
     setComments(prev => {
       originalComments = prev;
-      return prev.filter(c => c._id !== commentId);
+      const filtered = prev.filter(c => c._id !== commentId);
+      setCommentsCount(filtered.length);
+      savedEvents.emitPostAction(post._id, 'comment', { commentsCount: filtered.length });
+      return filtered;
     });
     
     try {
@@ -797,6 +853,8 @@ function PhotoCard({
       logger.error('Failed to delete comment, rolling back:', error);
       // Revert local state to the original list of comments
       setComments(originalComments);
+      setCommentsCount(originalComments.length);
+      savedEvents.emitPostAction(post._id, 'comment', { commentsCount: originalComments.length });
       Alert.alert('Error', 'Failed to delete comment. Please try again.');
     }
   }, [post._id]);
@@ -1166,7 +1224,7 @@ function PhotoCard({
       <PostLikesCount 
         likesCount={likesCount} 
         postId={post._id}
-        commentsCount={comments.length}
+        commentsCount={commentsCount}
         sharesCount={hideShareCount ? undefined : (post.sharesCount || 0)}
         onCommentsPress={handleOpenComments}
         onSharesPress={handleShareClick}

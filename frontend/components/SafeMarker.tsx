@@ -75,11 +75,33 @@ const SafeMarker = React.forwardRef(({ children, repaintTriggers = [], ...props 
   // We force tracksViewChanges to remain true on iOS to ensure stable rendering.
   const activeTracksViewChanges = Platform.OS === 'ios' ? true : tracksViewChanges;
 
+  const lastPressTime = useRef(0);
+  const handlePress = (event: any) => {
+    const now = Date.now();
+    if (now - lastPressTime.current < 500) return;
+    lastPressTime.current = now;
+    if (props.onPress) {
+      props.onPress(event);
+    }
+  };
+
+  const handleSelect = (event: any) => {
+    const now = Date.now();
+    if (now - lastPressTime.current < 500) return;
+    lastPressTime.current = now;
+    if (props.onSelect) {
+      props.onSelect(event);
+    } else if (props.onPress) {
+      props.onPress(event);
+    }
+  };
+
   return (
     <Marker
       ref={markerRef}
       {...props}
-      onSelect={props.onSelect || props.onPress}
+      onPress={handlePress}
+      onSelect={handleSelect}
       tracksViewChanges={activeTracksViewChanges}
     >
       <View pointerEvents="none">

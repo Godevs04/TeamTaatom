@@ -107,3 +107,7 @@ Bugs-recent-description.md
 Tool/verify-ledger.js
 .antigravity/memory/changelog_archive.jsonl
 .antigravity/memory/modules/tripscore_verification.md
+backend/src/__tests__/geocoder.test.js
+backend/src/__tests__/geocoder.test.js
+backend/src/__tests__/geocoder.test.js
+backend/src/__tests__/geocoder.test.js

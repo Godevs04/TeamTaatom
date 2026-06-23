@@ -63,6 +63,9 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
  * - Share button
  * - Done button → profile
  */
+// Module-level lock to prevent double-navigation in rapid succession
+let navigatePostLock = false;
+
 export default function CompleteScreen() {
   const router = useRouter();
   const { theme } = useTheme();
@@ -73,11 +76,10 @@ export default function CompleteScreen() {
   const params = useLocalSearchParams();
 
   const navigateToPost = (postId: string, contentType: string, userId: string) => {
-    const globalObj = global as any;
-    if (globalObj.navigationLock) return;
-    globalObj.navigationLock = true;
+    if (navigatePostLock) return;
+    navigatePostLock = true;
     setTimeout(() => {
-      globalObj.navigationLock = false;
+      navigatePostLock = false;
     }, 1000);
 
     if (contentType === 'short' || contentType === 'video') {
