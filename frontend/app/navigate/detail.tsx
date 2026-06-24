@@ -142,6 +142,10 @@ export default function JourneyDetailScreen() {
   const insets = useSafeAreaInsets();
 
   const navigateToPost = (postId: string, contentType: string, userId: string) => {
+    if (!postId || postId === 'undefined') {
+      showAlert('Post Unavailable', 'This post has been deleted or is no longer available.');
+      return;
+    }
     if (navigatePostLock) return;
     navigatePostLock = true;
     setTimeout(() => {
@@ -149,7 +153,7 @@ export default function JourneyDetailScreen() {
     }, 1000);
 
     if (contentType === 'short' || contentType === 'video') {
-      router.push(`/user-shorts/${userId}?shortId=${postId}`);
+      router.push(`/user-shorts/${userId}?shortId=${postId}&single=true`);
     } else {
       router.push(`/post/${postId}`);
     }

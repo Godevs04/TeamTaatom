@@ -1998,7 +1998,7 @@ const getTripScoreCountryDetails = async (req, res) => {
       isActive: true,
       verificationStatus: { $in: VERIFIED_STATUSES }
     })
-    .select('lat lng address takenAt uploadedAt post contentType spotType travelInfo country journey')
+    .select('lat lng address takenAt uploadedAt post contentType spotType travelInfo country journey isPostDeleted')
     .populate('post', 'caption imageUrl images storageKey storageKeys type videoUrl spotType travelInfo')
     .sort({ takenAt: 1, uploadedAt: 1 })
     .lean();
@@ -2127,13 +2127,15 @@ const getTripScoreCountryDetails = async (req, res) => {
         const visitDate = visit.takenAt || visit.uploadedAt;
         const dateString = visitDate ? (visitDate instanceof Date ? visitDate.toISOString() : new Date(visitDate).toISOString()) : new Date().toISOString();
         
+        const isDeleted = visit.isPostDeleted || !visit.post;
+
         locations.push({
           tripVisitId: visit._id ? visit._id.toString() : undefined,
           journeyId: visit.journey ? visit.journey.toString() : null,
           name: visit.address || 'Unknown Location',
           score: 1, // Each unique location counts as 1
           date: dateString, // ISO date string for consistent parsing
-          caption: visit.post?.caption || '', // Post caption
+          caption: isDeleted ? 'Post is deleted' : (visit.post?.caption || ''), // Post caption
           category: { 
             fromYou: travelInfo, // From post dropdown
             typeOfSpot: spotType // From post dropdown
@@ -2143,7 +2145,9 @@ const getTripScoreCountryDetails = async (req, res) => {
           coordinates: {
             latitude: visit.lat,
             longitude: visit.lng
-          }
+          },
+          isPostDeleted: isDeleted,
+          postId: visit.post ? visit.post._id.toString() : null
         });
 
         // Calculate distance if there's a previous location
@@ -2361,7 +2365,7 @@ const getTravelMapData = async (req, res) => {
       lat: { $exists: true, $nin: [null, 0] },
       lng: { $exists: true, $nin: [null, 0] }
     })
-    .select('lat lng address takenAt uploadedAt post contentType')
+    .select('lat lng address takenAt uploadedAt post contentType isPostDeleted')
     .populate({ path: 'post', select: 'imageUrl thumbnailUrl storageKey storageKeys type' })
     .sort({ takenAt: 1, uploadedAt: 1 }) // Sort chronologically
     .lean()
@@ -2431,7 +2435,8 @@ const getTravelMapData = async (req, res) => {
           date: visitDate,
           photo,
           postId,
-          contentType
+          contentType,
+          isPostDeleted: visit.isPostDeleted || !postDoc
         });
 
         if (needsSignedUrl) {

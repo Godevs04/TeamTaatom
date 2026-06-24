@@ -66,7 +66,6 @@ const getFontFamily = (weight: '400' | '500' | '600' | '700' | '800' = '400') =>
 
 const TAB_BAR_HEIGHT = isWeb ? 70 : 88;
 const SHORTS_ITEM_HEIGHT = SCREEN_HEIGHT;
-const HEADER_HEIGHT = isIOS ? 80 : 64;
 const logger = createLogger('ShortsCellFeed');
 
 const getScaledVideoDimensions = (width: number, height: number) => {
@@ -513,7 +512,7 @@ export const ShortsCell = React.memo((props: ShortsCellProps) => {
         <View
           style={[
             styles.videoContainer,
-            isScopedView ? { top: HEADER_HEIGHT, bottom: 0 } : { bottom: 0 }
+            { bottom: 0 }
           ]}
           onTouchStart={handlers.handleTouchStart}
           onTouchMove={handlers.handleTouchMove}
