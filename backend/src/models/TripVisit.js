@@ -100,6 +100,11 @@ const tripVisitSchema = new mongoose.Schema({
     default: true,
     index: true
   },
+  isPostDeleted: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
   // Verification status (Hybrid TripScore Verification System)
   verificationStatus: {
     type: String,

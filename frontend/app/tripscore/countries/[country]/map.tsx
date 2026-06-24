@@ -163,36 +163,25 @@ export default function CountryMapScreen() {
   const centerMapOnLocation = useCallback((loc: Location) => {
     if (!isValidMapCoordinate(loc.coordinates)) return;
     if (mapRef.current) {
-      if (Platform.OS === 'web' || Platform.OS === 'android') {
-        const jsCode = `
-          if (window.map) {
-            window.map.panTo({ lat: ${loc.coordinates.latitude}, lng: ${loc.coordinates.longitude} });
-            window.map.setZoom(12);
-          }
-          true;
-        `;
-        mapRef.current.injectJavaScript(jsCode);
+      if (Platform.OS === 'ios') {
+        const region = sanitizeMapRegion({
+          latitude: loc.coordinates.latitude,
+          longitude: loc.coordinates.longitude,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        });
+        if (region) {
+          mapRef.current.animateToRegion(region, 350);
+        }
       } else {
-        if (Platform.OS === 'ios') {
-          const region = sanitizeMapRegion({
-            latitude: loc.coordinates.latitude,
-            longitude: loc.coordinates.longitude,
-            latitudeDelta: 0.05,
-            longitudeDelta: 0.05,
-          });
-          if (region) {
-            mapRef.current.animateToRegion(region, 350);
-          }
-        } else {
-          if (typeof mapRef.current.animateCamera === 'function') {
-            mapRef.current.animateCamera({
-              center: {
-                latitude: loc.coordinates.latitude,
-                longitude: loc.coordinates.longitude,
-              },
-              zoom: 12,
-            }, { duration: 350 });
-          }
+        if (typeof mapRef.current.animateCamera === 'function') {
+          mapRef.current.animateCamera({
+            center: {
+              latitude: loc.coordinates.latitude,
+              longitude: loc.coordinates.longitude,
+            },
+            zoom: 12,
+          }, { duration: 350 });
         }
       }
     }
@@ -204,6 +193,10 @@ export default function CountryMapScreen() {
     try {
       setLoading(true);
       const countryParam = Array.isArray(country) ? country[0] : country;
+      if (!countryParam || !userId) {
+        setLoading(false);
+        return;
+      }
       // Convert slug back to proper country name for API
       const countryName = countryParam.replace(/-/g, ' ');
       const response = await api.get(`/api/v1/profile/${userId}/tripscore/countries/${countryName}`);
@@ -442,48 +435,62 @@ export default function CountryMapScreen() {
     return markers;
   }, [data?.locations, displayCountryName]);
 
+  const initialRegion = useMemo(() => {
+    const validMarkers = visitedMarkers.filter((m: any) => m.hasValidCoords);
+    if (validMarkers.length > 0) {
+      // Find the one with the latest date
+      let latest = validMarkers[0];
+      for (let i = 1; i < validMarkers.length; i++) {
+        const d1 = new Date(validMarkers[i].date).getTime();
+        const d2 = new Date(latest.date).getTime();
+        if (!isNaN(d1) && (isNaN(d2) || d1 > d2)) {
+          latest = validMarkers[i];
+        }
+      }
+      
+      const centerCoords = latest.coordinates || latest.actualCoordinates;
+      if (centerCoords) {
+        let maxLatDiff = 0.04;
+        let maxLngDiff = 0.04;
+        
+        validMarkers.forEach((m: any) => {
+          const coords = m.coordinates || m.actualCoordinates;
+          if (coords) {
+            const latDiff = Math.abs(coords.latitude - centerCoords.latitude);
+            const lngDiff = Math.abs(coords.longitude - centerCoords.longitude);
+            if (latDiff > maxLatDiff) maxLatDiff = latDiff;
+            if (lngDiff > maxLngDiff) maxLngDiff = lngDiff;
+          }
+        });
+        
+        const paddingFactor = 2.5;
+        return {
+          latitude: centerCoords.latitude,
+          longitude: centerCoords.longitude,
+          latitudeDelta: Math.min(maxLatDiff * paddingFactor, 15),
+          longitudeDelta: Math.min(maxLngDiff * paddingFactor, 15),
+        };
+      }
+    }
+    
+    // Fallback to country center
+    const center = getCountryCenter(displayCountryName || '');
+    const delta = getCountryDelta(displayCountryName || '');
+    return {
+      latitude: center.latitude,
+      longitude: center.longitude,
+      latitudeDelta: delta.latitudeDelta,
+      longitudeDelta: delta.longitudeDelta,
+    };
+  }, [visitedMarkers, displayCountryName]);
 
-
-  // Keep the pinned location in sync with the selected location (e.g. on carousel swipe)
+  // Keep the pinned location in sync and center the map on selection
   useEffect(() => {
     if (selectedLocation) {
       setPinnedLocation(selectedLocation);
-    }
-  }, [selectedLocation]);
-
-  useEffect(() => {
-    const webLocations = getMapLocations(displayCountryName || '');
-    const webSelectedIndex = selectedLocation ? webLocations.findIndex(
-      (loc) => (loc as any).stableId === (selectedLocation as any).stableId
-    ) : -1;
-
-    if (mapRef.current && (Platform.OS === 'web' || Platform.OS === 'android')) {
-      const jsCode = `
-        if (window.markersList) {
-          window.markersList.forEach((div, idx) => {
-            if (div) {
-              const coreDot = div.querySelector('.core-dot');
-              if (coreDot) {
-                if (idx === ${webSelectedIndex}) {
-                  coreDot.classList.add('active');
-                  div.style.zIndex = '99999';
-                } else {
-                  coreDot.classList.remove('active');
-                  div.style.zIndex = idx;
-                }
-              }
-            }
-          });
-        }
-        true;
-      `;
-      mapRef.current.injectJavaScript(jsCode);
-    }
-
-    if (selectedLocation) {
       centerMapOnLocation(selectedLocation);
     }
-  }, [selectedLocation, centerMapOnLocation, displayCountryName]);
+  }, [selectedLocation, centerMapOnLocation]);
 
   // Get locations with coordinates for map rendering
   // CRITICAL: Only show locations with valid coordinates (no random coordinates)
@@ -556,12 +563,7 @@ export default function CountryMapScreen() {
               minCenterCoordinateDistance: 500,
               maxCenterCoordinateDistance: 20000000,
             } : undefined}
-            initialRegion={{
-              latitude: getCountryCenter(displayCountryName || '').latitude,
-              longitude: getCountryCenter(displayCountryName || '').longitude,
-              latitudeDelta: getCountryDelta(displayCountryName || '').latitudeDelta,
-              longitudeDelta: getCountryDelta(displayCountryName || '').longitudeDelta,
-            }}
+            initialRegion={initialRegion}
             onRegionChangeComplete={(region) => {
               const safeRegion = sanitizeMapRegion(region);
               if (safeRegion) {

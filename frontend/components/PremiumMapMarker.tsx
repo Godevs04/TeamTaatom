@@ -307,8 +307,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   dotContainer: {
-    width: 22,
-    height: 22,
+    width: 30,
+    height: 30,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
@@ -320,9 +320,9 @@ const styles = StyleSheet.create({
     borderRadius: 15,
   },
   dotCore: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
     borderWidth: 2,
     borderColor: '#FFFFFF',
     shadowColor: '#10B981',

@@ -27,7 +27,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { useJourney, useJourneyDuration } from '../../context/JourneyContext';
-import { MapView, Marker, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
+import { MapView, Marker, Polyline, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
 import PolylineRenderer from '../../components/PolylineRenderer';
 import GlassMapPanel from '../../components/GlassMapPanel';
 import PremiumMapMarker from '../../components/PremiumMapMarker';
@@ -92,6 +92,7 @@ interface LocationPin {
   photo?: string;
   postId?: string;
   contentType?: string;
+  isPostDeleted?: boolean;
 }
 
 const getLocationIdentity = (loc: Pick<LocationPin, 'postId' | 'number'>) => (
@@ -243,9 +244,73 @@ function AllLocationsMapInner() {
   const [headerCardHeight, setHeaderCardHeight] = useState(180);
   const { theme, mode, isDark } = useTheme();
   const mapStyle = useMapStyle();
+
+  const renderJourneyPolylines = useCallback((j: JourneyPolyline, isSelected: boolean) => {
+    const coords = getJourneyPolylineCoords(j);
+    if (coords.length < 2) return null;
+
+    // Split into segments based on segmentBreak
+    const segments: Array<Array<{ latitude: number; longitude: number }>> = [];
+    let currentSegment: Array<{ latitude: number; longitude: number }> = [];
+
+    for (let i = 0; i < coords.length; i++) {
+      const coord = coords[i];
+      if (coord.segmentBreak && currentSegment.length > 0) {
+        segments.push(currentSegment);
+        currentSegment = [];
+      }
+      currentSegment.push({ latitude: coord.latitude, longitude: coord.longitude });
+    }
+    if (currentSegment.length > 0) {
+      segments.push(currentSegment);
+    }
+
+    const color = isSelected 
+      ? mapStyle.routeColor 
+      : (isDark ? 'rgba(45, 212, 191, 0.38)' : 'rgba(59, 130, 246, 0.34)');
+    const strokeWidth = isSelected ? 4 : 2;
+    const glowColor = isSelected ? mapStyle.routeGlowColor : undefined;
+
+    return (
+      <>
+        {segments.map((segment, idx) => {
+          if (segment.length < 2) return null;
+          const segmentKey = `poly-${j._id}-${idx}`;
+          return (
+            <React.Fragment key={segmentKey}>
+              {glowColor && (
+                <Polyline
+                  coordinates={segment}
+                  strokeColor={glowColor}
+                  strokeWidth={strokeWidth + 8}
+                  lineCap="round"
+                  lineJoin="round"
+                  geodesic={true}
+                />
+              )}
+              <Polyline
+                coordinates={segment}
+                strokeColor={color}
+                strokeWidth={strokeWidth}
+                lineCap="round"
+                lineJoin="round"
+                geodesic={true}
+                tappable={true}
+                onPress={() => setSelectedJourney(j)}
+              />
+            </React.Fragment>
+          );
+        })}
+      </>
+    );
+  }, [isDark, mapStyle.routeColor, mapStyle.routeGlowColor]);
   const { showAlert, showError, showSuccess, showDestructiveConfirm } = useAlert();
 
   const navigateToPost = (postId: string, contentType: string, targetUserId: string) => {
+    if (!postId || postId === 'undefined') {
+      showAlert('Post Unavailable', 'This post has been deleted or is no longer available.');
+      return;
+    }
     if (navigatePostLock) return;
     navigatePostLock = true;
     setTimeout(() => {
@@ -253,7 +318,7 @@ function AllLocationsMapInner() {
     }, 1000);
 
     if (contentType === 'short' || contentType === 'video') {
-      router.push(`/user-shorts/${targetUserId}?shortId=${postId}`);
+      router.push(`/user-shorts/${targetUserId}?shortId=${postId}&single=true`);
     } else {
       router.push(`/post/${postId}`);
     }
@@ -350,18 +415,24 @@ function AllLocationsMapInner() {
                       <Text style={[styles.previewTitle, { color: theme.colors.text }]} numberOfLines={1}>
                         {item.address || 'Posted Location'}
                       </Text>
-                      <View style={styles.previewMetaRow}>
-                        {dateStr ? (
-                          <Text style={[styles.previewDate, { color: theme.colors.textSecondary }]}>
-                            {dateStr}
-                          </Text>
-                        ) : null}
-                        <View style={[styles.previewTypeBadge, { backgroundColor: isShort ? 'rgba(239, 68, 68, 0.12)' : 'rgba(59, 130, 246, 0.12)' }]}>
-                          <Text style={[styles.previewTypeBadgeText, { color: isShort ? '#EF4444' : '#3B82F6' }]}>
-                            {isShort ? 'Short' : 'Post'}
-                          </Text>
+                      {item.isPostDeleted ? (
+                        <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 2, fontWeight: '600' }}>
+                          Post has been deleted
+                        </Text>
+                      ) : (
+                        <View style={styles.previewMetaRow}>
+                          {dateStr ? (
+                            <Text style={[styles.previewDate, { color: theme.colors.textSecondary }]}>
+                              {dateStr}
+                            </Text>
+                          ) : null}
+                          <View style={[styles.previewTypeBadge, { backgroundColor: isShort ? 'rgba(239, 68, 68, 0.12)' : 'rgba(59, 130, 246, 0.12)' }]}>
+                            <Text style={[styles.previewTypeBadgeText, { color: isShort ? '#EF4444' : '#3B82F6' }]}>
+                              {isShort ? 'Short' : 'Post'}
+                            </Text>
+                          </View>
                         </View>
-                      </View>
+                      )}
                     </View>
                   </View>
 
@@ -623,7 +694,8 @@ function AllLocationsMapInner() {
         longitudeDelta: currentRegion?.longitudeDelta || 0.015,
       }, 300);
     }
-  }, [selectedPost, currentRegion]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedPost]);
 
   // Zoom to fit selected journey polyline
   useEffect(() => {
@@ -795,20 +867,22 @@ function AllLocationsMapInner() {
   const handleClusterPress = useCallback((cluster: any) => {
     if (!mapRef.current || useWebViewFallback) return;
     try {
-      const coords = cluster.locations.map((loc: any) => ({
-        latitude: loc.latitude,
-        longitude: loc.longitude,
-      }));
-      if (typeof mapRef.current.fitToCoordinates === 'function') {
-        mapRef.current.fitToCoordinates(coords, {
-          edgePadding: { top: 100, right: 100, bottom: 100, left: 100 },
-          animated: true,
-        });
-      }
+      const currentLatDelta = currentRegion?.latitudeDelta || 0.1;
+      const currentLngDelta = currentRegion?.longitudeDelta || 0.1;
+
+      const targetLatDelta = Math.min(currentLatDelta / 3.5, 0.04);
+      const targetLngDelta = Math.min(currentLngDelta / 3.5, 0.04);
+
+      mapRef.current.animateToRegion({
+        latitude: cluster.latitude,
+        longitude: cluster.longitude,
+        latitudeDelta: targetLatDelta,
+        longitudeDelta: targetLngDelta,
+      }, 350);
     } catch (err) {
-      logger.error('Error fitting to cluster coordinates:', err);
+      logger.error('Error zooming in to cluster:', err);
     }
-  }, [useWebViewFallback]);
+  }, [currentRegion, useWebViewFallback]);
 
   const handleRegionChangeComplete = useCallback((newRegion: any) => {
     const safeRegion = sanitizeMapRegion(newRegion, currentRegion ?? undefined);
@@ -1351,23 +1425,9 @@ function AllLocationsMapInner() {
         }}
       >
         {/* Completed journey routes - subtle until selected */}
-        {(mapFilter === 'journeys') && journeysWithOffsets.map((j) => {
+        {mapFilter === 'journeys' && journeysWithOffsets.map((j) => {
           if (selectedJourney?._id === j._id) return null;
-          const coords = getJourneyPolylineCoords(j);
-          if (coords.length < 2) return null;
-
-          return (
-            <PolylineRenderer
-              key={`journey-route-${j._id}`}
-              coordinates={coords}
-              color={isDark ? 'rgba(45, 212, 191, 0.38)' : 'rgba(59, 130, 246, 0.34)'}
-              strokeWidth={2}
-              simplifyDistance={8}
-              applyKalman={false}
-              latitudeDelta={safeLatitudeDelta}
-              onPress={() => setSelectedJourney(j)}
-            />
-          );
+          return renderJourneyPolylines(j, false);
         })}
 
         {/* Journey representing markers */}
@@ -1419,56 +1479,39 @@ function AllLocationsMapInner() {
         })}
 
         {/* Selected journey's route polyline, end marker, and waypoints */}
-        {(mapFilter === 'journeys') && selectedJourney && (() => {
+        {mapFilter === 'journeys' && selectedJourney && (() => {
           const selectedJWithOffset = journeysWithOffsets.find(j => j._id === selectedJourney._id);
           const j = selectedJWithOffset || selectedJourney;
-          const elements: React.ReactNode[] = [];
-
-          if (j.polyline && j.polyline.length >= 2) {
-            const coords = getJourneyPolylineCoords(j);
-            elements.push(
-              <PolylineRenderer
-                key={`polyline-${j._id}`}
-                coordinates={coords}
-                color={mapStyle.routeColor}
-                glowColor={mapStyle.routeGlowColor}
-                strokeWidth={4}
-                simplifyDistance={3}
-                applyKalman={false}
-                latitudeDelta={safeLatitudeDelta}
-                onPress={() => setSelectedJourney(j)}
-              />
-            );
-          }
-
+          const coords = getJourneyPolylineCoords(j);
           const endLat = j.endCoords?.lat ?? (j.endCoords as any)?.latitude;
           const endLng = j.endCoords?.lng ?? (j.endCoords as any)?.longitude;
-          if (isValidMapCoordinate({ latitude: endLat, longitude: endLng })) {
-            elements.push(
-              <SafeMarker
-                key={`end-${j._id}`}
-                coordinate={{ latitude: endLat, longitude: endLng }}
-                anchor={{ x: 0.5, y: 0.5 }}
-                onPress={() => setSelectedJourney(j)}
-                repaintTriggers={[true]}
-              >
-                <PremiumMapMarker pointType="end" isActive={true} />
-              </SafeMarker>
-            );
-          }
+          const hasEnd = isValidMapCoordinate({ latitude: endLat, longitude: endLng });
 
-          if (j.waypoints && j.waypoints.length > 0) {
-            j.waypoints.forEach((wp, wpIdx) => {
-              const photoUrl = getWaypointPhotoUrl(wp);
-              const postId = wp.post?._id || wp.post;
-              const contentType = wp.contentType || wp.post?.type || 'photo';
-              const wpLat = wp.lat ?? wp.latitude;
-              const wpLng = wp.lng ?? wp.longitude;
-              if (photoUrl && isValidMapCoordinate({ latitude: wpLat, longitude: wpLng })) {
+          return (
+            <>
+              {coords.length >= 2 && renderJourneyPolylines(j, true)}
+              {hasEnd && (
+                <SafeMarker
+                  key={`end-${j._id}`}
+                  coordinate={{ latitude: endLat, longitude: endLng }}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                  onPress={() => setSelectedJourney(j)}
+                  repaintTriggers={[true]}
+                >
+                  <PremiumMapMarker pointType="end" isActive={true} />
+                </SafeMarker>
+              )}
+              {j.waypoints && j.waypoints.map((wp, wpIdx) => {
+                const photoUrl = getWaypointPhotoUrl(wp);
+                const postId = wp.post?._id || wp.post;
+                const contentType = wp.contentType || wp.post?.type || 'photo';
+                const wpLat = wp.lat ?? wp.latitude;
+                const wpLng = wp.lng ?? wp.longitude;
+                if (!photoUrl || !isValidMapCoordinate({ latitude: wpLat, longitude: wpLng })) return null;
                 const wpKey = `${j._id}-${wpIdx}`;
-                elements.push(
+                return (
                   <SafeMarker
-                    key={`wp-${j._id}-${wpIdx}`}
+                    key={`wp-${wpKey}`}
                     coordinate={{ latitude: wpLat, longitude: wpLng }}
                     anchor={{ x: 0.5, y: 0.5 }}
                     onPress={() => {
@@ -1504,11 +1547,9 @@ function AllLocationsMapInner() {
                     </View>
                   </SafeMarker>
                 );
-              }
-            });
-          }
-
-          return elements;
+              })}
+            </>
+          );
         })()}
 
         {/* Post markers — shown when filter is 'posts' */}
@@ -1549,7 +1590,7 @@ function AllLocationsMapInner() {
                     <PremiumMapMarker 
                       isActive={isSelected} 
                       icon="location" 
-                      renderAsDot={!showPin && !isSelected}
+                      renderAsDot={!isSelected}
                     />
                   </ClusteredMarker>
                 );

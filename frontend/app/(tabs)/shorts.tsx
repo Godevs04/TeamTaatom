@@ -170,6 +170,7 @@ export type ShortsScreenProps = {
   isSavedShorts?: boolean;
   isMuted?: boolean;
   onMuteToggle?: () => void;
+  isSingleShort?: boolean;
 };
 
 const videoSourceCache = new Map<string, { uri: string; overrideFileExtensionAndroid?: string }>();
@@ -206,6 +207,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const effectiveShortId =
     props.initialShortId ?? normalizeSearchParam(params.shortId as string | string[] | undefined);
   const isGeneralFeed = !props.isSavedShorts && !effectiveUserId && !effectiveShortId;
+  const isSingle = props.isSingleShort || params.single === 'true';
 
   const [shorts, setRawShorts] = useState<PostType[]>(() => {
     return isGeneralFeed ? globalCachedShorts : [];
@@ -1238,6 +1240,32 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       }
 
       const shouldFilterByUser = !!effectiveUserId;
+
+      if (isSingle && effectiveShortId) {
+        logger.info(`[LOAD_SHORTS] Loading single short for single view: ${effectiveShortId}`);
+        try {
+          const raw = await getPostById(effectiveShortId);
+          const singleShort: PostType | null = raw?.data?.post || raw?.post || raw || null;
+          if (singleShort) {
+            const fromStorage = likedShortIdsRef.current.has(singleShort._id);
+            const isLiked = singleShort.isLiked || fromStorage;
+            const likesCount = isLiked && fromStorage && !singleShort.isLiked
+              ? Math.max(singleShort.likesCount ?? 0, 1)
+              : (singleShort.likesCount ?? 0);
+            setShorts([{ ...singleShort, isLiked, likesCount }]);
+            setLoading(false);
+            hasMoreRef.current = false;
+          } else {
+            setShorts([]);
+            setLoading(false);
+          }
+        } catch (e) {
+          logger.error('Failed to load single short for single view:', e);
+          setShorts([]);
+          setLoading(false);
+        }
+        return;
+      }
 
       // When a specific shortId is provided (opened from notification / feed tap)
       // without a userId filter, show that short immediately then load the full feed.
@@ -2583,7 +2611,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
       <AnyFlashList
         ref={flatListRef}
         estimatedItemSize={containerHeight}
-        scrollEnabled={!isSwipeActive}
+        scrollEnabled={isSingle ? false : !isSwipeActive}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

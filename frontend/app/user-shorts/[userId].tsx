@@ -23,7 +23,7 @@ function normalizeParam(v: string | string[] | undefined): string | undefined {
  * Uses Shorts with scopedUserId so the feed is that user’s shorts only.
  */
 export default function UserShortsScreen() {
-  const { userId, shortId, index } = useLocalSearchParams();
+  const { userId, shortId, index, single } = useLocalSearchParams();
   const { theme } = useTheme();
   const router = useRouter();
   const [user, setUser] = useState<{ fullName?: string } | null>(null);
@@ -136,6 +136,7 @@ export default function UserShortsScreen() {
             initialIndex={idx}
             isMuted={isMuted} 
             onMuteToggle={() => setIsMuted(prev => !prev)} 
+            isSingleShort={single === 'true'}
           />
         </View>
         <View style={styles.header}>
