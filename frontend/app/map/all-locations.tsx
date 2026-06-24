@@ -22,23 +22,20 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { WebView } from 'react-native-webview';
 import * as ExpoLocation from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { useJourney, useJourneyDuration } from '../../context/JourneyContext';
-import { MapView, Marker, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
+import { MapView, Marker, Polyline, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
 import PolylineRenderer from '../../components/PolylineRenderer';
 import GlassMapPanel from '../../components/GlassMapPanel';
 import PremiumMapMarker from '../../components/PremiumMapMarker';
 import SafeMarker from '../../components/SafeMarker';
 import ClusteredMarker from '../../components/ClusteredMarker';
 import ClusteredGroupMarker from '../../components/ClusteredGroupMarker';
-import { LOCATION_PIN_SVG } from '../../components/ui/LocationPin';
 import { getTravelMapData } from '../../services/profile';
 import { getUserJourneys } from '../../services/journey';
-import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import { getApiUrl } from '../../utils/config';
 import { useMapStyle } from '../../hooks/useMapStyle';
 import logger from '../../utils/logger';
@@ -95,6 +92,7 @@ interface LocationPin {
   photo?: string;
   postId?: string;
   contentType?: string;
+  isPostDeleted?: boolean;
 }
 
 const getLocationIdentity = (loc: Pick<LocationPin, 'postId' | 'number'>) => (
@@ -246,9 +244,73 @@ function AllLocationsMapInner() {
   const [headerCardHeight, setHeaderCardHeight] = useState(180);
   const { theme, mode, isDark } = useTheme();
   const mapStyle = useMapStyle();
+
+  const renderJourneyPolylines = useCallback((j: JourneyPolyline, isSelected: boolean) => {
+    const coords = getJourneyPolylineCoords(j);
+    if (coords.length < 2) return null;
+
+    // Split into segments based on segmentBreak
+    const segments: Array<Array<{ latitude: number; longitude: number }>> = [];
+    let currentSegment: Array<{ latitude: number; longitude: number }> = [];
+
+    for (let i = 0; i < coords.length; i++) {
+      const coord = coords[i];
+      if (coord.segmentBreak && currentSegment.length > 0) {
+        segments.push(currentSegment);
+        currentSegment = [];
+      }
+      currentSegment.push({ latitude: coord.latitude, longitude: coord.longitude });
+    }
+    if (currentSegment.length > 0) {
+      segments.push(currentSegment);
+    }
+
+    const color = isSelected 
+      ? mapStyle.routeColor 
+      : (isDark ? 'rgba(45, 212, 191, 0.38)' : 'rgba(59, 130, 246, 0.34)');
+    const strokeWidth = isSelected ? 4 : 2;
+    const glowColor = isSelected ? mapStyle.routeGlowColor : undefined;
+
+    return (
+      <>
+        {segments.map((segment, idx) => {
+          if (segment.length < 2) return null;
+          const segmentKey = `poly-${j._id}-${idx}`;
+          return (
+            <React.Fragment key={segmentKey}>
+              {glowColor && (
+                <Polyline
+                  coordinates={segment}
+                  strokeColor={glowColor}
+                  strokeWidth={strokeWidth + 8}
+                  lineCap="round"
+                  lineJoin="round"
+                  geodesic={true}
+                />
+              )}
+              <Polyline
+                coordinates={segment}
+                strokeColor={color}
+                strokeWidth={strokeWidth}
+                lineCap="round"
+                lineJoin="round"
+                geodesic={true}
+                tappable={true}
+                onPress={() => setSelectedJourney(j)}
+              />
+            </React.Fragment>
+          );
+        })}
+      </>
+    );
+  }, [isDark, mapStyle.routeColor, mapStyle.routeGlowColor]);
   const { showAlert, showError, showSuccess, showDestructiveConfirm } = useAlert();
 
   const navigateToPost = (postId: string, contentType: string, targetUserId: string) => {
+    if (!postId || postId === 'undefined') {
+      showAlert('Post Unavailable', 'This post has been deleted or is no longer available.');
+      return;
+    }
     if (navigatePostLock) return;
     navigatePostLock = true;
     setTimeout(() => {
@@ -256,7 +318,7 @@ function AllLocationsMapInner() {
     }, 1000);
 
     if (contentType === 'short' || contentType === 'video') {
-      router.push(`/user-shorts/${targetUserId}?shortId=${postId}`);
+      router.push(`/user-shorts/${targetUserId}?shortId=${postId}&single=true`);
     } else {
       router.push(`/post/${postId}`);
     }
@@ -353,18 +415,24 @@ function AllLocationsMapInner() {
                       <Text style={[styles.previewTitle, { color: theme.colors.text }]} numberOfLines={1}>
                         {item.address || 'Posted Location'}
                       </Text>
-                      <View style={styles.previewMetaRow}>
-                        {dateStr ? (
-                          <Text style={[styles.previewDate, { color: theme.colors.textSecondary }]}>
-                            {dateStr}
-                          </Text>
-                        ) : null}
-                        <View style={[styles.previewTypeBadge, { backgroundColor: isShort ? 'rgba(239, 68, 68, 0.12)' : 'rgba(59, 130, 246, 0.12)' }]}>
-                          <Text style={[styles.previewTypeBadgeText, { color: isShort ? '#EF4444' : '#3B82F6' }]}>
-                            {isShort ? 'Short' : 'Post'}
-                          </Text>
+                      {item.isPostDeleted ? (
+                        <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 2, fontWeight: '600' }}>
+                          Post has been deleted
+                        </Text>
+                      ) : (
+                        <View style={styles.previewMetaRow}>
+                          {dateStr ? (
+                            <Text style={[styles.previewDate, { color: theme.colors.textSecondary }]}>
+                              {dateStr}
+                            </Text>
+                          ) : null}
+                          <View style={[styles.previewTypeBadge, { backgroundColor: isShort ? 'rgba(239, 68, 68, 0.12)' : 'rgba(59, 130, 246, 0.12)' }]}>
+                            <Text style={[styles.previewTypeBadgeText, { color: isShort ? '#EF4444' : '#3B82F6' }]}>
+                              {isShort ? 'Short' : 'Post'}
+                            </Text>
+                          </View>
                         </View>
-                      </View>
+                      )}
                     </View>
                   </View>
 
@@ -540,22 +608,12 @@ function AllLocationsMapInner() {
         accuracy: ExpoLocation.Accuracy.Balanced,
       });
       if (loc.coords && mapRef.current) {
-        if (useWebViewFallback) {
-          mapRef.current.injectJavaScript(`
-            if (window.map) {
-              window.map.panTo({ lat: ${loc.coords.latitude}, lng: ${loc.coords.longitude} });
-              window.map.setZoom(14);
-            }
-            true;
-          `);
-        } else {
-          mapRef.current.animateToRegion({
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-            latitudeDelta: 0.015,
-            longitudeDelta: 0.015,
-          }, 400);
-        }
+        mapRef.current.animateToRegion({
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+          latitudeDelta: 0.015,
+          longitudeDelta: 0.015,
+        }, 400);
       }
     } catch (err) {
       logger.error('Failed to get current location for recenter:', err);
@@ -564,16 +622,6 @@ function AllLocationsMapInner() {
 
   const zoomIn = async () => {
     if (!mapRef.current) return;
-    if (useWebViewFallback) {
-      mapRef.current.injectJavaScript(`
-        if (window.map) {
-          var currentZoom = window.map.getZoom();
-          window.map.setZoom(currentZoom + 1);
-        }
-        true;
-      `);
-      return;
-    }
     try {
       const camera = await mapRef.current.getCamera();
       if (camera) {
@@ -596,16 +644,6 @@ function AllLocationsMapInner() {
 
   const zoomOut = async () => {
     if (!mapRef.current) return;
-    if (useWebViewFallback) {
-      mapRef.current.injectJavaScript(`
-        if (window.map) {
-          var currentZoom = window.map.getZoom();
-          window.map.setZoom(currentZoom - 1);
-        }
-        true;
-      `);
-      return;
-    }
     try {
       const camera = await mapRef.current.getCamera();
       if (camera) {
@@ -630,7 +668,6 @@ function AllLocationsMapInner() {
   const displayName = safeDecodeUriComponent(params.userName as string | string[] | undefined);
   const headerTitle = displayName ? `${displayName}'s Locations` : 'My Locations';
   const mapRef = useRef<any>(null);
-  const WEBVIEW_API_KEY = getGoogleMapsApiKeyForWebView();
 
   const validLocations = useMemo(() => {
     return locations
@@ -650,22 +687,14 @@ function AllLocationsMapInner() {
   // Sync map center on selectedPost
   useEffect(() => {
     if (selectedPost && mapRef.current) {
-      if (useWebViewFallback) {
-        mapRef.current.injectJavaScript(`
-          if (window.map) {
-            window.map.panTo({ lat: ${selectedPost.latitude}, lng: ${selectedPost.longitude} });
-          }
-          true;
-        `);
-      } else {
-        mapRef.current.animateToRegion({
-          latitude: selectedPost.latitude,
-          longitude: selectedPost.longitude,
-          latitudeDelta: currentRegion?.latitudeDelta || 0.015,
-          longitudeDelta: currentRegion?.longitudeDelta || 0.015,
-        }, 300);
-      }
+      mapRef.current.animateToRegion({
+        latitude: selectedPost.latitude,
+        longitude: selectedPost.longitude,
+        latitudeDelta: currentRegion?.latitudeDelta || 0.015,
+        longitudeDelta: currentRegion?.longitudeDelta || 0.015,
+      }, 300);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedPost]);
 
   // Zoom to fit selected journey polyline
@@ -695,36 +724,21 @@ function AllLocationsMapInner() {
         }
       }
       if (coords.length > 0) {
-        if (useWebViewFallback) {
-          const boundsJson = JSON.stringify(coords.map(c => ({ lat: c.latitude, lng: c.longitude })));
-          mapRef.current.injectJavaScript(`
-            if (window.map) {
-              var coords = ${boundsJson};
-              var bounds = new google.maps.LatLngBounds();
-              coords.forEach(function(c) {
-                bounds.extend(new google.maps.LatLng(c.lat, c.lng));
+        setTimeout(() => {
+          try {
+            if (typeof mapRef.current?.fitToCoordinates === 'function') {
+              mapRef.current.fitToCoordinates(coords, {
+                edgePadding: { top: 100, right: 100, bottom: 100, left: 100 },
+                animated: true,
               });
-              window.map.fitBounds(bounds);
             }
-            true;
-          `);
-        } else {
-          setTimeout(() => {
-            try {
-              if (typeof mapRef.current?.fitToCoordinates === 'function') {
-                mapRef.current.fitToCoordinates(coords, {
-                  edgePadding: { top: 100, right: 100, bottom: 100, left: 100 },
-                  animated: true,
-                });
-              }
-            } catch (err) {
-              logger.error('Error fitting to journey coordinates:', err);
-            }
-          }, 100);
-        }
+          } catch (err) {
+            logger.error('Error fitting to journey coordinates:', err);
+          }
+        }, 100);
       }
     }
-  }, [selectedJourney, useWebViewFallback]);
+  }, [selectedJourney]);
 
   // Scroll carousel to index when selectedPost is changed externally
   useEffect(() => {
@@ -782,7 +796,7 @@ function AllLocationsMapInner() {
 
     if (!latDelta || latDelta < 0.05 || dedupedLocations.length < 5) {
       return dedupedLocations.map(loc => ({
-        id: `single-${loc.postId || loc.number}`,
+        id: `single-${getLocationIdentity(loc)}`,
         isCluster: false,
         latitude: loc.latitude,
         longitude: loc.longitude,
@@ -808,7 +822,7 @@ function AllLocationsMapInner() {
       const group = grid[key];
       if (group.length === 1) {
         return {
-          id: `single-${group[0].postId || group[0].number}`,
+          id: `single-${getLocationIdentity(group[0])}`,
           isCluster: false,
           latitude: group[0].latitude,
           longitude: group[0].longitude,
@@ -825,7 +839,7 @@ function AllLocationsMapInner() {
       });
 
       return {
-        id: `cluster-${key}`,
+        id: `cluster-${group.map(getLocationIdentity).sort().join('-')}`,
         isCluster: true,
         latitude: sumLat / group.length,
         longitude: sumLng / group.length,
@@ -853,20 +867,22 @@ function AllLocationsMapInner() {
   const handleClusterPress = useCallback((cluster: any) => {
     if (!mapRef.current || useWebViewFallback) return;
     try {
-      const coords = cluster.locations.map((loc: any) => ({
-        latitude: loc.latitude,
-        longitude: loc.longitude,
-      }));
-      if (typeof mapRef.current.fitToCoordinates === 'function') {
-        mapRef.current.fitToCoordinates(coords, {
-          edgePadding: { top: 100, right: 100, bottom: 100, left: 100 },
-          animated: true,
-        });
-      }
+      const currentLatDelta = currentRegion?.latitudeDelta || 0.1;
+      const currentLngDelta = currentRegion?.longitudeDelta || 0.1;
+
+      const targetLatDelta = Math.min(currentLatDelta / 3.5, 0.04);
+      const targetLngDelta = Math.min(currentLngDelta / 3.5, 0.04);
+
+      mapRef.current.animateToRegion({
+        latitude: cluster.latitude,
+        longitude: cluster.longitude,
+        latitudeDelta: targetLatDelta,
+        longitudeDelta: targetLngDelta,
+      }, 350);
     } catch (err) {
-      logger.error('Error fitting to cluster coordinates:', err);
+      logger.error('Error zooming in to cluster:', err);
     }
-  }, [useWebViewFallback]);
+  }, [currentRegion, useWebViewFallback]);
 
   const handleRegionChangeComplete = useCallback((newRegion: any) => {
     const safeRegion = sanitizeMapRegion(newRegion, currentRegion ?? undefined);
@@ -1330,605 +1346,22 @@ function AllLocationsMapInner() {
     return (0.05 - delta) / (0.05 - 0.02);
   }, [currentRegion, mapRegion]);
 
-  // Keep backward-compatible getter for WebView HTML builder
+  // Stable initial region for native map rendering.
   const getMapRegion = useCallback(() => mapRegion || { latitude: 20, longitude: 0, latitudeDelta: 120, longitudeDelta: 320 }, [mapRegion]);
-
-  // ──────────────────────────────────────────────────────
-  // WebView HTML (used on Expo Go Android where native maps crash)
-  // ──────────────────────────────────────────────────────
-  const getWebMapHTML = useCallback(() => {
-    const region = getMapRegion();
-    const markersData = (mapFilter === 'posts') ? validLocations.map((loc) => ({
-      lat: loc.latitude,
-      lng: loc.longitude,
-      photo: resolvePhotoUrl(loc.photo),
-      cityName: loc.address,
-      number: loc.number,
-      postId: loc.postId,
-      contentType: loc.contentType,
-      userId: userId,
-    })) : [];
-    const filteredJourneys = (mapFilter === 'journeys') ? journeysWithOffsets : [];
-    const polylinePaths = filteredJourneys.map((j) => {
-      const startLat = j.startCoords?.lat ?? (j.startCoords as any)?.latitude;
-      const startLng = j.startCoords?.lng ?? (j.startCoords as any)?.longitude;
-      const endLat = j.endCoords?.lat ?? (j.endCoords as any)?.latitude;
-      const endLng = j.endCoords?.lng ?? (j.endCoords as any)?.longitude;
-      const renderLat = (j as any).renderCoords?.lat ?? (j as any).renderCoords?.latitude ?? startLat;
-      const renderLng = (j as any).renderCoords?.lng ?? (j as any).renderCoords?.longitude ?? startLng;
-      return {
-        _id: j._id,
-        title: (j.startCity && j.endCity) ? `${j.startCity} to ${j.endCity}` : (j.title || 'Saved Journey'),
-        path: j.polyline ? j.polyline
-          .map((p) => ({ latitude: p.lat ?? (p as any).latitude, longitude: p.lng ?? (p as any).longitude }))
-          .filter(isValidMapCoordinate)
-          .map((p) => ({ lat: p.latitude, lng: p.longitude })) : [],
-        startCoords: { lat: startLat, lng: startLng },
-        renderCoords: { lat: renderLat, lng: renderLng },
-        endCoords: { lat: endLat, lng: endLng },
-        startLetter: j.startCity ? j.startCity[0].toUpperCase() : 'S',
-        endLetter: j.endCity ? j.endCity[0].toUpperCase() : 'E',
-        startCity: j.startCity || 'Start',
-        endCity: j.endCity || 'End',
-        waypoints: (j.waypoints || []).map((w) => {
-          const photoUrl = getWaypointPhotoUrl(w);
-          const postId = w.post?._id || w.post;
-          const contentType = w.contentType || w.post?.type || 'photo';
-          return {
-            lat: w.lat ?? w.latitude,
-            lng: w.lng ?? w.longitude,
-            photo: photoUrl,
-            postId: typeof postId === 'string' ? postId : postId?.toString(),
-            contentType,
-            userId: j.user?._id || j.user || userId,
-          };
-        }).filter((w) => (w.lat ?? (w as any).latitude) && (w.lng ?? (w as any).longitude) && w.photo),
-      };
-    });
-
-    const centerLat = region?.latitude ?? 20;
-    const centerLng = region?.longitude ?? 0;
-    const regionDelta = region?.latitudeDelta ?? 0.1;
-    const zoomLevel = Math.min(12, Math.max(2, Math.floor(15 - Math.log2(Math.max(regionDelta, 1)))));
-    const zoomLevelVal = zoomLevel;
-
-    return `<!DOCTYPE html>
-<html><head>
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
-<style>
-html,body,#map{height:100%;margin:0;padding:0}
-.glowing-dot-container {
-  position: relative;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.pulse-ring {
-  position: absolute;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: radial-gradient(circle, ${isDark ? 'rgba(80, 200, 120, 0.4)' : 'rgba(28, 115, 180, 0.4)'} 0%, rgba(28, 115, 180, 0) 70%);
-  animation: pulse 1.8s infinite ease-out;
-}
-.core-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #50C878 0%, #1C73B4 100%);
-  border: 2px solid #FFFFFF;
-}
-
-.glass-marker-card {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border-radius: 20px;
-  background: ${isDark ? 'rgba(15, 23, 42, 0.75)' : 'rgba(255, 255, 255, 0.75)'};
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid ${isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.08)'};
-  box-shadow: 0 8px 32px 0 ${isDark ? 'rgba(0, 0, 0, 0.37)' : 'rgba(31, 38, 135, 0.15)'};
-  max-width: 180px;
-  animation: floatCard 0.3s ease-out;
-}
-.marker-thumb {
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
-  min-height: 26px;
-  flex-shrink: 0;
-  -webkit-flex-shrink: 0;
-  border-radius: 50%;
-  object-fit: cover;
-  border: 1.5px solid ${isDark ? '#2DD4BF' : '#3B82F6'};
-}
-.marker-thumb-placeholder {
-  width: 26px;
-  height: 26px;
-  min-width: 26px;
-  min-height: 26px;
-  flex-shrink: 0;
-  -webkit-flex-shrink: 0;
-  border-radius: 50%;
-  background: ${isDark ? 'rgba(45, 212, 191, 0.15)' : 'rgba(59, 130, 246, 0.1)'};
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-}
-.marker-info {
-  display: flex;
-  flex-direction: column;
-  min-width: 60px;
-  overflow: hidden;
-}
-.marker-title {
-  font-size: 11px;
-  font-weight: 700;
-  color: ${isDark ? '#F8FAFC' : '#0F172A'};
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.marker-subtitle {
-  font-size: 9px;
-  font-weight: 500;
-  color: ${isDark ? '#94A3B8' : '#64748B'};
-  margin-top: 1px;
-}
-@keyframes floatCard {
-  0% { transform: translateY(6px); opacity: 0; }
-  100% { transform: translateY(0); opacity: 1; }
-}
-
-.glass-cluster {
-  position: relative;
-  width: 44px;
-  height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.cluster-glass-circle {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: ${isDark 
-    ? 'linear-gradient(135deg, rgba(15, 23, 42, 0.75) 0%, rgba(30, 41, 59, 0.75) 100%)' 
-    : 'linear-gradient(135deg, rgba(255, 255, 255, 0.85) 0%, rgba(241, 245, 249, 0.85) 100%)'};
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-  border: 1.5px solid ${isDark ? 'rgba(45, 212, 191, 0.4)' : 'rgba(59, 130, 246, 0.3)'};
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 20px ${isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(31, 38, 135, 0.15)'};
-  transition: transform 0.2s ease;
-}
-.cluster-glass-circle span {
-  font-family: Arial, sans-serif;
-  font-size: 13px;
-  font-weight: 700;
-  color: ${isDark ? '#2DD4BF' : '#3B82F6'};
-}
-.map-dot {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, ${isDark ? '#2DD4BF' : '#3B82F6'} 0%, #10B981 100%);
-  border: 2.5px solid #FFFFFF;
-}
-.map-cluster-dot-2 {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, ${isDark ? '#2DD4BF' : '#3B82F6'} 0%, #10B981 100%);
-  border: 2.5px solid #FFFFFF;
-}
-.map-cluster-dot-3plus {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, ${isDark ? '#2DD4BF' : '#3B82F6'} 0%, #10B981 100%);
-  border: 2.5px solid #FFFFFF;
-}
-</style>
-<script>
-window.map = null;
-window.bounds = null;
-function initMap(){
-  var isDark = ${isDark};
-  window.map = new google.maps.Map(document.getElementById('map'),{
-    center:{lat:${centerLat},lng:${centerLng}},
-    zoom:${zoomLevelVal},minZoom:3,mapTypeId:'roadmap',language:'en',styles:${JSON.stringify(mapStyle.customMapStyle)},disableDefaultUI:true,zoomControl:true,gestureHandling:'greedy',isFractionalZoomEnabled:true
-  });
-  var map = window.map;
-  window.bounds = new google.maps.LatLngBounds();
-  var bounds = window.bounds;
-  var activeOverlays=[];
-
-  // Journey polylines + start/end markers
-  var journeys=${JSON.stringify(polylinePaths)};
-  var selectedJourneyId=${selectedJourney ? JSON.stringify(selectedJourney._id) : 'null'};
-
-  journeys.forEach(function(j){
-    var isSelected = selectedJourneyId && selectedJourneyId === j._id;
-    var selectJourneyHandler = function() {
-      if(window.ReactNativeWebView){
-        window.ReactNativeWebView.postMessage(JSON.stringify({
-          type: 'selectJourney',
-          journeyId: j._id
-        }));
-      }
-    };
-
-    var markerPos = j.renderCoords || j.startCoords;
-
-    // 1. Representing Marker (Always show for all journeys)
-    if(markerPos&&markerPos.lat&&markerPos.lng){
-      var size = 36;
-      var fill, strokeColor, iconColor;
-      if (isSelected) {
-        fill = 'url(#activeGrad)';
-        strokeColor = '#FFFFFF';
-        iconColor = '#FFFFFF';
-      } else {
-        fill = isDark ? 'rgba(20, 24, 33, 0.85)' : 'rgba(255, 255, 255, 0.9)';
-        strokeColor = isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.1)';
-        iconColor = isDark ? '#94A3B8' : '#64748B';
-      }
-      
-      var svg = '<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">' +
-        '<defs>' +
-        '  <linearGradient id="activeGrad" x1="0%" y1="0%" x2="100%" y2="100%">' +
-        '    <stop offset="0%" stop-color="#3B82F6" />' +
-        '    <stop offset="100%" stop-color="#10B981" />' +
-        '  </linearGradient>' +
-        '</defs>' +
-        '<circle cx="18" cy="18" r="16" fill="' + fill + '" stroke="' + strokeColor + '" stroke-width="2" />' +
-        '<g transform="translate(6, 6) scale(0.9)" fill="' + iconColor + '">' +
-        '  <path d="M19 10h-6V8h3c.6 0 1-.4 1-1s-.4-1-1-1h-3V4c0-.6-.4-1-1-1s-1 .4-1 1v2H8c-.6 0-1 .4-1 1s.4 1 1 1h3v2H5c-.6 0-1 .4-1 1s.4 1 1 1h6v6c0 .6.4 1 1 1s1-.4 1-1v-6h6c.6 0 1-.4 1-1s-.4-1-1-1z"/>' +
-        '</g>' +
-        '</svg>';
-
-      var repMarker = new google.maps.Marker({
-        position: {lat: markerPos.lat, lng: markerPos.lng},
-        map: map,
-        icon: {
-          url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
-          size: new google.maps.Size(size, size),
-          scaledSize: new google.maps.Size(size, size),
-          anchor: new google.maps.Point(size/2, size/2)
-        },
-        zIndex: isSelected ? 100 : 10
-      });
-      repMarker.addListener('click', selectJourneyHandler);
-      
-      // Extend bounds to start coordinate for all journeys
-      bounds.extend(new google.maps.LatLng(markerPos.lat, markerPos.lng));
-    }
-
-    // 2. Polyline Path + End marker (ONLY show if selected)
-    if(isSelected) {
-      if(j.path&&j.path.length>1){
-        var glowPoly = new google.maps.Polyline({
-          path: j.path,
-          geodesic: true,
-          strokeColor: '${mapStyle.routeColor}',
-          strokeOpacity: 0.22,
-          strokeWeight: 12,
-          map: map
-        });
-        var corePoly = new google.maps.Polyline({
-          path: j.path,
-          geodesic: true,
-          strokeColor: '${mapStyle.routeColor}',
-          strokeOpacity: 1,
-          strokeWeight: 4,
-          map: map
-        });
-        glowPoly.addListener('click', selectJourneyHandler);
-        corePoly.addListener('click', selectJourneyHandler);
-        j.path.forEach(function(p){bounds.extend(new google.maps.LatLng(p.lat,p.lng));});
-      }
-      
-      // End marker (Omit title to satisfy single name requirement)
-      if(j.endCoords&&j.endCoords.lat&&j.endCoords.lng){
-        var endPos = new google.maps.LatLng(j.endCoords.lat, j.endCoords.lng);
-        var endDiv = document.createElement('div');
-        endDiv.style.cssText = 'position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:90;';
-        endDiv.setAttribute('data-anchor', 'center');
-        endDiv.innerHTML = '<div style="width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid #FFFFFF; background-color: ${ALERT_RED};"></div>';
-        endDiv.addEventListener('click', selectJourneyHandler);
-        new PhotoOverlay(endPos, endDiv);
-        bounds.extend(endPos);
-      }
-
-      // Draw waypoints (photos posted along the way)
-      if(j.waypoints && j.waypoints.length > 0) {
-        j.waypoints.forEach(function(wp) {
-          if (wp.lat && wp.lng && wp.photo) {
-            var wpPos = new google.maps.LatLng(wp.lat, wp.lng);
-            var wpDiv = document.createElement('div');
-            wpDiv.style.cssText = 'position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
-            wpDiv.setAttribute('data-anchor', 'center');
-            wpDiv.innerHTML = '<div style="width: 32px; height: 32px; border-radius: 50%; border: 2.5px solid #FFFFFF; overflow: hidden; background-image: url(\\'' + wp.photo + '\\'); background-size: cover; background-position: center; transition: transform 0.2s ease;"></div>';
-            
-            // Highlight / hover effects
-            wpDiv.firstChild.addEventListener('mouseenter', function() {
-              wpDiv.firstChild.style.transform = 'scale(1.1)';
-            });
-            wpDiv.firstChild.addEventListener('mouseleave', function() {
-              wpDiv.firstChild.style.transform = 'scale(1.0)';
-            });
-
-            wpDiv.addEventListener('click', function(e) {
-              e.stopPropagation();
-              if(window.ReactNativeWebView){
-                window.ReactNativeWebView.postMessage(JSON.stringify({
-                  type: 'navigatePost',
-                  postId: wp.postId,
-                  contentType: wp.contentType,
-                  userId: wp.userId
-                }));
-              }
-            });
-
-            new PhotoOverlay(wpPos, wpDiv);
-            bounds.extend(wpPos);
-          }
-        });
-      }
-    }
-  });
-
-  var markers=${JSON.stringify(markersData)};
-  // Dedupe by ~11m precision (4 decimal places) so multiple posts taken at
-  // the exact same spot (or within GPS noise) collapse to one marker. Without
-  // this, a single venue with 3 posts shows as a "+3" cluster badge when
-  // zoomed out, then snaps to overlapping pins (looks like 1) on full zoom-in.
-  (function(){
-    var seen={},deduped=[];
-    markers.forEach(function(m){
-      var key=m.postId ? ('post-' + m.postId) : ('location-' + m.number);
-      if(!seen[key]){seen[key]=true;deduped.push(m);}
-    });
-    markers=deduped;
-  })();
-  markers.forEach(function(m){bounds.extend(new google.maps.LatLng(m.lat,m.lng));});
-
-  // Zoom-aware grid size: smaller grid = less clustering when zoomed in
-  function getGridSize(zoom){
-    if(zoom>=15)return 0;
-    if(zoom>=13)return 0.05;
-    if(zoom>=11)return 0.15;
-    if(zoom>=9)return 0.4;
-    if(zoom>=7)return 1;
-    if(zoom>=5)return 2;
-    return 4;
-  }
-
-  function clusterMarkers(items,gs){
-    items.forEach(function(it, idx){ it.idx = idx; });
-    if(gs===0){return items.map(function(it){return{items:[it],lat:it.lat,lng:it.lng};});}
-    // O(n) grid-hash clustering instead of O(n²) pairwise comparison
-    var buckets={};
-    items.forEach(function(it){
-      var key=Math.floor(it.lat/gs)+','+Math.floor(it.lng/gs);
-      if(!buckets[key])buckets[key]={items:[],sLat:0,sLng:0};
-      buckets[key].items.push(it);buckets[key].sLat+=it.lat;buckets[key].sLng+=it.lng;
-    });
-    var clusters=[];
-    for(var k in buckets){
-      var b=buckets[k];
-      clusters.push({items:b.items,lat:b.sLat/b.items.length,lng:b.sLng/b.items.length});
-    }
-    return clusters;
-  }
-
-  // Custom OverlayView class
-  class PhotoOverlay extends google.maps.OverlayView {
-    constructor(pos, el) {
-      super();
-      this.position = pos;
-      this.div = el;
-      this.setMap(map);
-    }
-    onAdd() {
-      this.getPanes().overlayMouseTarget.appendChild(this.div);
-    }
-    draw() {
-      var pt = this.getProjection().fromLatLngToDivPixel(this.position);
-      if (pt) {
-        this.div.style.left = pt.x + 'px';
-        this.div.style.top = pt.y + 'px';
-        this.div.style.position = 'absolute';
-        var anchor = this.div.getAttribute('data-anchor') || 'bottom';
-        if (anchor === 'center') {
-          this.div.style.transform = 'translate(-50%, -50%)';
-        } else {
-          this.div.style.transform = 'translate(-50%, -100%)';
-        }
-      }
-    }
-    onRemove() {
-      if (this.div && this.div.parentNode) {
-        this.div.parentNode.removeChild(this.div);
-      }
-    }
-  }
-
-  function renderClusters(){
-    // Remove existing overlays
-    activeOverlays.forEach(function(ov){ov.setMap(null);});
-    activeOverlays=[];
-
-    var zoom=map.getZoom()||${zoomLevelVal};
-    var pinRatio=0;
-    if(zoom>=15){
-      pinRatio=1.0;
-    }else if(zoom<=12){
-      pinRatio=0.0;
-    }else{
-      pinRatio=(zoom-12)/3.0;
-    }
-
-    var gs=getGridSize(zoom);
-    var clusters=clusterMarkers(markers,gs);
-    var selectedPostId = ${selectedPost ? JSON.stringify(selectedPost.postId) : 'null'};
-
-    clusters.forEach(function(cluster){
-      var pos=new google.maps.LatLng(cluster.lat,cluster.lng);
-      var div=document.createElement('div');
-      div.style.cssText='position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
-
-      if (cluster.items.length === 1) {
-        var main = cluster.items[0];
-        var isViewingAny = false;
-        var isSelected = selectedPostId && selectedPostId === main.postId;
-        
-        var totalCount = markers.length;
-        var showPin = main.idx < Math.round(pinRatio * totalCount);
-
-        if (isSelected || showPin) {
-          div.setAttribute('data-anchor', 'bottom');
-          div.innerHTML = \`${LOCATION_PIN_SVG}\`;
-        } else {
-          div.setAttribute('data-anchor', 'center');
-          div.innerHTML = '<div class="map-dot"></div>';
-        }
-      } else if (cluster.items.length === 2) {
-        div.setAttribute('data-anchor', 'center');
-        div.innerHTML = '<div class="map-cluster-dot-2"></div>';
-      } else {
-        div.setAttribute('data-anchor', 'center');
-        div.innerHTML = '<div class="map-cluster-dot-3plus"></div>';
-      }
-
-      // Tap handler: single marker triggers selectPost event, cluster zooms in.
-      div.addEventListener('click',function(e){
-        e.stopPropagation();
-        if(cluster.items.length===1){
-          if(window.ReactNativeWebView){
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'selectPost',
-              location: cluster.items[0]
-            }));
-          }
-        }else if(cluster.items.length>1){
-          // Zoom into the cluster area
-          var cb=new google.maps.LatLngBounds();
-          cluster.items.forEach(function(it){cb.extend(new google.maps.LatLng(it.lat,it.lng));});
-          map.fitBounds(cb,60);
-        }
-      });
-
-      var ov=new PhotoOverlay(pos,div);
-      activeOverlays.push(ov);
-    });
-  }
-
-  // Initial render + re-render on zoom change
-  if(markers.length>0||journeys.some(function(j){return j.path.length>0;})){
-    map.fitBounds(bounds,40);
-    google.maps.event.addListenerOnce(map,'bounds_changed',function(){
-      if(map.getZoom()>15)map.setZoom(15);
-      renderClusters();
-    });
-  }else{
-    renderClusters();
-  }
-  map.addListener('zoom_changed',function(){renderClusters();});
-  map.addListener('click',function(){
-    if(window.ReactNativeWebView){
-      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'clearSelection' }));
-    }
-  });
-}
-</script>
-</head><body>
-<div id="map"></div>
-<script async defer src="https://maps.googleapis.com/maps/api/js?key=${WEBVIEW_API_KEY || ''}&language=en&callback=initMap"></script>
-</body></html>`;
-  }, [locations, journeys, mapFilter, getMapRegion, WEBVIEW_API_KEY, mapStyle.customMapStyle, mapStyle.routeColor, mapStyle.routeGlowColor, selectedJourney, selectedPost, pinRatio]);
-
-  const webViewSource = useMemo(() => ({ html: getWebMapHTML() }), [getWebMapHTML]);
-
-  // ──────────────────────────────────────────────────────
-  // renderMap — native MapView preferred, WebView fallback
-  // ──────────────────────────────────────────────────────
+  // renderMap - native MapView only. Selection changes update native marker
+  // state in place instead of rebuilding an HTML map document.
   const renderMap = () => {
-    // ── WebView fallback (Expo Go Android) ──
     if (useWebViewFallback) {
-      if (!WEBVIEW_API_KEY) {
-        return (
-          <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
-            <Ionicons name="map-outline" size={64} color={theme.colors.textSecondary} />
-            <Text style={[styles.errorText, { color: theme.colors.text, marginTop: 16 }]}>
-              Map unavailable — no API key configured
-            </Text>
-          </View>
-        );
-      }
       return (
-        <WebView
-          ref={mapRef}
-          source={webViewSource}
-          style={styles.map}
-          javaScriptEnabled={true}
-          domStorageEnabled={true}
-          startInLoadingState={true}
-          originWhitelist={['https://*', 'http://*', 'data:*', 'about:*']}
-          onShouldStartLoadWithRequest={(request) => {
-            if (request.url.startsWith('http') || request.url.startsWith('data:') || request.url.startsWith('about:')) return true;
-            return false;
-          }}
-          {...(Platform.OS === 'android' && { mixedContentMode: 'compatibility' as const, setSupportMultipleWindows: false })}
-          onMessage={(event) => {
-            try {
-              const data = JSON.parse(event.nativeEvent.data);
-              if (data.type === 'navigatePost' && data.postId) {
-                const targetUserId = data.userId || userId;
-                navigateToPost(data.postId, data.contentType || 'photo', targetUserId);
-              } else if (data.type === 'selectPost' && data.location) {
-                const loc = {
-                  ...data.location,
-                  latitude: typeof data.location.latitude === 'string'
-                    ? parseFloat(data.location.latitude)
-                    : data.location.latitude ?? data.location.lat,
-                  longitude: typeof data.location.longitude === 'string'
-                    ? parseFloat(data.location.longitude)
-                    : data.location.longitude ?? data.location.lng,
-                };
-                setSelectedPost(loc);
-              } else if (data.type === 'selectJourney' && data.journeyId) {
-                const j = journeys.find(item => item._id === data.journeyId);
-                if (j) {
-                  setSelectedJourney(j);
-                }
-              } else if (data.type === 'clearSelection') {
-                setSelectedPost(null);
-                setSelectedJourney(null);
-              }
-            } catch (err) {
-              logger.debug('[AllLocations] WebView message parse error:', err);
-            }
-          }}
-          renderLoading={() => (
-            <View style={styles.loadingOverlay}>
-              <LoadingGlobe size="large" color={theme.colors.primary} />
-            </View>
-          )}
-          onError={(e) => logger.error('WebView error:', e.nativeEvent)}
-        />
+        <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
+          <Ionicons name="map-outline" size={64} color={theme.colors.textSecondary} />
+          <Text style={[styles.errorText, { color: theme.colors.text, marginTop: 16 }]}>
+            Native map is not available on this build
+          </Text>
+        </View>
       );
     }
 
-    // ── Native MapView (iOS / Android dev build) ──
     if (!MapView || !Marker) {
       return (
         <View style={[styles.centerContainer, { backgroundColor: theme.colors.background }]}>
@@ -1991,6 +1424,12 @@ function initMap(){
           }
         }}
       >
+        {/* Completed journey routes - subtle until selected */}
+        {mapFilter === 'journeys' && journeysWithOffsets.map((j) => {
+          if (selectedJourney?._id === j._id) return null;
+          return renderJourneyPolylines(j, false);
+        })}
+
         {/* Journey representing markers */}
         {(mapFilter === 'journeys') && journeysWithOffsets.map((j) => {
           const isSelected = selectedJourney && selectedJourney._id === j._id;
@@ -2040,56 +1479,39 @@ function initMap(){
         })}
 
         {/* Selected journey's route polyline, end marker, and waypoints */}
-        {(mapFilter === 'journeys') && selectedJourney && (() => {
+        {mapFilter === 'journeys' && selectedJourney && (() => {
           const selectedJWithOffset = journeysWithOffsets.find(j => j._id === selectedJourney._id);
           const j = selectedJWithOffset || selectedJourney;
-          const elements: React.ReactNode[] = [];
-
-          if (j.polyline && j.polyline.length >= 2) {
-            const coords = getJourneyPolylineCoords(j);
-            elements.push(
-              <PolylineRenderer
-                key={`polyline-${j._id}`}
-                coordinates={coords}
-                color={mapStyle.routeColor}
-                glowColor={mapStyle.routeGlowColor}
-                strokeWidth={4}
-                simplifyDistance={10}
-                applyKalman={false}
-                latitudeDelta={safeLatitudeDelta}
-                onPress={() => setSelectedJourney(j)}
-              />
-            );
-          }
-
+          const coords = getJourneyPolylineCoords(j);
           const endLat = j.endCoords?.lat ?? (j.endCoords as any)?.latitude;
           const endLng = j.endCoords?.lng ?? (j.endCoords as any)?.longitude;
-          if (isValidMapCoordinate({ latitude: endLat, longitude: endLng })) {
-            elements.push(
-              <SafeMarker
-                key={`end-${j._id}`}
-                coordinate={{ latitude: endLat, longitude: endLng }}
-                anchor={{ x: 0.5, y: 0.5 }}
-                onPress={() => setSelectedJourney(j)}
-                repaintTriggers={[true]}
-              >
-                <PremiumMapMarker pointType="end" isActive={true} />
-              </SafeMarker>
-            );
-          }
+          const hasEnd = isValidMapCoordinate({ latitude: endLat, longitude: endLng });
 
-          if (j.waypoints && j.waypoints.length > 0) {
-            j.waypoints.forEach((wp, wpIdx) => {
-              const photoUrl = getWaypointPhotoUrl(wp);
-              const postId = wp.post?._id || wp.post;
-              const contentType = wp.contentType || wp.post?.type || 'photo';
-              const wpLat = wp.lat ?? wp.latitude;
-              const wpLng = wp.lng ?? wp.longitude;
-              if (photoUrl && isValidMapCoordinate({ latitude: wpLat, longitude: wpLng })) {
+          return (
+            <>
+              {coords.length >= 2 && renderJourneyPolylines(j, true)}
+              {hasEnd && (
+                <SafeMarker
+                  key={`end-${j._id}`}
+                  coordinate={{ latitude: endLat, longitude: endLng }}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                  onPress={() => setSelectedJourney(j)}
+                  repaintTriggers={[true]}
+                >
+                  <PremiumMapMarker pointType="end" isActive={true} />
+                </SafeMarker>
+              )}
+              {j.waypoints && j.waypoints.map((wp, wpIdx) => {
+                const photoUrl = getWaypointPhotoUrl(wp);
+                const postId = wp.post?._id || wp.post;
+                const contentType = wp.contentType || wp.post?.type || 'photo';
+                const wpLat = wp.lat ?? wp.latitude;
+                const wpLng = wp.lng ?? wp.longitude;
+                if (!photoUrl || !isValidMapCoordinate({ latitude: wpLat, longitude: wpLng })) return null;
                 const wpKey = `${j._id}-${wpIdx}`;
-                elements.push(
+                return (
                   <SafeMarker
-                    key={`wp-${j._id}-${wpIdx}`}
+                    key={`wp-${wpKey}`}
                     coordinate={{ latitude: wpLat, longitude: wpLng }}
                     anchor={{ x: 0.5, y: 0.5 }}
                     onPress={() => {
@@ -2125,11 +1547,9 @@ function initMap(){
                     </View>
                   </SafeMarker>
                 );
-              }
-            });
-          }
-
-          return elements;
+              })}
+            </>
+          );
         })()}
 
         {/* Post markers — shown when filter is 'posts' */}
@@ -2153,9 +1573,9 @@ function initMap(){
                 const totalCount = validLocations.length;
                 const showPin = locIndex !== -1 && (locIndex < Math.round(pinRatio * totalCount));
 
-                const targetLat = state ? state.latitude : loc.latitude;
-                const targetLng = state ? state.longitude : loc.longitude;
-                const visible = state ? !state.isCluster : true;
+                const targetLat = isSelected ? loc.latitude : (state ? state.latitude : loc.latitude);
+                const targetLng = isSelected ? loc.longitude : (state ? state.longitude : loc.longitude);
+                const visible = isSelected || (state ? !state.isCluster : true);
 
                 return (
                   <ClusteredMarker
@@ -2170,19 +1590,26 @@ function initMap(){
                     <PremiumMapMarker 
                       isActive={isSelected} 
                       icon="location" 
-                      renderAsDot={!showPin && !isSelected}
+                      renderAsDot={!isSelected}
                     />
                   </ClusteredMarker>
                 );
               })}
-              {clusteredLocations.filter(c => c.isCluster).map((cluster) => (
-                <ClusteredGroupMarker
-                  key={cluster.id}
-                  cluster={cluster}
-                  onPress={() => handleClusterPress(cluster)}
-                  isDark={isDark}
-                />
-              ))}
+              {clusteredLocations
+                .filter((cluster) => {
+                  if (!cluster.isCluster) return false;
+                  if (!selectedPost) return true;
+                  const selectedIdentity = getLocationIdentity(selectedPost);
+                  return !cluster.locations.some((loc: LocationPin) => getLocationIdentity(loc) === selectedIdentity);
+                })
+                .map((cluster) => (
+                  <ClusteredGroupMarker
+                    key={cluster.id}
+                    cluster={cluster}
+                    onPress={() => handleClusterPress(cluster)}
+                    isDark={isDark}
+                  />
+                ))}
             </>
           );
         })()}

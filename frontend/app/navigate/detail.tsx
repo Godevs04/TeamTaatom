@@ -11,6 +11,7 @@ import {
   Alert,
   TextInput,
   Modal,
+  Animated,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -59,11 +60,36 @@ const getWaypointPhotoUrl = (waypoint: any): string | undefined => {
   return undefined;
 };
 
+const getPostPreviewUrl = (post: any): string | undefined => {
+  if (!post || typeof post !== 'object') return undefined;
+  if (post.images?.length > 0) {
+    const img = post.images[0];
+    return resolvePhotoUrl(typeof img === 'string' ? img : img?.url || img?.signedUrl);
+  }
+  if (post.storageKeys?.length > 0) {
+    const sk = post.storageKeys[0];
+    return resolvePhotoUrl(typeof sk === 'string' ? sk : sk?.signedUrl || sk?.url);
+  }
+  return resolvePhotoUrl(post.imageUrl || post.thumbnailUrl || post.mediaUrl || post.media?.url);
+};
+
 const GROWTH_GREEN = '#22C55E';
 const ACTION_BLUE = '#3B82F6';
 const ALERT_RED = '#EF4444';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+
+type SelectedMapPoint = {
+  kind: 'start' | 'end' | 'waypoint';
+  title: string;
+  subtitle: string;
+  latitude: number;
+  longitude: number;
+  imageUrl?: string;
+  postId?: string;
+  contentType?: string;
+  userId?: string;
+};
 
 function getJourneyPolylineCoords(journey: any) {
   const sessionStarts = (journey?.sessions || [])
@@ -116,6 +142,10 @@ export default function JourneyDetailScreen() {
   const insets = useSafeAreaInsets();
 
   const navigateToPost = (postId: string, contentType: string, userId: string) => {
+    if (!postId || postId === 'undefined') {
+      showAlert('Post Unavailable', 'This post has been deleted or is no longer available.');
+      return;
+    }
     if (navigatePostLock) return;
     navigatePostLock = true;
     setTimeout(() => {
@@ -123,7 +153,7 @@ export default function JourneyDetailScreen() {
     }, 1000);
 
     if (contentType === 'short' || contentType === 'video') {
-      router.push(`/user-shorts/${userId}?shortId=${postId}`);
+      router.push(`/user-shorts/${userId}?shortId=${postId}&single=true`);
     } else {
       router.push(`/post/${postId}`);
     }
@@ -147,12 +177,61 @@ export default function JourneyDetailScreen() {
   const [showShareModal, setShowShareModal] = useState(false);
   const [latitudeDelta, setLatitudeDelta] = useState(0.1);
   const [loadedImages, setLoadedImages] = useState<Record<string, boolean>>({});
+  const [selectedMapPoint, setSelectedMapPoint] = useState<SelectedMapPoint | null>(null);
+  const mapPointSlideAnim = useRef(new Animated.Value(150)).current;
 
   const mapRef = useRef<any>(null);
   const [mapReady, setMapReady] = useState(false);
 
   const isViewingActiveJourney = activeJourney?._id === journeyId;
   const polylineCoords = isViewingActiveJourney ? activePolyline : getJourneyPolylineCoords(journey);
+
+  useEffect(() => {
+    Animated.spring(mapPointSlideAnim, {
+      toValue: selectedMapPoint ? 0 : 150,
+      tension: 60,
+      friction: 9,
+      useNativeDriver: true,
+    }).start();
+  }, [selectedMapPoint, mapPointSlideAnim]);
+
+  const selectEndpoint = (kind: 'start' | 'end') => {
+    const source = kind === 'start' ? journey?.startCoords : journey?.endCoords;
+    const latitude = source?.lat ?? source?.latitude;
+    const longitude = source?.lng ?? source?.longitude;
+    if (!isValidMapCoordinate({ latitude, longitude })) return;
+
+    setSelectedMapPoint({
+      kind,
+      title: kind === 'start' ? 'Start point' : 'End point',
+      subtitle: kind === 'start'
+        ? (journey?.startedAt ? `Started ${formatDate(journey.startedAt)}` : 'Journey origin')
+        : (journey?.completedAt ? `Ended ${formatDate(journey.completedAt)}` : 'Current journey endpoint'),
+      latitude,
+      longitude,
+    });
+  };
+
+  const selectWaypoint = (waypoint: any, index: number) => {
+    const latitude = waypoint.latitude ?? waypoint.lat;
+    const longitude = waypoint.longitude ?? waypoint.lng;
+    if (!isValidMapCoordinate({ latitude, longitude })) return;
+
+    const post = waypoint.post;
+    const contentType = waypoint.contentType || post?.type || 'photo';
+    const isShort = contentType === 'short' || contentType === 'video';
+    setSelectedMapPoint({
+      kind: 'waypoint',
+      title: post?.caption || `${isShort ? 'Short' : 'Post'} waypoint ${index + 1}`,
+      subtitle: isShort ? 'Short posted during journey' : 'Photo posted during journey',
+      latitude,
+      longitude,
+      imageUrl: getWaypointPhotoUrl(waypoint) || getPostPreviewUrl(post),
+      postId: post?._id || post,
+      contentType,
+      userId: journey?.user?._id || journey?.user,
+    });
+  };
   
   const formatDurationText = (startedAt: string, completedAt?: string) => {
     if (isViewingActiveJourney) {
@@ -488,10 +567,8 @@ export default function JourneyDetailScreen() {
                       e.stopPropagation();
                       if(window.ReactNativeWebView){
                         window.ReactNativeWebView.postMessage(JSON.stringify({
-                          type: 'navigatePost',
-                          postId: '${postId}',
-                          contentType: '${contentType}',
-                          userId: '${targetUserId}'
+                          type: 'selectWaypoint',
+                          index: ${i}
                         }));
                       }
                     });
@@ -502,7 +579,16 @@ export default function JourneyDetailScreen() {
                 const wpIcon = contentType === 'video' 
                   ? '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="' + (isDark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.85)') + '" stroke="' + (isDark ? 'rgba(45,212,191,0.6)' : 'rgba(59,130,246,0.6)') + '" stroke-width="1.5"/><path d="M16 9.5l-3 2v-3.5a.5.5 0 0 0-.5-.5h-4a.5.5 0 0 0-.5.5v5a.5.5 0 0 0 .5.5h4a.5.5 0 0 0 .5-.5v-1.5l3 2a.3.3 0 0 0 .5-.2v-5.6a.3.3 0 0 0-.5-.2z" fill="' + (isDark ? '#2DD4BF' : '#3B82F6') + '"/></svg>'
                   : '<svg width="24" height="24" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><circle cx="12" cy="12" r="10" fill="' + (isDark ? 'rgba(15,23,42,0.85)' : 'rgba(255,255,255,0.85)') + '" stroke="' + (isDark ? 'rgba(45,212,191,0.6)' : 'rgba(59,130,246,0.6)') + '" stroke-width="1.5"/><circle cx="12" cy="12" r="3" fill="' + (isDark ? '#2DD4BF' : '#3B82F6') + '"/></svg>';
-                return `new google.maps.Marker({position:{lat:${w.lat},lng:${w.lng}},map:map,title:'Post #${i+1}',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('${wpIcon}'),size:new google.maps.Size(24,24),scaledSize:new google.maps.Size(24,24),anchor:new google.maps.Point(12,12)}});`;
+                return `
+                  (function() {
+                    var marker = new google.maps.Marker({position:{lat:${w.lat},lng:${w.lng}},map:map,title:'Post #${i+1}',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('${wpIcon}'),size:new google.maps.Size(24,24),scaledSize:new google.maps.Size(24,24),anchor:new google.maps.Point(12,12)}});
+                    marker.addListener('click', function() {
+                      if(window.ReactNativeWebView){
+                        window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'selectWaypoint', index: ${i} }));
+                      }
+                    });
+                  })();
+                `;
               }
             }).join('\n');
             const html = `<!DOCTYPE html><html><head>
@@ -555,8 +641,14 @@ function initMap(){
     new google.maps.Polyline({path:segment,geodesic:true,strokeColor:'${mapStyle.routeGlowColor}',strokeOpacity:1,strokeWeight:12,map:map});
     new google.maps.Polyline({path:segment,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1,strokeWeight:4,map:map});
   });
-  if(path.length>0)new google.maps.Marker({position:path[0],map:map,title:'Start',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#10B981" stroke="white" stroke-width="2"/></svg>'),size:new google.maps.Size(30,30),scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
-  if(path.length>1)new google.maps.Marker({position:path[path.length-1],map:map,title:'End',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#EF4444" stroke="white" stroke-width="2"/></svg>'),size:new google.maps.Size(30,30),scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
+  if(path.length>0){
+    var startMarker = new google.maps.Marker({position:path[0],map:map,title:'Start',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#10B981" stroke="white" stroke-width="2"/></svg>'),size:new google.maps.Size(30,30),scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
+    startMarker.addListener('click', function(){ if(window.ReactNativeWebView){ window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'selectEndpoint', kind: 'start' })); } });
+  }
+  if(path.length>1){
+    var endMarker = new google.maps.Marker({position:path[path.length-1],map:map,title:'End',icon:{url:'data:image/svg+xml;utf-8,'+encodeURIComponent('<svg width="30" height="30" xmlns="http://www.w3.org/2000/svg"><circle cx="15" cy="15" r="12" fill="#EF4444" stroke="white" stroke-width="2"/></svg>'),size:new google.maps.Size(30,30),scaledSize:new google.maps.Size(30,30),anchor:new google.maps.Point(15,15)}});
+    endMarker.addListener('click', function(){ if(window.ReactNativeWebView){ window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'selectEndpoint', kind: 'end' })); } });
+  }
   ${wpMarkers}
   var bounds=new google.maps.LatLngBounds();path.forEach(function(p){bounds.extend(p);});map.fitBounds(bounds,40);
 }
@@ -580,6 +672,11 @@ function initMap(){
                     if (data.type === 'navigatePost' && data.postId) {
                       const targetUserId = data.userId || journey?.user?._id || journey?.user;
                       navigateToPost(data.postId, data.contentType || 'photo', targetUserId);
+                    } else if (data.type === 'selectEndpoint' && (data.kind === 'start' || data.kind === 'end')) {
+                      selectEndpoint(data.kind);
+                    } else if (data.type === 'selectWaypoint' && typeof data.index === 'number') {
+                      const waypoint = (journey.waypoints || []).filter((w: any) => w.lat && w.lng)[data.index];
+                      if (waypoint) selectWaypoint(waypoint, data.index);
                     }
                   } catch (err) {
                     logger.error('[JourneyDetail] WebView message parse error:', err);
@@ -615,18 +712,30 @@ function initMap(){
                   color={mapStyle.routeColor}
                   glowColor={mapStyle.routeGlowColor}
                   strokeWidth={4}
-                  simplifyDistance={10}
+                  simplifyDistance={3}
                   applyKalman={false}
                   latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
                 />
               )}
               {isValidMapCoordinate({ latitude: journey.startCoords?.lat, longitude: journey.startCoords?.lng }) && (
-                <SafeMarker coordinate={{ latitude: journey.startCoords.lat, longitude: journey.startCoords.lng }} title="Start" anchor={{ x: 0.5, y: 0.5 }} repaintTriggers={[latitudeDelta]}>
+                <SafeMarker
+                  coordinate={{ latitude: journey.startCoords.lat, longitude: journey.startCoords.lng }}
+                  title="Start"
+                  anchor={{ x: 0.5, y: 0.5 }}
+                  onPress={() => selectEndpoint('start')}
+                  repaintTriggers={[latitudeDelta, selectedMapPoint?.kind === 'start']}
+                >
                   <PremiumMapMarker icon="play" latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
                 </SafeMarker>
               )}
               {!isViewingActiveJourney && isValidMapCoordinate({ latitude: journey.endCoords?.lat, longitude: journey.endCoords?.lng }) && (
-                <SafeMarker coordinate={{ latitude: journey.endCoords.lat, longitude: journey.endCoords.lng }} title="End" anchor={{ x: 0.5, y: 1.0 }} repaintTriggers={[latitudeDelta]}>
+                <SafeMarker
+                  coordinate={{ latitude: journey.endCoords.lat, longitude: journey.endCoords.lng }}
+                  title="End"
+                  anchor={{ x: 0.5, y: 1.0 }}
+                  onPress={() => selectEndpoint('end')}
+                  repaintTriggers={[latitudeDelta, selectedMapPoint?.kind === 'end']}
+                >
                   <PremiumMapMarker icon="flag" active latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
                 </SafeMarker>
               )}
@@ -646,11 +755,7 @@ function initMap(){
                     coordinate={{ latitude, longitude }}
                     title={`${contentType === 'video' ? 'Video' : 'Photo'} #${i + 1}`}
                     anchor={photoUrl ? { x: 0.5, y: 0.5 } : { x: 0.5, y: 1.0 }}
-                    onPress={() => {
-                      if (postId) {
-                        navigateToPost(postId, contentType, targetUserId);
-                      }
-                    }}
+                    onPress={() => selectWaypoint(w, i)}
                     repaintTriggers={[latitudeDelta, w.contentType, photoUrl, !!loadedImages[i]]}
                   >
                     {photoUrl ? (
@@ -698,6 +803,82 @@ function initMap(){
                 {formatDistance(isViewingActiveJourney ? activeDistance : journey.distanceTraveled)} - {isViewingActiveJourney ? formatDurationText(journey.startedAt, journey.completedAt) : formatDuration(journey.startedAt, journey.completedAt)}
               </Text>
             </GlassMapPanel>
+          )}
+          {selectedMapPoint && (
+            <Animated.View
+              style={[
+                styles.mapPointPreviewWrap,
+                {
+                  transform: [{ translateY: mapPointSlideAnim }],
+                },
+              ]}
+            >
+              <GlassMapPanel style={styles.mapPointPreview} tint={mapStyle.glassTint}>
+                <View style={styles.mapPointPreviewRow}>
+                  {selectedMapPoint.imageUrl ? (
+                    <ExpoImage
+                      source={{ uri: selectedMapPoint.imageUrl }}
+                      style={styles.mapPointPreviewImage}
+                      contentFit="cover"
+                      cachePolicy="memory-disk"
+                      transition={180}
+                    />
+                  ) : (
+                    <View style={[styles.mapPointPreviewIcon, { backgroundColor: selectedMapPoint.kind === 'end' ? ALERT_RED + '18' : GROWTH_GREEN + '18' }]}>
+                      <Ionicons
+                        name={selectedMapPoint.kind === 'waypoint' ? (selectedMapPoint.contentType === 'short' || selectedMapPoint.contentType === 'video' ? 'videocam' : 'image') : selectedMapPoint.kind === 'end' ? 'flag' : 'play'}
+                        size={20}
+                        color={selectedMapPoint.kind === 'end' ? ALERT_RED : GROWTH_GREEN}
+                      />
+                    </View>
+                  )}
+                  <View style={styles.mapPointPreviewText}>
+                    <Text style={[styles.mapPointPreviewTitle, { color: theme.colors.text }]} numberOfLines={1}>
+                      {selectedMapPoint.title}
+                    </Text>
+                    <Text style={[styles.mapPointPreviewSubtitle, { color: theme.colors.textSecondary }]} numberOfLines={1}>
+                      {selectedMapPoint.subtitle}
+                    </Text>
+                    <View style={styles.mapPointActions}>
+                      {selectedMapPoint.postId ? (
+                        <TouchableOpacity
+                          style={[styles.mapPointActionBtn, { backgroundColor: ACTION_BLUE }]}
+                          onPress={() => navigateToPost(selectedMapPoint.postId!, selectedMapPoint.contentType || 'photo', selectedMapPoint.userId || journey.user?._id || journey.user)}
+                          activeOpacity={0.85}
+                        >
+                          <Ionicons name="eye-outline" size={13} color="#FFFFFF" />
+                          <Text style={styles.mapPointPrimaryText}>Preview</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      <TouchableOpacity
+                        style={[styles.mapPointActionBtn, styles.mapPointOutlineBtn, { borderColor: theme.colors.border }]}
+                        onPress={() => router.push({
+                          pathname: '/map/current-location',
+                          params: {
+                            latitude: String(selectedMapPoint.latitude),
+                            longitude: String(selectedMapPoint.longitude),
+                            address: selectedMapPoint.title,
+                            photo: selectedMapPoint.imageUrl || '',
+                            autoRoute: 'true',
+                          },
+                        })}
+                        activeOpacity={0.85}
+                      >
+                        <Ionicons name="navigate-outline" size={13} color={theme.colors.text} />
+                        <Text style={[styles.mapPointOutlineText, { color: theme.colors.text }]}>Route</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.mapPointCloseBtn}
+                    onPress={() => setSelectedMapPoint(null)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="close" size={16} color={theme.colors.textSecondary} />
+                  </TouchableOpacity>
+                </View>
+              </GlassMapPanel>
+            </Animated.View>
           )}
         </View>
 
@@ -939,6 +1120,81 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     fontWeight: '700',
+  },
+  mapPointPreviewWrap: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 16,
+    zIndex: 20,
+  },
+  mapPointPreview: {
+    padding: 10,
+  },
+  mapPointPreviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  mapPointPreviewImage: {
+    width: 52,
+    height: 52,
+    borderRadius: 10,
+  },
+  mapPointPreviewIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mapPointPreviewText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  mapPointPreviewTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  mapPointPreviewSubtitle: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  mapPointActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  mapPointActionBtn: {
+    minHeight: 28,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+  },
+  mapPointOutlineBtn: {
+    borderWidth: 1,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  mapPointPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  mapPointOutlineText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  mapPointCloseBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   contentPadding: {
     padding: 16,

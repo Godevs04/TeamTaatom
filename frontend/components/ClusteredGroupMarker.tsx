@@ -94,25 +94,28 @@ const ClusteredGroupMarker = ({
   const count = cluster.locations.length;
   
   // Calculate size according to count (number of merged places)
-  let size = 20;
-  let borderWidth = 2.5;
+  let size = 17;
+  let borderWidth = 2;
   if (count === 2) {
-    size = 18;
-    borderWidth = 2.5;
+    size = 15;
+    borderWidth = 2;
+  } else if (count >= 8) {
+    size = 19;
+    borderWidth = 2.25;
   } else {
-    size = 20;
-    borderWidth = 2.5;
+    size = 17;
+    borderWidth = 2;
   }
 
   return (
     <Marker
       coordinate={{ latitude: cluster.latitude, longitude: cluster.longitude }}
       onPress={onPress}
-      tracksViewChanges={tracksViewChanges}
+      tracksViewChanges={Platform.OS === 'ios' ? true : tracksViewChanges}
       anchor={{ x: 0.5, y: 0.5 }}
     >
-      <Animated.View style={[animatedStyle, { width: size, height: size, justifyContent: 'center', alignItems: 'center' }]}>
-        <View style={[styles.clusterMarkerContainer, { width: size, height: size }]}>
+      <Animated.View style={[animatedStyle, { width: size + 8, height: size + 8, justifyContent: 'center', alignItems: 'center' }]}>
+        <View style={[styles.clusterMarkerContainer, { width: size + 8, height: size + 8 }]}>
           {/* Merged Dot Core (Bigger according to no of places, no numbers) */}
           <LinearGradient
             colors={['#3B82F6', '#10B981'] as const}
@@ -140,6 +143,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     position: 'relative',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.28,
+    shadowRadius: 5,
+    elevation: 4,
   },
   dotPulse: {
     position: 'absolute',

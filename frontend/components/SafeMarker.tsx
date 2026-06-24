@@ -74,9 +74,10 @@ const SafeMarker = React.forwardRef(({ children, repaintTriggers = [], ...props 
 
   if (!Marker) return null;
 
-  // On iOS, we now allow tracksViewChanges to go false dynamically, preventing heavy 
-  // rendering overhead on MapKit and fixing disappearing custom markers.
-  const activeTracksViewChanges = tracksViewChanges;
+  // MapKit can drop custom marker snapshots when their child view changes while
+  // tracking is disabled. Keep iOS markers live; Android can still freeze the
+  // bitmap after each repaint window for performance.
+  const activeTracksViewChanges = Platform.OS === 'ios' ? true : tracksViewChanges;
 
   const lastPressTime = useRef(0);
   const handlePress = (event: any) => {

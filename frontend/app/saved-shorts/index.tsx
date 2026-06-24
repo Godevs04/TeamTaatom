@@ -31,57 +31,53 @@ export default function SavedShortsScreen() {
       } as object),
     },
     header: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      height: Platform.OS === 'ios' ? 80 : 64,
       flexDirection: 'row',
       alignItems: 'center',
-      paddingHorizontal: theme.spacing.md,
-      paddingVertical: theme.spacing.sm,
-      backgroundColor: '#000000',
-      borderBottomWidth: 1,
-      borderBottomColor: 'rgba(255,255,255,0.1)',
-      zIndex: 10,
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingTop: Platform.OS === 'ios' ? 36 : 20,
+      backgroundColor: 'transparent',
+      zIndex: 100,
     },
     backButton: {
-      padding: theme.spacing.xs,
-      marginRight: theme.spacing.sm,
+      width: 40,
+      height: 40,
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     headerTitle: {
-      fontSize: theme.typography.h3.fontSize,
-      fontWeight: '600',
+      fontSize: 18,
+      fontWeight: '700',
       color: '#ffffff',
       flex: 1,
+      textShadowColor: 'rgba(0,0,0,0.6)',
+      textShadowOffset: { width: 0, height: 1 },
+      textShadowRadius: 3,
     },
     muteButton: {
-      padding: theme.spacing.xs,
-      marginLeft: theme.spacing.sm,
+      width: 40,
+      height: 40,
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     shortsFlex: {
       flex: 1,
+    },
+    iconShadow: {
+      textShadowColor: 'rgba(0,0,0,0.6)',
+      textShadowOffset: { width: 0, height: 1 },
+      textShadowRadius: 3,
     },
   });
 
   return (
     <ErrorBoundary level="route">
-      <SafeAreaView style={styles.container} edges={['top']}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="arrow-back" size={24} color="#ffffff" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle} numberOfLines={1}>
-            Saved Shorts
-          </Text>
-          <TouchableOpacity
-            style={styles.muteButton}
-            onPress={() => setIsMuted(prev => !prev)}
-            activeOpacity={0.7}
-          >
-            <Ionicons name={isMuted ? 'volume-mute' : 'volume-high'} size={24} color="#ffffff" />
-          </TouchableOpacity>
-        </View>
+      <View style={styles.container}>
         <View style={styles.shortsFlex}>
           <Shorts 
             isSavedShorts={true} 
@@ -91,7 +87,27 @@ export default function SavedShortsScreen() {
             onMuteToggle={() => setIsMuted(prev => !prev)}
           />
         </View>
-      </SafeAreaView>
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.back()}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="arrow-back" size={24} color="#ffffff" style={styles.iconShadow} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle} numberOfLines={1}>
+            Saved Shorts
+          </Text>
+          <TouchableOpacity
+            style={styles.muteButton}
+            onPress={() => setIsMuted(prev => !prev)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name={isMuted ? 'volume-mute' : 'volume-high'} size={24} color="#ffffff" style={styles.iconShadow} />
+          </TouchableOpacity>
+        </View>
+      </View>
     </ErrorBoundary>
   );
 }

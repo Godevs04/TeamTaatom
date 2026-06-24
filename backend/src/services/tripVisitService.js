@@ -839,10 +839,10 @@ const deleteTripVisitForContent = async (postId, contentType = 'post') => {
         contentType 
       },
       { 
-        isActive: false 
+        isPostDeleted: true 
       }
     );
-    logger.debug(`Deactivated TripVisits for ${contentType} ${postId}`);
+    logger.debug(`Marked TripVisits as deleted post for ${contentType} ${postId}`);
   } catch (error) {
     logger.error('Error deleting TripVisit:', error);
   }

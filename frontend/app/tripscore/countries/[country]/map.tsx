@@ -12,27 +12,21 @@ import LoadingGlobe from '../../../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { WebView } from 'react-native-webview';
-import Constants from 'expo-constants';
 import { Image as ExpoImage } from 'expo-image';
 import { useTheme } from '../../../../context/ThemeContext';
 import api from '../../../../services/api';
-import { MapView, Marker, getMapProvider } from '../../../../utils/mapsWrapper';
+import { MapView, getMapProvider } from '../../../../utils/mapsWrapper';
 import logger from '../../../../utils/logger';
 import PremiumMapMarker from '../../../../components/PremiumMapMarker';
 import SafeMarker from '../../../../components/SafeMarker';
 import GlassMapPanel from '../../../../components/GlassMapPanel';
-import { LOCATION_PIN_SVG } from '../../../../components/ui/LocationPin';
 import { useMapStyle } from '../../../../hooks/useMapStyle';
 import {
   isValidMapCoordinate,
   sanitizeLatitudeDelta,
   sanitizeMapRegion,
 } from '../../../../utils/mapSafety';
-import { getGoogleMapsApiKeyForWebView } from '../../../../utils/maps';
 import { savedEvents } from '../../../../utils/savedEvents';
-
-const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKeyForWebView();
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -169,36 +163,25 @@ export default function CountryMapScreen() {
   const centerMapOnLocation = useCallback((loc: Location) => {
     if (!isValidMapCoordinate(loc.coordinates)) return;
     if (mapRef.current) {
-      if (Platform.OS === 'web' || Platform.OS === 'android') {
-        const jsCode = `
-          if (window.map) {
-            window.map.panTo({ lat: ${loc.coordinates.latitude}, lng: ${loc.coordinates.longitude} });
-            window.map.setZoom(12);
-          }
-          true;
-        `;
-        mapRef.current.injectJavaScript(jsCode);
+      if (Platform.OS === 'ios') {
+        const region = sanitizeMapRegion({
+          latitude: loc.coordinates.latitude,
+          longitude: loc.coordinates.longitude,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        });
+        if (region) {
+          mapRef.current.animateToRegion(region, 350);
+        }
       } else {
-        if (Platform.OS === 'ios') {
-          const region = sanitizeMapRegion({
-            latitude: loc.coordinates.latitude,
-            longitude: loc.coordinates.longitude,
-            latitudeDelta: 0.05,
-            longitudeDelta: 0.05,
-          });
-          if (region) {
-            mapRef.current.animateToRegion(region, 350);
-          }
-        } else {
-          if (typeof mapRef.current.animateCamera === 'function') {
-            mapRef.current.animateCamera({
-              center: {
-                latitude: loc.coordinates.latitude,
-                longitude: loc.coordinates.longitude,
-              },
-              zoom: 12,
-            }, { duration: 350 });
-          }
+        if (typeof mapRef.current.animateCamera === 'function') {
+          mapRef.current.animateCamera({
+            center: {
+              latitude: loc.coordinates.latitude,
+              longitude: loc.coordinates.longitude,
+            },
+            zoom: 12,
+          }, { duration: 350 });
         }
       }
     }
@@ -210,6 +193,10 @@ export default function CountryMapScreen() {
     try {
       setLoading(true);
       const countryParam = Array.isArray(country) ? country[0] : country;
+      if (!countryParam || !userId) {
+        setLoading(false);
+        return;
+      }
       // Convert slug back to proper country name for API
       const countryName = countryParam.replace(/-/g, ' ');
       const response = await api.get(`/api/v1/profile/${userId}/tripscore/countries/${countryName}`);
@@ -238,18 +225,11 @@ export default function CountryMapScreen() {
   }, [loadCountryData]);
 
   const handleLocationPress = useCallback((location: Location) => {
-    const isAlreadyPinned = pinnedLocation && (pinnedLocation as any).stableId === (location as any).stableId;
-
-    if (isAlreadyPinned) {
-      // Toggle off
-      setPinnedLocation(null);
-      setSelectedLocation(null);
-    } else {
-      // Pin and select
-      setPinnedLocation(location);
-      setSelectedLocation(location);
-    }
-  }, [pinnedLocation]);
+    // Marker taps should always leave the marker visible and selected. The
+    // preview close button is the only action that clears selection.
+    setPinnedLocation(location);
+    setSelectedLocation(location);
+  }, []);
 
   const getCountryCenter = (countryName: string) => {
     const centers: { [key: string]: { latitude: number; longitude: number } } = {
@@ -455,48 +435,62 @@ export default function CountryMapScreen() {
     return markers;
   }, [data?.locations, displayCountryName]);
 
+  const initialRegion = useMemo(() => {
+    const validMarkers = visitedMarkers.filter((m: any) => m.hasValidCoords);
+    if (validMarkers.length > 0) {
+      // Find the one with the latest date
+      let latest = validMarkers[0];
+      for (let i = 1; i < validMarkers.length; i++) {
+        const d1 = new Date(validMarkers[i].date).getTime();
+        const d2 = new Date(latest.date).getTime();
+        if (!isNaN(d1) && (isNaN(d2) || d1 > d2)) {
+          latest = validMarkers[i];
+        }
+      }
+      
+      const centerCoords = latest.coordinates || latest.actualCoordinates;
+      if (centerCoords) {
+        let maxLatDiff = 0.04;
+        let maxLngDiff = 0.04;
+        
+        validMarkers.forEach((m: any) => {
+          const coords = m.coordinates || m.actualCoordinates;
+          if (coords) {
+            const latDiff = Math.abs(coords.latitude - centerCoords.latitude);
+            const lngDiff = Math.abs(coords.longitude - centerCoords.longitude);
+            if (latDiff > maxLatDiff) maxLatDiff = latDiff;
+            if (lngDiff > maxLngDiff) maxLngDiff = lngDiff;
+          }
+        });
+        
+        const paddingFactor = 2.5;
+        return {
+          latitude: centerCoords.latitude,
+          longitude: centerCoords.longitude,
+          latitudeDelta: Math.min(maxLatDiff * paddingFactor, 15),
+          longitudeDelta: Math.min(maxLngDiff * paddingFactor, 15),
+        };
+      }
+    }
+    
+    // Fallback to country center
+    const center = getCountryCenter(displayCountryName || '');
+    const delta = getCountryDelta(displayCountryName || '');
+    return {
+      latitude: center.latitude,
+      longitude: center.longitude,
+      latitudeDelta: delta.latitudeDelta,
+      longitudeDelta: delta.longitudeDelta,
+    };
+  }, [visitedMarkers, displayCountryName]);
 
-
-  // Keep the pinned location in sync with the selected location (e.g. on carousel swipe)
+  // Keep the pinned location in sync and center the map on selection
   useEffect(() => {
     if (selectedLocation) {
       setPinnedLocation(selectedLocation);
-    }
-  }, [selectedLocation]);
-
-  useEffect(() => {
-    const webLocations = getMapLocations(displayCountryName || '');
-    const webSelectedIndex = selectedLocation ? webLocations.findIndex(
-      (loc) => (loc as any).stableId === (selectedLocation as any).stableId
-    ) : -1;
-
-    if (mapRef.current && (Platform.OS === 'web' || Platform.OS === 'android')) {
-      const jsCode = `
-        if (window.markersList) {
-          window.markersList.forEach((div, idx) => {
-            if (div) {
-              const coreDot = div.querySelector('.core-dot');
-              if (coreDot) {
-                if (idx === ${webSelectedIndex}) {
-                  coreDot.classList.add('active');
-                  div.style.zIndex = '99999';
-                } else {
-                  coreDot.classList.remove('active');
-                  div.style.zIndex = idx;
-                }
-              }
-            }
-          });
-        }
-        true;
-      `;
-      mapRef.current.injectJavaScript(jsCode);
-    }
-
-    if (selectedLocation) {
       centerMapOnLocation(selectedLocation);
     }
-  }, [selectedLocation, centerMapOnLocation, displayCountryName]);
+  }, [selectedLocation, centerMapOnLocation]);
 
   // Get locations with coordinates for map rendering
   // CRITICAL: Only show locations with valid coordinates (no random coordinates)
@@ -520,179 +514,6 @@ export default function CountryMapScreen() {
     }
     return valid;
   };
-
-  // Generate HTML for WebView map (web platform)
-  const getWebMapHTML = useCallback((countryDisplayName: string) => {
-    const locations = getMapLocations(countryDisplayName);
-    const center = getCountryCenter(countryDisplayName || '');
-    const delta = getCountryDelta(countryDisplayName || '');
-    const apiKey = getGoogleMapsApiKeyForWebView() || '';
-    
-    const markers = locations.map((loc, i) => {
-      const lat = loc.coordinates?.latitude || center.latitude;
-      const lng = loc.coordinates?.longitude || center.longitude;
-
-      return `
-        var pos = new google.maps.LatLng(${lat}, ${lng});
-        var div = document.createElement('div');
-        div.style.cssText = 'position:absolute;cursor:pointer;display:flex;align-items:center;justify-content:center;';
-        
-        div.setAttribute('data-anchor', 'center');
-        div.innerHTML = '<div class="glowing-dot-container"><div class="pulse-ring"></div><div class="core-dot"></div></div>';
-        div.style.zIndex = ${i};
-        
-        div.addEventListener('click', function(e) {
-          e.stopPropagation();
-          if (window.ReactNativeWebView) {
-            window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'marker', stableId: '${(loc as any).stableId}' }));
-          }
-        });
-        
-        new PhotoOverlay(pos, div);
-        window.markersList = window.markersList || [];
-        window.markersList[${i}] = div;
-      `;
-    }).join('');
-
-    return `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-        <style>
-          html, body, #map { 
-            height: 100%; 
-            margin: 0; 
-            padding: 0; 
-          }
-          .glowing-dot-container {
-            position: relative;
-            width: 24px;
-            height: 24px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-          }
-          .pulse-ring {
-            position: absolute;
-            width: 20px;
-            height: 20px;
-            border-radius: 50%;
-            background: radial-gradient(circle, ${isDark ? 'rgba(45, 212, 191, 0.4)' : 'rgba(59, 130, 246, 0.4)'} 0%, rgba(59, 130, 246, 0) 70%);
-            animation: pulse 1.8s infinite ease-out;
-          }
-          .core-dot {
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #2DD4BF 0%, #3B82F6 100%);
-            border: 2.5px solid #FFFFFF;
-            box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
-          }
-          .core-dot.active {
-            background: linear-gradient(135deg, #FF6E7F 0%, #FF6B6B 100%) !important;
-            transform: scale(1.25);
-            box-shadow: 0 0 12px rgba(255, 110, 127, 0.8) !important;
-          }
-          @keyframes pulse {
-            0% { transform: scale(0.6); opacity: 1; }
-            100% { transform: scale(2.2); opacity: 0; }
-          }
-        </style>
-        <script>
-          function initMap() {
-            const map = new google.maps.Map(document.getElementById('map'), {
-              center: { lat: ${center.latitude}, lng: ${center.longitude} },
-              zoom: ${Math.max(4, Math.min(10, Math.log2(360 / delta.latitudeDelta)))},
-              minZoom: 3,
-              mapTypeId: 'roadmap',
-              styles: ${JSON.stringify(mapStyle.customMapStyle)},
-              disableDefaultUI: true,
-              zoomControl: false,
-              gestureHandling: 'greedy',
-              isFractionalZoomEnabled: true
-            });
-            window.map = map;
-            
-            // Custom OverlayView class
-            class PhotoOverlay extends google.maps.OverlayView {
-              constructor(pos, el) {
-                super();
-                this.position = pos;
-                this.div = el;
-                this.setMap(map);
-              }
-              onAdd() {
-                this.getPanes().overlayMouseTarget.appendChild(this.div);
-              }
-              draw() {
-                var pt = this.getProjection().fromLatLngToDivPixel(this.position);
-                if (pt) {
-                  this.div.style.left = pt.x + 'px';
-                  this.div.style.top = pt.y + 'px';
-                  this.div.style.position = 'absolute';
-                  var anchor = this.div.getAttribute('data-anchor') || 'bottom';
-                  if (anchor === 'center') {
-                    this.div.style.transform = 'translate(-50%, -50%)';
-                  } else {
-                    this.div.style.transform = 'translate(-50%, -100%)';
-                  }
-                }
-              }
-              onRemove() {
-                if (this.div && this.div.parentNode) {
-                  this.div.parentNode.removeChild(this.div);
-                }
-              }
-            }
-
-            ${markers}
-            
-            // Fit bounds if we have multiple locations
-            if (${locations.length} > 1) {
-              const bounds = new google.maps.LatLngBounds();
-              ${locations.map(loc => {
-                const lat = loc.coordinates?.latitude || center.latitude;
-                const lng = loc.coordinates?.longitude || center.longitude;
-                return `bounds.extend(new google.maps.LatLng(${lat}, ${lng}));`;
-              }).join('')}
-              map.fitBounds(bounds);
-            }
-          }
-        </script>
-      </head>
-      <body>
-        <div id="map"></div>
-        <script async defer src="https://maps.googleapis.com/maps/api/js?key=${apiKey}&callback=initMap"></script>
-      </body>
-      </html>
-    `;
-  }, [data, isDark, mapStyle.customMapStyle]);
-
-  const webViewSource = useMemo(() => ({
-    html: getWebMapHTML(displayCountryName || ''),
-    baseUrl: 'https://maps.googleapis.com'
-  }), [getWebMapHTML, displayCountryName]);
-
-  // Handle WebView messages (marker clicks)
-  const handleWebViewMessage = useCallback((event: any) => {
-    try {
-      const data = JSON.parse(event.nativeEvent.data);
-      if (data.type === 'marker' && data.stableId) {
-        const matchedLocation = visitedMarkers.find(loc => loc.stableId === data.stableId);
-        if (matchedLocation) {
-          handleLocationPress(matchedLocation);
-        }
-      }
-    } catch (error) {
-      logger.error('Error handling WebView message:', error);
-    }
-  }, [visitedMarkers, handleLocationPress]);
-
-  const handleWebViewError = useCallback((syntheticEvent: any) => {
-    const { nativeEvent } = syntheticEvent;
-    logger.error('WebView error: ', nativeEvent);
-  }, []);
 
   if (loading) {
     return (
@@ -728,25 +549,9 @@ export default function CountryMapScreen() {
         <View style={styles.headerRight} />
       </View>
 
-      {/* Map View - use WebView for web and Android so maps open reliably on Android */}
+      {/* Map View - native maps only for consistent marker design */}
       <View style={styles.mapContainer}>
-        {(Platform.OS === 'web' || Platform.OS === 'android') ? (
-          <WebView
-            ref={mapRef}
-            style={styles.map}
-            source={webViewSource}
-            javaScriptEnabled={true}
-            domStorageEnabled={true}
-            cacheEnabled={true}
-            cacheMode="LOAD_CACHE_ELSE_NETWORK"
-            androidHardwareAccelerationDisabled={false}
-            startInLoadingState={true}
-            scalesPageToFit={true}
-            originWhitelist={['https://*', 'http://*', 'data:*', 'about:*']}
-            onMessage={handleWebViewMessage}
-            onError={handleWebViewError}
-          />
-        ) : MapView ? (
+        {MapView ? (
           // Native MapView for iOS/Android
           <MapView
             ref={(ref: any) => { mapRef.current = ref; }}
@@ -758,12 +563,7 @@ export default function CountryMapScreen() {
               minCenterCoordinateDistance: 500,
               maxCenterCoordinateDistance: 20000000,
             } : undefined}
-            initialRegion={{
-              latitude: getCountryCenter(displayCountryName || '').latitude,
-              longitude: getCountryCenter(displayCountryName || '').longitude,
-              latitudeDelta: getCountryDelta(displayCountryName || '').latitudeDelta,
-              longitudeDelta: getCountryDelta(displayCountryName || '').longitudeDelta,
-            }}
+            initialRegion={initialRegion}
             onRegionChangeComplete={(region) => {
               const safeRegion = sanitizeMapRegion(region);
               if (safeRegion) {
@@ -906,7 +706,10 @@ export default function CountryMapScreen() {
                   </View>
                   <TouchableOpacity
                     style={styles.previewClose}
-                    onPress={() => setSelectedLocation(null)}
+                    onPress={() => {
+                      setPinnedLocation(null);
+                      setSelectedLocation(null);
+                    }}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                   >
                     <Ionicons name="close" size={14} color="#94A3B8" />

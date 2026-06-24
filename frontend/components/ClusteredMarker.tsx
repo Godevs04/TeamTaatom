@@ -25,21 +25,11 @@ const ClusteredMarker = ({
 }: ClusteredMarkerProps) => {
   const isMounted = useRef(true);
   const [tracksViewChanges, setTracksViewChanges] = useState(true);
-  const [shouldMount, setShouldMount] = useState(visible);
+  const [shouldMount] = useState(true);
 
   // Manage mount lifecycle for exit animations
   useEffect(() => {
     isMounted.current = true;
-    if (visible) {
-      setShouldMount(true);
-    } else {
-      const timer = setTimeout(() => {
-        if (isMounted.current) {
-          setShouldMount(false);
-        }
-      }, 350); // Wait for slide & fade out animation
-      return () => clearTimeout(timer);
-    }
     return () => {
       isMounted.current = false;
     };
@@ -49,11 +39,11 @@ const ClusteredMarker = ({
 
   // Animated opacity and scale for the custom marker graphics
   const opacity = useSharedValue(visible ? 1 : 0);
-  const scale = useSharedValue(visible ? 1 : 0.2);
+  const scale = useSharedValue(visible ? 1 : 0.55);
 
   useEffect(() => {
-    opacity.value = withTiming(visible ? 1 : 0, { duration: 300 });
-    scale.value = withTiming(visible ? 1 : 0.2, { duration: 300 });
+    opacity.value = withTiming(visible ? 1 : 0, { duration: 240 });
+    scale.value = withTiming(visible ? 1 : 0.55, { duration: 280 });
   }, [visible]);
 
   // Set tracksViewChanges to true during animations (position, visibility, selection changes)
@@ -77,7 +67,7 @@ const ClusteredMarker = ({
         if (isMounted.current) {
           setTracksViewChanges(false);
         }
-      }, 450); // 350ms animation + 100ms safety
+      }, 360);
       return () => clearTimeout(timer);
     }
   }, [targetCoordinate.latitude, targetCoordinate.longitude, visible, isSelected]);
@@ -89,12 +79,13 @@ const ClusteredMarker = ({
     };
   });
 
-  if (!shouldMount || !Marker) return null;
-
-  const markerWidth = showPin || isSelected ? 36 : 36;
-  const markerHeight = showPin || isSelected ? 44 : 36;
-
   const lastPressTime = useRef(0);
+
+  if (!shouldMount || !Marker || (!visible && !isSelected)) return null;
+
+  const markerWidth = isSelected ? 34 : 30;
+  const markerHeight = isSelected ? 42 : 32;
+
   const handlePress = () => {
     const now = Date.now();
     if (now - lastPressTime.current < 500) return;
@@ -110,8 +101,9 @@ const ClusteredMarker = ({
       onPress={handlePress}
       onSelect={handlePress}
       tappable={visible || isSelected}
-      tracksViewChanges={tracksViewChanges}
-      anchor={{ x: 0.5, y: showPin || isSelected ? 0.86 : 0.5 }}
+      tracksViewChanges={Platform.OS === 'ios' ? true : tracksViewChanges}
+      anchor={{ x: 0.5, y: isSelected ? 0.86 : 0.5 }}
+      opacity={visible || isSelected ? 1 : 0}
     >
       <Animated.View 
         pointerEvents="none" 
