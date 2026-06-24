@@ -17,14 +17,16 @@ let PROVIDER_GOOGLE: any = null;
 let PROVIDER_DEFAULT: any = null;
 let AnimatedRegion: any = null;
 
-// Enable native MapView by default on iOS and Android for 60fps native performance (moving, zooming, panning)
-const skipNativeMaps = false;
+// On Android, we always use the WebView fallback to ensure:
+// 1. Consistent premium HTML glassmorphic marker card designs (native react-native-maps custom markers on Android have resizing/clipping bugs)
+// 2. Maximum reliability (no Google Play Services / API key build configuration failures on Android devices)
+const skipNativeMaps = Platform.OS === 'android';
 
 /**
  * True when native MapView is NOT available and screens should
  * render a WebView-based Google Map instead.
  */
-let useWebViewFallback: boolean = Platform.OS === 'web';
+let useWebViewFallback: boolean = skipNativeMaps || Platform.OS === 'web';
 
 if (Platform.OS !== 'web' && !skipNativeMaps) {
   try {

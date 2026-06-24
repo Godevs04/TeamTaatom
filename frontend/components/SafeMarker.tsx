@@ -13,6 +13,9 @@ const SafeMarker = React.forwardRef(({ children, repaintTriggers = [], ...props 
   const isMounted = useRef(true);
   const markerRef = useRef<any>(null);
 
+  // iOS is given a slightly longer time (500ms vs 250ms) to ensure custom graphics finish layout/rendering on MapKit
+  const repaintDuration = Platform.OS === 'ios' ? 500 : 250;
+
   useImperativeHandle(ref, () => ({
     repaint: () => {
       setTracksViewChanges(true);
@@ -20,7 +23,7 @@ const SafeMarker = React.forwardRef(({ children, repaintTriggers = [], ...props 
         if (isMounted.current) {
           setTracksViewChanges(false);
         }
-      }, 250);
+      }, repaintDuration);
     },
     // Forward native marker methods if they exist
     animateMarkerToCoordinate: (coor: any, duration: any) => {
@@ -47,7 +50,7 @@ const SafeMarker = React.forwardRef(({ children, repaintTriggers = [], ...props 
       if (isMounted.current) {
         setTracksViewChanges(false);
       }
-    }, 250);
+    }, repaintDuration);
     return () => {
       isMounted.current = false;
       clearTimeout(timer);
@@ -64,16 +67,16 @@ const SafeMarker = React.forwardRef(({ children, repaintTriggers = [], ...props 
         if (isMounted.current) {
           setTracksViewChanges(false);
         }
-      }, 250);
+      }, repaintDuration);
       return () => clearTimeout(timer);
     }
   }, [repaintTriggers]);
 
   if (!Marker) return null;
 
-  // On iOS, custom markers can disappear or fail to render when tracksViewChanges is false.
-  // We force tracksViewChanges to remain true on iOS to ensure stable rendering.
-  const activeTracksViewChanges = Platform.OS === 'ios' ? true : tracksViewChanges;
+  // On iOS, we now allow tracksViewChanges to go false dynamically, preventing heavy 
+  // rendering overhead on MapKit and fixing disappearing custom markers.
+  const activeTracksViewChanges = tracksViewChanges;
 
   const lastPressTime = useRef(0);
   const handlePress = (event: any) => {

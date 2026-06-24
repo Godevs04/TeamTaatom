@@ -125,11 +125,13 @@ function getJourneyPolylineCoords(journey: JourneyPolyline) {
     .filter((time) => Number.isFinite(time))
     .sort((a, b) => a - b);
 
-  const sortedPolyline = [...(journey.polyline || [])].sort((a, b) => {
-    const tA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-    const tB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-    return tA - tB;
-  });
+  const sortedPolyline = [...(journey.polyline || [])]
+    .filter((p) => p && (p.lat !== undefined || (p as any).latitude !== undefined))
+    .sort((a, b) => {
+      const tA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+      const tB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+      return tA - tB;
+    });
 
   return sortedPolyline.map((point, index, points) => {
     const timestamp = point.timestamp ? new Date(point.timestamp).getTime() : undefined;
@@ -1275,7 +1277,7 @@ function AllLocationsMapInner() {
     let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
     let hasCoords = false;
 
-    locations.forEach((loc) => {
+    validLocations.forEach((loc) => {
       if (isValidMapCoordinate({ latitude: loc.latitude, longitude: loc.longitude }) && loc.latitude !== 0 && loc.longitude !== 0) {
         if (loc.latitude < minLat) minLat = loc.latitude;
         if (loc.latitude > maxLat) maxLat = loc.latitude;
@@ -1318,8 +1320,8 @@ function AllLocationsMapInner() {
       longitude: (minLng + maxLng) / 2,
       latitudeDelta: latDelta,
       longitudeDelta: lngDelta,
-    })!;
-  }, [locations, journeys]);
+    }) || { latitude: 20, longitude: 0, latitudeDelta: 120, longitudeDelta: 320 };
+  }, [validLocations, journeys]);
 
   const pinRatio = useMemo(() => {
     const delta = currentRegion?.latitudeDelta ?? mapRegion?.latitudeDelta ?? 0.1;
@@ -1329,7 +1331,7 @@ function AllLocationsMapInner() {
   }, [currentRegion, mapRegion]);
 
   // Keep backward-compatible getter for WebView HTML builder
-  const getMapRegion = useCallback(() => mapRegion, [mapRegion]);
+  const getMapRegion = useCallback(() => mapRegion || { latitude: 20, longitude: 0, latitudeDelta: 120, longitudeDelta: 320 }, [mapRegion]);
 
   // ──────────────────────────────────────────────────────
   // WebView HTML (used on Expo Go Android where native maps crash)
@@ -1357,7 +1359,10 @@ function AllLocationsMapInner() {
       return {
         _id: j._id,
         title: (j.startCity && j.endCity) ? `${j.startCity} to ${j.endCity}` : (j.title || 'Saved Journey'),
-        path: j.polyline ? j.polyline.map((p) => ({ lat: p.lat ?? (p as any).latitude, lng: p.lng ?? (p as any).longitude })) : [],
+        path: j.polyline ? j.polyline
+          .map((p) => ({ latitude: p.lat ?? (p as any).latitude, longitude: p.lng ?? (p as any).longitude }))
+          .filter(isValidMapCoordinate)
+          .map((p) => ({ lat: p.latitude, lng: p.longitude })) : [],
         startCoords: { lat: startLat, lng: startLng },
         renderCoords: { lat: renderLat, lng: renderLng },
         endCoords: { lat: endLat, lng: endLng },
@@ -1381,9 +1386,10 @@ function AllLocationsMapInner() {
       };
     });
 
-    const centerLat = region.latitude;
-    const centerLng = region.longitude;
-    const zoomLevel = Math.min(12, Math.max(2, Math.floor(15 - Math.log2(Math.max(region.latitudeDelta, 1)))));
+    const centerLat = region?.latitude ?? 20;
+    const centerLng = region?.longitude ?? 0;
+    const regionDelta = region?.latitudeDelta ?? 0.1;
+    const zoomLevel = Math.min(12, Math.max(2, Math.floor(15 - Math.log2(Math.max(regionDelta, 1)))));
     const zoomLevelVal = zoomLevel;
 
     return `<!DOCTYPE html>
@@ -1932,8 +1938,8 @@ function initMap(){
       );
     }
 
-    const region = getMapRegion();
-    const safeLatitudeDelta = sanitizeLatitudeDelta(currentRegion?.latitudeDelta, region.latitudeDelta);
+    const region = getMapRegion() || { latitude: 20, longitude: 0, latitudeDelta: 120, longitudeDelta: 320 };
+    const safeLatitudeDelta = sanitizeLatitudeDelta(currentRegion?.latitudeDelta, region?.latitudeDelta ?? 0.1);
 
     return (
       <MapView
@@ -1985,188 +1991,201 @@ function initMap(){
           }
         }}
       >
-        {/* Journey representing markers + dynamic polylines + end markers */}
-        {(mapFilter === 'journeys') && journeysWithOffsets.flatMap((j) => {
+        {/* Journey representing markers */}
+        {(mapFilter === 'journeys') && journeysWithOffsets.map((j) => {
           const isSelected = selectedJourney && selectedJourney._id === j._id;
-          const elements: React.ReactNode[] = [];
           
           const startLat = (j as any).renderCoords?.lat || j.startCoords?.lat;
           const startLng = (j as any).renderCoords?.lng || j.startCoords?.lng;
           const hasStartCoords = isValidMapCoordinate({ latitude: startLat, longitude: startLng });
 
-          // 1. Representing Marker (Always show for all journeys)
-          if (hasStartCoords) {
+          if (!hasStartCoords) return null;
+
+          return (
+            <SafeMarker
+              key={`rep-${j._id}`}
+              coordinate={{ latitude: startLat, longitude: startLng }}
+              onPress={() => setSelectedJourney(j)}
+              anchor={{ x: 0.5, y: 0.5 }}
+              repaintTriggers={[isSelected, isDark]}
+            >
+              <View style={styles.journeyRepMarker} pointerEvents="none">
+                {isSelected ? (
+                  <LinearGradient
+                    colors={['#3B82F6', '#10B981']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={[styles.journeyRepGradient, styles.journeyRepSelectedGradient]}
+                  >
+                    <Ionicons name="trail-sign" size={16} color="#FFFFFF" />
+                  </LinearGradient>
+                ) : (
+                  <View style={[
+                    styles.journeyRepGradient,
+                    {
+                      backgroundColor: isDark ? 'rgba(20, 24, 33, 0.85)' : 'rgba(255, 255, 255, 0.9)',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.08)',
+                    }
+                  ]}>
+                    <Ionicons
+                      name="trail-sign-outline"
+                      size={16}
+                      color={isDark ? '#94A3B8' : '#64748B'}
+                    />
+                  </View>
+                )}
+              </View>
+            </SafeMarker>
+          );
+        })}
+
+        {/* Selected journey's route polyline, end marker, and waypoints */}
+        {(mapFilter === 'journeys') && selectedJourney && (() => {
+          const selectedJWithOffset = journeysWithOffsets.find(j => j._id === selectedJourney._id);
+          const j = selectedJWithOffset || selectedJourney;
+          const elements: React.ReactNode[] = [];
+
+          if (j.polyline && j.polyline.length >= 2) {
+            const coords = getJourneyPolylineCoords(j);
+            elements.push(
+              <PolylineRenderer
+                key={`polyline-${j._id}`}
+                coordinates={coords}
+                color={mapStyle.routeColor}
+                glowColor={mapStyle.routeGlowColor}
+                strokeWidth={4}
+                simplifyDistance={10}
+                applyKalman={false}
+                latitudeDelta={safeLatitudeDelta}
+                onPress={() => setSelectedJourney(j)}
+              />
+            );
+          }
+
+          const endLat = j.endCoords?.lat ?? (j.endCoords as any)?.latitude;
+          const endLng = j.endCoords?.lng ?? (j.endCoords as any)?.longitude;
+          if (isValidMapCoordinate({ latitude: endLat, longitude: endLng })) {
             elements.push(
               <SafeMarker
-                key={`rep-${j._id}`}
-                coordinate={{ latitude: startLat, longitude: startLng }}
-                onPress={() => setSelectedJourney(j)}
+                key={`end-${j._id}`}
+                coordinate={{ latitude: endLat, longitude: endLng }}
                 anchor={{ x: 0.5, y: 0.5 }}
-                repaintTriggers={[isSelected, isDark]}
+                onPress={() => setSelectedJourney(j)}
+                repaintTriggers={[true]}
               >
-                <View style={styles.journeyRepMarker} pointerEvents="none">
-                  {isSelected ? (
-                    <LinearGradient
-                      colors={['#3B82F6', '#10B981']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={[styles.journeyRepGradient, styles.journeyRepSelectedGradient]}
-                    >
-                      <Ionicons name="trail-sign" size={16} color="#FFFFFF" />
-                    </LinearGradient>
-                  ) : (
-                    <View style={[
-                      styles.journeyRepGradient,
-                      {
-                        backgroundColor: isDark ? 'rgba(20, 24, 33, 0.85)' : 'rgba(255, 255, 255, 0.9)',
-                        borderColor: isDark ? 'rgba(255, 255, 255, 0.15)' : 'rgba(15, 23, 42, 0.08)',
-                      }
-                    ]}>
-                      <Ionicons
-                        name="trail-sign-outline"
-                        size={16}
-                        color={isDark ? '#94A3B8' : '#64748B'}
-                      />
-                    </View>
-                  )}
-                </View>
+                <PremiumMapMarker pointType="end" isActive={true} />
               </SafeMarker>
             );
           }
 
-          // 2. Polyline Path + End marker + Waypoints (ONLY show if selected)
-          if (isSelected) {
-            if (j.polyline && j.polyline.length >= 2) {
-              const coords = getJourneyPolylineCoords(j);
-              elements.push(
-                <PolylineRenderer
-                  key={`polyline-${j._id}`}
-                  coordinates={coords}
-                  color={mapStyle.routeColor}
-                  glowColor={mapStyle.routeGlowColor}
-                  strokeWidth={4}
-                  simplifyDistance={10}
-                  applyKalman={false}
-                  latitudeDelta={safeLatitudeDelta}
-                  onPress={() => setSelectedJourney(j)}
-                />
-              );
-            }
-
-            const endLat = j.endCoords?.lat ?? (j.endCoords as any)?.latitude;
-            const endLng = j.endCoords?.lng ?? (j.endCoords as any)?.longitude;
-            if (isValidMapCoordinate({ latitude: endLat, longitude: endLng })) {
-              elements.push(
-                <SafeMarker
-                  key={`end-${j._id}`}
-                  coordinate={{ latitude: endLat, longitude: endLng }}
-                  anchor={{ x: 0.5, y: 0.5 }}
-                  onPress={() => setSelectedJourney(j)}
-                  repaintTriggers={[isSelected]}
-                >
-                  <PremiumMapMarker pointType="end" isActive={true} />
-                </SafeMarker>
-              );
-            }
-
-            if (j.waypoints && j.waypoints.length > 0) {
-              j.waypoints.forEach((wp, wpIdx) => {
-                const photoUrl = getWaypointPhotoUrl(wp);
-                const postId = wp.post?._id || wp.post;
-                const contentType = wp.contentType || wp.post?.type || 'photo';
-                const wpLat = wp.lat ?? wp.latitude;
-                const wpLng = wp.lng ?? wp.longitude;
-                if (photoUrl && isValidMapCoordinate({ latitude: wpLat, longitude: wpLng })) {
-                  const wpKey = `${j._id}-${wpIdx}`;
-                  elements.push(
-                    <SafeMarker
-                      key={`wp-${j._id}-${wpIdx}`}
-                      coordinate={{ latitude: wpLat, longitude: wpLng }}
-                      anchor={{ x: 0.5, y: 0.5 }}
-                      onPress={() => {
-                        const targetUserId = j.user?._id || j.user || userId;
-                        navigateToPost(postId, contentType, targetUserId);
-                      }}
-                      repaintTriggers={[photoUrl, !!loadedImages[wpKey]]}
-                    >
-                      <View style={{
-                        width: 32,
-                        height: 32,
-                        borderRadius: 16,
-                        borderWidth: 2,
-                        borderColor: '#FFFFFF',
-                        backgroundColor: '#FFFFFF',
-                        overflow: 'hidden',
-                        shadowColor: '#000000',
-                        shadowOffset: { width: 0, height: 2 },
-                        shadowOpacity: 0.25,
-                        shadowRadius: 4,
-                        elevation: 4,
-                      }}>
-                        <ExpoImage
-                          source={{ uri: photoUrl }}
-                          style={{ width: '100%', height: '100%', borderRadius: 14 }}
-                          contentFit="cover"
-                          onLoad={() => {
-                            if (!loadedImages[wpKey]) {
-                              setLoadedImages(prev => ({ ...prev, [wpKey]: true }));
-                            }
-                          }}
-                        />
-                      </View>
-                    </SafeMarker>
-                  );
-                }
-              });
-            }
+          if (j.waypoints && j.waypoints.length > 0) {
+            j.waypoints.forEach((wp, wpIdx) => {
+              const photoUrl = getWaypointPhotoUrl(wp);
+              const postId = wp.post?._id || wp.post;
+              const contentType = wp.contentType || wp.post?.type || 'photo';
+              const wpLat = wp.lat ?? wp.latitude;
+              const wpLng = wp.lng ?? wp.longitude;
+              if (photoUrl && isValidMapCoordinate({ latitude: wpLat, longitude: wpLng })) {
+                const wpKey = `${j._id}-${wpIdx}`;
+                elements.push(
+                  <SafeMarker
+                    key={`wp-${j._id}-${wpIdx}`}
+                    coordinate={{ latitude: wpLat, longitude: wpLng }}
+                    anchor={{ x: 0.5, y: 0.5 }}
+                    onPress={() => {
+                      const targetUserId = j.user?._id || j.user || userId;
+                      navigateToPost(postId, contentType, targetUserId);
+                    }}
+                    repaintTriggers={[photoUrl, !!loadedImages[wpKey]]}
+                  >
+                    <View style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 16,
+                      borderWidth: 2,
+                      borderColor: '#FFFFFF',
+                      backgroundColor: '#FFFFFF',
+                      overflow: 'hidden',
+                      shadowColor: '#000000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.25,
+                      shadowRadius: 4,
+                      elevation: 4,
+                    }}>
+                      <ExpoImage
+                        source={{ uri: photoUrl }}
+                        style={{ width: '100%', height: '100%', borderRadius: 14 }}
+                        contentFit="cover"
+                        onLoad={() => {
+                          if (!loadedImages[wpKey]) {
+                            setLoadedImages(prev => ({ ...prev, [wpKey]: true }));
+                          }
+                        }}
+                      />
+                    </View>
+                  </SafeMarker>
+                );
+              }
+            });
           }
 
           return elements;
-        })}
+        })()}
 
         {/* Post markers — shown when filter is 'posts' */}
-        {(mapFilter === 'posts') && (
-          <>
-            {validLocations.map((loc) => {
-              const identity = getLocationIdentity(loc);
-              const state = clusterState.get(identity);
-              const isSelected = !!selectedPost && getLocationIdentity(selectedPost) === identity;
-              const locIndex = validLocations.findIndex(l => getLocationIdentity(l) === identity);
-              const totalCount = validLocations.length;
-              const showPin = locIndex !== -1 && (locIndex < Math.round(pinRatio * totalCount));
+        {(mapFilter === 'posts') && (() => {
+          const seen = new Set<string>();
+          const dedupedLocations: typeof validLocations = [];
+          validLocations.forEach((loc) => {
+            const identity = getLocationIdentity(loc);
+            if (!seen.has(identity)) {
+              seen.add(identity);
+              dedupedLocations.push(loc);
+            }
+          });
+          return (
+            <>
+              {dedupedLocations.map((loc) => {
+                const identity = getLocationIdentity(loc);
+                const state = clusterState.get(identity);
+                const isSelected = !!selectedPost && getLocationIdentity(selectedPost) === identity;
+                const locIndex = validLocations.findIndex(l => getLocationIdentity(l) === identity);
+                const totalCount = validLocations.length;
+                const showPin = locIndex !== -1 && (locIndex < Math.round(pinRatio * totalCount));
 
-              const targetLat = state ? state.latitude : loc.latitude;
-              const targetLng = state ? state.longitude : loc.longitude;
-              const visible = state ? !state.isCluster : true;
+                const targetLat = state ? state.latitude : loc.latitude;
+                const targetLng = state ? state.longitude : loc.longitude;
+                const visible = state ? !state.isCluster : true;
 
-              return (
-                <ClusteredMarker
-                  key={`loc-${identity}`}
-                  location={loc}
-                  targetCoordinate={{ latitude: targetLat, longitude: targetLng }}
-                  visible={visible || isSelected}
-                  isSelected={isSelected}
-                  showPin={showPin}
-                  onPress={() => setSelectedPost(loc)}
-                >
-                  <PremiumMapMarker 
-                    isActive={isSelected} 
-                    icon="location" 
-                    renderAsDot={!showPin && !isSelected}
-                  />
-                </ClusteredMarker>
-              );
-            })}
-            {clusteredLocations.filter(c => c.isCluster).map((cluster) => (
-              <ClusteredGroupMarker
-                key={cluster.id}
-                cluster={cluster}
-                onPress={() => handleClusterPress(cluster)}
-                isDark={isDark}
-              />
-            ))}
-          </>
-        )}
+                return (
+                  <ClusteredMarker
+                    key={`loc-${identity}`}
+                    location={loc}
+                    targetCoordinate={{ latitude: targetLat, longitude: targetLng }}
+                    visible={visible || isSelected}
+                    isSelected={isSelected}
+                    showPin={showPin}
+                    onPress={() => setSelectedPost(loc)}
+                  >
+                    <PremiumMapMarker 
+                      isActive={isSelected} 
+                      icon="location" 
+                      renderAsDot={!showPin && !isSelected}
+                    />
+                  </ClusteredMarker>
+                );
+              })}
+              {clusteredLocations.filter(c => c.isCluster).map((cluster) => (
+                <ClusteredGroupMarker
+                  key={cluster.id}
+                  cluster={cluster}
+                  onPress={() => handleClusterPress(cluster)}
+                  isDark={isDark}
+                />
+              ))}
+            </>
+          );
+        })()}
 
       </MapView>
     );

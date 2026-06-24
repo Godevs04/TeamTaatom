@@ -370,24 +370,12 @@ export default function TrackingScreen() {
     return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
   };
 
-  const initialRegion = currentLocation || (polyline[0] ? {
-    latitude: polyline[0].latitude,
-    longitude: polyline[0].longitude,
-  } : {
-    latitude: 0,
-    longitude: 0,
-  });
+  const { customMapStyle, routeColor } = mapStyle;
 
-  return (
-    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-      {/* Background Map View spanning full height */}
-      {initialRegion && (
-        <View style={styles.mapContainer}>
-          {useWebViewFallback ? (() => {
-            const WV_KEY = getGoogleMapsApiKeyForWebView();
-            if (!WV_KEY) return <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}><Ionicons name="map-outline" size={48} color="#9CA3AF" /></View>;
-            const polyCoords = JSON.stringify(polyline.filter(p => p.latitude && p.longitude).map(p => ({ lat: p.latitude, lng: p.longitude, timestamp: p.timestamp, segmentBreak: p.segmentBreak })));
-            const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"><style>
+  const webViewSource = useMemo(() => {
+    const WV_KEY = getGoogleMapsApiKeyForWebView();
+    if (!WV_KEY) return null;
+    const html = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no"><style>
 html,body,#map{height:100%;margin:0;padding:0}
 .glowing-dot-container {
   position: relative;
@@ -460,7 +448,7 @@ function initMap(){
     center:{lat:${initialMapCenter.latitude},lng:${initialMapCenter.longitude}},
     zoom:15,
     mapTypeId:'roadmap',
-    styles:${JSON.stringify(mapStyle.customMapStyle)},
+    styles:${JSON.stringify(customMapStyle)},
     disableDefaultUI:true,
     zoomControl:true,
     gestureHandling:'greedy',
@@ -504,8 +492,8 @@ window.updateMapData = function(path, currentLat, currentLng) {
     if(currentSegment.length > 0) segments.push(currentSegment);
     segments.forEach(function(seg){
       if(seg.length > 1){
-        var glow = new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:0.22,strokeWeight:14,map:map});
-        var core = new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${mapStyle.routeColor}',strokeOpacity:1.0,strokeWeight:5,map:map});
+        var glow = new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${routeColor}',strokeOpacity:0.22,strokeWeight:14,map:map});
+        var core = new google.maps.Polyline({path:seg,geodesic:true,strokeColor:'${routeColor}',strokeOpacity:1.0,strokeWeight:5,map:map});
         polylines.push(glow);
         polylines.push(core);
       }
@@ -529,11 +517,29 @@ window.updateMapData = function(path, currentLat, currentLng) {
 }
 </script></head><body><div id="map"></div>
 <script async defer src="https://maps.googleapis.com/maps/api/js?key=${WV_KEY}&language=en&callback=initMap"></script></body></html>`;
+    return { html };
+  }, [isDark, initialMapCenter, customMapStyle, routeColor]);
+
+  const initialRegion = currentLocation || (polyline[0] ? {
+    latitude: polyline[0].latitude,
+    longitude: polyline[0].longitude,
+  } : {
+    latitude: 0,
+    longitude: 0,
+  });
+
+  return (
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      {/* Background Map View spanning full height */}
+      {initialRegion && (
+        <View style={styles.mapContainer}>
+          {useWebViewFallback ? (() => {
+            if (!webViewSource) return <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}><Ionicons name="map-outline" size={48} color="#9CA3AF" /></View>;
             return (
               <WebView
                 ref={webViewRef}
                 style={styles.map}
-                source={{ html }}
+                source={webViewSource}
                 javaScriptEnabled={true}
                 domStorageEnabled={true}
                 originWhitelist={['https://*', 'http://*', 'data:*', 'about:*']}

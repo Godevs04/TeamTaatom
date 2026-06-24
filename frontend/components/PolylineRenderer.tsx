@@ -1,6 +1,7 @@
 import React from 'react';
 import { Platform } from 'react-native';
 import { MapView } from '../utils/mapsWrapper';
+import { isValidMapCoordinate } from '../utils/mapSafety';
 
 /**
  * Kalman filter for GPS coordinate smoothing
@@ -249,12 +250,14 @@ export default function PolylineRenderer({
   onPress,
   latitudeDelta,
 }: PolylineRendererProps) {
-  if (coordinates.length < 2) {
+  // Filter out any invalid coordinates at the beginning
+  let processedCoords = coordinates.filter(isValidMapCoordinate) as typeof coordinates;
+
+  if (processedCoords.length < 2) {
     return null;
   }
 
   // 1. Sort by timestamp to prevent jagged/crisscrossing paths from out-of-order data
-  let processedCoords = [...coordinates];
   if (processedCoords.some(c => c.timestamp !== undefined)) {
     processedCoords.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
   }
@@ -329,11 +332,13 @@ export default function PolylineRenderer({
 
     return processedSegments.flatMap((segment, index) => {
       if (segment.length < 2) return [];
+      const lastPt = segment[segment.length - 1];
+      const segmentKey = `${index}-${segment.length}-${lastPt ? `${lastPt.latitude}_${lastPt.longitude}` : ''}`;
       const polylines = [];
       if (glowColor) {
         polylines.push(
           <Polyline
-            key={`segment-glow-${index}`}
+            key={`segment-glow-${segmentKey}`}
             coordinates={segment}
             strokeColor={glowColor}
             strokeWidth={Math.max(strokeWidth + 8, 10)}
@@ -347,7 +352,7 @@ export default function PolylineRenderer({
       }
       polylines.push(
         <Polyline
-          key={`segment-main-${index}`}
+          key={`segment-main-${segmentKey}`}
           coordinates={segment}
           strokeColor={color}
           strokeWidth={strokeWidth}

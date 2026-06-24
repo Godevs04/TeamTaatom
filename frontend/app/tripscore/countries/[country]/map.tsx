@@ -76,8 +76,6 @@ interface OptimizedVisitedMarkerProps {
   isSelected: boolean;
   index: number;
   latitudeDelta: number;
-  selectedLocationId: string | null;
-  renderedLocationId: string | null;
   onPress: () => void;
 }
 
@@ -86,8 +84,6 @@ const OptimizedVisitedMarker = React.memo(({
   isSelected,
   index,
   latitudeDelta,
-  selectedLocationId,
-  renderedLocationId,
   onPress
 }: OptimizedVisitedMarkerProps) => {
   const markerRef = useRef<any>(null);
@@ -106,7 +102,7 @@ const OptimizedVisitedMarker = React.memo(({
         longitude: location.coordinates!.longitude,
       }}
       onPress={onPress}
-      repaintTriggers={[isSelected, latitudeDelta, selectedLocationId, renderedLocationId]}
+      repaintTriggers={[isSelected, latitudeDelta]}
     >
       <PremiumMapMarker 
         active={isSelected} 
@@ -122,8 +118,6 @@ const OptimizedVisitedMarker = React.memo(({
 }, (prev, next) => {
   return (
     prev.isSelected === next.isSelected &&
-    prev.selectedLocationId === next.selectedLocationId &&
-    prev.renderedLocationId === next.renderedLocationId &&
     prev.index === next.index &&
     prev.latitudeDelta === next.latitudeDelta &&
     prev.location.stableId === next.location.stableId &&
@@ -823,8 +817,6 @@ export default function CountryMapScreen() {
                 isSelected={isPinned}
                 index={index}
                 latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
-                selectedLocationId={selectedLocation?.stableId || null}
-                renderedLocationId={renderedLocation?.stableId || null}
                 onPress={() => handleLocationPress(location)}
               />
             );

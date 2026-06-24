@@ -3752,13 +3752,31 @@ export default function PostScreen() {
                     style={{ width: '100%', height: '100%' }}
                     useNativeControls
                     resizeMode={ResizeMode.CONTAIN}
-                    // CRITICAL BUG FIX: Preserve original video audio when music is added
-                    // Dual-audio mixing: video audio at 60% volume, music will overlay at 100%
-                    isMuted={false}
-                    volume={audioChoice === 'background' && selectedSong ? 0.6 : 1.0}
+                    // Mute original video audio when background music is selected, play at full volume when using original audio
+                    isMuted={audioChoice === 'background' && !!selectedSong}
+                    volume={audioChoice === 'background' && selectedSong ? 0.0 : 1.0}
                     shouldPlay={true}
                     isLooping={true}
                   />
+                  {audioChoice === 'background' && selectedSong && (
+                    <View style={{
+                      position: 'absolute',
+                      top: theme.spacing.sm,
+                      left: theme.spacing.sm,
+                      right: theme.spacing.sm,
+                      backgroundColor: 'rgba(0,0,0,0.6)',
+                      paddingVertical: 6,
+                      paddingHorizontal: 10,
+                      borderRadius: theme.borderRadius.sm,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      zIndex: 5,
+                    }}>
+                      <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '600' }}>
+                        Using Background Music (Original Video Muted)
+                      </Text>
+                    </View>
+                  )}
                 </View>
               </View>
             ) : null}
@@ -5038,6 +5056,9 @@ export default function PostScreen() {
               resizeMode={ResizeMode.CONTAIN}
               isLooping
               shouldPlay
+              // Mute original video audio when background music is selected
+              isMuted={audioChoice === 'background' && !!selectedSong}
+              volume={audioChoice === 'background' && selectedSong ? 0.0 : 1.0}
             />
           ) : selectedImages.length > 0 ? (
             <AspectImageCropper
