@@ -1,6 +1,7 @@
 import React from 'react';
 import { Platform } from 'react-native';
 import { MapView } from '../utils/mapsWrapper';
+import { isValidMapCoordinate } from '../utils/mapSafety';
 
 /**
  * Kalman filter for GPS coordinate smoothing
@@ -249,12 +250,14 @@ export default function PolylineRenderer({
   onPress,
   latitudeDelta,
 }: PolylineRendererProps) {
-  if (coordinates.length < 2) {
+  // Filter out any invalid coordinates at the beginning
+  let processedCoords = coordinates.filter(isValidMapCoordinate) as typeof coordinates;
+
+  if (processedCoords.length < 2) {
     return null;
   }
 
   // 1. Sort by timestamp to prevent jagged/crisscrossing paths from out-of-order data
-  let processedCoords = [...coordinates];
   if (processedCoords.some(c => c.timestamp !== undefined)) {
     processedCoords.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
   }

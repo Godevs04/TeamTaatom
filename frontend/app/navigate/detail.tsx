@@ -72,7 +72,13 @@ function getJourneyPolylineCoords(journey: any) {
     .filter((time: number) => Number.isFinite(time))
     .sort((a: number, b: number) => a - b);
 
-  return (journey?.polyline || []).map((point: any, index: number, points: any[]) => {
+  const sortedPolyline = [...(journey?.polyline || [])].sort((a: any, b: any) => {
+    const tA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+    const tB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+    return tA - tB;
+  });
+
+  return sortedPolyline.map((point: any, index: number, points: any[]) => {
     const timestamp = point.timestamp ? new Date(point.timestamp).getTime() : undefined;
     const prevTimestamp = index > 0 && points[index - 1]?.timestamp
       ? new Date(points[index - 1].timestamp).getTime()
@@ -87,7 +93,7 @@ function getJourneyPolylineCoords(journey: any) {
       accuracy: point.accuracy || 0,
       segmentBreak,
     };
-  });
+  }).filter(isValidMapCoordinate);
 }
 
 /**

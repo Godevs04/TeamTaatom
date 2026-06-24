@@ -440,30 +440,23 @@ export default function ShareModal({
       const activeIds = new Set<string>();
 
       effectiveChats.forEach((c: any) => {
-        if (c.type === 'connect_page' && c.connectPageId) {
+        if (c.type === 'connect_page') {
+          // Skip community or connect pages
+          return;
+        }
+
+        // 1-on-1 chat
+        const otherParticipant = c.participants?.find((p: any) => p._id !== myId);
+        if (otherParticipant) {
           activeRecipients.push({
-            _id: c._id,
-            fullName: c.connectPageId.name,
-            profilePic: c.connectPageId.profileImage,
-            isGroup: true,
-            subtitle: 'Connect Group',
+            _id: otherParticipant._id,
+            fullName: otherParticipant.fullName || otherParticipant.username || 'User',
+            profilePic: otherParticipant.profilePic,
+            username: otherParticipant.username,
+            isGroup: false,
             chatId: c._id,
           });
-          activeIds.add(c._id);
-        } else {
-          // 1-on-1 chat
-          const otherParticipant = c.participants?.find((p: any) => p._id !== myId);
-          if (otherParticipant) {
-            activeRecipients.push({
-              _id: otherParticipant._id,
-              fullName: otherParticipant.fullName || otherParticipant.username || 'User',
-              profilePic: otherParticipant.profilePic,
-              username: otherParticipant.username,
-              isGroup: false,
-              chatId: c._id,
-            });
-            activeIds.add(otherParticipant._id);
-          }
+          activeIds.add(otherParticipant._id);
         }
       });
 
@@ -479,8 +472,8 @@ export default function ShareModal({
       } else {
         // No search query: display ONLY the user's actual direct messaging history (Recent Chats)
         // This guarantees zero cross-contamination with un-scoped/stranger users.
-        setMostInteracted(activeRecipients);
-        setOtherRecipients([]);
+        setMostInteracted(activeRecipients.slice(0, 4));
+        setOtherRecipients(activeRecipients);
         setRecipients([]);
       }
     } catch (error: any) {
@@ -742,13 +735,13 @@ export default function ShareModal({
           }}
         />
         {otherRecipients.length > 0 && (
-          <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary, marginTop: 12 }]}>Suggested</Text>
+          <Text style={[styles.sectionTitle, { color: theme.colors.textSecondary, marginTop: 12 }]}>All Chats</Text>
         )}
       </View>
     );
   };
 
-  const allUsers = searchQuery.trim().length > 0 ? recipients : [...mostInteracted, ...otherRecipients];
+  const allUsers = searchQuery.trim().length > 0 ? recipients : otherRecipients;
 
   return (
     <Modal

@@ -1357,7 +1357,10 @@ function AllLocationsMapInner() {
       return {
         _id: j._id,
         title: (j.startCity && j.endCity) ? `${j.startCity} to ${j.endCity}` : (j.title || 'Saved Journey'),
-        path: j.polyline ? j.polyline.map((p) => ({ lat: p.lat ?? (p as any).latitude, lng: p.lng ?? (p as any).longitude })) : [],
+        path: j.polyline ? j.polyline
+          .map((p) => ({ latitude: p.lat ?? (p as any).latitude, longitude: p.lng ?? (p as any).longitude }))
+          .filter(isValidMapCoordinate)
+          .map((p) => ({ lat: p.latitude, lng: p.longitude })) : [],
         startCoords: { lat: startLat, lng: startLng },
         renderCoords: { lat: renderLat, lng: renderLng },
         endCoords: { lat: endLat, lng: endLng },
