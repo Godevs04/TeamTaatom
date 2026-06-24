@@ -332,11 +332,13 @@ export default function PolylineRenderer({
 
     return processedSegments.flatMap((segment, index) => {
       if (segment.length < 2) return [];
+      const lastPt = segment[segment.length - 1];
+      const segmentKey = `${index}-${segment.length}-${lastPt ? `${lastPt.latitude}_${lastPt.longitude}` : ''}`;
       const polylines = [];
       if (glowColor) {
         polylines.push(
           <Polyline
-            key={`segment-glow-${index}`}
+            key={`segment-glow-${segmentKey}`}
             coordinates={segment}
             strokeColor={glowColor}
             strokeWidth={Math.max(strokeWidth + 8, 10)}
@@ -350,7 +352,7 @@ export default function PolylineRenderer({
       }
       polylines.push(
         <Polyline
-          key={`segment-main-${index}`}
+          key={`segment-main-${segmentKey}`}
           coordinates={segment}
           strokeColor={color}
           strokeWidth={strokeWidth}

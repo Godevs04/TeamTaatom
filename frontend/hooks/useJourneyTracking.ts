@@ -1891,10 +1891,35 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         throw new Error('No active journey');
       }
 
+      const completingJourneyId = journeyIdRef.current;
       const isCurrentlyPaused = isPausedRef.current;
       let explicitEndCoords: { lat: number; lng: number } | undefined = undefined;
 
-      // Capture final precise GPS position for the End Marker, even if paused (Bug 013)
+      // 1. Stop location tracking immediately to release GPS hardware locks
+      if (locationWatcherRef.current) {
+        try {
+          locationWatcherRef.current.remove();
+        } catch (e) {
+          logger.warn('[Journey] Failed to remove active location watcher:', e);
+        }
+        locationWatcherRef.current = null;
+      }
+      lastStationaryMarkerUpdateRef.current = 0;
+      pendingSegmentBreakRef.current = false;
+
+      // 2. Stop timers immediately
+      if (durationTimerRef.current) {
+        clearInterval(durationTimerRef.current);
+      }
+      if (batchSendTimerRef.current) {
+        clearInterval(batchSendTimerRef.current);
+      }
+
+      // 3. Stop background updates and absorb bg coordinates
+      await stopBackgroundUpdates();
+      await drainBackgroundQueue();
+
+      // 4. Capture final precise GPS position for the End Marker, even if paused (Bug 013)
       try {
         const finalLoc = await Promise.race([
           Location.getCurrentPositionAsync({
@@ -1944,19 +1969,6 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         logger.warn('[Journey] Could not fetch final high-accuracy location for stop:', locErr);
       }
 
-      // Stop location tracking
-      if (locationWatcherRef.current) {
-        locationWatcherRef.current.remove();
-        locationWatcherRef.current = null;
-      }
-      lastStationaryMarkerUpdateRef.current = 0;
-      pendingSegmentBreakRef.current = false;
-
-      // Stop background updates and absorb anything the bg task captured
-      // since the last drain so the final batch includes them.
-      await stopBackgroundUpdates();
-      await drainBackgroundQueue();
-
       if (!explicitEndCoords && lastCoordinateRef.current) {
         explicitEndCoords = {
           lat: lastCoordinateRef.current.latitude,
@@ -1964,54 +1976,17 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         };
       }
 
-      // Stop timers
-      if (durationTimerRef.current) {
-        clearInterval(durationTimerRef.current);
-      }
-      if (batchSendTimerRef.current) {
-        clearInterval(batchSendTimerRef.current);
-      }
-
-      // Send final coordinates only if NOT paused
-      const completingJourneyId = journeyIdRef.current;
-      if (!isCurrentlyPaused && batchCoordinatesRef.current.length > 0) {
-        const coords = batchCoordinatesRef.current.splice(0);
-        try {
-          const response = await updateJourneyLocation(completingJourneyId, coords);
-          clearPersistedCoords(completingJourneyId);
-          if (response?.journey) {
-            setJourney(response.journey);
-            const snapped = normalizeJourneyPolyline(response.journey);
-            if (snapped.length > 0) {
-              setPolyline(snapped);
-              setDistance(response.journey.distanceTraveled || response.journey.distance || 0);
-            }
-          }
-        } catch (err) {
-          logger.error('[Journey] Failed to send final coordinates:', err);
-          batchCoordinatesRef.current.unshift(...coords);
-          persistPendingCoords();
-          // Keep going: one failed final GPS batch should not trap the user
-          // in an un-endable journey.
-          logger.warn('[Journey] Continuing completion despite final coordinate upload failure');
-        }
-      } else {
-        // Even if the in-memory batch is empty the persisted-batch entry
-        // could still be present from a prior failed send. Clear it.
-        clearPersistedCoords(completingJourneyId);
-      }
-      // Final clean-up of the bg-only queue (drainBackgroundQueue removed
-      // it on success above, but if drain failed silently the key could
-      // linger and feed into a *future* journey with the same id — which
-      // shouldn't happen, but the guard is cheap).
+      // 5. Clean up the bg-only queue and kalman filters from memory/AsyncStorage
       await AsyncStorage.removeItem(BG_QUEUE_KEY_PREFIX + completingJourneyId).catch(() => {});
       await AsyncStorage.removeItem(`@kalman_state:${completingJourneyId}`).catch(() => {});
       bgKalmanFilters.delete(completingJourneyId);
       bgPositionHistories.delete(completingJourneyId);
 
-      // -------------------------------------------------------------
-      // OPTIMISTIC LOCAL STATE CLEARING (instant UI termination)
-      // -------------------------------------------------------------
+      // Extract coords to send before clearing refs
+      const coordsToSend = !isCurrentlyPaused ? [...batchCoordinatesRef.current] : [];
+      batchCoordinatesRef.current = [];
+
+      // 6. OPTIMISTIC LOCAL STATE CLEARING (instant UI termination)
       const localCompletedJourney = journey ? {
         ...journey,
         status: 'completed' as const,
@@ -2048,19 +2023,38 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       startTimeRef.current = null;
       lastCoordinateRef.current = null;
       pendingSegmentBreakRef.current = false;
-      batchCoordinatesRef.current = [];
 
       // Notify other live instances of useJourneyTracking
       suppressNextSyncRef.current = true;
       broadcastJourneyStateChanged();
 
-      // -------------------------------------------------------------
-      // INITIATE END JOURNEY API CALL (Non-blocking background retry)
-      // -------------------------------------------------------------
+      // 7. INITIATE NETWORK SYNC (Non-blocking background flow)
       const snapToRoads = options?.snapToRoads !== false;
       
       (async () => {
         try {
+          if (coordsToSend.length > 0) {
+            try {
+              await updateJourneyLocation(completingJourneyId, coordsToSend);
+              clearPersistedCoords(completingJourneyId);
+            } catch (updateErr) {
+              logger.error('[Journey] Failed to send final coordinates in background:', updateErr);
+              // Save to pending coordinates queue for retry
+              const persistedKey = PENDING_COORDS_KEY_PREFIX + completingJourneyId;
+              const existingRaw = await AsyncStorage.getItem(persistedKey);
+              let existing: Coordinate[] = [];
+              if (existingRaw) {
+                try {
+                  const parsed = JSON.parse(existingRaw);
+                  if (Array.isArray(parsed)) existing = parsed;
+                } catch {}
+              }
+              await AsyncStorage.setItem(persistedKey, JSON.stringify([...existing, ...coordsToSend])).catch(() => {});
+            }
+          } else {
+            clearPersistedCoords(completingJourneyId);
+          }
+
           logger.debug(`[Journey] Sending completion request for ${completingJourneyId}`);
           const { journey: resJourney } = await completeJourney(completingJourneyId, { 
             snapToRoads,
