@@ -122,7 +122,7 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
   }, [pulse, usesNativeIosMarker]);
 
   const containerStyle = useAnimatedStyle(() => {
-    const baseScale = activeState ? 1.3 : 1.0;
+    const baseScale = renderAsDot ? (activeState ? 1.24 : 1.0) : (activeState ? 1.16 : 1.0);
     const totalScale = baseScale * zoomScaleShared.value;
     return {
       transform: [{ scale: totalScale }],
@@ -307,8 +307,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   dotContainer: {
-    width: 36,
-    height: 36,
+    width: 22,
+    height: 22,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
@@ -320,11 +320,15 @@ const styles = StyleSheet.create({
     borderRadius: 15,
   },
   dotCore: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    borderWidth: 2.5,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 2,
     borderColor: '#FFFFFF',
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
   },
   activeBaseDot: {
     width: 6,

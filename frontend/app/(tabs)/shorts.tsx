@@ -247,7 +247,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   const [isScreenFocused, setIsScreenFocused] = useState(true);
   const isScreenFocusedRef = useRef(true);
   const [appState, setAppState] = useState(AppState.currentState);
-  const [containerHeight, setContainerHeight] = useState(SCREEN_HEIGHT - TAB_BAR_HEIGHT);
+  const [containerHeight, setContainerHeight] = useState(isGeneralFeed ? SCREEN_HEIGHT - TAB_BAR_HEIGHT : SCREEN_HEIGHT);
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [savedShorts, setSavedShorts] = useState<Set<string>>(new Set());
   const [isFeedMuted, setIsFeedMuted] = useState(() => {

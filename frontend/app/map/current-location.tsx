@@ -1145,7 +1145,6 @@ function initMap(){
           </>
         )}
         <SafeMarker
-          key={`dest-${isMarkerSelected ? 'active' : 'inactive'}`}
           coordinate={
             isPostLocation
               ? { latitude: postLatitude!, longitude: postLongitude! }

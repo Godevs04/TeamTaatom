@@ -2,7 +2,7 @@
 // Metro will automatically use mapsWrapper.web.ts for web builds
 //
 // Strategy:
-//   iOS / Android .............. WebView fallback (stable under zoom with custom markers)
+//   iOS / Android .............. native react-native-maps
 //   Web ....................... handled by mapsWrapper.web.ts
 
 import React from 'react';
@@ -17,16 +17,15 @@ let PROVIDER_GOOGLE: any = null;
 let PROVIDER_DEFAULT: any = null;
 let AnimatedRegion: any = null;
 
-// On Android, we always use the WebView fallback to ensure:
-// 1. Consistent premium HTML glassmorphic marker card designs (native react-native-maps custom markers on Android have resizing/clipping bugs)
-// 2. Maximum reliability (no Google Play Services / API key build configuration failures on Android devices)
-const skipNativeMaps = Platform.OS === 'android';
+// Prefer native maps on Android and iOS. WebView/HTML maps made marker styling
+// inconsistent and forced full map reloads on selection changes.
+const skipNativeMaps = false;
 
 /**
- * True when native MapView is NOT available and screens should
- * render a WebView-based Google Map instead.
+ * True when native MapView is not available on platforms that cannot load the
+ * native module. Map screens should render their map-unavailable state.
  */
-let useWebViewFallback: boolean = skipNativeMaps || Platform.OS === 'web';
+let useWebViewFallback: boolean = Platform.OS === 'web';
 
 if (Platform.OS !== 'web' && !skipNativeMaps) {
   try {
@@ -42,8 +41,8 @@ if (Platform.OS !== 'web' && !skipNativeMaps) {
       useWebViewFallback = true;
     }
   } catch (error) {
-    logger.warn('react-native-maps not available, falling back to WebView:', error);
-    useWebViewFallback = true;
+    logger.warn('react-native-maps not available:', error);
+    useWebViewFallback = false;
   }
 } else if (Platform.OS === 'web') {
   useWebViewFallback = true;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {
   View,
   Text,
@@ -370,6 +370,16 @@ export default function PostScreen() {
   const { showSuccess, showError, showConfirm } = useAlert();
   const isFocused = useIsFocused();
   const videoRef = useRef<Video | null>(null);
+  const previewSoundRef = useRef<Audio.Sound | null>(null);
+  const audioSyncStateRef = useRef<{
+    isPlaying: boolean;
+    positionMillis: number;
+    isLoading: boolean;
+  }>({
+    isPlaying: false,
+    positionMillis: 0,
+    isLoading: false,
+  });
   const params = useLocalSearchParams();
   const initialPostType = params.postType === 'short' ? 'short' : 'photo';
   const isJourneyCapture = params.journeyCapture === 'true';
@@ -555,6 +565,13 @@ export default function PostScreen() {
 
   const [selectedImages, setSelectedImages] = useState<Array<{ uri: string; type: string; name: string }>>([]);
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null);
+  const videoSource = useMemo(() => {
+    if (!selectedVideo) return null;
+    return {
+      uri: selectedVideo,
+      overrideFileExtensionAndroid: (selectedVideo.toLowerCase().includes('m3u8') || selectedVideo.toLowerCase().includes('hls')) ? 'm3u8' : 'mp4'
+    };
+  }, [selectedVideo]);
   const [videoThumbnail, setVideoThumbnail] = useState<string | null>(null);
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [address, setAddress] = useState<string>("");
@@ -1381,6 +1398,111 @@ export default function PostScreen() {
     };
   }, [cancelUpload, showDetails, isFocused, handleClosePost]);
 
+  const handleVideoPlaybackStatusUpdate = useCallback(async (status: AVPlaybackStatus) => {
+    if (!status.isLoaded) return;
+    
+    const sound = previewSoundRef.current;
+    if (!sound) return;
+
+    try {
+      // Sync play/pause state
+      if (status.isPlaying) {
+        if (!audioSyncStateRef.current.isPlaying && !audioSyncStateRef.current.isLoading) {
+          audioSyncStateRef.current.isPlaying = true;
+          logger.debug('[Preview Audio] Starting audio playback in sync with video');
+          const videoPosMs = status.positionMillis || 0;
+          const targetPosMs = (songStartTime * 1000) + videoPosMs;
+          await sound.setPositionAsync(targetPosMs).catch(() => {});
+          await sound.playAsync().catch(() => {});
+        } else {
+          // Both are playing, check drift or loop
+          const videoPosMs = status.positionMillis || 0;
+          const targetPosMs = (songStartTime * 1000) + videoPosMs;
+          
+          // If video position is smaller than the last synced position, the video likely looped
+          const hasLooped = videoPosMs < audioSyncStateRef.current.positionMillis - 1000;
+          
+          if (hasLooped || Math.abs(videoPosMs - audioSyncStateRef.current.positionMillis) > 300) {
+            // Check drift between actual sound position and target position
+            const soundStatus = await sound.getStatusAsync().catch(() => null);
+            if (soundStatus && soundStatus.isLoaded) {
+              const soundPos = soundStatus.positionMillis || 0;
+              if (hasLooped || Math.abs(soundPos - targetPosMs) > 300) {
+                logger.debug('[Preview Audio] Drift or loop detected. Resyncing audio to:', targetPosMs);
+                await sound.setPositionAsync(targetPosMs).catch(() => {});
+              }
+            }
+          }
+        }
+        audioSyncStateRef.current.positionMillis = status.positionMillis || 0;
+      } else {
+        if (audioSyncStateRef.current.isPlaying) {
+          audioSyncStateRef.current.isPlaying = false;
+          logger.debug('[Preview Audio] Pausing audio playback in sync with video');
+          await sound.pauseAsync().catch(() => {});
+        }
+      }
+    } catch (err) {
+      logger.warn('[Preview Audio] Sync error:', err);
+    }
+  }, [songStartTime]);
+
+  useEffect(() => {
+    let active = true;
+    
+    const loadSound = async () => {
+      // Unload existing
+      if (previewSoundRef.current) {
+        const soundToUnload = previewSoundRef.current;
+        previewSoundRef.current = null;
+        audioSyncStateRef.current = { isPlaying: false, positionMillis: 0, isLoading: false };
+        await soundToUnload.unloadAsync().catch(() => {});
+      }
+
+      if (showDetails && audioChoice === 'background' && selectedSong) {
+        const songUrl = selectedSong.s3Url || (selectedSong as any).cloudinaryUrl;
+        if (!songUrl) return;
+
+        try {
+          audioSyncStateRef.current.isLoading = true;
+          logger.info('[Preview Audio] Loading background music: ' + selectedSong.title, { songUrl });
+          const { sound } = await Audio.Sound.createAsync(
+            { uri: songUrl },
+            {
+              shouldPlay: false,
+              volume: 1.0,
+              isMuted: false,
+            }
+          );
+          if (!active) {
+            await sound.unloadAsync().catch(() => {});
+            return;
+          }
+          previewSoundRef.current = sound;
+          audioSyncStateRef.current.isLoading = false;
+
+          // Sync initial seek position
+          await sound.setPositionAsync(songStartTime * 1000).catch(() => {});
+          logger.info('[Preview Audio] Audio loaded and seeked to start time:', songStartTime);
+        } catch (err) {
+          audioSyncStateRef.current.isLoading = false;
+          logger.warn('[Preview Audio] Failed to load preview audio:', err);
+        }
+      }
+    };
+
+    loadSound();
+
+    return () => {
+      active = false;
+      if (previewSoundRef.current) {
+        const soundToUnload = previewSoundRef.current;
+        previewSoundRef.current = null;
+        soundToUnload.unloadAsync().catch(() => {});
+      }
+    };
+  }, [selectedSong, audioChoice, songStartTime, showDetails]);
+
   // Component unmount lifecycle cleanup for media playback
   useEffect(() => {
     return () => {
@@ -1445,6 +1567,11 @@ export default function PostScreen() {
       audioManager.stopAll().catch((error) => {
         logger.error('[Post] Error stopping audio:', error);
       });
+      if (previewSoundRef.current) {
+        logger.debug('[Post] Pausing preview audio on screen blur');
+        previewSoundRef.current.pauseAsync().catch(() => {});
+        audioSyncStateRef.current.isPlaying = false;
+      }
     }
   }, [isFocused, cancelUpload, restoreDraftData]);
 
@@ -3745,10 +3872,7 @@ export default function PostScreen() {
                   <Video
                     key={selectedVideo}
                     ref={videoRef}
-                    source={{
-                      uri: selectedVideo,
-                      overrideFileExtensionAndroid: (selectedVideo.toLowerCase().includes('m3u8') || selectedVideo.toLowerCase().includes('hls')) ? 'm3u8' : 'mp4'
-                    }}
+                    source={videoSource || undefined}
                     style={{ width: '100%', height: '100%' }}
                     useNativeControls
                     resizeMode={ResizeMode.CONTAIN}
@@ -3757,6 +3881,7 @@ export default function PostScreen() {
                     volume={audioChoice === 'background' && selectedSong ? 0.0 : 1.0}
                     shouldPlay={true}
                     isLooping={true}
+                    onPlaybackStatusUpdate={handleVideoPlaybackStatusUpdate}
                   />
                   {audioChoice === 'background' && selectedSong && (
                     <View style={{
@@ -5046,19 +5171,16 @@ export default function PostScreen() {
         }}>
           {isFocused && selectedVideo ? (
             <Video
+              key={selectedVideo}
               ref={videoRef}
-              source={{
-                uri: selectedVideo,
-                overrideFileExtensionAndroid: (selectedVideo.toLowerCase().includes('m3u8') || selectedVideo.toLowerCase().includes('hls')) ? 'm3u8' : 'mp4'
-              }}
+              source={videoSource || undefined}
               style={{ width: '100%', height: '100%' }}
               useNativeControls={false}
               resizeMode={ResizeMode.CONTAIN}
               isLooping
               shouldPlay
-              // Mute original video audio when background music is selected
-              isMuted={audioChoice === 'background' && !!selectedSong}
-              volume={audioChoice === 'background' && selectedSong ? 0.0 : 1.0}
+              isMuted={false}
+              volume={1.0}
             />
           ) : selectedImages.length > 0 ? (
             <AspectImageCropper
