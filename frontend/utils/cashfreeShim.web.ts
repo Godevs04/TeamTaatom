@@ -17,6 +17,12 @@ export const CFPaymentGatewayService = {
   doSubscriptionPayment: (_session: unknown) => {
     throw new Error('Cashfree native SDK is not available on web');
   },
+  doPayment: (_payment: unknown) => {
+    throw new Error('Cashfree native SDK is not available on web');
+  },
+  doWebPayment: (_session: unknown) => {
+    throw new Error('Cashfree native SDK is not available on web');
+  },
 };
 
 export const CFEnvironment = {
@@ -25,5 +31,13 @@ export const CFEnvironment = {
 } as const;
 
 export class CFSubscriptionSession {
+  constructor(..._args: unknown[]) {}
+}
+
+export class CFSession {
+  constructor(..._args: unknown[]) {}
+}
+
+export class CFDropCheckoutPayment {
   constructor(..._args: unknown[]) {}
 }

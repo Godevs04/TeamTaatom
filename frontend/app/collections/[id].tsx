@@ -103,6 +103,10 @@ export default function CollectionDetailScreen() {
           } else if (action === 'save' || action === 'unsave') {
             const isSaved = action === 'save';
             return { ...post, isSaved } as any;
+          } else if (action === 'comment') {
+            if (data && typeof data.commentsCount === 'number') {
+              return { ...post, commentsCount: data.commentsCount } as any;
+            }
           }
           return post;
         });

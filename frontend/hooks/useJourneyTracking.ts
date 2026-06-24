@@ -189,6 +189,9 @@ const validateGPSPoint = (
   }
 
   if (lastCoord) {
+    if (coord.timestamp <= lastCoord.timestamp) {
+      return false;
+    }
     const dist = calculateCoordinateDistance(
       lastCoord.latitude,
       lastCoord.longitude,
@@ -737,7 +740,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       const already = await Location.hasStartedLocationUpdatesAsync(BG_LOCATION_TASK).catch(() => false);
       if (already) return true;
       await Location.startLocationUpdatesAsync(BG_LOCATION_TASK, {
-        accuracy: Location.Accuracy.High, // Upgraded for high-accuracy path tracking (safe for iOS)
+        accuracy: Location.Accuracy.BestForNavigation, // Upgraded for best accuracy path tracking (safe for iOS)
         timeInterval: 2000, // Query every 2 seconds for a denser track
         distanceInterval: 3, // Distance threshold of 3 meters
         showsBackgroundLocationIndicator: true, // Enable indicator to prevent OS suspension
@@ -1010,7 +1013,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           await completeJourney(journeyId, { snapToRoads, endCoords });
           logger.debug(`[Journey] Successfully synced completion for journey: ${journeyId}`);
         } catch (err: any) {
-          if (err.message && err.message.includes('not active or paused')) {
+          if ((err.message && err.message.includes('not active or paused')) || (err.response?.data?.message && err.response.data.message.includes('not active or paused'))) {
             logger.debug(`[Journey] Journey ${journeyId} was already completed on server.`);
           } else {
             logger.error(`[Journey] Failed to sync completion for journey ${journeyId}, will retry:`, err);
@@ -1094,7 +1097,20 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     const initializeJourney = async () => {
       try {
         // Check if there's an active journey in storage
-        const storedJourneyId = await AsyncStorage.getItem('activeJourneyId');
+        let storedJourneyId = await AsyncStorage.getItem('activeJourneyId');
+        if (!storedJourneyId) {
+          try {
+            const activeRes = await getActiveJourney();
+            if (activeRes?.journey?._id) {
+              storedJourneyId = activeRes.journey._id;
+              await AsyncStorage.setItem('activeJourneyId', storedJourneyId);
+              await setActiveJourneyIdInCache(storedJourneyId);
+              logger.debug('[Journey] Recovered active journey from server:', storedJourneyId);
+            }
+          } catch (serverErr) {
+            logger.warn('[Journey] Failed to fetch active journey from server during init:', serverErr);
+          }
+        }
         if (storedJourneyId) {
           const isCurrentLaunchFresh = isFreshLaunch;
           isFreshLaunch = false;
@@ -1156,61 +1172,66 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           }
 
           if (statusOnServer === 'active') {
-            // If this instance is already active and tracking, do not overwrite the live state.
-            if (isTrackingRef.current && !isPausedRef.current && journeyIdRef.current === storedJourneyId) {
-              logger.debug('[Journey] Already active and tracking journey:', storedJourneyId);
+            if (isCurrentLaunchFresh) {
+              logger.debug('[Journey] App was fresh launched after termination with active journey, auto-saving:', storedJourneyId);
+              // Do not restore or return; let it fall through to the auto-saving/completing logic below!
+            } else {
+              // If this instance is already active and tracking, do not overwrite the live state.
+              if (isTrackingRef.current && !isPausedRef.current && journeyIdRef.current === storedJourneyId) {
+                logger.debug('[Journey] Already active and tracking journey:', storedJourneyId);
+                return;
+              }
+
+              logger.debug('[Journey] Restoring active journey state on startup:', storedJourneyId);
+              journeyIdRef.current = storedJourneyId;
+              setJourney(fetchedJourney);
+              
+              // Rehydrate polyline and other stats
+              let restoredPolyline: Coordinate[] = [];
+              try {
+                const localStateRaw = await AsyncStorage.getItem('@active_journey_state');
+                if (localStateRaw) {
+                  const localState = JSON.parse(localStateRaw);
+                  restoredPolyline = localState.polyline || [];
+                  setPolyline(restoredPolyline);
+                  setDistance(localState.distance || 0);
+                  setDuration(localState.duration || 0);
+                } else if (fetchedJourney) {
+                  restoredPolyline = normalizeJourneyPolyline(fetchedJourney);
+                  setPolyline(restoredPolyline);
+                  setDistance(fetchedJourney.distanceTraveled || fetchedJourney.distance || 0);
+                  setDuration(getJourneyActiveDuration(fetchedJourney));
+                }
+              } catch (rehydrateErr) {
+                logger.warn('[Journey] Error rehydrating active journey stats:', rehydrateErr);
+              }
+
+              if (restoredPolyline.length > 0) {
+                const lastPt = restoredPolyline[restoredPolyline.length - 1];
+                kalmanFilterRef.current = new KalmanFilter(
+                  lastPt.latitude,
+                  lastPt.longitude,
+                  lastPt.accuracy || 10,
+                  lastPt.timestamp || Date.now()
+                );
+                lastCoordinateRef.current = lastPt;
+              }
+              lastStationaryMarkerUpdateRef.current = Date.now();
+              pendingSegmentBreakRef.current = false;
+              batchCoordinatesRef.current = [];
+
+              // Restore start time ref if possible, or fallback to now minus duration
+              const createdAtTime = fetchedJourney?.createdAt ? new Date(fetchedJourney.createdAt).getTime() : Date.now();
+              startTimeRef.current = createdAtTime;
+
+              setIsTracking(true);
+              setIsPaused(false);
+
+              // Spin up background updates and location watcher
+              await startBackgroundUpdates().catch(() => {});
+              await startLocationWatcher().catch(() => {});
               return;
             }
-
-            logger.debug('[Journey] Restoring active journey state on startup:', storedJourneyId);
-            journeyIdRef.current = storedJourneyId;
-            setJourney(fetchedJourney);
-            
-            // Rehydrate polyline and other stats
-            let restoredPolyline: Coordinate[] = [];
-            try {
-              const localStateRaw = await AsyncStorage.getItem('@active_journey_state');
-              if (localStateRaw) {
-                const localState = JSON.parse(localStateRaw);
-                restoredPolyline = localState.polyline || [];
-                setPolyline(restoredPolyline);
-                setDistance(localState.distance || 0);
-                setDuration(localState.duration || 0);
-              } else if (fetchedJourney) {
-                restoredPolyline = normalizeJourneyPolyline(fetchedJourney);
-                setPolyline(restoredPolyline);
-                setDistance(fetchedJourney.distanceTraveled || fetchedJourney.distance || 0);
-                setDuration(getJourneyActiveDuration(fetchedJourney));
-              }
-            } catch (rehydrateErr) {
-              logger.warn('[Journey] Error rehydrating active journey stats:', rehydrateErr);
-            }
-
-            if (restoredPolyline.length > 0) {
-              const lastPt = restoredPolyline[restoredPolyline.length - 1];
-              kalmanFilterRef.current = new KalmanFilter(
-                lastPt.latitude,
-                lastPt.longitude,
-                lastPt.accuracy || 10,
-                lastPt.timestamp || Date.now()
-              );
-              lastCoordinateRef.current = lastPt;
-            }
-            lastStationaryMarkerUpdateRef.current = Date.now();
-            pendingSegmentBreakRef.current = false;
-            batchCoordinatesRef.current = [];
-
-            // Restore start time ref if possible, or fallback to now minus duration
-            const createdAtTime = fetchedJourney?.createdAt ? new Date(fetchedJourney.createdAt).getTime() : Date.now();
-            startTimeRef.current = createdAtTime;
-
-            setIsTracking(true);
-            setIsPaused(false);
-
-            // Spin up background updates and location watcher
-            await startBackgroundUpdates().catch(() => {});
-            await startLocationWatcher().catch(() => {});
-            return;
           }
 
           logger.debug('[Journey] App was terminated with active journey, auto-saving:', storedJourneyId);
@@ -1534,6 +1555,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   // identity stays stable across pause/resume. Without this, the AppState
   // listener was being torn down and re-added on every state flip — if
   // AppState happened to fire in that window the event vanished.
+  const isStartingRef = useRef(false);
   const isTrackingRef = useRef(isTracking);
   const isPausedRef = useRef(isPaused);
   useEffect(() => { isTrackingRef.current = isTracking; }, [isTracking]);
@@ -1627,6 +1649,11 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
   const startJourneyRecording = useCallback(
     async (title?: string) => {
+      if (isTrackingRef.current || isStartingRef.current) {
+        logger.warn('[Journey] Already tracking or starting, ignoring start request');
+        return;
+      }
+      isStartingRef.current = true;
       try {
         setError(null);
 
@@ -1684,7 +1711,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         const initialCoord: Coordinate = {
           latitude: startCoords.lat,
           longitude: startCoords.lng,
-          timestamp: Date.now(),
+          timestamp: location.timestamp || Date.now(),
           accuracy: location.coords.accuracy || 0,
         };
         kalmanFilterRef.current = new KalmanFilter(
@@ -1722,6 +1749,8 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         setError(errorMsg);
         logger.error('[Journey] startJourneyRecording failed:', err);
         throw err;
+      } finally {
+        isStartingRef.current = false;
       }
     },
     []
@@ -2042,7 +2071,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           }
           logger.debug(`[Journey] Successfully completed journey on server: ${completingJourneyId}`);
         } catch (err: any) {
-          if (err.message && err.message.includes('not active or paused')) {
+          if ((err.message && err.message.includes('not active or paused')) || (err.response?.data?.message && err.response.data.message.includes('not active or paused'))) {
             logger.warn('[Journey] Journey was already completed or cancelled on the server. Fetching completed details.');
             try {
               const res = await getJourneyDetail(completingJourneyId);
@@ -2277,7 +2306,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           )
         : 0;
       const minDistance = getAdaptiveMinDistance(coord.accuracy, effectiveSpeed);
-      if (dist < Math.max(12, minDistance * 1.5)) {
+      if (dist < Math.max(6, minDistance * 1.2)) {
         logger.debug(`[Journey] User is stationary (speed: ${effectiveSpeed.toFixed(2)} m/s, dist: ${dist.toFixed(1)}m). Skipping polyline update.`);
         adjustWatcherAdaptiveThrottling(effectiveSpeed);
         return;
@@ -2285,6 +2314,9 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
     }
 
     if (lastCoordinateRef.current) {
+      if (coord.timestamp <= lastCoordinateRef.current.timestamp) {
+        return;
+      }
       const dist = calculateCoordinateDistance(
         lastCoordinateRef.current.latitude,
         lastCoordinateRef.current.longitude,

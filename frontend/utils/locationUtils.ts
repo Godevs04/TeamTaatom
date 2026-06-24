@@ -230,10 +230,12 @@ const calculateSimilarity = (str1: string, str2: string): number => {
  * Uses canonical coordinates for known ambiguous landmarks, then falls back to dynamic API matching.
  */
 const CANONICAL_LANDMARK_COORDS: Record<string, { latitude: number; longitude: number }> = {
-  'big ben': { latitude: 51.5007, longitude: -0.1246 },
-  bigben: { latitude: 51.5007, longitude: -0.1246 },
-  'elizabeth tower': { latitude: 51.5007, longitude: -0.1246 },
+  'big ben': { latitude: 51.500729, longitude: -0.124625 },
+  bigben: { latitude: 51.500729, longitude: -0.124625 },
+  'elizabeth tower': { latitude: 51.500729, longitude: -0.124625 },
   'london eye': { latitude: 51.503324, longitude: -0.119543 },
+  'the eye': { latitude: 51.452214, longitude: -2.581687 },
+  'the eye bristol': { latitude: 51.452214, longitude: -2.581687 },
 };
 
 const normalizeLandmarkName = (value: string) =>

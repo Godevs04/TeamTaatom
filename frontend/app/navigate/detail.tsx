@@ -21,7 +21,7 @@ import { WebView } from 'react-native-webview';
 import { useTheme } from '../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAlert } from '../../context/AlertContext';
-import { useJourney } from '../../context/JourneyContext';
+import { useJourney, useJourneyDuration } from '../../context/JourneyContext';
 import { getJourneyDetail, updateJourneyTitle, deleteJourney } from '../../services/journey';
 import { MapView, Marker, useWebViewFallback, getMapProvider } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
@@ -98,6 +98,9 @@ function getJourneyPolylineCoords(journey: any) {
  * - Journey stats (distance, duration, waypoints)
  * - List of posts made during the journey
  */
+// Module-level lock to prevent double-navigation in rapid succession
+let navigatePostLock = false;
+
 export default function JourneyDetailScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -107,11 +110,10 @@ export default function JourneyDetailScreen() {
   const insets = useSafeAreaInsets();
 
   const navigateToPost = (postId: string, contentType: string, userId: string) => {
-    const globalObj = global as any;
-    if (globalObj.navigationLock) return;
-    globalObj.navigationLock = true;
+    if (navigatePostLock) return;
+    navigatePostLock = true;
     setTimeout(() => {
-      globalObj.navigationLock = false;
+      navigatePostLock = false;
     }, 1000);
 
     if (contentType === 'short' || contentType === 'video') {
@@ -122,7 +124,13 @@ export default function JourneyDetailScreen() {
   };
 
   const { showAlert, showSuccess, showError: showErrorAlert } = useAlert();
-  const { discardActiveJourney } = useJourney();
+  const {
+    journey: activeJourney,
+    polyline: activePolyline,
+    distance: activeDistance,
+    discardActiveJourney,
+  } = useJourney();
+  const activeDuration = useJourneyDuration();
   const [journey, setJourney] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -132,6 +140,83 @@ export default function JourneyDetailScreen() {
   const [isSaving, setIsSaving] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [latitudeDelta, setLatitudeDelta] = useState(0.1);
+  const [loadedImages, setLoadedImages] = useState<Record<string, boolean>>({});
+
+  const mapRef = useRef<any>(null);
+  const [mapReady, setMapReady] = useState(false);
+
+  const isViewingActiveJourney = activeJourney?._id === journeyId;
+  const polylineCoords = isViewingActiveJourney ? activePolyline : getJourneyPolylineCoords(journey);
+  
+  const formatDurationText = (startedAt: string, completedAt?: string) => {
+    if (isViewingActiveJourney) {
+      const seconds = activeDuration;
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.floor((seconds % 3600) / 60);
+      const secs = seconds % 60;
+      if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+      return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+    const start = new Date(startedAt).getTime();
+    const end = completedAt ? new Date(completedAt).getTime() : Date.now();
+    const seconds = Math.floor((end - start) / 1000);
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+    return `${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+  };
+
+  // Zoom to fit the entire journey route once loaded
+  useEffect(() => {
+    if (journey && mapRef.current && !useWebViewFallback && mapReady) {
+      const coords = isViewingActiveJourney ? activePolyline : getJourneyPolylineCoords(journey);
+      const points = coords.map(c => ({ latitude: c.latitude, longitude: c.longitude }));
+      
+      // Also add start and end coordinates if they are valid
+      if (journey.startCoords?.lat && journey.startCoords?.lng) {
+        points.push({ latitude: journey.startCoords.lat, longitude: journey.startCoords.lng });
+      }
+      if (journey.endCoords?.lat && journey.endCoords?.lng) {
+        points.push({ latitude: journey.endCoords.lat, longitude: journey.endCoords.lng });
+      }
+      
+      // Also add waypoint coordinates
+      if (journey.waypoints && journey.waypoints.length > 0) {
+        journey.waypoints.forEach((w: any) => {
+          const lat = w.latitude ?? w.lat;
+          const lng = w.longitude ?? w.lng;
+          if (lat && lng) {
+            points.push({ latitude: lat, longitude: lng });
+          }
+        });
+      }
+
+      if (points.length > 0) {
+        // Safe check for valid coordinates
+        const validPoints = points.filter(p => 
+          typeof p.latitude === 'number' && 
+          typeof p.longitude === 'number' && 
+          !isNaN(p.latitude) && 
+          !isNaN(p.longitude)
+        );
+
+        if (validPoints.length > 0) {
+          setTimeout(() => {
+            try {
+              if (mapRef.current) {
+                mapRef.current.fitToCoordinates(validPoints, {
+                  edgePadding: { top: 80, right: 80, bottom: 80, left: 80 },
+                  animated: true,
+                });
+              }
+            } catch (err) {
+              logger.warn('[JourneyDetail] fitToCoordinates failed:', err);
+            }
+          }, 800);
+        }
+      }
+    }
+  }, [journey, useWebViewFallback, mapReady, activePolyline, isViewingActiveJourney]);
 
   useEffect(() => {
     const fetchJourney = async () => {
@@ -356,15 +441,17 @@ export default function JourneyDetailScreen() {
         <View style={styles.mapContainer}>
           {useWebViewFallback ? (() => {
             const WV_KEY = getGoogleMapsApiKeyForWebView();
-            if (!WV_KEY || !journey.polyline?.length) {
+            if (!WV_KEY || (isViewingActiveJourney ? polylineCoords.length === 0 : !journey.polyline?.length)) {
               return (
                 <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}>
                   <Ionicons name="map-outline" size={48} color="#9CA3AF" />
                 </View>
               );
             }
-            const center = journey.polyline[Math.floor(journey.polyline.length / 2)];
-            const polyCoords = JSON.stringify(getJourneyPolylineCoords(journey).map((p) => ({
+            const center = polylineCoords.length > 0
+              ? { lat: polylineCoords[Math.floor(polylineCoords.length / 2)].latitude, lng: polylineCoords[Math.floor(polylineCoords.length / 2)].longitude }
+              : { lat: 0, lng: 0 };
+            const polyCoords = JSON.stringify(polylineCoords.map((p) => ({
               lat: p.latitude,
               lng: p.longitude,
               segmentBreak: p.segmentBreak,
@@ -496,6 +583,7 @@ function initMap(){
             );
           })() : MapView && Marker ? (
             <MapView
+              ref={mapRef}
               style={styles.map}
               provider={getMapProvider()}
               {...mapStyle.nativeMapProps}
@@ -505,6 +593,7 @@ function initMap(){
                 latitudeDelta: 0.1,
                 longitudeDelta: 0.1,
               }}
+              onMapReady={() => setMapReady(true)}
               onRegionChangeComplete={(region) => {
                 const safeRegion = sanitizeMapRegion(region);
                 if (safeRegion) {
@@ -514,9 +603,9 @@ function initMap(){
               mapType={mapStyle.mapType}
               showsCompass={true}
             >
-              {journey.polyline?.length > 1 && (
+              {polylineCoords.length > 1 && (
                 <PolylineRenderer
-                  coordinates={getJourneyPolylineCoords(journey)}
+                  coordinates={polylineCoords}
                   color={mapStyle.routeColor}
                   glowColor={mapStyle.routeGlowColor}
                   strokeWidth={4}
@@ -530,7 +619,7 @@ function initMap(){
                   <PremiumMapMarker icon="play" latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
                 </SafeMarker>
               )}
-              {isValidMapCoordinate({ latitude: journey.endCoords?.lat, longitude: journey.endCoords?.lng }) && (
+              {!isViewingActiveJourney && isValidMapCoordinate({ latitude: journey.endCoords?.lat, longitude: journey.endCoords?.lng }) && (
                 <SafeMarker coordinate={{ latitude: journey.endCoords.lat, longitude: journey.endCoords.lng }} title="End" anchor={{ x: 0.5, y: 1.0 }} repaintTriggers={[latitudeDelta]}>
                   <PremiumMapMarker icon="flag" active latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
                 </SafeMarker>
@@ -556,7 +645,7 @@ function initMap(){
                         navigateToPost(postId, contentType, targetUserId);
                       }
                     }}
-                    repaintTriggers={[latitudeDelta, w.contentType, photoUrl]}
+                    repaintTriggers={[latitudeDelta, w.contentType, photoUrl, !!loadedImages[i]]}
                   >
                     {photoUrl ? (
                       <View style={{
@@ -577,6 +666,11 @@ function initMap(){
                           source={{ uri: photoUrl }}
                           style={{ width: '100%', height: '100%', borderRadius: 14 }}
                           contentFit="cover"
+                          onLoad={() => {
+                            if (!loadedImages[i]) {
+                              setLoadedImages(prev => ({ ...prev, [i]: true }));
+                            }
+                          }}
                         />
                       </View>
                     ) : (
@@ -591,11 +685,11 @@ function initMap(){
               <Ionicons name="map-outline" size={48} color="#9CA3AF" />
             </View>
           )}
-          {journey.polyline?.length > 1 && (
+          {polylineCoords.length > 1 && (
             <GlassMapPanel style={styles.mapSummaryPanel} tint={mapStyle.glassTint}>
               <Ionicons name="navigate" size={16} color={mapStyle.routeColor} />
               <Text style={[styles.mapSummaryText, { color: theme.colors.text }]} numberOfLines={1}>
-                {formatDistance(journey.distanceTraveled)} - {formatDuration(journey.startedAt, journey.completedAt)}
+                {formatDistance(isViewingActiveJourney ? activeDistance : journey.distanceTraveled)} - {isViewingActiveJourney ? formatDurationText(journey.startedAt, journey.completedAt) : formatDuration(journey.startedAt, journey.completedAt)}
               </Text>
             </GlassMapPanel>
           )}
@@ -621,7 +715,7 @@ function initMap(){
             <View style={styles.statItem}>
               <Ionicons name="navigate" size={20} color={GROWTH_GREEN} />
               <Text style={[styles.statValue, { color: theme.colors.text }]}>
-                {formatDistance(journey.distanceTraveled)}
+                {formatDistance(isViewingActiveJourney ? activeDistance : journey.distanceTraveled)}
               </Text>
               <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Distance</Text>
             </View>
@@ -629,7 +723,7 @@ function initMap(){
             <View style={styles.statItem}>
               <Ionicons name="time" size={20} color={ACTION_BLUE} />
               <Text style={[styles.statValue, { color: theme.colors.text }]}>
-                {formatDuration(journey.startedAt, journey.completedAt)}
+                {isViewingActiveJourney ? formatDurationText(journey.startedAt, journey.completedAt) : formatDuration(journey.startedAt, journey.completedAt)}
               </Text>
               <Text style={[styles.statLabel, { color: theme.colors.textSecondary }]}>Duration</Text>
             </View>

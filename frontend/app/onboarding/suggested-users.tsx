@@ -190,10 +190,8 @@ export default function SuggestedUsersOnboarding() {
                     onPress={() => toggleFollow(user._id)}
                     style={[
                       styles.followButton,
-                      {
-                        backgroundColor: isFollowingUser
-                          ? theme.colors.border
-                          : theme.colors.primary,
+                      isFollowingUser && {
+                        backgroundColor: theme.colors.border,
                       },
                       isAndroid && styles.followButtonAndroid,
                     ]}
@@ -203,6 +201,14 @@ export default function SuggestedUsersOnboarding() {
                       android_ripple: { color: isFollowingUser ? theme.colors.textSecondary : '#FFFFFF', borderless: false }
                     })}
                   >
+                    {!isFollowingUser && (
+                      <LinearGradient
+                        colors={['#50C878', '#1C73B4']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={StyleSheet.absoluteFillObject}
+                      />
+                    )}
                     <Text
                       style={[
                         styles.followButtonText,
@@ -352,6 +358,9 @@ const styles = StyleSheet.create({
     paddingVertical: isTablet ? theme.spacing.sm : 8,
     paddingHorizontal: isTablet ? 24 : 20,
     borderRadius: isTablet ? 24 : 20,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
     ...(isWeb && {
       cursor: 'pointer',
       ['transition']: 'all 0.2s ease',

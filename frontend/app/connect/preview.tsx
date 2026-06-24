@@ -236,6 +236,9 @@ export default function ContentPreviewScreen() {
     CFPaymentGatewayService.setCallback({
       onVerify(orderID: string): void {
         logger.info('Cashfree payment verified, orderID:', orderID);
+        // Reset loading states on verify
+        setCheckingOut(false);
+        setSubscribing(false);
         try {
           if (!pageId) {
             throw new Error('Connect Page ID is missing during Cashfree preview callback sync');
@@ -310,6 +313,9 @@ export default function ContentPreviewScreen() {
           Alert.alert('Payment Failed', 'Could not complete payment. Please try again.');
         } catch (err) {
           logger.error('Error handling Cashfree preview onError callback:', err);
+        } finally {
+          setCheckingOut(false);
+          setSubscribing(false);
         }
       },
     });
@@ -345,11 +351,11 @@ export default function ContentPreviewScreen() {
         CFPaymentGatewayService.doSubscriptionPayment(session);
       } else {
         Alert.alert('Error', 'Unable to initiate payment session. Please try again.');
+        setSubscribing(false);
       }
     } catch (error: any) {
       crashReportingService.captureException(error, { context: 'subscribe_from_preview' });
       Alert.alert('Error', error.message || 'Failed to subscribe. Please try again.');
-    } finally {
       setSubscribing(false);
     }
   };
@@ -446,7 +452,6 @@ export default function ContentPreviewScreen() {
     } catch (error: any) {
       logger.error('Failed to buy item:', error);
       setCheckoutError(error.message || 'Failed to place order. Please try again.');
-    } finally {
       setCheckingOut(false);
     }
   };

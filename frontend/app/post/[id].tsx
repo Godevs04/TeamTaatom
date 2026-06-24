@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { View, ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, ScrollView, StyleSheet, TouchableOpacity, RefreshControl } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,10 +29,11 @@ export default function PostDetail() {
       return resolved;
     });
   };
+  const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Fetch post details
-  const fetchPost = useCallback(async () => {
+  const fetchPost = useCallback(async (isRefresh = false) => {
     try {
       if (!id) {
         logger.error('No post ID provided');
@@ -45,13 +46,27 @@ export default function PostDetail() {
           return;
         }
         let postData = response.post;
-        const localLikesState = savedEvents.getLikesState(postData._id);
-        if (localLikesState) {
-          postData = {
-            ...postData,
-            isLiked: localLikesState.isLiked,
-            likesCount: localLikesState.likesCount
-          };
+        if (isRefresh) {
+          // Explicit refresh: override the local savedEvents cache with the server's fresh data
+          savedEvents.setLikesState(postData._id, postData.isLiked || false, postData.likesCount || 0);
+          savedEvents.setCommentsCount(postData._id, postData.commentsCount || (postData.comments ? postData.comments.length : 0));
+        } else {
+          // Normal load: use the local savedEvents cache if present to preserve unsynced interactions
+          const localLikesState = savedEvents.getLikesState(postData._id);
+          if (localLikesState) {
+            postData = {
+              ...postData,
+              isLiked: localLikesState.isLiked,
+              likesCount: localLikesState.likesCount
+            };
+          }
+          const localCommentsCount = savedEvents.getCommentsCount(postData._id);
+          if (localCommentsCount !== undefined) {
+            postData = {
+              ...postData,
+              commentsCount: localCommentsCount
+            };
+          }
         }
         setPost(postData);
       } else {
@@ -64,6 +79,12 @@ export default function PostDetail() {
       setLoading(false);
     }
   }, [id]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchPost(true);
+    setRefreshing(false);
+  }, [fetchPost]);
 
   useEffect(() => {
     fetchPost();
@@ -81,6 +102,10 @@ export default function PostDetail() {
       } else if (action === 'save' || action === 'unsave') {
         const isSaved = action === 'save';
         setPost(prev => prev ? { ...prev, isSaved } : null);
+      } else if (action === 'comment') {
+        if (data && typeof data.commentsCount === 'number') {
+          setPost(prev => prev ? { ...prev, commentsCount: data.commentsCount } : null);
+        }
       } else if (action === 'delete') {
         router.back();
       }
@@ -127,7 +152,19 @@ export default function PostDetail() {
         <View style={{ flex: 1 }} />
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} bounces={true} contentContainerStyle={styles.scrollContent}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false} 
+        bounces={true} 
+        contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh} 
+            tintColor={isDark ? '#fff' : '#000'}
+            colors={[isDark ? '#fff' : '#000']}
+          />
+        }
+      >
         <OptimizedPhotoCard 
           post={post} 
           isCurrentlyVisible={true} 

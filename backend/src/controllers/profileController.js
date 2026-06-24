@@ -161,8 +161,8 @@ const getProfile = async (req, res) => {
             {
               $group: {
                 _id: {
-                  lat: { $round: ['$lat', 2] },
-                  lng: { $round: ['$lng', 2] }
+                  lat: { $round: ['$lat', 3] },
+                  lng: { $round: ['$lng', 3] }
                 }
               }
             },
@@ -1708,9 +1708,10 @@ const getTripScoreContinents = async (req, res) => {
     .lean()
     .limit(1000);
 
-    // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
-    const roundCoordinate = (coord, _precision = 2) => {
-      return Math.round(coord * 100) / 100;
+    // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.001 degrees ≈ 100m)
+    const roundCoordinate = (coord, _precision = 3) => {
+      const factor = Math.pow(10, _precision);
+      return Math.round(coord * factor) / factor;
     };
     
     const getLocationKey = (lat, lng) => {
@@ -1874,9 +1875,10 @@ const getTripScoreCountries = async (req, res) => {
     .select('lat lng country continent address')
     .lean();
 
-    // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
-    const roundCoordinate = (coord, _precision = 2) => {
-      return Math.round(coord * 100) / 100;
+    // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.001 degrees ≈ 100m)
+    const roundCoordinate = (coord, _precision = 3) => {
+      const factor = Math.pow(10, _precision);
+      return Math.round(coord * factor) / factor;
     };
     
     const getLocationKey = (lat, lng) => {
@@ -1996,7 +1998,7 @@ const getTripScoreCountryDetails = async (req, res) => {
       isActive: true,
       verificationStatus: { $in: VERIFIED_STATUSES }
     })
-    .select('lat lng address takenAt uploadedAt post contentType spotType travelInfo country')
+    .select('lat lng address takenAt uploadedAt post contentType spotType travelInfo country journey')
     .populate('post', 'caption imageUrl images storageKey storageKeys type videoUrl spotType travelInfo')
     .sort({ takenAt: 1, uploadedAt: 1 })
     .lean();
@@ -2007,9 +2009,10 @@ const getTripScoreCountryDetails = async (req, res) => {
       return visitCountry.toLowerCase() === normalizedCountryParam.toLowerCase();
     });
 
-    // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
-    const roundCoordinate = (coord, _precision = 2) => {
-      return Math.round(coord * 100) / 100;
+    // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.001 degrees ≈ 100m)
+    const roundCoordinate = (coord, _precision = 3) => {
+      const factor = Math.pow(10, _precision);
+      return Math.round(coord * factor) / factor;
     };
     
     const getLocationKey = (lat, lng) => {
@@ -2125,6 +2128,8 @@ const getTripScoreCountryDetails = async (req, res) => {
         const dateString = visitDate ? (visitDate instanceof Date ? visitDate.toISOString() : new Date(visitDate).toISOString()) : new Date().toISOString();
         
         locations.push({
+          tripVisitId: visit._id ? visit._id.toString() : undefined,
+          journeyId: visit.journey ? visit.journey.toString() : null,
           name: visit.address || 'Unknown Location',
           score: 1, // Each unique location counts as 1
           date: dateString, // ISO date string for consistent parsing
@@ -2212,9 +2217,10 @@ const getTripScoreLocations = async (req, res) => {
       return visitCountry.toLowerCase() === normalizedCountryParam.toLowerCase();
     });
 
-    // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
-    const roundCoordinate = (coord, _precision = 2) => {
-      return Math.round(coord * 100) / 100;
+    // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.001 degrees ≈ 100m)
+    const roundCoordinate = (coord, _precision = 3) => {
+      const factor = Math.pow(10, _precision);
+      return Math.round(coord * factor) / factor;
     };
     
     const getLocationKey = (lat, lng) => {
@@ -2361,9 +2367,10 @@ const getTravelMapData = async (req, res) => {
     .lean()
     .limit(1000); // Limit for performance
 
-    // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.01 degrees ≈ 1.1km)
-    const roundCoordinate = (coord, _precision = 2) => {
-      return Math.round(coord * 100) / 100;
+    // Helper function to round coordinates for grouping (same tolerance as deduplication: 0.001 degrees ≈ 100m)
+    const roundCoordinate = (coord, _precision = 3) => {
+      const factor = Math.pow(10, _precision);
+      return Math.round(coord * factor) / factor;
     };
     
     const getLocationKey = (lat, lng) => {
@@ -3151,20 +3158,6 @@ const completeProfileOnboarding = async (req, res) => {
     const existing = await User.findById(userId).select('languagesKnown nationality profileOnboardingVersion');
     if (!existing) {
       return sendError(res, 'RES_3001', 'User not found');
-    }
-
-    const languageCount = Array.isArray(existing.languagesKnown) ? existing.languagesKnown.length : 0;
-    const nationality = typeof existing.nationality === 'string' ? existing.nationality.trim() : '';
-
-    if (languageCount < ONBOARDING_MIN_LANGUAGES) {
-      return sendError(
-        res,
-        'VAL_2001',
-        `Complete languages step first (at least ${ONBOARDING_MIN_LANGUAGES} language required)`
-      );
-    }
-    if (!nationality) {
-      return sendError(res, 'VAL_2001', 'Complete nationality step first');
     }
 
     const user = await User.findByIdAndUpdate(

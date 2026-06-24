@@ -1,9 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Platform } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
-import { Marker, AnimatedRegion } from '../utils/mapsWrapper';
+import { Marker } from '../utils/mapsWrapper';
 
-const AnimatedMarker = Marker ? Marker.Animated : null;
 
 interface ClusteredMarkerProps {
   location: any;
@@ -46,25 +45,7 @@ const ClusteredMarker = ({
     };
   }, [visible]);
 
-  // Initialize AnimatedRegion at targetCoordinate
-  const animatedCoordinate = useRef(
-    new AnimatedRegion({
-      latitude: targetCoordinate.latitude,
-      longitude: targetCoordinate.longitude,
-      latitudeDelta: 0,
-      longitudeDelta: 0,
-    })
-  ).current;
 
-  // Animate position on coordinate change
-  useEffect(() => {
-    animatedCoordinate.timing({
-      latitude: targetCoordinate.latitude,
-      longitude: targetCoordinate.longitude,
-      duration: 350,
-      useNativeDriver: false,
-    }).start();
-  }, [targetCoordinate.latitude, targetCoordinate.longitude]);
 
   // Animated opacity and scale for the custom marker graphics
   const opacity = useSharedValue(visible ? 1 : 0);
@@ -108,16 +89,26 @@ const ClusteredMarker = ({
     };
   });
 
-  if (!shouldMount || !AnimatedMarker) return null;
+  if (!shouldMount || !Marker) return null;
 
   const markerWidth = showPin || isSelected ? 36 : 36;
   const markerHeight = showPin || isSelected ? 44 : 36;
 
+  const lastPressTime = useRef(0);
+  const handlePress = () => {
+    const now = Date.now();
+    if (now - lastPressTime.current < 500) return;
+    lastPressTime.current = now;
+    if (onPress) {
+      onPress();
+    }
+  };
+
   return (
-    <AnimatedMarker
-      coordinate={animatedCoordinate as any}
-      onPress={onPress}
-      onSelect={onPress}
+    <Marker
+      coordinate={targetCoordinate}
+      onPress={handlePress}
+      onSelect={handlePress}
       tappable={visible || isSelected}
       tracksViewChanges={tracksViewChanges}
       anchor={{ x: 0.5, y: showPin || isSelected ? 0.86 : 0.5 }}
@@ -128,7 +119,7 @@ const ClusteredMarker = ({
       >
         {children}
       </Animated.View>
-    </AnimatedMarker>
+    </Marker>
   );
 };
 

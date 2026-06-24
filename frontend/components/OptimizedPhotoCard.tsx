@@ -186,15 +186,29 @@ function PhotoCard({
   const router = useRouter();
   const [isLiked, setIsLiked] = useState(() => {
     const local = savedEvents.getLikesState(post._id);
+    if (!local && post._id) {
+      savedEvents.setLikesState(post._id, post.isLiked || false, post.likesCount || 0);
+    }
     return local ? local.isLiked : (post.isLiked || false);
   });
   const [likesCount, setLikesCount] = useState(() => {
     const local = savedEvents.getLikesState(post._id);
+    if (!local && post._id) {
+      savedEvents.setLikesState(post._id, post.isLiked || false, post.likesCount || 0);
+    }
     return local ? local.likesCount : (post.likesCount || 0);
   });
   const [isZooming, setIsZooming] = useState(false);
   
   const [comments, setComments] = useState(post.comments || []);
+  const [commentsCount, setCommentsCount] = useState(() => {
+    const local = savedEvents.getCommentsCount(post._id);
+    if (local === undefined && post._id) {
+      const count = post.commentsCount || (post.comments ? post.comments.length : 0);
+      savedEvents.setCommentsCount(post._id, count);
+    }
+    return local !== undefined ? local : (post.commentsCount || (post.comments ? post.comments.length : 0));
+  });
   const [showMenu, setShowMenu] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -229,11 +243,13 @@ function PhotoCard({
     title: '',
     message: '',
     type: 'info' as 'success' | 'error' | 'warning' | 'info',
+    showCancel: false,
     onConfirm: () => {},
   });
 
   // Animation for multiple images indicator
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const mountTimeRef = useRef(Date.now());
 
   React.useEffect(() => {
     const loadUser = async () => {
@@ -382,8 +398,17 @@ function PhotoCard({
     });
 
     const unsubscribeComments = realtimePostsService.subscribeToComments((data) => {
-      if (data.postId === post._id && data.comment) {
-        upsertComment(data.comment);
+      if (data.postId === post._id) {
+        if (data.comment) {
+          if (data.comment.isDeleted) {
+            setComments(prev => prev.filter(c => c._id !== data.comment._id));
+          } else {
+            upsertComment(data.comment);
+          }
+        }
+        if (typeof data.commentsCount === 'number') {
+          setCommentsCount(data.commentsCount);
+        }
       }
     });
 
@@ -421,7 +446,9 @@ function PhotoCard({
             setSavedInCache(post._id, !!data.isBookmarked);
             break;
           case 'comment':
-            // Update comments count if needed
+            if (data && typeof data.commentsCount === 'number') {
+              setCommentsCount(data.commentsCount);
+            }
             break;
         }
       }
@@ -464,9 +491,20 @@ function PhotoCard({
   if (post._id !== prevPostId) {
     setPrevPostId(post._id);
     const localLikesState = savedEvents.getLikesState(post._id);
-    setIsLiked(localLikesState ? localLikesState.isLiked : (post.isLiked || false));
-    setLikesCount(localLikesState ? localLikesState.likesCount : (post.likesCount || 0));
+    if (!localLikesState && post._id) {
+      savedEvents.setLikesState(post._id, post.isLiked || false, post.likesCount || 0);
+    }
+    const finalLikesState = localLikesState || savedEvents.getLikesState(post._id);
+    setIsLiked(finalLikesState ? finalLikesState.isLiked : (post.isLiked || false));
+    setLikesCount(finalLikesState ? finalLikesState.likesCount : (post.likesCount || 0));
     setComments(post.comments || []);
+    const localCommentsCount = savedEvents.getCommentsCount(post._id);
+    if (localCommentsCount === undefined && post._id) {
+      const count = post.commentsCount || (post.comments ? post.comments.length : 0);
+      savedEvents.setCommentsCount(post._id, count);
+    }
+    const finalCommentsCount = localCommentsCount !== undefined ? localCommentsCount : savedEvents.getCommentsCount(post._id);
+    setCommentsCount(finalCommentsCount !== undefined ? finalCommentsCount : (post.commentsCount || (post.comments ? post.comments.length : 0)));
     setIsSaved(isSavedSync(post._id));
     setCommentsDisabled((post as any).commentsDisabled || false);
     setEditCaption(post.caption || '');
@@ -476,9 +514,20 @@ function PhotoCard({
   // Synchronize component state when post prop fields change (fixing recycling/stale value leaks)
   React.useEffect(() => {
     const localLikesState = savedEvents.getLikesState(post._id);
-    setIsLiked(localLikesState ? localLikesState.isLiked : (post.isLiked || false));
-    setLikesCount(localLikesState ? localLikesState.likesCount : (post.likesCount || 0));
+    if (!localLikesState && post._id) {
+      savedEvents.setLikesState(post._id, post.isLiked || false, post.likesCount || 0);
+    }
+    const finalLikesState = localLikesState || savedEvents.getLikesState(post._id);
+    setIsLiked(finalLikesState ? finalLikesState.isLiked : (post.isLiked || false));
+    setLikesCount(finalLikesState ? finalLikesState.likesCount : (post.likesCount || 0));
     setComments(post.comments || []);
+    const localCommentsCount = savedEvents.getCommentsCount(post._id);
+    if (localCommentsCount === undefined && post._id) {
+      const count = post.commentsCount || (post.comments ? post.comments.length : 0);
+      savedEvents.setCommentsCount(post._id, count);
+    }
+    const finalCommentsCount = localCommentsCount !== undefined ? localCommentsCount : savedEvents.getCommentsCount(post._id);
+    setCommentsCount(finalCommentsCount !== undefined ? finalCommentsCount : (post.commentsCount || (post.comments ? post.comments.length : 0)));
     setIsSaved(isSavedSync(post._id));
     setCommentsDisabled(post.commentsDisabled || false);
     setEditCaption(post.caption || '');
@@ -488,6 +537,7 @@ function PhotoCard({
     post.isLiked,
     post.likesCount,
     post.comments,
+    post.commentsCount,
     post.caption,
     post.commentsDisabled,
     post.imageUrl,
@@ -498,12 +548,14 @@ function PhotoCard({
     title: string, 
     message: string, 
     type: 'success' | 'error' | 'warning' | 'info',
-    onConfirm?: () => void
+    onConfirm?: () => void,
+    showCancel: boolean = false
   ) => {
     setAlertConfig({
       title,
       message,
       type,
+      showCancel,
       onConfirm: onConfirm || (() => {}),
     });
     setShowCustomAlert(true);
@@ -516,9 +568,24 @@ function PhotoCard({
     }
   }, []);
 
-  const handleLike = useCallback(() => {
-    if (!currentUser) {
-      Alert.alert('Error', 'You must be signed in to like posts.');
+  const handleLike = useCallback(async () => {
+    // Guard against touch propagation/ghost clicks immediately after mounting
+    if (Date.now() - mountTimeRef.current < 500) {
+      logger.debug('Ignoring like tap - too close to mount (potential event propagation)');
+      return;
+    }
+
+    let activeUser = currentUser;
+    if (!activeUser) {
+      // Dynamic fallback load to prevent race conditions during mount
+      activeUser = await getUserFromStorage();
+      if (activeUser) {
+        setCurrentUser(activeUser);
+      }
+    }
+
+    if (!activeUser) {
+      showCustomAlertMessage('Error', 'You must be signed in to like posts.', 'error');
       return;
     }
 
@@ -609,7 +676,7 @@ function PhotoCard({
         });
 
         logger.error('Error toggling like', error);
-        Alert.alert('Error', 'Failed to update like status.');
+        showCustomAlertMessage('Error', 'Failed to update like status.', 'error');
       } finally {
         setActionLoading(prev => {
           const next = new Set(prev);
@@ -618,11 +685,23 @@ function PhotoCard({
         });
       }
     }, 280);
-  }, [currentUser, post._id, setIsLikedWithRef, setLikesCountWithRef]);
+  }, [currentUser, post._id, setIsLikedWithRef, setLikesCountWithRef, showCustomAlertMessage]);
 
-  const handleDoubleTap = useCallback(() => {
-    if (!currentUser) {
-      Alert.alert('Error', 'You must be signed in to like posts.');
+  const handleDoubleTap = useCallback(async () => {
+    if (Date.now() - mountTimeRef.current < 500) {
+      return;
+    }
+
+    let activeUser = currentUser;
+    if (!activeUser) {
+      activeUser = await getUserFromStorage();
+      if (activeUser) {
+        setCurrentUser(activeUser);
+      }
+    }
+
+    if (!activeUser) {
+      showCustomAlertMessage('Error', 'You must be signed in to like posts.', 'error');
       return;
     }
 
@@ -633,7 +712,7 @@ function PhotoCard({
     }
 
     handleLike();
-  }, [currentUser, handleLike]);
+  }, [currentUser, handleLike, showCustomAlertMessage]);
 
   const handleShareClick = useCallback(() => {
     setShowShareModal(true);
@@ -750,13 +829,21 @@ function PhotoCard({
   const handleCommentAdded = useCallback((newComment: any) => {
     triggerCommentHaptic();
     upsertComment(newComment);
-  }, [upsertComment]);
+    
+    const exists = comments.some(c => c._id === newComment._id);
+    const newCount = exists ? comments.length : comments.length + 1;
+    setCommentsCount(newCount);
+    savedEvents.emitPostAction(post._id, 'comment', { commentsCount: newCount });
+  }, [upsertComment, post._id, comments]);
 
   const handleCommentDeleted = useCallback(async (commentId: string) => {
     let originalComments: any[] = [];
     setComments(prev => {
       originalComments = prev;
-      return prev.filter(c => c._id !== commentId);
+      const filtered = prev.filter(c => c._id !== commentId);
+      setCommentsCount(filtered.length);
+      savedEvents.emitPostAction(post._id, 'comment', { commentsCount: filtered.length });
+      return filtered;
     });
     
     try {
@@ -766,12 +853,22 @@ function PhotoCard({
       logger.error('Failed to delete comment, rolling back:', error);
       // Revert local state to the original list of comments
       setComments(originalComments);
+      setCommentsCount(originalComments.length);
+      savedEvents.emitPostAction(post._id, 'comment', { commentsCount: originalComments.length });
       Alert.alert('Error', 'Failed to delete comment. Please try again.');
     }
   }, [post._id]);
 
-  const handleOpenComments = useCallback(() => {
-    if (!currentUser) {
+  const handleOpenComments = useCallback(async () => {
+    let activeUser = currentUser;
+    if (!activeUser) {
+      activeUser = await getUserFromStorage();
+      if (activeUser) {
+        setCurrentUser(activeUser);
+      }
+    }
+
+    if (!activeUser) {
       showCustomAlertMessage('Error', 'You must be signed in to view comments.', 'error');
       return;
     }
@@ -779,69 +876,72 @@ function PhotoCard({
   }, [currentUser, showCustomAlertMessage]);
 
   const handleDeletePost = useCallback(async () => {
-    if (!currentUser) {
-      Alert.alert('Error', 'You must be signed in to delete posts.');
+    let activeUser = currentUser;
+    if (!activeUser) {
+      activeUser = await getUserFromStorage();
+      if (activeUser) {
+        setCurrentUser(activeUser);
+      }
+    }
+
+    if (!activeUser) {
+      showCustomAlertMessage('Error', 'You must be signed in to delete posts.', 'error');
       return;
     }
 
-    if (normalizeId(currentUser._id) !== normalizeId(postUser._id)) {
-      Alert.alert('Error', 'You can only delete your own posts.');
+    if (normalizeId(activeUser._id) !== normalizeId(postUser._id)) {
+      showCustomAlertMessage('Error', 'You can only delete your own posts.', 'error');
       return;
     }
 
-    Alert.alert(
+    showCustomAlertMessage(
       'Delete Post',
       'Are you sure you want to delete this post?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setIsMenuLoading(true);
-              // Update UI optimistically and register deletion immediately (Bug fix)
-              savedEvents.emitPostAction(post._id, 'delete');
-              
-              await deletePost(post._id);
-              await audioManager.stopAll();
+      'warning',
+      async () => {
+        try {
+          setIsMenuLoading(true);
+          // Update UI optimistically and register deletion immediately (Bug fix)
+          savedEvents.emitPostAction(post._id, 'delete');
+          
+          await deletePost(post._id);
+          await audioManager.stopAll();
 
-              // Clear AsyncStorage cache (all feed-mode variants) to prevent deleted post
-              // from reappearing after pull-to-refresh / app restart. TAATOM-044 keys the
-              // home feed cache by feed mode — we must strip the post from every variant.
+          // Clear AsyncStorage cache (all feed-mode variants) to prevent deleted post
+          // from reappearing after pull-to-refresh / app restart. TAATOM-044 keys the
+          // home feed cache by feed mode — we must strip the post from every variant.
+          try {
+            const cacheKeys = ['cachedPosts_recents', 'cachedPosts_friends', 'cachedPosts_popular', 'cachedPosts'];
+            await Promise.all(cacheKeys.map(async (key) => {
+              const cached = await AsyncStorage.getItem(key);
+              if (!cached) return;
               try {
-                const cacheKeys = ['cachedPosts_recents', 'cachedPosts_friends', 'cachedPosts_popular', 'cachedPosts'];
-                await Promise.all(cacheKeys.map(async (key) => {
-                  const cached = await AsyncStorage.getItem(key);
-                  if (!cached) return;
-                  try {
-                    const parsed = JSON.parse(cached);
-                    if (parsed?.data && Array.isArray(parsed.data)) {
-                      parsed.data = parsed.data.filter((p: any) => normalizeId(p._id) !== normalizeId(post._id));
-                      await AsyncStorage.setItem(key, JSON.stringify(parsed));
-                    }
-                  } catch {
-                    /* ignore malformed cache entry */
-                  }
-                }));
-              } catch (cacheError) {
-                logger.warn('Failed to update cached posts after deletion', cacheError);
+                const parsed = JSON.parse(cached);
+                if (parsed?.data && Array.isArray(parsed.data)) {
+                  parsed.data = parsed.data.filter((p: any) => normalizeId(p._id) !== normalizeId(post._id));
+                  await AsyncStorage.setItem(key, JSON.stringify(parsed));
+                }
+              } catch {
+                /* ignore malformed cache entry */
               }
+            }));
+          } catch (cacheError) {
+            logger.warn('Failed to update cached posts after deletion', cacheError);
+          }
 
-              showCustomAlertMessage('Success', 'Post deleted successfully!', 'success');
-              if (onRefresh) onRefresh();
-            } catch (error: any) {
-              // Revert optimistic updates on error (Bug fix)
-              savedEvents.emitPostAction(post._id, 'undelete');
-              if (onRefresh) onRefresh();
-              logger.error('Error deleting post', error);
-              showCustomAlertMessage('Error', sanitizeErrorForDisplay(error, 'PhotoCard.deletePost') || 'Failed to delete post.', 'error');
-            } finally {
-              setIsMenuLoading(false);
-            }
-          },
-        },
-      ]
+          showCustomAlertMessage('Success', 'Post deleted successfully!', 'success');
+          if (onRefresh) onRefresh();
+        } catch (error: any) {
+          // Revert optimistic updates on error (Bug fix)
+          savedEvents.emitPostAction(post._id, 'undelete');
+          if (onRefresh) onRefresh();
+          logger.error('Error deleting post', error);
+          showCustomAlertMessage('Error', sanitizeErrorForDisplay(error, 'PhotoCard.deletePost') || 'Failed to delete post.', 'error');
+        } finally {
+          setIsMenuLoading(false);
+        }
+      },
+      true // showCancel
     );
   }, [currentUser, post._id, postUser._id, onRefresh, showCustomAlertMessage]);
 
@@ -1124,7 +1224,7 @@ function PhotoCard({
       <PostLikesCount 
         likesCount={likesCount} 
         postId={post._id}
-        commentsCount={comments.length}
+        commentsCount={commentsCount}
         sharesCount={hideShareCount ? undefined : (post.sharesCount || 0)}
         onCommentsPress={handleOpenComments}
         onSharesPress={handleShareClick}
@@ -1269,12 +1369,7 @@ function PhotoCard({
                   style={[styles.menuItem, styles.menuItemDestructive]}
                   onPress={() => {
                     setShowMenu(false);
-                    showCustomAlertMessage(
-                      'Delete Post',
-                      'Are you sure you want to delete this post? This action cannot be undone.',
-                      'error',
-                      handleDeletePost
-                    );
+                    handleDeletePost();
                   }}
                   disabled={isMenuLoading}
                 >
@@ -1505,6 +1600,7 @@ function PhotoCard({
         title={alertConfig.title}
         message={alertConfig.message}
         type={alertConfig.type}
+        showCancel={alertConfig.showCancel}
         onConfirm={alertConfig.onConfirm}
         onClose={handleCustomAlertClose}
       />

@@ -899,6 +899,49 @@ const sendPendingReviewNotification = async (userId, tripVisit) => {
   }
 };
 
+/**
+ * Recalculates and updates the tripScoreAwarded field for a journey
+ * based on unique, verified TripVisits linked to it.
+ * @param {String} journeyId - The Journey ID
+ * @returns {Promise<Number>} The new calculated tripScoreAwarded
+ */
+const recalculateJourneyTripScore = async (journeyId) => {
+  try {
+    const Journey = require('../models/Journey');
+    
+    // Find all verified, active TripVisits linked to this journey
+    const visits = await TripVisit.find({
+      journey: journeyId,
+      isActive: true,
+      verificationStatus: { $in: VERIFIED_STATUSES }
+    }).lean();
+
+    // Group by 3-decimal-place coordinates to ensure uniqueness
+    const uniqueVisits = new Set();
+    visits.forEach(v => {
+      if (typeof v.lat === 'number' && typeof v.lng === 'number') {
+        const roundLat = Math.round(v.lat * 1000) / 1000;
+        const roundLng = Math.round(v.lng * 1000) / 1000;
+        const key = `${roundLat.toFixed(3)},${roundLng.toFixed(3)}`;
+        uniqueVisits.add(key);
+      }
+    });
+
+    const calculatedScore = uniqueVisits.size;
+
+    // Update the journey document in the database
+    await Journey.findByIdAndUpdate(journeyId, {
+      tripScoreAwarded: calculatedScore
+    });
+
+    logger.info(`🔄 Recalculated TripScore for journey ${journeyId}: ${calculatedScore} points (from ${visits.length} verified visits)`);
+    return calculatedScore;
+  } catch (error) {
+    logger.error(`Error recalculating TripScore for journey ${journeyId}:`, error);
+    return 0;
+  }
+};
+
 module.exports = {
   createTripVisitFromPost,
   updateTripVisitFromPost,
@@ -908,6 +951,7 @@ module.exports = {
   assignTrustLevel,
   determineSource,
   getUserPreviousVisits,
-  findExistingVisit
+  findExistingVisit,
+  recalculateJourneyTripScore
 };
 

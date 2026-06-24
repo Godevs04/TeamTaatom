@@ -150,6 +150,9 @@ function getJourneyPolylineCoords(journey: JourneyPolyline) {
 
 
 
+// Module-level lock to prevent double-navigation in rapid succession
+let navigatePostLock = false;
+
 function AllLocationsMapInner() {
   const [locations, setLocations] = useState<LocationPin[]>([]);
   const [journeys, setJourneys] = useState<JourneyPolyline[]>([]);
@@ -158,6 +161,7 @@ function AllLocationsMapInner() {
   const [mapFilter, setMapFilter] = useState<'posts' | 'journeys'>('posts');
   const [selectedPost, setSelectedPost] = useState<LocationPin | null>(null);
   const [selectedJourney, setSelectedJourney] = useState<JourneyPolyline | null>(null);
+  const [loadedImages, setLoadedImages] = useState<Record<string, boolean>>({});
 
   const carouselRef = useRef<FlatList>(null);
   const isScrollingCarouselRef = useRef(false);
@@ -165,14 +169,16 @@ function AllLocationsMapInner() {
   const journeysWithOffsets = useMemo(() => {
     const coordsCount: { [key: string]: number } = {};
     return journeys.map((j) => {
-      if (!j.startCoords?.lat || !j.startCoords?.lng) return j;
-      const key = `${j.startCoords.lat.toFixed(4)},${j.startCoords.lng.toFixed(4)}`;
+      const startLat = j.startCoords?.lat ?? (j.startCoords as any)?.latitude;
+      const startLng = j.startCoords?.lng ?? (j.startCoords as any)?.longitude;
+      if (!startLat || !startLng) return j;
+      const key = `${startLat.toFixed(4)},${startLng.toFixed(4)}`;
       const count = coordsCount[key] || 0;
       coordsCount[key] = count + 1;
-      const offsetLat = j.startCoords.lat + count * 0.00018; // approx 20 meters vertical shift
+      const offsetLat = startLat + count * 0.00018; // approx 20 meters vertical shift
       return {
         ...j,
-        renderCoords: { lat: offsetLat, lng: j.startCoords.lng }
+        renderCoords: { lat: offsetLat, lng: startLng }
       };
     });
   }, [journeys]);
@@ -239,6 +245,20 @@ function AllLocationsMapInner() {
   const { theme, mode, isDark } = useTheme();
   const mapStyle = useMapStyle();
   const { showAlert, showError, showSuccess, showDestructiveConfirm } = useAlert();
+
+  const navigateToPost = (postId: string, contentType: string, targetUserId: string) => {
+    if (navigatePostLock) return;
+    navigatePostLock = true;
+    setTimeout(() => {
+      navigatePostLock = false;
+    }, 1000);
+
+    if (contentType === 'short' || contentType === 'video') {
+      router.push(`/user-shorts/${targetUserId}?shortId=${postId}`);
+    } else {
+      router.push(`/post/${postId}`);
+    }
+  };
 
   const renderSelectedPostCard = () => {
     if (!selectedPost || mapFilter === 'journeys') return null;
@@ -383,11 +403,7 @@ function AllLocationsMapInner() {
                     <TouchableOpacity
                       onPress={() => {
                         const targetUserId = userId;
-                        if (isShort) {
-                          router.push(`/user-shorts/${targetUserId}?shortId=${item.postId}`);
-                        } else {
-                          router.push(`/post/${item.postId}`);
-                        }
+                        navigateToPost(item.postId || '', isShort ? 'short' : 'photo', targetUserId);
                         setSelectedPost(null);
                       }}
                       style={styles.previewViewBtn}
@@ -655,18 +671,22 @@ function AllLocationsMapInner() {
     if (selectedJourney && mapRef.current) {
       let coords = getJourneyPolylineCoords(selectedJourney);
       if (coords.length === 0) {
-        if (selectedJourney.startCoords?.lat && selectedJourney.startCoords?.lng) {
+        const startLat = selectedJourney.startCoords?.lat ?? (selectedJourney.startCoords as any)?.latitude;
+        const startLng = selectedJourney.startCoords?.lng ?? (selectedJourney.startCoords as any)?.longitude;
+        const endLat = selectedJourney.endCoords?.lat ?? (selectedJourney.endCoords as any)?.latitude;
+        const endLng = selectedJourney.endCoords?.lng ?? (selectedJourney.endCoords as any)?.longitude;
+        if (startLat && startLng) {
           coords.push({
-            latitude: selectedJourney.startCoords.lat,
-            longitude: selectedJourney.startCoords.lng,
+            latitude: startLat,
+            longitude: startLng,
             timestamp: Date.now(),
             segmentBreak: false,
           });
         }
-        if (selectedJourney.endCoords?.lat && selectedJourney.endCoords?.lng) {
+        if (endLat && endLng) {
           coords.push({
-            latitude: selectedJourney.endCoords.lat,
-            longitude: selectedJourney.endCoords.lng,
+            latitude: endLat,
+            longitude: endLng,
             timestamp: Date.now(),
             segmentBreak: false,
           });
@@ -1143,7 +1163,7 @@ function AllLocationsMapInner() {
         const rawJourneys = data?.journeys ?? [];
         // Filter journeys that have start coordinates or polyline data, and sort reverse-chronologically
         const withPolylines = (rawJourneys.filter(
-          (j: any) => (j.polyline && j.polyline.length > 1) || (j.startCoords && j.startCoords.lat && j.startCoords.lng)
+          (j: any) => (j.polyline && j.polyline.length > 1) || (j.startCoords && (j.startCoords.lat ?? j.startCoords.latitude) && (j.startCoords.lng ?? j.startCoords.longitude))
         ) as unknown as JourneyPolyline[]).sort(
           (a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
         );
@@ -1181,10 +1201,14 @@ function AllLocationsMapInner() {
       const updated = await Promise.all(
         journeys.map(async (j) => {
           if (j.startCity && j.endCity) return j; // Already resolved
-          const startCity = j.startCoords?.lat && j.startCoords?.lng
-            ? await geocode(j.startCoords.lat, j.startCoords.lng) : '';
-          const endCity = j.endCoords?.lat && j.endCoords?.lng
-            ? await geocode(j.endCoords.lat, j.endCoords.lng) : '';
+          const startLat = j.startCoords?.lat ?? (j.startCoords as any)?.latitude;
+          const startLng = j.startCoords?.lng ?? (j.startCoords as any)?.longitude;
+          const endLat = j.endCoords?.lat ?? (j.endCoords as any)?.latitude;
+          const endLng = j.endCoords?.lng ?? (j.endCoords as any)?.longitude;
+          const startCity = startLat && startLng
+            ? await geocode(startLat, startLng) : '';
+          const endCity = endLat && endLng
+            ? await geocode(endLat, endLng) : '';
           return { ...j, startCity, endCity };
         })
       );
@@ -1210,11 +1234,15 @@ function AllLocationsMapInner() {
 
     // Add journey polyline points (just start + end for bounding, not every point)
     journeys.forEach((j) => {
-      if (j.startCoords?.lat && j.startCoords?.lng) {
-        allCoords.push({ latitude: j.startCoords.lat, longitude: j.startCoords.lng });
+      const startLat = j.startCoords?.lat ?? (j.startCoords as any)?.latitude;
+      const startLng = j.startCoords?.lng ?? (j.startCoords as any)?.longitude;
+      const endLat = j.endCoords?.lat ?? (j.endCoords as any)?.latitude;
+      const endLng = j.endCoords?.lng ?? (j.endCoords as any)?.longitude;
+      if (startLat && startLng) {
+        allCoords.push({ latitude: startLat, longitude: startLng });
       }
-      if (j.endCoords?.lat && j.endCoords?.lng) {
-        allCoords.push({ latitude: j.endCoords.lat, longitude: j.endCoords.lng });
+      if (endLat && endLng) {
+        allCoords.push({ latitude: endLat, longitude: endLng });
       }
     });
 
@@ -1258,18 +1286,22 @@ function AllLocationsMapInner() {
     });
 
     journeys.forEach((j) => {
-      if (isValidMapCoordinate({ latitude: j.startCoords?.lat, longitude: j.startCoords?.lng }) && j.startCoords.lat !== 0 && j.startCoords.lng !== 0) {
-        if (j.startCoords.lat < minLat) minLat = j.startCoords.lat;
-        if (j.startCoords.lat > maxLat) maxLat = j.startCoords.lat;
-        if (j.startCoords.lng < minLng) minLng = j.startCoords.lng;
-        if (j.startCoords.lng > maxLng) maxLng = j.startCoords.lng;
+      const startLat = j.startCoords?.lat ?? (j.startCoords as any)?.latitude;
+      const startLng = j.startCoords?.lng ?? (j.startCoords as any)?.longitude;
+      const endLat = j.endCoords?.lat ?? (j.endCoords as any)?.latitude;
+      const endLng = j.endCoords?.lng ?? (j.endCoords as any)?.longitude;
+      if (isValidMapCoordinate({ latitude: startLat, longitude: startLng }) && startLat !== 0 && startLng !== 0) {
+        if (startLat < minLat) minLat = startLat;
+        if (startLat > maxLat) maxLat = startLat;
+        if (startLng < minLng) minLng = startLng;
+        if (startLng > maxLng) maxLng = startLng;
         hasCoords = true;
       }
-      if (isValidMapCoordinate({ latitude: j.endCoords?.lat, longitude: j.endCoords?.lng }) && j.endCoords.lat !== 0 && j.endCoords.lng !== 0) {
-        if (j.endCoords.lat < minLat) minLat = j.endCoords.lat;
-        if (j.endCoords.lat > maxLat) maxLat = j.endCoords.lat;
-        if (j.endCoords.lng < minLng) minLng = j.endCoords.lng;
-        if (j.endCoords.lng > maxLng) maxLng = j.endCoords.lng;
+      if (isValidMapCoordinate({ latitude: endLat, longitude: endLng }) && endLat !== 0 && endLng !== 0) {
+        if (endLat < minLat) minLat = endLat;
+        if (endLat > maxLat) maxLat = endLat;
+        if (endLng < minLng) minLng = endLng;
+        if (endLng > maxLng) maxLng = endLng;
         hasCoords = true;
       }
     });
@@ -1315,31 +1347,39 @@ function AllLocationsMapInner() {
       userId: userId,
     })) : [];
     const filteredJourneys = (mapFilter === 'journeys') ? journeysWithOffsets : [];
-    const polylinePaths = filteredJourneys.map((j) => ({
-      _id: j._id,
-      title: (j.startCity && j.endCity) ? `${j.startCity} to ${j.endCity}` : (j.title || 'Saved Journey'),
-      path: j.polyline ? j.polyline.map((p) => ({ lat: p.lat, lng: p.lng })) : [],
-      startCoords: j.startCoords,
-      renderCoords: (j as any).renderCoords || j.startCoords,
-      endCoords: j.endCoords,
-      startLetter: j.startCity ? j.startCity[0].toUpperCase() : 'S',
-      endLetter: j.endCity ? j.endCity[0].toUpperCase() : 'E',
-      startCity: j.startCity || 'Start',
-      endCity: j.endCity || 'End',
-      waypoints: (j.waypoints || []).map((w) => {
-        const photoUrl = getWaypointPhotoUrl(w);
-        const postId = w.post?._id || w.post;
-        const contentType = w.contentType || w.post?.type || 'photo';
-        return {
-          lat: w.lat,
-          lng: w.lng,
-          photo: photoUrl,
-          postId: typeof postId === 'string' ? postId : postId?.toString(),
-          contentType,
-          userId: j.user?._id || j.user || userId,
-        };
-      }).filter((w) => w.lat && w.lng && w.photo),
-    }));
+    const polylinePaths = filteredJourneys.map((j) => {
+      const startLat = j.startCoords?.lat ?? (j.startCoords as any)?.latitude;
+      const startLng = j.startCoords?.lng ?? (j.startCoords as any)?.longitude;
+      const endLat = j.endCoords?.lat ?? (j.endCoords as any)?.latitude;
+      const endLng = j.endCoords?.lng ?? (j.endCoords as any)?.longitude;
+      const renderLat = (j as any).renderCoords?.lat ?? (j as any).renderCoords?.latitude ?? startLat;
+      const renderLng = (j as any).renderCoords?.lng ?? (j as any).renderCoords?.longitude ?? startLng;
+      return {
+        _id: j._id,
+        title: (j.startCity && j.endCity) ? `${j.startCity} to ${j.endCity}` : (j.title || 'Saved Journey'),
+        path: j.polyline ? j.polyline.map((p) => ({ lat: p.lat ?? (p as any).latitude, lng: p.lng ?? (p as any).longitude })) : [],
+        startCoords: { lat: startLat, lng: startLng },
+        renderCoords: { lat: renderLat, lng: renderLng },
+        endCoords: { lat: endLat, lng: endLng },
+        startLetter: j.startCity ? j.startCity[0].toUpperCase() : 'S',
+        endLetter: j.endCity ? j.endCity[0].toUpperCase() : 'E',
+        startCity: j.startCity || 'Start',
+        endCity: j.endCity || 'End',
+        waypoints: (j.waypoints || []).map((w) => {
+          const photoUrl = getWaypointPhotoUrl(w);
+          const postId = w.post?._id || w.post;
+          const contentType = w.contentType || w.post?.type || 'photo';
+          return {
+            lat: w.lat ?? w.latitude,
+            lng: w.lng ?? w.longitude,
+            photo: photoUrl,
+            postId: typeof postId === 'string' ? postId : postId?.toString(),
+            contentType,
+            userId: j.user?._id || j.user || userId,
+          };
+        }).filter((w) => (w.lat ?? (w as any).latitude) && (w.lng ?? (w as any).longitude) && w.photo),
+      };
+    });
 
     const centerLat = region.latitude;
     const centerLng = region.longitude;
@@ -1847,11 +1887,7 @@ function initMap(){
               const data = JSON.parse(event.nativeEvent.data);
               if (data.type === 'navigatePost' && data.postId) {
                 const targetUserId = data.userId || userId;
-                if (data.contentType === 'short' || data.contentType === 'video') {
-                  router.push(`/user-shorts/${targetUserId}?shortId=${data.postId}`);
-                } else {
-                  router.push(`/post/${data.postId}`);
-                }
+                navigateToPost(data.postId, data.contentType || 'photo', targetUserId);
               } else if (data.type === 'selectPost' && data.location) {
                 const loc = {
                   ...data.location,
@@ -1932,7 +1968,7 @@ function initMap(){
           const allCoords = [
             ...validLocations.map((l) => ({ latitude: l.latitude, longitude: l.longitude })),
             ...journeys.flatMap((j) =>
-              j.polyline?.map((p) => ({ latitude: p.lat, longitude: p.lng })) || []
+              j.polyline?.map((p) => ({ latitude: p.lat ?? (p as any).latitude, longitude: p.lng ?? (p as any).longitude })) || []
             ),
           ].filter(isValidMapCoordinate);
           if (allCoords.length > 0 && mapRef.current && !useWebViewFallback) {
@@ -2017,11 +2053,13 @@ function initMap(){
               );
             }
 
-            if (isValidMapCoordinate({ latitude: j.endCoords?.lat, longitude: j.endCoords?.lng })) {
+            const endLat = j.endCoords?.lat ?? (j.endCoords as any)?.latitude;
+            const endLng = j.endCoords?.lng ?? (j.endCoords as any)?.longitude;
+            if (isValidMapCoordinate({ latitude: endLat, longitude: endLng })) {
               elements.push(
                 <SafeMarker
                   key={`end-${j._id}`}
-                  coordinate={{ latitude: j.endCoords.lat, longitude: j.endCoords.lng }}
+                  coordinate={{ latitude: endLat, longitude: endLng }}
                   anchor={{ x: 0.5, y: 0.5 }}
                   onPress={() => setSelectedJourney(j)}
                   repaintTriggers={[isSelected]}
@@ -2036,21 +2074,20 @@ function initMap(){
                 const photoUrl = getWaypointPhotoUrl(wp);
                 const postId = wp.post?._id || wp.post;
                 const contentType = wp.contentType || wp.post?.type || 'photo';
-                if (photoUrl && isValidMapCoordinate({ latitude: wp.lat, longitude: wp.lng })) {
+                const wpLat = wp.lat ?? wp.latitude;
+                const wpLng = wp.lng ?? wp.longitude;
+                if (photoUrl && isValidMapCoordinate({ latitude: wpLat, longitude: wpLng })) {
+                  const wpKey = `${j._id}-${wpIdx}`;
                   elements.push(
                     <SafeMarker
                       key={`wp-${j._id}-${wpIdx}`}
-                      coordinate={{ latitude: wp.lat, longitude: wp.lng }}
+                      coordinate={{ latitude: wpLat, longitude: wpLng }}
                       anchor={{ x: 0.5, y: 0.5 }}
                       onPress={() => {
                         const targetUserId = j.user?._id || j.user || userId;
-                        if (contentType === 'short' || contentType === 'video') {
-                          router.push(`/user-shorts/${targetUserId}?shortId=${postId}`);
-                        } else {
-                          router.push(`/post/${postId}`);
-                        }
+                        navigateToPost(postId, contentType, targetUserId);
                       }}
-                      repaintTriggers={[photoUrl]}
+                      repaintTriggers={[photoUrl, !!loadedImages[wpKey]]}
                     >
                       <View style={{
                         width: 32,
@@ -2070,6 +2107,11 @@ function initMap(){
                           source={{ uri: photoUrl }}
                           style={{ width: '100%', height: '100%', borderRadius: 14 }}
                           contentFit="cover"
+                          onLoad={() => {
+                            if (!loadedImages[wpKey]) {
+                              setLoadedImages(prev => ({ ...prev, [wpKey]: true }));
+                            }
+                          }}
                         />
                       </View>
                     </SafeMarker>

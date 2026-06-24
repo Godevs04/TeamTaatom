@@ -1144,7 +1144,7 @@ export default function LocaleScreen() {
         (activeLocaleFilters.stateCode && activeLocaleFilters.stateCode !== 'all') ? activeLocaleFilters.stateCode : '',
         activeLocaleFilters.spotTypes && activeLocaleFilters.spotTypes.length > 0 ? activeLocaleFilters.spotTypes : '',
         1,
-        40,
+        100,
         false,
         activeLocaleFilters.stateProvince || '',
         undefined,
@@ -1270,7 +1270,15 @@ export default function LocaleScreen() {
         return locale;
       });
       if (!changed) return prev;
-      return updated;
+      
+      const INFINITY = Number.POSITIVE_INFINITY;
+      return [...updated].sort((a, b) => {
+        const dA = a.distanceKm;
+        const dB = b.distanceKm;
+        const effA = (dA !== null && dA !== undefined && !isNaN(dA)) ? dA : INFINITY;
+        const effB = (dB !== null && dB !== undefined && !isNaN(dB)) ? dB : INFINITY;
+        return effA - effB;
+      });
     });
   }, [userLocation, locationPermissionGranted, drivingDistances, adminLocales.length]);
 
@@ -1795,12 +1803,37 @@ export default function LocaleScreen() {
         // Cache the coordinates
         geocodedCoordsCacheRef.current.set(cacheKey, geocodedCoords);
         
-        // Return locale with coordinates
-        const updatedLocale = { ...locale, latitude: geocodedCoords.latitude, longitude: geocodedCoords.longitude };
+        // Calculate distance with geocoded coordinates
+        const userLat = userLocationRef.current ? roundCoord(userLocationRef.current.latitude) : null;
+        const userLon = userLocationRef.current ? roundCoord(userLocationRef.current.longitude) : null;
+        const distanceKm = userLat !== null && userLon !== null && locationPermissionGrantedRef.current
+          ? calculateDistance(userLat, userLon, geocodedCoords.latitude, geocodedCoords.longitude)
+          : null;
+        
+        // Return locale with coordinates and distance
+        const updatedLocale = { 
+          ...locale, 
+          latitude: geocodedCoords.latitude, 
+          longitude: geocodedCoords.longitude,
+          distanceKm
+        };
         
         // Update the locale in adminLocales state
         if (isMountedRef.current) {
-          setAdminLocales(prev => prev.map(l => l._id === locale._id ? updatedLocale : l));
+          setAdminLocales(prev => {
+            const updated = prev.map(l => l._id === locale._id ? updatedLocale : l);
+            if (userLat !== null && userLon !== null && locationPermissionGrantedRef.current) {
+              const INFINITY = Number.POSITIVE_INFINITY;
+              return [...updated].sort((a, b) => {
+                const dA = a.distanceKm;
+                const dB = b.distanceKm;
+                const effA = (dA !== null && dA !== undefined && !isNaN(dA)) ? dA : INFINITY;
+                const effB = (dB !== null && dB !== undefined && !isNaN(dB)) ? dB : INFINITY;
+                return effA - effB;
+              });
+            }
+            return updated;
+          });
         }
         
         return updatedLocale;

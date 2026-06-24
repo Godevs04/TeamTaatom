@@ -304,6 +304,16 @@ const approveTripVisit = async (req, res) => {
 
     logger.info(`TripVisit ${tripVisitId} approved by admin ${adminId}`);
 
+    // If linked to a journey, recalculate journey's trip score
+    if (tripVisit.journey) {
+      try {
+        const { recalculateJourneyTripScore } = require('../services/tripVisitService');
+        await recalculateJourneyTripScore(tripVisit.journey);
+      } catch (scoreErr) {
+        logger.warn(`Failed to recalculate TripScore for journey ${tripVisit.journey} on approval:`, scoreErr);
+      }
+    }
+
     // Update support conversation status to 'resolved' if exists
     try {
       const supportChat = await getSupportChatByTripVisit(tripVisitId);
@@ -403,6 +413,16 @@ const rejectTripVisit = async (req, res) => {
     await tripVisit.save();
 
     logger.info(`TripVisit ${tripVisitId} rejected by admin ${adminId}`);
+
+    // If linked to a journey, recalculate journey's trip score
+    if (tripVisit.journey) {
+      try {
+        const { recalculateJourneyTripScore } = require('../services/tripVisitService');
+        await recalculateJourneyTripScore(tripVisit.journey);
+      } catch (scoreErr) {
+        logger.warn(`Failed to recalculate TripScore for journey ${tripVisit.journey} on rejection:`, scoreErr);
+      }
+    }
 
     // Update support conversation status to 'resolved' if exists
     try {

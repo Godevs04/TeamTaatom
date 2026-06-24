@@ -29,6 +29,7 @@ class SavedEvents {
   private followActionListeners: Set<FollowActionListener> = new Set();
   private deletedPostIds: Set<string> = new Set();
   private likesState: Map<string, { isLiked: boolean; likesCount: number }> = new Map();
+  private commentsCountState: Map<string, number> = new Map();
   private loadPromise: Promise<void>;
 
   constructor() {
@@ -41,6 +42,14 @@ class SavedEvents {
 
   setLikesState(postId: string, isLiked: boolean, likesCount: number) {
     this.likesState.set(normalizeId(postId), { isLiked, likesCount });
+  }
+
+  getCommentsCount(postId: string) {
+    return this.commentsCountState.get(normalizeId(postId));
+  }
+
+  setCommentsCount(postId: string, commentsCount: number) {
+    this.commentsCountState.set(normalizeId(postId), commentsCount);
   }
 
   async ensureLoaded() {
@@ -141,6 +150,9 @@ class SavedEvents {
       const isLiked = action === 'like';
       const likesCount = data?.likesCount ?? 0;
       this.setLikesState(postId, isLiked, likesCount);
+    } else if (action === 'comment') {
+      const count = data?.commentsCount ?? 0;
+      this.setCommentsCount(postId, count);
     }
     this.postActionListeners.forEach((l) => {
       try { l(postId, action, data); } catch {}

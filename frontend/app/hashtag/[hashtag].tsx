@@ -97,6 +97,14 @@ export default function HashtagDetailScreen() {
             ? { ...post, isSaved } as any
             : post
         )));
+      } else if (action === 'comment') {
+        if (data && typeof data.commentsCount === 'number') {
+          setPosts(prev => prev.map(post => (
+            normalizeId(post._id) === normalizeId(likedPostId)
+              ? { ...post, commentsCount: data.commentsCount } as any
+              : post
+          )));
+        }
       } else if (action === 'delete') {
         setPosts(prev => prev.filter(post => normalizeId(post._id) !== normalizeId(likedPostId)));
       }
