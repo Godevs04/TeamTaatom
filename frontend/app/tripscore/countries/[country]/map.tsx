@@ -96,6 +96,7 @@ const OptimizedVisitedMarker = React.memo(({
         longitude: location.coordinates!.longitude,
       }}
       onPress={onPress}
+      keepTracking={true}
       repaintTriggers={[isSelected, latitudeDelta]}
     >
       <PremiumMapMarker 
