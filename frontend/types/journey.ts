@@ -12,12 +12,14 @@ export interface Journey {
   _id: string;
   userId: string;
   startCoords: {
-    latitude: number;
-    longitude: number;
+    lat: number;
+    lng: number;
+    // Note: backend stores as lat/lng. Never access as .latitude/.longitude.
   };
   endCoords?: {
-    latitude: number;
-    longitude: number;
+    lat: number;
+    lng: number;
+    // Note: backend stores as lat/lng. Never access as .latitude/.longitude.
   };
   title?: string;
   description?: string;

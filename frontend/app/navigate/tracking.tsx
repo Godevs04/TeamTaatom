@@ -583,6 +583,21 @@ window.updateMapData = function(path, currentLat, currentLng) {
                 />
               )}
               {/* Rely on native showsUserLocation={true} for accurate hardware-fused user dot representation to prevent dual-dot desyncs */}
+              {SafeMarker && journey && (() => {
+                const sc = journey.startCoords;
+                const lat = sc?.lat ?? (sc as any)?.latitude;
+                const lng = sc?.lng ?? (sc as any)?.longitude;
+                if (typeof lat !== 'number' || typeof lng !== 'number' || isNaN(lat) || isNaN(lng)) return null;
+                return (
+                  <SafeMarker
+                    coordinate={{ latitude: lat, longitude: lng }}
+                    title="Start"
+                    anchor={{ x: 0.5, y: 0.5 }}
+                  >
+                    <PremiumMapMarker icon="play" latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
+                  </SafeMarker>
+                );
+              })()}
             </MapView>
           ) : (
             <View style={[styles.map, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#E5E7EB' }]}>
