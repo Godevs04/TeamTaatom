@@ -217,6 +217,7 @@ export default function ImageEditModal({
                       padding: 12,
                       borderWidth: 1,
                       borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                      overflow: 'hidden',
                     }}>
                       <View style={[
                         styles.previewContainer,
@@ -224,6 +225,7 @@ export default function ImageEditModal({
                           width: viewportWidth,
                           height: viewportH,
                           position: 'relative',
+                          overflow: 'visible',
                         }
                       ]}>
                         <AspectImageCropper

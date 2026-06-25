@@ -589,7 +589,20 @@ export default function PostScreen() {
   }>({ current: 0, total: 0, percentage: 0 });
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadAlertTitle, setUploadAlertTitle] = useState('Uploading...');
+  const [uploadAlertMessage, setUploadAlertMessage] = useState('Please wait while your content is being uploaded');
   const [postType, setPostType] = useState<'photo' | 'short'>(initialPostType);
+
+  // Filter gallery content based on the selected postType (Bug 041)
+  const filteredAssets = useMemo(() => {
+    return cameraRollAssets.filter(asset => {
+      if (postType === 'short') {
+        return asset.mediaType === 'video';
+      } else {
+        return asset.mediaType === 'photo';
+      }
+    });
+  }, [cameraRollAssets, postType]);
   const [user, setUser] = useState<UserType | null>(null);
   const [hasExistingPosts, setHasExistingPosts] = useState<boolean | null>(null);
   const [hasExistingShorts, setHasExistingShorts] = useState<boolean | null>(null);
@@ -601,6 +614,7 @@ export default function PostScreen() {
   const [songEndTime, setSongEndTime] = useState(60);
   const [videoDuration, setVideoDuration] = useState<number | null>(null); // Video duration in seconds
   const [showSongSelector, setShowSongSelector] = useState(false);
+  const [isSongPreviewActive, setIsSongPreviewActive] = useState(false);
   const [audioChoice, setAudioChoice] = useState<'background' | 'original' | null>(null);
   const [showAudioChoiceModal, setShowAudioChoiceModal] = useState(false);
   // Ref to track if a song was just selected to prevent race condition with onClose
@@ -898,6 +912,7 @@ export default function PostScreen() {
   // Upload lifecycle safety: track active upload session
   const uploadSessionRef = useRef<{
     isActive: boolean;
+    isCancelled?: boolean;
     abortController?: AbortController;
     progressWatchdog?: NodeJS.Timeout;
     lastProgressTime?: number;
@@ -1099,29 +1114,8 @@ export default function PostScreen() {
 
       // Fetch duration if missing or 0
       if (!videoDuration || videoDuration === 0) {
-        let soundInstance: Audio.Sound | null = null;
-        try {
-          const { sound } = await Audio.Sound.createAsync(
-            { uri: selectedVideo },
-            { shouldPlay: false }
-          );
-          soundInstance = sound;
-          const status = await sound.getStatusAsync();
-          if (status.isLoaded && status.durationMillis && active) {
-            const actualDuration = status.durationMillis / 1000;
-            const MAX_SHORT_DURATION = 60;
-            const shortDuration = Math.min(actualDuration, MAX_SHORT_DURATION);
-            setVideoDuration(shortDuration);
-            logger.info('[Video Process Effect] video duration captured:', shortDuration);
-          }
-        } catch (videoError) {
-          logger.warn('[Video Process Effect] Failed to get video duration:', videoError);
-          if (active) setVideoDuration(60);
-        } finally {
-          if (soundInstance) {
-            await soundInstance.unloadAsync().catch(() => {});
-          }
-        }
+        // We will capture duration from the onLoad callback of the <Video> component
+        // to avoid loading conflicts and hardware decoder resource contention.
       }
     };
     processVideo();
@@ -1244,8 +1238,11 @@ export default function PostScreen() {
   const clearUploadState = () => {
     setUploadError(null);
     setUploadProgress({ current: 0, total: 0, percentage: 0 });
+    setUploadAlertTitle('Uploading...');
+    setUploadAlertMessage('Please wait while your content is being uploaded');
     setIsUploading(false);
     isSubmittingRef.current = false;
+    setPendingShortData(null);
     
     // Deactivate Keep Awake
     deactivateKeepAwake();
@@ -1262,7 +1259,7 @@ export default function PostScreen() {
     if (uploadSessionRef.current.progressWatchdog) {
       clearInterval(uploadSessionRef.current.progressWatchdog);
     }
-    uploadSessionRef.current = { isActive: false };
+    uploadSessionRef.current = { isActive: false, isCancelled: false };
     
     // Clean up temporary compressed video file if it exists
     if (compressedVideoUriRef.current) {
@@ -1279,6 +1276,10 @@ export default function PostScreen() {
     if (!uploadSessionRef.current.isActive) return;
     
     logger.debug('Cancelling active upload');
+    uploadSessionRef.current.isCancelled = true;
+    
+    setUploadAlertTitle('Cancelling...');
+    setUploadAlertMessage('Aborting upload request...');
     
     // Abort ongoing request if possible
     if (uploadSessionRef.current.abortController) {
@@ -1327,7 +1328,16 @@ export default function PostScreen() {
       logger.error('Failed to save draft on cancellation', error);
     }
     
-    clearUploadState();
+    // Fallback safety to clear state and show cancellation dialog
+    setTimeout(() => {
+      if (uploadSessionRef.current.isActive) {
+        clearUploadState();
+        showSuccess(
+          postType === 'short' ? 'Your Reel upload has been cancelled.' : 'Your Post upload has been cancelled.',
+          'Cancelled'
+        );
+      }
+    }, 1500);
   }, [selectedImages, selectedVideo, videoThumbnail, location, address, locationMetadata, postType, selectedSong, songStartTime, songEndTime, audioChoice, selectedFilter]);
 
   // Media memory safety: release references when no longer needed
@@ -2623,6 +2633,7 @@ export default function PostScreen() {
     // Initialize upload session
     uploadSessionRef.current = {
       isActive: true,
+      isCancelled: false,
       abortController: new AbortController(),
       lastProgressTime: Date.now()
     };
@@ -2634,6 +2645,8 @@ export default function PostScreen() {
     setIsUploading(true);
     setUploadProgress({ current: 0, total: selectedImages.length, percentage: 0 });
     setUploadError(null);
+    setUploadAlertTitle(selectedImages.length > 1 ? 'Uploading Images...' : 'Uploading Post...');
+    setUploadAlertMessage('Please wait while your media is being prepared...');
     
     // Progress watchdog: detect stalled uploads
     uploadSessionRef.current.progressWatchdog = setInterval(() => {
@@ -2661,6 +2674,8 @@ export default function PostScreen() {
             const prepared = await prepareImageForUpload(img.uri, img.name);
             
             // Update progress
+            setUploadAlertTitle('Optimizing Images...');
+            setUploadAlertMessage(`Preparing image ${index + 1} of ${selectedImages.length}...`);
             setUploadProgress({
               current: index + 1,
               total: selectedImages.length,
@@ -2786,6 +2801,11 @@ export default function PostScreen() {
             logger.warn('Progress attempted to go backward, keeping previous value');
             return prev;
           }
+          setUploadAlertTitle(totalImages > 1 ? 'Uploading Images...' : 'Uploading Post...');
+          setUploadAlertMessage(totalImages > 1
+            ? `Uploading image ${uploadedCount + 1} of ${totalImages}... (${Math.round(newPercentage)}%)`
+            : `Uploading image... (${Math.round(newPercentage)}%)`
+          );
           return {
             current: uploadedCount + 1,
             total: totalImages,
@@ -2797,7 +2817,13 @@ export default function PostScreen() {
         if (progress >= 100) {
           uploadedCount++;
         }
-      });
+      }, uploadSessionRef.current.abortController?.signal);
+
+      // Verify session was not cancelled
+      if (uploadSessionRef.current.isCancelled || !uploadSessionRef.current.isActive) {
+        logger.debug('[PostScreen] Post upload finished but session was cancelled/inactive, discarding response');
+        return;
+      }
 
       logger.debug('Post created successfully:', response);
       
@@ -2859,8 +2885,10 @@ export default function PostScreen() {
       logger.error('Post creation failed', error);
       
       // Check if upload was aborted
-      if (error?.name === 'AbortError' || uploadSessionRef.current.abortController?.signal.aborted) {
+      if (error?.name === 'AbortError' || error?.name === 'CanceledError' || error?.message === 'canceled' || uploadSessionRef.current.isCancelled || uploadSessionRef.current.abortController?.signal.aborted) {
         logger.debug('Upload was aborted by user');
+        clearUploadState();
+        showSuccess('Your post upload has been cancelled.', 'Cancelled');
         return; // Don't show error for user-initiated cancellation
       }
       
@@ -2944,6 +2972,7 @@ export default function PostScreen() {
     // Initialize upload session
     uploadSessionRef.current = {
       isActive: true,
+      isCancelled: false,
       abortController: new AbortController(),
       lastProgressTime: Date.now()
     };
@@ -2955,6 +2984,8 @@ export default function PostScreen() {
     setIsUploading(true);
     setUploadProgress({ current: 0, total: 1, percentage: 0 }); // Initialize with total: 1 for shorts
     setUploadError(null);
+    setUploadAlertTitle('Compressing Video...');
+    setUploadAlertMessage('Optimizing video size and format for streaming...');
     
     // Progress watchdog: detect stalled uploads (more lenient for large files)
     uploadSessionRef.current.progressWatchdog = setInterval(() => {
@@ -2988,6 +3019,8 @@ export default function PostScreen() {
             }
             // Watchdog refresh
             uploadSessionRef.current.lastProgressTime = Date.now();
+            setUploadAlertTitle('Compressing Video...');
+            setUploadAlertMessage(`Optimizing video... ${Math.round(progress)}%`);
             setUploadProgress({
               current: 1,
               total: 1,
@@ -3008,6 +3041,10 @@ export default function PostScreen() {
           wasCompressed = true;
           logger.info('[PostScreen] Video compressed successfully:', compressedPath);
         } catch (compressErr) {
+          if (!uploadSessionRef.current.isActive || uploadSessionRef.current.isCancelled) {
+            logger.debug('[PostScreen] Video compression aborted/cancelled by user, stopping');
+            return;
+          }
           logger.warn('[PostScreen] Video compression failed, falling back to original raw video:', compressErr);
         }
       }
@@ -3224,6 +3261,12 @@ export default function PostScreen() {
             logger.warn('Progress attempted to go backward, keeping previous value');
             return prev;
           }
+          const isServerProcessing = newPercentage >= 95;
+          setUploadAlertTitle(isServerProcessing ? 'Processing...' : 'Uploading Reel...');
+          setUploadAlertMessage(isServerProcessing
+            ? 'Processing on server... almost done'
+            : `Uploading video... (${Math.round(progress)}%)`
+          );
           return {
             current: 1,
             total: 1,
@@ -3232,7 +3275,13 @@ export default function PostScreen() {
         });
         
         logger.debug('Short upload progress:', progress + '%');
-      });
+      }, uploadSessionRef.current.abortController.signal);
+
+      // Verify session was not cancelled
+      if (uploadSessionRef.current.isCancelled || !uploadSessionRef.current.isActive) {
+        logger.debug('[PostScreen] Short upload finished but session was cancelled/inactive, discarding response');
+        return;
+      }
 
       logger.debug('Short created successfully:', response);
       
@@ -3298,8 +3347,10 @@ export default function PostScreen() {
       logger.error('Short creation failed', error);
       
       // Check if upload was aborted
-      if (error?.name === 'AbortError' || uploadSessionRef.current.abortController?.signal.aborted) {
+      if (error?.name === 'AbortError' || error?.name === 'CanceledError' || error?.message === 'canceled' || uploadSessionRef.current.isCancelled || uploadSessionRef.current.abortController?.signal.aborted) {
         logger.debug('Upload was aborted by user');
+        clearUploadState();
+        showSuccess('Your Reel upload has been cancelled.', 'Cancelled');
         return; // Don't show error for user-initiated cancellation
       }
       
@@ -3358,6 +3409,7 @@ export default function PostScreen() {
     try {
       uploadSessionRef.current = {
         isActive: true,
+        isCancelled: false,
         abortController: new AbortController(),
         lastProgressTime: Date.now()
       };
@@ -3368,6 +3420,15 @@ export default function PostScreen() {
       setIsUploading(true);
       const isCompressed = !!compressedVideoUriRef.current;
       setUploadProgress({ current: 0, total: 1, percentage: isCompressed ? 50 : 0 }); // Initialize progress for shorts
+
+      // Progress watchdog: detect stalled uploads
+      uploadSessionRef.current.progressWatchdog = setInterval(() => {
+        const now = Date.now();
+        const timeSinceLastProgress = now - (uploadSessionRef.current.lastProgressTime || now);
+        if (timeSinceLastProgress > PROGRESS_STALL_THRESHOLD) {
+          logger.warn(`Upload progress stalled for ${Math.round(timeSinceLastProgress / 1000)} seconds, but continuing...`);
+        }
+      }, PROGRESS_WATCHDOG_INTERVAL);
       
       // Validate pendingShortData before attempting upload
       if (!pendingShortData.video || !pendingShortData.video.uri) {
@@ -3423,7 +3484,13 @@ export default function PostScreen() {
         });
         
         logger.debug('Short upload progress:', progress + '%');
-      });
+      }, uploadSessionRef.current.abortController?.signal);
+
+      // Verify session was not cancelled
+      if (uploadSessionRef.current.isCancelled || !uploadSessionRef.current.isActive) {
+        logger.debug('[PostScreen] Short upload (copyright) finished but session was cancelled/inactive, discarding response');
+        return;
+      }
 
       logger.debug('Short created successfully:', response);
       
@@ -3486,6 +3553,14 @@ export default function PostScreen() {
         );
       }
     } catch (error: any) {
+      // Check if upload was aborted
+      if (error?.name === 'AbortError' || error?.name === 'CanceledError' || error?.message === 'canceled' || uploadSessionRef.current.isCancelled || uploadSessionRef.current.abortController?.signal.aborted) {
+        logger.debug('Upload was aborted by user (after copyright)');
+        clearUploadState();
+        showSuccess('Your Reel upload has been cancelled.', 'Cancelled');
+        return; // Don't show error for user-initiated cancellation
+      }
+
       // Ensure error is an Error instance for proper Sentry tracking
       const errorToLog = error instanceof Error 
         ? error 
@@ -3876,12 +3951,21 @@ export default function PostScreen() {
                     style={{ width: '100%', height: '100%' }}
                     useNativeControls
                     resizeMode={ResizeMode.CONTAIN}
-                    // Mute original video audio when background music is selected, play at full volume when using original audio
-                    isMuted={audioChoice === 'background' && !!selectedSong}
-                    volume={audioChoice === 'background' && selectedSong ? 0.0 : 1.0}
+                    // Mute original video audio when background music is selected or being previewed, play at full volume when using original audio
+                    isMuted={isSongPreviewActive || (audioChoice === 'background' && !!selectedSong)}
+                    volume={isSongPreviewActive || (audioChoice === 'background' && selectedSong) ? 0.0 : 1.0}
                     shouldPlay={true}
                     isLooping={true}
                     onPlaybackStatusUpdate={handleVideoPlaybackStatusUpdate}
+                    onLoad={(status) => {
+                      if (status.isLoaded && status.durationMillis) {
+                        const actualDuration = status.durationMillis / 1000;
+                        const MAX_SHORT_DURATION = 60;
+                        const shortDuration = Math.min(actualDuration, MAX_SHORT_DURATION);
+                        setVideoDuration(shortDuration);
+                        logger.info('[Video Detail Load] video duration captured:', shortDuration);
+                      }
+                    }}
                   />
                   {audioChoice === 'background' && selectedSong && (
                     <View style={{
@@ -5179,8 +5263,17 @@ export default function PostScreen() {
               resizeMode={ResizeMode.CONTAIN}
               isLooping
               shouldPlay
-              isMuted={false}
-              volume={1.0}
+              isMuted={isSongPreviewActive || (audioChoice === 'background' && !!selectedSong)}
+              volume={isSongPreviewActive || (audioChoice === 'background' && selectedSong) ? 0.0 : 1.0}
+              onLoad={(status) => {
+                if (status.isLoaded && status.durationMillis) {
+                  const actualDuration = status.durationMillis / 1000;
+                  const MAX_SHORT_DURATION = 60;
+                  const shortDuration = Math.min(actualDuration, MAX_SHORT_DURATION);
+                  setVideoDuration(shortDuration);
+                  logger.info('[Video Load] video duration captured:', shortDuration);
+                }
+              }}
             />
           ) : selectedImages.length > 0 ? (
             <AspectImageCropper
@@ -5326,7 +5419,7 @@ export default function PostScreen() {
             data={[
               { id: 'camera-tile', type: 'camera' } as any,
               { id: 'gallery-tile', type: 'gallery' } as any,
-              ...cameraRollAssets
+              ...filteredAssets
             ]}
             keyExtractor={(item, index) => item.id || `asset_${index}`}
             numColumns={4}
@@ -5579,24 +5672,13 @@ export default function PostScreen() {
           message users assumed it was frozen. */}
       <ProgressAlert
         visible={isUploading}
-        message={postType === 'short'
-          ? (uploadProgress.percentage >= 95
-              ? 'Processing on server... almost done'
-              : `Uploading short... ${Math.round(uploadProgress.percentage || 0)}%`)
-          : uploadProgress.total > 1
-          ? `Uploading image ${uploadProgress.current} of ${uploadProgress.total}...`
-          : "Please wait while your media is being uploaded..."}
+        title={uploadAlertTitle}
+        message={uploadAlertMessage}
         progress={uploadProgress.percentage || 0}
         type="upload"
         showCancel={true}
         onCancel={() => {
-          setIsUploading(false);
-          setUploadProgress({ current: 0, total: 0, percentage: 0 });
-          setIsLoading(false);
-          // Abort upload if in progress
-          if (uploadSessionRef.current?.abortController) {
-            uploadSessionRef.current.abortController.abort();
-          }
+          cancelUpload();
         }}
       />
 
@@ -6018,6 +6100,7 @@ export default function PostScreen() {
           }
           setShowSongSelector(false);
         }}
+        onPreviewActive={setIsSongPreviewActive}
         onSelect={(song, startTime, endTime) => {
           if (__DEV__) {
             console.log('🎵 [SongSelector] onSelect called:', {

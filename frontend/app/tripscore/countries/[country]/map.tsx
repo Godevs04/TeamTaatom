@@ -124,6 +124,45 @@ const OptimizedVisitedMarker = React.memo(({
 
 const { width, height } = Dimensions.get('window');
 
+const isCoordinateVisible = (
+  coordinate?: { latitude: number; longitude: number } | null,
+  region?: { latitude: number; longitude: number; latitudeDelta: number; longitudeDelta: number } | null
+): boolean => {
+  if (
+    !coordinate ||
+    typeof coordinate.latitude !== 'number' ||
+    typeof coordinate.longitude !== 'number' ||
+    !region ||
+    typeof region.latitude !== 'number' ||
+    typeof region.longitude !== 'number' ||
+    typeof region.latitudeDelta !== 'number' ||
+    typeof region.longitudeDelta !== 'number'
+  ) {
+    return false;
+  }
+
+  const minLat = region.latitude - region.latitudeDelta / 2;
+  const maxLat = region.latitude + region.latitudeDelta / 2;
+  const minLng = region.longitude - region.longitudeDelta / 2;
+  const maxLng = region.longitude + region.longitudeDelta / 2;
+
+  // Handle longitude wrap-around if maxLng > 180 or minLng < -180
+  let isLngVisible = false;
+  if (minLng < -180) {
+    isLngVisible = coordinate.longitude >= minLng + 360 || coordinate.longitude <= maxLng;
+  } else if (maxLng > 180) {
+    isLngVisible = coordinate.longitude >= minLng || coordinate.longitude <= maxLng - 360;
+  } else {
+    isLngVisible = coordinate.longitude >= minLng && coordinate.longitude <= maxLng;
+  }
+
+  return (
+    coordinate.latitude >= minLat &&
+    coordinate.latitude <= maxLat &&
+    isLngVisible
+  );
+};
+
 export default function CountryMapScreen() {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<TripScoreCountryResponse | null>(null);
@@ -157,35 +196,9 @@ export default function CountryMapScreen() {
   const router = useRouter();
   const { country, userId } = useLocalSearchParams();
   const mapRef = useRef<any>(null);
+  const currentRegionRef = useRef<any>(null);
   // Cache markers to prevent re-rendering issues when navigating back
   const markersCacheRef = useRef<Array<any>>([]);
-
-  const centerMapOnLocation = useCallback((loc: Location) => {
-    if (!isValidMapCoordinate(loc.coordinates)) return;
-    if (mapRef.current) {
-      if (Platform.OS === 'ios') {
-        const region = sanitizeMapRegion({
-          latitude: loc.coordinates.latitude,
-          longitude: loc.coordinates.longitude,
-          latitudeDelta: 0.05,
-          longitudeDelta: 0.05,
-        });
-        if (region) {
-          mapRef.current.animateToRegion(region, 350);
-        }
-      } else {
-        if (typeof mapRef.current.animateCamera === 'function') {
-          mapRef.current.animateCamera({
-            center: {
-              latitude: loc.coordinates.latitude,
-              longitude: loc.coordinates.longitude,
-            },
-            zoom: 12,
-          }, { duration: 350 });
-        }
-      }
-    }
-  }, []);
 
 
 
@@ -484,6 +497,45 @@ export default function CountryMapScreen() {
     };
   }, [visitedMarkers, displayCountryName]);
 
+  const centerMapOnLocation = useCallback((loc: Location) => {
+    if (!isValidMapCoordinate(loc.coordinates)) return;
+    if (mapRef.current) {
+      const currentRegion = currentRegionRef.current || initialRegion;
+      
+      // If the marker is already visible within the current viewport, do not move the camera
+      if (currentRegion && isCoordinateVisible(loc.coordinates, currentRegion)) {
+        return;
+      }
+
+      const latDelta = currentRegion?.latitudeDelta ?? 0.05;
+      const lngDelta = currentRegion?.longitudeDelta ?? 0.05;
+
+      const region = sanitizeMapRegion({
+        latitude: loc.coordinates.latitude,
+        longitude: loc.coordinates.longitude,
+        latitudeDelta: latDelta,
+        longitudeDelta: lngDelta,
+      });
+
+      if (region) {
+        if (Platform.OS === 'ios') {
+          mapRef.current.animateToRegion(region, 350);
+        } else {
+          if (typeof mapRef.current.animateToRegion === 'function') {
+            mapRef.current.animateToRegion(region, 350);
+          } else if (typeof mapRef.current.animateCamera === 'function') {
+            mapRef.current.animateCamera({
+              center: {
+                latitude: loc.coordinates.latitude,
+                longitude: loc.coordinates.longitude,
+              },
+            }, { duration: 350 });
+          }
+        }
+      }
+    }
+  }, [initialRegion]);
+
   // Keep the pinned location in sync and center the map on selection
   useEffect(() => {
     if (selectedLocation) {
@@ -568,6 +620,7 @@ export default function CountryMapScreen() {
               const safeRegion = sanitizeMapRegion(region);
               if (safeRegion) {
                 setLatitudeDelta(safeRegion.latitudeDelta);
+                currentRegionRef.current = safeRegion;
               }
             }}
             mapType={mapStyle.mapType}

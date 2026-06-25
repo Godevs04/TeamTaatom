@@ -124,12 +124,16 @@ export interface ShortsResponse {
 }
 
 // Get all posts
-export const getPostById = async (postId: string) => {
-  // cached response if fresh
-  const cached = postByIdCache.get(postId);
-  const now = Date.now();
-  if (cached && cached.expiresAt > now) {
-    return cached.data;
+export const getPostById = async (postId: string, bypassCache: boolean = false) => {
+  if (bypassCache) {
+    postByIdCache.delete(postId);
+  } else {
+    // cached response if fresh
+    const cached = postByIdCache.get(postId);
+    const now = Date.now();
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
   }
 
   const inFlight = postByIdInFlight.get(postId);
@@ -205,7 +209,8 @@ export const getPosts = async (
 // Create new post with progress tracking
 export const createPostWithProgress = async (
   data: CreatePostData,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  signal?: AbortSignal
 ): Promise<{ message: string; post: PostType }> => {
   try {
     const formData = new FormData();
@@ -286,6 +291,7 @@ export const createPostWithProgress = async (
       headers: {
         'Content-Type': 'multipart/form-data', // Let client set boundary for FormData
       },
+      signal,
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
           const progress = Math.round((progressEvent.loaded / progressEvent.total) * 100);
@@ -463,9 +469,12 @@ export const incrementShareCount = async (postId: string): Promise<{ message: st
 // Add comment to post
 export const addComment = async (postId: string, text: string): Promise<{ message: string; comment: any }> => {
   try {
+    postByIdCache.delete(postId);
     const response = await api.post(`/api/v1/posts/${postId}/comments`, { text });
+    postByIdCache.delete(postId);
     return response.data;
   } catch (error: any) {
+    postByIdCache.delete(postId);
     const parsedError = parseError(error);
     throw new Error(parsedError.userMessage);
   }
@@ -474,9 +483,12 @@ export const addComment = async (postId: string, text: string): Promise<{ messag
 // Delete comment
 export const deleteComment = async (postId: string, commentId: string): Promise<{ message: string }> => {
   try {
+    postByIdCache.delete(postId);
     const response = await api.delete(`/api/v1/posts/${postId}/comments/${commentId}`);
+    postByIdCache.delete(postId);
     return response.data;
   } catch (error: any) {
+    postByIdCache.delete(postId);
     const parsedError = parseError(error);
     throw new Error(parsedError.userMessage);
   }
@@ -644,7 +656,8 @@ export const sendInteractionTelemetry = async (data: {
 // Create new short with progress tracking
 export const createShortWithProgress = async (
   data: CreateShortData,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  signal?: AbortSignal
 ): Promise<{ message: string; short: PostType }> => {
   try {
     logger.debug('createShortWithProgress service called with data:', data);
@@ -725,6 +738,7 @@ export const createShortWithProgress = async (
       headers: {
         'Content-Type': 'multipart/form-data', // let client set boundary
       },
+      signal,
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
           const progress = Math.round((progressEvent.loaded / progressEvent.total) * 100);

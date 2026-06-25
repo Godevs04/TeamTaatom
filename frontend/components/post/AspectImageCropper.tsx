@@ -62,6 +62,14 @@ export default function AspectImageCropper({
   const viewportH = viewportWidth > 0 ? Math.round(viewportWidth / aspectRatio) : 0;
   const [imageNatural, setImageNatural] = useState<{ w: number; h: number } | null>(null);
 
+  const coverScale = imageNatural
+    ? Math.max(viewportWidth / imageNatural.w, viewportH / imageNatural.h)
+    : 1;
+  const baseWidth = imageNatural ? imageNatural.w * coverScale : viewportWidth;
+  const baseHeight = imageNatural ? imageNatural.h * coverScale : viewportH;
+  const left = (viewportWidth - baseWidth) / 2;
+  const top = (viewportH - baseHeight) / 2;
+
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
   const tx = useSharedValue(0);
@@ -179,7 +187,7 @@ export default function AspectImageCropper({
   // correct aspect so the surrounding layout doesn't jump when the cropper appears.
   return (
     <View
-      style={{ width: '100%' }}
+      style={{ width: '100%', overflow: 'visible' }}
       onLayout={(e) => {
         if (fixedViewportWidth != null) return;
         const w = e.nativeEvent.layout.width;
@@ -202,7 +210,7 @@ export default function AspectImageCropper({
             // transform, the page background shows through rather than a
             // hard black panel.
             backgroundColor: 'transparent',
-            overflow: 'hidden' as const,
+            overflow: 'visible' as const,
             borderRadius,
           } as any}
         >
@@ -210,10 +218,38 @@ export default function AspectImageCropper({
             source={{ uri }}
             resizeMode="cover"
             style={[
-              { width: viewportWidth, height: viewportH },
+              {
+                position: 'absolute',
+                width: baseWidth,
+                height: baseHeight,
+                left,
+                top,
+              },
               animatedImageStyle as any,
             ]}
           />
+
+          {/* Dimming Overlays around the crop frame */}
+          {/* Top */}
+          <View style={[styles.dimOverlay, { bottom: '100%', left: -1000, right: -1000, height: 1000 }]} pointerEvents="none" />
+          {/* Bottom */}
+          <View style={[styles.dimOverlay, { top: '100%', left: -1000, right: -1000, height: 1000 }]} pointerEvents="none" />
+          {/* Left */}
+          <View style={[styles.dimOverlay, { right: '100%', top: 0, bottom: 0, width: 1000 }]} pointerEvents="none" />
+          {/* Right */}
+          <View style={[styles.dimOverlay, { left: '100%', top: 0, bottom: 0, width: 1000 }]} pointerEvents="none" />
+
+          {/* Highlighted border around the crop area */}
+          <View
+            pointerEvents="none"
+            style={{
+              ...StyleSheet.absoluteFillObject,
+              borderWidth: 1.5,
+              borderColor: 'rgba(255, 255, 255, 0.8)',
+              borderRadius,
+            }}
+          />
+
           {/* 3x3 Grid Overlay */}
           <View style={StyleSheet.absoluteFill} pointerEvents="none">
             {/* Horizontal lines */}
@@ -251,6 +287,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 12,
+    zIndex: 10,
   },
   resetText: {
     fontSize: 12,
@@ -275,5 +312,9 @@ const styles = StyleSheet.create({
     bottom: 0,
     width: 1,
     backgroundColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  dimOverlay: {
+    position: 'absolute',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
   },
 });

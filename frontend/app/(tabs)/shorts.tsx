@@ -33,7 +33,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaskedView from '@react-native-masked-view/masked-view';
 import { useTheme } from '../../context/ThemeContext';
-import { getShorts, getUserShorts, toggleLike, addComment, getPostById, deleteShort } from '../../services/posts';
+import { getShorts, getUserShorts, toggleLike, addComment, getPostById, deleteShort, deleteComment } from '../../services/posts';
 import { toggleFollow, getProfile } from '../../services/profile';
 import { PostType } from '../../types/post';
 import { getUserFromStorage } from '../../services/auth';
@@ -245,6 +245,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
   const targetInitialIndexRef = useRef<number>(initialIndex);
   const isInitialScrollDoneRef = useRef(initialIndex === 0);
+  const isDeepLinkScrollDoneRef = useRef(false);
+  const lastShortIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (effectiveShortId !== lastShortIdRef.current) {
+      isDeepLinkScrollDoneRef.current = false;
+      lastShortIdRef.current = effectiveShortId || null;
+    }
+  }, [effectiveShortId]);
+
   const [isVideoPlaying, setIsVideoPlaying] = useState(true);
   const [isScreenFocused, setIsScreenFocused] = useState(true);
   const isScreenFocusedRef = useRef(true);
@@ -288,13 +298,32 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     setSelectedShortComments((prev) => {
       const next = [...prev];
       if (incomingComment._id) {
+        if (incomingComment.isDeleted) {
+          const filtered = next.filter((c) => c._id !== incomingComment._id);
+          setShorts((shortsPrev) =>
+            shortsPrev.map((short) =>
+              short._id === selectedShortIdRef.current
+                ? { ...short, commentsCount: filtered.length }
+                : short
+            )
+          );
+          return filtered;
+        }
         const existingIndex = next.findIndex((c) => c._id === incomingComment._id);
         if (existingIndex !== -1) {
           next[existingIndex] = incomingComment;
           return next;
         }
       }
-      return [incomingComment, ...next];
+      const updated = [incomingComment, ...next];
+      setShorts((shortsPrev) =>
+        shortsPrev.map((short) =>
+          short._id === selectedShortIdRef.current
+            ? { ...short, commentsCount: updated.length }
+            : short
+        )
+      );
+      return updated;
     });
   }, []);
 
@@ -1794,7 +1823,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     setShowCommentModal(true);
     setSelectedShortId(shortId);
     
-    getPostById(shortId)
+    getPostById(shortId, true)
       .then(response => {
         const short = response?.data?.post || response?.post || response;
         setSelectedShortComments(short?.comments || []);
@@ -1809,12 +1838,42 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
   const handleCommentAdded = (comment: any) => {
     upsertSelectedComment(comment);
-    setShorts(prev => prev.map(short => 
-      short._id === selectedShortId 
-        ? { ...short, commentsCount: short.commentsCount + 1 }
-        : short
-    ));
   };
+
+  const handleCommentDeleted = useCallback(async (commentId: string) => {
+    if (!selectedShortId) return;
+
+    const originalComments = [...selectedShortComments];
+
+    // Optimistic UI updates
+    setSelectedShortComments((prev) => {
+      const filtered = prev.filter((c) => c._id !== commentId);
+      setShorts((shortsPrev) =>
+        shortsPrev.map((short) =>
+          short._id === selectedShortId
+            ? { ...short, commentsCount: filtered.length }
+            : short
+        )
+      );
+      return filtered;
+    });
+
+    try {
+      await deleteComment(selectedShortId, commentId);
+      logger.debug('Short comment deleted successfully:', commentId);
+    } catch (error) {
+      logger.error('Failed to delete short comment, rolling back:', error);
+      setSelectedShortComments(originalComments);
+      setShorts((prev) =>
+        prev.map((short) =>
+          short._id === selectedShortId
+            ? { ...short, commentsCount: originalComments.length }
+            : short
+        )
+      );
+      showError('Failed to delete comment');
+    }
+  }, [selectedShortId, selectedShortComments, showError]);
 
   const handleProfilePress = (userId: string) => {
     // Prevent duplicate navigation
@@ -2226,9 +2285,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
   // Deep link: scroll to specific short when effectiveShortId is set (URL or props). dataIndex accounts for ad slots when showShortsAds.
   useEffect(() => {
-    if (!effectiveShortId || shorts.length === 0 || !isTransitionFinished) return;
+    if (!effectiveShortId || shorts.length === 0 || !isTransitionFinished || isDeepLinkScrollDoneRef.current) return;
     const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
     if (reelIndex === -1) return;
+    isDeepLinkScrollDoneRef.current = true;
     const dataIndex = showShortsAds
       ? reelIndex + Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY)
       : reelIndex;
@@ -2663,6 +2723,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             setSelectedShortComments([]);
           }}
           onCommentAdded={handleCommentAdded}
+          onCommentDeleted={handleCommentDeleted}
         />
       )}
 
