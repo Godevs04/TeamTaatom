@@ -73,7 +73,7 @@ interface OptimizedVisitedMarkerProps {
   onPress: () => void;
 }
 
-const OptimizedVisitedMarker = React.memo(({
+const OptimizedVisitedMarker = React.memo((({
   location,
   isSelected,
   index,
@@ -86,11 +86,19 @@ const OptimizedVisitedMarker = React.memo(({
     markerRef.current?.repaint();
   }, []);
 
+  // Anchor must match the rendering mode:
+  // - Dot (unselected): anchor at CENTER (0.5, 0.5) so the dot's middle sits on the coordinate.
+  // - Pin (selected):   anchor at BOTTOM-TIP (0.5, 1.0) so the pin's tip sits on the coordinate.
+  // These must change together or MapKit uses the raw view origin {0,0} → top-left jump.
+  const anchor = isSelected
+    ? { x: 0.5, y: 1.0 }
+    : { x: 0.5, y: 0.5 };
+
   return (
     <SafeMarker
       ref={markerRef}
       zIndex={isSelected ? 99999 : index}
-      anchor={{ x: 0.5, y: 1.0 }}
+      anchor={anchor}
       coordinate={{
         latitude: location.coordinates!.latitude,
         longitude: location.coordinates!.longitude,
@@ -99,17 +107,18 @@ const OptimizedVisitedMarker = React.memo(({
       keepTracking={true}
       repaintTriggers={[isSelected, latitudeDelta]}
     >
-      <PremiumMapMarker 
-        active={isSelected} 
-        activeTitle={location.name} 
-        activeSubtitle={location.category?.typeOfSpot || 'Visited spot'} 
-        photo={location.imageUrl} 
+      <PremiumMapMarker
+        active={isSelected}
+        activeTitle={location.name}
+        activeSubtitle={location.category?.typeOfSpot || 'Visited spot'}
+        photo={location.imageUrl}
         onImageLoad={handleImageLoad}
         latitudeDelta={latitudeDelta}
+        renderAsDot={!isSelected}
       />
     </SafeMarker>
   );
-}, (prev, next) => {
+}) as React.FC<OptimizedVisitedMarkerProps>, (prev, next) => {
   return (
     prev.isSelected === next.isSelected &&
     prev.index === next.index &&
