@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useImperativeHandle } from 'react';
-import { View, Platform } from 'react-native';
+import { View, Platform, TouchableOpacity } from 'react-native';
 import { Marker } from '../utils/mapsWrapper';
 
 interface SafeMarkerProps {
@@ -75,12 +75,13 @@ const SafeMarker = React.forwardRef(({ children, repaintTriggers = [], ...props 
   if (!Marker) return null;
 
   // MapKit can drop custom marker snapshots when their child view changes while
-  // tracking is disabled. Keep iOS markers live; Android can still freeze the
-  // bitmap after each repaint window for performance.
-  const activeTracksViewChanges = Platform.OS === 'ios' ? true : tracksViewChanges;
+  // tracking is disabled. Manage tracking dynamically using tracksViewChanges
+  // on both iOS and Android to prevent endless layout updates that lead to disappearing markers.
+  const activeTracksViewChanges = tracksViewChanges;
 
   const lastPressTime = useRef(0);
   const handlePress = (event: any) => {
+    event?.stopPropagation?.();
     const now = Date.now();
     if (now - lastPressTime.current < 500) return;
     lastPressTime.current = now;
@@ -90,6 +91,7 @@ const SafeMarker = React.forwardRef(({ children, repaintTriggers = [], ...props 
   };
 
   const handleSelect = (event: any) => {
+    event?.stopPropagation?.();
     const now = Date.now();
     if (now - lastPressTime.current < 500) return;
     lastPressTime.current = now;

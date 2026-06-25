@@ -124,12 +124,16 @@ export interface ShortsResponse {
 }
 
 // Get all posts
-export const getPostById = async (postId: string) => {
-  // cached response if fresh
-  const cached = postByIdCache.get(postId);
-  const now = Date.now();
-  if (cached && cached.expiresAt > now) {
-    return cached.data;
+export const getPostById = async (postId: string, bypassCache: boolean = false) => {
+  if (bypassCache) {
+    postByIdCache.delete(postId);
+  } else {
+    // cached response if fresh
+    const cached = postByIdCache.get(postId);
+    const now = Date.now();
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
   }
 
   const inFlight = postByIdInFlight.get(postId);
@@ -465,9 +469,12 @@ export const incrementShareCount = async (postId: string): Promise<{ message: st
 // Add comment to post
 export const addComment = async (postId: string, text: string): Promise<{ message: string; comment: any }> => {
   try {
+    postByIdCache.delete(postId);
     const response = await api.post(`/api/v1/posts/${postId}/comments`, { text });
+    postByIdCache.delete(postId);
     return response.data;
   } catch (error: any) {
+    postByIdCache.delete(postId);
     const parsedError = parseError(error);
     throw new Error(parsedError.userMessage);
   }
@@ -476,9 +483,12 @@ export const addComment = async (postId: string, text: string): Promise<{ messag
 // Delete comment
 export const deleteComment = async (postId: string, commentId: string): Promise<{ message: string }> => {
   try {
+    postByIdCache.delete(postId);
     const response = await api.delete(`/api/v1/posts/${postId}/comments/${commentId}`);
+    postByIdCache.delete(postId);
     return response.data;
   } catch (error: any) {
+    postByIdCache.delete(postId);
     const parsedError = parseError(error);
     throw new Error(parsedError.userMessage);
   }

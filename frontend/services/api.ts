@@ -224,6 +224,10 @@ api.interceptors.response.use(
     return response;
   },
   async (error) => {
+    if (axios.isCancel(error)) {
+      logger.debug('[API] Request cancelled via AbortController/CancelToken');
+      return Promise.reject(error);
+    }
     const originalRequest = error.config;
 
     // Add Sentry breadcrumb for API errors

@@ -122,7 +122,8 @@ const PremiumMapMarker = memo(function PremiumMapMarker({
   }, [pulse, usesNativeIosMarker]);
 
   const containerStyle = useAnimatedStyle(() => {
-    const baseScale = renderAsDot ? (activeState ? 1.24 : 1.0) : (activeState ? 1.16 : 1.0);
+    const activeScale = renderAsDot ? 1.24 : 1.16;
+    const baseScale = 1.0 + activeProgress.value * (activeScale - 1.0);
     const totalScale = baseScale * zoomScaleShared.value;
     return {
       transform: [{ scale: totalScale }],

@@ -33,7 +33,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import MaskedView from '@react-native-masked-view/masked-view';
 import { useTheme } from '../../context/ThemeContext';
-import { getShorts, getUserShorts, toggleLike, addComment, getPostById, deleteShort } from '../../services/posts';
+import { getShorts, getUserShorts, toggleLike, addComment, getPostById, deleteShort, deleteComment } from '../../services/posts';
 import { toggleFollow, getProfile } from '../../services/profile';
 import { PostType } from '../../types/post';
 import { getUserFromStorage } from '../../services/auth';
@@ -298,13 +298,32 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     setSelectedShortComments((prev) => {
       const next = [...prev];
       if (incomingComment._id) {
+        if (incomingComment.isDeleted) {
+          const filtered = next.filter((c) => c._id !== incomingComment._id);
+          setShorts((shortsPrev) =>
+            shortsPrev.map((short) =>
+              short._id === selectedShortIdRef.current
+                ? { ...short, commentsCount: filtered.length }
+                : short
+            )
+          );
+          return filtered;
+        }
         const existingIndex = next.findIndex((c) => c._id === incomingComment._id);
         if (existingIndex !== -1) {
           next[existingIndex] = incomingComment;
           return next;
         }
       }
-      return [incomingComment, ...next];
+      const updated = [incomingComment, ...next];
+      setShorts((shortsPrev) =>
+        shortsPrev.map((short) =>
+          short._id === selectedShortIdRef.current
+            ? { ...short, commentsCount: updated.length }
+            : short
+        )
+      );
+      return updated;
     });
   }, []);
 
@@ -1804,7 +1823,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
     setShowCommentModal(true);
     setSelectedShortId(shortId);
     
-    getPostById(shortId)
+    getPostById(shortId, true)
       .then(response => {
         const short = response?.data?.post || response?.post || response;
         setSelectedShortComments(short?.comments || []);
@@ -1818,16 +1837,43 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   };
 
   const handleCommentAdded = (comment: any) => {
-    const exists = selectedShortComments.some(c => c._id === comment._id);
     upsertSelectedComment(comment);
-    if (!exists) {
-      setShorts(prev => prev.map(short => 
-        short._id === selectedShortId 
-          ? { ...short, commentsCount: (short.commentsCount || 0) + 1 }
-          : short
-      ));
-    }
   };
+
+  const handleCommentDeleted = useCallback(async (commentId: string) => {
+    if (!selectedShortId) return;
+
+    const originalComments = [...selectedShortComments];
+
+    // Optimistic UI updates
+    setSelectedShortComments((prev) => {
+      const filtered = prev.filter((c) => c._id !== commentId);
+      setShorts((shortsPrev) =>
+        shortsPrev.map((short) =>
+          short._id === selectedShortId
+            ? { ...short, commentsCount: filtered.length }
+            : short
+        )
+      );
+      return filtered;
+    });
+
+    try {
+      await deleteComment(selectedShortId, commentId);
+      logger.debug('Short comment deleted successfully:', commentId);
+    } catch (error) {
+      logger.error('Failed to delete short comment, rolling back:', error);
+      setSelectedShortComments(originalComments);
+      setShorts((prev) =>
+        prev.map((short) =>
+          short._id === selectedShortId
+            ? { ...short, commentsCount: originalComments.length }
+            : short
+        )
+      );
+      showError('Failed to delete comment');
+    }
+  }, [selectedShortId, selectedShortComments, showError]);
 
   const handleProfilePress = (userId: string) => {
     // Prevent duplicate navigation
@@ -2677,6 +2723,7 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
             setSelectedShortComments([]);
           }}
           onCommentAdded={handleCommentAdded}
+          onCommentDeleted={handleCommentDeleted}
         />
       )}
 

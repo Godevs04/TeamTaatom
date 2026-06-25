@@ -1424,11 +1424,7 @@ function AllLocationsMapInner() {
           }
         }}
       >
-        {/* Completed journey routes - subtle until selected */}
-        {mapFilter === 'journeys' && journeysWithOffsets.map((j) => {
-          if (selectedJourney?._id === j._id) return null;
-          return renderJourneyPolylines(j, false);
-        })}
+
 
         {/* Journey representing markers */}
         {(mapFilter === 'journeys') && journeysWithOffsets.map((j) => {
@@ -1448,7 +1444,7 @@ function AllLocationsMapInner() {
               anchor={{ x: 0.5, y: 0.5 }}
               repaintTriggers={[isSelected, isDark]}
             >
-              <View style={styles.journeyRepMarker} pointerEvents="none">
+              <View style={styles.journeyRepMarker} pointerEvents={Platform.OS === 'ios' ? 'auto' : 'none'}>
                 {isSelected ? (
                   <LinearGradient
                     colors={['#3B82F6', '#10B981']}
