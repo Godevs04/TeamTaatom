@@ -290,7 +290,10 @@ try {
     if (!Array.isArray(locations) || locations.length === 0) return;
 
     try {
-      let journeyId = await getActiveJourneyIdFromCache();
+      let journeyId = activeJourneyIdBgCache;
+      if (!journeyId) {
+        journeyId = await getActiveJourneyIdFromCache();
+      }
       if (!journeyId) {
         journeyId = await AsyncStorage.getItem('activeJourneyId');
       }
@@ -485,6 +488,8 @@ interface UseJourneyTrackingReturn {
 
 // Module-level variable to detect if the JS bundle is running for the first time since process launch
 let isFreshLaunch = true;
+let activeJourneyIdBgCache: string | null = null;
+let activeDrainPromise: Promise<void> | null = null;
 
 /**
  * useJourneyTracking
@@ -778,195 +783,214 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
   // Drain coords accumulated by the background task while the app was
   // suspended. Called on app-foreground and on hook init for recovery.
   const drainBackgroundQueue = useCallback(async (journeyIdOverride?: string) => {
-    const id = journeyIdOverride || journeyIdRef.current;
-    if (!id) return;
-    const queueKey = BG_QUEUE_KEY_PREFIX + id;
-    const fileUri = `${FileSystem.cacheDirectory}bg_coords_${id}.json`;
-    const filterUri = `${FileSystem.cacheDirectory}kalman_state_${id}.json`;
-
-    try {
-      // 1. Read from FileSystem cache first
-      let raw: string | null = null;
-      try {
-        const info = await FileSystem.getInfoAsync(fileUri);
-        if (info.exists) {
-          raw = await FileSystem.readAsStringAsync(fileUri);
-        }
-      } catch (e) {
-        logger.warn('[Journey] Failed to read bg queue from FileSystem cache:', e);
-      }
-
-      // 2. Fallback to AsyncStorage
-      if (!raw) {
-        raw = await AsyncStorage.getItem(queueKey);
-      }
-
-      if (!raw) return;
-      let parsed: any;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
-        await AsyncStorage.removeItem(queueKey).catch(() => {});
-        return;
-      }
-      if (!Array.isArray(parsed) || parsed.length === 0) {
-        await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
-        await AsyncStorage.removeItem(queueKey).catch(() => {});
-        return;
-      }
-
-      // Validate + dedupe against current polyline by timestamp.
-      const TS_TOLERANCE_MS = 500;
-      const existingSorted = polylineRef.current
-        .map(c => c.timestamp)
-        .filter((t): t is number => typeof t === 'number')
-        .sort((a, b) => a - b);
-      const isDuplicateTimestamp = (ts: number): boolean => {
-        if (typeof ts !== 'number' || isNaN(ts)) return false;
-        for (const e of existingSorted) {
-          if (Math.abs(e - ts) <= TS_TOLERANCE_MS) return true;
-          if (e > ts + TS_TOLERANCE_MS) break;
-        }
-        return false;
-      };
-      const valid: Coordinate[] = parsed.filter((c: any) =>
-        c &&
-        typeof c === 'object' &&
-        typeof c.latitude === 'number' &&
-        typeof c.longitude === 'number' &&
-        !Number.isNaN(c.latitude) && !Number.isNaN(c.longitude) &&
-        c.latitude >= -90 && c.latitude <= 90 &&
-        c.longitude >= -180 && c.longitude <= 180 &&
-        !isDuplicateTimestamp(c.timestamp)
-      );
-
-      // Restore Kalman Filter state from background task (check FileSystem cache first, fallback to AsyncStorage)
-      let savedKalmanRaw: string | null = null;
-      try {
-        const kInfo = await FileSystem.getInfoAsync(filterUri);
-        if (kInfo.exists) {
-          savedKalmanRaw = await FileSystem.readAsStringAsync(filterUri);
-        }
-      } catch (e) {}
-
-      if (!savedKalmanRaw) {
-        const kalmanKey = `@kalman_state:${id}`;
-        savedKalmanRaw = await AsyncStorage.getItem(kalmanKey);
-      }
-
-      let restoredFromBg = false;
-      if (savedKalmanRaw) {
-        try {
-          kalmanFilterRef.current = KalmanFilter.fromJSON(JSON.parse(savedKalmanRaw));
-          restoredFromBg = true;
-          logger.debug('[Journey] Restored Kalman Filter state from background task.');
-        } catch (e) {
-          logger.warn('[Journey] Failed to restore Kalman Filter state from background:', e);
-        }
-      }
-
-      // Smooth background coordinate batch sequentially with speed estimation if not restored
-      let smoothedCoords = valid;
-      if (!restoredFromBg) {
-        let lastProcessedCoord = lastCoordinateRef.current;
-        smoothedCoords = valid.map((c) => {
-          const acc = c.accuracy || 10;
-          const ts = typeof c.timestamp === 'number' ? c.timestamp : Date.now();
-          
-          let estSpeed = c.speed;
-          if ((estSpeed === undefined || estSpeed === null || estSpeed < 0) && lastProcessedCoord) {
-            const dist = calculateCoordinateDistance(
-              lastProcessedCoord.latitude,
-              lastProcessedCoord.longitude,
-              c.latitude,
-              c.longitude
-            );
-            const timeDiffSeconds = Math.max(0.1, (ts - (lastProcessedCoord.timestamp || ts)) / 1000);
-            estSpeed = dist / timeDiffSeconds;
-          }
-
-          if (!kalmanFilterRef.current) {
-            kalmanFilterRef.current = new KalmanFilter(c.latitude, c.longitude, acc, ts);
-          }
-          const smoothed = kalmanFilterRef.current.update(
-            c.latitude,
-            c.longitude,
-            acc,
-            ts,
-            typeof estSpeed === 'number' && estSpeed >= 0 ? estSpeed : undefined
-          );
-          const smoothedCoord = {
-            ...c,
-            latitude: smoothed.latitude,
-            longitude: smoothed.longitude,
-            speed: typeof estSpeed === 'number' && estSpeed >= 0 ? estSpeed : undefined
-          };
-          lastProcessedCoord = smoothedCoord;
-          return smoothedCoord;
-        });
-      }
-
-      // Apply the same MIN_LOCATION_DISTANCE filter the foreground watcher
-      // uses, walking from the last known polyline tail forward, so a row
-      // of background coords doesn't introduce a denser-than-foreground
-      // segment of the path.
-      let lastCoord = lastCoordinateRef.current;
-      const accepted: Coordinate[] = [];
-      let addedDistance = 0;
-      for (const c of smoothedCoords) {
-        // Run validation
-        const isValid = validateGPSPoint(c, lastCoord, diagnosticsRef.current);
-        if (!isValid) {
-          console.log("[GPS Diagnostics] [Background Drain] Point rejected:", {
-            accuracy: c.accuracy,
-            speed: c.speed,
-            acceptedPoints: diagnosticsRef.current.acceptedPoints,
-            rejectedAccuracy: diagnosticsRef.current.rejectedAccuracy,
-            rejectedJump: diagnosticsRef.current.rejectedJump,
-          });
-          continue;
-        }
-
-        if (!lastCoord) {
-          accepted.push(c);
-          lastCoord = c;
-          continue;
-        }
-        const d = calculateCoordinateDistance(
-          lastCoord.latitude, lastCoord.longitude,
-          c.latitude, c.longitude
-        );
-        if (d >= getAdaptiveMinDistance(c.accuracy ?? 0, typeof c.speed === 'number' ? c.speed : null)) {
-          accepted.push(c);
-          addedDistance += d;
-          lastCoord = c;
-        }
-      }
-
-      if (accepted.length > 0) {
-        lastCoordinateRef.current = accepted[accepted.length - 1];
-        lastGpsUpdateAtRef.current = Date.now();
-        setPolyline(prev => [...prev, ...accepted]);
-        setDistance(prev => prev + addedDistance);
-        // Push into the send batch so the next 60s sync ships them.
-        batchCoordinatesRef.current.push(...accepted);
-        persistPendingCoords();
-        // Update accuracy display to the latest sample.
-        const latest = accepted[accepted.length - 1];
-        setAccuracy(latest.accuracy ?? null);
-        setCurrentCoordinate(latest);
-        logger.debug(`[Journey] Drained ${accepted.length} background coords (+${Math.round(addedDistance)}m)`);
-      }
-
-      // Clean up both FileSystem cache files and AsyncStorage queues
-      await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
-      await FileSystem.deleteAsync(filterUri, { idempotent: true }).catch(() => {});
-      await AsyncStorage.removeItem(queueKey).catch(() => {});
-      await AsyncStorage.removeItem(`@kalman_state:${id}`).catch(() => {});
-    } catch (e) {
-      logger.warn('[Journey] drainBackgroundQueue failed:', e);
+    if (activeDrainPromise) {
+      logger.debug('[Journey] drainBackgroundQueue already in progress, awaiting existing promise');
+      return activeDrainPromise;
     }
+
+    const promise = (async () => {
+      const id = journeyIdOverride || journeyIdRef.current;
+      if (!id) return;
+      const queueKey = BG_QUEUE_KEY_PREFIX + id;
+      const fileUri = `${FileSystem.cacheDirectory}bg_coords_${id}.json`;
+      const filterUri = `${FileSystem.cacheDirectory}kalman_state_${id}.json`;
+
+      try {
+        // 1. Read from FileSystem cache first
+        let raw: string | null = null;
+        try {
+          const info = await FileSystem.getInfoAsync(fileUri);
+          if (info.exists) {
+            raw = await FileSystem.readAsStringAsync(fileUri);
+          }
+        } catch (e) {
+          logger.warn('[Journey] Failed to read bg queue from FileSystem cache:', e);
+        }
+
+        // 2. Fallback to AsyncStorage
+        if (!raw) {
+          raw = await AsyncStorage.getItem(queueKey);
+        }
+
+        if (!raw) return;
+        let parsed: any;
+        try {
+          parsed = JSON.parse(raw);
+        } catch {
+          await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
+          await AsyncStorage.removeItem(queueKey).catch(() => {});
+          return;
+        }
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+          await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
+          await AsyncStorage.removeItem(queueKey).catch(() => {});
+          return;
+        }
+
+        // Sort background coordinates chronologically by timestamp
+        const sortedParsed = [...parsed].sort((a, b) => {
+          const t1 = typeof a.timestamp === 'number' ? a.timestamp : 0;
+          const t2 = typeof b.timestamp === 'number' ? b.timestamp : 0;
+          return t1 - t2;
+        });
+
+        // Validate + dedupe against current polyline by timestamp.
+        const TS_TOLERANCE_MS = 500;
+        const existingSorted = polylineRef.current
+          .map(c => c.timestamp)
+          .filter((t): t is number => typeof t === 'number')
+          .sort((a, b) => a - b);
+        const isDuplicateTimestamp = (ts: number): boolean => {
+          if (typeof ts !== 'number' || isNaN(ts)) return false;
+          for (const e of existingSorted) {
+            if (Math.abs(e - ts) <= TS_TOLERANCE_MS) return true;
+            if (e > ts + TS_TOLERANCE_MS) break;
+          }
+          return false;
+        };
+        const valid: Coordinate[] = sortedParsed.filter((c: any) =>
+          c &&
+          typeof c === 'object' &&
+          typeof c.latitude === 'number' &&
+          typeof c.longitude === 'number' &&
+          !Number.isNaN(c.latitude) && !Number.isNaN(c.longitude) &&
+          c.latitude >= -90 && c.latitude <= 90 &&
+          c.longitude >= -180 && c.longitude <= 180 &&
+          !isDuplicateTimestamp(c.timestamp)
+        );
+
+        // Restore Kalman Filter state from background task (check FileSystem cache first, fallback to AsyncStorage)
+        let savedKalmanRaw: string | null = null;
+        try {
+          const kInfo = await FileSystem.getInfoAsync(filterUri);
+          if (kInfo.exists) {
+            savedKalmanRaw = await FileSystem.readAsStringAsync(filterUri);
+          }
+        } catch (e) {}
+
+        if (!savedKalmanRaw) {
+          const kalmanKey = `@kalman_state:${id}`;
+          savedKalmanRaw = await AsyncStorage.getItem(kalmanKey);
+        }
+
+        let restoredFromBg = false;
+        if (savedKalmanRaw) {
+          try {
+            kalmanFilterRef.current = KalmanFilter.fromJSON(JSON.parse(savedKalmanRaw));
+            restoredFromBg = true;
+            logger.debug('[Journey] Restored Kalman Filter state from background task.');
+          } catch (e) {
+            logger.warn('[Journey] Failed to restore Kalman Filter state from background:', e);
+          }
+        }
+
+        // Smooth background coordinate batch sequentially with speed estimation if not restored
+        let smoothedCoords = valid;
+        if (!restoredFromBg) {
+          let lastProcessedCoord = lastCoordinateRef.current;
+          smoothedCoords = valid.map((c) => {
+            const acc = c.accuracy || 10;
+            const ts = typeof c.timestamp === 'number' ? c.timestamp : Date.now();
+            
+            let estSpeed = c.speed;
+            if ((estSpeed === undefined || estSpeed === null || estSpeed < 0) && lastProcessedCoord) {
+              const dist = calculateCoordinateDistance(
+                lastProcessedCoord.latitude,
+                lastProcessedCoord.longitude,
+                c.latitude,
+                c.longitude
+              );
+              const timeDiffSeconds = Math.max(0.1, (ts - (lastProcessedCoord.timestamp || ts)) / 1000);
+              estSpeed = dist / timeDiffSeconds;
+            }
+
+            if (!kalmanFilterRef.current) {
+              kalmanFilterRef.current = new KalmanFilter(c.latitude, c.longitude, acc, ts);
+            }
+            const smoothed = kalmanFilterRef.current.update(
+              c.latitude,
+              c.longitude,
+              acc,
+              ts,
+              typeof estSpeed === 'number' && estSpeed >= 0 ? estSpeed : undefined
+            );
+            const smoothedCoord = {
+              ...c,
+              latitude: smoothed.latitude,
+              longitude: smoothed.longitude,
+              speed: typeof estSpeed === 'number' && estSpeed >= 0 ? estSpeed : undefined
+            };
+            lastProcessedCoord = smoothedCoord;
+            return smoothedCoord;
+          });
+        }
+
+        // Apply the same MIN_LOCATION_DISTANCE filter the foreground watcher
+        // uses, walking from the last known polyline tail forward, so a row
+        // of background coords doesn't introduce a denser-than-foreground
+        // segment of the path.
+        let lastCoord = lastCoordinateRef.current;
+        const accepted: Coordinate[] = [];
+        let addedDistance = 0;
+        for (const c of smoothedCoords) {
+          // Run validation
+          const isValid = validateGPSPoint(c, lastCoord, diagnosticsRef.current);
+          if (!isValid) {
+            console.log("[GPS Diagnostics] [Background Drain] Point rejected:", {
+              accuracy: c.accuracy,
+              speed: c.speed,
+              acceptedPoints: diagnosticsRef.current.acceptedPoints,
+              rejectedAccuracy: diagnosticsRef.current.rejectedAccuracy,
+              rejectedJump: diagnosticsRef.current.rejectedJump,
+            });
+            continue;
+          }
+
+          if (!lastCoord) {
+            accepted.push(c);
+            lastCoord = c;
+            continue;
+          }
+          const d = calculateCoordinateDistance(
+            lastCoord.latitude, lastCoord.longitude,
+            c.latitude, c.longitude
+          );
+          if (d >= getAdaptiveMinDistance(c.accuracy ?? 0, typeof c.speed === 'number' ? c.speed : null)) {
+            accepted.push(c);
+            addedDistance += d;
+            lastCoord = c;
+          }
+        }
+
+        if (accepted.length > 0) {
+          lastCoordinateRef.current = accepted[accepted.length - 1];
+          lastGpsUpdateAtRef.current = Date.now();
+          setPolyline(prev => [...prev, ...accepted]);
+          setDistance(prev => prev + addedDistance);
+          // Push into the send batch so the next 60s sync ships them.
+          batchCoordinatesRef.current.push(...accepted);
+          persistPendingCoords();
+          // Update accuracy display to the latest sample.
+          const latest = accepted[accepted.length - 1];
+          setAccuracy(latest.accuracy ?? null);
+          setCurrentCoordinate(latest);
+          logger.debug(`[Journey] Drained ${accepted.length} background coords (+${Math.round(addedDistance)}m)`);
+        }
+
+        // Clean up both FileSystem cache files and AsyncStorage queues
+        await FileSystem.deleteAsync(fileUri, { idempotent: true }).catch(() => {});
+        await FileSystem.deleteAsync(filterUri, { idempotent: true }).catch(() => {});
+        await AsyncStorage.removeItem(queueKey).catch(() => {});
+        await AsyncStorage.removeItem(`@kalman_state:${id}`).catch(() => {});
+      } catch (e) {
+        logger.warn('[Journey] drainBackgroundQueue failed:', e);
+      } finally {
+        activeDrainPromise = null;
+      }
+    })();
+
+    activeDrainPromise = promise;
+    return promise;
   }, [persistPendingCoords]);
 
   const syncPendingCompletions = useCallback(async () => {
@@ -1062,6 +1086,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         bgPositionHistories.delete(id);
       }
       journeyIdRef.current = null;
+      activeJourneyIdBgCache = null;
       startTimeRef.current = null;
       lastCoordinateRef.current = null;
       pendingSegmentBreakRef.current = false;
@@ -1146,6 +1171,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
             logger.debug('[Journey] Restoring paused journey state on startup:', storedJourneyId);
             journeyIdRef.current = storedJourneyId;
+            activeJourneyIdBgCache = storedJourneyId;
             setJourney(fetchedJourney);
             
             // Rehydrate polyline and other stats
@@ -1184,6 +1210,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
               logger.debug('[Journey] Restoring active journey state on startup:', storedJourneyId);
               journeyIdRef.current = storedJourneyId;
+              activeJourneyIdBgCache = storedJourneyId;
               setJourney(fetchedJourney);
               
               // Rehydrate polyline and other stats
@@ -1236,6 +1263,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
           logger.debug('[Journey] App was terminated with active journey, auto-saving:', storedJourneyId);
           journeyIdRef.current = storedJourneyId;
+          activeJourneyIdBgCache = storedJourneyId;
           setJourney(fetchedJourney);
 
           let recoveryPolyline: Coordinate[] = [];
@@ -1415,6 +1443,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
           // entry, but this instance's in-memory ref may still be holding
           // points pushed before the broadcast arrived.
           journeyIdRef.current = null;
+          activeJourneyIdBgCache = null;
           startTimeRef.current = null;
           lastCoordinateRef.current = null;
           pendingSegmentBreakRef.current = false;
@@ -1619,6 +1648,18 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
             try { locationWatcherRef.current.remove(); } catch { /* noop */ }
             locationWatcherRef.current = null;
           }
+          // Save foreground Kalman Filter state for background task to restore
+          const id = journeyIdRef.current;
+          if (id && kalmanFilterRef.current) {
+            try {
+              const filterUri = `${FileSystem.cacheDirectory}kalman_state_${id}.json`;
+              await FileSystem.writeAsStringAsync(filterUri, JSON.stringify(kalmanFilterRef.current.toJSON()));
+              await AsyncStorage.setItem(`@kalman_state:${id}`, JSON.stringify(kalmanFilterRef.current.toJSON()));
+              logger.debug('[Journey] Saved Kalman state on app background transition.');
+            } catch (e) {
+              logger.warn('[Journey] Failed to save Kalman state on app background:', e);
+            }
+          }
         }
       }
 
@@ -1692,6 +1733,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         // Call API to start journey
         const { journey: newJourney } = await startJourney(startCoords, title);
         journeyIdRef.current = newJourney._id;
+        activeJourneyIdBgCache = newJourney._id;
         startTimeRef.current = Date.now();
 
         // Save to local storage
@@ -2020,6 +2062,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
 
       logger.debug('[Journey] Optimistically completed journey locally:', completingJourneyId);
       journeyIdRef.current = null;
+      activeJourneyIdBgCache = null;
       startTimeRef.current = null;
       lastCoordinateRef.current = null;
       pendingSegmentBreakRef.current = false;
@@ -2125,6 +2168,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       }
       
       journeyIdRef.current = null;
+      activeJourneyIdBgCache = null;
       startTimeRef.current = null;
       lastCoordinateRef.current = null;
       pendingSegmentBreakRef.current = false;
