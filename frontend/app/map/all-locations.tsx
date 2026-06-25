@@ -328,13 +328,8 @@ function AllLocationsMapInner() {
     if (!selectedPost || mapFilter === 'journeys') return null;
     const selectedIdentity = getLocationIdentity(selectedPost);
     const selectedIndex = validLocations.findIndex((loc) => getLocationIdentity(loc) === selectedIdentity);
-    const carouselLocations = selectedIndex > 0
-      ? [
-          validLocations[selectedIndex],
-          ...validLocations.slice(0, selectedIndex),
-          ...validLocations.slice(selectedIndex + 1),
-        ]
-      : validLocations;
+    const initialIndex = selectedIndex !== -1 ? selectedIndex : 0;
+    const carouselLocations = validLocations;
 
     return (
       <View
@@ -358,6 +353,7 @@ function AllLocationsMapInner() {
           }}
           onMomentumScrollEnd={handleCarouselScroll}
           getItemLayout={getCarouselItemLayout}
+          initialScrollIndex={initialIndex}
           keyExtractor={(item) => `carousel-${getLocationIdentity(item)}`}
           renderItem={({ item }) => {
             const resolvedPhoto = resolvePhotoUrl(item.photo);
@@ -746,7 +742,11 @@ function AllLocationsMapInner() {
       const selectedIdentity = getLocationIdentity(selectedPost);
       const idx = validLocations.findIndex(l => getLocationIdentity(l) === selectedIdentity);
       if (idx !== -1 && carouselRef.current) {
-        carouselRef.current.scrollToIndex({ index: 0, animated: false });
+        try {
+          carouselRef.current.scrollToIndex({ index: idx, animated: false });
+        } catch (err) {
+          logger.debug('Error scrolling to post index:', err);
+        }
       }
     }
   }, [selectedPost, validLocations]);
@@ -755,21 +755,10 @@ function AllLocationsMapInner() {
     if (!isScrollingCarouselRef.current) return;
     const contentOffsetX = event.nativeEvent.contentOffset.x;
     const index = Math.round(contentOffsetX / screenWidth);
-    if (index >= 0 && selectedPost) {
-      const selectedIdentity = getLocationIdentity(selectedPost);
-      const selectedIndex = validLocations.findIndex((loc) => getLocationIdentity(loc) === selectedIdentity);
-      const carouselLocations = selectedIndex > 0
-        ? [
-            validLocations[selectedIndex],
-            ...validLocations.slice(0, selectedIndex),
-            ...validLocations.slice(selectedIndex + 1),
-          ]
-        : validLocations;
-      if (index < carouselLocations.length) {
-        const nextLoc = carouselLocations[index];
-        if (getLocationIdentity(selectedPost) !== getLocationIdentity(nextLoc)) {
-          setSelectedPost(nextLoc);
-        }
+    if (index >= 0 && index < validLocations.length) {
+      const nextLoc = validLocations[index];
+      if (!selectedPost || getLocationIdentity(selectedPost) !== getLocationIdentity(nextLoc)) {
+        setSelectedPost(nextLoc);
       }
     }
     isScrollingCarouselRef.current = false;

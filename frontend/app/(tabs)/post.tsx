@@ -1523,6 +1523,25 @@ export default function PostScreen() {
     };
   }, []);
 
+  // Explicitly trigger video playback on focus or selection changes (especially on iOS)
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    if (isFocused && selectedVideo && videoRef.current) {
+      // Small delay of 300ms to allow iOS to restore layout and audio session categories
+      timer = setTimeout(() => {
+        if (videoRef.current) {
+          logger.debug('[Post Video Playback Effect] Explicitly triggering playAsync');
+          videoRef.current.playAsync().catch((err) => {
+            logger.warn('[Post Video Playback Effect] playAsync failed:', err);
+          });
+        }
+      }, 300);
+    }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [isFocused, selectedVideo, showDetails]);
+
   // Handle focus/blur state transitions and recovery checking
   useEffect(() => {
     if (isFocused) {
@@ -3964,6 +3983,9 @@ export default function PostScreen() {
                         const shortDuration = Math.min(actualDuration, MAX_SHORT_DURATION);
                         setVideoDuration(shortDuration);
                         logger.info('[Video Detail Load] video duration captured:', shortDuration);
+                        if (videoRef.current) {
+                          videoRef.current.playAsync().catch(() => {});
+                        }
                       }
                     }}
                   />
@@ -5254,27 +5276,39 @@ export default function PostScreen() {
           overflow: 'hidden',
         }}>
           {isFocused && selectedVideo ? (
-            <Video
-              key={selectedVideo}
-              ref={videoRef}
-              source={videoSource || undefined}
-              style={{ width: '100%', height: '100%' }}
-              useNativeControls={false}
-              resizeMode={ResizeMode.CONTAIN}
-              isLooping
-              shouldPlay
-              isMuted={isSongPreviewActive || (audioChoice === 'background' && !!selectedSong)}
-              volume={isSongPreviewActive || (audioChoice === 'background' && selectedSong) ? 0.0 : 1.0}
-              onLoad={(status) => {
-                if (status.isLoaded && status.durationMillis) {
-                  const actualDuration = status.durationMillis / 1000;
-                  const MAX_SHORT_DURATION = 60;
-                  const shortDuration = Math.min(actualDuration, MAX_SHORT_DURATION);
-                  setVideoDuration(shortDuration);
-                  logger.info('[Video Load] video duration captured:', shortDuration);
-                }
-              }}
-            />
+            <>
+              {videoThumbnail ? (
+                <Image
+                  source={{ uri: videoThumbnail }}
+                  style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: -1, width: '100%', height: '100%' }}
+                  resizeMode="cover"
+                />
+              ) : null}
+              <Video
+                key={selectedVideo}
+                ref={videoRef}
+                source={videoSource || undefined}
+                style={{ width: '100%', height: '100%' }}
+                useNativeControls={false}
+                resizeMode={ResizeMode.CONTAIN}
+                isLooping
+                shouldPlay={true}
+                isMuted={isSongPreviewActive || (audioChoice === 'background' && !!selectedSong)}
+                volume={isSongPreviewActive || (audioChoice === 'background' && selectedSong) ? 0.0 : 1.0}
+                onLoad={(status) => {
+                  if (status.isLoaded && status.durationMillis) {
+                    const actualDuration = status.durationMillis / 1000;
+                    const MAX_SHORT_DURATION = 60;
+                    const shortDuration = Math.min(actualDuration, MAX_SHORT_DURATION);
+                    setVideoDuration(shortDuration);
+                    logger.info('[Video Load] video duration captured:', shortDuration);
+                    if (videoRef.current) {
+                      videoRef.current.playAsync().catch(() => {});
+                    }
+                  }
+                }}
+              />
+            </>
           ) : selectedImages.length > 0 ? (
             <AspectImageCropper
               uri={selectedImages[0].uri}

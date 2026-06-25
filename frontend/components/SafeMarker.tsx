@@ -108,7 +108,7 @@ const SafeMarker = React.forwardRef(({ children, repaintTriggers = [], ...props 
       {...props}
       onPress={handlePress}
       onSelect={handleSelect}
-      tracksViewChanges={activeTracksViewChanges}
+      tracksViewChanges={Platform.OS === 'ios' ? true : activeTracksViewChanges}
     >
       <View pointerEvents={Platform.OS === 'ios' ? 'auto' : 'none'}>
         {children}

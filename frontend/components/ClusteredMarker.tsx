@@ -106,7 +106,7 @@ const ClusteredMarker = ({
       opacity={visible || isSelected ? 1 : 0}
     >
       <Animated.View 
-        pointerEvents="none" 
+        pointerEvents={Platform.OS === 'ios' ? 'auto' : 'none'} 
         style={[animatedStyle, { width: markerWidth, height: markerHeight, justifyContent: 'center', alignItems: 'center' }]}
       >
         {children}
