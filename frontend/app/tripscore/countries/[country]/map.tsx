@@ -90,7 +90,7 @@ const OptimizedVisitedMarker = React.memo(({
     <SafeMarker
       ref={markerRef}
       zIndex={isSelected ? 99999 : index}
-      anchor={{ x: 0.5, y: 0.5 }}
+      anchor={{ x: 0.5, y: 1.0 }}
       coordinate={{
         latitude: location.coordinates!.latitude,
         longitude: location.coordinates!.longitude,
@@ -105,7 +105,6 @@ const OptimizedVisitedMarker = React.memo(({
         photo={location.imageUrl} 
         onImageLoad={handleImageLoad}
         latitudeDelta={latitudeDelta}
-        renderAsDot={true}
       />
     </SafeMarker>
   );
@@ -197,8 +196,6 @@ export default function CountryMapScreen() {
   const { country, userId } = useLocalSearchParams();
   const mapRef = useRef<any>(null);
   const currentRegionRef = useRef<any>(null);
-  // Cache markers to prevent re-rendering issues when navigating back
-  const markersCacheRef = useRef<Array<any>>([]);
 
 
 
@@ -328,125 +325,38 @@ export default function CountryMapScreen() {
     return deltas[key] || { latitudeDelta: 10, longitudeDelta: 10 };
   };
 
-  /**
-   * Stable fallback coordinates for locations that don't have real coordinates.
-   * IMPORTANT: Must be deterministic across renders; otherwise markers appear to "disappear"
-   * (they actually move to new random positions after navigation / rerender).
-   *
-   * NOTE: Declared as a function (not const) so it's hoisted and safe to use in hooks above/below.
-   */
-  function getStableFallbackCoordinates(
-    countryDisplayName: string,
-    locName: string,
-    idx: number
-  ): { latitude: number; longitude: number } {
-    const center = getCountryCenter(countryDisplayName);
-    const delta = getCountryDelta(countryDisplayName);
-
-    // Deterministic hash -> unsigned 32-bit
-    const hashString = (str: string) => {
-      let h = 2166136261;
-      for (let i = 0; i < str.length; i++) {
-        h ^= str.charCodeAt(i);
-        h = Math.imul(h, 16777619);
-      }
-      return h >>> 0;
-    };
-
-    // Turn hash into two stable pseudo-random floats in [0, 1)
-    const seed = hashString(`${countryDisplayName}|${locName}|${idx}`);
-    const rand1 = ((seed * 1664525 + 1013904223) >>> 0) / 4294967296;
-    const rand2 = (((seed ^ 0x9e3779b9) * 1664525 + 1013904223) >>> 0) / 4294967296;
-
-    // Keep points reasonably close to center so they remain in-frame
-    const latOffset = (rand1 - 0.5) * delta.latitudeDelta * 0.25;
-    const lngOffset = (rand2 - 0.5) * delta.longitudeDelta * 0.25;
-
-    return {
-      latitude: center.latitude + latOffset,
-      longitude: center.longitude + lngOffset,
-    };
-  }
-
   const countryParam = Array.isArray(country) ? country[0] : country;
   const displayCountryName = (countryParam ?? '')
     .replace(/-/g, ' ')
     .replace(/\b\w/g, (l: string) => l.toUpperCase());
 
   // Build visited markers once per data change (Rules of Hooks: top-level)
-  // CRITICAL: Use stable dependencies and cache to prevent markers from disappearing
   const visitedMarkers = useMemo(() => {
     if (!data || !data.locations || data.locations.length === 0) {
-      // If no data but we have cached markers, keep them to prevent disappearing
-      if (markersCacheRef.current.length > 0) {
-        return markersCacheRef.current;
-      }
       return [];
     }
 
-    const coordinateBuckets = new Map<string, number[]>();
-    data.locations.forEach((loc, i) => {
-      if (!isValidMapCoordinate(loc.coordinates)) return;
-      const key = `${loc.coordinates.latitude.toFixed(3)},${loc.coordinates.longitude.toFixed(3)}`;
-      const bucket = coordinateBuckets.get(key) || [];
-      bucket.push(i);
-      coordinateBuckets.set(key, bucket);
-    });
+    return data.locations
+      .filter((loc) => {
+        return (
+          isValidMapCoordinate(loc.coordinates) &&
+          loc.coordinates!.latitude !== 0 &&
+          loc.coordinates!.longitude !== 0
+        );
+      })
+      .map((loc, i) => {
+        const finalCoords = loc.coordinates!;
+        const stableId = loc.tripVisitId || `${loc.name || `loc-${i}`}-${finalCoords.latitude.toFixed(6)}-${finalCoords.longitude.toFixed(6)}-${i}`;
 
-    const bucketPositions = new Map<number, { index: number; total: number }>();
-    coordinateBuckets.forEach((indexes) => {
-      indexes.forEach((locationIndex, bucketIndex) => {
-        bucketPositions.set(locationIndex, { index: bucketIndex, total: indexes.length });
-      });
-    });
-
-    // Create stable markers with deterministic coordinates.
-    // `coordinates` is the tappable/display coordinate; `actualCoordinates` is the source-of-truth destination.
-    const markers = data.locations.map((loc, i) => {
-      const hasValidCoords =
-        isValidMapCoordinate(loc.coordinates) &&
-        loc.coordinates.latitude !== 0 &&
-        loc.coordinates.longitude !== 0;
-
-      // Always use stable coordinates - either real ones or deterministic fallback
-      const finalCoords = hasValidCoords
-        ? loc.coordinates!
-        : getStableFallbackCoordinates(
-            displayCountryName || '',
-            loc.name || `Location ${i + 1}`,
-            i
-          );
-
-      // Create a unique stable ID for this marker (doesn't change across renders)
-      const stableId = loc.tripVisitId || `${loc.name || `loc-${i}`}-${finalCoords.latitude.toFixed(6)}-${finalCoords.longitude.toFixed(6)}-${i}`;
-      const bucketPosition = bucketPositions.get(i);
-      let displayCoords = finalCoords;
-
-      if (hasValidCoords && bucketPosition && bucketPosition.total > 1) {
-        const angle = (Math.PI * 2 * bucketPosition.index) / bucketPosition.total;
-        const radius = 0.00014 + Math.min(bucketPosition.total, 6) * 0.000025;
-        const latRad = (finalCoords.latitude * Math.PI) / 180;
-        const lngScale = Math.max(Math.cos(latRad), 0.25);
-        displayCoords = {
-          latitude: finalCoords.latitude + Math.sin(angle) * radius,
-          longitude: finalCoords.longitude + (Math.cos(angle) * radius) / lngScale,
+        return {
+          ...loc,
+          stableId,
+          coordinates: finalCoords,
+          actualCoordinates: finalCoords,
+          hasValidCoords: true,
         };
-      }
-
-      return {
-        ...loc,
-        stableId, // Add stable ID for key generation
-        coordinates: displayCoords,
-        actualCoordinates: finalCoords,
-        hasValidCoords,
-      };
-    });
-
-    // Keep every approved TripVisit visible/selectable, even when points are
-    // near each other or share the same coordinates.
-    markersCacheRef.current = markers;
-    return markers;
-  }, [data?.locations, displayCountryName]);
+      });
+  }, [data?.locations]);
 
   const initialRegion = useMemo(() => {
     const validMarkers = visitedMarkers.filter((m: any) => m.hasValidCoords);

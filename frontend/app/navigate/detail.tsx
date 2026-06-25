@@ -122,6 +122,16 @@ function getJourneyPolylineCoords(journey: any) {
   }).filter(isValidMapCoordinate);
 }
 
+function extractValidCoord(coords: any) {
+  if (!coords) return null;
+  const lat = coords.latitude ?? coords.lat;
+  const lng = coords.longitude ?? coords.lng;
+  if (typeof lat === 'number' && typeof lng === 'number' && !isNaN(lat) && !isNaN(lng)) {
+    return { latitude: lat, longitude: lng };
+  }
+  return null;
+}
+
 /**
  * Journey Detail Screen
  *
@@ -717,28 +727,36 @@ function initMap(){
                   latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
                 />
               )}
-              {isValidMapCoordinate({ latitude: journey.startCoords?.lat, longitude: journey.startCoords?.lng }) && (
-                <SafeMarker
-                  coordinate={{ latitude: journey.startCoords.lat, longitude: journey.startCoords.lng }}
-                  title="Start"
-                  anchor={{ x: 0.5, y: 0.5 }}
-                  onPress={() => selectEndpoint('start')}
-                  repaintTriggers={[latitudeDelta, selectedMapPoint?.kind === 'start']}
-                >
-                  <PremiumMapMarker icon="play" latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
-                </SafeMarker>
-              )}
-              {!isViewingActiveJourney && isValidMapCoordinate({ latitude: journey.endCoords?.lat, longitude: journey.endCoords?.lng }) && (
-                <SafeMarker
-                  coordinate={{ latitude: journey.endCoords.lat, longitude: journey.endCoords.lng }}
-                  title="End"
-                  anchor={{ x: 0.5, y: 1.0 }}
-                  onPress={() => selectEndpoint('end')}
-                  repaintTriggers={[latitudeDelta, selectedMapPoint?.kind === 'end']}
-                >
-                  <PremiumMapMarker icon="flag" active latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
-                </SafeMarker>
-              )}
+              {(() => {
+                const startC = extractValidCoord(journey.startCoords);
+                if (!startC) return null;
+                return (
+                  <SafeMarker
+                    coordinate={startC}
+                    title="Start"
+                    anchor={{ x: 0.5, y: 0.5 }}
+                    onPress={() => selectEndpoint('start')}
+                    repaintTriggers={[latitudeDelta, selectedMapPoint?.kind === 'start']}
+                  >
+                    <PremiumMapMarker icon="play" latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
+                  </SafeMarker>
+                );
+              })()}
+              {!isViewingActiveJourney && (() => {
+                const endC = extractValidCoord(journey.endCoords);
+                if (!endC) return null;
+                return (
+                  <SafeMarker
+                    coordinate={endC}
+                    title="End"
+                    anchor={{ x: 0.5, y: 1.0 }}
+                    onPress={() => selectEndpoint('end')}
+                    repaintTriggers={[latitudeDelta, selectedMapPoint?.kind === 'end']}
+                  >
+                    <PremiumMapMarker icon="flag" active latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)} />
+                  </SafeMarker>
+                );
+              })()}
               {journey.waypoints?.map((w: any, i: number) => {
                 const photoUrl = getWaypointPhotoUrl(w);
                 const postId = w.post?._id || w.post;

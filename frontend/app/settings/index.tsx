@@ -266,6 +266,7 @@ export default function SettingsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: isDark ? '#000000' : '#FFFFFF' }]}>
       <LinearGradient
+        key={isDark ? 'dark' : 'light'}
         colors={screenGradientColors}
         style={StyleSheet.absoluteFillObject}
         locations={screenGradientLocs}

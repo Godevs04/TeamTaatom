@@ -15,6 +15,10 @@ export interface Journey {
     latitude: number;
     longitude: number;
   };
+  endCoords?: {
+    latitude: number;
+    longitude: number;
+  };
   title?: string;
   description?: string;
   sourceUserId?: string;
