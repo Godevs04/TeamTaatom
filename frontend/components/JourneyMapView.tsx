@@ -16,6 +16,16 @@ import GPSAccuracyChip from './GPSAccuracyChip';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
+function extractValidCoord(coords: any) {
+  if (!coords) return null;
+  const lat = coords.latitude ?? coords.lat;
+  const lng = coords.longitude ?? coords.lng;
+  if (typeof lat === 'number' && typeof lng === 'number' && !isNaN(lat) && !isNaN(lng)) {
+    return { lat, lng };
+  }
+  return null;
+}
+
 export interface Waypoint {
   post?: {
     _id: string;
@@ -243,44 +253,59 @@ export default function JourneyMapView({
           />
 
           {/* Start Marker */}
-          <View
-            style={[
-              styles.marker,
-              styles.startMarker,
-              {
-                top: `${((journey.startCoords.lat - initialRegion.latitude + initialRegion.latitudeDelta / 2) / initialRegion.latitudeDelta) * 100}%`,
-                left: `${((journey.startCoords.lng - initialRegion.longitude + initialRegion.longitudeDelta / 2) / initialRegion.longitudeDelta) * 100}%`,
-              },
-            ]}
-          >
-            <View style={[styles.routeEndpoint, { backgroundColor: GROWTH_GREEN }]} />
-          </View>
+          {(() => {
+            const startC = extractValidCoord(journey.startCoords);
+            if (!startC) return null;
+            return (
+              <View
+                style={[
+                  styles.marker,
+                  styles.startMarker,
+                  {
+                    top: `${((startC.lat - initialRegion.latitude + initialRegion.latitudeDelta / 2) / initialRegion.latitudeDelta) * 100}%`,
+                    left: `${((startC.lng - initialRegion.longitude + initialRegion.longitudeDelta / 2) / initialRegion.longitudeDelta) * 100}%`,
+                  },
+                ]}
+              >
+                <View style={[styles.routeEndpoint, { backgroundColor: GROWTH_GREEN }]} />
+              </View>
+            );
+          })()}
 
           {/* End Marker */}
-          <View
-            style={[
-              styles.marker,
-              styles.endMarker,
-              {
-                top: `${((journey.endCoords.lat - initialRegion.latitude + initialRegion.latitudeDelta / 2) / initialRegion.latitudeDelta) * 100}%`,
-                left: `${((journey.endCoords.lng - initialRegion.longitude + initialRegion.longitudeDelta / 2) / initialRegion.longitudeDelta) * 100}%`,
-              },
-            ]}
-          >
-            <View style={[styles.routeEndpoint, { backgroundColor: ALERT_RED }]} />
-          </View>
+          {(() => {
+            const endC = extractValidCoord(journey.endCoords);
+            if (!endC) return null;
+            return (
+              <View
+                style={[
+                  styles.marker,
+                  styles.endMarker,
+                  {
+                    top: `${((endC.lat - initialRegion.latitude + initialRegion.latitudeDelta / 2) / initialRegion.latitudeDelta) * 100}%`,
+                    left: `${((endC.lng - initialRegion.longitude + initialRegion.longitudeDelta / 2) / initialRegion.longitudeDelta) * 100}%`,
+                  },
+                ]}
+              >
+                <View style={[styles.routeEndpoint, { backgroundColor: ALERT_RED }]} />
+              </View>
+            );
+          })()}
 
           {/* Waypoint Markers with Photos */}
-          {!isRecordingMode && journey.waypoints.map((waypoint, idx) => {
+          {!isRecordingMode && journey.waypoints?.map((waypoint, idx) => {
             const photoUrl = getPhotoUrl(waypoint);
+            const wCoord = extractValidCoord(waypoint);
+            if (!wCoord) return null;
+            
             return (
               <TouchableOpacity
-                key={`${waypoint.lat}-${waypoint.lng}-${idx}`}
+                key={`${wCoord.lat}-${wCoord.lng}-${idx}`}
                 style={[
                   styles.waypointMarker,
                   {
-                    top: `${((waypoint.lat - initialRegion.latitude + initialRegion.latitudeDelta / 2) / initialRegion.latitudeDelta) * 100}%`,
-                    left: `${((waypoint.lng - initialRegion.longitude + initialRegion.longitudeDelta / 2) / initialRegion.longitudeDelta) * 100}%`,
+                    top: `${((wCoord.lat - initialRegion.latitude + initialRegion.latitudeDelta / 2) / initialRegion.latitudeDelta) * 100}%`,
+                    left: `${((wCoord.lng - initialRegion.longitude + initialRegion.longitudeDelta / 2) / initialRegion.longitudeDelta) * 100}%`,
                   },
                 ]}
                 onPress={() => handleWaypointPress(waypoint)}

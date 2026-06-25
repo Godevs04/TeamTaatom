@@ -111,3 +111,9 @@ backend/src/__tests__/geocoder.test.js
 backend/src/__tests__/geocoder.test.js
 backend/src/__tests__/geocoder.test.js
 backend/src/__tests__/geocoder.test.js
+frontend/app.json
+frontend/eas.json
+frontend/.easrc.json
+frontend/app.base.json
+frontend/app.config.js
+

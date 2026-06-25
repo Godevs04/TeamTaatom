@@ -3759,6 +3759,7 @@ export default function LocaleScreen() {
       />
 
       <LinearGradient
+        key={mode === 'dark' ? 'dark' : 'light'}
         colors={screenGradientColors}
         style={StyleSheet.absoluteFillObject}
         locations={screenGradientLocs}

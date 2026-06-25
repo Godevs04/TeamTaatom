@@ -1695,6 +1695,7 @@ export default function HomeScreen() {
     <>
       <CloudSkyBackground heightRatio={0.28} />
       <LinearGradient
+        key={isDark ? 'dark' : 'light'}
         colors={screenGradientColors}
         style={StyleSheet.absoluteFillObject}
         locations={screenGradientLocs}

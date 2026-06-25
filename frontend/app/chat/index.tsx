@@ -977,6 +977,7 @@ export default function ChatModal() {
       <View style={styles.container}>
         {!isDark && <CloudSkyBackground heightRatio={0.3} />}
         <LinearGradient
+          key={isDark ? 'dark' : 'light'}
           colors={chatGradientColors}
           style={StyleSheet.absoluteFillObject}
           locations={chatGradientLocs}

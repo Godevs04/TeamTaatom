@@ -5,10 +5,11 @@ import { Marker } from '../utils/mapsWrapper';
 interface SafeMarkerProps {
   children: React.ReactNode;
   repaintTriggers?: any[];
+  keepTracking?: boolean;
   [key: string]: any;
 }
 
-const SafeMarker = React.forwardRef(({ children, repaintTriggers = [], ...props }: SafeMarkerProps, ref: any) => {
+const SafeMarker = React.forwardRef(({ children, repaintTriggers = [], keepTracking = false, ...props }: SafeMarkerProps, ref: any) => {
   const [tracksViewChanges, setTracksViewChanges] = useState(true);
   const isMounted = useRef(true);
   const markerRef = useRef<any>(null);
@@ -46,14 +47,19 @@ const SafeMarker = React.forwardRef(({ children, repaintTriggers = [], ...props 
   useEffect(() => {
     isMounted.current = true;
     setTracksViewChanges(true);
-    const timer = setTimeout(() => {
-      if (isMounted.current) {
-        setTracksViewChanges(false);
-      }
-    }, repaintDuration);
+    if (!keepTracking) {
+      const timer = setTimeout(() => {
+        if (isMounted.current) {
+          setTracksViewChanges(false);
+        }
+      }, repaintDuration);
+      return () => {
+        isMounted.current = false;
+        clearTimeout(timer);
+      };
+    }
     return () => {
       isMounted.current = false;
-      clearTimeout(timer);
     };
   }, []);
 
@@ -63,14 +69,16 @@ const SafeMarker = React.forwardRef(({ children, repaintTriggers = [], ...props 
     if (hasChanged) {
       prevTriggers.current = repaintTriggers;
       setTracksViewChanges(true);
-      const timer = setTimeout(() => {
-        if (isMounted.current) {
-          setTracksViewChanges(false);
-        }
-      }, repaintDuration);
-      return () => clearTimeout(timer);
+      if (!keepTracking) {
+        const timer = setTimeout(() => {
+          if (isMounted.current) {
+            setTracksViewChanges(false);
+          }
+        }, repaintDuration);
+        return () => clearTimeout(timer);
+      }
     }
-  }, [repaintTriggers]);
+  }, [repaintTriggers, keepTracking]);
 
   if (!Marker) return null;
 
@@ -108,7 +116,7 @@ const SafeMarker = React.forwardRef(({ children, repaintTriggers = [], ...props 
       {...props}
       onPress={handlePress}
       onSelect={handleSelect}
-      tracksViewChanges={Platform.OS === 'ios' ? true : activeTracksViewChanges}
+      tracksViewChanges={Platform.OS === 'ios' ? (keepTracking ? true : activeTracksViewChanges) : activeTracksViewChanges}
     >
       <View pointerEvents={Platform.OS === 'ios' ? 'auto' : 'none'}>
         {children}

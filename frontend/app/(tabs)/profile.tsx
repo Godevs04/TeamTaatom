@@ -1721,6 +1721,7 @@ export default function ProfileScreen() {
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
       {!isDark && <CloudSkyBackground heightRatio={0.38} />}
       <LinearGradient
+        key={isDark ? 'dark' : 'light'}
         colors={theme.colors.screenGradient as [string, string, ...string[]]}
         style={StyleSheet.absoluteFillObject}
         locations={screenGradientLocations}

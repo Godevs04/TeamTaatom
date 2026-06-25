@@ -51,6 +51,16 @@ const GROWTH_GREEN = '#22C55E';
 const ACTION_BLUE = '#3B82F6';
 const ALERT_RED = '#EF4444';
 
+function extractValidCoord(coords: any) {
+  if (!coords) return null;
+  const lat = coords.latitude ?? coords.lat;
+  const lng = coords.longitude ?? coords.lng;
+  if (typeof lat === 'number' && typeof lng === 'number' && !isNaN(lat) && !isNaN(lng)) {
+    return { latitude: lat, longitude: lng };
+  }
+  return null;
+}
+
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 /**
@@ -266,6 +276,32 @@ function initMap(){
                   applyKalman={false}
                 />
               )}
+              {SafeMarker && (() => {
+                const startC = extractValidCoord(journey?.startCoords);
+                if (!startC) return null;
+                return (
+                  <SafeMarker
+                    coordinate={startC}
+                    title="Start"
+                    anchor={{ x: 0.5, y: 0.5 }}
+                  >
+                    <PremiumMapMarker icon="play" />
+                  </SafeMarker>
+                );
+              })()}
+              {SafeMarker && (() => {
+                const endC = extractValidCoord(journey?.endCoords);
+                if (!endC) return null;
+                return (
+                  <SafeMarker
+                    coordinate={endC}
+                    title="End"
+                    anchor={{ x: 0.5, y: 1.0 }}
+                  >
+                    <PremiumMapMarker icon="flag" active />
+                  </SafeMarker>
+                );
+              })()}
               {SafeMarker && journey.waypoints?.map((waypoint, index) => {
                 const photoUrl = getWaypointPhotoUrl(waypoint);
                 const postId = waypoint.postId || (waypoint as any).post?._id || (waypoint as any).post;

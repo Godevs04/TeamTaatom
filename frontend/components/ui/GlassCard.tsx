@@ -158,7 +158,12 @@ export const GlassCard = ({
         };
 
   const renderCardContent = () => {
-    if (hasGradientBorder && !error && !isDark) {
+    if (hasGradientBorder && !error) {
+      const gradientBg = isDark 
+        ? 'rgba(30, 30, 30, 0.72)' 
+        : 'rgba(255, 255, 255, 0.6)';
+      const intensity = isDark ? 20 : 40;
+      const tint = isDark ? 'dark' : 'light';
       return (
         <LinearGradient
           colors={(gradientColors || [theme.colors.primary, theme.colors.secondary]) as any}
@@ -176,13 +181,13 @@ export const GlassCard = ({
           ]}
         >
           <BlurView
-            intensity={40}
-            tint="light"
+            intensity={intensity}
+            tint={tint}
             style={{
               flex: 1,
               borderRadius: innerRadius,
               overflow: 'hidden',
-              backgroundColor: 'rgba(255, 255, 255, 0.6)',
+              backgroundColor: gradientBg,
             }}
             {...(Platform.OS === 'android' ? { experimentalBlurMethod: 'dimezisBlurView' as const } : {})}
           >
@@ -241,9 +246,9 @@ export const GlassCard = ({
       onHoverOut={handleHoverOut}
       onPressIn={() => isInteractive && !error && (scale.value = withSpring(0.98, { damping: 15 }))}
       onPressOut={() => isInteractive && !error && (scale.value = withSpring(1, { damping: 15 }))}
-      style={{ width: '100%' }}
+      style={style}
     >
-      <Animated.View style={[animatedStyle, style]} {...props}>
+      <Animated.View style={[animatedStyle, { flex: 1 }]} {...props}>
         {renderCardContent()}
       </Animated.View>
     </Pressable>
@@ -263,6 +268,7 @@ export const GlassCard = ({
 const styles = StyleSheet.create({
   container: {
     overflow: 'hidden',
+    flex: 1,
   },
   content: {
     zIndex: 1,

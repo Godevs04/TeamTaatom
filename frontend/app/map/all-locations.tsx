@@ -165,6 +165,9 @@ function AllLocationsMapInner() {
 
   const carouselRef = useRef<FlatList>(null);
   const isScrollingCarouselRef = useRef(false);
+  // iOS MapKit fires map onPress immediately after marker onPress (event bubbling).
+  // This ref suppresses the map-level clear so the details card stays visible.
+  const markerJustPressedRef = useRef(false);
 
   const journeysWithOffsets = useMemo(() => {
     const coordsCount: { [key: string]: number } = {};
@@ -1377,6 +1380,12 @@ function AllLocationsMapInner() {
         initialRegion={region}
         onRegionChangeComplete={handleRegionChangeComplete}
         onPress={() => {
+          // On iOS, MapKit bubbles the tap to both the marker and the map.
+          // If a marker was just pressed, skip this clear so the card stays visible.
+          if (markerJustPressedRef.current) {
+            markerJustPressedRef.current = false;
+            return;
+          }
           setSelectedPost(null);
           setSelectedJourney(null);
         }}
@@ -1570,7 +1579,10 @@ function AllLocationsMapInner() {
                     visible={visible || isSelected}
                     isSelected={isSelected}
                     showPin={showPin}
-                    onPress={() => setSelectedPost(loc)}
+                    onPress={() => {
+                      markerJustPressedRef.current = true;
+                      setSelectedPost(loc);
+                    }}
                   >
                     <PremiumMapMarker 
                       isActive={isSelected} 

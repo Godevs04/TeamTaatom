@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Platform } from 'react-native';
+import { Platform, View } from 'react-native';
 import Animated, { useSharedValue, useAnimatedStyle, withTiming } from 'react-native-reanimated';
 import { Marker } from '../utils/mapsWrapper';
+import SafeMarker from './SafeMarker';
 
 
 interface ClusteredMarkerProps {
@@ -95,18 +96,36 @@ const ClusteredMarker = ({
     }
   };
 
+  if (Platform.OS === 'ios') {
+    return (
+      <SafeMarker
+        coordinate={targetCoordinate}
+        onPress={handlePress}
+        onSelect={handlePress}
+        tappable={visible || isSelected}
+        anchor={{ x: 0.5, y: isSelected ? 0.86 : 0.5 }}
+        opacity={visible || isSelected ? 1 : 0}
+        repaintTriggers={[visible, isSelected]}
+      >
+        <View style={{ width: markerWidth, height: markerHeight, justifyContent: 'center', alignItems: 'center' }}>
+          {children}
+        </View>
+      </SafeMarker>
+    );
+  }
+
   return (
     <Marker
       coordinate={targetCoordinate}
       onPress={handlePress}
       onSelect={handlePress}
       tappable={visible || isSelected}
-      tracksViewChanges={Platform.OS === 'ios' ? true : tracksViewChanges}
+      tracksViewChanges={tracksViewChanges}
       anchor={{ x: 0.5, y: isSelected ? 0.86 : 0.5 }}
       opacity={visible || isSelected ? 1 : 0}
     >
       <Animated.View 
-        pointerEvents={Platform.OS === 'ios' ? 'auto' : 'none'} 
+        pointerEvents="none" 
         style={[animatedStyle, { width: markerWidth, height: markerHeight, justifyContent: 'center', alignItems: 'center' }]}
       >
         {children}

@@ -40,6 +40,7 @@ import {
   PostCreateEmptyCard,
 } from "../../components/post/PostCreateChrome";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { GlassCard } from '../../components/ui/GlassCard';
 import { postSchema, shortSchema } from "../../utils/validation";
 import { getCurrentLocation, getAddressFromCoords } from "../../utils/locationUtils";
 import { LocationExtractionService } from "../../services/locationExtraction";
@@ -3955,12 +3956,12 @@ export default function PostScreen() {
             ) : isFocused && selectedVideo && selectedVideo.trim() ? (
               <View>
                 {/* Video preview */}
-                <View style={{ width: "100%", aspectRatio: 9 / 16, borderRadius: theme.borderRadius.lg, overflow: 'hidden', backgroundColor: theme.colors.surface, position: 'relative' }}>
+                <View style={{ width: "100%", aspectRatio: 9 / 16, borderRadius: theme.borderRadius.lg, overflow: 'hidden', backgroundColor: '#000000', position: 'relative' }}>
                   {videoThumbnail ? (
                     <Image
                       source={{ uri: videoThumbnail }}
                       style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: -1, width: '100%', height: '100%' }}
-                      resizeMode="cover"
+                      resizeMode="contain"
                     />
                   ) : null}
                   <Video
@@ -5252,38 +5253,259 @@ export default function PostScreen() {
     </View>
     ) : (
       // Unified Instagram 1:1 Editor view
-      <View style={{ flex: 1, backgroundColor: theme.colors.background || '#000000' }}>
-        <PostCreateHeader
-          onClose={handleClosePost}
-          onNext={() => {
-            if (postType === 'short' || !!selectedVideo) {
-              setShowAudioChoiceModal(true);
-            } else {
-              setShowDetails(true);
-            }
-          }}
-          showNext={selectedImages.length > 0 || !!selectedVideo}
-        />
-        
-        {/* Top Half - Preview & Crop (exactly 50% of viewport) */}
-        <View style={{
-          width: screenWidth,
-          height: screenHeight * 0.45,
-          backgroundColor: '#000000',
-          justifyContent: 'center',
-          alignItems: 'center',
-          position: 'relative',
-          overflow: 'hidden',
-        }}>
-          {isFocused && selectedVideo ? (
-            <>
-              {videoThumbnail ? (
-                <Image
-                  source={{ uri: videoThumbnail }}
-                  style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: -1, width: '100%', height: '100%' }}
-                  resizeMode="cover"
-                />
-              ) : null}
+      selectedImages.length === 0 && !selectedVideo ? (
+        // Redesigned simple & elegant landing screen when no media is chosen
+        <View style={{ flex: 1, backgroundColor: mode === 'dark' ? '#000000' : '#FFFFFF' }}>
+          <PostCreateHeader
+            onClose={handleClosePost}
+            onNext={() => {}}
+            showNext={false}
+          />
+          
+          <View style={{
+            flex: 1,
+            justifyContent: 'center',
+            alignItems: 'center',
+            paddingHorizontal: 24,
+            backgroundColor: mode === 'dark' ? '#000000' : '#FFFFFF',
+          }}>
+            {/* Title & Subtitle */}
+            <Text style={{
+              color: mode === 'dark' ? '#FFFFFF' : '#122236',
+              fontSize: 24,
+              fontWeight: '700',
+              marginBottom: 8,
+              textAlign: 'center',
+              letterSpacing: 0.3,
+            }}>
+              Create New Post
+            </Text>
+            <Text style={{
+              color: mode === 'dark' ? 'rgba(255, 255, 255, 0.55)' : 'rgba(18, 34, 54, 0.55)',
+              fontSize: 13,
+              textAlign: 'center',
+              marginBottom: 48,
+              paddingHorizontal: 30,
+              lineHeight: 18,
+            }}>
+              {postType === 'photo' 
+                ? 'Capture a new moment or select photos from your library to share as a Post.'
+                : 'Record a new clip or select a video from your library to upload as a Short Reel.'
+              }
+            </Text>
+
+            {/* Action Cards */}
+            <View style={{
+              flexDirection: 'row',
+              gap: 20,
+              justifyContent: 'center',
+              alignItems: 'center',
+              width: '100%',
+            }}>
+              {/* Camera Card */}
+              <GlassCard
+                variant="medium"
+                hoverable
+                hasGradientBorder={true}
+                gradientColors={['#14B8A6', '#0095F6']}
+                onPress={postType === 'photo' ? takePhoto : takeVideo}
+                style={{
+                  width: screenWidth * 0.41,
+                  aspectRatio: 1,
+                  borderRadius: 24,
+                }}
+              >
+                <View style={{
+                  flex: 1,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  padding: 16,
+                  backgroundColor: mode === 'dark' ? 'rgba(10, 25, 30, 0.2)' : 'rgba(217, 239, 255, 0.15)',
+                }}>
+                  <LinearGradient
+                    colors={['#14B8A6', '#0095F6']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{
+                      width: 56,
+                      height: 56,
+                      borderRadius: 28,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      marginBottom: 14,
+                      shadowColor: '#14B8A6',
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.25,
+                      shadowRadius: 8,
+                      elevation: 3,
+                    }}
+                  >
+                    <Ionicons name="camera-outline" size={28} color="#FFFFFF" />
+                  </LinearGradient>
+                  <Text style={{
+                    color: mode === 'dark' ? '#FFFFFF' : '#122236',
+                    fontSize: 15,
+                    fontWeight: '600',
+                    marginBottom: 3,
+                  }}>
+                    Camera
+                  </Text>
+                  <Text style={{
+                    color: mode === 'dark' ? 'rgba(255, 255, 255, 0.45)' : 'rgba(18, 34, 54, 0.45)',
+                    fontSize: 11,
+                    fontWeight: '500',
+                    textAlign: 'center',
+                  }}>
+                    {postType === 'photo' ? 'Take Photo' : 'Record Short'}
+                  </Text>
+                </View>
+              </GlassCard>
+
+              {/* Gallery Card */}
+              <GlassCard
+                variant="medium"
+                hoverable
+                hasGradientBorder={true}
+                gradientColors={['#14B8A6', '#0095F6']}
+                onPress={postType === 'photo' ? pickImages : pickVideo}
+                style={{
+                  width: screenWidth * 0.41,
+                  aspectRatio: 1,
+                  borderRadius: 24,
+                }}
+              >
+                <View style={{
+                  flex: 1,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  padding: 16,
+                  backgroundColor: mode === 'dark' ? 'rgba(10, 25, 30, 0.2)' : 'rgba(217, 239, 255, 0.15)',
+                }}>
+                  <LinearGradient
+                    colors={['#14B8A6', '#0095F6']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={{
+                      width: 56,
+                      height: 56,
+                      borderRadius: 28,
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      marginBottom: 14,
+                      shadowColor: '#0095F6',
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.25,
+                      shadowRadius: 8,
+                      elevation: 3,
+                    }}
+                  >
+                    <Ionicons name="images-outline" size={26} color="#FFFFFF" />
+                  </LinearGradient>
+                  <Text style={{
+                    color: mode === 'dark' ? '#FFFFFF' : '#122236',
+                    fontSize: 15,
+                    fontWeight: '600',
+                    marginBottom: 3,
+                  }}>
+                    Gallery
+                  </Text>
+                  <Text style={{
+                    color: mode === 'dark' ? 'rgba(255, 255, 255, 0.45)' : 'rgba(18, 34, 54, 0.45)',
+                    fontSize: 11,
+                    fontWeight: '500',
+                    textAlign: 'center',
+                  }}>
+                    {postType === 'photo' ? 'Choose Photos' : 'Choose Video'}
+                  </Text>
+                </View>
+              </GlassCard>
+            </View>
+          </View>
+          
+          {/* Bottom Tab Overlay with Gradient Fade (POST/REEL selection) */}
+          <View style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 60 + insets.bottom,
+            paddingBottom: insets.bottom,
+            backgroundColor: 'rgba(0,0,0,0.85)',
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderTopWidth: StyleSheet.hairlineWidth,
+            borderTopColor: 'rgba(255,255,255,0.1)',
+          }}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={{
+                alignItems: 'center',
+                paddingHorizontal: screenWidth / 2 - 40,
+              }}
+            >
+              {['POST', 'REEL'].map((tab) => {
+                const isTabActive = (tab === 'POST' && postType === 'photo') || (tab === 'REEL' && postType === 'short');
+                return (
+                  <TouchableOpacity
+                    key={tab}
+                    onPress={() => {
+                      if (tab === 'POST') {
+                        setPostType('photo');
+                      } else if (tab === 'REEL') {
+                        setPostType('short');
+                      }
+                    }}
+                    style={{ paddingHorizontal: 15, paddingVertical: 8 }}
+                  >
+                    <Text style={{
+                      color: isTabActive ? '#FFFFFF' : '#888888',
+                      fontSize: 14,
+                      fontWeight: 'bold',
+                      letterSpacing: 1,
+                    }}>
+                      {tab}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </View>
+      ) : (
+        // Existing Editor View when media IS chosen
+        <View style={{ flex: 1, backgroundColor: theme.colors.background || '#000000' }}>
+          <PostCreateHeader
+            onClose={handleClosePost}
+            onNext={() => {
+              if (postType === 'short' || !!selectedVideo) {
+                setShowAudioChoiceModal(true);
+              } else {
+                setShowDetails(true);
+              }
+            }}
+            showNext={selectedImages.length > 0 || !!selectedVideo}
+          />
+          
+          {/* Top Half - Preview & Crop (exactly 50% of viewport) */}
+          <View style={{
+            width: screenWidth,
+            height: screenHeight * 0.45,
+            backgroundColor: '#000000',
+            justifyContent: 'center',
+            alignItems: 'center',
+            position: 'relative',
+            overflow: 'hidden',
+          }}>
+            {isFocused && selectedVideo ? (
+              <>
+                {videoThumbnail ? (
+                  <Image
+                    source={{ uri: videoThumbnail }}
+                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: -1, width: '100%', height: '100%' }}
+                    resizeMode="contain"
+                  />
+                ) : null}
               <Video
                 key={selectedVideo}
                 ref={videoRef}
@@ -5651,33 +5873,38 @@ export default function PostScreen() {
                 <TouchableOpacity
                   key={tab}
                   onPress={() => {
+                    const hasSelectedMedia = selectedImages.length > 0 || !!selectedVideo;
                     if (tab === 'POST') {
                       setPostType('photo');
-                      // Find first photo in cameraRollAssets and select it
-                      const firstPhoto = cameraRollAssets.find(a => a.mediaType === 'photo');
-                      if (firstPhoto) {
-                        setSelectedVideo(null);
-                        resolvePhUri(firstPhoto.uri).then(resolvedUri => {
-                          setSelectedImages([{
-                            uri: resolvedUri,
-                            type: 'image/jpeg',
-                            name: firstPhoto.filename || `photo_${Date.now()}.jpg`,
-                          }]);
-                        }).catch(err => {
-                          console.warn('Failed to resolve tab photo URI:', err);
-                        });
+                      if (hasSelectedMedia) {
+                        // Find first photo in cameraRollAssets and select it
+                        const firstPhoto = cameraRollAssets.find(a => a.mediaType === 'photo');
+                        if (firstPhoto) {
+                          setSelectedVideo(null);
+                          resolvePhUri(firstPhoto.uri).then(resolvedUri => {
+                            setSelectedImages([{
+                              uri: resolvedUri,
+                              type: 'image/jpeg',
+                              name: firstPhoto.filename || `photo_${Date.now()}.jpg`,
+                            }]);
+                          }).catch(err => {
+                            console.warn('Failed to resolve tab photo URI:', err);
+                          });
+                        }
                       }
                     } else if (tab === 'REEL') {
                       setPostType('short');
-                      // Find first video in cameraRollAssets and select it
-                      const firstVideo = cameraRollAssets.find(a => a.mediaType === 'video');
-                      if (firstVideo) {
-                        setSelectedImages([]);
-                        resolvePhUri(firstVideo.uri).then(resolvedUri => {
-                          setSelectedVideo(resolvedUri);
-                        }).catch(err => {
-                          console.warn('Failed to resolve tab video URI:', err);
-                        });
+                      if (hasSelectedMedia) {
+                        // Find first video in cameraRollAssets and select it
+                        const firstVideo = cameraRollAssets.find(a => a.mediaType === 'video');
+                        if (firstVideo) {
+                          setSelectedImages([]);
+                          resolvePhUri(firstVideo.uri).then(resolvedUri => {
+                            setSelectedVideo(resolvedUri);
+                          }).catch(err => {
+                            console.warn('Failed to resolve tab video URI:', err);
+                          });
+                        }
                       }
                     }
                   }}
@@ -5697,6 +5924,7 @@ export default function PostScreen() {
           </ScrollView>
         </View>
       </View>
+      )
     )}
       
       {/* Progress Alert.

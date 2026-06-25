@@ -16,6 +16,7 @@ export default function CloudSkyBackground({ heightRatio = 0.32 }: CloudSkyBackg
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <LinearGradient
+        key={isDark ? 'dark' : 'light'}
         colors={colors}
         locations={isDark ? undefined : [0, 0.35, 1]}
         style={[styles.skyBand, { height: `${Math.round(heightRatio * 100)}%` }]}
