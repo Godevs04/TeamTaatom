@@ -590,6 +590,17 @@ export default function PostScreen() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [postType, setPostType] = useState<'photo' | 'short'>(initialPostType);
+
+  // Filter gallery content based on the selected postType (Bug 041)
+  const filteredAssets = useMemo(() => {
+    return cameraRollAssets.filter(asset => {
+      if (postType === 'short') {
+        return asset.mediaType === 'video';
+      } else {
+        return asset.mediaType === 'photo';
+      }
+    });
+  }, [cameraRollAssets, postType]);
   const [user, setUser] = useState<UserType | null>(null);
   const [hasExistingPosts, setHasExistingPosts] = useState<boolean | null>(null);
   const [hasExistingShorts, setHasExistingShorts] = useState<boolean | null>(null);
@@ -601,6 +612,7 @@ export default function PostScreen() {
   const [songEndTime, setSongEndTime] = useState(60);
   const [videoDuration, setVideoDuration] = useState<number | null>(null); // Video duration in seconds
   const [showSongSelector, setShowSongSelector] = useState(false);
+  const [isSongPreviewActive, setIsSongPreviewActive] = useState(false);
   const [audioChoice, setAudioChoice] = useState<'background' | 'original' | null>(null);
   const [showAudioChoiceModal, setShowAudioChoiceModal] = useState(false);
   // Ref to track if a song was just selected to prevent race condition with onClose
@@ -1099,29 +1111,8 @@ export default function PostScreen() {
 
       // Fetch duration if missing or 0
       if (!videoDuration || videoDuration === 0) {
-        let soundInstance: Audio.Sound | null = null;
-        try {
-          const { sound } = await Audio.Sound.createAsync(
-            { uri: selectedVideo },
-            { shouldPlay: false }
-          );
-          soundInstance = sound;
-          const status = await sound.getStatusAsync();
-          if (status.isLoaded && status.durationMillis && active) {
-            const actualDuration = status.durationMillis / 1000;
-            const MAX_SHORT_DURATION = 60;
-            const shortDuration = Math.min(actualDuration, MAX_SHORT_DURATION);
-            setVideoDuration(shortDuration);
-            logger.info('[Video Process Effect] video duration captured:', shortDuration);
-          }
-        } catch (videoError) {
-          logger.warn('[Video Process Effect] Failed to get video duration:', videoError);
-          if (active) setVideoDuration(60);
-        } finally {
-          if (soundInstance) {
-            await soundInstance.unloadAsync().catch(() => {});
-          }
-        }
+        // We will capture duration from the onLoad callback of the <Video> component
+        // to avoid loading conflicts and hardware decoder resource contention.
       }
     };
     processVideo();
@@ -2797,7 +2788,7 @@ export default function PostScreen() {
         if (progress >= 100) {
           uploadedCount++;
         }
-      });
+      }, uploadSessionRef.current.abortController?.signal);
 
       logger.debug('Post created successfully:', response);
       
@@ -2861,6 +2852,7 @@ export default function PostScreen() {
       // Check if upload was aborted
       if (error?.name === 'AbortError' || uploadSessionRef.current.abortController?.signal.aborted) {
         logger.debug('Upload was aborted by user');
+        clearUploadState();
         return; // Don't show error for user-initiated cancellation
       }
       
@@ -3232,7 +3224,7 @@ export default function PostScreen() {
         });
         
         logger.debug('Short upload progress:', progress + '%');
-      });
+      }, uploadSessionRef.current.abortController.signal);
 
       logger.debug('Short created successfully:', response);
       
@@ -3300,6 +3292,7 @@ export default function PostScreen() {
       // Check if upload was aborted
       if (error?.name === 'AbortError' || uploadSessionRef.current.abortController?.signal.aborted) {
         logger.debug('Upload was aborted by user');
+        clearUploadState();
         return; // Don't show error for user-initiated cancellation
       }
       
@@ -3876,12 +3869,21 @@ export default function PostScreen() {
                     style={{ width: '100%', height: '100%' }}
                     useNativeControls
                     resizeMode={ResizeMode.CONTAIN}
-                    // Mute original video audio when background music is selected, play at full volume when using original audio
-                    isMuted={audioChoice === 'background' && !!selectedSong}
-                    volume={audioChoice === 'background' && selectedSong ? 0.0 : 1.0}
+                    // Mute original video audio when background music is selected or being previewed, play at full volume when using original audio
+                    isMuted={isSongPreviewActive || (audioChoice === 'background' && !!selectedSong)}
+                    volume={isSongPreviewActive || (audioChoice === 'background' && selectedSong) ? 0.0 : 1.0}
                     shouldPlay={true}
                     isLooping={true}
                     onPlaybackStatusUpdate={handleVideoPlaybackStatusUpdate}
+                    onLoad={(status) => {
+                      if (status.isLoaded && status.durationMillis) {
+                        const actualDuration = status.durationMillis / 1000;
+                        const MAX_SHORT_DURATION = 60;
+                        const shortDuration = Math.min(actualDuration, MAX_SHORT_DURATION);
+                        setVideoDuration(shortDuration);
+                        logger.info('[Video Detail Load] video duration captured:', shortDuration);
+                      }
+                    }}
                   />
                   {audioChoice === 'background' && selectedSong && (
                     <View style={{
@@ -5179,8 +5181,17 @@ export default function PostScreen() {
               resizeMode={ResizeMode.CONTAIN}
               isLooping
               shouldPlay
-              isMuted={false}
-              volume={1.0}
+              isMuted={isSongPreviewActive || (audioChoice === 'background' && !!selectedSong)}
+              volume={isSongPreviewActive || (audioChoice === 'background' && selectedSong) ? 0.0 : 1.0}
+              onLoad={(status) => {
+                if (status.isLoaded && status.durationMillis) {
+                  const actualDuration = status.durationMillis / 1000;
+                  const MAX_SHORT_DURATION = 60;
+                  const shortDuration = Math.min(actualDuration, MAX_SHORT_DURATION);
+                  setVideoDuration(shortDuration);
+                  logger.info('[Video Load] video duration captured:', shortDuration);
+                }
+              }}
             />
           ) : selectedImages.length > 0 ? (
             <AspectImageCropper
@@ -5326,7 +5337,7 @@ export default function PostScreen() {
             data={[
               { id: 'camera-tile', type: 'camera' } as any,
               { id: 'gallery-tile', type: 'gallery' } as any,
-              ...cameraRollAssets
+              ...filteredAssets
             ]}
             keyExtractor={(item, index) => item.id || `asset_${index}`}
             numColumns={4}
@@ -5590,13 +5601,7 @@ export default function PostScreen() {
         type="upload"
         showCancel={true}
         onCancel={() => {
-          setIsUploading(false);
-          setUploadProgress({ current: 0, total: 0, percentage: 0 });
-          setIsLoading(false);
-          // Abort upload if in progress
-          if (uploadSessionRef.current?.abortController) {
-            uploadSessionRef.current.abortController.abort();
-          }
+          cancelUpload();
         }}
       />
 
@@ -6018,6 +6023,7 @@ export default function PostScreen() {
           }
           setShowSongSelector(false);
         }}
+        onPreviewActive={setIsSongPreviewActive}
         onSelect={(song, startTime, endTime) => {
           if (__DEV__) {
             console.log('🎵 [SongSelector] onSelect called:', {

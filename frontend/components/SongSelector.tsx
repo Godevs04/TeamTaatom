@@ -208,6 +208,7 @@ interface SongSelectorProps {
   videoDuration?: number | null; // Video duration in seconds - auto-match song selection
   visible: boolean;
   onClose: () => void;
+  onPreviewActive?: (active: boolean) => void;
 }
 
 export const SongSelector: React.FC<SongSelectorProps> = ({
@@ -217,7 +218,8 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
   selectedEndTime = MAX_SELECTION_DURATION,
   videoDuration = null, // Video duration - auto-match song selection
   visible,
-  onClose
+  onClose,
+  onPreviewActive
 }) => {
   const { theme } = useTheme();
   const [songs, setSongs] = useState<Song[]>([]);
@@ -317,8 +319,10 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
         setEndTime(selectedEndTime);
         setCurrentPage('trimmer'); // Go straight to trimmer if re-opening with a song
         loadAudio(selectedSong, false, true);
+        onPreviewActive?.(true);
       } else {
         setCurrentPage('list');
+        onPreviewActive?.(false);
       }
     } else {
       loadRequestIdRef.current++;
@@ -334,6 +338,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       // Reset the "last query we searched for" tracker so reopening the modal
       // never double-fires (open-load + debounce chasing a stale prev query).
       lastSearchQueryRef.current = '';
+      onPreviewActive?.(false);
 
       // Clear preview timeout
       if (previewTimeoutRef.current) {
@@ -341,7 +346,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
         previewTimeoutRef.current = null;
       }
     }
-  }, [visible, videoDuration, selectedSong, selectedStartTime, selectedEndTime]);
+  }, [visible, videoDuration, selectedSong, selectedStartTime, selectedEndTime, onPreviewActive]);
 
   useEffect(() => {
     if (visible && selectedSong) {
@@ -677,11 +682,12 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       const success = await loadAudio(song);
       if (success) {
         setCurrentPage('trimmer');
+        onPreviewActive?.(true);
       }
     } finally {
       setLoadingSongId(prev => prev === song._id ? null : prev);
     }
-  }, [getMaxSelectionDuration]);
+  }, [getMaxSelectionDuration, onPreviewActive]);
 
   const handleConfirm = () => {
     const maxDuration = getMaxSelectionDuration();
@@ -714,6 +720,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
     const maxDuration = getMaxSelectionDuration();
     setEndTime(maxDuration);
     onSelect(null);
+    onPreviewActive?.(false);
   };
 
   const formatDuration = (seconds: number) => {

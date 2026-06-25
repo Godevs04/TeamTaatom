@@ -382,9 +382,9 @@ function AllLocationsMapInner() {
                   ]}
                 >
                   {Platform.OS !== 'android' ? (
-                    <BlurView intensity={85} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+                    <BlurView pointerEvents="none" intensity={85} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
                   ) : (
-                    <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.95)' : 'rgba(255, 255, 255, 0.95)' }]} />
+                    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.95)' : 'rgba(255, 255, 255, 0.95)' }]} />
                   )}
 
                   {/* Close Button */}
@@ -528,9 +528,9 @@ function AllLocationsMapInner() {
         ]}
       >
         {Platform.OS !== 'android' ? (
-          <BlurView intensity={85} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+          <BlurView pointerEvents="none" intensity={85} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
         ) : (
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.95)' : 'rgba(255, 255, 255, 0.95)' }]} />
+          <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.95)' : 'rgba(255, 255, 255, 0.95)' }]} />
         )}
 
         {/* Close Button */}
@@ -1723,9 +1723,9 @@ function AllLocationsMapInner() {
         ]}
       >
         {Platform.OS !== 'android' ? (
-          <BlurView intensity={80} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
+          <BlurView pointerEvents="none" intensity={80} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFillObject} />
         ) : (
-          <View style={[StyleSheet.absoluteFillObject, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
+          <View pointerEvents="none" style={[StyleSheet.absoluteFillObject, { backgroundColor: isDark ? 'rgba(0, 0, 0, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
         )}
         <View style={styles.floatingHeaderContent}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
@@ -1859,9 +1859,9 @@ function AllLocationsMapInner() {
           ]}
         >
           {Platform.OS !== 'android' ? (
-            <BlurView intensity={75} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
+            <BlurView pointerEvents="none" intensity={75} tint={isDark ? 'dark' : 'light'} style={StyleSheet.absoluteFill} />
           ) : (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
+            <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: isDark ? 'rgba(20, 24, 33, 0.9)' : 'rgba(255, 255, 255, 0.9)' }]} />
           )}
 
           {/* GPS Accuracy row */}

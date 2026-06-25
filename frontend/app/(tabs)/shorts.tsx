@@ -245,6 +245,16 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
   const targetInitialIndexRef = useRef<number>(initialIndex);
   const isInitialScrollDoneRef = useRef(initialIndex === 0);
+  const isDeepLinkScrollDoneRef = useRef(false);
+  const lastShortIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (effectiveShortId !== lastShortIdRef.current) {
+      isDeepLinkScrollDoneRef.current = false;
+      lastShortIdRef.current = effectiveShortId || null;
+    }
+  }, [effectiveShortId]);
+
   const [isVideoPlaying, setIsVideoPlaying] = useState(true);
   const [isScreenFocused, setIsScreenFocused] = useState(true);
   const isScreenFocusedRef = useRef(true);
@@ -1808,12 +1818,15 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
   };
 
   const handleCommentAdded = (comment: any) => {
+    const exists = selectedShortComments.some(c => c._id === comment._id);
     upsertSelectedComment(comment);
-    setShorts(prev => prev.map(short => 
-      short._id === selectedShortId 
-        ? { ...short, commentsCount: short.commentsCount + 1 }
-        : short
-    ));
+    if (!exists) {
+      setShorts(prev => prev.map(short => 
+        short._id === selectedShortId 
+          ? { ...short, commentsCount: (short.commentsCount || 0) + 1 }
+          : short
+      ));
+    }
   };
 
   const handleProfilePress = (userId: string) => {
@@ -2226,9 +2239,10 @@ export default function ShortsScreen(props: ShortsScreenProps = {}) {
 
   // Deep link: scroll to specific short when effectiveShortId is set (URL or props). dataIndex accounts for ad slots when showShortsAds.
   useEffect(() => {
-    if (!effectiveShortId || shorts.length === 0 || !isTransitionFinished) return;
+    if (!effectiveShortId || shorts.length === 0 || !isTransitionFinished || isDeepLinkScrollDoneRef.current) return;
     const reelIndex = shorts.findIndex(s => s._id === effectiveShortId);
     if (reelIndex === -1) return;
+    isDeepLinkScrollDoneRef.current = true;
     const dataIndex = showShortsAds
       ? reelIndex + Math.floor(reelIndex / SHORTS_ADS_AFTER_EVERY)
       : reelIndex;

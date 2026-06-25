@@ -205,7 +205,8 @@ export const getPosts = async (
 // Create new post with progress tracking
 export const createPostWithProgress = async (
   data: CreatePostData,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  signal?: AbortSignal
 ): Promise<{ message: string; post: PostType }> => {
   try {
     const formData = new FormData();
@@ -286,6 +287,7 @@ export const createPostWithProgress = async (
       headers: {
         'Content-Type': 'multipart/form-data', // Let client set boundary for FormData
       },
+      signal,
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
           const progress = Math.round((progressEvent.loaded / progressEvent.total) * 100);
@@ -644,7 +646,8 @@ export const sendInteractionTelemetry = async (data: {
 // Create new short with progress tracking
 export const createShortWithProgress = async (
   data: CreateShortData,
-  onProgress?: (progress: number) => void
+  onProgress?: (progress: number) => void,
+  signal?: AbortSignal
 ): Promise<{ message: string; short: PostType }> => {
   try {
     logger.debug('createShortWithProgress service called with data:', data);
@@ -725,6 +728,7 @@ export const createShortWithProgress = async (
       headers: {
         'Content-Type': 'multipart/form-data', // let client set boundary
       },
+      signal,
       onUploadProgress: (progressEvent) => {
         if (onProgress && progressEvent.total) {
           const progress = Math.round((progressEvent.loaded / progressEvent.total) * 100);
