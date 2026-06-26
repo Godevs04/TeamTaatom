@@ -167,6 +167,12 @@ const createPage = async (req, res) => {
 
     // Ensure users can only create at most one Connect page
     const targetCategory = category === 'community' ? 'community' : 'connect';
+
+    // Community pages may only be created by SuperAdmin routes; block regular users
+    if (targetCategory === 'community') {
+      return sendError(res, 'FORBIDDEN', 'Community pages can only be created by admins');
+    }
+
     if (targetCategory === 'connect') {
       const existingPage = await ConnectPage.findOne({ userId, category: 'connect', status: { $ne: 'archived' } });
       if (existingPage) {

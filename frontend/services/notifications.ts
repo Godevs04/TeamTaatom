@@ -64,14 +64,17 @@ export const handleNotificationClick = async (notification: any): Promise<{
     // Determine navigation based on notification type
     switch (notification.type) {
       case 'like':
-        // Navigate to the liked post/short
+        // Navigate to the liked post or short
         if (notification.postId || notification.post?._id) {
           const postId = notification.postId || notification.post?._id;
+          const postType = notification.post?.type;
           return {
             success: true,
-            message: 'Navigating to liked post...',
+            message: postType === 'short' ? 'Navigating to liked short...' : 'Navigating to liked post...',
             shouldNavigate: true,
-            navigationPath: `/(tabs)/home?postId=${postId}` // Post detail page commented out - navigate to home with postId
+            navigationPath: postType === 'short'
+              ? `/(tabs)/shorts?shortId=${postId}`
+              : `/post/${postId}`,
           };
         }
         // Post was deleted
@@ -83,14 +86,17 @@ export const handleNotificationClick = async (notification: any): Promise<{
         };
         
       case 'comment':
-        // Navigate to the commented post/short
+        // Navigate to the commented post or short
         if (notification.postId || notification.post?._id) {
           const postId = notification.postId || notification.post?._id;
+          const postType = notification.post?.type;
           return {
             success: true,
-            message: 'Navigating to commented post...',
+            message: postType === 'short' ? 'Navigating to commented short...' : 'Navigating to commented post...',
             shouldNavigate: true,
-            navigationPath: `/(tabs)/home?postId=${postId}` // Post detail page commented out - navigate to home with postId
+            navigationPath: postType === 'short'
+              ? `/(tabs)/shorts?shortId=${postId}`
+              : `/post/${postId}`,
           };
         }
         // Post was deleted
@@ -206,14 +212,17 @@ export const handleNotificationClick = async (notification: any): Promise<{
         };
         
       case 'mention':
-        // Navigate to the post where user was mentioned
+        // Navigate to the post or short where user was mentioned
         if (notification.postId || notification.post?._id) {
           const postId = notification.postId || notification.post?._id;
+          const postType = notification.post?.type;
           return {
             success: true,
             message: 'Navigating to post...',
             shouldNavigate: true,
-            navigationPath: `/(tabs)/home?postId=${postId}` // Post detail page commented out - navigate to home with postId
+            navigationPath: postType === 'short'
+              ? `/(tabs)/shorts?shortId=${postId}`
+              : `/post/${postId}`,
           };
         }
         return {
@@ -223,14 +232,17 @@ export const handleNotificationClick = async (notification: any): Promise<{
         };
         
       case 'share':
-        // Navigate to the shared post
+        // Navigate to the shared post or short
         if (notification.postId || notification.post?._id) {
           const postId = notification.postId || notification.post?._id;
+          const postType = notification.post?.type;
           return {
             success: true,
             message: 'Navigating to shared post...',
             shouldNavigate: true,
-            navigationPath: `/(tabs)/home?postId=${postId}` // Post detail page commented out - navigate to home with postId
+            navigationPath: postType === 'short'
+              ? `/(tabs)/shorts?shortId=${postId}`
+              : `/post/${postId}`,
           };
         }
         return {
@@ -240,14 +252,17 @@ export const handleNotificationClick = async (notification: any): Promise<{
         };
         
       default:
-        // For unknown notification types, don't show a message if navigation is possible
+        // For unknown notification types, navigate by post type if available
         if (notification.postId || notification.post?._id) {
           const postId = notification.postId || notification.post?._id;
+          const postType = notification.post?.type;
           return {
             success: true,
             message: 'Navigating to post...',
             shouldNavigate: true,
-            navigationPath: `/(tabs)/home?postId=${postId}` // Post detail page commented out - navigate to home with postId
+            navigationPath: postType === 'short'
+              ? `/(tabs)/shorts?shortId=${postId}`
+              : `/post/${postId}`,
           };
         }
         if (notification.fromUserId || notification.fromUser?._id) {

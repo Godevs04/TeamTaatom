@@ -55,6 +55,7 @@ import {
   CFSession,
 } from '../../utils/cashfreeShim';
 import { resolveCashfreeEnvironment } from '../../utils/cashfreeCheckout';
+import { SUBSCRIPTION_COMING_SOON } from '../../constants/featureFlags';
 import { logContentView } from '../../services/adCap';
 
 // In Expo Go / web the Cashfree native module is absent and the SDK throws
@@ -168,6 +169,7 @@ export default function ContentPreviewScreen() {
     : isWebsite
     ? 'Website'
     : subLabel;
+
 
   useEffect(() => {
     const load = async () => {
@@ -323,6 +325,54 @@ export default function ContentPreviewScreen() {
       CFPaymentGatewayService.removeCallback();
     };
   }, [refreshSubscriptionStatus, isCommunity, pageId, router, showSuccess, updateSubscriptionStatus]);
+
+  // COMPLIANCE HOLD: block access to subscription preview until cleared.
+  // Placed after all hooks to satisfy React's Rules of Hooks.
+  if (isSubscription && SUBSCRIPTION_COMING_SOON) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={['top']}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12 }}>
+          <TouchableOpacity onPress={() => router.back()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+        </View>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 }}>
+          <Ionicons name="time-outline" size={56} color={theme.colors.textSecondary} />
+          <Text style={{
+            fontSize: 24,
+            fontWeight: '700',
+            color: theme.colors.text,
+            textAlign: 'center',
+            marginTop: 20,
+          }}>
+            Coming Soon
+          </Text>
+          <Text style={{
+            fontSize: 14,
+            color: theme.colors.textSecondary,
+            textAlign: 'center',
+            marginTop: 10,
+            lineHeight: 22,
+          }}>
+            Subscriptions are currently under compliance review and will be available soon.
+          </Text>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={{
+              marginTop: 28,
+              paddingHorizontal: 24,
+              paddingVertical: 10,
+              borderRadius: 8,
+              borderWidth: 1,
+              borderColor: theme.colors.border,
+            }}
+          >
+            <Text style={{ color: theme.colors.text, fontSize: 14, fontWeight: '500' }}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   const handleSubscribe = async () => {
     if (!pageData || subscribing) return;

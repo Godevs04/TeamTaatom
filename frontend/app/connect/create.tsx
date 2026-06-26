@@ -25,6 +25,7 @@ import { theme as themeConstants } from '../../constants/theme';
 import { createConnectPage, fetchCurrencyConfig, getCurrencySymbol, CurrencyConfig } from '../../services/connect';
 import logger from '../../utils/logger';
 import { LinearGradient } from 'expo-linear-gradient';
+import { SUBSCRIPTION_COMING_SOON } from '../../constants/featureFlags';
 
 // Common countries for quick selection
 const COUNTRY_LIST = [
@@ -364,58 +365,8 @@ export default function CreateConnectPageScreen() {
             />
           </View>
 
-          {/* Category */}
-          <View style={styles.field}>
-            <Text style={[styles.label, { color: theme.colors.text }]}>Category</Text>
-            <View style={styles.typeRow}>
-              <TouchableOpacity
-                style={[
-                  styles.typeOption,
-                  { borderColor: category === 'connect' ? theme.colors.secondary : theme.colors.border },
-                  category === 'connect' && { backgroundColor: theme.colors.secondary + '15' },
-                ]}
-                onPress={() => setCategory('connect')}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name="link-outline"
-                  size={20}
-                  color={category === 'connect' ? theme.colors.secondary : theme.colors.textSecondary}
-                />
-                <Text
-                  style={[
-                    styles.typeLabel,
-                    { color: category === 'connect' ? theme.colors.secondary : theme.colors.textSecondary },
-                  ]}
-                >
-                  Connect
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.typeOption,
-                  { borderColor: category === 'community' ? theme.colors.secondary : theme.colors.border },
-                  category === 'community' && { backgroundColor: theme.colors.secondary + '15' },
-                ]}
-                onPress={() => setCategory('community')}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name="people-outline"
-                  size={20}
-                  color={category === 'community' ? theme.colors.secondary : theme.colors.textSecondary}
-                />
-                <Text
-                  style={[
-                    styles.typeLabel,
-                    { color: category === 'community' ? theme.colors.secondary : theme.colors.textSecondary },
-                  ]}
-                >
-                  Community
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+
+
 
           {/* Page Type */}
           <View style={styles.field}>
@@ -514,27 +465,37 @@ export default function CreateConnectPageScreen() {
 
               <View style={[styles.featureDivider, { borderBottomColor: theme.colors.border }]} />
 
-              <View style={styles.featureRow}>
+              {/* Subscription row — COMPLIANCE HOLD: rendered as Coming Soon until flag cleared */}
+              <View style={[styles.featureRow, { opacity: SUBSCRIPTION_COMING_SOON ? 0.6 : 1 }]}>
                 <View style={styles.featureInfo}>
                   <Ionicons name="star-outline" size={20} color={theme.colors.secondary} />
                   <View style={styles.featureText}>
-                    <Text style={[styles.featureName, { color: theme.colors.text }]}>{subLabel}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.featureName, { color: theme.colors.text }]}>{subLabel}</Text>
+                      {SUBSCRIPTION_COMING_SOON && (
+                        <View style={[styles.comingSoonBadge, { backgroundColor: theme.colors.secondary + '22' }]}>
+                          <Text style={[styles.comingSoonBadgeText, { color: theme.colors.secondary }]}>Coming Soon</Text>
+                        </View>
+                      )}
+                    </View>
                     <Text style={[styles.featureDesc, { color: theme.colors.textSecondary }]}>
                       {isCommunity ? 'Let members buy access to your page' : 'List services you offer'}
                     </Text>
                   </View>
                 </View>
                 <Switch
-                  value={subscriptionEnabled}
-                  onValueChange={(val) => {
+                  value={SUBSCRIPTION_COMING_SOON ? false : subscriptionEnabled}
+                  onValueChange={SUBSCRIPTION_COMING_SOON ? () => {} : (val) => {
                     setSubscriptionEnabled(val);
                     if (!val) setSubscriptionPrice('');
                   }}
+                  disabled={SUBSCRIPTION_COMING_SOON}
                   trackColor={{ false: theme.colors.border, true: theme.colors.secondary + '80' }}
-                  thumbColor={subscriptionEnabled ? theme.colors.secondary : theme.colors.textSecondary}
+                  thumbColor={(!SUBSCRIPTION_COMING_SOON && subscriptionEnabled) ? theme.colors.secondary : theme.colors.textSecondary}
                 />
               </View>
-              {subscriptionEnabled && (
+              {/* Price input + payout section — only shown when subscription is enabled and feature is live */}
+              {!SUBSCRIPTION_COMING_SOON && subscriptionEnabled && (
                 <View style={[styles.priceInputRow, { borderTopColor: theme.colors.border }]}>
                   {/* Country / Currency selector */}
                   <TouchableOpacity
@@ -594,7 +555,7 @@ export default function CreateConnectPageScreen() {
               )}
 
               {/* Payout Details Section */}
-              {subscriptionEnabled && (
+              {!SUBSCRIPTION_COMING_SOON && subscriptionEnabled && (
                 <View style={[styles.payoutSection, { borderTopColor: theme.colors.border }]}>
                   <View style={styles.payoutSectionHeader}>
                     <Ionicons name="wallet-outline" size={18} color={theme.colors.primary} />
@@ -1046,6 +1007,16 @@ const styles = StyleSheet.create({
   featureDivider: {
     borderBottomWidth: 1,
     marginHorizontal: 16,
+  },
+  comingSoonBadge: {
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  comingSoonBadgeText: {
+    fontSize: 10,
+    fontWeight: '600' as const,
+    letterSpacing: 0.3,
   },
   priceInputRow: {
     borderTopWidth: 1,

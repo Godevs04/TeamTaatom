@@ -155,6 +155,9 @@ const getNotifications = async (req, res) => {
           
           // Ensure caption is set
           notification.post.caption = post.caption || notification.post.caption;
+
+          // Expose post type so the client can route shorts vs photos correctly
+          notification.post.type = post.type || notification.post.type;
         }
       }
 

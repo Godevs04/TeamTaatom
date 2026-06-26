@@ -73,7 +73,7 @@ interface OptimizedVisitedMarkerProps {
   onPress: () => void;
 }
 
-const OptimizedVisitedMarker = React.memo((({
+const OptimizedVisitedMarker = React.memo(({
   location,
   isSelected,
   index,
@@ -86,13 +86,20 @@ const OptimizedVisitedMarker = React.memo((({
     markerRef.current?.repaint();
   }, []);
 
-  // Anchor must match the rendering mode:
-  // - Dot (unselected): anchor at CENTER (0.5, 0.5) so the dot's middle sits on the coordinate.
-  // - Pin (selected):   anchor at BOTTOM-TIP (0.5, 1.0) so the pin's tip sits on the coordinate.
-  // These must change together or MapKit uses the raw view origin {0,0} → top-left jump.
-  const anchor = isSelected
-    ? { x: 0.5, y: 1.0 }
-    : { x: 0.5, y: 0.5 };
+  const lastPressTime = useRef(0);
+  const handlePress = useCallback(() => {
+    const now = Date.now();
+    if (now - lastPressTime.current < 500) return;
+    lastPressTime.current = now;
+    onPress();
+  }, [onPress]);
+
+  // Mirror ClusteredMarker's pattern exactly:
+  // Fixed-size container so MapKit never sees a frame-size change.
+  // Anchor changes with selected state: dot=center(0.5,0.5), pin=bottom-tip(0.5,0.86).
+  const markerWidth = isSelected ? 34 : 30;
+  const markerHeight = isSelected ? 42 : 32;
+  const anchor = isSelected ? { x: 0.5, y: 0.86 } : { x: 0.5, y: 0.5 };
 
   return (
     <SafeMarker
@@ -103,22 +110,24 @@ const OptimizedVisitedMarker = React.memo((({
         latitude: location.coordinates!.latitude,
         longitude: location.coordinates!.longitude,
       }}
-      onPress={onPress}
-      keepTracking={true}
+      onPress={handlePress}
+      onSelect={handlePress}
       repaintTriggers={[isSelected, latitudeDelta]}
     >
-      <PremiumMapMarker
-        active={isSelected}
-        activeTitle={location.name}
-        activeSubtitle={location.category?.typeOfSpot || 'Visited spot'}
-        photo={location.imageUrl}
-        onImageLoad={handleImageLoad}
-        latitudeDelta={latitudeDelta}
-        renderAsDot={!isSelected}
-      />
+      <View style={{ width: markerWidth, height: markerHeight, justifyContent: 'center', alignItems: 'center' }}>
+        <PremiumMapMarker
+          active={isSelected}
+          activeTitle={location.name}
+          activeSubtitle={location.category?.typeOfSpot || 'Visited spot'}
+          photo={location.imageUrl}
+          onImageLoad={handleImageLoad}
+          latitudeDelta={latitudeDelta}
+          renderAsDot={!isSelected}
+        />
+      </View>
     </SafeMarker>
   );
-}) as React.FC<OptimizedVisitedMarkerProps>, (prev, next) => {
+}, (prev, next) => {
   return (
     prev.isSelected === next.isSelected &&
     prev.index === next.index &&
@@ -180,6 +189,9 @@ export default function CountryMapScreen() {
   const [renderedLocation, setRenderedLocation] = useState<Location | null>(null);
   const slideAnim = useRef(new Animated.Value(300)).current;
   const [latitudeDelta, setLatitudeDelta] = useState(0.1);
+  // iOS MapKit bubbles a tap to both the marker AND the map onPress.
+  // This ref suppresses the map-level clear so selected markers stay visible.
+  const markerJustPressedRef = useRef(false);
 
   useEffect(() => {
     if (selectedLocation) {
@@ -245,8 +257,9 @@ export default function CountryMapScreen() {
   }, [loadCountryData]);
 
   const handleLocationPress = useCallback((location: Location) => {
-    // Marker taps should always leave the marker visible and selected. The
-    // preview close button is the only action that clears selection.
+    // Set the ref BEFORE state updates so the MapView onPress bubble guard
+    // fires correctly on iOS (same pattern as all-locations.tsx).
+    markerJustPressedRef.current = true;
     setPinnedLocation(location);
     setSelectedLocation(location);
   }, []);
@@ -542,6 +555,16 @@ export default function CountryMapScreen() {
                 setLatitudeDelta(safeRegion.latitudeDelta);
                 currentRegionRef.current = safeRegion;
               }
+            }}
+            onPress={() => {
+              // On iOS, MapKit bubbles the tap to both the marker and the map.
+              // If a marker was just pressed, skip this clear so the selected marker stays.
+              if (markerJustPressedRef.current) {
+                markerJustPressedRef.current = false;
+                return;
+              }
+              setSelectedLocation(null);
+              setPinnedLocation(null);
             }}
             mapType={mapStyle.mapType}
           >
