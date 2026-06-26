@@ -77,18 +77,18 @@ const ShortsActions = ({
 
   const handleOptionsPress = () => {
     showOptions(
-      'Reel Options',
+      'Short Options',
       [
         {
-          text: isSaved ? 'Remove from Saved' : 'Save Reel',
+          text: isSaved ? 'Remove from Saved' : 'Save Short',
           onPress: () => onSavePress(shortId),
         },
         {
-          text: 'Share Reel',
+          text: 'Share Short',
           onPress: onSharePress,
         },
         {
-          text: 'Report Reel',
+          text: 'Report Short',
           onPress: () => {
             showSuccess('Thank you for reporting. We will review this content shortly.', 'Report Submitted');
           },

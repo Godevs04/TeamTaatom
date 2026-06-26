@@ -1334,7 +1334,7 @@ export default function PostScreen() {
       if (uploadSessionRef.current.isActive) {
         clearUploadState();
         showSuccess(
-          postType === 'short' ? 'Your Reel upload has been cancelled.' : 'Your Post upload has been cancelled.',
+          postType === 'short' ? 'Your Short upload has been cancelled.' : 'Your Post upload has been cancelled.',
           'Cancelled'
         );
       }
@@ -3282,7 +3282,7 @@ export default function PostScreen() {
             return prev;
           }
           const isServerProcessing = newPercentage >= 95;
-          setUploadAlertTitle(isServerProcessing ? 'Processing...' : 'Uploading Reel...');
+          setUploadAlertTitle(isServerProcessing ? 'Processing...' : 'Uploading Short...');
           setUploadAlertMessage(isServerProcessing
             ? 'Processing on server... almost done'
             : `Uploading video... (${Math.round(progress)}%)`
@@ -3370,7 +3370,7 @@ export default function PostScreen() {
       if (error?.name === 'AbortError' || error?.name === 'CanceledError' || error?.message === 'canceled' || uploadSessionRef.current.isCancelled || uploadSessionRef.current.abortController?.signal.aborted) {
         logger.debug('Upload was aborted by user');
         clearUploadState();
-        showSuccess('Your Reel upload has been cancelled.', 'Cancelled');
+        showSuccess('Your Short upload has been cancelled.', 'Cancelled');
         return; // Don't show error for user-initiated cancellation
       }
       
@@ -3577,7 +3577,7 @@ export default function PostScreen() {
       if (error?.name === 'AbortError' || error?.name === 'CanceledError' || error?.message === 'canceled' || uploadSessionRef.current.isCancelled || uploadSessionRef.current.abortController?.signal.aborted) {
         logger.debug('Upload was aborted by user (after copyright)');
         clearUploadState();
-        showSuccess('Your Reel upload has been cancelled.', 'Cancelled');
+        showSuccess('Your Short upload has been cancelled.', 'Cancelled');
         return; // Don't show error for user-initiated cancellation
       }
 
@@ -5290,7 +5290,7 @@ export default function PostScreen() {
             }}>
               {postType === 'photo' 
                 ? 'Capture a new moment or select photos from your library to share as a Post.'
-                : 'Record a new clip or select a video from your library to upload as a Short Reel.'
+                : 'Record a new clip or select a video from your library to upload as a Short.'
               }
             </Text>
 
@@ -5444,15 +5444,15 @@ export default function PostScreen() {
                 paddingHorizontal: screenWidth / 2 - 40,
               }}
             >
-              {['POST', 'REEL'].map((tab) => {
-                const isTabActive = (tab === 'POST' && postType === 'photo') || (tab === 'REEL' && postType === 'short');
+              {['POST', 'SHORT'].map((tab) => {
+                const isTabActive = (tab === 'POST' && postType === 'photo') || (tab === 'SHORT' && postType === 'short');
                 return (
                   <TouchableOpacity
                     key={tab}
                     onPress={() => {
                       if (tab === 'POST') {
                         setPostType('photo');
-                      } else if (tab === 'REEL') {
+                      } else if (tab === 'SHORT') {
                         setPostType('short');
                       }
                     }}
@@ -5867,8 +5867,8 @@ export default function PostScreen() {
               paddingHorizontal: screenWidth / 2 - 40,
             }}
           >
-            {['POST', 'REEL'].map((tab) => {
-              const isTabActive = (tab === 'POST' && postType === 'photo') || (tab === 'REEL' && postType === 'short');
+            {['POST', 'SHORT'].map((tab) => {
+              const isTabActive = (tab === 'POST' && postType === 'photo') || (tab === 'SHORT' && postType === 'short');
               return (
                 <TouchableOpacity
                   key={tab}
@@ -5892,7 +5892,7 @@ export default function PostScreen() {
                           });
                         }
                       }
-                    } else if (tab === 'REEL') {
+                    } else if (tab === 'SHORT') {
                       setPostType('short');
                       if (hasSelectedMedia) {
                         // Find first video in cameraRollAssets and select it

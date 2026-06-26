@@ -1486,18 +1486,18 @@ const LocalShortsActionRail = React.memo(({
   const handleOptionsPress = useCallback(() => {
     logger.debug('Options menu pressed for short:', shortId);
     showOptions(
-      'Reel Options',
+      'Short Options',
       [
         {
-          text: isSaved ? 'Remove from Saved' : 'Save Reel',
+          text: isSaved ? 'Remove from Saved' : 'Save Short',
           onPress: () => onSavePress(shortId),
         },
         {
-          text: 'Share Reel',
+          text: 'Share Short',
           onPress: handleSharePressLocal,
         },
         {
-          text: 'Report Reel',
+          text: 'Report Short',
           onPress: () => {
             showSuccess('Thank you for reporting. We will review this content shortly.', 'Report Submitted');
           },

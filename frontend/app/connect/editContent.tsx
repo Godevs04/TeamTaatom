@@ -26,6 +26,7 @@ import {
   ContentBlock,
 } from '../../services/connect';
 import logger from '../../utils/logger';
+import { SUBSCRIPTION_COMING_SOON } from '../../constants/featureFlags';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -155,6 +156,40 @@ export default function EditContentScreen() {
         </View>
         <View style={styles.loadingContainer}>
           <LoadingGlobe size="large" color={theme.colors.primary} />
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // COMPLIANCE HOLD: subscription content editing is blocked until flag is cleared.
+  // Placed after all hooks & loading guard to satisfy React's Rules of Hooks.
+  if (section === 'subscription' && SUBSCRIPTION_COMING_SOON) {
+    // Navigate back immediately — use a guard render rather than navigating inside
+    // a hook so we stay within rules of hooks.
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]} edges={['top']}>
+        <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
+          <TouchableOpacity style={styles.backButton} onPress={() => router.back()} activeOpacity={0.7}>
+            <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: theme.colors.text }]}>Coming Soon</Text>
+          <View style={styles.headerRight} />
+        </View>
+        <View style={[styles.loadingContainer, { paddingHorizontal: 32 }]}>
+          <Ionicons name="time-outline" size={48} color={theme.colors.textSecondary} />
+          <Text style={[styles.headerTitle, { textAlign: 'center', marginTop: 16, color: theme.colors.text }]}>
+            Coming Soon
+          </Text>
+          <Text style={{ fontSize: 14, color: theme.colors.textSecondary, textAlign: 'center', marginTop: 8, lineHeight: 22 }}>
+            Subscription content editing is currently unavailable.
+          </Text>
+          <TouchableOpacity
+            onPress={() => router.back()}
+            style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: theme.colors.border }}
+            activeOpacity={0.7}
+          >
+            <Text style={{ color: theme.colors.text, fontSize: 14, fontWeight: '500' }}>Go Back</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );

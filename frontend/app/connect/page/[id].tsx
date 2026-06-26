@@ -64,6 +64,7 @@ import {
   CFSession,
 } from '../../../utils/cashfreeShim';
 import { resolveCashfreeEnvironment } from '../../../utils/cashfreeCheckout';
+import { SUBSCRIPTION_COMING_SOON } from '../../../constants/featureFlags';
 
 // The Cashfree SDK ships a Proxy that throws "package not linked" the moment
 // any method is called when the native module is absent (Expo Go, web). Gate
@@ -1418,7 +1419,8 @@ export default function ConnectPageDetailScreen() {
 
         {/* Subscription / Buy Items Section */}
         {page.features?.subscription && (
-          <TouchableOpacity
+          // COMPLIANCE HOLD: card is non-tappable while SUBSCRIPTION_COMING_SOON is true
+          <View
             style={[
               styles.section,
               {
@@ -1431,6 +1433,7 @@ export default function ConnectPageDetailScreen() {
                 borderRightColor: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.2)',
                 paddingBottom: isTablet ? themeConstants.spacing.md : 12,
                 marginTop: (!page.features?.website && !page.features?.groupChat) ? (isTablet ? 14 : 12) : 10,
+                opacity: SUBSCRIPTION_COMING_SOON ? 0.75 : 1,
                 ...Platform.select({
                   ios: {
                     shadowColor: isDark ? '#000000' : '#1f2687',
@@ -1444,14 +1447,6 @@ export default function ConnectPageDetailScreen() {
                 }),
               }
             ]}
-            onPress={() => {
-              if (subscriptionStatus?.isSubscribed) {
-                setShowSubscriptionManagementModal(true);
-              } else {
-                router.push(`/connect/preview?pageId=${id}&section=subscription&pageName=${encodeURIComponent(page.name)}`);
-              }
-            }}
-            activeOpacity={0.7}
           >
             <BlurView
               intensity={45}
@@ -1501,28 +1496,50 @@ export default function ConnectPageDetailScreen() {
                   </Text>
                 </View>
               </View>
-              <View
-                style={[
-                  styles.chatArrowWrap,
-                  {
-                    backgroundColor: isCommunity
-                      ? (isDark ? 'rgba(245, 158, 11, 0.12)' : 'rgba(217, 119, 6, 0.08)')
-                      : (isDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(28, 115, 180, 0.08)')
-                  }
-                ]}
-              >
-                <Ionicons
-                  name="chevron-forward"
-                  size={16}
-                  color={
-                    isCommunity
-                      ? (isDark ? '#F59E0B' : '#D97706')
-                      : (isDark ? '#38BDF8' : '#1C73B4')
-                  }
-                />
-              </View>
+              {SUBSCRIPTION_COMING_SOON ? (
+                // Coming Soon badge — gradient green-blue pill, full text horizontally
+                <LinearGradient
+                  colors={['#14B8A6', '#0095F6']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 5,
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 20,
+                  }}
+                >
+                  <Ionicons name="time-outline" size={12} color="#fff" />
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: '#fff', letterSpacing: 0.4 }} numberOfLines={1}>
+                    Coming Soon
+                  </Text>
+                </LinearGradient>
+              ) : (
+                <View
+                  style={[
+                    styles.chatArrowWrap,
+                    {
+                      backgroundColor: isCommunity
+                        ? (isDark ? 'rgba(245, 158, 11, 0.12)' : 'rgba(217, 119, 6, 0.08)')
+                        : (isDark ? 'rgba(56, 189, 248, 0.12)' : 'rgba(28, 115, 180, 0.08)')
+                    }
+                  ]}
+                >
+                  <Ionicons
+                    name="chevron-forward"
+                    size={16}
+                    color={
+                      isCommunity
+                        ? (isDark ? '#F59E0B' : '#D97706')
+                        : (isDark ? '#38BDF8' : '#1C73B4')
+                    }
+                  />
+                </View>
+              )}
             </View>
-          </TouchableOpacity>
+          </View>
         )}
 
         {/* Delete Page — Owner only */}
@@ -2043,7 +2060,8 @@ export default function ConnectPageDetailScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* Subscription Management Bottom Sheet Modal */}
+      {/* Subscription Management Bottom Sheet Modal — suppressed during compliance hold */}
+      {!SUBSCRIPTION_COMING_SOON && (
       <Modal
         visible={showSubscriptionManagementModal}
         transparent
@@ -2120,6 +2138,7 @@ export default function ConnectPageDetailScreen() {
           </View>
         </View>
       </Modal>
+      )}{/* end !SUBSCRIPTION_COMING_SOON modal guard */}
     </View>
   );
 }
