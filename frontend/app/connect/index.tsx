@@ -47,6 +47,7 @@ import GradientText from '../../components/ui/GradientText';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
+import { LocationDisclosureModal } from '../../components/ui/LocationDisclosureModal';
 
 const { width: screenWidth } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -238,6 +239,8 @@ export default function ConnectHubScreen() {
   const [showLanguagePicker, setShowLanguagePicker] = useState(false);
   const [showTravelStylePicker, setShowTravelStylePicker] = useState(false);
   const [foundUsers, setFoundUsers] = useState<FoundUser[]>([]);
+  const [showLocationDisclosure, setShowLocationDisclosure] = useState(false);
+  const [disclosureResolveRef, setDisclosureResolveRef] = useState<{ resolve: (val: boolean) => void } | null>(null);
   const [findLoading, setFindLoading] = useState(false);
   const [findSearched, setFindSearched] = useState(false);
   const [geoLoaded, setGeoLoaded] = useState(false);
@@ -268,9 +271,8 @@ export default function ConnectHubScreen() {
       try {
         setLoadingUserLocation(true);
         const existingPermission = await Location.getForegroundPermissionsAsync();
-        const permission = existingPermission.status === 'granted'
-          ? existingPermission
-          : await Location.requestForegroundPermissionsAsync();
+        if (existingPermission.status !== 'granted') return;
+        const permission = existingPermission;
 
         if (cancelled || permission.status !== 'granted') return;
 
@@ -470,8 +472,64 @@ export default function ConnectHubScreen() {
     }
   };
 
+  const handleDisclosureContinue = async () => {
+    setShowLocationDisclosure(false);
+    const resolve = disclosureResolveRef?.resolve;
+    setDisclosureResolveRef(null);
+    try {
+      const fgResult = await Location.requestForegroundPermissionsAsync();
+      resolve?.(fgResult.status === 'granted');
+    } catch (err) {
+      logger.error('Error requesting location permission in connect find:', err);
+      resolve?.(false);
+    }
+  };
+
+  const handleDisclosureCancel = () => {
+    setShowLocationDisclosure(false);
+    const resolve = disclosureResolveRef?.resolve;
+    setDisclosureResolveRef(null);
+    resolve?.(false);
+  };
+
   const handleFindUsers = async () => {
     if (!selectedLanguage) return;
+
+    let targetLocationInput = userLocationInput.trim();
+
+    // If no location inputted and permission not granted, ask for it!
+    if (!targetLocationInput) {
+      try {
+        const existingPermission = await Location.getForegroundPermissionsAsync();
+        if (existingPermission.status === 'undetermined') {
+          const granted = await new Promise<boolean>((resolve) => {
+            setDisclosureResolveRef({ resolve });
+            setShowLocationDisclosure(true);
+          });
+          if (granted) {
+            setLoadingUserLocation(true);
+            const lastKnown = await Location.getLastKnownPositionAsync();
+            const position = lastKnown || await Location.getCurrentPositionAsync({
+              accuracy: Location.Accuracy.Balanced,
+            });
+            const [address] = await Location.reverseGeocodeAsync(position.coords);
+            if (address) {
+              const label = formatDetectedLocation(address);
+              if (label) {
+                targetLocationInput = label;
+                setUserLocation(label);
+                setUserLocationInput(label);
+              }
+            }
+            setLoadingUserLocation(false);
+          }
+        }
+      } catch (err) {
+        logger.debug('Skipping location prompt / fetch in find users:', err);
+        setLoadingUserLocation(false);
+      }
+    }
+
     try {
       setFindLoading(true);
       const response = await findUsers({
@@ -479,7 +537,7 @@ export default function ConnectHubScreen() {
         current_country: selectedCurrentCountry || undefined,
         travel_style: selectedTravelStyle || undefined,
         lang: selectedLanguage,
-        user_location: userLocationInput.trim() || undefined,
+        user_location: targetLocationInput || undefined,
         page: 1,
         limit: 30,
       });
@@ -1196,6 +1254,14 @@ export default function ConnectHubScreen() {
       {renderPickerModal(showCurrentCountryPicker, countries, selectedCurrentCountry, setSelectedCurrentCountry, () => setShowCurrentCountryPicker(false), 'Currently in')}
       {renderPickerModal(showLanguagePicker, languages, selectedLanguage, setSelectedLanguage, () => setShowLanguagePicker(false), 'Select Language')}
       {renderPickerModal(showTravelStylePicker, TRAVEL_STYLES, selectedTravelStyle, setSelectedTravelStyle, () => setShowTravelStylePicker(false), 'Select Travel Style')}
+
+      {/* Location Disclosure Modal */}
+      <LocationDisclosureModal
+        visible={showLocationDisclosure}
+        variant="foreground"
+        onContinue={handleDisclosureContinue}
+        onCancel={handleDisclosureCancel}
+      />
     </PremiumScreen>
   );
 }

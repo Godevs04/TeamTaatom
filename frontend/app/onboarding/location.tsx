@@ -14,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
+import { LocationDisclosureModal } from '../../components/ui/LocationDisclosureModal';
 import { useTheme } from '../../context/ThemeContext';
 import { trackScreenView, trackFeatureUsage, trackDropOff } from '../../services/analytics';
 import { theme } from '../../constants/theme';
@@ -43,11 +44,33 @@ export default function LocationOnboarding() {
   const [isLoading, setIsLoading] = useState(false);
   const [detectedLabel, setDetectedLabel] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [showLocationDisclosure, setShowLocationDisclosure] = useState(false);
+  const [disclosureResolveRef, setDisclosureResolveRef] = useState<{ resolve: (val: boolean) => void } | null>(null);
 
   const goInterests = useCallback(() => {
     trackScreenView('onboarding_interests');
     router.replace('/onboarding/interests');
   }, [router]);
+
+  const handleDisclosureContinue = async () => {
+    setShowLocationDisclosure(false);
+    const resolve = disclosureResolveRef?.resolve;
+    setDisclosureResolveRef(null);
+    try {
+      const fgResult = await Location.requestForegroundPermissionsAsync();
+      resolve?.(fgResult.status === 'granted');
+    } catch (err) {
+      logger.error('Error requesting location permission in onboarding:', err);
+      resolve?.(false);
+    }
+  };
+
+  const handleDisclosureCancel = () => {
+    setShowLocationDisclosure(false);
+    const resolve = disclosureResolveRef?.resolve;
+    setDisclosureResolveRef(null);
+    resolve?.(false);
+  };
 
   const handleUseLocation = async () => {
     if (isWeb) {
@@ -59,13 +82,19 @@ export default function LocationOnboarding() {
     setErrorMessage(null);
     try {
       const existingPermission = await Location.getForegroundPermissionsAsync();
-      const permission =
-        existingPermission.status === 'granted'
-          ? existingPermission
-          : await Location.requestForegroundPermissionsAsync();
+      let granted = existingPermission.status === 'granted';
 
-      if (permission.status !== 'granted') {
+      if (!granted) {
+        const result = await new Promise<boolean>((resolve) => {
+          setDisclosureResolveRef({ resolve });
+          setShowLocationDisclosure(true);
+        });
+        granted = result;
+      }
+
+      if (!granted) {
         setErrorMessage('Location permission was denied. You can continue without sharing your location.');
+        setIsLoading(false);
         return;
       }
 
@@ -183,6 +212,13 @@ export default function LocationOnboarding() {
           </LinearGradient>
         </TouchableOpacity>
       </View>
+
+      <LocationDisclosureModal
+        visible={showLocationDisclosure}
+        variant="foreground"
+        onContinue={handleDisclosureContinue}
+        onCancel={handleDisclosureCancel}
+      />
     </SafeAreaView>
   );
 }
