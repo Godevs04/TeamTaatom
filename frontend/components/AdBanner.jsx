@@ -11,6 +11,7 @@
 import React, { useMemo } from 'react';
 import { Platform } from 'react-native';
 import { ADMOB } from '../constants/admob';
+import { getAdRequestOptions } from '../services/adRequestOptions';
 
 const isWeb = Platform.OS === 'web';
 
@@ -33,9 +34,7 @@ export function AdBanner({ size = 'BANNER' }) {
       <BannerAd
         unitId={unitId}
         size={adSize}
-        requestOptions={{
-          requestNonPersonalizedAdsOnly: false,
-        }}
+        requestOptions={getAdRequestOptions()}
         onAdLoaded={() => {}}
         onAdFailedToLoad={(error) => {
           if (__DEV__) {

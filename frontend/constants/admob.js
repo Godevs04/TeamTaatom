@@ -23,6 +23,15 @@ const liveUnit = (envValue, fallback) => {
 // Set to true to enforce Test Ad Unit IDs globally (even in production builds) until the AdMob account is fully approved.
 const FORCE_TEST_ADS = false;
 
+/** Set EXPO_PUBLIC_ADMOB_ENABLED=false to disable ads and skip ATT entirely. */
+export function isAdsEnabled() {
+  const flag = env.EXPO_PUBLIC_ADMOB_ENABLED;
+  if (typeof flag === 'string' && flag.trim().toLowerCase() === 'false') {
+    return false;
+  }
+  return true;
+}
+
 export const ADMOB = {
   /** Publisher ID (used in app-ads.txt) */
   publisherId: 'pub-6362359854606661',

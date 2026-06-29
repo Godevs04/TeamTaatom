@@ -28,6 +28,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { ADMOB } from '../../constants/admob';
 import logger from '../../utils/logger';
 import { initializeAds } from '../../services/admob';
+import { getAdRequestOptions } from '../../services/adRequestOptions';
 
 const isWeb = Platform.OS === 'web';
 const isExpoGo = Constants.appOwnership === 'expo';
@@ -150,7 +151,7 @@ function NativeAdCardComponent({ adIndex, onImpression, onLoadFailed }: NativeAd
     let requestTimedOut = false;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     const adRequest = initializeAds()
-      .then(() => adsModule.NativeAd.createForAdRequest(unitId))
+      .then(() => adsModule.NativeAd.createForAdRequest(unitId, getAdRequestOptions()))
       .then((ad) => {
         if (requestTimedOut || destroyedRef.current) {
           ad.destroy();

@@ -24,6 +24,7 @@ import Constants from 'expo-constants';
 import { ADMOB } from '../../constants/admob';
 import logger from '../../utils/logger';
 import { initializeAds } from '../../services/admob';
+import { getAdRequestOptions } from '../../services/adRequestOptions';
 
 const isWeb = Platform.OS === 'web';
 const isExpoGo = Constants.appOwnership === 'expo';
@@ -152,6 +153,7 @@ function ShortsNativeAdComponent({ adIndex, height: propHeight, fillParent, onIm
     const adRequest = initializeAds()
       .then(() =>
         adsModule.NativeAd.createForAdRequest(unitId, {
+          ...getAdRequestOptions(),
           startVideoMuted: true,
           aspectRatio: adsModule.NativeMediaAspectRatio.ANY,
           adChoicesPlacement: adsModule.NativeAdChoicesPlacement.TOP_RIGHT,

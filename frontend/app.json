@@ -150,8 +150,8 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location.",
-          "locationAlwaysPermission": "Allow $(PRODUCT_NAME) to always use your location for journey tracking.",
+          "locationAlwaysAndWhenInUsePermission": "Taatom uses your location to show your position on the map and record your journey route.",
+          "locationAlwaysPermission": "Taatom collects location in the background to continue recording your journey route when the app is not on screen or your phone is locked.",
           "isAndroidBackgroundLocationEnabled": true
         }
       ],
@@ -176,7 +176,7 @@
         {
           "androidAppId": "ca-app-pub-6362359854606661~6880786152",
           "iosAppId": "ca-app-pub-6362359854606661~9610954911",
-          "userTrackingUsageDescription": "This identifier will be used to deliver personalized ads to you.",
+          "userTrackingUsageDescription": "This identifier will be used to deliver personalized advertisements and improve the relevance of ads shown in the app.",
           "skAdNetworkItems": [
             "cstr6suwn9.skadnetwork",
             "4fzdc2evr5.skadnetwork",

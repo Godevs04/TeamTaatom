@@ -4,3 +4,5 @@ export const ADMOB: {
   android: { banner: string; interstitial: string; native: string };
   ios: { banner: string; interstitial: string; native: string };
 };
+
+export function isAdsEnabled(): boolean;

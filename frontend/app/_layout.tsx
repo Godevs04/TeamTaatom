@@ -30,6 +30,7 @@ import { crashReportingService } from '../services/crashReporting';
 import { ErrorBoundary } from '../utils/errorBoundary';
 import { registerServiceWorker } from '../utils/serviceWorker';
 import { JourneyProvider, useJourney, useJourneyDuration } from '../context/JourneyContext';
+import { BackgroundLocationDisclosureHost } from '../components/permissions/BackgroundLocationDisclosureHost';
 import { SubscriptionProvider } from '../context/SubscriptionContext';
 import * as Sentry from '@sentry/react-native';
 import * as Location from 'expo-location';
@@ -449,22 +450,21 @@ function RootLayoutInner() {
           }
         }, 3000); // Run 3 seconds after startup
 
-        // Initialize ads (AdMob + UMP) on native only. Skip in Expo Go & web.
+        // ATT → AdMob init on native (sequential, during splash). Skipped when ads disabled.
         const isExpoGo = Constants.appOwnership === 'expo';
         if ((Platform.OS === 'ios' || Platform.OS === 'android') && !isExpoGo) {
           try {
-            const { initializeAds } = await import('../services/admob');
-            initializeAds().catch((err: unknown) => {
-              logger.warn(
-                '[RootLayout] Ads init failed (non-blocking):',
-                err instanceof Error ? err.message : err
-              );
-            });
-          } catch (adMobError: any) {
-            logger.warn(
-              '[RootLayout] Ads module load failed (non-blocking):',
-              adMobError?.message || adMobError
-            );
+            const { isAdsEnabled } = await import('../constants/admob');
+            if (isAdsEnabled()) {
+              const { ensureAttResolvedBeforeAds } = await import('../services/attPermission');
+              const { initializeAds } = await import('../services/admob');
+              // Splash → ATT (iOS 14.5+) → AdMob → continue app
+              await ensureAttResolvedBeforeAds();
+              await initializeAds();
+            }
+          } catch (adMobError: unknown) {
+            const message = adMobError instanceof Error ? adMobError.message : String(adMobError);
+            logger.warn('[RootLayout] ATT/Ads init failed (non-blocking):', message);
           }
         }
 
@@ -1220,6 +1220,7 @@ export default Sentry.wrap(function RootLayout() {
                     <SubscriptionProvider>
                       <View style={styles.rootContainer}>
                         <RootLayoutInner />
+                        <BackgroundLocationDisclosureHost />
                       </View>
                     </SubscriptionProvider>
                   </JourneyProvider>

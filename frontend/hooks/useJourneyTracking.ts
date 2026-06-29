@@ -6,6 +6,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, Platform } from 'react-native';
 import { registerResetCallback } from '../services/auth';
 import * as FileSystem from 'expo-file-system/legacy';
+import { requestBackgroundLocationWithDisclosure } from '../utils/backgroundLocationPermission';
 
 const getActiveJourneyIdFromCache = async (): Promise<string | null> => {
   if (Platform.OS === 'web') return null;
@@ -1714,7 +1715,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         // shortly after the first foreground prompt.
         if (Platform.OS !== 'web') {
           try {
-            await Location.requestBackgroundPermissionsAsync();
+            await requestBackgroundLocationWithDisclosure();
           } catch (e) {
             logger.warn('[Journey] Background permission request failed (non-blocking):', e);
           }
@@ -1888,7 +1889,7 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       // recording when the phone is locked or the app is backgrounded.
       if (Platform.OS !== 'web') {
         try {
-          await Location.requestBackgroundPermissionsAsync();
+          await requestBackgroundLocationWithDisclosure();
         } catch (e) {
           logger.warn('[Journey] Background permission request failed (non-blocking):', e);
         }
