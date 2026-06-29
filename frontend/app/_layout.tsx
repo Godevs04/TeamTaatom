@@ -568,25 +568,6 @@ function RootLayoutInner() {
     initialize();
   }, []);
 
-  // Request location permission once at app launch
-  useEffect(() => {
-    const requestLocationPermissionOnLaunch = async () => {
-      if (Platform.OS === 'web') return;
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        logger.debug('[RootLayout] Location permission requested on launch, status:', status);
-      } catch (error) {
-        logger.error('[RootLayout] Failed to request location permission on launch:', error);
-      }
-    };
-    
-    // Defer the permission check slightly so it doesn't block critical launch renders
-    const timer = setTimeout(() => {
-      requestLocationPermissionOnLaunch();
-    }, 1500);
-
-    return () => clearTimeout(timer);
-  }, []);
 
   // Hide splash screen once fonts and initial auth states have resolved
   useEffect(() => {

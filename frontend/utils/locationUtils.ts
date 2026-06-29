@@ -471,19 +471,6 @@ export const getCurrentLocation = async () => {
     const currentPermission = await Location.getForegroundPermissionsAsync();
     let status = currentPermission.status;
     
-    if (status === 'undetermined') {
-      const requested = await Location.requestForegroundPermissionsAsync();
-      status = requested.status;
-      
-      if (status !== 'granted') {
-        Alert.alert(
-          'Location Permission Denied',
-          'Taatom needs location permissions to show your position on the map. Defaulting to Bangalore, India.',
-          [{ text: 'OK' }]
-        );
-      }
-    }
-    
     if (status !== 'granted') {
       return {
         coords: {

@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../../context/ThemeContext';
+import { GlassButton } from '../ui/GlassButton';
 import Constants from 'expo-constants';
 
 const extra = Constants.expoConfig?.extra ?? {};
@@ -40,7 +41,7 @@ export function BackgroundLocationDisclosureModal({
       animationType="slide"
       transparent
       presentationStyle="overFullScreen"
-      onRequestClose={onDecline}
+      onRequestClose={() => {}}
     >
       <View style={styles.overlay}>
         <View
@@ -82,25 +83,19 @@ export function BackgroundLocationDisclosureModal({
             </TouchableOpacity>
           </ScrollView>
 
-          <TouchableOpacity
-            style={[styles.primaryBtn, { backgroundColor: theme.colors.primary }]}
+          <GlassButton
+            variant="primary"
+            title="Agree and continue"
             onPress={onAccept}
-            accessibilityRole="button"
-            accessibilityLabel="Agree and continue to location permission"
-          >
-            <Text style={styles.primaryBtnText}>Agree and continue</Text>
-          </TouchableOpacity>
+            style={{ width: '100%', marginBottom: 8 }}
+          />
 
-          <TouchableOpacity
-            style={styles.secondaryBtn}
+          <GlassButton
+            variant="ghost"
+            title="Not now — track only while app is open"
             onPress={onDecline}
-            accessibilityRole="button"
-            accessibilityLabel="Continue without background location"
-          >
-            <Text style={[styles.secondaryBtnText, { color: theme.colors.textSecondary }]}>
-              Not now — track only while app is open
-            </Text>
-          </TouchableOpacity>
+            style={{ width: '100%', height: 44 }}
+          />
         </View>
       </View>
     </Modal>
@@ -110,10 +105,9 @@ export function BackgroundLocationDisclosureModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
     backgroundColor: 'rgba(0,0,0,0.55)',
     padding: 16,
-    paddingBottom: Platform.OS === 'ios' ? 28 : 20,
   },
   card: {
     borderRadius: 20,
