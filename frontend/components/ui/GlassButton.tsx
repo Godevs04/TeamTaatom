@@ -3,7 +3,7 @@ import { StyleSheet, ViewStyle, StyleProp, Pressable, Text, View } from 'react-n
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../context/ThemeContext';
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { getFontFamily } from '../../constants/typography';
 
 export interface GlassButtonProps {
@@ -41,7 +41,6 @@ export const GlassButton = ({
   }));
 
   const contentAnimatedStyle = useAnimatedStyle(() => {
-    const { withTiming } = require('react-native-reanimated');
     return {
       opacity: withTiming(loading ? 0 : 1, { duration: 200 }),
       transform: [{ scale: withTiming(loading ? 0.95 : 1, { duration: 200 }) }],

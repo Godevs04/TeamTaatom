@@ -8,6 +8,7 @@ import {
   StatusBar,
   Platform,
   KeyboardAvoidingView,
+  Alert,
 } from 'react-native';
 import MaskedView from '@react-native-masked-view/masked-view';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -18,10 +19,16 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { WebView } from 'react-native-webview';
 import { useTheme } from '../../context/ThemeContext';
 import * as Location from 'expo-location';
+import { LocationDisclosureModal } from '../../components/ui/LocationDisclosureModal';
 import { MapView, Marker, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
 import { getGoogleMapsApiKeyForWebView } from '../../utils/maps';
 import { getApiUrl } from '../../utils/config';
-import { calculateDistance } from '../../utils/locationUtils';
+import { calculateDistance, getAddressFromCoords } from '../../utils/locationUtils';
+import { useJourney } from '../../context/JourneyContext';
+import * as ImagePicker from 'expo-image-picker';
+import { prepareImageForUpload } from '../../services/mediaService';
+import { createPost, createShort } from '../../services/posts';
+import { requestBackgroundLocationWithDisclosure } from '../../utils/backgroundLocationPermission';
 import GlassMapPanel from '../../components/GlassMapPanel';
 import PremiumMapMarker from '../../components/PremiumMapMarker';
 import SafeMarker from '../../components/SafeMarker';
@@ -210,6 +217,28 @@ const createStyles = (isDark: boolean) => {
       fontSize: 15,
       fontWeight: '700',
     },
+    journeyActionsRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: 12,
+      gap: 8,
+    },
+    journeyActionBtn: {
+      flex: 1,
+      height: 38,
+      borderRadius: 12,
+      backgroundColor: '#1C73B4',
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+    },
+    journeyActionText: {
+      color: 'white',
+      fontSize: 12,
+      fontWeight: '600',
+    },
   });
 };
 
@@ -224,9 +253,57 @@ const resolvePhotoUrl = (url?: string | null): string | undefined => {
   return getApiUrl(cleanPath);
 };
 
+/**
+ * Calculates the remaining road distance along a route polyline in kilometers,
+ * from the user's current coordinates to the end of the route.
+ */
+function calculateRemainingRouteDistance(
+  userLat: number,
+  userLng: number,
+  coordinates: { latitude: number; longitude: number }[]
+): number {
+  if (!coordinates || coordinates.length === 0) return 0;
+  
+  let minDistance = Infinity;
+  let closestIndex = 0;
+  
+  for (let i = 0; i < coordinates.length; i++) {
+    const dist = calculateDistance(userLat, userLng, coordinates[i].latitude, coordinates[i].longitude);
+    if (dist !== null && dist < minDistance) {
+      minDistance = dist;
+      closestIndex = i;
+    }
+  }
+  
+  let totalKm = minDistance !== Infinity ? minDistance : 0;
+  for (let i = closestIndex; i < coordinates.length - 1; i++) {
+    const segmentDist = calculateDistance(
+      coordinates[i].latitude,
+      coordinates[i].longitude,
+      coordinates[i + 1].latitude,
+      coordinates[i + 1].longitude
+    );
+    if (segmentDist !== null) {
+      totalKm += segmentDist;
+    }
+  }
+  
+  return totalKm;
+}
+
 export default function CurrentLocationMap() {
   const router = useRouter();
   const params = useLocalSearchParams();
+  
+  const { isTracking, startJourneyRecording, stopJourneyRecording } = useJourney();
+  const [isUploadingWaypoint, setIsUploadingWaypoint] = useState(false);
+  const hasPromptedArrivalRef = useRef(false);
+  
+  const isTrackingRef = useRef(isTracking);
+  useEffect(() => {
+    isTrackingRef.current = isTracking;
+  }, [isTracking]);
+
   const postPhoto = (params.photo as string) || (params.imageUrl as string) || null;
 
   // Check if we have location parameters (from locale or post)
@@ -272,6 +349,8 @@ export default function CurrentLocationMap() {
   const [userCoords, setUserCoords] = useState<{ latitude: number; longitude: number } | null>(null);
   const [latitudeDelta, setLatitudeDelta] = useState(0.1);
   const { theme, isDark } = useTheme();
+  const [showLocationDisclosure, setShowLocationDisclosure] = useState(false);
+  const [disclosureResolveRef, setDisclosureResolveRef] = useState<{ resolve: (val: boolean) => void } | null>(null);
   const styles = useMemo(() => createStyles(isDark), [isDark]);
   const insets = useSafeAreaInsets();
   const mapStyle = useMapStyle();
@@ -329,45 +408,40 @@ export default function CurrentLocationMap() {
   }, [params, postIdParam, postLatitude, postLongitude, postAddress, locationName, hasValidCoordinates, isPostLocation]);
 
   useEffect(() => {
-    // CRITICAL: Use exact coordinates from params if valid (for locale flow)
-    // These coordinates come from the database (admin locale) and should be used instead of current location
-    if (hasValidCoordinates) {
-      logger.info('📍 Setting map location with EXACT database coordinates from locale:', { 
-        postId: postIdParam,
-        postLatitude, 
-        postLongitude,
-        locationName,
-        userId: userIdParam
-      });
-      setLocation({
-        coords: {
-          latitude: postLatitude!,
-          longitude: postLongitude!,
-          accuracy: 0,
-          altitude: null,
-          altitudeAccuracy: null,
-          heading: null,
-          speed: null,
-        },
-        timestamp: Date.now(),
-      });
-      setLoading(false);
-      // Don't watch location when showing a specific locale location
-      setIsWatching(false);
+    let subscription: Location.LocationSubscription | undefined;
+    
+    const initializeLocation = async () => {
+      const granted = await ensureLocationPermission();
+      if (!granted) {
+        setError('Location permission required');
+        setLoading(false);
+        return;
+      }
 
-      // Still fetch the user's current GPS in the background so we can show
-      // distance from here to the destination pin.
-      (async () => {
+      if (hasValidCoordinates) {
+        logger.info('📍 Setting map location with EXACT database coordinates from locale:', { 
+          postId: postIdParam,
+          postLatitude, 
+          postLongitude,
+          locationName,
+          userId: userIdParam
+        });
+        setLocation({
+          coords: {
+            latitude: postLatitude!,
+            longitude: postLongitude!,
+            accuracy: 0,
+            altitude: null,
+            altitudeAccuracy: null,
+            heading: null,
+            speed: null,
+          },
+          timestamp: Date.now(),
+        } as Location.LocationObject);
+        setLoading(false);
+
+        // Fetch initial user coords in the background so we have a fast first readout
         try {
-          const currentPerm = await Location.getForegroundPermissionsAsync();
-          let status = currentPerm.status;
-          if (status === 'undetermined') {
-            const requested = await Location.requestForegroundPermissionsAsync();
-            status = requested.status;
-          }
-          if (status !== 'granted') return;
-
-          // Try to get last known location first (almost instant)
           const lastKnown = await Location.getLastKnownPositionAsync();
           if (lastKnown && lastKnown.coords) {
             setUserCoords({
@@ -375,49 +449,80 @@ export default function CurrentLocationMap() {
               longitude: lastKnown.coords.longitude,
             });
           }
-
-          // Then query current location in background
           const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
           setUserCoords({
             latitude: current.coords.latitude,
             longitude: current.coords.longitude,
           });
         } catch (e) {
-          logger.info('Unable to fetch user coords for distance readout');
+          logger.info('Unable to fetch initial user coords for distance readout');
         }
-      })();
-    } else {
-      // Only get current location if no coordinates were passed
-      // This is for the "current location" flow, not locale navigation
-      getCurrentLocation();
-      
-      // Start watching location for continuous updates
-      let subscription: Location.LocationSubscription | undefined;
-      watchLocation().then((sub) => {
-        subscription = sub;
-      });
 
-      return () => {
-        if (subscription) {
-          subscription.remove();
-          setIsWatching(false);
-        }
-      };
-    }
+        // Start watching location continuously in the background
+        subscription = await watchLocation();
+      } else {
+        // Current location flow
+        getCurrentLocation();
+        subscription = await watchLocation();
+      }
+    };
+
+    initializeLocation();
+
+    return () => {
+      if (subscription) {
+        subscription.remove();
+        setIsWatching(false);
+      }
+    };
   }, [hasValidCoordinates, postIdParam, postLatitude, postLongitude, locationName, userIdParam]);
+
+  const ensureLocationPermission = async (): Promise<boolean> => {
+    try {
+      const currentPerm = await Location.getForegroundPermissionsAsync();
+      if (currentPerm.status === 'granted') return true;
+      if (currentPerm.status === 'undetermined') {
+        const granted = await new Promise<boolean>((resolve) => {
+          setDisclosureResolveRef({ resolve });
+          setShowLocationDisclosure(true);
+        });
+        return granted;
+      }
+      return false;
+    } catch (e) {
+      logger.error('Error ensuring location permission in current-location.tsx:', e);
+      return false;
+    }
+  };
+
+  const handleDisclosureContinue = async () => {
+    setShowLocationDisclosure(false);
+    const resolve = disclosureResolveRef?.resolve;
+    setDisclosureResolveRef(null);
+    try {
+      const fgResult = await Location.requestForegroundPermissionsAsync();
+      resolve?.(fgResult.status === 'granted');
+    } catch (err) {
+      logger.error('Error requesting location permission in current-location:', err);
+      resolve?.(false);
+    }
+  };
+
+  const handleDisclosureCancel = () => {
+    setShowLocationDisclosure(false);
+    const resolve = disclosureResolveRef?.resolve;
+    setDisclosureResolveRef(null);
+    resolve?.(false);
+  };
 
   const getCurrentLocation = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Request permission
+      // Request permission (read only check)
       const currentPerm = await Location.getForegroundPermissionsAsync();
       let status = currentPerm.status;
-      if (status === 'undetermined') {
-        const requested = await Location.requestForegroundPermissionsAsync();
-        status = requested.status;
-      }
       if (status !== 'granted') {
         setError('Location permission denied');
         setLoading(false);
@@ -466,14 +571,10 @@ export default function CurrentLocationMap() {
     }
   };
 
-  const watchLocation = async () => {
+  async function watchLocation() {
     try {
       const currentPerm = await Location.getForegroundPermissionsAsync();
       let status = currentPerm.status;
-      if (status === 'undetermined') {
-        const requested = await Location.requestForegroundPermissionsAsync();
-        status = requested.status;
-      }
       if (status !== 'granted') {
         return;
       }
@@ -483,11 +584,28 @@ export default function CurrentLocationMap() {
       const subscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.Balanced,
-          timeInterval: 10000, // Update every 10 seconds
-          distanceInterval: 20, // Update every 20 meters — reduces jitter from small GPS noise
+          timeInterval: 5000, // Update every 5 seconds
+          distanceInterval: 5, // Update every 5 meters
         },
         (newLocation) => {
-          setLocation(newLocation);
+          setUserCoords({
+            latitude: newLocation.coords.latitude,
+            longitude: newLocation.coords.longitude,
+          });
+          if (!hasValidCoordinates) {
+            setLocation(newLocation);
+          } else if (isTrackingRef.current) {
+            // Check if user has arrived (distance < 50 meters)
+            const remainingKm = calculateDistance(
+              newLocation.coords.latitude,
+              newLocation.coords.longitude,
+              postLatitude!,
+              postLongitude!
+            );
+            if (remainingKm !== null && remainingKm < 0.05) { // 50 meters
+              triggerArrivalAlert();
+            }
+          }
         }
       );
 
@@ -496,7 +614,7 @@ export default function CurrentLocationMap() {
       logger.error('Error watching location:', err);
       setIsWatching(false);
     }
-  };
+  }
 
   const handleRefresh = () => {
     if (isPostLocation && postLatitude && postLongitude) {
@@ -533,8 +651,8 @@ export default function CurrentLocationMap() {
         const currentPerm = await Location.getForegroundPermissionsAsync();
         let status = currentPerm.status;
         if (status === 'undetermined') {
-          const requested = await Location.requestForegroundPermissionsAsync();
-          status = requested.status;
+          const granted = await ensureLocationPermission();
+          status = granted ? Location.PermissionStatus.GRANTED : Location.PermissionStatus.DENIED;
         }
         if (status === 'granted') {
           // 1. Try to get last known location first (instant)
@@ -615,6 +733,216 @@ export default function CurrentLocationMap() {
     } catch (err) {
       logger.error('Failed to init route state:', err);
       setRouteLoading(false);
+    }
+  };
+
+  const triggerArrivalAlert = () => {
+    if (hasPromptedArrivalRef.current) return;
+    hasPromptedArrivalRef.current = true;
+    
+    Alert.alert(
+      'Arrived at Destination!',
+      'You have arrived at your destination. Would you like to complete and save your journey now?',
+      [
+        {
+          text: 'Continue Recording',
+          style: 'cancel',
+          onPress: () => {}
+        },
+        {
+          text: 'Complete Journey',
+          onPress: () => {
+            handleStopJourney();
+          }
+        }
+      ]
+    );
+  };
+
+  const handleNavigatePress = () => {
+    if (!hasValidCoordinates || !postLatitude || !postLongitude) return;
+    
+    if (isTracking) {
+      loadRoute();
+      return;
+    }
+    
+    Alert.alert(
+      'Record Journey?',
+      'Would you like to record this trip as a verified journey in Taatom?',
+      [
+        {
+          text: 'Navigation Only',
+          style: 'cancel',
+          onPress: () => {
+            loadRoute();
+          }
+        },
+        {
+          text: 'Record & Navigate',
+          onPress: async () => {
+            try {
+              setRouteLoading(true);
+              
+              // Enforce background location disclosure compliance
+              const bgPerm = await requestBackgroundLocationWithDisclosure();
+              if (!bgPerm.granted) {
+                Alert.alert(
+                  'Background Location Required',
+                  'Recording a journey requires background location permissions. You can still navigate in the foreground, but your journey path will not be recorded in the background.',
+                  [
+                    {
+                      text: 'Navigate Only',
+                      onPress: () => {
+                        loadRoute();
+                      }
+                    },
+                    {
+                      text: 'Cancel',
+                      style: 'cancel',
+                      onPress: () => {
+                        setRouteLoading(false);
+                      }
+                    }
+                  ]
+                );
+                return;
+              }
+
+              const title = `Journey to ${locationName || postAddress || 'Destination'}`;
+              await startJourneyRecording(title);
+              loadRoute();
+            } catch (err: any) {
+              logger.error('Failed to start journey recording from navigate:', err);
+              Alert.alert('Error', err.message || 'Failed to start journey recording.');
+              setRouteLoading(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleStopJourney = async () => {
+    try {
+      setRouteLoading(true);
+      await stopJourneyRecording();
+      Alert.alert('Journey Saved!', 'Your journey has been saved successfully.');
+      router.push('/navigate/complete');
+    } catch (err: any) {
+      logger.error('Failed to stop journey recording:', err);
+      Alert.alert('Error', err.message || 'Failed to stop journey recording.');
+    } finally {
+      setRouteLoading(false);
+    }
+  };
+
+  const handleCapture = async (type: 'photo' | 'short') => {
+    if (!userCoords) {
+      Alert.alert('GPS Signal Required', 'Please wait for a GPS lock before capturing waypoints.');
+      return;
+    }
+    
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== ImagePicker.PermissionStatus.GRANTED) {
+        Alert.alert('Permission needed', 'Please grant camera permissions to capture waypoints.');
+        return;
+      }
+
+      const lat = userCoords.latitude;
+      const lng = userCoords.longitude;
+
+      if (type === 'photo') {
+        const result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ['images'],
+          allowsEditing: false,
+          quality: 0.8,
+          exif: true,
+        });
+
+        if (!result || result.canceled || !result.assets?.[0]) {
+          return;
+        }
+
+        setIsUploadingWaypoint(true);
+        const asset = result.assets[0];
+
+        let addressText = '';
+        try {
+          addressText = await getAddressFromCoords(lat, lng);
+        } catch (e) {
+          logger.warn('Failed to get address:', e);
+        }
+
+        const prepared = await prepareImageForUpload(asset.uri, asset.fileName || `photo_${Date.now()}.jpg`);
+
+        const postData = {
+          images: [prepared],
+          caption: '',
+          address: addressText || 'Journey Waypoint',
+          latitude: lat,
+          longitude: lng,
+          hasExifGps: true,
+          fromCamera: true,
+          source: 'taatom_camera_live' as const,
+        };
+
+        await createPost(postData);
+        Alert.alert('Success', 'Your photo waypoint has been posted successfully!');
+      } else {
+        // short (video)
+        const result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ['videos'],
+          allowsEditing: true,
+          aspect: [9, 16],
+          quality: 0.8,
+          exif: true,
+          videoExportPreset: ImagePicker.VideoExportPreset.H264_1280x720,
+          videoMaxDuration: 60,
+          videoQuality: 1,
+        });
+
+        if (!result || result.canceled || !result.assets?.[0]) {
+          return;
+        }
+
+        setIsUploadingWaypoint(true);
+        const asset = result.assets[0];
+
+        let addressText = '';
+        try {
+          addressText = await getAddressFromCoords(lat, lng);
+        } catch (e) {
+          logger.warn('Failed to get address:', e);
+        }
+
+        const shortData = {
+          video: {
+            uri: asset.uri,
+            type: 'video/mp4',
+            name: asset.fileName || `video_${Date.now()}.mp4`,
+          },
+          caption: '',
+          address: addressText || 'Journey Waypoint',
+          latitude: lat,
+          longitude: lng,
+          hasExifGps: true,
+          fromCamera: true,
+          source: 'taatom_camera_live' as const,
+          audioSource: 'user_original' as const,
+          copyrightAccepted: true,
+          copyrightAcceptedAt: new Date().toISOString(),
+        };
+
+        await createShort(shortData);
+        Alert.alert('Success', 'Your video waypoint has been posted successfully!');
+      }
+    } catch (err: any) {
+      logger.error('Failed to upload waypoint:', err);
+      Alert.alert('Error', err.message || 'Failed to post waypoint.');
+    } finally {
+      setIsUploadingWaypoint(false);
     }
   };
 
@@ -1125,7 +1453,29 @@ function initMap(){
         {route?.coordinates?.length > 1 && (
           <>
             <PolylineRenderer
-              coordinates={route.coordinates}
+              coordinates={(() => {
+                if (userCoords) {
+                  let minDistance = Infinity;
+                  let closestIndex = 0;
+                  for (let i = 0; i < route.coordinates.length; i++) {
+                    const dist = calculateDistance(
+                      userCoords.latitude,
+                      userCoords.longitude,
+                      route.coordinates[i].latitude,
+                      route.coordinates[i].longitude
+                    );
+                    if (dist !== null && dist < minDistance) {
+                      minDistance = dist;
+                      closestIndex = i;
+                    }
+                  }
+                  return [
+                    { latitude: userCoords.latitude, longitude: userCoords.longitude },
+                    ...route.coordinates.slice(closestIndex)
+                  ];
+                }
+                return route.coordinates;
+              })()}
               color={mapStyle.routeColor}
               glowColor={mapStyle.routeGlowColor}
               strokeWidth={5}
@@ -1279,24 +1629,6 @@ function initMap(){
             </TouchableOpacity>
           </View>
 
-          {/* Sub-top bar: Route panel integrated inside card */}
-          {(routeLoading || route) && (
-            <View style={[styles.routePanel, { borderTopWidth: 1, borderTopColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)' }]}>
-              <View style={styles.routeHeader}>
-                <Ionicons
-                  name={route ? getManeuverIcon(route.steps[0]?.maneuver) as any : 'navigate'}
-                  size={18}
-                  color={isDark ? '#38BDF8' : '#1C73B4'}
-                />
-                <Text style={[styles.routeMeta, { color: isDark ? '#38BDF8' : '#1C73B4' }]}>
-                  {routeLoading ? 'Finding route' : `${route?.durationText || 'Route'} - ${route?.distanceText || ''}`}
-                </Text>
-              </View>
-              <Text style={[styles.routeInstruction, { color: theme.colors.text }]} numberOfLines={2}>
-                {routeLoading ? 'Preparing in-app navigation...' : route?.steps[0]?.instruction || 'Route ready inside Taatom'}
-              </Text>
-            </View>
-          )}
       </View>
 
       {/* Floating Bottom Location Info Panel */}
@@ -1307,8 +1639,9 @@ function initMap(){
             tint={isDark ? 'dark' : 'light'}
             style={styles.infoFloating}
           >
-            <View style={styles.locationInfo}>
-              <View style={styles.locationDetails}>
+            <View style={{ flexDirection: 'column', width: '100%' }}>
+              <View style={styles.locationInfo}>
+                <View style={styles.locationDetails}>
                 {isPostLocation && postAddress && (
                   <View style={styles.locationRow}>
                     <Ionicons name="location" size={18} color={theme.colors.primary} />
@@ -1325,6 +1658,16 @@ function initMap(){
                         if (routeLoading) {
                           return 'Calculating...';
                         }
+                        if (!useWebViewFallback && route?.coordinates && route.coordinates.length > 0) {
+                          const remainingKm = calculateRemainingRouteDistance(
+                            userCoords.latitude,
+                            userCoords.longitude,
+                            route.coordinates
+                          );
+                          return remainingKm < 1
+                            ? `${Math.round(remainingKm * 1000)} m from you`
+                            : `${remainingKm.toFixed(1)} km from you`;
+                        }
                         if (route?.distanceText) {
                           return `${route.distanceText.toLowerCase()} from you`;
                         }
@@ -1334,6 +1677,7 @@ function initMap(){
                           postLatitude!,
                           postLongitude!
                         );
+                        if (km === null) return 'Unknown distance';
                         return km < 1
                           ? `${Math.round(km * 1000)} m from you`
                           : `${km.toFixed(1)} km from you`;
@@ -1361,29 +1705,81 @@ function initMap(){
 
               {/* Action Buttons inside Info Panel */}
               {isPostLocation && postLatitude && postLongitude && (
-                <TouchableOpacity
-                  style={styles.directionButton}
-                  onPress={loadRoute}
-                  disabled={routeLoading}
-                  activeOpacity={0.7}
-                >
-                  <LinearGradient
-                    colors={['#1C73B4', '#50C878']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={StyleSheet.absoluteFillObject}
-                  />
-                  {routeLoading ? (
-                    <LoadingGlobe color="white" size="small" />
+                <>
+                  {!isRoutingActive ? (
+                    <TouchableOpacity
+                      style={styles.directionButton}
+                      onPress={handleNavigatePress}
+                      disabled={routeLoading}
+                      activeOpacity={0.7}
+                    >
+                      <LinearGradient
+                        colors={['#1C73B4', '#50C878']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={StyleSheet.absoluteFillObject}
+                      />
+                      {routeLoading ? (
+                        <LoadingGlobe color="white" size="small" />
+                      ) : (
+                        <Ionicons name="navigate" size={20} color="white" />
+                      )}
+                    </TouchableOpacity>
                   ) : (
-                    <Ionicons name="navigate" size={20} color="white" />
+                    !isTracking && (
+                      <TouchableOpacity
+                        style={[styles.directionButton, { backgroundColor: '#EF4444' }]}
+                        onPress={() => {
+                          setIsRoutingActive(false);
+                          setRoute(null);
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="close" size={24} color="white" />
+                      </TouchableOpacity>
+                    )
                   )}
-                </TouchableOpacity>
+                </>
               )}
             </View>
-          </BlurView>
-        </View>
-      )}
+
+            {/* Waypoint/Finish Actions Row for active Journey tracking */}
+            {isRoutingActive && isTracking && (
+              <>
+                {isUploadingWaypoint ? (
+                  <View style={[styles.journeyActionsRow, { justifyContent: 'center' }]}>
+                    <LoadingGlobe color={theme.colors.primary} size="small" />
+                    <Text style={{ marginLeft: 8, color: theme.colors.text }}>Uploading waypoint...</Text>
+                  </View>
+                ) : (
+                  <View style={styles.journeyActionsRow}>
+                    <TouchableOpacity style={styles.journeyActionBtn} onPress={() => handleCapture('photo')}>
+                      <Ionicons name="camera" size={18} color="white" />
+                      <Text style={styles.journeyActionText}>Photo</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.journeyActionBtn, { backgroundColor: '#FF5A5F' }]} onPress={() => handleCapture('short')}>
+                      <Ionicons name="videocam" size={18} color="white" />
+                      <Text style={styles.journeyActionText}>Video</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.journeyActionBtn, { backgroundColor: '#EF4444' }]} onPress={handleStopJourney}>
+                      <Ionicons name="stop" size={18} color="white" />
+                      <Text style={styles.journeyActionText}>Finish</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </>
+            )}
+          </View>
+        </BlurView>
+      </View>
+    )}
+      {/* Location Disclosure Modal */}
+      <LocationDisclosureModal
+        visible={showLocationDisclosure}
+        variant="foreground"
+        onContinue={handleDisclosureContinue}
+        onCancel={handleDisclosureCancel}
+      />
     </View>
   );
 }

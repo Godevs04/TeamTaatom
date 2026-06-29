@@ -43,6 +43,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { GlassCard } from '../../components/ui/GlassCard';
 import { postSchema, shortSchema } from "../../utils/validation";
 import { getCurrentLocation, getAddressFromCoords } from "../../utils/locationUtils";
+import * as Location from 'expo-location';
+import { LocationDisclosureModal } from '../../components/ui/LocationDisclosureModal';
 import { LocationExtractionService } from "../../services/locationExtraction";
 import { searchPlace } from "../../utils/placeDetection";
 import { createPost, createPostWithProgress, createShort, createShortWithProgress, getPosts, getShorts } from "../../services/posts";
@@ -388,6 +390,46 @@ export default function PostScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const journeyContext = useJourney();
   const [latestAssetUri, setLatestAssetUri] = useState<string | null>(null);
+  const [showLocationDisclosure, setShowLocationDisclosure] = useState(false);
+  const [disclosureResolveRef, setDisclosureResolveRef] = useState<{ resolve: (val: boolean) => void } | null>(null);
+
+  const ensureLocationPermission = async (): Promise<boolean> => {
+    try {
+      const currentPerm = await Location.getForegroundPermissionsAsync();
+      if (currentPerm.status === 'granted') return true;
+      if (currentPerm.status === 'undetermined') {
+        const granted = await new Promise<boolean>((resolve) => {
+          setDisclosureResolveRef({ resolve });
+          setShowLocationDisclosure(true);
+        });
+        return granted;
+      }
+      return false;
+    } catch (e) {
+      logger.error('Error checking location permission in post.tsx:', e);
+      return false;
+    }
+  };
+
+  const handleDisclosureContinue = async () => {
+    setShowLocationDisclosure(false);
+    const resolve = disclosureResolveRef?.resolve;
+    setDisclosureResolveRef(null);
+    try {
+      const fgResult = await Location.requestForegroundPermissionsAsync();
+      resolve?.(fgResult.status === 'granted');
+    } catch (err) {
+      logger.error('Error requesting location permission in post continue:', err);
+      resolve?.(false);
+    }
+  };
+
+  const handleDisclosureCancel = () => {
+    setShowLocationDisclosure(false);
+    const resolve = disclosureResolveRef?.resolve;
+    setDisclosureResolveRef(null);
+    resolve?.(false);
+  };
 
   // Helper to resolve iOS ph:// URI to standard file:// URI using MediaLibrary
   const resolvePhUri = async (uri: string): Promise<string> => {
@@ -2219,43 +2261,53 @@ export default function PostScreen() {
           // No location from EXIF and no active/recent journey - get current location as fallback for Taatom camera
           logger.debug('No EXIF location and no active/recent journey found, getting current location for Taatom camera');
           try {
-            const currentLocation = await getCurrentLocation();
-            if (currentLocation && currentLocation.coords) {
-              const coords = {
-                lat: currentLocation.coords.latitude,
-                lng: currentLocation.coords.longitude
-              };
-              setLocation(coords);
-              
-              // Get address from current location
-              const address = await getAddressFromCoords(coords.lat, coords.lng);
-              if (address) {
-                setAddress(address);
+            const hasPermission = await ensureLocationPermission();
+            if (hasPermission) {
+              const currentLocation = await getCurrentLocation();
+              if (currentLocation && currentLocation.coords) {
+                const coords = {
+                  lat: currentLocation.coords.latitude,
+                  lng: currentLocation.coords.longitude
+                };
+                setLocation(coords);
+                
+                // Get address from current location
+                const address = await getAddressFromCoords(coords.lat, coords.lng);
+                if (address) {
+                  setAddress(address);
+                }
+                
+                // Store metadata - current location is still valid for Taatom camera
+                setLocationMetadata({
+                  hasExifGps: false, // Not from EXIF, but from current GPS
+                  takenAt: new Date(),
+                  rawSource: 'exif' // Treat as valid GPS source for camera
+                });
+                setIsFromCameraFlow(true);
+                
+                logger.debug('Current location captured for Taatom camera:', coords);
+              } else {
+                // No current location available
+                setLocationMetadata({
+                  hasExifGps: false,
+                  takenAt: null,
+                  rawSource: 'none'
+                });
+                setIsFromCameraFlow(true);
+                
+                Alert.alert(
+                  'Location Not Available',
+                  'Unable to get your current location. You can manually type the location.',
+                  [{ text: 'OK', style: 'default' }]
+                );
               }
-              
-              // Store metadata - current location is still valid for Taatom camera
-              setLocationMetadata({
-                hasExifGps: false, // Not from EXIF, but from current GPS
-                takenAt: new Date(),
-                rawSource: 'exif' // Treat as valid GPS source for camera
-              });
-              setIsFromCameraFlow(true);
-              
-              logger.debug('Current location captured for Taatom camera:', coords);
             } else {
-              // No current location available
               setLocationMetadata({
                 hasExifGps: false,
                 takenAt: null,
                 rawSource: 'none'
               });
               setIsFromCameraFlow(true);
-              
-              Alert.alert(
-                'Location Not Available',
-                'Unable to get your current location. You can manually type the location.',
-                [{ text: 'OK', style: 'default' }]
-              );
             }
           } catch (locationError) {
             logger.error('Error getting current location:', locationError);
@@ -2472,43 +2524,53 @@ export default function PostScreen() {
             // No location from EXIF and no active/recent journey - get current location as fallback for Taatom camera video
             logger.debug('No EXIF location and no active/recent journey found, getting current location for Taatom camera video');
             try {
-              const currentLocation = await getCurrentLocation();
-              if (currentLocation && currentLocation.coords) {
-                const coords = {
-                  lat: currentLocation.coords.latitude,
-                  lng: currentLocation.coords.longitude
-                };
-                setLocation(coords);
-                
-                // Get address from current location
-                const address = await getAddressFromCoords(coords.lat, coords.lng);
-                if (address) {
-                  setAddress(address);
+              const hasPermission = await ensureLocationPermission();
+              if (hasPermission) {
+                const currentLocation = await getCurrentLocation();
+                if (currentLocation && currentLocation.coords) {
+                  const coords = {
+                    lat: currentLocation.coords.latitude,
+                    lng: currentLocation.coords.longitude
+                  };
+                  setLocation(coords);
+                  
+                  // Get address from current location
+                  const address = await getAddressFromCoords(coords.lat, coords.lng);
+                  if (address) {
+                    setAddress(address);
+                  }
+                  
+                  // Store metadata - current location is still valid for Taatom camera
+                  setLocationMetadata({
+                    hasExifGps: false, // Not from EXIF, but from current GPS
+                    takenAt: new Date(),
+                    rawSource: 'exif' // Treat as valid GPS source for camera
+                  });
+                  setIsFromCameraFlow(true);
+                  
+                  logger.debug('Current location captured for Taatom camera video:', coords);
+                } else {
+                  // No current location available
+                  setLocationMetadata({
+                    hasExifGps: false,
+                    takenAt: null,
+                    rawSource: 'none'
+                  });
+                  setIsFromCameraFlow(true);
+                  
+                  Alert.alert(
+                    'Location Not Available',
+                    'Unable to get your current location. You can manually type the location.',
+                    [{ text: 'OK', style: 'default' }]
+                  );
                 }
-                
-                // Store metadata - current location is still valid for Taatom camera
-                setLocationMetadata({
-                  hasExifGps: false, // Not from EXIF, but from current GPS
-                  takenAt: new Date(),
-                  rawSource: 'exif' // Treat as valid GPS source for camera
-                });
-                setIsFromCameraFlow(true);
-                
-                logger.debug('Current location captured for Taatom camera video:', coords);
               } else {
-                // No current location available
                 setLocationMetadata({
                   hasExifGps: false,
                   takenAt: null,
                   rawSource: 'none'
                 });
                 setIsFromCameraFlow(true);
-                
-                Alert.alert(
-                  'Location Not Available',
-                  'Unable to get your current location. You can manually type the location.',
-                  [{ text: 'OK', style: 'default' }]
-                );
               }
             } catch (locationError) {
               logger.error('Error getting current location:', locationError);
@@ -2565,6 +2627,8 @@ export default function PostScreen() {
   
   const getLocation = async (): Promise<boolean> => {
     try {
+      const hasPermission = await ensureLocationPermission();
+      if (!hasPermission) return false;
       const currentLocation = await getCurrentLocation();
       if (currentLocation) {
         const coords = {
@@ -6541,6 +6605,13 @@ export default function PostScreen() {
           style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, zIndex: 99 }}
         />
       </View>
+      {/* Location Disclosure Modal */}
+      <LocationDisclosureModal
+        visible={showLocationDisclosure}
+        variant="foreground"
+        onContinue={handleDisclosureContinue}
+        onCancel={handleDisclosureCancel}
+      />
     </KeyboardAvoidingView>
     </ErrorBoundary>
   );

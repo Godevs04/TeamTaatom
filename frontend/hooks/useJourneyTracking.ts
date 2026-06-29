@@ -1699,26 +1699,12 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
       try {
         setError(null);
 
-        // Request foreground location permission (always required first).
-        const foregroundPermission = await Location.requestForegroundPermissionsAsync();
+        // Check foreground permission (always required first).
+        const foregroundPermission = await Location.getForegroundPermissionsAsync();
         if (!foregroundPermission.granted) {
-          const err = 'Location permission denied';
+          const err = 'Location permission required to start journey';
           setError(err);
           throw new Error(err);
-        }
-
-        // Request background ("Always") permission so the path keeps
-        // recording when the phone is locked or the app is backgrounded.
-        // Treat denial as a soft failure — the journey still works in the
-        // foreground; the user just won't get the full path if they leave
-        // the app. iOS surfaces this as a separate "Allow Always" prompt
-        // shortly after the first foreground prompt.
-        if (Platform.OS !== 'web') {
-          try {
-            await requestBackgroundLocationWithDisclosure();
-          } catch (e) {
-            logger.warn('[Journey] Background permission request failed (non-blocking):', e);
-          }
         }
 
         // Get current location
@@ -1877,22 +1863,12 @@ export function useJourneyTracking(): UseJourneyTrackingReturn {
         throw new Error('No paused journey');
       }
 
-      // Request permissions again
-      const foregroundPermission = await Location.requestForegroundPermissionsAsync();
+      // Check permissions again
+      const foregroundPermission = await Location.getForegroundPermissionsAsync();
       if (!foregroundPermission.granted) {
-        const err = 'Location permission denied';
+        const err = 'Location permission required to resume journey';
         setError(err);
         throw new Error(err);
-      }
-
-      // Request background ("Always") permission so the path keeps
-      // recording when the phone is locked or the app is backgrounded.
-      if (Platform.OS !== 'web') {
-        try {
-          await requestBackgroundLocationWithDisclosure();
-        } catch (e) {
-          logger.warn('[Journey] Background permission request failed (non-blocking):', e);
-        }
       }
 
       // Call API

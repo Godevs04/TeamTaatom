@@ -27,6 +27,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../../context/ThemeContext';
 import { useAlert } from '../../context/AlertContext';
 import { useJourney, useJourneyDuration } from '../../context/JourneyContext';
+import { LocationDisclosureModal } from '../../components/ui/LocationDisclosureModal';
+import { requestBackgroundLocationWithDisclosure } from '../../utils/backgroundLocationPermission';
 import { MapView, Marker, Polyline, getMapProvider, useWebViewFallback } from '../../utils/mapsWrapper';
 import PolylineRenderer from '../../components/PolylineRenderer';
 import GlassMapPanel from '../../components/GlassMapPanel';
@@ -162,6 +164,9 @@ function AllLocationsMapInner() {
   const [selectedPost, setSelectedPost] = useState<LocationPin | null>(null);
   const [selectedJourney, setSelectedJourney] = useState<JourneyPolyline | null>(null);
   const [loadedImages, setLoadedImages] = useState<Record<string, boolean>>({});
+  const [showLocationDisclosure, setShowLocationDisclosure] = useState(false);
+  const [disclosureVariant, setDisclosureVariant] = useState<'foreground' | 'journey'>('foreground');
+  const [disclosureResolveRef, setDisclosureResolveRef] = useState<{ resolve: (val: boolean) => void } | null>(null);
 
   const carouselRef = useRef<FlatList>(null);
   const isScrollingCarouselRef = useRef(false);
@@ -591,13 +596,75 @@ function AllLocationsMapInner() {
     );
   };
 
+  const ensureLocationPermissionForJourney = async (): Promise<boolean> => {
+    try {
+      const fgStatus = await ExpoLocation.getForegroundPermissionsAsync();
+      if (fgStatus.status !== 'granted') {
+        const consented = await new Promise<boolean>((resolve) => {
+          setDisclosureResolveRef({ resolve });
+          setDisclosureVariant('journey');
+          setShowLocationDisclosure(true);
+        });
+        if (!consented) return false;
+      } else {
+        if (Platform.OS !== 'web') {
+          const bgStatus = await ExpoLocation.getBackgroundPermissionsAsync();
+          if (bgStatus.status !== 'granted') {
+            const result = await requestBackgroundLocationWithDisclosure();
+            if (!result.granted) return false;
+          }
+        }
+      }
+      return true;
+    } catch (err) {
+      logger.error('Error ensuring location permission for journey:', err);
+      return false;
+    }
+  };
+
+  const handleDisclosureContinue = async () => {
+    setShowLocationDisclosure(false);
+    const resolve = disclosureResolveRef?.resolve;
+    setDisclosureResolveRef(null);
+
+    try {
+      const fgResult = await ExpoLocation.requestForegroundPermissionsAsync();
+      if (fgResult.status !== 'granted') {
+        resolve?.(false);
+        return;
+      }
+
+      if (disclosureVariant === 'journey' && Platform.OS !== 'web') {
+        const bgResult = await requestBackgroundLocationWithDisclosure();
+        resolve?.(bgResult.granted);
+      } else {
+        resolve?.(true);
+      }
+    } catch (err) {
+      logger.error('Error requesting location permission in disclosure continue:', err);
+      resolve?.(false);
+    }
+  };
+
+  const handleDisclosureCancel = () => {
+    setShowLocationDisclosure(false);
+    const resolve = disclosureResolveRef?.resolve;
+    setDisclosureResolveRef(null);
+    resolve?.(false);
+  };
+
   const recenterOnUser = async () => {
     try {
       const currentPerm = await ExpoLocation.getForegroundPermissionsAsync();
       let status = currentPerm.status;
       if (status === 'undetermined') {
-        const requested = await ExpoLocation.requestForegroundPermissionsAsync();
-        status = requested.status;
+        const granted = await new Promise<boolean>((resolve) => {
+          setDisclosureResolveRef({ resolve });
+          setDisclosureVariant('foreground');
+          setShowLocationDisclosure(true);
+        });
+        if (!granted) return;
+        status = ExpoLocation.PermissionStatus.GRANTED;
       }
       if (status !== 'granted') {
         showError('Location permission is required to center on your location.', 'Permission Denied');
@@ -923,10 +990,6 @@ function AllLocationsMapInner() {
       try {
         const currentPerm = await ExpoLocation.getForegroundPermissionsAsync();
         let status = currentPerm.status;
-        if (status === 'undetermined') {
-          const requested = await ExpoLocation.requestForegroundPermissionsAsync();
-          status = requested.status;
-        }
         if (status !== 'granted' || cancelled) return;
         const loc = await ExpoLocation.getCurrentPositionAsync({
           accuracy: ExpoLocation.Accuracy.Balanced,
@@ -958,6 +1021,10 @@ function AllLocationsMapInner() {
   const handleStartJourney = async () => {
     try {
       setJourneyActionLoading(true);
+      const permissionGranted = await ensureLocationPermissionForJourney();
+      if (!permissionGranted) {
+        return;
+      }
       const countStr = await AsyncStorage.getItem('journeyStartCount');
       const count = countStr ? parseInt(countStr, 10) : 0;
       await AsyncStorage.setItem('journeyStartCount', String(count + 1));
@@ -1039,6 +1106,10 @@ function AllLocationsMapInner() {
   const handleResumeJourney = async () => {
     try {
       setJourneyActionLoading(true);
+      const permissionGranted = await ensureLocationPermissionForJourney();
+      if (!permissionGranted) {
+        return;
+      }
       await resumeJourneyRecording();
     } catch (err: any) {
       showAlert('Failed to resume', err?.message || 'Unknown error');
@@ -1083,10 +1154,6 @@ function AllLocationsMapInner() {
           try {
             const currentPerm = await ExpoLocation.getForegroundPermissionsAsync();
             let status = currentPerm.status;
-            if (status === 'undetermined') {
-              const requested = await ExpoLocation.requestForegroundPermissionsAsync();
-              status = requested.status;
-            }
 
             if (status === 'granted') {
               // Get last known location first ("last used of the app" - instant)
@@ -2110,6 +2177,13 @@ function AllLocationsMapInner() {
           </View>
         </View>
       </Modal>
+
+      <LocationDisclosureModal
+        visible={showLocationDisclosure}
+        variant={disclosureVariant}
+        onContinue={handleDisclosureContinue}
+        onCancel={handleDisclosureCancel}
+      />
 
       {/* Google Maps style glassy compact preview card */}
       {renderSelectedPostCard()}

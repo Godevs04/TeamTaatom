@@ -36,6 +36,7 @@ import { getProfile } from '../../services/profile';
 import { getUserFromStorage } from '../../services/auth';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { geocodeAddress, calculateDistance, invalidateDistanceCacheIfMoved, distanceCache, placesCache, roundCoord, getLocaleDistanceKm, calculateDrivingDistanceKm } from '../../utils/locationUtils';
+import { LocationDisclosureModal } from '../../components/ui/LocationDisclosureModal';
 import * as Location from 'expo-location';
 import { LinearGradient } from 'expo-linear-gradient';
 import { matchGradientLocations } from '../../utils/linearGradient';
@@ -1092,6 +1093,7 @@ export default function LocaleScreen() {
   const locationWatcherRef = useRef<Location.LocationSubscription | null>(null);
   const kalmanFilterRef = useRef<KalmanFilter | null>(null);
   const [locationPermissionGranted, setLocationPermissionGranted] = useState(false);
+  const [showLocationDisclosure, setShowLocationDisclosure] = useState(false);
   const [userCity, setUserCity] = useState<string | null>(null);
   const [userCountry, setUserCountry] = useState<string | null>(null);
   const [userCountryCode, setUserCountryCode] = useState<string | null>(null);
@@ -1399,18 +1401,13 @@ export default function LocaleScreen() {
         return;
       }
 
-      // Request permissions with better error handling for Android
+      // Get existing permission only (do not auto-request on tab open)
       let permissionStatus = 'undetermined';
       try {
         const currentPermission = await Location.getForegroundPermissionsAsync();
         permissionStatus = currentPermission.status;
-        
-        if (permissionStatus === 'undetermined') {
-          const permissionResult = await Location.requestForegroundPermissionsAsync();
-          permissionStatus = permissionResult.status;
-        }
       } catch (permissionError) {
-        logger.debug('Error getting/requesting location permission:', permissionError);
+        logger.debug('Error getting location permission status:', permissionError);
         setLocationPermissionGranted(false);
         return;
       }
@@ -1690,6 +1687,39 @@ export default function LocaleScreen() {
       }
     };
   }, [getUserCurrentLocation]);
+
+  const handleRequestLocationForSort = useCallback(async () => {
+    setShowLocationDisclosure(true);
+  }, []);
+
+  const handleDisclosureContinue = useCallback(async () => {
+    setShowLocationDisclosure(false);
+    try {
+      const fgResult = await Location.requestForegroundPermissionsAsync();
+      if (fgResult.status === 'granted') {
+        setLocationPermissionGranted(true);
+        // Trigger location resolving
+        try {
+          const loc = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          setUserLocation({
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+          });
+          invalidateDistanceCacheIfMoved(loc.coords.latitude, loc.coords.longitude);
+        } catch (err) {
+          logger.warn('Failed to resolve current location after granting permission:', err);
+        }
+      }
+    } catch (err) {
+      logger.error('Error requesting location permission in locale tab:', err);
+    }
+  }, []);
+
+  const handleDisclosureCancel = useCallback(() => {
+    setShowLocationDisclosure(false);
+  }, []);
 
   // Trigger fetches when location resolving is done
   useEffect(() => {
@@ -3827,6 +3857,30 @@ export default function LocaleScreen() {
           placeholder="Search destinations"
           style={{ marginBottom: 12 }}
         />
+        {!locationPermissionGranted && (
+          <TouchableOpacity
+            style={[
+              {
+                backgroundColor: theme.colors.surfaceSecondary,
+                borderColor: theme.colors.border,
+                borderWidth: 1,
+                borderRadius: theme.borderRadius.md,
+                flexDirection: 'row',
+                alignItems: 'center',
+                padding: 10,
+                marginBottom: 12,
+                justifyContent: 'center',
+              },
+            ]}
+            onPress={handleRequestLocationForSort}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="location" size={16} color={isDark ? '#38BDF8' : '#1C73B4'} style={{ marginRight: 8 }} />
+            <Text style={{ fontSize: 12, fontFamily: getFontFamily('600'), color: theme.colors.text }}>
+              Sort by Distance (Enable Location)
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Content
@@ -4023,6 +4077,14 @@ export default function LocaleScreen() {
 
       {/* Filter Modal */}
       {renderFilterModal()}
+      
+      {/* Location Disclosure Modal */}
+      <LocationDisclosureModal
+        visible={showLocationDisclosure}
+        variant="foreground"
+        onContinue={handleDisclosureContinue}
+        onCancel={handleDisclosureCancel}
+      />
       </KeyboardAvoidingView>
     </View>
     </ErrorBoundary>

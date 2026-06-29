@@ -428,18 +428,13 @@ export default function LocationDetailScreen() {
         }
       }
 
-      // Distance Calculation Guards: Request permission with error handling
+      // Distance Calculation Guards: Check permission without requesting it
       let permissionGranted = false;
       try {
         const currentPerm = await Location.getForegroundPermissionsAsync();
-        let status = currentPerm.status;
-        if (status === 'undetermined') {
-          const requested = await Location.requestForegroundPermissionsAsync();
-          status = requested.status;
-        }
-        permissionGranted = status === 'granted';
+        permissionGranted = currentPerm.status === 'granted';
       } catch (permError) {
-        logger.warn('Failed to request location permission:', permError);
+        logger.warn('Failed to check location permission:', permError);
         if (isMountedRef.current) {
           setDistance(null);
         }
@@ -447,8 +442,7 @@ export default function LocationDetailScreen() {
       }
       
       if (!permissionGranted) {
-        // Distance Calculation Guards: Permission denied - fallback to null (hide distance)
-        logger.debug('Location permission denied or unavailable');
+        // Distance Calculation Guards: Permission not granted - hide distance
         if (isMountedRef.current) {
           setDistance(null);
         }
