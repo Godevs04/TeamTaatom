@@ -2,7 +2,7 @@
  * Bump when profile onboarding flow changes and all users should run it again once.
  * @type {number}
  */
-const PROFILE_ONBOARDING_VERSION = 2;
+const PROFILE_ONBOARDING_VERSION = 3;
 
 /** Onboarding validation limits — keep in sync with frontend constants. */
 const ONBOARDING_MIN_LANGUAGES = 1;
