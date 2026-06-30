@@ -1,4 +1,5 @@
 import api from './api';
+import { PROFILE_ONBOARDING_VERSION } from '../constants/profileOnboarding';
 import { UserType, FollowRequestsResponse } from '../types/user';
 import logger from '../utils/logger';
 import { parseError } from '../utils/errorCodes';
@@ -388,8 +389,13 @@ export interface TravelMapDataResponse {
   };
 }
 
-export const completeProfileOnboarding = async (): Promise<void> => {
-  await api.post('/api/v1/profile/onboarding/complete', {});
+export const completeProfileOnboarding = async (): Promise<number> => {
+  const response = await api.post('/api/v1/profile/onboarding/complete', {});
+  const fromServer =
+    typeof response.data?.profileOnboardingVersion === 'number'
+      ? response.data.profileOnboardingVersion
+      : PROFILE_ONBOARDING_VERSION;
+  return Math.max(fromServer, PROFILE_ONBOARDING_VERSION);
 };
 
 export const updateProfileLocation = async (data: {

@@ -8,11 +8,12 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../../context/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSuggestedUsers, toggleFollow as toggleFollowService, completeProfileOnboarding } from '../../services/profile';
-import { getCurrentUser } from '../../services/auth';
+import { getCurrentUser, markProfileOnboardingCompletedLocally } from '../../services/auth';
 import { UserSkeleton } from '../../components/LoadingSkeleton';
 import { trackScreenView, trackEngagement, trackFeatureUsage, trackDropOff } from '../../services/analytics';
 import { theme } from '../../constants/theme';
 import logger from '../../utils/logger';
+import { useAlert } from '../../context/AlertContext';
 
 // Responsive dimensions
 const { width: screenWidth } = Dimensions.get('window');
@@ -42,6 +43,7 @@ interface SuggestedUser {
 export default function SuggestedUsersOnboarding() {
   const router = useRouter();
   const { theme } = useTheme();
+  const { showError } = useAlert();
   const [suggestedUsers, setSuggestedUsers] = useState<SuggestedUser[]>([]);
   const [following, setFollowing] = useState<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
@@ -103,22 +105,30 @@ export default function SuggestedUsersOnboarding() {
   };
 
   const handleContinue = async () => {
+    if (isCompleting) return;
     setIsCompleting(true);
     try {
-      await completeProfileOnboarding();
-      await getCurrentUser();
-    } catch (e) {
+      const version = await completeProfileOnboarding();
+      await markProfileOnboardingCompletedLocally(version);
+      await getCurrentUser().catch(() => null);
+      await AsyncStorage.setItem('onboarding_completed', 'true');
+
+      trackFeatureUsage('onboarding_completed', {
+        users_followed: following.size,
+        skipped: false,
+      });
+
+      router.replace('/(tabs)/home');
+    } catch (e: unknown) {
       logger.error('Error completing profile onboarding:', e);
+      const message =
+        e instanceof Error
+          ? e.message
+          : 'Could not complete onboarding. Please check your connection and try again.';
+      showError(message);
+    } finally {
+      setIsCompleting(false);
     }
-    await AsyncStorage.setItem('onboarding_completed', 'true');
-
-    // Track onboarding completion
-    trackFeatureUsage('onboarding_completed', {
-      users_followed: following.size,
-      skipped: false,
-    });
-
-    router.replace('/(tabs)/home');
   };
 
   const handleSkip = () => {

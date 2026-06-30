@@ -8,6 +8,7 @@ import { parseError } from '../utils/errorCodes';
 import { clearCachedAuthToken, getCachedAuthToken, setCachedAuthToken } from '../utils/authTokenCache';
 import { getLoginLocationHint, LoginLocationHint } from '../utils/loginLocation';
 import { encryptData, decryptData } from '../utils/crypto';
+import { PROFILE_ONBOARDING_VERSION } from '../constants/profileOnboarding';
 
 export const saveUserToStorage = async (user: UserType): Promise<void> => {
   try {
@@ -17,6 +18,18 @@ export const saveUserToStorage = async (user: UserType): Promise<void> => {
   } catch (error) {
     logger.error('saveUserToStorage', error);
   }
+};
+
+/** Update cached user after onboarding completes so navigation does not loop. */
+export const markProfileOnboardingCompletedLocally = async (
+  version: number = PROFILE_ONBOARDING_VERSION
+): Promise<void> => {
+  const user = await getUserFromStorage();
+  if (!user) return;
+  await saveUserToStorage({
+    ...user,
+    profileOnboardingVersion: version,
+  });
 };
 
 const isWeb = Platform.OS === 'web';

@@ -748,14 +748,18 @@ function RootLayoutInner() {
       
       if (isAuthenticated && hasAuthData) {
         let user = await getUserFromStorage();
-        if (user && !('profileOnboardingVersion' in user)) {
+        let profileVersion =
+          typeof user?.profileOnboardingVersion === 'number' ? user.profileOnboardingVersion : 0;
+
+        if (profileVersion < PROFILE_ONBOARDING_VERSION) {
           const fresh = await getCurrentUser();
           if (fresh && fresh !== 'network-error') {
             user = fresh;
+            profileVersion =
+              typeof fresh.profileOnboardingVersion === 'number' ? fresh.profileOnboardingVersion : 0;
           }
         }
-        const profileVersion =
-          typeof user?.profileOnboardingVersion === 'number' ? user.profileOnboardingVersion : 0;
+
         const needsProfileOnboarding = profileVersion < PROFILE_ONBOARDING_VERSION;
         const onOnboardingRoute = segments[0] === 'onboarding';
 
