@@ -39,8 +39,8 @@ export const LocationDisclosureModal = ({
           <Text style={[styles.title, { fontFamily: getFontFamily('bold'), color: theme.colors.text }]}>
             Location Permission & Journey Tracking
           </Text>
-          <Text style={[styles.description, { fontFamily: getFontFamily('regular'), color: theme.colors.textSecondary }]}>
-            TAATOM collects location data to:
+          <Text style={[styles.description, { fontFamily: getFontFamily('regular'), color: theme.colors.textSecondary, marginBottom: 12 }]}>
+            TAATOM collects location data to enable journey tracking and trip recording even when the app is closed or not in use.
           </Text>
           <View style={styles.bulletList}>
             <View style={styles.bulletItem}>
@@ -62,8 +62,8 @@ export const LocationDisclosureModal = ({
               </Text>
             </View>
           </View>
-          <Text style={[styles.note, { fontFamily: getFontFamily('regular'), color: theme.colors.textMuted }]}>
-            Location data is only accessed during an active journey and is never used for advertising.
+          <Text style={[styles.note, { fontFamily: getFontFamily('regular'), color: theme.colors.textMuted, marginTop: 12 }]}>
+            This data is used only to save and display your journey. It is not sold to third parties or used for advertising.
           </Text>
         </>
       );

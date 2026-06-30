@@ -473,7 +473,7 @@ export default function PostScreen() {
 
   // Fetch camera roll assets from MediaLibrary
   useEffect(() => {
-    async function loadCameraRoll() {
+    async function loadCameraRoll(requestIfMissing: boolean = false) {
       try {
         let status = 'denied';
 
@@ -488,6 +488,10 @@ export default function PostScreen() {
             const existing = await MediaLibrary.getPermissionsAsync();
             if (existing.granted || existing.status === 'granted') {
               return 'granted';
+            }
+
+            if (!requestIfMissing) {
+              return existing.status || 'undetermined';
             }
 
             if (Platform.OS === 'android') {

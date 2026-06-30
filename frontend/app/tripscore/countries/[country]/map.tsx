@@ -94,12 +94,12 @@ const OptimizedVisitedMarker = React.memo(({
     onPress();
   }, [onPress]);
 
-  // Mirror ClusteredMarker's pattern exactly:
-  // Fixed-size container so MapKit never sees a frame-size change.
-  // Anchor changes with selected state: dot=center(0.5,0.5), pin=bottom-tip(0.5,0.86).
-  const markerWidth = isSelected ? 34 : 30;
-  const markerHeight = isSelected ? 42 : 32;
-  const anchor = isSelected ? { x: 0.5, y: 0.86 } : { x: 0.5, y: 0.5 };
+  // Keep iOS MapKit marker geometry stable on selection. Swapping the anchor
+  // or frame while tracksViewChanges toggles can make custom marker snapshots disappear.
+  const useStableIosDot = Platform.OS === 'ios';
+  const markerWidth = useStableIosDot ? 30 : isSelected ? 34 : 30;
+  const markerHeight = useStableIosDot ? 32 : isSelected ? 42 : 32;
+  const anchor = useStableIosDot || !isSelected ? { x: 0.5, y: 0.5 } : { x: 0.5, y: 0.86 };
 
   return (
     <SafeMarker
@@ -122,7 +122,7 @@ const OptimizedVisitedMarker = React.memo(({
           photo={location.imageUrl}
           onImageLoad={handleImageLoad}
           latitudeDelta={latitudeDelta}
-          renderAsDot={!isSelected}
+          renderAsDot={useStableIosDot || !isSelected}
         />
       </View>
     </SafeMarker>
