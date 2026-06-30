@@ -63,14 +63,10 @@ export function BackgroundLocationDisclosureModal({
 
           <ScrollView style={styles.bodyScroll} showsVerticalScrollIndicator={false}>
             <Text style={[styles.body, { color: theme.colors.textSecondary }]}>
-              Taatom collects <Text style={styles.strong}>precise location data</Text> to record your
-              journey route on the map — including when the app is in the background or your screen is
-              off — so your trip path is not interrupted when you lock your phone or switch apps.
+              Taatom collects location data to enable journey tracking and trip recording even when the app is closed or not in use. This allows the app to record your journey path without interruption when you lock your phone or switch apps.
             </Text>
             <Text style={[styles.body, { color: theme.colors.textSecondary, marginTop: 12 }]}>
-              This data is used only to save and display your journey. It is not sold to third parties.
-              You can decline and still use journeys while the app stays open; background recording will
-              be limited.
+              This data is used only to save and display your journey. It is not sold to third parties or used for advertising. You can decline and still use journeys while the app stays open; background recording will be limited.
             </Text>
             <TouchableOpacity
               onPress={() => Linking.openURL(PRIVACY_URL)}

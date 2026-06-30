@@ -60,10 +60,7 @@ export async function getLoginLocationHint(): Promise<LoginLocationHint | null> 
   }
 
   try {
-    let permission = await Location.getForegroundPermissionsAsync();
-    if (permission.status === 'undetermined') {
-      permission = await Location.requestForegroundPermissionsAsync();
-    }
+    const permission = await Location.getForegroundPermissionsAsync();
     if (permission.status !== 'granted') {
       return null;
     }
