@@ -1831,7 +1831,7 @@ export default function HomeScreen() {
               }
               onViewableItemsChanged={onViewableItemsChanged}
               viewabilityConfig={viewabilityConfig}
-              drawDistance={screenHeight * 3}
+              drawDistance={screenHeight * 1.2}
             />
           </View>
           <ScrollEdgeFades isDark={isDark} variant="vertical" hideTop={true} />

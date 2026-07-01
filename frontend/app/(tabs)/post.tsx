@@ -1004,6 +1004,13 @@ export default function PostScreen() {
     }
   }, [selectedVideo, videoDuration]); // Only watch selectedVideo and videoDuration, not songEndTime to avoid loops
 
+  // Trigger AudioChoiceModal on details page when a video/short is selected and audioChoice is null
+  useEffect(() => {
+    if (showDetails && selectedVideo && audioChoice === null) {
+      setShowAudioChoiceModal(true);
+    }
+  }, [showDetails, selectedVideo, audioChoice]);
+
   // Check for existing posts and shorts
   const checkExistingContent = async () => {
     try {
@@ -1207,6 +1214,7 @@ export default function PostScreen() {
     setDraftCaption(draft.caption || "");
     setDraftTags(draft.tags || "");
     setDraftPlaceName(draft.placeName || "");
+    setShowDetails(true);
   }, []);
 
   // Enhanced draft recovery: restore all metadata including music selection
@@ -1423,9 +1431,13 @@ export default function PostScreen() {
         return true; // Prevent default back behavior
       }
 
-      // If they are on details screen (showDetails is true), go back to editor
+      // If they are on details screen (showDetails is true), go back to editor (and clear media)
       if (showDetails) {
         setShowDetails(false);
+        setSelectedImages([]);
+        setSelectedVideo(null);
+        setVideoThumbnail(null);
+        setAudioChoice(null);
         return true;
       }
 
@@ -1750,6 +1762,7 @@ export default function PostScreen() {
         setSelectedVideo(null);
         setVideoDuration(null); // Clear video duration when switching to photo
         setPostType('photo');
+        setShowDetails(true);
 
         // Prepend newly picked image(s) to cameraRollAssets so they appear immediately in the inline grid
         setCameraRollAssets(prev => {
@@ -2112,10 +2125,10 @@ export default function PostScreen() {
             shortDuration: shortDuration
           });
           
-          // Bypassing audio choice modal - default to original audio
-          setAudioChoice('original');
+          setAudioChoice(null);
           setSelectedSong(null);
           setShowAudioChoiceModal(false);
+          setShowDetails(true);
           // Generate initial thumbnail
           try {
             const { uri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 1000 });
@@ -2234,6 +2247,7 @@ export default function PostScreen() {
         setSelectedVideo(null);
         setVideoDuration(null); // Clear video duration when switching to photo
         setPostType('photo');
+        setShowDetails(true);
         
         // Add a small delay to ensure MediaLibrary is updated with the captured photo
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -2484,10 +2498,10 @@ export default function PostScreen() {
             shortDuration: shortDuration
           });
           
-          // Bypassing audio choice modal - default to original audio
-          setAudioChoice('original');
+          setAudioChoice(null);
           setSelectedSong(null);
           setShowAudioChoiceModal(false);
+          setShowDetails(true);
           
           try {
             const { uri } = await VideoThumbnails.getThumbnailAsync(asset.uri, { time: 1000 });
@@ -3750,7 +3764,16 @@ export default function PostScreen() {
         </View>
         {showDetails ? (
           <View style={{ flex: 1 }}>
-            <PostCreateHeader isDetail={true} onClose={() => setShowDetails(false)} />
+            <PostCreateHeader
+              isDetail={true}
+              onClose={() => {
+                setShowDetails(false);
+                setSelectedImages([]);
+                setSelectedVideo(null);
+                setVideoThumbnail(null);
+                setAudioChoice(null);
+              }}
+            />
             <ScrollView 
               style={{ flex: 1 }} 
               contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 80, 100) }}
@@ -5320,600 +5343,175 @@ export default function PostScreen() {
       </ScrollView>
     </View>
     ) : (
-      // Unified Instagram 1:1 Editor view
-      selectedImages.length === 0 && !selectedVideo ? (
-        // Redesigned simple & elegant landing screen when no media is chosen
-        <View style={{ flex: 1, backgroundColor: mode === 'dark' ? '#000000' : '#FFFFFF' }}>
-          <PostCreateHeader
-            onClose={handleClosePost}
-            onNext={() => {}}
-            showNext={false}
-          />
-          
+      // Redesigned simple & elegant landing screen when no media is chosen
+      <View style={{ flex: 1, backgroundColor: mode === 'dark' ? '#000000' : '#FFFFFF' }}>
+        <PostCreateHeader
+          onClose={handleClosePost}
+          onNext={() => {}}
+          showNext={false}
+        />
+        
+        <View style={{
+          flex: 1,
+          justifyContent: 'center',
+          alignItems: 'center',
+          paddingHorizontal: 24,
+          backgroundColor: mode === 'dark' ? '#000000' : '#FFFFFF',
+        }}>
+          {/* Title & Subtitle */}
+          <Text style={{
+            color: mode === 'dark' ? '#FFFFFF' : '#122236',
+            fontSize: 24,
+            fontWeight: '700',
+            marginBottom: 8,
+            textAlign: 'center',
+            letterSpacing: 0.3,
+          }}>
+            Create New Post
+          </Text>
+          <Text style={{
+            color: mode === 'dark' ? 'rgba(255, 255, 255, 0.55)' : 'rgba(18, 34, 54, 0.55)',
+            fontSize: 13,
+            textAlign: 'center',
+            marginBottom: 48,
+            paddingHorizontal: 30,
+            lineHeight: 18,
+          }}>
+            {postType === 'photo' 
+              ? 'Capture a new moment or select photos from your library to share as a Post.'
+              : 'Record a new clip or select a video from your library to upload as a Short.'
+            }
+          </Text>
+
+          {/* Action Cards */}
           <View style={{
-            flex: 1,
+            flexDirection: 'row',
+            gap: 20,
             justifyContent: 'center',
             alignItems: 'center',
-            paddingHorizontal: 24,
-            backgroundColor: mode === 'dark' ? '#000000' : '#FFFFFF',
+            width: '100%',
           }}>
-            {/* Title & Subtitle */}
-            <Text style={{
-              color: mode === 'dark' ? '#FFFFFF' : '#122236',
-              fontSize: 24,
-              fontWeight: '700',
-              marginBottom: 8,
-              textAlign: 'center',
-              letterSpacing: 0.3,
-            }}>
-              Create New Post
-            </Text>
-            <Text style={{
-              color: mode === 'dark' ? 'rgba(255, 255, 255, 0.55)' : 'rgba(18, 34, 54, 0.55)',
-              fontSize: 13,
-              textAlign: 'center',
-              marginBottom: 48,
-              paddingHorizontal: 30,
-              lineHeight: 18,
-            }}>
-              {postType === 'photo' 
-                ? 'Capture a new moment or select photos from your library to share as a Post.'
-                : 'Record a new clip or select a video from your library to upload as a Short.'
-              }
-            </Text>
-
-            {/* Action Cards */}
-            <View style={{
-              flexDirection: 'row',
-              gap: 20,
-              justifyContent: 'center',
-              alignItems: 'center',
-              width: '100%',
-            }}>
-              {/* Camera Card */}
-              <GlassCard
-                variant="medium"
-                hoverable
-                hasGradientBorder={true}
-                gradientColors={['#14B8A6', '#0095F6']}
-                onPress={postType === 'photo' ? takePhoto : takeVideo}
-                style={{
-                  width: screenWidth * 0.41,
-                  aspectRatio: 1,
-                  borderRadius: 24,
-                }}
-              >
-                <View style={{
-                  flex: 1,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  padding: 16,
-                  backgroundColor: mode === 'dark' ? 'rgba(10, 25, 30, 0.2)' : 'rgba(217, 239, 255, 0.15)',
-                }}>
-                  <LinearGradient
-                    colors={['#14B8A6', '#0095F6']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={{
-                      width: 56,
-                      height: 56,
-                      borderRadius: 28,
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      marginBottom: 14,
-                      shadowColor: '#14B8A6',
-                      shadowOffset: { width: 0, height: 4 },
-                      shadowOpacity: 0.25,
-                      shadowRadius: 8,
-                      elevation: 3,
-                    }}
-                  >
-                    <Ionicons name="camera-outline" size={28} color="#FFFFFF" />
-                  </LinearGradient>
-                  <Text style={{
-                    color: mode === 'dark' ? '#FFFFFF' : '#122236',
-                    fontSize: 15,
-                    fontWeight: '600',
-                    marginBottom: 3,
-                  }}>
-                    Camera
-                  </Text>
-                  <Text style={{
-                    color: mode === 'dark' ? 'rgba(255, 255, 255, 0.45)' : 'rgba(18, 34, 54, 0.45)',
-                    fontSize: 11,
-                    fontWeight: '500',
-                    textAlign: 'center',
-                  }}>
-                    {postType === 'photo' ? 'Take Photo' : 'Record Short'}
-                  </Text>
-                </View>
-              </GlassCard>
-
-              {/* Gallery Card */}
-              <GlassCard
-                variant="medium"
-                hoverable
-                hasGradientBorder={true}
-                gradientColors={['#14B8A6', '#0095F6']}
-                onPress={postType === 'photo' ? pickImages : pickVideo}
-                style={{
-                  width: screenWidth * 0.41,
-                  aspectRatio: 1,
-                  borderRadius: 24,
-                }}
-              >
-                <View style={{
-                  flex: 1,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  padding: 16,
-                  backgroundColor: mode === 'dark' ? 'rgba(10, 25, 30, 0.2)' : 'rgba(217, 239, 255, 0.15)',
-                }}>
-                  <LinearGradient
-                    colors={['#14B8A6', '#0095F6']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={{
-                      width: 56,
-                      height: 56,
-                      borderRadius: 28,
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      marginBottom: 14,
-                      shadowColor: '#0095F6',
-                      shadowOffset: { width: 0, height: 4 },
-                      shadowOpacity: 0.25,
-                      shadowRadius: 8,
-                      elevation: 3,
-                    }}
-                  >
-                    <Ionicons name="images-outline" size={26} color="#FFFFFF" />
-                  </LinearGradient>
-                  <Text style={{
-                    color: mode === 'dark' ? '#FFFFFF' : '#122236',
-                    fontSize: 15,
-                    fontWeight: '600',
-                    marginBottom: 3,
-                  }}>
-                    Gallery
-                  </Text>
-                  <Text style={{
-                    color: mode === 'dark' ? 'rgba(255, 255, 255, 0.45)' : 'rgba(18, 34, 54, 0.45)',
-                    fontSize: 11,
-                    fontWeight: '500',
-                    textAlign: 'center',
-                  }}>
-                    {postType === 'photo' ? 'Choose Photos' : 'Choose Video'}
-                  </Text>
-                </View>
-              </GlassCard>
-            </View>
-          </View>
-          
-          {/* Bottom Tab Overlay with Gradient Fade (POST/REEL selection) */}
-          <View style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: 60 + insets.bottom,
-            paddingBottom: insets.bottom,
-            backgroundColor: 'rgba(0,0,0,0.85)',
-            alignItems: 'center',
-            justifyContent: 'center',
-            borderTopWidth: StyleSheet.hairlineWidth,
-            borderTopColor: 'rgba(255,255,255,0.1)',
-          }}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={{
-                alignItems: 'center',
-                paddingHorizontal: screenWidth / 2 - 40,
+            {/* Camera Card */}
+            <GlassCard
+              variant="medium"
+              hoverable
+              hasGradientBorder={true}
+              gradientColors={['#14B8A6', '#0095F6']}
+              onPress={postType === 'photo' ? takePhoto : takeVideo}
+              style={{
+                width: screenWidth * 0.41,
+                aspectRatio: 1,
+                borderRadius: 24,
               }}
             >
-              {['POST', 'SHORT'].map((tab) => {
-                const isTabActive = (tab === 'POST' && postType === 'photo') || (tab === 'SHORT' && postType === 'short');
-                return (
-                  <TouchableOpacity
-                    key={tab}
-                    onPress={() => {
-                      if (tab === 'POST') {
-                        setPostType('photo');
-                      } else if (tab === 'SHORT') {
-                        setPostType('short');
-                      }
-                    }}
-                    style={{ paddingHorizontal: 15, paddingVertical: 8 }}
-                  >
-                    <Text style={{
-                      color: isTabActive ? '#FFFFFF' : '#888888',
-                      fontSize: 14,
-                      fontWeight: 'bold',
-                      letterSpacing: 1,
-                    }}>
-                      {tab}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
+              <View style={{
+                flex: 1,
+                justifyContent: 'center',
+                alignItems: 'center',
+                padding: 16,
+                backgroundColor: mode === 'dark' ? 'rgba(10, 25, 30, 0.2)' : 'rgba(217, 239, 255, 0.15)',
+              }}>
+                <LinearGradient
+                  colors={['#14B8A6', '#0095F6']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: 28,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginBottom: 14,
+                    shadowColor: '#14B8A6',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.25,
+                    shadowRadius: 8,
+                    elevation: 3,
+                  }}
+                >
+                  <Ionicons name="camera-outline" size={28} color="#FFFFFF" />
+                </LinearGradient>
+                <Text style={{
+                  color: mode === 'dark' ? '#FFFFFF' : '#122236',
+                  fontSize: 15,
+                  fontWeight: '600',
+                  marginBottom: 3,
+                }}>
+                  Camera
+                </Text>
+                <Text style={{
+                  color: mode === 'dark' ? 'rgba(255, 255, 255, 0.45)' : 'rgba(18, 34, 54, 0.45)',
+                  fontSize: 11,
+                  fontWeight: '500',
+                  textAlign: 'center',
+                }}>
+                  {postType === 'photo' ? 'Take Photo' : 'Record Short'}
+                </Text>
+              </View>
+            </GlassCard>
+
+            {/* Gallery Card */}
+            <GlassCard
+              variant="medium"
+              hoverable
+              hasGradientBorder={true}
+              gradientColors={['#14B8A6', '#0095F6']}
+              onPress={postType === 'photo' ? pickImages : pickVideo}
+              style={{
+                width: screenWidth * 0.41,
+                aspectRatio: 1,
+                borderRadius: 24,
+              }}
+            >
+              <View style={{
+                flex: 1,
+                justifyContent: 'center',
+                alignItems: 'center',
+                padding: 16,
+                backgroundColor: mode === 'dark' ? 'rgba(10, 25, 30, 0.2)' : 'rgba(217, 239, 255, 0.15)',
+              }}>
+                <LinearGradient
+                  colors={['#14B8A6', '#0095F6']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: 28,
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                    marginBottom: 14,
+                    shadowColor: '#0095F6',
+                    shadowOffset: { width: 0, height: 4 },
+                    shadowOpacity: 0.25,
+                    shadowRadius: 8,
+                    elevation: 3,
+                  }}
+                >
+                  <Ionicons name="images-outline" size={26} color="#FFFFFF" />
+                </LinearGradient>
+                <Text style={{
+                  color: mode === 'dark' ? '#FFFFFF' : '#122236',
+                  fontSize: 15,
+                  fontWeight: '600',
+                  marginBottom: 3,
+                }}>
+                  Gallery
+                </Text>
+                <Text style={{
+                  color: mode === 'dark' ? 'rgba(255, 255, 255, 0.45)' : 'rgba(18, 34, 54, 0.45)',
+                  fontSize: 11,
+                  fontWeight: '500',
+                  textAlign: 'center',
+                }}>
+                  {postType === 'photo' ? 'Choose Photos' : 'Choose Video'}
+                </Text>
+              </View>
+            </GlassCard>
           </View>
         </View>
-      ) : (
-        // Existing Editor View when media IS chosen
-        <View style={{ flex: 1, backgroundColor: theme.colors.background || '#000000' }}>
-          <PostCreateHeader
-            onClose={handleClosePost}
-            onNext={() => {
-              if (postType === 'short' || !!selectedVideo) {
-                setShowAudioChoiceModal(true);
-              } else {
-                setShowDetails(true);
-              }
-            }}
-            showNext={selectedImages.length > 0 || !!selectedVideo}
-          />
-          
-          {/* Top Half - Preview & Crop (exactly 50% of viewport) */}
-          <View style={{
-            width: screenWidth,
-            height: screenHeight * 0.45,
-            backgroundColor: '#000000',
-            justifyContent: 'center',
-            alignItems: 'center',
-            position: 'relative',
-            overflow: 'hidden',
-          }}>
-            {isFocused && selectedVideo ? (
-              <>
-                {videoThumbnail ? (
-                  <Image
-                    source={{ uri: videoThumbnail }}
-                    style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, zIndex: -1, width: '100%', height: '100%' }}
-                    resizeMode="contain"
-                  />
-                ) : null}
-              <Video
-                key={selectedVideo}
-                ref={videoRef}
-                source={videoSource || undefined}
-                style={{ width: '100%', height: '100%' }}
-                useNativeControls={false}
-                resizeMode={ResizeMode.CONTAIN}
-                isLooping
-                shouldPlay={true}
-                isMuted={isSongPreviewActive || (audioChoice === 'background' && !!selectedSong)}
-                volume={isSongPreviewActive || (audioChoice === 'background' && selectedSong) ? 0.0 : 1.0}
-                onLoad={(status) => {
-                  if (status.isLoaded && status.durationMillis) {
-                    const actualDuration = status.durationMillis / 1000;
-                    const MAX_SHORT_DURATION = 60;
-                    const shortDuration = Math.min(actualDuration, MAX_SHORT_DURATION);
-                    setVideoDuration(shortDuration);
-                    logger.info('[Video Load] video duration captured:', shortDuration);
-                    if (videoRef.current) {
-                      videoRef.current.playAsync().catch(() => {});
-                    }
-                  }
-                }}
-              />
-            </>
-          ) : selectedImages.length > 0 ? (
-            <AspectImageCropper
-              uri={selectedImages[0].uri}
-              aspectRatio={selectedAspectRatio === '1:1' ? 1 : selectedAspectRatio === '1.91:1' ? 1.91 : 1}
-              borderRadius={0}
-              showHint={false}
-              showReset={false}
-              viewportWidth={screenWidth}
-              onTransformChange={setCropTransform}
-            />
-          ) : (
-            permission === null ? (
-              <LoadingGlobe size="large" color="#0095F6" />
-            ) : !permission.granted ? (
-              <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, width: '100%' }}>
-                <Ionicons name="camera-outline" size={44} color={mode === 'dark' ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.35)'} style={{ marginBottom: 10 }} />
-                <Text style={{
-                  color: mode === 'dark' ? 'rgba(255,255,255,0.8)' : '#122236',
-                  fontSize: 14,
-                  fontWeight: '600',
-                  textAlign: 'center',
-                  marginBottom: 6
-                }}>
-                  Camera Access Required
-                </Text>
-                <Text style={{
-                  color: mode === 'dark' ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)',
-                  fontSize: 12,
-                  textAlign: 'center',
-                  marginBottom: 16,
-                  paddingHorizontal: 20
-                }}>
-                  Allow Taatom to access your camera to show the live preview.
-                </Text>
-                <TouchableOpacity
-                  onPress={async () => {
-                    if (!permission.canAskAgain) {
-                      Linking.openSettings();
-                    } else {
-                      await requestPermission();
-                    }
-                  }}
-                  activeOpacity={0.8}
-                  style={{
-                    backgroundColor: '#0095F6',
-                    paddingHorizontal: 16,
-                    paddingVertical: 8,
-                    borderRadius: 20,
-                  }}
-                >
-                  <Text style={{ color: '#FFFFFF', fontSize: 13, fontWeight: '700' }}>
-                    {permission.canAskAgain ? 'Grant Access' : 'Open Settings'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            ) : isFocused ? (
-              <CameraView
-                style={{ width: '100%', height: '100%' }}
-                facing="back"
-              />
-            ) : (
-              <View style={{ flex: 1, backgroundColor: '#000000', width: '100%' }} />
-            )
-          )}
-        </View>
-
-        {/* Middle Toolbar */}
-        <View style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          paddingHorizontal: 16,
-          paddingVertical: 12,
-          backgroundColor: mode === 'dark' ? 'rgba(10, 15, 25, 0.70)' : 'rgba(255, 255, 255, 0.65)',
-          borderBottomWidth: StyleSheet.hairlineWidth,
-          borderBottomColor: mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-        }}>
-          <TouchableOpacity
-            onPress={postType === 'photo' ? pickImages : pickVideo}
-            style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
-          >
-            <Text style={{ color: mode === 'dark' ? '#FFFFFF' : '#122236', fontSize: 16, fontWeight: '600' }}>Recents</Text>
-            <Ionicons name="chevron-down" size={16} color={mode === 'dark' ? '#FFFFFF' : '#122236'} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            onPress={() => {
-              setIsMultiSelect(prev => {
-                const next = !prev;
-                if (!next && selectedImages.length > 1) {
-                  setSelectedImages([selectedImages[0]]);
-                }
-                return next;
-              });
-            }}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 6,
-              backgroundColor: mode === 'dark' ? '#262626' : 'rgba(0,0,0,0.05)',
-              paddingHorizontal: 12,
-              paddingVertical: 6,
-              borderRadius: 20,
-            }}
-          >
-            <Ionicons name="copy-outline" size={16} color={isMultiSelect ? '#0095F6' : (mode === 'dark' ? '#FFFFFF' : '#122236')} />
-            <Text style={{ color: isMultiSelect ? '#0095F6' : (mode === 'dark' ? '#FFFFFF' : '#122236'), fontSize: 13, fontWeight: '600' }}>Select</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Info Banner for Expo Go / Mock Gallery */}
-        {cameraRollAssets.length > 0 && cameraRollAssets[0].id.startsWith('mock_') && (
-          <TouchableOpacity
-            onPress={postType === 'photo' ? pickImages : pickVideo}
-            activeOpacity={0.7}
-            style={{
-              backgroundColor: mode === 'dark' ? 'rgba(28, 28, 30, 0.65)' : 'rgba(242, 242, 247, 0.65)',
-              paddingHorizontal: 16,
-              paddingVertical: 10,
-              borderBottomWidth: StyleSheet.hairlineWidth,
-              borderBottomColor: mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            <Ionicons name="information-circle-outline" size={18} color="#0095F6" />
-            <Text style={{
-              color: mode === 'dark' ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)',
-              fontSize: 12,
-              flex: 1,
-              lineHeight: 16,
-            }}>
-              Showing sample travel photos in Expo Go. Tap <Text style={{ fontWeight: '600', color: '#0095F6' }}>here</Text> or <Text style={{ fontWeight: '600', color: mode === 'dark' ? '#FFFFFF' : '#000000' }}>Recents</Text> to choose your own.
-            </Text>
-          </TouchableOpacity>
-        )}
-
-        {/* Bottom Half - Inline Gallery */}
-        <View style={{ flex: 1, backgroundColor: 'transparent' }}>
-          <FlatList
-            data={[
-              { id: 'camera-tile', type: 'camera' } as any,
-              { id: 'gallery-tile', type: 'gallery' } as any,
-              ...filteredAssets
-            ]}
-            keyExtractor={(item, index) => item.id || `asset_${index}`}
-            numColumns={4}
-            removeClippedSubviews={true}
-            initialNumToRender={20}
-            contentContainerStyle={{
-              paddingBottom: 80,
-            }}
-            renderItem={({ item, index }) => {
-              if (item.type === 'camera') {
-                return (
-                  <TouchableOpacity
-                    onPress={postType === 'photo' ? takePhoto : takeVideo}
-                    style={{
-                      width: screenWidth / 4,
-                      height: screenWidth / 4,
-                      backgroundColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)',
-                      borderWidth: 1,
-                      borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.5)',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <Ionicons name="camera-outline" size={28} color={mode === 'dark' ? '#FFFFFF' : '#122236'} />
-                  </TouchableOpacity>
-                );
-              }
-
-              if (item.type === 'gallery') {
-                return (
-                  <TouchableOpacity
-                    onPress={postType === 'photo' ? pickImages : pickVideo}
-                    style={{
-                      width: screenWidth / 4,
-                      height: screenWidth / 4,
-                      backgroundColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)',
-                      borderWidth: 1,
-                      borderColor: mode === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.5)',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      gap: 2,
-                    }}
-                  >
-                    <Ionicons name="images-outline" size={26} color="#0095F6" />
-                    <Text style={{
-                      color: mode === 'dark' ? '#A3A3A3' : '#737373',
-                      fontSize: 10,
-                      fontWeight: '600',
-                    }}>Gallery</Text>
-                  </TouchableOpacity>
-                );
-              }
-
-              const isSelected = selectedImages.some(img => isUriMatch(img.uri, item.uri)) || isUriMatch(selectedVideo, item.uri);
-              const selectIndex = selectedImages.findIndex(img => isUriMatch(img.uri, item.uri));
-
-              return (
-                <TouchableOpacity
-                  onPress={async () => {
-                    if (item.mediaType === 'video') {
-                      const resolvedUri = await resolvePhUri(item.uri);
-                      setSelectedVideo(resolvedUri);
-                      setSelectedImages([]);
-                      setPostType('short');
-                    } else {
-                      setSelectedVideo(null);
-                      setPostType('photo');
-                      const resolvedUri = await resolvePhUri(item.uri);
-                      if (isMultiSelect) {
-                        setSelectedImages(prev => {
-                          const exists = prev.some(img => isUriMatch(img.uri, resolvedUri));
-                          if (exists) {
-                            return prev.filter(img => !isUriMatch(img.uri, resolvedUri));
-                          } else {
-                            if (prev.length >= 10) {
-                              Alert.alert('Too many images', 'Maximum 10 images allowed');
-                              return prev;
-                            }
-                            return [...prev, {
-                              uri: resolvedUri,
-                              type: 'image/jpeg',
-                              name: item.filename || `photo_${Date.now()}.jpg`,
-                            }];
-                          }
-                        });
-                      } else {
-                        setSelectedImages([{
-                          uri: resolvedUri,
-                          type: 'image/jpeg',
-                          name: item.filename || `photo_${Date.now()}.jpg`,
-                        }]);
-                      }
-                    }
-                  }}
-                  style={{
-                    width: screenWidth / 4,
-                    height: screenWidth / 4,
-                    position: 'relative',
-                    borderWidth: 1,
-                    borderColor: mode === 'dark' ? '#000000' : '#FFFFFF',
-                  }}
-                >
-                  <ExpoImage
-                    source={{ uri: item.thumbnailUri || item.uri }}
-                    style={{ width: '100%', height: '100%', opacity: isSelected ? 0.7 : 1 }}
-                  />
-                  {item.mediaType === 'video' && (
-                    <View style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      backgroundColor: 'rgba(0, 0, 0, 0.2)',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                    }}>
-                      <Ionicons name="play" size={24} color="#FFFFFF" style={{ opacity: 0.8 }} />
-                      {item.duration > 0 && (
-                        <Text style={{
-                          position: 'absolute',
-                          bottom: 6,
-                          right: 6,
-                          color: '#FFFFFF',
-                          fontSize: 10,
-                          fontWeight: 'bold',
-                          backgroundColor: 'rgba(0,0,0,0.6)',
-                          paddingHorizontal: 4,
-                          paddingVertical: 2,
-                          borderRadius: 4,
-                        }}>
-                          {(() => {
-                            const durationInSecs = (isAndroid && item.duration > 100) ? item.duration / 1000 : item.duration;
-                            const roundedSecs = Math.max(1, Math.round(durationInSecs));
-                            return `${roundedSecs}s`;
-                          })()}
-                        </Text>
-                      )}
-                    </View>
-                  )}
-                  {isSelected && (
-                    <View style={{
-                      position: 'absolute',
-                      top: 6,
-                      right: 6,
-                      width: 22,
-                      height: 22,
-                      borderRadius: 11,
-                      backgroundColor: '#0095F6',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      borderWidth: 1.5,
-                      borderColor: 'white',
-                    }}>
-                      {isMultiSelect && item.mediaType !== 'video' ? (
-                        <Text style={{ color: 'white', fontSize: 11, fontWeight: 'bold' }}>
-                          {selectIndex + 1}
-                        </Text>
-                      ) : (
-                        <Ionicons name="checkmark" size={12} color="white" />
-                      )}
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            }}
-          />
-        </View>
-
-        {/* Bottom Tab Overlay with Gradient Fade */}
+        
+        {/* Bottom Tab Overlay with Gradient Fade (POST/REEL selection) */}
         <View style={{
           position: 'absolute',
           bottom: 0,
@@ -5941,39 +5539,10 @@ export default function PostScreen() {
                 <TouchableOpacity
                   key={tab}
                   onPress={() => {
-                    const hasSelectedMedia = selectedImages.length > 0 || !!selectedVideo;
                     if (tab === 'POST') {
                       setPostType('photo');
-                      if (hasSelectedMedia) {
-                        // Find first photo in cameraRollAssets and select it
-                        const firstPhoto = cameraRollAssets.find(a => a.mediaType === 'photo');
-                        if (firstPhoto) {
-                          setSelectedVideo(null);
-                          resolvePhUri(firstPhoto.uri).then(resolvedUri => {
-                            setSelectedImages([{
-                              uri: resolvedUri,
-                              type: 'image/jpeg',
-                              name: firstPhoto.filename || `photo_${Date.now()}.jpg`,
-                            }]);
-                          }).catch(err => {
-                            console.warn('Failed to resolve tab photo URI:', err);
-                          });
-                        }
-                      }
                     } else if (tab === 'SHORT') {
                       setPostType('short');
-                      if (hasSelectedMedia) {
-                        // Find first video in cameraRollAssets and select it
-                        const firstVideo = cameraRollAssets.find(a => a.mediaType === 'video');
-                        if (firstVideo) {
-                          setSelectedImages([]);
-                          resolvePhUri(firstVideo.uri).then(resolvedUri => {
-                            setSelectedVideo(resolvedUri);
-                          }).catch(err => {
-                            console.warn('Failed to resolve tab video URI:', err);
-                          });
-                        }
-                      }
                     }
                   }}
                   style={{ paddingHorizontal: 15, paddingVertical: 8 }}
@@ -5992,7 +5561,6 @@ export default function PostScreen() {
           </ScrollView>
         </View>
       </View>
-      )
     )}
       
       {/* Progress Alert.
@@ -6398,7 +5966,12 @@ export default function PostScreen() {
       {/* Audio Choice Modal for Shorts */}
       <AudioChoiceModal
         visible={showAudioChoiceModal}
-        onClose={() => setShowAudioChoiceModal(false)}
+        onClose={() => {
+          setShowAudioChoiceModal(false);
+          if (audioChoice === null) {
+            setAudioChoice('original');
+          }
+        }}
         mode={mode}
         selectedChoice={audioChoice}
         onSelectBackgroundMusic={() => {

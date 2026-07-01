@@ -1435,23 +1435,67 @@ export default function ProfileScreen() {
           // Mark all as deleted optimistically (Bug fix)
           idsToDelete.forEach(id => savedEvents.emitPostAction(id, 'delete'));
 
+          // Perform optimistic filtering on the lists
           if (activeTab === 'shorts') {
             setUserShorts(prev => prev.filter(s => !idsToDelete.map(id => normalizeId(id)).includes(normalizeId(s._id))));
-            await Promise.all(idsToDelete.map(id => deleteShort(id)));
           } else {
             setPosts(prev => prev.filter(p => !idsToDelete.map(id => normalizeId(id)).includes(normalizeId(p._id))));
-            await Promise.all(idsToDelete.map(id => deletePost(id)));
           }
 
-          if (profileData) {
-            setProfileData(prev => prev ? {
-              ...prev,
-              postsCount: Math.max(0, (prev.postsCount || 0) - idsToDelete.length)
-            } : null);
+          const failedIds: string[] = [];
+
+          // Delete sequentially to avoid database write conflicts/deadlocks in concurrent transactions
+          for (const id of idsToDelete) {
+            try {
+              if (activeTab === 'shorts') {
+                await deleteShort(id);
+              } else {
+                await deletePost(id);
+              }
+            } catch (err) {
+              logger.error(`Failed to delete individual ${activeTab === 'shorts' ? 'short' : 'post'} with ID ${id}`, err);
+              failedIds.push(id);
+            }
           }
 
-          showSuccess(`${idsToDelete.length} ${typeLabel} deleted successfully!`);
-          
+          if (failedIds.length > 0) {
+            // Revert optimistic updates only for failed IDs
+            failedIds.forEach(id => savedEvents.emitPostAction(id, 'undelete'));
+
+            if (activeTab === 'shorts') {
+              const failedShorts = previousShorts.filter(s => failedIds.map(id => normalizeId(id)).includes(normalizeId(s._id)));
+              setUserShorts(prev => {
+                const filtered = prev.filter(s => !failedIds.map(id => normalizeId(id)).includes(normalizeId(s._id)));
+                return [...filtered, ...failedShorts];
+              });
+            } else {
+              const failedPosts = previousPosts.filter(p => failedIds.map(id => normalizeId(id)).includes(normalizeId(p._id)));
+              setPosts(prev => {
+                const filtered = prev.filter(p => !failedIds.map(id => normalizeId(id)).includes(normalizeId(p._id)));
+                return [...filtered, ...failedPosts];
+              });
+            }
+
+            const successCount = idsToDelete.length - failedIds.length;
+            if (profileData) {
+              setProfileData(prev => prev ? {
+                ...prev,
+                postsCount: Math.max(0, (prev.postsCount || 0) - successCount)
+              } : null);
+            }
+
+            showError(`Successfully deleted ${successCount} ${typeLabel}, but failed to delete ${failedIds.length} items.`);
+          } else {
+            if (profileData) {
+              setProfileData(prev => prev ? {
+                ...prev,
+                postsCount: Math.max(0, (prev.postsCount || 0) - idsToDelete.length)
+              } : null);
+            }
+
+            showSuccess(`${idsToDelete.length} ${typeLabel} deleted successfully!`);
+          }
+
           // Refresh profile data (like postsCount) without wiping current posts list pagination
           void loadUserData(true, false);
         } catch (error: any) {

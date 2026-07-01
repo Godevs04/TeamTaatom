@@ -149,7 +149,8 @@ const getProfile = async (req, res) => {
         $match: {
           user: new mongoose.Types.ObjectId(id),
           isActive: true,
-          verificationStatus: { $in: VERIFIED_STATUSES }
+          verificationStatus: { $in: VERIFIED_STATUSES },
+          isPostDeleted: { $ne: true }
         }
       },
       {
@@ -1701,7 +1702,8 @@ const getTripScoreContinents = async (req, res) => {
     const trustedVisits = await TripVisit.find({
       user: id,
       isActive: true,
-      verificationStatus: { $in: VERIFIED_STATUSES }
+      verificationStatus: { $in: VERIFIED_STATUSES },
+      isPostDeleted: { $ne: true }
     })
     .select('lat lng continent country address takenAt uploadedAt')
     .sort({ takenAt: 1, uploadedAt: 1 }) // Sort chronologically for distance calculation
@@ -1870,7 +1872,8 @@ const getTripScoreCountries = async (req, res) => {
     const trustedVisits = await TripVisit.find({
       user: id,
       isActive: true,
-      verificationStatus: { $in: VERIFIED_STATUSES }
+      verificationStatus: { $in: VERIFIED_STATUSES },
+      isPostDeleted: { $ne: true }
     })
     .select('lat lng country continent address')
     .lean();
@@ -1996,7 +1999,8 @@ const getTripScoreCountryDetails = async (req, res) => {
     const allVisits = await TripVisit.find({
       user: id,
       isActive: true,
-      verificationStatus: { $in: VERIFIED_STATUSES }
+      verificationStatus: { $in: VERIFIED_STATUSES },
+      isPostDeleted: { $ne: true }
     })
     .select('lat lng address takenAt uploadedAt post contentType spotType travelInfo country journey isPostDeleted')
     .populate('post', 'caption imageUrl images storageKey storageKeys type videoUrl spotType travelInfo')
@@ -2208,7 +2212,8 @@ const getTripScoreLocations = async (req, res) => {
     const allVisits = await TripVisit.find({
       user: id,
       isActive: true,
-      verificationStatus: { $in: VERIFIED_STATUSES }
+      verificationStatus: { $in: VERIFIED_STATUSES },
+      isPostDeleted: { $ne: true }
     })
     .select('lat lng address takenAt uploadedAt post posts contentType country')
     .populate('post', 'imageUrl images storageKey storageKeys type videoUrl')
@@ -2363,7 +2368,8 @@ const getTravelMapData = async (req, res) => {
       isActive: true,
       verificationStatus: { $in: allowedStatuses },
       lat: { $exists: true, $nin: [null, 0] },
-      lng: { $exists: true, $nin: [null, 0] }
+      lng: { $exists: true, $nin: [null, 0] },
+      isPostDeleted: { $ne: true }
     })
     .select('lat lng address takenAt uploadedAt post contentType isPostDeleted')
     .populate({ path: 'post', select: 'imageUrl thumbnailUrl storageKey storageKeys type' })
