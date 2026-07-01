@@ -17,7 +17,7 @@ export function LandingHero() {
   return (
     <section id="explore" className="relative scroll-mt-24 overflow-hidden pt-28 sm:pt-32 lg:pt-36">
       <div className="mx-auto grid max-w-7xl items-center gap-12 px-4 pb-20 sm:px-6 sm:pb-24 lg:grid-cols-2 lg:gap-16 lg:px-8 lg:pb-28">
-        <motion.div variants={staggerContainer} initial="hidden" animate="show" className="max-w-[34rem]">
+        <motion.div variants={staggerContainer} initial={false} animate="show" className="max-w-[34rem]">
           <motion.h1 variants={fadeSlideItem} className="landing-hero-title font-display text-[var(--landing-ink)]">
             Travel stories worth keeping.
           </motion.h1>
@@ -56,7 +56,7 @@ export function LandingHero() {
           </motion.div>
         </motion.div>
 
-        <motion.div variants={fadeSlideRightItem} initial="hidden" animate="show" className="flex justify-center lg:justify-end">
+        <motion.div variants={fadeSlideRightItem} initial={false} animate="show" className="flex justify-center lg:justify-end">
           <LandingHeroScene />
         </motion.div>
       </div>

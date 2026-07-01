@@ -52,7 +52,7 @@ export function LandingNav() {
     >
       <motion.header
         layout
-        initial={{ opacity: 0, y: -14 }}
+        initial={false}
         animate={{ opacity: 1, y: 0, scale: scrolled ? 0.97 : 1 }}
         transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1], scale: spring }}
         className={cn(

@@ -23,18 +23,5 @@
         }
       ]
     }
-  ],
-  "redirects": [
-    {
-      "source": "/:path*",
-      "has": [
-        {
-          "type": "host",
-          "value": "www.taatom.com"
-        }
-      ],
-      "destination": "https://taatom.com/:path*",
-      "permanent": true
-    }
   ]
 }

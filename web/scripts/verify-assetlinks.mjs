@@ -153,7 +153,8 @@ async function main() {
       console.log('  3. If it says "Redirects to www.taatom.com" → Edit');
       console.log('  4. Change to "Connect to an environment" → Production');
       console.log("  5. Save, redeploy, then run this script again");
-      console.log("\nThe repo vercel.json now redirects www → taatom.com (not the other way).");
+      console.log("\nThe repo vercel.json must NOT redirect www ↔ apex while Vercel Domains");
+      console.log("also redirects — that loops /_next/static JS and breaks the site.");
     }
     process.exit(1);
   }
