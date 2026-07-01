@@ -40,6 +40,11 @@ function isProtected(pathname: string) {
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
+  // Android App Links / Digital Asset Links — never intercept or redirect.
+  if (pathname.startsWith("/.well-known/")) {
+    return NextResponse.next();
+  }
+
   // Intercept download requests for smart redirection
   if (pathname === "/download" || pathname.startsWith("/download/")) {
     const userAgent = req.headers.get("user-agent") || "";

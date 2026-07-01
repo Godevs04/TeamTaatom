@@ -8,7 +8,9 @@
     "start": "next start",
     "prestart": "node -e \"var fs=require('fs'); if(!fs.existsSync('.next/BUILD_ID')){ require('child_process').execSync('npm run build', {stdio:'inherit'}); }\"",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:assetlinks": "node scripts/verify-assetlinks.mjs",
+    "verify:assetlinks:local": "ASSETLINKS_BASE_URL=http://localhost:3001 node scripts/verify-assetlinks.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
