@@ -146,10 +146,14 @@ async function main() {
       console.log(
         "\nHint: Google requires https://taatom.com/.well-known/assetlinks.json to return HTTP 200"
       );
-      console.log(
-        "without redirect. In Vercel → Domains, remove the apex→www redirect for /.well-known"
-      );
-      console.log("(or set taatom.com as the primary domain with no redirect).");
+      console.log("without redirect.");
+      console.log("\nFIX (Vercel Dashboard — required):");
+      console.log("  1. vercel.com → your web project → Settings → Domains");
+      console.log("  2. Click taatom.com (apex)");
+      console.log('  3. If it says "Redirects to www.taatom.com" → Edit');
+      console.log('  4. Change to "Connect to an environment" → Production');
+      console.log("  5. Save, redeploy, then run this script again");
+      console.log("\nThe repo vercel.json now redirects www → taatom.com (not the other way).");
     }
     process.exit(1);
   }
