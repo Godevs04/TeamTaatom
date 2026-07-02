@@ -671,7 +671,19 @@ export default function SignUpScreen() {
                       onPress={() => setFieldValue('termsAccepted', !values.termsAccepted)}
                       activeOpacity={0.7}
                     >
-                      <View style={[styles.checkbox, values.termsAccepted && styles.checkboxChecked, { borderColor: theme.colors.primary }]}>
+                      <View style={[
+                        styles.checkbox,
+                        values.termsAccepted && { borderColor: '#1C73B4', overflow: 'hidden' },
+                        !values.termsAccepted && { borderColor: theme.colors.primary }
+                      ]}>
+                        {values.termsAccepted && (
+                          <LinearGradient
+                            colors={['#1C73B4', '#50C878']}
+                            style={StyleSheet.absoluteFillObject}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                          />
+                        )}
                         {values.termsAccepted && <Ionicons name="checkmark" size={14} color="#fff" />}
                       </View>
                       <Text style={[styles.termsText, { color: theme.colors.text }]}>

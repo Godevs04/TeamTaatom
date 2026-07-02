@@ -14,9 +14,11 @@ import {
   BackHandler,
   Dimensions,
   KeyboardAvoidingView,
+  useWindowDimensions,
   FlatList,
   PermissionsAndroid,
   Linking,
+  ViewStyle,
 } from 'react-native';
 import LoadingGlobe from '../../components/LoadingGlobe';
 import { Formik } from "formik";
@@ -655,6 +657,26 @@ export default function PostScreen() {
   const [hasExistingShorts, setHasExistingShorts] = useState<boolean | null>(null);
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<'1.91:1' | '1:1'>('1:1');
   const [naturalImageAspect, setNaturalImageAspect] = useState<number | null>(null);
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const singleImageDimensions = useMemo<ViewStyle>(() => {
+    if (!naturalImageAspect) {
+      return { width: '100%', aspectRatio: 1 };
+    }
+    const targetWidth = windowWidth - 56;
+    const targetHeight = targetWidth / naturalImageAspect;
+    const maxHeight = windowHeight * 0.75;
+
+    if (targetHeight > maxHeight) {
+      return {
+        width: maxHeight * naturalImageAspect,
+        height: maxHeight,
+      };
+    }
+    return {
+      width: '100%',
+      aspectRatio: naturalImageAspect,
+    };
+  }, [naturalImageAspect, windowWidth, windowHeight]);
   const [cropTransform, setCropTransform] = useState<CropTransform | null>(null);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
   const [songStartTime, setSongStartTime] = useState(0);
@@ -3789,12 +3811,16 @@ export default function PostScreen() {
             style={{ marginHorizontal: 16, marginBottom: 16 }}
             contentStyle={{ padding: 12 }}
           >
-          <View style={{
-            width: '100%',
-            position: "relative",
-            borderRadius: theme.borderRadius.xl,
-            overflow: 'hidden',
-          }}>
+          <View style={[
+            {
+              width: '100%',
+              position: "relative",
+              borderRadius: theme.borderRadius.xl,
+              overflow: 'hidden',
+              alignSelf: 'center',
+            },
+            selectedImages.length === 1 ? singleImageDimensions : null
+          ]}>
             {selectedImages.length > 0 ? (
               <View style={{ width: '100%' }}>
                 {/* Elegant Image Preview - Grid Layout for Multiple Images */}
@@ -4122,6 +4148,7 @@ export default function PostScreen() {
               setVideoThumbnail(null);
               setLocation(null); 
               setAddress(""); 
+              setNaturalImageAspect(null);
               }}
               activeOpacity={0.7}
             >
@@ -6099,7 +6126,7 @@ export default function PostScreen() {
             setShowDetectPlaceModal(false);
             setDetectPlaceName('');
             setDetectedPlace(null);
-            Alert.alert('Success', 'Place details populated! The place will be sent for admin review when you submit the post.');
+            showSuccess('Place details populated! The place will be sent for admin review when you submit the post.', 'Success');
           }
         }}
       />

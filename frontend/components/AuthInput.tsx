@@ -57,8 +57,12 @@ export default function AuthInput({
             error && (touched || alwaysShowError) ? styles.inputError : undefined,
             !error && success ? styles.inputSuccess : undefined,
             rightIcon ? { paddingRight: 40 } : undefined,
+            Platform.OS === 'android' && props.secureTextEntry ? { fontFamily: undefined } : undefined,
           ].filter(Boolean)}
           placeholderTextColor={theme.colors.textSecondary}
+          autoCorrect={false}
+          spellCheck={false}
+          autoComplete={props.secureTextEntry ? "password" : "off"}
           {...props}
         />
         {rightIcon && (

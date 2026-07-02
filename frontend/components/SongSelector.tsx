@@ -530,7 +530,7 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
           isLooping: false // We handle looping manually to respect startTime/endTime
         },
         null,
-        false // Disable downloadFirst to enable instant streaming
+        Platform.OS === 'ios' ? false : true // Use downloadFirst on Android to prevent signed S3 URL streaming issues
       );
 
       if (requestId !== loadRequestIdRef.current) {
@@ -592,12 +592,36 @@ export const SongSelector: React.FC<SongSelectorProps> = ({
       return true;
     } catch (error) {
       if (requestId === loadRequestIdRef.current) {
-        logger.error('Error loading audio:', error);
-        AlertService.showError('Error', 'Failed to load audio preview');
+        logger.error('Error loading audio preview:', error);
+        
+        // Graceful fallback: set selection states even if preview fails, so user is not blocked
+        const correctedSong: Song = {
+          ...song,
+          duration: song.duration && song.duration > 0 ? song.duration : MAX_SELECTION_DURATION,
+        };
+        setCurrentSong(correctedSong);
+
+        if (!preserveTrim) {
+          const maxDuration = getMaxSelectionDuration();
+          const songDuration = correctedSong.duration;
+          const finalDuration = Math.min(maxDuration, songDuration);
+
+          setStartTime(0);
+          setEndTime(finalDuration);
+          setCurrentTime(0);
+        } else {
+          setCurrentTime(startTimeRef.current);
+        }
+
+        AlertService.showWarning(
+          'Preview Unavailable',
+          'Failed to load audio preview. You can still select and trim this song.'
+        );
+        return true;
       } else {
         logger.debug('Ignored error for cancelled audio load request:', error);
+        return false;
       }
-      return false;
     }
   };
 

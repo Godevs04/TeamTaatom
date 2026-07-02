@@ -79,6 +79,7 @@ export const AlertProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       visible: true,
       title: '',
       message: '',
+      showCancel: false,
       ...config,
     });
   };
