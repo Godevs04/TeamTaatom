@@ -232,6 +232,19 @@ export default function ConnectHubScreen() {
   // name is kept to minimize churn; the request param is `target_country`.
   const [selectedCountry, setSelectedCountry] = useState<string>('');
   const [selectedCurrentCountry, setSelectedCurrentCountry] = useState<string>('');
+  const [selectedCity, setSelectedCity] = useState<string>('');
+  const [cityInput, setCityInput] = useState<string>('');
+  const [citySuggestions, setCitySuggestions] = useState<string[]>([]);
+  const [loadingCitySuggestions, setLoadingCitySuggestions] = useState<boolean>(false);
+  const cityDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear city when selectedCurrentCountry changes
+  useEffect(() => {
+    setSelectedCity('');
+    setCityInput('');
+    setCitySuggestions([]);
+  }, [selectedCurrentCountry]);
+
   const [selectedLanguage, setSelectedLanguage] = useState<string>('');
   const [selectedTravelStyle, setSelectedTravelStyle] = useState<string>('');
   const [showCountryPicker, setShowCountryPicker] = useState(false);
@@ -538,6 +551,7 @@ export default function ConnectHubScreen() {
         travel_style: selectedTravelStyle || undefined,
         lang: selectedLanguage,
         user_location: targetLocationInput || undefined,
+        city: selectedCity || undefined,
         page: 1,
         limit: 30,
       });
@@ -588,9 +602,44 @@ export default function ConnectHubScreen() {
     }
   };
 
+  const handleCityChange = (text: string) => {
+    setCityInput(text);
+    if (selectedCity) setSelectedCity('');
+    if (cityDebounceRef.current) clearTimeout(cityDebounceRef.current);
+    const trimmed = text.trim();
+    if (trimmed.length < 2) {
+      setCitySuggestions([]);
+      setLoadingCitySuggestions(false);
+      return;
+    }
+    setLoadingCitySuggestions(true);
+    cityDebounceRef.current = setTimeout(async () => {
+      try {
+        const suggestions = await getPlaceSuggestions(trimmed, selectedCurrentCountry);
+        setCitySuggestions(suggestions);
+      } catch (e) {
+        setCitySuggestions([]);
+      } finally {
+        setLoadingCitySuggestions(false);
+      }
+    }, 350);
+  };
+
+  const handleCitySelect = (place: string) => {
+    const firstPart = place.split(',')[0].trim();
+    setSelectedCity(firstPart);
+    setCityInput(firstPart);
+    setCitySuggestions([]);
+    if (cityDebounceRef.current) {
+      clearTimeout(cityDebounceRef.current);
+      cityDebounceRef.current = null;
+    }
+  };
+
   useEffect(() => {
     return () => {
       if (userLocationDebounceRef.current) clearTimeout(userLocationDebounceRef.current);
+      if (cityDebounceRef.current) clearTimeout(cityDebounceRef.current);
     };
   }, []);
 
@@ -1024,6 +1073,61 @@ export default function ConnectHubScreen() {
           </Text>
           <Ionicons name="chevron-down" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
         </TouchableOpacity>
+
+        {selectedCurrentCountry ? (
+          <>
+            <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>
+              City
+            </Text>
+            <View style={[styles.filterSelect, {
+              backgroundColor: isDark ? '#0A1E35' : '#E6F0FA',
+              borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)'
+            }]}>
+              <Ionicons name="business-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
+              <TextInput
+                style={[styles.filterTextInput, { color: isDark ? '#38BDF8' : '#1C73B4' }]}
+                value={cityInput}
+                onChangeText={handleCityChange}
+                placeholder="Type a city…"
+                placeholderTextColor={isDark ? 'rgba(56, 189, 248, 0.6)' : 'rgba(28, 115, 180, 0.6)'}
+                autoCorrect={false}
+                autoCapitalize="words"
+                underlineColorAndroid="transparent"
+              />
+              {loadingCitySuggestions ? (
+                <LoadingGlobe size="small" color={isDark ? '#38BDF8' : '#1C73B4'} />
+              ) : cityInput.length > 0 ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    setSelectedCity('');
+                    setCityInput('');
+                    setCitySuggestions([]);
+                  }}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Ionicons name="close-circle" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            {citySuggestions.length > 0 && !selectedCity && (
+              <View style={[styles.suggestionsList, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+                {citySuggestions.slice(0, 5).map((s, idx) => (
+                  <TouchableOpacity
+                    key={`city-${s}-${idx}`}
+                    style={[styles.suggestionItem, idx < citySuggestions.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.colors.border }]}
+                    onPress={() => handleCitySelect(s)}
+                    activeOpacity={0.6}
+                  >
+                    <Ionicons name="location-outline" size={16} color={theme.colors.textSecondary} />
+                    <Text style={[styles.suggestionText, { color: theme.colors.text }]} numberOfLines={1}>
+                      {s}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </>
+        ) : null}
 
         {/* Language Picker */}
         <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>
