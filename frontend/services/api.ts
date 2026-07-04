@@ -324,22 +324,41 @@ api.interceptors.response.use(
             return Promise.reject(error);
           }
           
-          // Refresh failed - clear auth
-          // For web: Backend should clear httpOnly cookie, but also clear AsyncStorage
-          // For mobile: Clear AsyncStorage
-          await clearCachedAuthToken();
-          await AsyncStorage.removeItem('userData');
-          
-          // Disconnect socket
-          try {
-            const { socketService } = await import('./socket');
-            await socketService.disconnect();
-          } catch (socketError) {
-            // Ignore socket errors
+          // Only clear auth credentials if the server explicitly rejected the refresh token (400, 401, 403)
+          // Do not clear on network errors, timeouts, or server errors (5xx)
+          const isAuthFailure = refreshError.response && 
+            (refreshError.response.status === 400 || 
+             refreshError.response.status === 401 || 
+             refreshError.response.status === 403);
+
+          if (isAuthFailure) {
+            logger.warn('[API] Refresh token explicitly rejected. Clearing credentials.', { status: refreshError.response.status });
+            // Refresh failed - clear auth
+            // For web: Backend should clear httpOnly cookie, but also clear AsyncStorage
+            // For mobile: Clear AsyncStorage
+            await clearCachedAuthToken();
+            await AsyncStorage.removeItem('userData');
+            
+            // Disconnect socket
+            try {
+              const { socketService } = await import('./socket');
+              await socketService.disconnect();
+            } catch (socketError) {
+              // Ignore socket errors
+            }
+            
+            // Don't redirect here - let the app handle it
+            return Promise.reject(error);
+          } else {
+            // Network error, timeout, or server error (5xx). Keep local auth intact.
+            logger.debug('[API] Refresh token request encountered a connection/server issue. Keeping credentials.', {
+              status: refreshError.response?.status,
+              message: refreshError.message
+            });
+            // Reject with the network/timeout refreshError instead of the original 401 error
+            // so upstream callers handle it as a connectivity issue rather than a session expiration.
+            return Promise.reject(refreshError);
           }
-          
-          // Don't redirect here - let the app handle it
-          return Promise.reject(error);
         }
       }
       
@@ -452,9 +471,15 @@ api.interceptors.response.use(
 
       const isGetRequest = originalRequest.method?.toUpperCase() === 'GET';
 
-      // If offline or timeout and it's a non-GET request, queue the request for replaying when network is restored
-      if ((isOffline || isTimeout) && !isGetRequest && !(originalRequest as any).skipQueue) {
-        logger.debug(`[API] Request failed due to offline/timeout. Queuing non-GET: ${originalRequest.url}`);
+      // If offline and it's a non-GET request, queue the request for replaying when network is restored.
+      // Do NOT queue requests that failed due to timeout when the device is online (as there is no reconnect event to flush them).
+      if (isOffline && !isGetRequest && !(originalRequest as any).skipQueue) {
+        // Prevent offline queue from leaking memory by growing without bound
+        if (offlineQueue.length >= 20) {
+          logger.warn('[API] Offline queue full, rejecting request');
+          return Promise.reject(new Error('Network offline. Please try again later.'));
+        }
+        logger.debug(`[API] Request failed due to offline. Queuing non-GET: ${originalRequest.url}`);
         return new Promise((resolve, reject) => {
           offlineQueue.push({
             config: originalRequest,

@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Image,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -123,7 +124,7 @@ export const SongBar: React.FC<SongBarProps> = ({
           { uri: song.s3Url },
           { shouldPlay: true, isLooping: false },
           null,
-          false // Disable downloadFirst to enable instant streaming
+          Platform.OS === 'ios' ? false : true // Use downloadFirst on Android to prevent signed S3 URL streaming issues
         );
         soundRef.current = sound;
       } else {

@@ -411,7 +411,10 @@ function RootLayoutInner() {
 
         // Populate image cache from disk so cached R2 images load instantly
         imageCacheManager.populateCacheFromDisk().catch(() => {});
-        imageCacheManager.cleanupOldFiles(3).catch(() => {});
+        // Delay cleanup of old files to prevent startup bottleneck
+        setTimeout(() => {
+          imageCacheManager.cleanupOldFiles(3).catch(() => {});
+        }, 15000); // Wait 15 seconds after app startup
 
         // Defer non-critical validation and diagnostics (run after first paint)
         setTimeout(() => {

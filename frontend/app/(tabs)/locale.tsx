@@ -68,6 +68,21 @@ import { LocaleCardSkeleton } from '../../components/ui/Skeleton';
 
 const logger = createLogger('LocaleScreen');
 
+// Strip the query string from a signed URL so the cache key stays stable across
+// sessions. Without this, a fresh signature on each backend response would miss
+// the cache and force a re-download of an image we already have on disk.
+const getStableCacheKey = (url?: string | null): string | undefined => {
+  if (!url) return undefined;
+  const cleanUrl = url.split('?')[0];
+  let hash = 0;
+  for (let i = 0; i < cleanUrl.length; i++) {
+    const char = cleanUrl.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash;
+  }
+  return Math.abs(hash).toString(36);
+};
+
 // Responsive dimensions
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const isTablet = screenWidth >= 768;
@@ -485,9 +500,6 @@ interface ExpoImageWithShimmerProps {
 const ExpoImageWithShimmer = React.memo(({ source, style, contentFit = 'cover', cachePolicy = 'memory-disk', transition = 0, placeholder }: ExpoImageWithShimmerProps) => {
   const sourceUri = typeof source === 'object' ? source.uri : source;
   
-  // Custom hook to cache remote images locally to bypass expiring S3/R2 signed URL signatures
-  const { cachedUri } = useCachedImage(sourceUri);
-  
   const [loading, setLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
   const shimmerAnim = useRef(new Animated.Value(0.3)).current;
@@ -526,11 +538,6 @@ const ExpoImageWithShimmer = React.memo(({ source, style, contentFit = 'cover', 
     setHasError(false);
   }, [sourceUri]);
 
-  // If local cached file path is available, render from local cache to prevent scrolling reloads
-  const displayUri = cachedUri || sourceUri;
-  const isLocal = displayUri && (displayUri.startsWith('file://') || displayUri.startsWith('/') || displayUri.startsWith('data:'));
-  const finalLoading = loading && !isLocal;
-
   if (hasError) {
     return (
       <LinearGradient
@@ -544,9 +551,11 @@ const ExpoImageWithShimmer = React.memo(({ source, style, contentFit = 'cover', 
     );
   }
 
+  const cacheKey = getStableCacheKey(sourceUri);
+
   return (
     <View style={[style, { overflow: 'hidden' }]}>
-      {finalLoading && (
+      {loading && (
         <Animated.View
           style={[
             StyleSheet.absoluteFillObject,
@@ -560,7 +569,10 @@ const ExpoImageWithShimmer = React.memo(({ source, style, contentFit = 'cover', 
         />
       )}
       <ExpoImage
-        source={{ uri: displayUri }}
+        source={{
+          uri: sourceUri,
+          cacheKey: cacheKey,
+        }}
         style={[style, { width: '100%', height: '100%' }]}
         contentFit={contentFit}
         cachePolicy={cachePolicy}
@@ -668,7 +680,7 @@ const FeaturedLocaleCard = React.memo(({
         </LinearGradient>
       )}
 
-      {/* Bottom Glassmorphic Metadata Panel */}
+      {/* Bottom Glassmorphic/Translucent Metadata Panel */}
       <View
         style={{
           position: 'absolute',
@@ -683,90 +695,159 @@ const FeaturedLocaleCard = React.memo(({
           borderTopColor: 'rgba(255, 255, 255, 0.15)',
         }}
       >
-        <BlurView
-          intensity={45}
-          tint="dark"
-          style={{
-            flex: 1,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            paddingHorizontal: 16,
-            paddingVertical: 8,
-            borderBottomLeftRadius: 24,
-            borderBottomRightRadius: 24,
-            overflow: 'hidden',
-          }}
-        >
-          {/* Left Column: Primary Title & Location Tag */}
-          <View style={{ flex: 1, marginRight: 12, justifyContent: 'center' }}>
-            <Text 
-              style={{
-                color: '#FFFFFF',
-                fontSize: 16,
-                fontWeight: '700',
-                fontFamily: getFontFamily('700'),
-                marginBottom: 2,
-              }}
-              numberOfLines={1}
-            >
-              {locale.name}
-            </Text>
-            <Text 
-              style={{
-                color: 'rgba(255, 255, 255, 0.7)',
-                fontSize: 12,
-                fontWeight: '500',
-                fontFamily: getFontFamily('500'),
-              }}
-              numberOfLines={1}
-            >
-              {locale.countryCode}
-            </Text>
-          </View>
-          {distanceText === 'Calculating...' ? (
-            <Animated.View
-              style={[
-                styles.distanceBadge,
-                {
-                  opacity: skeletonAnim,
-                  width: 70,
-                  height: 20,
-                  backgroundColor: 'rgba(255, 255, 255, 0.25)',
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                }
-              ]}
-            >
-              <View style={{ width: 45, height: 8, backgroundColor: 'rgba(255,255,255,0.4)', borderRadius: 4 }} />
-            </Animated.View>
-          ) : distanceText && distanceText !== '-- km' ? (
-            <View style={[styles.distanceBadge, { flexShrink: 1 }]}>
-              <Ionicons name="location-outline" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
-              <Text style={[styles.distanceText, { flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
-                {distanceText}
+        {Platform.OS === 'ios' ? (
+          <BlurView
+            intensity={45}
+            tint="dark"
+            style={{
+              flex: 1,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              borderBottomLeftRadius: 24,
+              borderBottomRightRadius: 24,
+              overflow: 'hidden',
+            }}
+          >
+            {/* Left Column: Primary Title & Location Tag */}
+            <View style={{ flex: 1, marginRight: 12, justifyContent: 'center' }}>
+              <Text 
+                style={{
+                  color: '#FFFFFF',
+                  fontSize: 16,
+                  fontWeight: '700',
+                  fontFamily: getFontFamily('700'),
+                  marginBottom: 2,
+                }}
+                numberOfLines={1}
+              >
+                {locale.name}
+              </Text>
+              <Text 
+                style={{
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  fontSize: 12,
+                  fontWeight: '500',
+                  fontFamily: getFontFamily('500'),
+                }}
+                numberOfLines={1}
+              >
+                {locale.countryCode}
               </Text>
             </View>
-          ) : null}
-        </BlurView>
+            {distanceText === 'Calculating...' ? (
+              <Animated.View
+                style={[
+                  styles.distanceBadge,
+                  {
+                    opacity: skeletonAnim,
+                    width: 70,
+                    height: 20,
+                    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }
+                ]}
+              >
+                <View style={{ width: 45, height: 8, backgroundColor: 'rgba(255,255,255,0.4)', borderRadius: 4 }} />
+              </Animated.View>
+            ) : distanceText && distanceText !== '-- km' ? (
+              <View style={[styles.distanceBadge, { flexShrink: 1 }]}>
+                <Ionicons name="location-outline" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
+                <Text style={[styles.distanceText, { flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
+                  {distanceText}
+                </Text>
+              </View>
+            ) : null}
+          </BlurView>
+        ) : (
+          <View
+            style={{
+              flex: 1,
+              flexDirection: 'row',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              paddingHorizontal: 16,
+              paddingVertical: 8,
+              borderBottomLeftRadius: 24,
+              borderBottomRightRadius: 24,
+              overflow: 'hidden',
+              backgroundColor: 'rgba(25, 25, 25, 0.85)',
+            }}
+          >
+            {/* Left Column: Primary Title & Location Tag */}
+            <View style={{ flex: 1, marginRight: 12, justifyContent: 'center' }}>
+              <Text 
+                style={{
+                  color: '#FFFFFF',
+                  fontSize: 16,
+                  fontWeight: '700',
+                  fontFamily: getFontFamily('700'),
+                  marginBottom: 2,
+                }}
+                numberOfLines={1}
+              >
+                {locale.name}
+              </Text>
+              <Text 
+                style={{
+                  color: 'rgba(255, 255, 255, 0.7)',
+                  fontSize: 12,
+                  fontWeight: '500',
+                  fontFamily: getFontFamily('500'),
+                }}
+                numberOfLines={1}
+              >
+                {locale.countryCode}
+              </Text>
+            </View>
+            {distanceText === 'Calculating...' ? (
+              <Animated.View
+                style={[
+                  styles.distanceBadge,
+                  {
+                    opacity: skeletonAnim,
+                    width: 70,
+                    height: 20,
+                    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+                    justifyContent: 'center',
+                    alignItems: 'center',
+                  }
+                ]}
+              >
+                <View style={{ width: 45, height: 8, backgroundColor: 'rgba(255,255,255,0.4)', borderRadius: 4 }} />
+              </Animated.View>
+            ) : distanceText && distanceText !== '-- km' ? (
+              <View style={[styles.distanceBadge, { flexShrink: 1 }]}>
+                <Ionicons name="location-outline" size={12} color="#FFFFFF" style={{ marginRight: 4 }} />
+                <Text style={[styles.distanceText, { flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
+                  {distanceText}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        )}
       </View>
     </TouchableOpacity>
   );
 }, (prevProps, nextProps) => {
   return (
-    prevProps.locale._id === nextProps.locale._id &&
-    prevProps.locale.name === nextProps.locale.name &&
-    prevProps.locale.countryCode === nextProps.locale.countryCode &&
-    prevProps.locale.imageUrl === nextProps.locale.imageUrl &&
-    prevProps.locale.latitude === nextProps.locale.latitude &&
-    prevProps.locale.longitude === nextProps.locale.longitude &&
-    prevProps.locale.distanceKm === nextProps.locale.distanceKm &&
+    prevProps.locale?._id === nextProps.locale?._id &&
+    prevProps.locale?.name === nextProps.locale?.name &&
+    prevProps.locale?.countryCode === nextProps.locale?.countryCode &&
+    prevProps.locale?.imageUrl === nextProps.locale?.imageUrl &&
+    prevProps.locale?.latitude === nextProps.locale?.latitude &&
+    prevProps.locale?.longitude === nextProps.locale?.longitude &&
+    prevProps.locale?.distanceKm === nextProps.locale?.distanceKm &&
     prevProps.index === nextProps.index &&
     prevProps.cardWidth === nextProps.cardWidth &&
     prevProps.cardHeight === nextProps.cardHeight &&
     prevProps.screenHeight === nextProps.screenHeight &&
     prevProps.isDark === nextProps.isDark &&
-    prevProps.userLocation === nextProps.userLocation
+    prevProps.userLocation?.latitude === nextProps.userLocation?.latitude &&
+    prevProps.userLocation?.longitude === nextProps.userLocation?.longitude
   );
 });
 
@@ -908,15 +989,16 @@ const SavedLocaleCard = React.memo(({
   );
 }, (prevProps, nextProps) => {
   return (
-    prevProps.locale._id === nextProps.locale._id &&
-    prevProps.locale.name === nextProps.locale.name &&
-    prevProps.locale.countryCode === nextProps.locale.countryCode &&
-    prevProps.locale.imageUrl === nextProps.locale.imageUrl &&
-    prevProps.locale.latitude === nextProps.locale.latitude &&
-    prevProps.locale.longitude === nextProps.locale.longitude &&
-    prevProps.locale.distanceKm === nextProps.locale.distanceKm &&
+    prevProps.locale?._id === nextProps.locale?._id &&
+    prevProps.locale?.name === nextProps.locale?.name &&
+    prevProps.locale?.countryCode === nextProps.locale?.countryCode &&
+    prevProps.locale?.imageUrl === nextProps.locale?.imageUrl &&
+    prevProps.locale?.latitude === nextProps.locale?.latitude &&
+    prevProps.locale?.longitude === nextProps.locale?.longitude &&
+    prevProps.locale?.distanceKm === nextProps.locale?.distanceKm &&
     prevProps.index === nextProps.index &&
-    prevProps.userLocation === nextProps.userLocation
+    prevProps.userLocation?.latitude === nextProps.userLocation?.latitude &&
+    prevProps.userLocation?.longitude === nextProps.userLocation?.longitude
   );
 });
 
@@ -3913,7 +3995,7 @@ export default function LocaleScreen() {
                 scrollEventThrottle={16}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
-                maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+                drawDistance={screenHeight * 1.2}
                 estimatedItemSize={220}
                 contentContainerStyle={{
                   paddingHorizontal: isTabletLocal ? 24 : 16,

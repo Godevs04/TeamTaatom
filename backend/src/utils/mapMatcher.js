@@ -1,6 +1,7 @@
 /* eslint-disable no-console */
 // backend/src/utils/mapMatcher.js
 const Road = require('../models/Road');
+const ImportedRegion = require('../models/ImportedRegion');
 const { projectPointToSegment, calculateHaversine } = require('./projection');
 
 // Use dynamic import for node-fetch (ESM module in CommonJS context)
@@ -57,10 +58,40 @@ out geom;`;
       }
     }
 
+    // Save imported region coordinates to database to register cache hit
+    await ImportedRegion.create({
+      geometry: {
+        type: 'Polygon',
+        coordinates: [[
+          [minLng, minLat],
+          [maxLng, minLat],
+          [maxLng, maxLat],
+          [minLng, maxLat],
+          [minLng, minLat]
+        ]]
+      }
+    });
+
     if (roadsToInsert.length > 0) {
-      // Skip duplicate keys (ordered: false) to gracefully ignore already imported roads
-      await Road.insertMany(roadsToInsert, { ordered: false });
-      console.log(`[OSM Import] Successfully imported ${roadsToInsert.length} roads to cache`);
+      try {
+        // Skip duplicate keys (ordered: false) to gracefully ignore already imported roads
+        await Road.insertMany(roadsToInsert, { ordered: false });
+        console.log(`[OSM Import] Successfully imported ${roadsToInsert.length} roads to cache`);
+      } catch (insertErr) {
+        const isDuplicateKeyError =
+          insertErr.code === 11000 ||
+          insertErr.name === 'BulkWriteError' ||
+          insertErr.name === 'MongoServerError' ||
+          (insertErr.writeErrors && insertErr.writeErrors.some(e => e.code === 11000));
+        
+        if (isDuplicateKeyError) {
+          console.log(`[OSM Import] Successfully imported ${roadsToInsert.length} roads (some duplicates ignored)`);
+        } else {
+          throw insertErr;
+        }
+      }
+    } else {
+      console.log('[OSM Import] No roads found in bounding box, region marked as cached');
     }
   } catch (err) {
     console.error('[OSM Import] JIT road import failed:', err.message);
@@ -245,7 +276,26 @@ async function matchTrajectory(rawPoints) {
         });
 
         if (!roadsExist) {
-          await fetchAndImportOsmRoads(minLat, minLng, maxLat, maxLng);
+          const centerLng = (minLng + maxLng) / 2;
+          const centerLat = (minLat + maxLat) / 2;
+
+          const alreadyImported = await ImportedRegion.exists({
+            geometry: {
+              $geoIntersects: {
+                $geometry: {
+                  type: 'Point',
+                  coordinates: [centerLng, centerLat]
+                }
+              }
+            }
+          });
+
+          if (!alreadyImported) {
+            // Execute in the background to prevent blocking client requests and avoid timeouts
+            fetchAndImportOsmRoads(minLat, minLng, maxLat, maxLng).catch(err => {
+              console.error('[OSM Import] Background import failed:', err.message);
+            });
+          }
         }
       }
     }

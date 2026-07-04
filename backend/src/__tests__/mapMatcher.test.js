@@ -1,6 +1,23 @@
 const { projectPointToSegment } = require('../utils/projection');
-const { matchTrajectory } = require('../utils/mapMatcher');
 const Road = require('../models/Road');
+const mongoose = require('mongoose');
+const ImportedRegion = require('../models/ImportedRegion');
+
+let mockReadyState = 0;
+jest.mock('mongoose', () => {
+  const originalMongoose = jest.requireActual('mongoose');
+  return {
+    ...originalMongoose,
+    connection: {
+      ...originalMongoose.connection,
+      get readyState() {
+        return mockReadyState;
+      }
+    }
+  };
+});
+
+const { matchTrajectory } = require('../utils/mapMatcher');
 
 describe('Map Matching Orthogonal Projection', () => {
   test('projectPointToSegment: snaps to start point when projection factor t <= 0', () => {
@@ -162,3 +179,50 @@ describe('Map Matching HMM & Viterbi Decoder', () => {
     expect(matched[1].roadId).toBe('road_ns_id');
   });
 });
+
+describe('JIT OSM Import & Cache', () => {
+  let roadExistsSpy;
+  let regionExistsSpy;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    // Force readyState to 1 (connected) for JIT tests
+    mockReadyState = 1;
+  });
+
+  afterEach(() => {
+    mockReadyState = 0;
+    if (roadExistsSpy) roadExistsSpy.mockRestore();
+    if (regionExistsSpy) regionExistsSpy.mockRestore();
+  });
+
+  test('should skip OSM import if roads already exist in database', async () => {
+    roadExistsSpy = jest.spyOn(Road, 'exists').mockResolvedValue(true);
+    regionExistsSpy = jest.spyOn(ImportedRegion, 'exists');
+
+    const rawPoints = [{ lat: 12.0, lng: 77.0, timestamp: new Date() }];
+    
+    // We mock findCandidates to avoid DB call
+    jest.spyOn(Road, 'find').mockImplementation(() => ({
+      limit: jest.fn().mockResolvedValue([])
+    }));
+
+    await matchTrajectory(rawPoints);
+
+    expect(roadExistsSpy).toHaveBeenCalled();
+    expect(regionExistsSpy).not.toHaveBeenCalled();
+  });
+
+  test('should skip OSM import if region is already marked as cached/imported', async () => {
+    roadExistsSpy = jest.spyOn(Road, 'exists').mockResolvedValue(false);
+    regionExistsSpy = jest.spyOn(ImportedRegion, 'exists').mockResolvedValue(true);
+
+    const rawPoints = [{ lat: 12.0, lng: 77.0, timestamp: new Date() }];
+
+    await matchTrajectory(rawPoints);
+
+    expect(roadExistsSpy).toHaveBeenCalled();
+    expect(regionExistsSpy).toHaveBeenCalled();
+  });
+});
+

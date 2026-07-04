@@ -36,7 +36,7 @@ import {
   GeoItem,
 } from '../../services/connect';
 import { getUserFromStorage } from '../../services/auth';
-import { getPlaceSuggestions } from '../../utils/locationUtils';
+import { getPlaceSuggestions, getStateSuggestions } from '../../utils/locationUtils';
 import { toggleFollow } from '../../services/profile';
 import logger from '../../utils/logger';
 import PremiumScreen from '../../components/ui/PremiumScreen';
@@ -232,6 +232,36 @@ export default function ConnectHubScreen() {
   // name is kept to minimize churn; the request param is `target_country`.
   const [selectedCountry, setSelectedCountry] = useState<string>('');
   const [selectedCurrentCountry, setSelectedCurrentCountry] = useState<string>('');
+  
+  const [selectedState, setSelectedState] = useState<string>('');
+  const [stateInput, setStateInput] = useState<string>('');
+  const [stateSuggestions, setStateSuggestions] = useState<string[]>([]);
+  const [loadingStateSuggestions, setLoadingStateSuggestions] = useState<boolean>(false);
+  const stateDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [selectedCity, setSelectedCity] = useState<string>('');
+  const [cityInput, setCityInput] = useState<string>('');
+  const [citySuggestions, setCitySuggestions] = useState<string[]>([]);
+  const [loadingCitySuggestions, setLoadingCitySuggestions] = useState<boolean>(false);
+  const cityDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clear state and city when selectedCurrentCountry changes
+  useEffect(() => {
+    setSelectedState('');
+    setStateInput('');
+    setStateSuggestions([]);
+    setSelectedCity('');
+    setCityInput('');
+    setCitySuggestions([]);
+  }, [selectedCurrentCountry]);
+
+  // Clear city when selectedState changes
+  useEffect(() => {
+    setSelectedCity('');
+    setCityInput('');
+    setCitySuggestions([]);
+  }, [selectedState]);
+
   const [selectedLanguage, setSelectedLanguage] = useState<string>('');
   const [selectedTravelStyle, setSelectedTravelStyle] = useState<string>('');
   const [showCountryPicker, setShowCountryPicker] = useState(false);
@@ -538,6 +568,8 @@ export default function ConnectHubScreen() {
         travel_style: selectedTravelStyle || undefined,
         lang: selectedLanguage,
         user_location: targetLocationInput || undefined,
+        state: selectedState || undefined,
+        city: selectedCity || undefined,
         page: 1,
         limit: 30,
       });
@@ -588,9 +620,80 @@ export default function ConnectHubScreen() {
     }
   };
 
+  const handleStateChange = (text: string) => {
+    setStateInput(text);
+    if (selectedState) setSelectedState('');
+    if (stateDebounceRef.current) clearTimeout(stateDebounceRef.current);
+    const trimmed = text.trim();
+    if (trimmed.length < 2) {
+      setStateSuggestions([]);
+      setLoadingStateSuggestions(false);
+      return;
+    }
+    setLoadingStateSuggestions(true);
+    stateDebounceRef.current = setTimeout(async () => {
+      try {
+        const suggestions = await getStateSuggestions(trimmed, selectedCurrentCountry);
+        setStateSuggestions(suggestions);
+      } catch (e) {
+        setStateSuggestions([]);
+      } finally {
+        setLoadingStateSuggestions(false);
+      }
+    }, 350);
+  };
+
+  const handleStateSelect = (place: string) => {
+    setSelectedState(place);
+    setStateInput(place);
+    setStateSuggestions([]);
+    if (stateDebounceRef.current) {
+      clearTimeout(stateDebounceRef.current);
+      stateDebounceRef.current = null;
+    }
+  };
+
+  const handleCityChange = (text: string) => {
+    setCityInput(text);
+    if (selectedCity) setSelectedCity('');
+    if (cityDebounceRef.current) clearTimeout(cityDebounceRef.current);
+    const trimmed = text.trim();
+    if (trimmed.length < 2) {
+      setCitySuggestions([]);
+      setLoadingCitySuggestions(false);
+      return;
+    }
+    setLoadingCitySuggestions(true);
+    cityDebounceRef.current = setTimeout(async () => {
+      try {
+        // Concat the selected state to ensure Google Autocomplete limits suggestions to this state
+        const queryText = selectedState ? `${trimmed}, ${selectedState}` : trimmed;
+        const suggestions = await getPlaceSuggestions(queryText, selectedCurrentCountry);
+        setCitySuggestions(suggestions);
+      } catch (e) {
+        setCitySuggestions([]);
+      } finally {
+        setLoadingCitySuggestions(false);
+      }
+    }, 350);
+  };
+
+  const handleCitySelect = (place: string) => {
+    const firstPart = place.split(',')[0].trim();
+    setSelectedCity(firstPart);
+    setCityInput(firstPart);
+    setCitySuggestions([]);
+    if (cityDebounceRef.current) {
+      clearTimeout(cityDebounceRef.current);
+      cityDebounceRef.current = null;
+    }
+  };
+
   useEffect(() => {
     return () => {
       if (userLocationDebounceRef.current) clearTimeout(userLocationDebounceRef.current);
+      if (stateDebounceRef.current) clearTimeout(stateDebounceRef.current);
+      if (cityDebounceRef.current) clearTimeout(cityDebounceRef.current);
     };
   }, []);
 
@@ -1024,6 +1127,116 @@ export default function ConnectHubScreen() {
           </Text>
           <Ionicons name="chevron-down" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
         </TouchableOpacity>
+
+        {selectedCurrentCountry ? (
+          <>
+            <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>
+              State
+            </Text>
+            <View style={[styles.filterSelect, {
+              backgroundColor: isDark ? '#0A1E35' : '#E6F0FA',
+              borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)'
+            }]}>
+              <Ionicons name="map-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
+              <TextInput
+                style={[styles.filterTextInput, { color: isDark ? '#38BDF8' : '#1C73B4' }]}
+                value={stateInput}
+                onChangeText={handleStateChange}
+                placeholder="Type a state…"
+                placeholderTextColor={isDark ? 'rgba(56, 189, 248, 0.6)' : 'rgba(28, 115, 180, 0.6)'}
+                autoCorrect={false}
+                autoCapitalize="words"
+                underlineColorAndroid="transparent"
+              />
+              {loadingStateSuggestions ? (
+                <LoadingGlobe size="small" color={isDark ? '#38BDF8' : '#1C73B4'} />
+              ) : stateInput.length > 0 ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    setSelectedState('');
+                    setStateInput('');
+                    setStateSuggestions([]);
+                  }}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Ionicons name="close-circle" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            {stateSuggestions.length > 0 && !selectedState && (
+              <View style={[styles.suggestionsList, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+                {stateSuggestions.slice(0, 5).map((s, idx) => (
+                  <TouchableOpacity
+                    key={`state-${s}-${idx}`}
+                    style={[styles.suggestionItem, idx < stateSuggestions.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.colors.border }]}
+                    onPress={() => handleStateSelect(s)}
+                    activeOpacity={0.6}
+                  >
+                    <Ionicons name="location-outline" size={16} color={theme.colors.textSecondary} />
+                    <Text style={[styles.suggestionText, { color: theme.colors.text }]} numberOfLines={1}>
+                      {s}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </>
+        ) : null}
+
+        {selectedState ? (
+          <>
+            <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>
+              City
+            </Text>
+            <View style={[styles.filterSelect, {
+              backgroundColor: isDark ? '#0A1E35' : '#E6F0FA',
+              borderColor: isDark ? 'rgba(56, 189, 248, 0.25)' : 'rgba(28, 115, 180, 0.2)'
+            }]}>
+              <Ionicons name="business-outline" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
+              <TextInput
+                style={[styles.filterTextInput, { color: isDark ? '#38BDF8' : '#1C73B4' }]}
+                value={cityInput}
+                onChangeText={handleCityChange}
+                placeholder="Type a city…"
+                placeholderTextColor={isDark ? 'rgba(56, 189, 248, 0.6)' : 'rgba(28, 115, 180, 0.6)'}
+                autoCorrect={false}
+                autoCapitalize="words"
+                underlineColorAndroid="transparent"
+              />
+              {loadingCitySuggestions ? (
+                <LoadingGlobe size="small" color={isDark ? '#38BDF8' : '#1C73B4'} />
+              ) : cityInput.length > 0 ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    setSelectedCity('');
+                    setCityInput('');
+                    setCitySuggestions([]);
+                  }}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Ionicons name="close-circle" size={18} color={isDark ? '#38BDF8' : '#1C73B4'} />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            {citySuggestions.length > 0 && !selectedCity && (
+              <View style={[styles.suggestionsList, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+                {citySuggestions.slice(0, 5).map((s, idx) => (
+                  <TouchableOpacity
+                    key={`city-${s}-${idx}`}
+                    style={[styles.suggestionItem, idx < citySuggestions.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.colors.border }]}
+                    onPress={() => handleCitySelect(s)}
+                    activeOpacity={0.6}
+                  >
+                    <Ionicons name="location-outline" size={16} color={theme.colors.textSecondary} />
+                    <Text style={[styles.suggestionText, { color: theme.colors.text }]} numberOfLines={1}>
+                      {s}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+          </>
+        ) : null}
 
         {/* Language Picker */}
         <Text style={[styles.filterFieldLabel, { color: isDark ? '#FFFFFF' : theme.colors.text }]}>

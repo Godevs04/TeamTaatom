@@ -833,16 +833,33 @@ const updateTripVisitFromShort = async (short, metadata = {}, existingVisitId = 
  */
 const deleteTripVisitForContent = async (postId, contentType = 'post') => {
   try {
+    // Find visits first to get journey references before updating/deactivating them
+    const visits = await TripVisit.find({ post: postId, contentType }).select('journey').lean();
+    const journeyIds = [...new Set(visits.map(v => v.journey?.toString()).filter(Boolean))];
+
     await TripVisit.updateMany(
       { 
         post: postId,
         contentType 
       },
       { 
-        isPostDeleted: true 
+        isPostDeleted: true,
+        isActive: false
       }
     );
-    logger.debug(`Marked TripVisits as deleted post for ${contentType} ${postId}`);
+    logger.debug(`Marked TripVisits as deleted and inactive for ${contentType} ${postId}`);
+
+    // Recalculate TripScore for any affected journeys
+    if (journeyIds.length > 0) {
+      for (const journeyId of journeyIds) {
+        try {
+          await recalculateJourneyTripScore(journeyId);
+          logger.debug(`Recalculated TripScore for journey ${journeyId} after deleting content ${postId}`);
+        } catch (err) {
+          logger.error(`Error recalculating journey ${journeyId} TripScore on delete:`, err);
+        }
+      }
+    }
   } catch (error) {
     logger.error('Error deleting TripVisit:', error);
   }

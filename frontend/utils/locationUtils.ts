@@ -186,6 +186,47 @@ export const getPlaceSuggestions = async (
 };
 
 /**
+ * Get state suggestions from Google Places Autocomplete API
+ * Restricts suggestions to administrative_area_level_1 (states/provinces)
+ */
+export const getStateSuggestions = async (
+  input: string,
+  countryCode?: string
+): Promise<string[]> => {
+  try {
+    const GOOGLE_MAPS_API_KEY = getGoogleMapsApiKeyFromMaps();
+    if (!GOOGLE_MAPS_API_KEY) {
+      return [];
+    }
+    
+    const components = countryCode ? `&components=country:${countryCode}` : '';
+    const encodedInput = encodeURIComponent(input);
+    const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodedInput}${components}&key=${GOOGLE_MAPS_API_KEY}&types=administrative_area_level_1`;
+    
+    logger.debug('🔍 Getting state suggestions for:', input);
+    
+    const response = await fetch(url);
+    const data = await response.json();
+    
+    if (data.status === 'OK' && data.predictions && data.predictions.length > 0) {
+      const suggestions = data.predictions
+        .map((pred: any) => {
+          return pred.structured_formatting?.main_text || pred.description?.split(',')[0]?.trim();
+        })
+        .filter((name: string | null): name is string => name !== null && name.length > 0);
+      
+      logger.debug(`✅ Got ${suggestions.length} state suggestions:`, suggestions);
+      return suggestions;
+    }
+    
+    return [];
+  } catch (error) {
+    logger.error('💥 Error getting state suggestions:', error);
+    return [];
+  }
+};
+
+/**
  * Calculate string similarity using Levenshtein distance (fuzzy matching)
  * Returns a score between 0 and 1 (1 = identical, 0 = completely different)
  */

@@ -150,7 +150,16 @@ class ImageCacheManager {
         return cachedPath;
       }
 
-      const downloadResult = await FileSystem.downloadAsync(url, cachedPath);
+      // Add a 15-second timeout to prevent downloads from hanging indefinitely on spotty networks
+      const downloadPromise = FileSystem.downloadAsync(url, cachedPath);
+      let timeoutId: NodeJS.Timeout | undefined;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('Download timeout')), 15000);
+      });
+
+      const downloadResult = await Promise.race([downloadPromise, timeoutPromise]);
+      if (timeoutId) clearTimeout(timeoutId);
+
       if (downloadResult.status === 200) {
         this.cache.set(cacheKey, true);
         return cachedPath;
@@ -244,20 +253,29 @@ class ImageCacheManager {
       const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
       const now = Date.now();
 
-      for (const file of files) {
-        try {
-          const filePath = `${R2_CACHE_DIR}${file}`;
-          const info = await FileSystem.getInfoAsync(filePath);
-          if (info.exists) {
-            const fileAge = now - ((info as any).modificationTime || 0) * 1000;
-            if (fileAge > maxAgeMs) {
-              await FileSystem.deleteAsync(filePath, { idempotent: true });
-              this.cache.delete(file);
+      // Process in small chunks to avoid bridge and JS thread congestion on large cache sizes
+      const CHUNK_SIZE = 10;
+      for (let i = 0; i < files.length; i += CHUNK_SIZE) {
+        const chunk = files.slice(i, i + CHUNK_SIZE);
+        await Promise.all(
+          chunk.map(async (file) => {
+            try {
+              const filePath = `${R2_CACHE_DIR}${file}`;
+              const info = await FileSystem.getInfoAsync(filePath);
+              if (info.exists) {
+                const fileAge = now - ((info as any).modificationTime || 0) * 1000;
+                if (fileAge > maxAgeMs) {
+                  await FileSystem.deleteAsync(filePath, { idempotent: true });
+                  this.cache.delete(file);
+                }
+              }
+            } catch {
+              // Skip files we can't inspect
             }
-          }
-        } catch {
-          // Skip files we can't inspect
-        }
+          })
+        );
+        // Yield execution to the JS thread / React Native bridge between chunks
+        await new Promise((resolve) => setTimeout(resolve, 50));
       }
     } catch (error) {
       logger.error('Error cleaning up R2 image cache:', error);

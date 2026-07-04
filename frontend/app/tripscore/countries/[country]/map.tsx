@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { useTheme } from '../../../../context/ThemeContext';
 import api from '../../../../services/api';
-import { MapView, getMapProvider } from '../../../../utils/mapsWrapper';
+import { MapView, Marker, getMapProvider } from '../../../../utils/mapsWrapper';
 import logger from '../../../../utils/logger';
 import PremiumMapMarker from '../../../../components/PremiumMapMarker';
 import SafeMarker from '../../../../components/SafeMarker';
@@ -67,7 +67,6 @@ interface TripScoreCountryResponse {
 
 interface OptimizedVisitedMarkerProps {
   location: any;
-  isSelected: boolean;
   index: number;
   latitudeDelta: number;
   onPress: () => void;
@@ -75,7 +74,6 @@ interface OptimizedVisitedMarkerProps {
 
 const OptimizedVisitedMarker = React.memo(({
   location,
-  isSelected,
   index,
   latitudeDelta,
   onPress
@@ -94,17 +92,16 @@ const OptimizedVisitedMarker = React.memo(({
     onPress();
   }, [onPress]);
 
-  // Keep iOS MapKit marker geometry stable on selection. Swapping the anchor
-  // or frame while tracksViewChanges toggles can make custom marker snapshots disappear.
-  const useStableIosDot = Platform.OS === 'ios';
-  const markerWidth = useStableIosDot ? 30 : isSelected ? 34 : 30;
-  const markerHeight = useStableIosDot ? 32 : isSelected ? 42 : 32;
-  const anchor = useStableIosDot || !isSelected ? { x: 0.5, y: 0.5 } : { x: 0.5, y: 0.86 };
+  // Keep the tapped marker's native annotation stable. The selected highlight
+  // is rendered as a separate overlay so MapKit never has to resnapshot this marker.
+  const markerWidth = 30;
+  const markerHeight = 32;
+  const anchor = { x: 0.5, y: 0.5 };
 
   return (
     <SafeMarker
       ref={markerRef}
-      zIndex={isSelected ? 99999 : index}
+      zIndex={index}
       anchor={anchor}
       coordinate={{
         latitude: location.coordinates!.latitude,
@@ -112,24 +109,23 @@ const OptimizedVisitedMarker = React.memo(({
       }}
       onPress={handlePress}
       onSelect={handlePress}
-      repaintTriggers={[isSelected, latitudeDelta]}
+      repaintTriggers={[latitudeDelta]}
     >
       <View style={{ width: markerWidth, height: markerHeight, justifyContent: 'center', alignItems: 'center' }}>
         <PremiumMapMarker
-          active={isSelected}
+          active={false}
           activeTitle={location.name}
           activeSubtitle={location.category?.typeOfSpot || 'Visited spot'}
           photo={location.imageUrl}
           onImageLoad={handleImageLoad}
           latitudeDelta={latitudeDelta}
-          renderAsDot={useStableIosDot || !isSelected}
+          renderAsDot={true}
         />
       </View>
     </SafeMarker>
   );
 }, (prev, next) => {
   return (
-    prev.isSelected === next.isSelected &&
     prev.index === next.index &&
     prev.latitudeDelta === next.latitudeDelta &&
     prev.location.stableId === next.location.stableId &&
@@ -137,6 +133,43 @@ const OptimizedVisitedMarker = React.memo(({
     prev.location.name === next.location.name &&
     prev.location.coordinates?.latitude === next.location.coordinates?.latitude &&
     prev.location.coordinates?.longitude === next.location.coordinates?.longitude
+  );
+});
+
+const SelectedLocationOverlay = React.memo(({ location }: { location: Location | null }) => {
+  if (!location || !isValidMapCoordinate(location.coordinates) || !Marker) return null;
+
+  const coordinate = {
+    latitude: location.coordinates.latitude,
+    longitude: location.coordinates.longitude,
+  };
+
+  if (Platform.OS === 'ios') {
+    return (
+      <Marker
+        key={`selected-overlay-${(location as any).stableId || location.tripVisitId || location.name}`}
+        coordinate={coordinate}
+        pinColor="#FF3B30"
+        zIndex={100000}
+        tappable={false}
+        tracksViewChanges={false}
+      />
+    );
+  }
+
+  return (
+    <SafeMarker
+      key={`selected-overlay-${(location as any).stableId || location.tripVisitId || location.name}`}
+      coordinate={coordinate}
+      anchor={{ x: 0.5, y: 0.5 }}
+      zIndex={100000}
+      tappable={false}
+      repaintTriggers={[true]}
+    >
+      <View style={styles.selectedDotOverlay}>
+        <View style={styles.selectedDotCore} />
+      </View>
+    </SafeMarker>
   );
 });
 
@@ -600,23 +633,17 @@ export default function CountryMapScreen() {
           )}
           {/* Markers for visited locations */}
           {visitedMarkers.map((location: any, index: number) => {
-            const isPinned = Boolean(
-              pinnedLocation &&
-              (pinnedLocation as any).stableId &&
-              (pinnedLocation as any).stableId === location.stableId
-            );
-
             return (
               <OptimizedVisitedMarker
                 key={location.stableId}
                 location={location}
-                isSelected={isPinned}
                 index={index}
                 latitudeDelta={sanitizeLatitudeDelta(latitudeDelta)}
                 onPress={() => handleLocationPress(location)}
               />
             );
           })}
+          <SelectedLocationOverlay location={pinnedLocation} />
           </MapView>
         ) : (
           // Fallback if MapView is not available
@@ -800,6 +827,22 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     backgroundColor: '#FF5722',
+  },
+  selectedDotOverlay: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 59, 48, 0.18)',
+  },
+  selectedDotCore: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    backgroundColor: '#FF3B30',
   },
   carouselContainer: {
     position: 'absolute',

@@ -896,7 +896,7 @@ const searchByName = async (req, res) => {
  */
 const findUsers = async (req, res) => {
   try {
-    const { target_country, current_country, lang, travel_style, user_location } = req.query;
+    const { target_country, current_country, lang, travel_style, user_location, state, city } = req.query;
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 20;
     const skip = (page - 1) * limit;
@@ -974,6 +974,24 @@ const findUsers = async (req, res) => {
           { currentCountry: { $regex: `^${escaped}$`, $options: 'i' } },
           { currentCountry: { $regex: `^${codeEscaped}$`, $options: 'i' } }
         ]
+      });
+    }
+
+    // Filter by state — match currentLocation (only if showLocation is enabled)
+    if (state) {
+      const escapedState = state.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      queryAnd.push({
+        'settings.privacy.showLocation': { $ne: false },
+        currentLocation: { $regex: escapedState, $options: 'i' }
+      });
+    }
+
+    // Filter by city — match currentLocation (only if showLocation is enabled)
+    if (city) {
+      const escapedCity = city.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      queryAnd.push({
+        'settings.privacy.showLocation': { $ne: false },
+        currentLocation: { $regex: escapedCity, $options: 'i' }
       });
     }
 
