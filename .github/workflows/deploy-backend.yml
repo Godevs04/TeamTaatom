@@ -120,13 +120,25 @@ jobs:
           script: |
             set -euo pipefail
 
-            REPO_PATH="${REPO_PATH:-/home/ubuntu/taatom/TeamTaatom}"
-            BACKEND_PATH="${BACKEND_PATH:-$REPO_PATH/backend}"
-            HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3000/health}"
+            # Trim whitespace from secrets (trailing spaces break cd)
+            REPO_PATH="$(printf '%s' "${REPO_PATH:-/home/ubuntu/taatom/TeamTaatom}" | tr -d '[:space:]')"
+            BACKEND_PATH="$(printf '%s' "${BACKEND_PATH:-}" | tr -d '[:space:]')"
+            HEALTH_URL="$(printf '%s' "${HEALTH_URL:-http://127.0.0.1:3000/health}" | tr -d '[:space:]')"
+
+            if [ -z "$BACKEND_PATH" ]; then
+              BACKEND_PATH="$REPO_PATH/backend"
+            fi
 
             echo "REPO_PATH=$REPO_PATH"
             echo "BACKEND_PATH=$BACKEND_PATH"
             echo "HEALTH_URL=$HEALTH_URL"
+
+            if [ ! -d "$REPO_PATH" ]; then
+              echo "ERROR: REPO_PATH does not exist: [$REPO_PATH]"
+              echo "Set EC2_REPO_PATH secret to: /home/ubuntu/taatom/TeamTaatom"
+              ls -la /home/ubuntu/taatom || true
+              exit 1
+            fi
 
             cd "$REPO_PATH"
 
@@ -141,6 +153,14 @@ jobs:
             git fetch origin main
             git checkout main
             git reset --hard origin/main
+
+            if [ ! -d "$BACKEND_PATH" ]; then
+              echo "ERROR: BACKEND_PATH does not exist: [$BACKEND_PATH]"
+              echo "Set EC2_BACKEND_PATH secret to: /home/ubuntu/taatom/TeamTaatom/backend"
+              echo "Contents of repo root:"
+              ls -la "$REPO_PATH"
+              exit 1
+            fi
 
             cd "$BACKEND_PATH"
 
