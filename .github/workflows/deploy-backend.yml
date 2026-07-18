@@ -68,6 +68,40 @@ jobs:
           fi
           echo "SSH private key OK"
 
+      - name: Preflight — TCP reachability from Actions runner
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_SSH_PORT: ${{ secrets.EC2_SSH_PORT }}
+        run: |
+          set -euo pipefail
+          HOST="$(printf '%s' "$EC2_HOST" | tr -d '[:space:]')"
+          PORT="$(printf '%s' "${EC2_SSH_PORT:-22}" | tr -d '[:space:]')"
+          if [ -z "$PORT" ]; then PORT=22; fi
+
+          echo "Host length: ${#HOST}"
+          echo "Port: $PORT"
+          echo "Host prefix: ${HOST:0:3}..."
+
+          case "$HOST" in
+            10.*|192.168.*|172.1[6-9].*|172.2[0-9].*|172.3[0-1].*)
+              echo "ERROR: EC2_HOST looks like a private RFC1918 address."
+              echo "GitHub Actions cannot reach private IPs. Use the Public IPv4 / Elastic IP."
+              exit 1
+              ;;
+          esac
+
+          echo "Probing TCP ${HOST}:${PORT} from this runner..."
+          if ! timeout 10 bash -c "echo >/dev/tcp/${HOST}/${PORT}"; then
+            echo "ERROR: TCP connect timed out from GitHub Actions → ${HOST}:${PORT}"
+            echo ""
+            echo "Your Mac can reach the server, but Actions uses different source IPs."
+            echo "Fix AWS Security Group inbound SSH (22):"
+            echo "  Source must be 0.0.0.0/0  (NOT 'My IP' only)"
+            echo "Also confirm EC2_HOST is exactly the public IP (no spaces/quotes)."
+            exit 1
+          fi
+          echo "TCP reachability OK from Actions runner"
+
       - name: Deploy over SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
@@ -78,7 +112,8 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key_path: /home/runner/.ssh/ec2.pem
-          port: ${{ secrets.EC2_SSH_PORT || 22 }}
+          port: 22
+          timeout: 60s
           envs: REPO_PATH,BACKEND_PATH,HEALTH_URL
           script_stop: false
           command_timeout: 25m
