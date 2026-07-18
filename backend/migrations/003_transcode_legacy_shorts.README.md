@@ -8,7 +8,7 @@ The runtime behavior is implemented in
 [`003_transcode_legacy_shorts.js`](./003_transcode_legacy_shorts.js).
 This file is the runbook.
 
-## What it does 
+## What it does
 
 For every `Post` document where `type === 'short'` and a video storage key is
 set, the migration:
