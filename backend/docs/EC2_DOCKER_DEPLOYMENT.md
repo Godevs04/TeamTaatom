@@ -49,12 +49,16 @@ docker compose version
 ### 2.2 App directory
 
 ```bash
-sudo mkdir -p /opt/taatom
-sudo chown "$USER":"$USER" /opt/taatom
-cd /opt/taatom
-git clone <YOUR_REPO_URL> .
+# Actual EC2 layout:
+#   /home/ubuntu/taatom/TeamTaatom          ← monorepo root
+#   /home/ubuntu/taatom/TeamTaatom/backend  ← Docker Compose + .env
+
+cd /home/ubuntu/taatom/TeamTaatom
+# (or: git clone <YOUR_REPO_URL> /home/ubuntu/taatom/TeamTaatom)
 cd backend
 cp .env.example .env
+# Prefer production values from .env.prod if you maintain that file:
+# cp .env.prod .env
 nano .env   # fill production secrets — never commit
 ```
 
@@ -73,7 +77,7 @@ Minimum production `.env`:
 ### 2.3 Nginx
 
 ```bash
-sudo cp /opt/taatom/backend/nginx.conf /etc/nginx/sites-available/taatom-api
+sudo cp /home/ubuntu/taatom/TeamTaatom/backend/nginx.conf /etc/nginx/sites-available/taatom-api
 sudo ln -sf /etc/nginx/sites-available/taatom-api /etc/nginx/sites-enabled/taatom-api
 sudo rm -f /etc/nginx/sites-enabled/default
 sudo nginx -t && sudo systemctl reload nginx
@@ -92,7 +96,7 @@ Point Cloudflare `api.taatom.com` (or your API host) at the EC2 Elastic IP. Pref
 ## 3. Manual deploy commands
 
 ```bash
-cd /opt/taatom/backend
+cd /home/ubuntu/taatom/TeamTaatom/backend
 
 # Build
 docker compose build
@@ -144,8 +148,8 @@ On push to `main` (backend paths) or manual `workflow_dispatch`:
 | `EC2_USER` | SSH user (e.g. `ubuntu`) |
 | `EC2_SSH_KEY` | Private key (PEM contents) |
 | `EC2_SSH_PORT` | Optional; default `22` |
-| `EC2_REPO_PATH` | Optional; default `/opt/taatom` (monorepo git root) |
-| `EC2_BACKEND_PATH` | Optional; default `$EC2_REPO_PATH/backend` |
+| `EC2_REPO_PATH` | Optional; default `/home/ubuntu/taatom/TeamTaatom` |
+| `EC2_BACKEND_PATH` | Optional; default `/home/ubuntu/taatom/TeamTaatom/backend` |
 | `BACKEND_HEALTH_URL` | Optional; default `http://127.0.0.1:3000/health` |
 
 EC2 must already have the repo cloned and a production `.env` in `backend/`. Deploy never writes secrets from CI into the server.

@@ -2,9 +2,9 @@
 # Deploy Taatom backend to AWS EC2 (Docker Compose + health check + rollback)
 # Triggers on push to main when backend/ or this workflow changes.
 #
-# Server layout (recommended):
-#   /opt/taatom              ← git clone of monorepo
-#   /opt/taatom/backend      ← docker compose + .env
+# Server layout (EC2):
+#   /home/ubuntu/taatom/TeamTaatom          ← git clone of monorepo
+#   /home/ubuntu/taatom/TeamTaatom/backend  ← docker compose + .env
 # =============================================================================
 
 name: Deploy Backend (EC2)
@@ -50,7 +50,7 @@ jobs:
           script: |
             set -euo pipefail
 
-            REPO_PATH="${REPO_PATH:-/opt/taatom}"
+            REPO_PATH="${REPO_PATH:-/home/ubuntu/taatom/TeamTaatom}"
             BACKEND_PATH="${BACKEND_PATH:-$REPO_PATH/backend}"
             HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3000/health}"
 
