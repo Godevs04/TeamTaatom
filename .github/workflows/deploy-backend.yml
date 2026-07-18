@@ -1,0 +1,123 @@
+# =============================================================================
+# Deploy Taatom backend to AWS EC2 (Docker Compose + health check + rollback)
+# Triggers on push to main when backend/ or this workflow changes.
+#
+# Server layout (recommended):
+#   /opt/taatom              ← git clone of monorepo
+#   /opt/taatom/backend      ← docker compose + .env
+# =============================================================================
+
+name: Deploy Backend (EC2)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build & deploy on EC2
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          REPO_PATH: ${{ secrets.EC2_REPO_PATH }}
+          BACKEND_PATH: ${{ secrets.EC2_BACKEND_PATH }}
+          HEALTH_URL: ${{ secrets.BACKEND_HEALTH_URL }}
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: ${{ secrets.EC2_SSH_PORT || 22 }}
+          envs: REPO_PATH,BACKEND_PATH,HEALTH_URL
+          script_stop: false
+          command_timeout: 25m
+          script: |
+            set -euo pipefail
+
+            REPO_PATH="${REPO_PATH:-/opt/taatom}"
+            BACKEND_PATH="${BACKEND_PATH:-$REPO_PATH/backend}"
+            HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:3000/health}"
+
+            echo "REPO_PATH=$REPO_PATH"
+            echo "BACKEND_PATH=$BACKEND_PATH"
+            echo "HEALTH_URL=$HEALTH_URL"
+
+            cd "$REPO_PATH"
+
+            echo "==> Recording rollback point"
+            PREV_SHA="$(git rev-parse HEAD)"
+            PREV_IMAGE_ID="$(docker images -q taatom-backend:latest 2>/dev/null || true)"
+            if [ -n "$PREV_IMAGE_ID" ]; then
+              docker tag taatom-backend:latest "taatom-backend:rollback-${PREV_SHA}" || true
+            fi
+
+            echo "==> Fetching latest main"
+            git fetch origin main
+            git checkout main
+            git reset --hard origin/main
+
+            cd "$BACKEND_PATH"
+
+            if [ ! -f .env ]; then
+              echo "ERROR: $BACKEND_PATH/.env is missing. Create it from .env.example before deploying."
+              exit 1
+            fi
+
+            echo "==> Building image"
+            docker compose build
+
+            echo "==> Restarting stack"
+            docker compose up -d --remove-orphans
+
+            echo "==> Waiting for health: $HEALTH_URL"
+            OK=0
+            for i in $(seq 1 30); do
+              if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
+                OK=1
+                break
+              fi
+              echo "  attempt $i/30 — not ready yet"
+              sleep 5
+            done
+
+            if [ "$OK" -ne 1 ]; then
+              echo "==> Health check FAILED — rolling back to $PREV_SHA"
+              cd "$REPO_PATH"
+              git reset --hard "$PREV_SHA"
+              cd "$BACKEND_PATH"
+              if docker image inspect "taatom-backend:rollback-${PREV_SHA}" >/dev/null 2>&1; then
+                docker tag "taatom-backend:rollback-${PREV_SHA}" taatom-backend:latest
+                docker compose up -d --no-build --remove-orphans
+              else
+                docker compose up -d --build --remove-orphans
+              fi
+
+              sleep 10
+              if curl -fsS "$HEALTH_URL" >/dev/null 2>&1; then
+                echo "Rollback container is healthy; failing the workflow."
+              else
+                echo "CRITICAL: rollback health check also failed. Manual intervention required."
+              fi
+              exit 1
+            fi
+
+            echo "==> Deploy healthy"
+            curl -fsS "$HEALTH_URL" || true
+            docker compose ps
+            docker image prune -f >/dev/null 2>&1 || true

@@ -1,0 +1,38 @@
+# Taatom backend — single-service production compose for AWS EC2.
+# MongoDB Atlas, Upstash Redis, and Sevalla storage stay external (not in this file).
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: taatom-backend:latest
+    container_name: taatom-backend
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+    # Bind to localhost only — Nginx on the host reverse-proxies public traffic.
+    # Change to "3000:3000" only if you need direct host access without Nginx.
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - taatom-prod
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  taatom-prod:
+    name: taatom-prod
+    driver: bridge

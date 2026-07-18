@@ -13,7 +13,8 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-BACKEND_URL="http://localhost:3000"
+# BACKEND_URL="http://localhost:3000"
+BACKEND_URL="https://api.taatom.com"
 API_ENDPOINT="$BACKEND_URL/api/v1/superadmin"
 
 echo -e "${BLUE}🔐 TeamTaatom SuperAdmin Security Setup${NC}"

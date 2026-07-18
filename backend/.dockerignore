@@ -1,0 +1,60 @@
+# Dependencies & installs
+node_modules
+npm-debug.log*
+yarn-error.log*
+
+# Git / VCS
+.git
+.gitignore
+.gitattributes
+
+# Secrets & local env (never bake into image)
+.env
+.env.*
+!.env.example
+
+# Tests & coverage
+coverage
+src/__tests__
+**/__tests__
+**/*.test.js
+**/*.spec.js
+jest.config.js
+jest.setup.js
+
+# Logs & runtime junk
+logs
+*.log
+tmp
+temp
+.DS_Store
+
+# IDE / tooling
+.idea
+.vscode
+*.swp
+*.swo
+.eslintcache
+.eslintrc*
+.prettierrc*
+.editorconfig
+
+# Docs & host-only deploy artifacts (not needed inside the image)
+# Note: Dockerfile is read by the CLI outside the ignore stream; keep policies/*.md
+docker-compose*.yml
+.dockerignore
+nginx.conf
+docs
+README.md
+DOCKER_ARCHITECTURE_REPORT.md
+
+# Optional local / ops artifacts
+.nyc_output
+.cache
+dist
+build
+uploads
+ecosystem.config.js
+migrate-mongo-config.js
+migrations
+scripts
