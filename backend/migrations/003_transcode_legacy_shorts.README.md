@@ -21,7 +21,7 @@ set, the migration:
    suffix, then repoints `storageKey` and `storageKeys[0]` to the new key.
 5. Stamps the document with `transcodedAt` and `originalStorageKey` so the
    migration is **idempotent (resumable)** and **reversible**.
-
+ 
 The original R2 object is **not** deleted in `up()`; that's reserved for
 `down()` so a rollback can restore from the original bytes.
 
