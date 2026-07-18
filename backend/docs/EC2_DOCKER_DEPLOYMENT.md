@@ -144,15 +144,38 @@ On push to `main` (backend paths) or manual `workflow_dispatch`:
 
 | Secret | Purpose |
 |--------|---------|
-| `EC2_HOST` | EC2 public DNS or Elastic IP |
+| `EC2_HOST` | **Public** IPv4 or Elastic IP (never `172.31.x.x`) |
 | `EC2_USER` | SSH user (e.g. `ubuntu`) |
-| `EC2_SSH_KEY` | Private key (PEM contents) |
+| `EC2_SSH_KEY` | **Base64** of the private key PEM (preferred; avoids newline corruption) |
 | `EC2_SSH_PORT` | Optional; default `22` |
 | `EC2_REPO_PATH` | Optional; default `/home/ubuntu/taatom/TeamTaatom` |
 | `EC2_BACKEND_PATH` | Optional; default `/home/ubuntu/taatom/TeamTaatom/backend` |
 | `BACKEND_HEALTH_URL` | Optional; default `http://127.0.0.1:3000/health` |
 
-EC2 must already have the repo cloned and a production `.env` in `backend/`. Deploy never writes secrets from CI into the server.
+#### Fix `ssh: no key found` (store key as base64)
+
+On your laptop (path to the `.pem` you use for `ssh -i`):
+
+```bash
+# macOS
+base64 -i /path/to/your-key.pem | pbcopy
+
+# Linux
+base64 -w0 /path/to/your-key.pem
+```
+
+Update GitHub secret `EC2_SSH_KEY` with that **single-line base64** string (no `BEGIN` lines in the secret).
+
+Verify the key locally before updating the secret:
+
+```bash
+ssh -i /path/to/your-key.pem ubuntu@YOUR_PUBLIC_IP
+```
+
+#### Fix `i/o timeout`
+
+1. `EC2_HOST` = public IP from AWS console (Elastic IP recommended)
+2. Security group inbound: **TCP 22** from `0.0.0.0/0` (or at least allow GitHub Actions; private IP will always time out)
 
 ---
 
