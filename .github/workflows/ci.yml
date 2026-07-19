@@ -192,7 +192,8 @@ jobs:
         working-directory: ./frontend
         env:
           NODE_ENV: production
-          EXPO_PUBLIC_API_BASE_URL: ${{ vars.EXPO_PUBLIC_API_BASE_URL || secrets.EXPO_PUBLIC_API_BASE_URL || 'http://localhost:3000' }}
+          EXPO_PUBLIC_API_BASE_URL: ${{ vars.EXPO_PUBLIC_API_BASE_URL || secrets.EXPO_PUBLIC_API_BASE_URL || 'https://api.taatom.com' }}
+          EXPO_PUBLIC_WEB_SHARE_URL: ${{ vars.EXPO_PUBLIC_WEB_SHARE_URL || secrets.EXPO_PUBLIC_WEB_SHARE_URL || 'https://taatom.com' }}
           EXPO_PUBLIC_SENTRY_DSN: ${{ vars.EXPO_PUBLIC_SENTRY_DSN || secrets.EXPO_PUBLIC_SENTRY_DSN || '' }}
           EXPO_PUBLIC_SENTRY_ENVIRONMENT: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
         run: npm run build:web

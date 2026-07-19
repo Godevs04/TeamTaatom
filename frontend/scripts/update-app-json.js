@@ -99,20 +99,25 @@ const getWebShareUrl = () => {
   if (fromAppJson && fromAppJson !== '') {
     if (
       isProduction &&
-      (fromAppJson.includes('localhost') || fromAppJson.includes('192.168.'))
+      (fromAppJson.includes('localhost') ||
+        fromAppJson.includes('192.168.') ||
+        fromAppJson.includes('10.') ||
+        fromAppJson.includes('172.'))
     ) {
-      console.error('❌ ERROR: Production WEB_SHARE_URL cannot use localhost or a local IP!');
-      process.exit(1);
+      console.warn(
+        `⚠️  app.json WEB_SHARE_URL is local (${fromAppJson}); ignoring in production. Set EXPO_PUBLIC_WEB_SHARE_URL.`,
+      );
+    } else {
+      return fromAppJson;
     }
-    return fromAppJson;
   }
 
   if (!isProduction) {
     return appJson.expo.extra?.API_BASE_URL || 'http://localhost:3000';
   }
 
-  const apiUrl = getApiBaseUrl();
-  return apiUrl.replace('http://', 'https://').replace(':3000', '');
+  // Production fallback when app.json still has a local/dev share URL
+  return 'https://taatom.com';
 };
 
 // Get privacy policy URL - use env var or construct from web share URL
