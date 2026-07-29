@@ -29,6 +29,8 @@ interface AspectImageCropperProps {
   viewportWidth?: number;
   /** Border radius for the viewport. */
   borderRadius?: number;
+  /** Optional initial crop transform to restore previous zoom/pan state. */
+  initialTransform?: CropTransform | null;
   /** Called on gesture end with the user's transform (or null on reset). */
   onTransformChange?: (transform: CropTransform | null) => void;
   /** Show the small "Pinch to zoom · drag to reposition" hint below. */
@@ -49,6 +51,7 @@ export default function AspectImageCropper({
   aspectRatio,
   viewportWidth: fixedViewportWidth,
   borderRadius = 0,
+  initialTransform,
   onTransformChange,
   showHint = true,
   showReset = true,
@@ -70,28 +73,35 @@ export default function AspectImageCropper({
   const left = (viewportWidth - baseWidth) / 2;
   const top = (viewportH - baseHeight) / 2;
 
-  const scale = useSharedValue(1);
-  const savedScale = useSharedValue(1);
-  const tx = useSharedValue(0);
-  const ty = useSharedValue(0);
-  const savedTx = useSharedValue(0);
-  const savedTy = useSharedValue(0);
+  const scale = useSharedValue(initialTransform?.userScale ?? 1);
+  const savedScale = useSharedValue(initialTransform?.userScale ?? 1);
+  const tx = useSharedValue(initialTransform?.viewportTx ?? 0);
+  const ty = useSharedValue(initialTransform?.viewportTy ?? 0);
+  const savedTx = useSharedValue(initialTransform?.viewportTx ?? 0);
+  const savedTy = useSharedValue(initialTransform?.viewportTy ?? 0);
 
-  // Reset transform when source or viewport aspect changes.
+  // Restore transform when source or viewport aspect changes.
   useEffect(() => {
-    scale.value = 1;
-    savedScale.value = 1;
-    tx.value = 0;
-    ty.value = 0;
-    savedTx.value = 0;
-    savedTy.value = 0;
-    onTransformChange?.({
-      userScale: 1,
-      viewportTx: 0,
-      viewportTy: 0,
-      viewportW: viewportWidth,
-      viewportH,
-    });
+    const initS = initialTransform?.userScale ?? 1;
+    const initTx = initialTransform?.viewportTx ?? 0;
+    const initTy = initialTransform?.viewportTy ?? 0;
+
+    scale.value = initS;
+    savedScale.value = initS;
+    tx.value = initTx;
+    savedTx.value = initTx;
+    ty.value = initTy;
+    savedTy.value = initTy;
+
+    if (viewportWidth > 0 && viewportH > 0) {
+      onTransformChange?.({
+        userScale: initS,
+        viewportTx: initTx,
+        viewportTy: initTy,
+        viewportW: viewportWidth,
+        viewportH,
+      });
+    }
   }, [uri, aspectRatio, viewportWidth]);
 
   useEffect(() => {

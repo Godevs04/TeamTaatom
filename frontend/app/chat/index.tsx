@@ -643,15 +643,51 @@ export default function ChatModal() {
     return bTime - aTime;
   });
   
+  const searchQ = search.trim().toLowerCase();
+
   const filtered = sortedConversations.filter(c => {
-    if (!search.trim()) return true;
-    const q = search.trim().toLowerCase();
+    if (!searchQ) return true;
     if ((c as any).type === 'connect_page' && (c as any).connectPageId?.name) {
-      return (c as any).connectPageId.name.toLowerCase().includes(q);
+      return (c as any).connectPageId.name.toLowerCase().includes(searchQ);
     }
-    const other = c.participants.find((u: any) => u._id !== c.me);
-    return other?.fullName?.toLowerCase().includes(q);
+    const other = c.participants.find((u: any) => normalizeId(u._id || u) !== normalizeId(c.me));
+    return (
+      other?.fullName?.toLowerCase().includes(searchQ) ||
+      other?.username?.toLowerCase().includes(searchQ)
+    );
   });
+
+  const existingParticipantIds = new Set<string>();
+  sortedConversations.forEach(c => {
+    c.participants?.forEach((u: any) => {
+      const pId = normalizeId(u._id || u);
+      if (pId) existingParticipantIds.add(pId);
+    });
+  });
+
+  const matchingContacts = searchQ
+    ? users
+        .filter(u => {
+          const uId = normalizeId(u._id);
+          if (!uId || existingParticipantIds.has(uId)) return false;
+          return (
+            u.fullName?.toLowerCase().includes(searchQ) ||
+            u.username?.toLowerCase().includes(searchQ)
+          );
+        })
+        .map(u => ({
+          _id: `contact_${u._id}`,
+          isContactOnly: true,
+          userId: u._id,
+          participants: [u],
+          fullName: u.fullName || u.username || 'User',
+          username: u.username,
+          profilePic: u.profilePic,
+          messages: [],
+        }))
+    : [];
+
+  const displayList = searchQ ? [...filtered, ...matchingContacts] : filtered;
 
   const styles = StyleSheet.create({
     container: {
@@ -991,12 +1027,12 @@ export default function ChatModal() {
           onMarkAllRead={handleMarkAllAsRead}
         />
 
-        {filtered.length === 0 ? (
+        {displayList.length === 0 ? (
           <View style={styles.emptyContainer}>
             <View style={styles.emptyIcon}>
               <Ionicons name="chatbubbles-outline" size={48} color={theme.colors.textSecondary} />
             </View>
-            <Text style={styles.emptyTitle}>No conversations yet</Text>
+            <Text style={styles.emptyTitle}>No conversations found</Text>
             <Text style={styles.emptyMessage}>
               Start a conversation by tapping the compose button above
             </Text>
@@ -1004,13 +1040,49 @@ export default function ChatModal() {
         ) : (
           <FlatList
             style={styles.chatList}
-            data={filtered}
+            data={displayList}
             keyExtractor={item => item._id}
             removeClippedSubviews={true}
             maxToRenderPerBatch={10}
             windowSize={7}
             initialNumToRender={15}
             renderItem={({ item }) => {
+              if ((item as any).isContactOnly) {
+                const contact = (item as any).participants[0] || {};
+                return (
+                  <TouchableOpacity
+                    style={styles.chatItemFlat}
+                    onPress={() => {
+                      router.push({ pathname: '/chat/thread', params: { userId: (item as any).userId } });
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.avatarContainer}>
+                      {contact.profilePic ? (
+                        <ExpoImage source={{ uri: contact.profilePic }} style={styles.avatar} cachePolicy="memory-disk" placeholder={require('../../assets/avatars/male_avatar.png')} />
+                      ) : (
+                        <View style={[styles.avatarPlaceholder, { backgroundColor: theme.colors.primary + '15' }]}>
+                          <Ionicons name="person" size={22} color={theme.colors.primary} />
+                        </View>
+                      )}
+                    </View>
+                    <View style={styles.chatContent}>
+                      <View style={styles.chatTopRow}>
+                        <Text style={styles.chatName} numberOfLines={1}>
+                          {String(contact.fullName || contact.username || 'User')}
+                        </Text>
+                        <Text style={[styles.chatTime, { color: theme.colors.primary }]}>Contact</Text>
+                      </View>
+                      <View style={styles.chatBottomRow}>
+                        <Text style={styles.lastMessage} numberOfLines={1}>
+                          {contact.username ? `@${contact.username} • Tap to message` : 'Tap to start conversation'}
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                );
+              }
+
               const participants = (item.participants || []).filter((p: any) => p != null);
               let other = participants.find((u: any) => {
                 const uId = normalizeId(u?._id || u);

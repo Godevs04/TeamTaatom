@@ -1395,15 +1395,26 @@ export default function LocaleScreen() {
 
     adminLocales.forEach(async (locale) => {
       if (drivingDistanceCalculatedRef.current.has(locale._id)) return;
-      if (!locale.latitude || !locale.longitude) return;
+      
+      let lat = locale.latitude;
+      let lon = locale.longitude;
+      if (!lat || !lon || lat === 0 || lon === 0) {
+        const cacheKey = `${locale.name?.toLowerCase()}-${locale.countryCode?.toLowerCase()}`;
+        const cached = placesCache.get(cacheKey);
+        if (cached) {
+          lat = cached.lat;
+          lon = cached.lon;
+        }
+      }
+      if (!lat || !lon || lat === 0 || lon === 0) return;
 
       try {
         const dist = await getLocaleDistanceKm(
           locale._id.toString(),
           userLat,
           userLon,
-          locale.latitude,
-          locale.longitude
+          lat,
+          lon
         );
         if (dist !== null && isMountedRef.current) {
           drivingDistanceCalculatedRef.current.add(locale._id);

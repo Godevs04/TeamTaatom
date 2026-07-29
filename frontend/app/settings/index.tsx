@@ -69,6 +69,13 @@ interface SettingsSection {
 
 const settingsSections: SettingsSection[] = [
   {
+    id: 'personal-details',
+    title: 'Personal Details Data Sheet',
+    icon: 'card-outline',
+    description: 'Signup & onboarding personal details, demographics, interests, and languages',
+    route: '/settings/personal-details'
+  },
+  {
     id: 'account',
     title: 'Account',
     icon: 'person-circle-outline',

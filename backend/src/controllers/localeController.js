@@ -344,11 +344,10 @@ const getLocales = async (req, res) => {
       return attachLocaleImagesToPlain(copy);
     }));
 
-    // OPTIMIZATION: Use countDocuments with timeout to prevent slow queries
-    // Indexes ensure this is fast (<20ms target)
-    // NOTE: For very large collections (10k+), consider caching counts or using
-    // estimatedDocumentCount() for pagination UI when no filters are applied
-    const total = await Locale.countDocuments(query).maxTimeMS(2000);
+    // OPTIMIZATION: Only count total documents on initial request (page 1 without cursor)
+    // For paginated requests, skip countDocuments to accelerate page transition and response times
+    const isPaginatedRequest = !!cursor || parsedPage > 1;
+    const total = isPaginatedRequest ? -1 : await Locale.countDocuments(query).maxTimeMS(2000);
 
     // Include statistics for SuperAdmin when includeInactive is true
     // OPTIMIZATION: Use Promise.all for parallel execution (faster than sequential)

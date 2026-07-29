@@ -189,15 +189,30 @@ export default function PostComments({
       return;
     }
 
-    setIsSubmitting(true);
-    try {
-      const response = await addCommentWithRetry(newComment.trim());
-      onCommentAdded(response.comment);
-      setNewComment('');
+    const commentText = newComment.trim();
+    const tempId = `temp-${Date.now()}`;
+    const optimisticComment: Comment = {
+      _id: tempId,
+      user: {
+        _id: currentUser._id,
+        fullName: currentUser.fullName,
+        profilePic: currentUser.profilePic || null,
+      },
+      text: commentText,
+      createdAt: new Date().toISOString(),
+    };
 
-      setTimeout(() => {
-        setIsSubmitting(false);
-      }, 100);
+    // Optimistically show comment in UI instantly
+    onCommentAdded(optimisticComment);
+    setNewComment('');
+    setIsSubmitting(true);
+
+    try {
+      const response = await addCommentWithRetry(commentText);
+      if (response?.comment) {
+        onCommentAdded(response.comment);
+      }
+      setIsSubmitting(false);
     } catch (error: any) {
       if (error?.response?.status === 429) {
         showCustomAlertMessage('Rate Limited', 'Too many requests. Please wait a moment before commenting again.', 'warning');

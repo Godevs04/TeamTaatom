@@ -54,7 +54,7 @@ export async function getLoginLocationHint(): Promise<LoginLocationHint | null> 
           }
         },
         () => resolve(null),
-        { enableHighAccuracy: false, timeout: 8000, maximumAge: 120000 }
+        { enableHighAccuracy: false, timeout: 1000, maximumAge: 120000 }
       );
     });
   }
@@ -65,17 +65,18 @@ export async function getLoginLocationHint(): Promise<LoginLocationHint | null> 
       return null;
     }
 
+    // Fast non-blocking lookup: check instant last-known position cache only.
+    // Never trigger active GPS satellite scan (getCurrentPositionAsync) during login.
     const lastKnown = await Location.getLastKnownPositionAsync();
-    const position =
-      lastKnown ||
-      (await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      }));
+    if (!lastKnown || !lastKnown.coords) return null;
 
-    const [address] = await Location.reverseGeocodeAsync(position.coords);
-    if (!address) return null;
+    const reverseGeocodePromise = Location.reverseGeocodeAsync(lastKnown.coords);
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1000));
 
-    const hint = formatGeocodedAddress(address);
+    const addressResult = await Promise.race([reverseGeocodePromise, timeoutPromise]);
+    if (!addressResult || !Array.isArray(addressResult) || !addressResult[0]) return null;
+
+    const hint = formatGeocodedAddress(addressResult[0]);
     return hint.label ? hint : null;
   } catch (error) {
     logger.debug('getLoginLocationHint failed:', error);

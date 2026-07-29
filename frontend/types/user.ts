@@ -16,6 +16,8 @@ export interface UserType {
   interests?: string[];
   languagesKnown?: string[];
   nationality?: string;
+  currentLocation?: string;
+  currentCountry?: string;
   isFollowing?: boolean;
   followRequestSent?: boolean;
   requiresFollowApproval?: boolean;

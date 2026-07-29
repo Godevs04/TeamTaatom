@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import LoadingGlobe from '../components/LoadingGlobe';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { useTheme } from '../context/ThemeContext';
 import { UserType } from '../types/user';
@@ -185,14 +186,16 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       borderWidth: 3,
       borderColor: theme.colors.border,
     },
-    changePhotoButton: {
-      backgroundColor: theme.colors.primary,
-      paddingHorizontal: theme.spacing.md,
-      paddingVertical: theme.spacing.sm,
-      borderRadius: theme.borderRadius.md,
+    changePhotoGradient: {
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 20,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     changePhotoText: {
-      color: isDark ? '#121212' : '#FFFFFF',
+      color: '#FFFFFF',
       fontSize: theme.typography.caption.fontSize,
       fontWeight: '600',
     },
@@ -229,26 +232,33 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       flexDirection: 'row',
       justifyContent: 'space-between',
       gap: theme.spacing.md,
+      marginTop: theme.spacing.sm,
     },
-    button: {
+    cancelButton: {
       flex: 1,
       paddingVertical: theme.spacing.md,
       borderRadius: theme.borderRadius.md,
       alignItems: 'center',
+      backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : '#EBF3FA',
+      borderWidth: 1,
+      borderColor: theme.colors.border,
     },
-    saveButton: {
-      backgroundColor: theme.colors.primary,
-    },
-    cancelButton: {
-      backgroundColor: theme.colors.border,
+    saveButtonGradient: {
+      paddingVertical: theme.spacing.md,
+      borderRadius: theme.borderRadius.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: '100%',
     },
     buttonText: {
       fontSize: theme.typography.body.fontSize,
       fontWeight: '600',
-      color: isDark ? '#121212' : '#FFFFFF',
+      color: '#FFFFFF',
     },
     cancelButtonText: {
-      color: theme.colors.textSecondary,
+      fontSize: theme.typography.body.fontSize,
+      fontWeight: '600',
+      color: theme.colors.text,
     },
   });
 
@@ -261,9 +271,8 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
       onRequestClose={onClose}
     >
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.overlay}
-        keyboardVerticalOffset={0}
       >
         <View style={styles.container}>
           <View style={styles.header}>
@@ -290,8 +299,16 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
                 }
                 style={styles.avatar}
               />
-              <TouchableOpacity style={styles.changePhotoButton} onPress={showImagePicker}>
-                <Text style={styles.changePhotoText}>Change Photo</Text>
+              <TouchableOpacity onPress={showImagePicker} activeOpacity={0.8} style={{ borderRadius: 20, overflow: 'hidden' }}>
+                <LinearGradient
+                  colors={['#1C73B4', '#50C878']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.changePhotoGradient}
+                >
+                  <Ionicons name="camera-outline" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                  <Text style={styles.changePhotoText}>Change Photo</Text>
+                </LinearGradient>
               </TouchableOpacity>
             </View>
 
@@ -324,22 +341,32 @@ export default function EditProfile({ visible, user, onClose, onSuccess }: EditP
 
           <View style={styles.buttonContainer}>
             <TouchableOpacity
-              style={[styles.button, styles.cancelButton]}
+              style={styles.cancelButton}
               onPress={onClose}
               disabled={loading}
+              activeOpacity={0.7}
             >
-              <Text style={[styles.buttonText, styles.cancelButtonText]}>Cancel</Text>
+              <Text style={styles.cancelButtonText}>Cancel</Text>
             </TouchableOpacity>
+
             <TouchableOpacity
-              style={[styles.button, styles.saveButton]}
               onPress={handleSave}
               disabled={loading}
+              activeOpacity={0.85}
+              style={{ flex: 1, borderRadius: theme.borderRadius.md, overflow: 'hidden' }}
             >
-              {loading ? (
-                <LoadingGlobe color={theme.colors.text} />
-              ) : (
-                <Text style={styles.buttonText}>Save</Text>
-              )}
+              <LinearGradient
+                colors={['#1C73B4', '#50C878']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.saveButtonGradient}
+              >
+                {loading ? (
+                  <LoadingGlobe color="#FFFFFF" size="small" />
+                ) : (
+                  <Text style={styles.buttonText}>Save</Text>
+                )}
+              </LinearGradient>
             </TouchableOpacity>
           </View>
         </View>

@@ -855,43 +855,46 @@ function RootLayoutInner() {
       if (!user?._id) return;
 
       try {
-        // iOS: use Expo Push Notifications (EAS build)
-        if (Platform.OS === 'ios') {
-          const token = await registerForPushNotificationsAsync();
-          if (token) {
-            await saveExpoPushToken(token);
-            if (process.env.NODE_ENV === 'development') {
-              logger.debug('Expo push token registered');
-            }
+        // 1. Primary Expo Push Registration (Works on both Android & iOS)
+        const token = await registerForPushNotificationsAsync();
+        if (token) {
+          await saveExpoPushToken(token);
+          if (process.env.NODE_ENV === 'development') {
+            logger.debug('✅ Expo push token registered:', token.substring(0, 25) + '...');
           }
-          return;
         }
 
-        // Android: FCM
-        await fcmService.initialize();
-        const fcmToken = await fcmService.getToken();
-        if (fcmToken) {
-          await updateFCMPushToken(user._id, fcmToken);
-          if (process.env.NODE_ENV === 'development') {
-            logger.debug('FCM token registered:', fcmToken.substring(0, 30) + '...');
+        // 2. Secondary FCM Registration (Android native fallback)
+        if (Platform.OS === 'android') {
+          try {
+            await fcmService.initialize();
+            const fcmToken = await fcmService.getToken();
+            if (fcmToken && fcmToken !== token) {
+              await updateFCMPushToken(user._id, fcmToken);
+              if (process.env.NODE_ENV === 'development') {
+                logger.debug('✅ FCM token registered:', fcmToken.substring(0, 25) + '...');
+              }
+            }
+            fcmService.setupNotificationOpenedHandler((data: any) => {
+              if (process.env.NODE_ENV === 'development') {
+                logger.debug('FCM Notification opened with data:', data);
+              }
+              const screen = data?.screen || data?.path || data?.url;
+              const postId = data?.postId || data?.post_id;
+              const targetUserId = data?.userId || data?.user_id || data?.profileId || data?.profile_id || data?.senderId;
+              
+              if (screen && typeof screen === 'string') {
+                router.push(screen as any);
+              } else if (postId && typeof postId === 'string') {
+                router.push(`/post/${postId}` as any);
+              } else if (targetUserId && typeof targetUserId === 'string') {
+                router.push(`/profile/${targetUserId}` as any);
+              }
+            });
+          } catch (fcmErr) {
+            logger.warn('FCM fallback initialization skipped:', fcmErr);
           }
         }
-        fcmService.setupNotificationOpenedHandler((data: any) => {
-          if (process.env.NODE_ENV === 'development') {
-            logger.debug('Notification opened with data:', data);
-          }
-          const screen = data?.screen || data?.path || data?.url;
-          const postId = data?.postId || data?.post_id;
-          const userId = data?.userId || data?.user_id || data?.profileId || data?.profile_id;
-          
-          if (screen && typeof screen === 'string') {
-            router.push(screen as any);
-          } else if (postId && typeof postId === 'string') {
-            router.push(`/post/${postId}` as any);
-          } else if (userId && typeof userId === 'string') {
-            router.push(`/profile/${userId}` as any);
-          }
-        });
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         if (process.env.NODE_ENV === 'development') {
@@ -903,9 +906,32 @@ function RootLayoutInner() {
       }
     }
 
+    // Set up Expo Push notification tap response listener (Android & iOS)
+    const responseSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data;
+      if (process.env.NODE_ENV === 'development') {
+        logger.debug('Expo Push Notification response received:', data);
+      }
+      const screen = data?.screen || data?.path || data?.url;
+      const postId = data?.postId || data?.post_id || data?.entityId;
+      const targetUserId = data?.userId || data?.user_id || data?.profileId || data?.profile_id || data?.senderId;
+
+      if (screen && typeof screen === 'string') {
+        router.push(screen as any);
+      } else if (postId && typeof postId === 'string') {
+        router.push(`/post/${postId}` as any);
+      } else if (targetUserId && typeof targetUserId === 'string') {
+        router.push(`/profile/${targetUserId}` as any);
+      }
+    });
+
     if (isAuthenticated) {
       registerPushToken();
     }
+
+    return () => {
+      responseSubscription.remove();
+    };
   }, [isAuthenticated]);
 
   const handleNotificationResponse = useCallback((response: Notifications.NotificationResponse) => {

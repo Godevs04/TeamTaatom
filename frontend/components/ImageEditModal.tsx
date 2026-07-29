@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -65,7 +65,8 @@ interface ImageEditModalProps {
   onFilterChange: (filter: ImageFilterType) => void;
   selectedAspectRatio?: AspectRatioChoice;
   onAspectRatioChange?: (ratio: AspectRatioChoice) => void;
-  onTransformChange?: (transform: CropTransform | null) => void;
+  cropTransforms?: Record<number, CropTransform | null>;
+  onTransformChange?: (index: number, transform: CropTransform | null) => void;
 }
 
 export default function ImageEditModal({
@@ -77,10 +78,12 @@ export default function ImageEditModal({
   onFilterChange,
   selectedAspectRatio = '1:1',
   onAspectRatioChange,
+  cropTransforms,
   onTransformChange,
 }: ImageEditModalProps) {
   const { theme, mode } = useTheme();
   const searchAbortControllerRef = useRef<AbortController | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
 
   useEffect(() => {
     return () => {
@@ -90,10 +93,18 @@ export default function ImageEditModal({
     };
   }, []);
 
+  useEffect(() => {
+    if (visible && activeIndex >= images.length && images.length > 0) {
+      setActiveIndex(0);
+    }
+  }, [visible, images.length, activeIndex]);
+
   // All filters are now applied server-side via Cloudinary URL
   // transformations, so every chip is selectable. The chosen filter is
   // stored on the post and re-applied on every render.
   const isFilterSupported = (_id: ImageFilterType) => true;
+
+  const safeActiveIndex = Math.max(0, Math.min(activeIndex, Math.max(0, images.length - 1)));
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
@@ -134,6 +145,54 @@ export default function ImageEditModal({
             </View>
 
             <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false}>
+              {/* Photo Selector for Multi-Image Posts */}
+              {images.length > 1 && (
+                <View style={{ marginBottom: 16 }}>
+                  <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>
+                    Select photo to edit ({safeActiveIndex + 1} of {images.length})
+                  </Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexDirection: 'row' }}>
+                    {images.map((img, idx) => {
+                      const isActive = idx === safeActiveIndex;
+                      return (
+                        <TouchableOpacity
+                          key={img.uri || idx}
+                          onPress={() => setActiveIndex(idx)}
+                          activeOpacity={0.8}
+                          style={{
+                            width: 64,
+                            height: 64,
+                            borderRadius: 14,
+                            marginRight: 10,
+                            overflow: 'hidden',
+                            borderWidth: isActive ? 2.5 : 1,
+                            borderColor: isActive ? '#38BDF8' : (mode === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.15)'),
+                            position: 'relative',
+                          }}
+                        >
+                          <ExpoImage source={{ uri: img.uri }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+                          <View
+                            style={{
+                              position: 'absolute',
+                              top: 3,
+                              left: 3,
+                              backgroundColor: isActive ? '#38BDF8' : 'rgba(0, 0, 0, 0.65)',
+                              borderRadius: 8,
+                              width: 20,
+                              height: 20,
+                              justifyContent: 'center',
+                              alignItems: 'center',
+                            }}
+                          >
+                            <Text style={{ color: '#FFF', fontSize: 11, fontWeight: '700' }}>{idx + 1}</Text>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              )}
+
               {/* Aspect ratio */}
               <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary }]}>
                 Aspect ratio
@@ -187,10 +246,7 @@ export default function ImageEditModal({
                 })}
               </View>
 
-              {/* Photos — informational thumbnails. Pinch+pan cropping happens on the post creation
-                  screen itself, not in this modal. */}
-              {/* Filter preview — first selected image with approximate overlay. */}
-              {/* Filter preview — first selected image with approximate overlay. */}
+              {/* Crop & Preview Area */}
               {images.length > 0 && (() => {
                 const { width: screenWidth } = Dimensions.get('window');
                 const maxViewportWidth = screenWidth - 40 - 24;
@@ -201,10 +257,13 @@ export default function ImageEditModal({
                   viewportWidth = maxViewportWidth;
                 }
                 const viewportH = Math.round(viewportWidth / selectedRatioNum);
+                const currentImg = images[safeActiveIndex];
+                if (!currentImg) return null;
+
                 return (
                   <>
                     <Text style={[styles.sectionLabel, { color: theme.colors.textSecondary, marginTop: theme.spacing.lg }]}>
-                      Preview
+                      Crop & Framing {images.length > 1 ? `(Photo ${safeActiveIndex + 1})` : ''}
                     </Text>
                     <View style={{
                       width: '100%',
@@ -229,13 +288,15 @@ export default function ImageEditModal({
                         }
                       ]}>
                         <AspectImageCropper
-                          uri={images[0].uri}
+                          key={`${currentImg.uri}_${safeActiveIndex}_${selectedAspectRatio}`}
+                          uri={currentImg.uri}
                           aspectRatio={selectedRatioNum}
                           borderRadius={12}
                           showHint={false}
                           showReset={true}
                           viewportWidth={viewportWidth}
-                          onTransformChange={onTransformChange}
+                          initialTransform={cropTransforms?.[safeActiveIndex] ?? null}
+                          onTransformChange={(transform) => onTransformChange?.(safeActiveIndex, transform)}
                         />
                         {FILTER_PREVIEW_OVERLAY[selectedFilter] && (
                           <View

@@ -293,7 +293,7 @@ const sendNotificationToUser = async ({ userId, title, body, data }) => {
   try {
     // Fetch user with push token and notification settings
     const user = await User.findById(userId)
-      .select('expoPushToken settings.notifications')
+      .select('expoPushToken fcmToken settings.notifications')
       .lean();
 
     if (!user) {
@@ -301,8 +301,10 @@ const sendNotificationToUser = async ({ userId, title, body, data }) => {
       return false;
     }
 
+    const pushToken = user.expoPushToken || user.fcmToken;
+
     // Check if user has push token
-    if (!user.expoPushToken) {
+    if (!pushToken) {
       logger.debug(`User ${userId} has no push token. Skipping notification.`);
       return false;
     }
@@ -333,7 +335,7 @@ const sendNotificationToUser = async ({ userId, title, body, data }) => {
 
     // Send push notification
     return await sendPushNotification({
-      pushToken: user.expoPushToken,
+      pushToken,
       title,
       body,
       data

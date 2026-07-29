@@ -173,11 +173,11 @@ const resetSettings = async (req, res) => {
 
     const defaultSettings = {
       privacy: {
-        profileVisibility: 'public',
+        profileVisibility: 'private',
         showEmail: false,
         showLocation: true,
         allowMessages: 'everyone',
-        requireFollowApproval: false,
+        requireFollowApproval: true,
         allowFollowRequests: true,
         routeVisibility: 'everyone'
       },

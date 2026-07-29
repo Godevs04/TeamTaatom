@@ -423,9 +423,31 @@ const updateProfile = async (req, res) => {
     // Update user
     // IMPORTANT: profilePic field must NEVER hold a signed URL (10-min TTL would expire in DB).
     // Source of truth is profilePicStorageKey; profilePic is only retained for legacy CDN URLs.
+    let interests = req.body.interests;
+    if (typeof interests === 'string') {
+      try {
+        interests = JSON.parse(interests);
+      } catch (err) {
+        logger.debug('Interests JSON parse fallback:', err?.message || err);
+      }
+    }
+    let languagesKnown = req.body.languagesKnown;
+    if (typeof languagesKnown === 'string') {
+      try {
+        languagesKnown = JSON.parse(languagesKnown);
+      } catch (err) {
+        logger.debug('LanguagesKnown JSON parse fallback:', err?.message || err);
+      }
+    }
+
     const updateData = {
       ...(fullName && { fullName }),
       ...(bio !== undefined && { bio }),
+      ...(interests && Array.isArray(interests) && { interests }),
+      ...(languagesKnown && Array.isArray(languagesKnown) && { languagesKnown }),
+      ...(req.body.nationality !== undefined && { nationality: req.body.nationality }),
+      ...(req.body.currentLocation !== undefined && { currentLocation: req.body.currentLocation }),
+      ...(req.body.currentCountry !== undefined && { currentCountry: req.body.currentCountry }),
     };
 
     if (req.file) {

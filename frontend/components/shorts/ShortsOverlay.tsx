@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Pressable, TouchableWithoutFeedback, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Pressable, TouchableWithoutFeedback, Animated, Modal, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -9,6 +9,8 @@ import SongPlayer from '../SongPlayer';
 import { useTheme } from '../../context/ThemeContext';
 import { BlurView } from 'expo-blur';
 import ShortsActions from './ShortsActions';
+import { updatePost } from '../../services/posts';
+import AlertService from '../../services/alertService';
 
 interface ShortsOverlayProps {
   post: PostType;
@@ -67,17 +69,39 @@ const ShortsOverlay = ({
   const [localLikesCount, setLocalLikesCount] = useState(post.likesCount || 0);
   const [showPauseButton, setShowPauseButton] = useState(false);
   const [showLikeAnimation, setShowLikeAnimation] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editCaptionText, setEditCaptionText] = useState(post.caption || '');
+  const [isUpdatingCaption, setIsUpdatingCaption] = useState(false);
 
   const likeAnimValue = useRef(new Animated.Value(0)).current;
   const pauseTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastTapRef = useRef<number | null>(null);
 
-  // Seed from the post only when the cell switches to a different short. Like
-  // toggles stay local so parent post.isLiked changes cannot disturb playback.
+  // Seed from the post only when the cell switches to a different short
   useEffect(() => {
     setLocalIsLiked(post.isLiked || false);
     setLocalLikesCount(post.likesCount || 0);
-  }, [post._id]);
+    setEditCaptionText(post.caption || '');
+  }, [post._id, post.caption]);
+
+  const handleSaveCaption = useCallback(async () => {
+    try {
+      setIsUpdatingCaption(true);
+      const updated: any = await updatePost(post._id, { caption: editCaptionText });
+      const updatedPost = updated?.post || updated?.data?.post || updated;
+      if (updatedPost && updatedPost.caption !== undefined) {
+        post.caption = updatedPost.caption;
+      } else {
+        post.caption = editCaptionText;
+      }
+      setShowEditModal(false);
+      AlertService.showSuccess('Success', 'Short caption updated successfully');
+    } catch (error: any) {
+      AlertService.showError('Update Failed', error.message || 'Failed to update short caption');
+    } finally {
+      setIsUpdatingCaption(false);
+    }
+  }, [post, editCaptionText]);
 
   useEffect(() => {
     return () => {
@@ -309,6 +333,11 @@ const ShortsOverlay = ({
         onCommentPress={onCommentPress}
         onSharePress={handleShareLocal}
         onSavePress={onSavePress}
+        onEditCaptionPress={() => {
+          setEditCaptionText(post.caption || '');
+          setShowEditModal(true);
+        }}
+        onDeletePress={onDeletePress}
       />
 
       {/* Big heart popping double tap indicator */}
@@ -347,6 +376,83 @@ const ShortsOverlay = ({
           </View>
         </View>
       )}
+
+      {/* Edit Short Caption Modal */}
+      <Modal
+        visible={showEditModal}
+        transparent
+        animationType="fade"
+        statusBarTranslucent={true}
+        onRequestClose={() => {
+          if (!isUpdatingCaption) {
+            setShowEditModal(false);
+            setEditCaptionText(post.caption || '');
+          }
+        }}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={(styles as any).editModalOverlay}
+        >
+          <TouchableOpacity
+            style={(styles as any).editModalOverlayTouchable}
+            activeOpacity={1}
+            onPress={() => {
+              if (!isUpdatingCaption) {
+                setShowEditModal(false);
+                setEditCaptionText(post.caption || '');
+              }
+            }}
+          >
+            <TouchableOpacity
+              style={(styles as any).editModalContainerTouchable}
+              activeOpacity={1}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={[(styles as any).editModalContainer, { backgroundColor: theme.colors.surface }]}>
+                <Text style={[(styles as any).editModalTitle, { color: theme.colors.text }]}>Edit Short Caption</Text>
+                <TextInput
+                  style={[(styles as any).editInput, {
+                    color: theme.colors.text,
+                    backgroundColor: theme.colors.background,
+                    borderColor: theme.colors.border
+                  }]}
+                  value={editCaptionText}
+                  onChangeText={setEditCaptionText}
+                  placeholder="Enter caption for this short..."
+                  placeholderTextColor={theme.colors.textSecondary}
+                  multiline
+                  maxLength={1000}
+                  autoFocus
+                />
+                <View style={(styles as any).editModalActions}>
+                  <TouchableOpacity
+                    style={[(styles as any).editModalButton, (styles as any).editModalButtonCancel, { borderColor: theme.colors.border }]}
+                    onPress={() => {
+                      setShowEditModal(false);
+                      setEditCaptionText(post.caption || '');
+                    }}
+                    disabled={isUpdatingCaption}
+                  >
+                    <Text style={[(styles as any).editModalButtonText, { color: theme.colors.text }]}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[(styles as any).editModalButton, (styles as any).editModalButtonSave, { backgroundColor: theme.colors.primary }]}
+                    onPress={handleSaveCaption}
+                    disabled={isUpdatingCaption}
+                  >
+                    {isUpdatingCaption ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Text style={[(styles as any).editModalButtonText, { color: '#FFFFFF' }]}>Save</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 };
@@ -503,6 +609,65 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  editModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+  },
+  editModalOverlayTouchable: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  editModalContainerTouchable: {
+    width: '100%',
+    maxWidth: 420,
+  },
+  editModalContainer: {
+    width: '100%',
+    borderRadius: 16,
+    padding: 20,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+  },
+  editModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 16,
+  },
+  editInput: {
+    minHeight: 90,
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 15,
+    textAlignVertical: 'top',
+    marginBottom: 20,
+  },
+  editModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  editModalButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    minWidth: 80,
+  },
+  editModalButtonCancel: {
+    borderWidth: 1,
+    marginRight: 10,
+  },
+  editModalButtonSave: {},
+  editModalButtonText: {
+    fontSize: 15,
+    fontWeight: '600',
   },
 });
 
