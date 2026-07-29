@@ -425,11 +425,19 @@ const updateProfile = async (req, res) => {
     // Source of truth is profilePicStorageKey; profilePic is only retained for legacy CDN URLs.
     let interests = req.body.interests;
     if (typeof interests === 'string') {
-      try { interests = JSON.parse(interests); } catch {}
+      try {
+        interests = JSON.parse(interests);
+      } catch (err) {
+        logger.debug('Interests JSON parse fallback:', err?.message || err);
+      }
     }
     let languagesKnown = req.body.languagesKnown;
     if (typeof languagesKnown === 'string') {
-      try { languagesKnown = JSON.parse(languagesKnown); } catch {}
+      try {
+        languagesKnown = JSON.parse(languagesKnown);
+      } catch (err) {
+        logger.debug('LanguagesKnown JSON parse fallback:', err?.message || err);
+      }
     }
 
     const updateData = {
