@@ -461,12 +461,39 @@ export default function ShareModal({
       });
 
       if (trimmedQuery.length > 0) {
-        // Search query: search ONLY within user's private communication history (active chats)
         const matchingActive = activeRecipients.filter(r => 
           r.fullName.toLowerCase().includes(trimmedQuery) || 
           (r.username && r.username.toLowerCase().includes(trimmedQuery))
         );
-        setRecipients(matchingActive);
+
+        let searchedContacts: RecipientItem[] = [];
+        try {
+          const searchRes = await searchUsers(trimmedQuery, 1, 20);
+          if (searchRes?.users && Array.isArray(searchRes.users)) {
+            searchedContacts = searchRes.users
+              .filter(u => u._id !== myId && !activeIds.has(u._id))
+              .map(u => ({
+                _id: u._id,
+                fullName: u.fullName || u.username || 'User',
+                profilePic: u.profilePic,
+                username: u.username,
+                isGroup: false,
+              }));
+          }
+        } catch (searchErr) {
+          logger.warn('ShareModal searchUsers error:', searchErr);
+        }
+
+        const combinedResults = [...matchingActive];
+        const existingIds = new Set(matchingActive.map(m => m._id));
+        searchedContacts.forEach(sc => {
+          if (!existingIds.has(sc._id)) {
+            combinedResults.push(sc);
+            existingIds.add(sc._id);
+          }
+        });
+
+        setRecipients(combinedResults);
         setMostInteracted([]);
         setOtherRecipients([]);
       } else {

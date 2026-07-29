@@ -152,9 +152,11 @@ export const resendOTP = async (email: string): Promise<AuthResponse> => {
 export const signIn = async (data: SignInData): Promise<AuthResponse> => {
   try {
     // Debug: Log the API base URL being used
-    // @ts-ignore
-    logger.debug('API_BASE_URL:', require('./api').default.defaults.baseURL);
-    const loginLocation = data.loginLocation ?? (await getLoginLocationHint());
+    // Fast non-blocking location hint with 1.2s safety race timeout
+    const locationHintPromise = data.loginLocation ? Promise.resolve(data.loginLocation) : getLoginLocationHint();
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200));
+    const loginLocation = await Promise.race([locationHintPromise, timeoutPromise]);
+
     const response = await api.post('/api/v1/auth/signin', {
       email: data.email,
       password: data.password,

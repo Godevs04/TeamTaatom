@@ -1047,13 +1047,15 @@ function PhotoCard({
   }, [post._id, showCustomAlertMessage]);
 
   const handleEditPost = useCallback(async () => {
-    if (!editCaption.trim()) {
-      showCustomAlertMessage('Error', 'Caption cannot be empty.', 'error');
-      return;
-    }
     try {
       setIsMenuLoading(true);
-      await updatePost(post._id, editCaption);
+      const updated: any = await updatePost(post._id, { caption: editCaption });
+      const updatedPost = updated?.post || updated?.data?.post || updated;
+      if (updatedPost && updatedPost.caption !== undefined) {
+        post.caption = updatedPost.caption;
+      } else {
+        post.caption = editCaption;
+      }
       showCustomAlertMessage('Success', 'Post updated successfully!', 'success');
       if (onRefresh) onRefresh();
     } catch (error: any) {
@@ -1064,7 +1066,7 @@ function PhotoCard({
       setShowEditModal(false);
       setShowMenu(false);
     }
-  }, [post._id, editCaption, onRefresh, showCustomAlertMessage]);
+  }, [post, editCaption, onRefresh, showCustomAlertMessage]);
 
   const handlePress = useCallback(() => {
     try {

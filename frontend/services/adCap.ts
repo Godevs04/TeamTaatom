@@ -19,7 +19,7 @@ import logger from '../utils/logger';
 const STORAGE_KEY = '@taatom/adCap/v1';
 const MAX_GOOGLE_ADS = 10;
 const WINDOW_MS = 8 * 60 * 60 * 1000; // 8 hours
-const LAUNCH_DELAY_MS = __DEV__ ? 1000 : 30000; // 30 seconds (1s in dev)
+const LAUNCH_DELAY_MS = __DEV__ ? 5000 : 5 * 60 * 1000; // 5 minutes (5s in dev)
 const VIEW_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export interface ContentViewEntry {

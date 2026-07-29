@@ -47,6 +47,8 @@ interface ShortsActionsProps {
   onCommentPress: (shortId: string) => void;
   onSharePress: () => void;
   onSavePress: (shortId: string) => void;
+  onEditCaptionPress?: () => void;
+  onDeletePress?: (shortId: string) => void;
 }
 
 const ShortsActions = ({
@@ -67,6 +69,8 @@ const ShortsActions = ({
   onCommentPress,
   onSharePress,
   onSavePress,
+  onEditCaptionPress,
+  onDeletePress,
 }: ShortsActionsProps) => {
   const { theme } = useTheme();
   const router = useRouter();
@@ -76,25 +80,44 @@ const ShortsActions = ({
   const [likers, setLikers] = useState<any[]>([]);
 
   const handleOptionsPress = () => {
+    const options: any[] = [
+      {
+        text: isSaved ? 'Remove from Saved' : 'Save Short',
+        onPress: () => onSavePress(shortId),
+      },
+      {
+        text: 'Share Short',
+        onPress: onSharePress,
+      },
+    ];
+
+    if (isOwn) {
+      if (onEditCaptionPress) {
+        options.push({
+          text: 'Edit Caption',
+          onPress: onEditCaptionPress,
+        });
+      }
+      if (onDeletePress) {
+        options.push({
+          text: 'Delete Short',
+          onPress: () => onDeletePress(shortId),
+          style: 'destructive',
+        });
+      }
+    } else {
+      options.push({
+        text: 'Report Short',
+        onPress: () => {
+          showSuccess('Thank you for reporting. We will review this content shortly.', 'Report Submitted');
+        },
+        style: 'destructive',
+      });
+    }
+
     showOptions(
       'Short Options',
-      [
-        {
-          text: isSaved ? 'Remove from Saved' : 'Save Short',
-          onPress: () => onSavePress(shortId),
-        },
-        {
-          text: 'Share Short',
-          onPress: onSharePress,
-        },
-        {
-          text: 'Report Short',
-          onPress: () => {
-            showSuccess('Thank you for reporting. We will review this content shortly.', 'Report Submitted');
-          },
-          style: 'destructive',
-        },
-      ],
+      options,
       undefined,
       true,
       'Cancel'

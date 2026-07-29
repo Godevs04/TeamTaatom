@@ -36,6 +36,11 @@ export interface ProfileResponse {
 export interface UpdateProfileData {
   fullName?: string;
   bio?: string;
+  nationality?: string;
+  languagesKnown?: string[];
+  interests?: string[];
+  currentLocation?: string;
+  currentCountry?: string;
   profilePic?: {
     uri: string;
     type: string;
@@ -80,6 +85,26 @@ export const updateProfile = async (userId: string, data: UpdateProfileData): Pr
     
     if (data.bio !== undefined) {
       formData.append('bio', data.bio);
+    }
+
+    if (data.nationality !== undefined) {
+      formData.append('nationality', data.nationality);
+    }
+
+    if (data.currentLocation !== undefined) {
+      formData.append('currentLocation', data.currentLocation);
+    }
+
+    if (data.currentCountry !== undefined) {
+      formData.append('currentCountry', data.currentCountry);
+    }
+
+    if (data.languagesKnown) {
+      formData.append('languagesKnown', JSON.stringify(data.languagesKnown));
+    }
+
+    if (data.interests) {
+      formData.append('interests', JSON.stringify(data.interests));
     }
     
     if (data.profilePic) {

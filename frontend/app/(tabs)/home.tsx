@@ -1589,7 +1589,9 @@ export default function HomeScreen() {
         const newVisibleIndex = bestItemToken.index;
 
         if (newVisibleIndex !== null && newVisibleIndex !== undefined) {
-          setVisibleIndex(newVisibleIndex);
+          if (visibleIndexRef.current !== newVisibleIndex) {
+            setVisibleIndex(newVisibleIndex);
+          }
           if (!hasScrolledRef.current && newVisibleIndex > 0) {
             hasScrolledRef.current = true;
           }
@@ -1599,7 +1601,9 @@ export default function HomeScreen() {
           }
           
           const postId = item._id;
-          setVisiblePostId(postId);
+          if (visiblePostIdRef.current !== postId) {
+            setVisiblePostId(postId);
+          }
           
           // Clear any active timer for a previous post
           if (viewTimerRef.current) {
@@ -1759,6 +1763,7 @@ export default function HomeScreen() {
               keyExtractor={keyExtractor}
               renderItem={renderItem}
               extraData={feedExtraData}
+              getItemType={(item: FeedItem) => (isAdItem(item) ? 'ad' : 'post')}
               estimatedItemSize={580}
               overrideItemLayout={overrideItemLayout}
               style={styles.postsContainer}

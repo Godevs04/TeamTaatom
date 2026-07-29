@@ -2640,8 +2640,8 @@ const addComment = async (req, res) => {
         
         logger.debug('✅ Comment notification created successfully:', notification._id);
 
-        // Send push notification
-        await sendNotificationToUser({
+        // Send push notification in background (non-blocking)
+        sendNotificationToUser({
           userId: post.user._id.toString(),
           title: 'New Comment',
           body: `${req.user.fullName} commented on your post`,
@@ -2688,10 +2688,11 @@ const addComment = async (req, res) => {
       // Emit the new real-time post comment update
       nsp.emitPostComment(post._id.toString(), populatedComment, post.comments.length, req.user._id.toString());
       
-      // Also emit legacy events
-      const followers = await getFollowers(post.user);
-      const audience = [post.user.toString(), ...followers];
-      nsp.emitEvent('comment:created', audience, { postId: post._id });
+      // Also emit legacy events in background (non-blocking)
+      getFollowers(post.user).then(followers => {
+        const audience = [post.user.toString(), ...followers];
+        nsp.emitEvent('comment:created', audience, { postId: post._id });
+      }).catch(err => logger.error('Error emitting follower comment event:', err));
     }
 
     // Convert populated comment to plain object for response
@@ -3121,15 +3122,25 @@ const updatePost = async (req, res) => {
     const oldHashtags = post.tags || [];
     
     // Extract new hashtags if caption provided
-    const extractedHashtags = caption ? extractHashtags(caption) : [];
     const updateData = {};
-    if (caption) {
-      updateData.caption = caption;
+    let extractedHashtags = oldHashtags;
+    if (caption !== undefined) {
+      const trimmedCaption = typeof caption === 'string' ? caption.trim() : '';
+      extractedHashtags = trimmedCaption ? extractHashtags(trimmedCaption) : [];
+      updateData.caption = trimmedCaption;
       updateData.tags = extractedHashtags;
     }
 
     // Use findByIdAndUpdate for better performance
-    await Post.findByIdAndUpdate(req.params.id, updateData);
+    const updatedPost = await Post.findByIdAndUpdate(
+      req.params.id,
+      { $set: updateData },
+      { new: true }
+    )
+      .populate('user', 'fullName username profilePic profilePicStorageKey')
+      .populate('song.songId')
+      .populate('comments.user', 'fullName username profilePic profilePicStorageKey')
+      .lean();
 
     // Invalidate cache
     await deleteCache(CacheKeys.post(req.params.id));
@@ -3137,7 +3148,7 @@ const updatePost = async (req, res) => {
     await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     // Update hashtag counts (decrement old, increment new)
-    const newHashtags = extractedHashtags.length > 0 ? extractedHashtags : (post.tags || []);
+    const newHashtags = extractedHashtags;
     const hashtagsToRemove = oldHashtags.filter(tag => !newHashtags.includes(tag));
     const hashtagsToAdd = newHashtags.filter(tag => !oldHashtags.includes(tag));
 
@@ -3174,7 +3185,7 @@ const updatePost = async (req, res) => {
       ).catch(err => logger.error('Error updating new hashtags:', err));
     }
 
-    return sendSuccess(res, 200, 'Post updated successfully', { post });
+    return sendSuccess(res, 200, 'Post updated successfully', { post: updatedPost || post });
   } catch (error) {
     logger.error('Update post error:', error);
     return sendError(res, 'SRV_6001', 'Error updating post');

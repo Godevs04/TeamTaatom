@@ -204,6 +204,25 @@ export default function AccountSettingsScreen() {
           <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>
             Account Information
           </Text>
+
+          <TouchableOpacity 
+            style={[styles.settingItem, { borderBottomWidth: 1, borderBottomColor: theme.colors.border + '30', paddingVertical: 14 }]}
+            onPress={() => router.push('/settings/personal-details')}
+            activeOpacity={0.7}
+          >
+            <View style={styles.settingContent}>
+              <Ionicons name="card-outline" size={20} color={theme.colors.primary} />
+              <View style={{ marginLeft: 8 }}>
+                <Text style={[styles.settingLabel, { color: theme.colors.text, fontWeight: '600' }]}>
+                  Edit Personal Details Data Sheet
+                </Text>
+                <Text style={{ fontSize: 12, color: theme.colors.textSecondary, marginTop: 2 }}>
+                  Edit name, bio, nationality, languages & interests
+                </Text>
+              </View>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={theme.colors.textSecondary} />
+          </TouchableOpacity>
           
           <View style={styles.settingItem}>
             <View style={styles.settingContent}>

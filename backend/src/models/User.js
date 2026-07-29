@@ -206,7 +206,7 @@ const userSchema = new mongoose.Schema({
       profileVisibility: {
         type: String,
         enum: ['public', 'followers', 'private'],
-        default: 'public'
+        default: 'private'
       },
       showEmail: {
         type: Boolean,
@@ -223,7 +223,7 @@ const userSchema = new mongoose.Schema({
       },
       requireFollowApproval: {
         type: Boolean,
-        default: false
+        default: true
       },
       allowFollowRequests: {
         type: Boolean,
@@ -331,8 +331,6 @@ const userSchema = new mongoose.Schema({
 userSchema.index({ isVerified: 1 }); // For filtering verified users
 userSchema.index({ createdAt: -1 }); // For sorting by creation date
 userSchema.index({ lastLogin: -1 }); // For sorting by last login
-// Geospatial index skipped - data format incompatible (requires GeoJSON format)
-// userSchema.index({ 'location.coordinates': '2dsphere' });
 
 // Hash password before saving
 userSchema.pre('save', async function(next) {

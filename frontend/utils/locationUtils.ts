@@ -908,18 +908,23 @@ export const getLocaleDistanceKm = async (
 
   // Get REAL driving distance using coordinates from database
   // This calculates actual road distance, not straight-line
-  const distance = await calculateDrivingDistanceKm(
+  let distance = await calculateDrivingDistanceKm(
     roundedUserLat, 
     roundedUserLon, 
     roundedLocaleLat,  // Use rounded locale coordinates for consistency
     roundedLocaleLon
   );
 
+  // If driving distance calculation returned null, fall back to straight-line distance
+  if (distance === null) {
+    distance = calculateDistance(roundedUserLat, roundedUserLon, roundedLocaleLat, roundedLocaleLon);
+  }
+
   // Cache the result
   if (distance !== null) {
     distanceCache.set(cacheKey, distance);
     if (__DEV__) {
-      logger.debug(`✅ Driving distance calculated for ${localeId}: ${distance.toFixed(2)} km`);
+      logger.debug(`✅ Distance calculated for ${localeId}: ${distance.toFixed(2)} km`);
     }
   } else {
     if (__DEV__) {

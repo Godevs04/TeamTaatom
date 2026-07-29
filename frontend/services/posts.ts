@@ -589,9 +589,10 @@ export const toggleComments = async (postId: string): Promise<{ message: string;
 };
 
 // Update post
-export const updatePost = async (postId: string, caption: string): Promise<{ message: string; post: any }> => {
+export const updatePost = async (postId: string, data: { caption?: string } | string): Promise<{ message: string; post: any }> => {
   try {
-    const response = await api.patch(`/api/v1/posts/${postId}`, { caption });
+    const payload = typeof data === 'string' ? { caption: data } : data;
+    const response = await api.patch(`/api/v1/posts/${postId}`, payload);
     postByIdCache.delete(postId);
     return response.data;
   } catch (error: any) {

@@ -677,7 +677,14 @@ export default function PostScreen() {
       aspectRatio: naturalImageAspect,
     };
   }, [naturalImageAspect, windowWidth, windowHeight]);
-  const [cropTransform, setCropTransform] = useState<CropTransform | null>(null);
+  const [cropTransforms, setCropTransforms] = useState<Record<number, CropTransform | null>>({});
+
+  const handleTransformChange = useCallback((index: number, transform: CropTransform | null) => {
+    setCropTransforms((prev) => ({
+      ...prev,
+      [index]: transform,
+    }));
+  }, []);
   const [selectedSong, setSelectedSong] = useState<Song | null>(null);
   const [songStartTime, setSongStartTime] = useState(0);
   const [songEndTime, setSongEndTime] = useState(60);
@@ -789,6 +796,7 @@ export default function PostScreen() {
     
     // Reset media
     setSelectedImages([]);
+    setCropTransforms({});
     setSelectedVideo(null);
     setVideoThumbnail(null);
     
@@ -1144,6 +1152,7 @@ export default function PostScreen() {
         songEndTime,
         audioChoice,
         selectedFilter,
+        cropTransforms,
         comment: draftComment,
         caption: draftCaption,
         tags: draftTags,
@@ -1222,6 +1231,7 @@ export default function PostScreen() {
     if (draft.postType) setPostType(draft.postType);
 
     if (draft.selectedFilter) setSelectedFilter(draft.selectedFilter);
+    if (draft.cropTransforms) setCropTransforms(draft.cropTransforms);
     
     // Restore music selection
     if (draft.selectedSong) {
@@ -2825,7 +2835,7 @@ export default function PostScreen() {
       const aspectProcessed = await Promise.all(
         imagesData.map(async (img, idx) => {
           try {
-            const tx = imagesData.length === 1 && idx === 0 ? cropTransform ?? undefined : undefined;
+            const tx = cropTransforms[idx] ?? undefined;
             const processedUri = await processImageToAspect(img.uri, selectedAspectRatio as any, tx);
             return { ...img, uri: processedUri };
           } catch (e) {
@@ -3850,7 +3860,8 @@ export default function PostScreen() {
                       borderRadius={theme.borderRadius.xl}
                       showHint={false}
                       showReset={true}
-                      onTransformChange={setCropTransform}
+                      initialTransform={cropTransforms[0] ?? null}
+                      onTransformChange={(t) => handleTransformChange(0, t)}
                     />
                   )
                 ) : selectedImages.length === 2 ? (
@@ -6185,6 +6196,18 @@ export default function PostScreen() {
               }
               return updated;
             });
+            setCropTransforms(prev => {
+              const next: Record<number, CropTransform | null> = {};
+              Object.keys(prev).forEach((keyStr) => {
+                const k = parseInt(keyStr, 10);
+                if (k < index) {
+                  next[k] = prev[k];
+                } else if (k > index) {
+                  next[k - 1] = prev[k];
+                }
+              });
+              return next;
+            });
           }}
           onAppendMoreImages={() => {
             appendMoreImages();
@@ -6200,8 +6223,9 @@ export default function PostScreen() {
           selectedFilter={selectedFilter}
           onFilterChange={setSelectedFilter}
           selectedAspectRatio={selectedAspectRatio}
-          onAspectRatioChange={(ar) => { setSelectedAspectRatio(ar); setCropTransform(null); }}
-          onTransformChange={setCropTransform}
+          onAspectRatioChange={(ar) => { setSelectedAspectRatio(ar); setCropTransforms({}); }}
+          cropTransforms={cropTransforms}
+          onTransformChange={handleTransformChange}
         />
         {/* Shadow Gate above bottom tab bar */}
         <LinearGradient
