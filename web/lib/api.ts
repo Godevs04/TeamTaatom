@@ -148,6 +148,15 @@ export async function archivePost(postId: string) {
   return res.data as { message?: string; post?: Post };
 }
 
+/**
+ * Flips comments on/off for a post. The backend endpoint is a pure toggle with no
+ * request body and is restricted to the post owner; it returns the resulting state.
+ */
+export async function toggleComments(postId: string) {
+  const res = await api.patch(`/posts/${postId}/toggle-comments`);
+  return res.data as { message?: string; commentsDisabled: boolean };
+}
+
 export async function hidePost(postId: string) {
   const res = await api.patch(`/posts/${postId}/hide`);
   return res.data as { message?: string };

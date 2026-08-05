@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRef, useState, useEffect } from "react";
-import { Heart, MessageCircle, Share2, MoreHorizontal, Archive, EyeOff, Trash2, Flag, X, Bookmark, FolderPlus } from "lucide-react";
+import { Heart, MessageCircle, MessageCircleOff, Share2, MoreHorizontal, Archive, EyeOff, Trash2, Flag, X, Bookmark, FolderPlus } from "lucide-react";
 import { motion } from "framer-motion";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -10,6 +10,7 @@ import {
   deletePost,
   archivePost,
   hidePost,
+  toggleComments,
   createReport,
   type ReportReason,
 } from "../../lib/api";
@@ -151,6 +152,32 @@ export function PostCard({
       await hidePost(post._id);
       toast.success("Post hidden");
       removeFromFeed();
+    } catch (e) {
+      toast.error(getFriendlyErrorMessage(e));
+    } finally {
+      setMenuLoading(false);
+    }
+  };
+
+  const handleToggleComments = async () => {
+    setMenuLoading(true);
+    setMenuOpen(false);
+    try {
+      const { commentsDisabled } = await toggleComments(post._id);
+      patchAllFeedQueries(qc, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page) => ({
+            ...page,
+            posts: page.posts.map((p: Post) =>
+              p._id === post._id ? { ...p, commentsDisabled } : p
+            ),
+          })),
+        };
+      });
+      qc.invalidateQueries({ queryKey: ["post", post._id] });
+      toast.success(commentsDisabled ? "Comments turned off" : "Comments turned on");
     } catch (e) {
       toast.error(getFriendlyErrorMessage(e));
     } finally {
@@ -381,6 +408,14 @@ export function PostCard({
                       >
                         <FolderPlus className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
                         Add to Collection
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        onClick={handleToggleComments}
+                      >
+                        <MessageCircleOff className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
+                        {post.commentsDisabled ? "Turn On Comments" : "Turn Off Comments"}
                       </button>
                       <button
                         type="button"

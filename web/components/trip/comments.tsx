@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2 } from "lucide-react";
+import { Lock, Trash2 } from "lucide-react";
 import { addComment, deleteComment, getPostById } from "../../lib/api";
 import { getFriendlyErrorMessage } from "../../lib/auth-errors";
 import { useAuth } from "../../context/auth-context";
@@ -69,6 +69,7 @@ export function TripComments({ postId }: { postId: string }) {
   }
 
   const comments: Comment[] = q.data.comments || [];
+  const commentsDisabled = !!q.data.commentsDisabled;
   const postOwnerId = q.data.user?._id;
   /** Mirrors the backend rule: comment author or post owner. */
   const canDelete = (c: Comment) =>
@@ -87,7 +88,12 @@ export function TripComments({ postId }: { postId: string }) {
       </div>
 
       <div className="rounded-2xl border bg-card p-4">
-        {!user ? (
+        {commentsDisabled ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Lock className="h-4 w-4" />
+            Comments are disabled for this post
+          </div>
+        ) : !user ? (
           <p className="text-sm text-muted-foreground">Sign in to comment.</p>
         ) : (
           <div className="flex gap-2">
