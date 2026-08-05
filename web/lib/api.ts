@@ -303,6 +303,18 @@ export async function getRouteAccessRequests() {
   return { requests: data.requests ?? [] };
 }
 
+/**
+ * Entries are populated User docs (fullName/username/profilePic/email) — a flat
+ * user, not a RouteAccessRequest wrapper, so there is no requestedAt timestamp.
+ */
+export type RouteAccessApprovedUser = Pick<User, "_id" | "fullName" | "username" | "profilePic" | "email">;
+
+export async function getApprovedUsers() {
+  const res = await api.get("/profile/route-access/approved");
+  const data = res.data as { approvedUsers?: RouteAccessApprovedUser[] };
+  return { approvedUsers: data.approvedUsers ?? [] };
+}
+
 export async function approveRouteAccess(requestId: string) {
   const res = await api.post(`/profile/route-access/requests/${requestId}/approve`);
   return res.data as { message?: string };
