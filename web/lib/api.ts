@@ -330,6 +330,12 @@ export async function requestRouteAccess(userId: string) {
   return res.data as { message?: string; status?: "pending" | "approved" };
 }
 
+/** Takes the approved *user's* id — not a request id, unlike approve/reject above. */
+export async function revokeRouteAccess(userId: string) {
+  const res = await api.delete(`/profile/${userId}/route-access`);
+  return res.data as { message?: string };
+}
+
 export type TravelMapLocation = {
   number?: number;
   latitude: number;

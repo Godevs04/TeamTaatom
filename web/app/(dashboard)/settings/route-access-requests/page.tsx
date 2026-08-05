@@ -16,6 +16,7 @@ import {
   getApprovedUsers,
   getRouteAccessRequests,
   rejectRouteAccess,
+  revokeRouteAccess,
   type RouteAccessApprovedUser,
   type RouteAccessRequest,
 } from "../../../../lib/api";
@@ -86,6 +87,27 @@ export default function RouteAccessRequestsPage() {
       );
     } catch {
       toast.error("Failed to approve request");
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  const handleRevoke = async (approved: RouteAccessApprovedUser) => {
+    const name = approved.fullName || approved.username || "this person";
+    if (
+      !window.confirm(
+        `Revoke route access for ${name}? They will no longer be able to view your traveling routes.`
+      )
+    ) {
+      return;
+    }
+    setActingId(approved._id);
+    try {
+      await revokeRouteAccess(approved._id);
+      setApprovedUsers((prev) => prev.filter((u) => u._id !== approved._id));
+      toast.success(`${name} can no longer view your traveling routes`);
+    } catch {
+      toast.error("Failed to revoke access");
     } finally {
       setActingId(null);
     }
@@ -279,6 +301,18 @@ export default function RouteAccessRequestsPage() {
                         @{approved.username || "user"}
                       </p>
                     </div>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl text-destructive hover:bg-destructive/10"
+                      disabled={actingId === approved._id}
+                      onClick={() => handleRevoke(approved)}
+                    >
+                      Revoke
+                    </Button>
                   </div>
                 </li>
               ))}
