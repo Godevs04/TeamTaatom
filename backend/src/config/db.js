@@ -1,5 +1,12 @@
 const mongoose = require('mongoose');
 const logger = require('../utils/logger');
+const dns = require('dns');
+
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4']);
+} catch (e) {
+  // Ignore DNS set failures
+}
 
 // Extract database name from environment variable or MONGO_URL
 const getDatabaseName = () => {
