@@ -16,6 +16,7 @@ import type { User } from "../../types/user";
 import {
   createPostShortUrl,
   getSuggestedUsers,
+  incrementShareCount,
   searchUsers,
   sendChatMessage,
 } from "../../lib/api";
@@ -114,11 +115,21 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
   const listLoading =
     phase === "chat" && (debouncedSearch.length >= 2 ? searchQueryResult.isLoading : suggestedQuery.isLoading);
 
+  /**
+   * Fire-and-forget share tracking. Called once per *completed* share, never on
+   * modal open or on a cancelled share. Failures stay silent: the share itself
+   * already succeeded and the count is only telemetry.
+   */
+  const trackShare = React.useCallback(() => {
+    void incrementShareCount(post._id).catch(() => {});
+  }, [post._id]);
+
   const sendMutation = useMutation({
     mutationFn: (userId: string) =>
       sendChatMessage(userId, buildPostShareChatMessage(post, displayUrl)),
     onSuccess: () => {
       toast.success("Post sent in chat");
+      trackShare();
       void qc.invalidateQueries({ queryKey: ["chat"] });
       onClose();
     },
@@ -129,6 +140,7 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
     try {
       await navigator.clipboard.writeText(displayUrl);
       toast.success("Link copied");
+      trackShare();
     } catch {
       toast.error("Could not copy link");
     }
@@ -142,13 +154,16 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
           text: shareText,
           url: displayUrl,
         });
+        trackShare();
         onClose();
         return;
       } catch (e: unknown) {
         const err = e as { name?: string };
+        // User dismissed the sheet — not a share, and no fallback copy either.
         if (err?.name === "AbortError") return;
       }
     }
+    // Falls through to copyLink, which does its own tracking, so no double count.
     await copyLink();
   };
 
@@ -158,6 +173,7 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
       "_blank",
       "noopener,noreferrer"
     );
+    trackShare();
     onClose();
   };
 
@@ -168,6 +184,7 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
       "_blank",
       "noopener,noreferrer"
     );
+    trackShare();
     onClose();
   };
 

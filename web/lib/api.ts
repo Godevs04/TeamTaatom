@@ -149,6 +149,15 @@ export async function archivePost(postId: string) {
 }
 
 /**
+ * Records that a post was shared. Uses optional auth on the backend, so this also
+ * counts shares from logged-out visitors.
+ */
+export async function incrementShareCount(postId: string) {
+  const res = await api.post(`/posts/${postId}/share`);
+  return res.data as { message: string; sharesCount: number };
+}
+
+/**
  * Edits a published post. The backend controller reads only `caption` from the body
  * (hashtags are re-extracted from it server-side), so the caption is the only
  * editable field — sending anything else would be silently ignored.
