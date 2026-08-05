@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { searchPosts, searchUsers, searchHashtags } from "../../../lib/api";
+import { searchPosts, searchUsers, searchHashtags, searchByLocation } from "../../../lib/api";
 import { Input } from "../../../components/ui/input";
 import { Card } from "../../../components/ui/card";
 import { Skeleton } from "../../../components/ui/skeleton";
@@ -36,6 +36,12 @@ export default function SearchPage() {
     enabled: debounced.trim().length >= 2,
   });
 
+  const placesQ = useQuery({
+    queryKey: ["search", "location", debounced],
+    queryFn: () => searchByLocation(debounced, 1, 20),
+    enabled: debounced.trim().length >= 2,
+  });
+
   const hashtagTerm = debounced.trim().replace(/^#/, "");
 
   const hashtagsQ = useQuery({
@@ -45,19 +51,19 @@ export default function SearchPage() {
   });
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4 sm:space-y-6">
+    <div className="mx-auto w-full max-w-6xl space-y-4 sm:space-y-6">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight dark:text-zinc-50 sm:text-3xl">Search</h1>
-        <p className="mt-1 text-sm text-muted-foreground">Find travelers and trips.</p>
+        <p className="mt-1 text-sm text-muted-foreground">Find travelers, trips and places.</p>
       </div>
 
       <div className="rounded-3xl border bg-card p-4 shadow-card">
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search users, trips, hashtags…" />
+        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search users, trips, hashtags, places…" />
         <p className="mt-2 text-xs text-muted-foreground">Type at least 2 characters.</p>
       </div>
 
       {debounced.trim().length < 2 ? null : (
-        <div className="grid gap-6 lg:grid-cols-3">
+        <div className="grid gap-6 lg:grid-cols-2 xl:grid-cols-4">
           <section className="space-y-3">
             <h2 className="text-lg font-semibold dark:text-zinc-50">Travelers</h2>
             {usersQ.isLoading ? (
@@ -126,52 +132,78 @@ export default function SearchPage() {
           <section className="space-y-3">
             <h2 className="text-lg font-semibold dark:text-zinc-50">Trips</h2>
             {postsQ.isLoading ? (
-              <div className="space-y-3">
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <div key={i} className="rounded-2xl border bg-card p-3">
-                    <Skeleton className="h-32 w-full rounded-xl" />
-                    <div className="mt-3 space-y-2">
-                      <Skeleton className="h-3 w-2/3" />
-                      <Skeleton className="h-3 w-1/2" />
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <TripResultSkeletons />
             ) : (postsQ.data?.posts?.length || 0) === 0 ? (
               <Card className="p-6 text-sm text-muted-foreground">No matching trips.</Card>
             ) : (
               <div className="space-y-3">
-                {(postsQ.data?.posts || []).map((p: Post) => {
-                  const imageSrc =
-                    p.imageUrl ||
-                    p.thumbnailUrl ||
-                    p.mediaUrl ||
-                    (Array.isArray(p.images) && p.images[0]) ||
-                    "";
-                  return (
-                    <Link key={p._id} href={`/trip/${p._id}`} className="group block overflow-hidden rounded-2xl border bg-card shadow-card hover:bg-accent">
-                      <div className="aspect-[16/9] bg-muted">
-                        {imageSrc ? (
-                          /* eslint-disable-next-line @next/next/no-img-element */
-                          <img src={imageSrc} alt={p.caption || "Trip"} className="h-full w-full object-cover" />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-                            <span className="text-4xl" aria-hidden>🖼</span>
-                          </div>
-                        )}
-                      </div>
-                      <div className="p-3">
-                        <div className="line-clamp-1 text-sm font-semibold">{p.caption || "Trip"}</div>
-                        <div className="line-clamp-1 text-xs text-muted-foreground">{getPostDisplayLocation(p)}</div>
-                      </div>
-                    </Link>
-                  );
-                })}
+                {(postsQ.data?.posts || []).map((p: Post) => (
+                  <TripResultCard key={p._id} post={p} />
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="space-y-3">
+            <h2 className="text-lg font-semibold dark:text-zinc-50">Places</h2>
+            {placesQ.isLoading ? (
+              <TripResultSkeletons />
+            ) : (placesQ.data?.posts?.length || 0) === 0 ? (
+              <Card className="p-6 text-sm text-muted-foreground">No trips at a matching location.</Card>
+            ) : (
+              <div className="space-y-3">
+                {(placesQ.data?.posts || []).map((p: Post) => (
+                  <TripResultCard key={p._id} post={p} />
+                ))}
               </div>
             )}
           </section>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Shared by the Trips and Places sections — both render post results identically. */
+function TripResultCard({ post }: { post: Post }) {
+  const imageSrc =
+    post.imageUrl ||
+    post.thumbnailUrl ||
+    post.mediaUrl ||
+    (Array.isArray(post.images) && post.images[0]) ||
+    "";
+  return (
+    <Link href={`/trip/${post._id}`} className="group block overflow-hidden rounded-2xl border bg-card shadow-card hover:bg-accent">
+      <div className="aspect-[16/9] bg-muted">
+        {imageSrc ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img src={imageSrc} alt={post.caption || "Trip"} className="h-full w-full object-cover" />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center text-muted-foreground">
+            <span className="text-4xl" aria-hidden>🖼</span>
+          </div>
+        )}
+      </div>
+      <div className="p-3">
+        <div className="line-clamp-1 text-sm font-semibold">{post.caption || "Trip"}</div>
+        <div className="line-clamp-1 text-xs text-muted-foreground">{getPostDisplayLocation(post)}</div>
+      </div>
+    </Link>
+  );
+}
+
+function TripResultSkeletons() {
+  return (
+    <div className="space-y-3">
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="rounded-2xl border bg-card p-3">
+          <Skeleton className="h-32 w-full rounded-xl" />
+          <div className="mt-3 space-y-2">
+            <Skeleton className="h-3 w-2/3" />
+            <Skeleton className="h-3 w-1/2" />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

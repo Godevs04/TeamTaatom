@@ -451,6 +451,17 @@ export async function searchPosts(q: string, page = 1, limit = 20) {
   return res.data as { posts: Post[]; pagination?: PaginationOffset };
 }
 
+/**
+ * Substring match against a post's location.address. Public, like the other
+ * search endpoints. Note the query param is `location`, not `query`/`q`.
+ */
+export async function searchByLocation(location: string, page = 1, limit = 20) {
+  const res = await api.get(
+    `/search/location?location=${encodeURIComponent(location)}&page=${page}&limit=${limit}`
+  );
+  return res.data as { posts: Post[]; pagination?: PaginationOffset };
+}
+
 // Hashtags (parity with mobile services/hashtags)
 export type HashtagInfo = {
   name: string;
