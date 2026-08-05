@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRef, useState, useEffect } from "react";
-import { Heart, MessageCircle, MessageCircleOff, Share2, MoreHorizontal, Archive, EyeOff, Trash2, Flag, X, Bookmark, FolderPlus } from "lucide-react";
+import { Heart, MessageCircle, MessageCircleOff, Share2, MoreHorizontal, Archive, EyeOff, Pencil, Trash2, Flag, X, Bookmark, FolderPlus } from "lucide-react";
 import { motion } from "framer-motion";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -24,6 +24,7 @@ import { useAuth } from "../../context/auth-context";
 import { AddToCollectionModal } from "./AddToCollectionModal";
 import { SharePostModal } from "./share-post-modal";
 import { PostLikesCount } from "./post-likers-modal";
+import { EditPostModal } from "./edit-post-modal";
 import { CaptionWithLinks } from "../caption-with-links";
 
 const REPORT_REASONS: { id: ReportReason; label: string }[] = [
@@ -78,6 +79,7 @@ export function PostCard({
   const [reportOpen, setReportOpen] = useState(false);
   const [collectionModalOpen, setCollectionModalOpen] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
   const [menuLoading, setMenuLoading] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -218,6 +220,11 @@ export function PostCard({
   const openAddToCollection = () => {
     setMenuOpen(false);
     setCollectionModalOpen(true);
+  };
+
+  const openEditPost = () => {
+    setMenuOpen(false);
+    setEditModalOpen(true);
   };
 
   const handleReportSubmit = async (reason: ReportReason) => {
@@ -385,6 +392,14 @@ export function PostCard({
                 >
                   {isOwnPost ? (
                     <>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        onClick={openEditPost}
+                      >
+                        <Pencil className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
+                        Edit
+                      </button>
                       <button
                         type="button"
                         className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
@@ -597,6 +612,8 @@ export function PostCard({
         post={post}
         currentUserId={currentUser?._id}
       />
+
+      <EditPostModal open={editModalOpen} post={post} onClose={() => setEditModalOpen(false)} />
 
       {/* Report reason modal */}
       {reportOpen && (

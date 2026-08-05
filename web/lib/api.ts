@@ -149,6 +149,16 @@ export async function archivePost(postId: string) {
 }
 
 /**
+ * Edits a published post. The backend controller reads only `caption` from the body
+ * (hashtags are re-extracted from it server-side), so the caption is the only
+ * editable field — sending anything else would be silently ignored.
+ */
+export async function updatePost(postId: string, caption: string) {
+  const res = await api.patch(`/posts/${postId}`, { caption });
+  return res.data as { message?: string; post?: Post };
+}
+
+/**
  * Flips comments on/off for a post. The backend endpoint is a pure toggle with no
  * request body and is restricted to the post owner; it returns the resulting state.
  */
