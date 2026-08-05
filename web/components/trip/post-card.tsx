@@ -15,6 +15,7 @@ import {
   type ReportReason,
 } from "../../lib/api";
 import { getFriendlyErrorMessage } from "../../lib/auth-errors";
+import { invalidatePostListQueries } from "../../lib/post-list-queries";
 import { getPostDisplayLocation } from "../../lib/post-utils";
 import type { Post } from "../../types/post";
 import { Button } from "../ui/button";
@@ -105,6 +106,9 @@ export function PostCard({
         })),
       };
     });
+    // The feed patch is only an instant local removal; other post lists (hashtag
+    // pages, saved posts) need a refetch or they keep rendering the gone post.
+    invalidatePostListQueries(qc);
     onPostRemoved?.();
   };
 
@@ -178,6 +182,7 @@ export function PostCard({
           })),
         };
       });
+      invalidatePostListQueries(qc);
       qc.invalidateQueries({ queryKey: ["post", post._id] });
       toast.success(commentsDisabled ? "Comments turned off" : "Comments turned on");
     } catch (e) {
@@ -323,8 +328,7 @@ export function PostCard({
       toast.error(getFriendlyErrorMessage(e));
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["feed"] });
-      qc.invalidateQueries({ queryKey: ["saved-posts"] });
+      invalidatePostListQueries(qc);
     },
   });
 

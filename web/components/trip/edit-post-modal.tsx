@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { updatePost } from "../../lib/api";
 import { getFriendlyErrorMessage } from "../../lib/auth-errors";
+import { invalidatePostListQueries } from "../../lib/post-list-queries";
 import { Button } from "../ui/button";
 import { toast } from "sonner";
 import type { Post } from "../../types/post";
@@ -55,8 +56,8 @@ export function EditPostModal({
           })),
         };
       });
+      invalidatePostListQueries(qc);
       void qc.invalidateQueries({ queryKey: ["post", post._id] });
-      void qc.invalidateQueries({ queryKey: ["saved-posts"] });
       toast.success("Post updated");
       onClose();
     },
