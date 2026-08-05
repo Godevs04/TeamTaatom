@@ -7,6 +7,7 @@ import { getPostDisplayLocation, getPostCoordinates } from "../../../../lib/post
 import { TripLocationMap } from "../../../../components/maps/trip-location-map";
 import { fetchWithAuth } from "../../../../lib/server-fetch";
 import { TripComments } from "../../../../components/trip/comments";
+import { PostLikesCount } from "../../../../components/trip/post-likers-modal";
 import { CaptionWithLinks } from "../../../../components/caption-with-links";
 import { createMetadata } from "../../../../lib/seo";
 
@@ -92,7 +93,10 @@ export default async function TripDetailPage({ params }: { params: { id: string 
             </div>
             <div className="flex-1" />
             <div className="text-xs font-semibold text-muted-foreground">
-              {post.likesCount ?? 0} likes · {post.commentsCount ?? 0} comments
+              <PostLikesCount postId={id} likesCount={post.likesCount ?? 0}>
+                {post.likesCount ?? 0} likes
+              </PostLikesCount>{" "}
+              · {post.commentsCount ?? 0} comments
             </div>
           </div>
         </div>

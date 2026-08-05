@@ -22,6 +22,7 @@ import { toast } from "sonner";
 import { useAuth } from "../../context/auth-context";
 import { AddToCollectionModal } from "./AddToCollectionModal";
 import { SharePostModal } from "./share-post-modal";
+import { PostLikesCount } from "./post-likers-modal";
 import { CaptionWithLinks } from "../caption-with-links";
 
 const REPORT_REASONS: { id: ReportReason; label: string }[] = [
@@ -484,9 +485,11 @@ export function PostCard({
               />
             </motion.span>
           </Button>
-          <span className="min-w-[1.25rem] text-sm font-semibold text-slate-700 dark:text-zinc-200">
-            {post.likesCount ?? 0}
-          </span>
+          <PostLikesCount
+            postId={post._id}
+            likesCount={post.likesCount ?? 0}
+            className="min-w-[1.25rem] text-sm font-semibold text-slate-700 dark:text-zinc-200"
+          />
 
           {onOpenComments ? (
             <Button

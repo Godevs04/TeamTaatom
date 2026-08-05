@@ -117,6 +117,16 @@ export async function toggleLike(postId: string) {
   return res.data as { isLiked: boolean; likesCount: number; message?: string };
 }
 
+export type PostLiker = Pick<User, "_id" | "fullName" | "username" | "profilePic">;
+
+export async function getPostLikers(postId: string, page = 1, limit = 20) {
+  const res = await api.get(`/posts/${postId}/likes`, { params: { page, limit } });
+  return res.data as {
+    likers: PostLiker[];
+    pagination: { total: number; page: number; limit: number; pages: number };
+  };
+}
+
 export async function addComment(postId: string, text: string) {
   const res = await api.post(`/posts/${postId}/comments`, { text });
   return res.data;
