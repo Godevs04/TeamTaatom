@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { addComment, getPostById } from "../../lib/api";
+import { Trash2 } from "lucide-react";
+import { addComment, deleteComment, getPostById } from "../../lib/api";
 import { getFriendlyErrorMessage } from "../../lib/auth-errors";
 import { useAuth } from "../../context/auth-context";
 import { Input } from "../ui/input";
@@ -40,6 +41,15 @@ export function TripComments({ postId }: { postId: string }) {
     onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
   });
 
+  const del = useMutation({
+    mutationFn: (commentId: string) => deleteComment(postId, commentId),
+    onSuccess: async () => {
+      toast.success("Comment deleted");
+      await qc.invalidateQueries({ queryKey: ["post", postId] });
+    },
+    onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
+  });
+
   if (!validId) {
     return <p className="text-sm text-muted-foreground">Comments unavailable.</p>;
   }
@@ -59,6 +69,15 @@ export function TripComments({ postId }: { postId: string }) {
   }
 
   const comments: Comment[] = q.data.comments || [];
+  const postOwnerId = q.data.user?._id;
+  /** Mirrors the backend rule: comment author or post owner. */
+  const canDelete = (c: Comment) =>
+    !!user && (c.user?._id === user._id || postOwnerId === user._id);
+
+  const handleDelete = (commentId: string) => {
+    if (!window.confirm("Delete this comment? This action cannot be undone.")) return;
+    del.mutate(commentId);
+  };
 
   return (
     <div className="space-y-4">
@@ -90,13 +109,25 @@ export function TripComments({ postId }: { postId: string }) {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={c.user?.profilePic || ""} alt={c.user?.fullName || "User"} className="h-full w-full object-cover" />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold">{c.user?.fullName || c.user?.username || "User"}</span>
                   <span className="text-xs text-muted-foreground">@{c.user?.username || ""}</span>
                 </div>
                 <p className="mt-1 text-sm text-foreground/90">{c.text}</p>
               </div>
+              {canDelete(c) && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-destructive"
+                  aria-label="Delete comment"
+                  disabled={del.isPending}
+                  onClick={() => handleDelete(c._id)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              )}
             </div>
           ))}
         </div>

@@ -122,6 +122,12 @@ export async function addComment(postId: string, text: string) {
   return res.data;
 }
 
+/** Backend allows the comment author or the post owner to delete a comment. */
+export async function deleteComment(postId: string, commentId: string) {
+  const res = await api.delete(`/posts/${postId}/comments/${commentId}`);
+  return res.data as { message?: string; commentsCount?: number };
+}
+
 export async function deletePost(postId: string) {
   const res = await api.delete(`/posts/${postId}`);
   return res.data as { message?: string };
