@@ -34,7 +34,7 @@ import {
 } from "lucide-react";
 import { ImageCropModal } from "../../../components/create/image-crop-modal";
 import { useMentionAutocomplete } from "../../../hooks/useMentionAutocomplete";
-import { MentionSuggestions } from "../../../components/mention-suggestions";
+import { MentionSuggestions, mentionOptionId } from "../../../components/mention-suggestions";
 import { SongPickerModal } from "../../../components/create/song-picker-modal";
 import { LocationPreviewMap } from "../../../components/maps/location-preview-map";
 
@@ -930,15 +930,41 @@ export default function CreateTripPage() {
                 onClick={(e) => mentions.sync(e.currentTarget)}
                 onKeyUp={(e) => mentions.sync(e.currentTarget)}
                 onKeyDown={(e) => {
+                  if (mentions.suggestions.length > 0) {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      mentions.moveHighlight(1);
+                      return;
+                    }
+                    if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      mentions.moveHighlight(-1);
+                      return;
+                    }
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const next = mentions.selectHighlighted();
+                      if (next !== null) setCaption(next);
+                      return;
+                    }
+                  }
                   if (e.key === "Escape") mentions.dismiss();
                 }}
                 onBlur={() => mentions.dismiss()}
                 placeholder="What's happening? Use @ to mention someone or # for hashtags"
+                aria-activedescendant={
+                  mentions.highlightedIndex >= 0
+                    ? mentionOptionId(mentions.listboxId, mentions.suggestions[mentions.highlightedIndex]?._id ?? "")
+                    : undefined
+                }
                 className="min-h-[108px] w-full resize-y rounded-2xl border border-slate-200/50 bg-white/45 backdrop-blur-sm px-4 py-3.5 text-sm leading-relaxed shadow-sm transition-[border-color,box-shadow,background-color] ring-offset-background placeholder:text-slate-400 focus-visible:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:ring-offset-2 dark:border-zinc-700/50 dark:bg-zinc-900/35 dark:text-zinc-100 dark:placeholder:text-zinc-500"
                 maxLength={CAPTION_MAX}
               />
               <MentionSuggestions
+                listboxId={mentions.listboxId}
                 users={mentions.suggestions}
+                highlightedIndex={mentions.highlightedIndex}
+                onHighlight={mentions.highlight}
                 onSelect={(u) => {
                   const next = mentions.select(u);
                   if (next !== null) setCaption(next);

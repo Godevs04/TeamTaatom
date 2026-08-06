@@ -12,7 +12,7 @@ import { Skeleton } from "../ui/skeleton";
 import { toast } from "sonner";
 import type { Comment } from "../../types/post";
 import { useMentionAutocomplete } from "../../hooks/useMentionAutocomplete";
-import { MentionSuggestions } from "../mention-suggestions";
+import { MentionSuggestions, mentionOptionId } from "../mention-suggestions";
 
 export function TripComments({ postId }: { postId: string }) {
   const qc = useQueryClient();
@@ -111,13 +111,39 @@ export function TripComments({ postId }: { postId: string }) {
                 onClick={(e) => mentions.sync(e.currentTarget)}
                 onKeyUp={(e) => mentions.sync(e.currentTarget)}
                 onKeyDown={(e) => {
+                  if (mentions.suggestions.length > 0) {
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      mentions.moveHighlight(1);
+                      return;
+                    }
+                    if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      mentions.moveHighlight(-1);
+                      return;
+                    }
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const next = mentions.selectHighlighted();
+                      if (next !== null) setText(next);
+                      return;
+                    }
+                  }
                   if (e.key === "Escape") mentions.dismiss();
                 }}
                 onBlur={() => mentions.dismiss()}
                 placeholder="Write a comment…"
+                aria-activedescendant={
+                  mentions.highlightedIndex >= 0
+                    ? mentionOptionId(mentions.listboxId, mentions.suggestions[mentions.highlightedIndex]?._id ?? "")
+                    : undefined
+                }
               />
               <MentionSuggestions
+                listboxId={mentions.listboxId}
                 users={mentions.suggestions}
+                highlightedIndex={mentions.highlightedIndex}
+                onHighlight={mentions.highlight}
                 onSelect={(u) => {
                   const next = mentions.select(u);
                   if (next !== null) setText(next);

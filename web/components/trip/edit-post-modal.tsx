@@ -10,7 +10,7 @@ import { Button } from "../ui/button";
 import { toast } from "sonner";
 import type { Post } from "../../types/post";
 import { useMentionAutocomplete } from "../../hooks/useMentionAutocomplete";
-import { MentionSuggestions } from "../mention-suggestions";
+import { MentionSuggestions, mentionOptionId } from "../mention-suggestions";
 
 /** Matches the limit enforced by the create-post form. */
 const CAPTION_MAX = 500;
@@ -104,16 +104,42 @@ export function EditPostModal({
               onClick={(e) => mentions.sync(e.currentTarget)}
               onKeyUp={(e) => mentions.sync(e.currentTarget)}
               onKeyDown={(e) => {
+                if (mentions.suggestions.length > 0) {
+                  if (e.key === "ArrowDown") {
+                    e.preventDefault();
+                    mentions.moveHighlight(1);
+                    return;
+                  }
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    mentions.moveHighlight(-1);
+                    return;
+                  }
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const next = mentions.selectHighlighted();
+                    if (next !== null) setCaption(next);
+                    return;
+                  }
+                }
                 if (e.key === "Escape") mentions.dismiss();
               }}
               onBlur={() => mentions.dismiss()}
               placeholder="What's happening? Use @ to mention someone or # for hashtags"
               maxLength={CAPTION_MAX}
               autoFocus
+              aria-activedescendant={
+                mentions.highlightedIndex >= 0
+                  ? mentionOptionId(mentions.listboxId, mentions.suggestions[mentions.highlightedIndex]?._id ?? "")
+                  : undefined
+              }
               className="min-h-[108px] w-full resize-y rounded-2xl border border-slate-200/50 bg-white/45 px-4 py-3.5 text-sm leading-relaxed shadow-sm ring-offset-background transition-[border-color,box-shadow,background-color] placeholder:text-slate-400 focus-visible:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:ring-offset-2 dark:border-zinc-700/50 dark:bg-zinc-900/35 dark:text-zinc-100 dark:placeholder:text-zinc-500"
             />
             <MentionSuggestions
+              listboxId={mentions.listboxId}
               users={mentions.suggestions}
+              highlightedIndex={mentions.highlightedIndex}
+              onHighlight={mentions.highlight}
               onSelect={(u) => {
                 const next = mentions.select(u);
                 if (next !== null) setCaption(next);

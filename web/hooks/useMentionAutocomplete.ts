@@ -6,6 +6,7 @@ import {
   applyMentionSelection,
   findMentionTrigger,
   MENTION_MIN_QUERY_LENGTH,
+  moveHighlight,
   type MentionTrigger,
 } from "../lib/mention-autocomplete";
 
@@ -25,6 +26,12 @@ export type MentionField = HTMLInputElement | HTMLTextAreaElement;
 export function useMentionAutocomplete<T extends MentionField>(enabled = true) {
   const [trigger, setTrigger] = React.useState<MentionTrigger | null>(null);
   const [suggestions, setSuggestions] = React.useState<MentionUser[]>([]);
+  /** -1 means nothing highlighted. Kept in lockstep with `suggestions`: reset to
+   * 0 whenever a non-empty list lands, -1 whenever it's cleared. */
+  const [highlightedIndex, setHighlightedIndex] = React.useState(-1);
+  /** Unique per hook instance, so aria-activedescendant can't collide if more than
+   * one composer with mentions is mounted at once. */
+  const listboxId = React.useId();
   /** Attach to the field being completed; the hook reads and re-focuses it. */
   const fieldRef = React.useRef<T>(null);
   // Latest text/cursor seen, so select() can rebuild the string without the
@@ -64,6 +71,7 @@ export function useMentionAutocomplete<T extends MentionField>(enabled = true) {
     requestIdRef.current += 1;
     setTrigger(null);
     setSuggestions([]);
+    setHighlightedIndex(-1);
   }, []);
 
   const query = trigger ? trigger.query : null;
@@ -71,21 +79,39 @@ export function useMentionAutocomplete<T extends MentionField>(enabled = true) {
   React.useEffect(() => {
     if (query === null || query.length < MENTION_MIN_QUERY_LENGTH) {
       setSuggestions([]);
+      setHighlightedIndex(-1);
       return;
     }
     const requestId = ++requestIdRef.current;
     const timer = setTimeout(() => {
       searchUsersForMention(query, SUGGESTION_LIMIT)
         .then((users) => {
-          if (requestId === requestIdRef.current) setSuggestions(users);
+          if (requestId !== requestIdRef.current) return;
+          setSuggestions(users);
+          setHighlightedIndex(users.length > 0 ? 0 : -1);
         })
         .catch(() => {
           // Autocomplete is an assist, not a task the user asked for: fail quiet.
-          if (requestId === requestIdRef.current) setSuggestions([]);
+          if (requestId !== requestIdRef.current) return;
+          setSuggestions([]);
+          setHighlightedIndex(-1);
         });
     }, DEBOUNCE_MS);
     return () => clearTimeout(timer);
   }, [query]);
+
+  /** Moves the highlight with wraparound; a no-op while the list is empty. */
+  const moveHighlightBy = React.useCallback(
+    (delta: 1 | -1) => {
+      setHighlightedIndex((current) => moveHighlight(current, suggestions.length, delta));
+    },
+    [suggestions.length]
+  );
+
+  /** Sets the highlight to a specific index, e.g. on mouse hover over a row. */
+  const highlight = React.useCallback((index: number) => {
+    setHighlightedIndex(index);
+  }, []);
 
   /**
    * New field text for the picked user, or null if the mention is no longer
@@ -102,10 +128,29 @@ export function useMentionAutocomplete<T extends MentionField>(enabled = true) {
       fieldStateRef.current = { text: next.text, cursor: next.cursor };
       setTrigger(null);
       setSuggestions([]);
+      setHighlightedIndex(-1);
       return next.text;
     },
     [trigger]
   );
 
-  return { fieldRef, suggestions, sync, dismiss, select };
+  /** Selects whichever suggestion is currently highlighted, e.g. for Enter. */
+  const selectHighlighted = React.useCallback((): string | null => {
+    if (highlightedIndex < 0) return null;
+    const user = suggestions[highlightedIndex];
+    return user ? select(user) : null;
+  }, [highlightedIndex, suggestions, select]);
+
+  return {
+    fieldRef,
+    listboxId,
+    suggestions,
+    highlightedIndex,
+    sync,
+    dismiss,
+    select,
+    selectHighlighted,
+    moveHighlight: moveHighlightBy,
+    highlight,
+  };
 }

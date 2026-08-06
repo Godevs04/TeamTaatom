@@ -66,3 +66,20 @@ export function applyMentionSelection(
     cursor: atIndex + 1 + inserted.length,
   };
 }
+
+/**
+ * Moves a highlighted-suggestion index by one step, wrapping around at both
+ * ends: pressing down from the last item goes to the first, pressing up from
+ * the first goes to the last.
+ *
+ * Returns -1 for an empty list (nothing to highlight). `current` outside
+ * [0, length) — including -1, "nothing highlighted yet" — is normalized into
+ * range before stepping, so this is safe to call from any state.
+ *
+ *   moveHighlight(2, 3, 1)  -> 0   (last -> first)
+ *   moveHighlight(0, 3, -1) -> 2   (first -> last)
+ */
+export function moveHighlight(current: number, length: number, delta: 1 | -1): number {
+  if (length <= 0) return -1;
+  return (((current + delta) % length) + length) % length;
+}
