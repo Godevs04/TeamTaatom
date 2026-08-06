@@ -8,6 +8,7 @@ import {
   getChat,
   getChatMessages,
   sendChatMessage,
+  uploadChatMedia,
   markChatMessagesSeen,
   getProfile,
 } from "../../../../lib/api";
@@ -15,12 +16,13 @@ import { getFriendlyErrorMessage } from "../../../../lib/auth-errors";
 import { useAuth } from "../../../../context/auth-context";
 import type { ChatMessage, ChatParticipant } from "../../../../types/chat";
 import { Button } from "../../../../components/ui/button";
-import { Input } from "../../../../components/ui/input";
-import { ArrowLeft, Send, User } from "lucide-react";
+import { ArrowLeft, User } from "lucide-react";
 import { Skeleton } from "../../../../components/ui/skeleton";
 import { toast } from "sonner";
 import { parsePostShareMessage } from "../../../../lib/post-share-chat";
 import { PostShareCard } from "../../../../components/chat/post-share-card";
+import { ChatComposer } from "../../../../components/chat/chat-composer";
+import { MessageAttachments } from "../../../../components/chat/message-attachments";
 
 function normalizeSenderId(sender: ChatMessage["sender"]): string {
   if (typeof sender === "string") return sender;
@@ -34,7 +36,6 @@ export default function ChatConversationPage() {
   const queryClient = useQueryClient();
   const { user: me } = useAuth();
   const myId = me?._id ?? "";
-  const [input, setInput] = React.useState("");
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
   const { data: chatData } = useQuery({
@@ -61,9 +62,12 @@ export default function ChatConversationPage() {
   }, [userId, myId]);
 
   const sendMutation = useMutation({
-    mutationFn: (text: string) => sendChatMessage(userId, text),
+    mutationFn: async ({ text, files }: { text: string; files: File[] }) => {
+      // Two-step: upload attachments first, then send the message referencing them.
+      const attachments = files.length > 0 ? (await uploadChatMedia(files)).attachments : undefined;
+      return sendChatMessage(userId, text, attachments);
+    },
     onSuccess: () => {
-      setInput("");
       queryClient.invalidateQueries({ queryKey: ["chat", "list"] });
       queryClient.invalidateQueries({ queryKey: ["chat", userId, "messages"] });
     },
@@ -79,13 +83,6 @@ export default function ChatConversationPage() {
   const otherUser = profileData?.profile ?? chatData?.chat?.participants?.find((p: ChatParticipant) => (p._id ?? "") === userId);
   const displayName = otherUser?.fullName ?? otherUser?.username ?? "User";
   const messages: ChatMessage[] = messagesData?.messages ?? [];
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const text = input.trim();
-    if (!text || sendMutation.isPending) return;
-    sendMutation.mutate(text);
-  };
 
   if (!myId) {
     return (
@@ -140,6 +137,8 @@ export default function ChatConversationPage() {
             const isMe = normalizeSenderId(msg.sender) === myId;
             const text = msg.text ?? "";
             const postShare = parsePostShareMessage(text);
+            const hasAttachments = (msg.attachments?.length ?? 0) > 0;
+            const tightPadding = !!postShare || hasAttachments;
             return (
               <div
                 key={msg._id}
@@ -147,7 +146,7 @@ export default function ChatConversationPage() {
               >
                 <div
                   className={`max-w-[min(80%,360px)] rounded-2xl px-2 py-2 sm:px-3 sm:py-2.5 ${
-                    postShare
+                    tightPadding
                       ? isMe
                         ? "bg-primary text-on-primary"
                         : "bg-slate-100 text-slate-900 dark:bg-zinc-800 dark:text-zinc-100"
@@ -159,7 +158,14 @@ export default function ChatConversationPage() {
                   {postShare ? (
                     <PostShareCard share={postShare} isSent={isMe} />
                   ) : (
-                    <p className="text-[15px] leading-snug">{text}</p>
+                    <>
+                      <MessageAttachments attachments={msg.attachments} isMe={isMe} />
+                      {text ? (
+                        <p className={`text-[15px] leading-snug${hasAttachments ? " mt-2 px-1" : ""}`}>
+                          {text}
+                        </p>
+                      ) : null}
+                    </>
                   )}
                   {msg.createdAt && (
                     <p className={`mt-1.5 px-1 text-xs ${isMe ? "text-white/80" : "text-slate-500 dark:text-zinc-400"}`}>
@@ -175,26 +181,10 @@ export default function ChatConversationPage() {
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSubmit} className="border-t border-slate-100 p-4 dark:border-zinc-800">
-        <div className="flex gap-2">
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Type a message…"
-            className="flex-1 rounded-xl border-slate-200/80 bg-background dark:border-zinc-700"
-            maxLength={2000}
-          />
-          <Button
-            type="submit"
-            size="icon"
-            className="shrink-0 rounded-xl"
-            disabled={!input.trim() || sendMutation.isPending}
-            aria-label="Send"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
-        </div>
-      </form>
+      <ChatComposer
+        onSend={(text, files) => sendMutation.mutateAsync({ text, files })}
+        isSending={sendMutation.isPending}
+      />
     </div>
   );
 }

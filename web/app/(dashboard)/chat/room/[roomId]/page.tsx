@@ -8,16 +8,18 @@ import {
   getChatByRoomId,
   getRoomMessages,
   sendRoomMessage,
+  uploadChatMedia,
   markRoomMessagesSeen,
 } from "../../../../../lib/api";
 import { getFriendlyErrorMessage } from "../../../../../lib/auth-errors";
 import { useAuth } from "../../../../../context/auth-context";
 import type { ChatMessage, ConnectPageRef } from "../../../../../types/chat";
 import { Button } from "../../../../../components/ui/button";
-import { Input } from "../../../../../components/ui/input";
-import { ArrowLeft, Send, Users } from "lucide-react";
+import { ArrowLeft, Users } from "lucide-react";
 import { Skeleton } from "../../../../../components/ui/skeleton";
 import { toast } from "sonner";
+import { ChatComposer } from "../../../../../components/chat/chat-composer";
+import { MessageAttachments } from "../../../../../components/chat/message-attachments";
 
 function normalizeSenderId(sender: ChatMessage["sender"]): string {
   if (typeof sender === "string") return sender;
@@ -31,7 +33,6 @@ export default function GroupChatRoomPage() {
   const queryClient = useQueryClient();
   const { user: me } = useAuth();
   const myId = me?._id ?? "";
-  const [input, setInput] = React.useState("");
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
 
   const { data: chatData } = useQuery({
@@ -52,9 +53,12 @@ export default function GroupChatRoomPage() {
   }, [roomId, myId]);
 
   const sendMutation = useMutation({
-    mutationFn: (text: string) => sendRoomMessage(roomId, text),
+    mutationFn: async ({ text, files }: { text: string; files: File[] }) => {
+      // Two-step: upload attachments first, then send the message referencing them.
+      const attachments = files.length > 0 ? (await uploadChatMedia(files)).attachments : undefined;
+      return sendRoomMessage(roomId, text, attachments);
+    },
     onSuccess: () => {
-      setInput("");
       queryClient.invalidateQueries({ queryKey: ["chat", "list"] });
       queryClient.invalidateQueries({ queryKey: ["chat-room", roomId, "messages"] });
     },
@@ -78,13 +82,6 @@ export default function GroupChatRoomPage() {
       : null;
   const groupName = connectPage?.name ?? "Group Chat";
   const groupImage = connectPage?.profileImage;
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const text = input.trim();
-    if (!text || sendMutation.isPending) return;
-    sendMutation.mutate(text);
-  };
 
   if (!myId) {
     return (
@@ -138,6 +135,7 @@ export default function GroupChatRoomPage() {
             const isMe = normalizeSenderId(msg.sender) === myId;
             const senderName = msg.senderName ?? "";
             const senderPic = msg.senderProfilePic;
+            const hasAttachments = (msg.attachments?.length ?? 0) > 0;
             return (
               <div
                 key={msg._id}
@@ -165,7 +163,12 @@ export default function GroupChatRoomPage() {
                   {!isMe && senderName && (
                     <p className="mb-0.5 text-xs font-semibold text-primary">{senderName}</p>
                   )}
-                  <p className="text-[15px] leading-snug">{msg.text}</p>
+                  <MessageAttachments attachments={msg.attachments} isMe={isMe} />
+                  {msg.text ? (
+                    <p className={`text-[15px] leading-snug${hasAttachments ? " mt-2" : ""}`}>
+                      {msg.text}
+                    </p>
+                  ) : null}
                   {(msg.createdAt || msg.timestamp) && (
                     <p className={`mt-1.5 text-xs ${isMe ? "text-white/80" : "text-slate-500 dark:text-zinc-400"}`}>
                       {new Date(msg.createdAt || msg.timestamp || "").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -180,26 +183,10 @@ export default function GroupChatRoomPage() {
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSubmit} className="border-t border-slate-100 p-4 dark:border-zinc-800">
-        <div className="flex gap-2">
-          <Input
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Type a message…"
-            className="flex-1 rounded-xl border-slate-200/80 bg-background dark:border-zinc-700"
-            maxLength={2000}
-          />
-          <Button
-            type="submit"
-            size="icon"
-            className="shrink-0 rounded-xl"
-            disabled={!input.trim() || sendMutation.isPending}
-            aria-label="Send"
-          >
-            <Send className="h-4 w-4" />
-          </Button>
-        </div>
-      </form>
+      <ChatComposer
+        onSend={(text, files) => sendMutation.mutateAsync({ text, files })}
+        isSending={sendMutation.isPending}
+      />
     </div>
   );
 }
