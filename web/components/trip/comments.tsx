@@ -11,11 +11,14 @@ import { Button } from "../ui/button";
 import { Skeleton } from "../ui/skeleton";
 import { toast } from "sonner";
 import type { Comment } from "../../types/post";
+import { useMentionAutocomplete } from "../../hooks/useMentionAutocomplete";
+import { MentionSuggestions } from "../mention-suggestions";
 
 export function TripComments({ postId }: { postId: string }) {
   const qc = useQueryClient();
   const { user } = useAuth();
   const [text, setText] = React.useState("");
+  const mentions = useMentionAutocomplete<HTMLInputElement>();
   const validId =
     typeof postId === "string" &&
     postId.length > 0 &&
@@ -97,7 +100,30 @@ export function TripComments({ postId }: { postId: string }) {
           <p className="text-sm text-muted-foreground">Sign in to comment.</p>
         ) : (
           <div className="flex gap-2">
-            <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Write a comment…" />
+            <div className="relative flex-1">
+              <Input
+                ref={mentions.fieldRef}
+                value={text}
+                onChange={(e) => {
+                  setText(e.target.value);
+                  mentions.sync(e.currentTarget);
+                }}
+                onClick={(e) => mentions.sync(e.currentTarget)}
+                onKeyUp={(e) => mentions.sync(e.currentTarget)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") mentions.dismiss();
+                }}
+                onBlur={() => mentions.dismiss()}
+                placeholder="Write a comment…"
+              />
+              <MentionSuggestions
+                users={mentions.suggestions}
+                onSelect={(u) => {
+                  const next = mentions.select(u);
+                  if (next !== null) setText(next);
+                }}
+              />
+            </div>
             <Button disabled={m.isPending || text.trim().length === 0} onClick={() => m.mutate()}>
               {m.isPending ? "Posting…" : "Post"}
             </Button>

@@ -9,6 +9,8 @@ import { invalidatePostListQueries } from "../../lib/post-list-queries";
 import { Button } from "../ui/button";
 import { toast } from "sonner";
 import type { Post } from "../../types/post";
+import { useMentionAutocomplete } from "../../hooks/useMentionAutocomplete";
+import { MentionSuggestions } from "../mention-suggestions";
 
 /** Matches the limit enforced by the create-post form. */
 const CAPTION_MAX = 500;
@@ -34,6 +36,7 @@ export function EditPostModal({
 }) {
   const qc = useQueryClient();
   const [caption, setCaption] = React.useState(post.caption ?? "");
+  const mentions = useMentionAutocomplete<HTMLTextAreaElement>();
 
   // Reseed from the post each time the dialog opens so a cancelled edit is discarded.
   React.useEffect(() => {
@@ -90,14 +93,33 @@ export function EditPostModal({
         </div>
 
         <div className="space-y-2 p-4">
-          <textarea
-            value={caption}
-            onChange={(e) => setCaption(e.target.value)}
-            placeholder="What's happening? Use @ to mention someone or # for hashtags"
-            maxLength={CAPTION_MAX}
-            autoFocus
-            className="min-h-[108px] w-full resize-y rounded-2xl border border-slate-200/50 bg-white/45 px-4 py-3.5 text-sm leading-relaxed shadow-sm ring-offset-background transition-[border-color,box-shadow,background-color] placeholder:text-slate-400 focus-visible:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:ring-offset-2 dark:border-zinc-700/50 dark:bg-zinc-900/35 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-          />
+          <div className="relative">
+            <textarea
+              ref={mentions.fieldRef}
+              value={caption}
+              onChange={(e) => {
+                setCaption(e.target.value);
+                mentions.sync(e.currentTarget);
+              }}
+              onClick={(e) => mentions.sync(e.currentTarget)}
+              onKeyUp={(e) => mentions.sync(e.currentTarget)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") mentions.dismiss();
+              }}
+              onBlur={() => mentions.dismiss()}
+              placeholder="What's happening? Use @ to mention someone or # for hashtags"
+              maxLength={CAPTION_MAX}
+              autoFocus
+              className="min-h-[108px] w-full resize-y rounded-2xl border border-slate-200/50 bg-white/45 px-4 py-3.5 text-sm leading-relaxed shadow-sm ring-offset-background transition-[border-color,box-shadow,background-color] placeholder:text-slate-400 focus-visible:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:ring-offset-2 dark:border-zinc-700/50 dark:bg-zinc-900/35 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+            />
+            <MentionSuggestions
+              users={mentions.suggestions}
+              onSelect={(u) => {
+                const next = mentions.select(u);
+                if (next !== null) setCaption(next);
+              }}
+            />
+          </div>
           <p
             className={
               tooLong ? "text-xs text-destructive" : "text-xs text-muted-foreground"

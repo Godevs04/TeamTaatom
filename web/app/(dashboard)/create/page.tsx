@@ -33,6 +33,8 @@ import {
   Music,
 } from "lucide-react";
 import { ImageCropModal } from "../../../components/create/image-crop-modal";
+import { useMentionAutocomplete } from "../../../hooks/useMentionAutocomplete";
+import { MentionSuggestions } from "../../../components/mention-suggestions";
 import { SongPickerModal } from "../../../components/create/song-picker-modal";
 import { LocationPreviewMap } from "../../../components/maps/location-preview-map";
 
@@ -112,6 +114,7 @@ export default function CreateTripPage() {
   const { user, isLoading: authLoading } = useAuth();
   const [mode, setMode] = React.useState<CreateMode>("post");
   const [caption, setCaption] = React.useState("");
+  const mentions = useMentionAutocomplete<HTMLTextAreaElement>();
   const [placeName, setPlaceName] = React.useState("");
   const [photoSlots, setPhotoSlots] = React.useState<PhotoSlot[]>([]);
   /** Order matches carousel / FormData upload (W-01). */
@@ -916,13 +919,32 @@ export default function CreateTripPage() {
               <label className="text-sm font-semibold text-slate-900 dark:text-zinc-50">Caption</label>
               <span className="text-xs font-medium text-muted-foreground tabular-nums">Optional · max {CAPTION_MAX}</span>
             </div>
-            <textarea
-              value={caption}
-              onChange={(e) => setCaption(e.target.value)}
-              placeholder="What's happening? Use @ to mention someone or # for hashtags"
-              className="min-h-[108px] w-full resize-y rounded-2xl border border-slate-200/50 bg-white/45 backdrop-blur-sm px-4 py-3.5 text-sm leading-relaxed shadow-sm transition-[border-color,box-shadow,background-color] ring-offset-background placeholder:text-slate-400 focus-visible:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:ring-offset-2 dark:border-zinc-700/50 dark:bg-zinc-900/35 dark:text-zinc-100 dark:placeholder:text-zinc-500"
-              maxLength={CAPTION_MAX}
-            />
+            <div className="relative">
+              <textarea
+                ref={mentions.fieldRef}
+                value={caption}
+                onChange={(e) => {
+                  setCaption(e.target.value);
+                  mentions.sync(e.currentTarget);
+                }}
+                onClick={(e) => mentions.sync(e.currentTarget)}
+                onKeyUp={(e) => mentions.sync(e.currentTarget)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") mentions.dismiss();
+                }}
+                onBlur={() => mentions.dismiss()}
+                placeholder="What's happening? Use @ to mention someone or # for hashtags"
+                className="min-h-[108px] w-full resize-y rounded-2xl border border-slate-200/50 bg-white/45 backdrop-blur-sm px-4 py-3.5 text-sm leading-relaxed shadow-sm transition-[border-color,box-shadow,background-color] ring-offset-background placeholder:text-slate-400 focus-visible:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/25 focus-visible:ring-offset-2 dark:border-zinc-700/50 dark:bg-zinc-900/35 dark:text-zinc-100 dark:placeholder:text-zinc-500"
+                maxLength={CAPTION_MAX}
+              />
+              <MentionSuggestions
+                users={mentions.suggestions}
+                onSelect={(u) => {
+                  const next = mentions.select(u);
+                  if (next !== null) setCaption(next);
+                }}
+              />
+            </div>
             {caption.length > 0 && (
               <p className={`text-xs ${caption.length > CAPTION_MAX ? "text-destructive" : "text-muted-foreground"}`}>
                 {caption.length} / {CAPTION_MAX}
