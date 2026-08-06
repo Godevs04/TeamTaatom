@@ -154,10 +154,14 @@ export default function GroupChatRoomPage() {
                   </div>
                 )}
                 <div
-                  className={`max-w-[min(80%,360px)] rounded-2xl px-4 py-2.5 ${
-                    isMe
-                      ? "bg-primary text-on-primary"
-                      : "bg-slate-100 text-slate-900 dark:bg-zinc-800 dark:text-zinc-100"
+                  className={`max-w-[min(80%,360px)] rounded-2xl px-2 py-2 sm:px-3 sm:py-2.5 ${
+                    hasAttachments
+                      ? isMe
+                        ? "bg-primary text-on-primary"
+                        : "bg-slate-100 text-slate-900 dark:bg-zinc-800 dark:text-zinc-100"
+                      : isMe
+                        ? "bg-primary px-4 py-2.5 text-on-primary"
+                        : "bg-slate-100 px-4 py-2.5 text-slate-900 dark:bg-zinc-800 dark:text-zinc-100"
                   }`}
                 >
                   {!isMe && senderName && (
@@ -165,7 +169,7 @@ export default function GroupChatRoomPage() {
                   )}
                   <MessageAttachments attachments={msg.attachments} isMe={isMe} />
                   {msg.text ? (
-                    <p className={`text-[15px] leading-snug${hasAttachments ? " mt-2" : ""}`}>
+                    <p className={`text-[15px] leading-snug${hasAttachments ? " mt-2 px-1" : ""}`}>
                       {msg.text}
                     </p>
                   ) : null}

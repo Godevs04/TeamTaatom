@@ -79,20 +79,28 @@ export function EditPostModal({
       role="presentation"
     >
       <div
-        className="w-full max-w-md rounded-t-2xl border border-slate-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-900 sm:rounded-2xl"
+        className="flex max-h-[85vh] w-full max-w-md flex-col rounded-t-2xl border border-slate-200 bg-white shadow-xl dark:border-zinc-800 dark:bg-zinc-900 sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label="Edit post"
       >
-        <div className="flex items-center justify-between border-b border-slate-100 p-4 dark:border-zinc-800">
+        <div className="flex shrink-0 items-center justify-between border-b border-slate-100 p-4 dark:border-zinc-800">
           <h3 className="text-lg font-semibold text-slate-900 dark:text-zinc-50">Edit caption</h3>
           <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg" onClick={onClose} aria-label="Close">
             <X className="h-5 w-5" />
           </Button>
         </div>
 
-        <div className="space-y-2 p-4">
+        {/*
+         * min-h-0 + flex-1 + overflow-y-auto: the mention dropdown below is
+         * position:absolute inside this region, so this container's overflow
+         * clips it — it can grow into its own scroll area but can never paint
+         * over the footer, which lives outside this region entirely. That's a
+         * structural guarantee (CSS clipping), not a "there's probably enough
+         * space" one: it holds regardless of dropdown height or result count.
+         */}
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
           <div className="relative">
             <textarea
               ref={mentions.fieldRef}
@@ -155,7 +163,7 @@ export function EditPostModal({
           </p>
         </div>
 
-        <div className="flex gap-2 border-t border-slate-100 p-4 dark:border-zinc-800">
+        <div className="flex shrink-0 gap-2 border-t border-slate-100 p-4 dark:border-zinc-800">
           <Button variant="outline" className="flex-1 rounded-xl" onClick={onClose} disabled={m.isPending}>
             Cancel
           </Button>
