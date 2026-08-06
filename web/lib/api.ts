@@ -462,6 +462,31 @@ export async function searchByLocation(location: string, page = 1, limit = 20) {
   return res.data as { posts: Post[]; pagination?: PaginationOffset };
 }
 
+export type MentionUser = {
+  _id: string;
+  username: string;
+  fullName?: string;
+  profilePic?: string;
+  displayName?: string;
+};
+
+/**
+ * Autocomplete candidates for an @mention.
+ *
+ * Two backend behaviours worth knowing: only `isVerified` users are returned
+ * (mentions are verified-only by design), and a query that fails the server's
+ * username rules — notably anything shorter than 3 characters — comes back as an
+ * empty list rather than an error. An empty result is therefore normal, not a
+ * failure state.
+ */
+export async function searchUsersForMention(query: string, limit = 10): Promise<MentionUser[]> {
+  const q = query.trim();
+  if (q.length === 0) return [];
+  const res = await api.get("/mentions/search", { params: { q, limit } });
+  const data = res.data as { users?: MentionUser[] };
+  return data.users ?? [];
+}
+
 // Hashtags (parity with mobile services/hashtags)
 export type HashtagInfo = {
   name: string;
