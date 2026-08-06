@@ -2,13 +2,52 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { listChats } from "../../../lib/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { deleteChatRoom, listChats } from "../../../lib/api";
 import { formatChatMessagePreview } from "../../../lib/post-share-chat";
+import { getFriendlyErrorMessage } from "../../../lib/auth-errors";
 import { useAuth } from "../../../context/auth-context";
 import type { Chat, ChatParticipant, ConnectPageRef } from "../../../types/chat";
-import { MessageCircle, User, Users } from "lucide-react";
+import { MessageCircle, Trash2, User, Users } from "lucide-react";
 import { Skeleton } from "../../../components/ui/skeleton";
+import { toast } from "sonner";
+
+/** Shared card chrome, so the delete button can sit beside the link instead of inside it. */
+const ROW_CARD_CLASS =
+  "flex items-center gap-1 rounded-2xl border border-slate-200/80 bg-white pr-2 shadow-premium transition-shadow hover:shadow-premium-hover dark:border-zinc-800/80 dark:bg-zinc-900/90 dark:hover:shadow-premium-hover";
+const ROW_LINK_CLASS = "flex min-w-0 flex-1 items-center gap-4 p-4";
+
+function DeleteChatButton({
+  chatName,
+  disabled,
+  onConfirm,
+}: {
+  chatName: string;
+  disabled: boolean;
+  onConfirm: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      aria-label={`Delete chat with ${chatName}`}
+      title="Delete chat"
+      className="shrink-0 rounded-xl p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:text-zinc-500 dark:hover:bg-red-950/50 dark:hover:text-red-400"
+      onClick={() => {
+        if (
+          !window.confirm(
+            `Are you sure you want to delete the chat with "${chatName}"? This action cannot be undone.`
+          )
+        ) {
+          return;
+        }
+        onConfirm();
+      }}
+    >
+      <Trash2 className="h-4 w-4" />
+    </button>
+  );
+}
 
 function getOtherParticipant(chat: Chat, myId: string): ChatParticipant | undefined {
   const participants = Array.isArray(chat.participants) ? chat.participants : [];
@@ -31,11 +70,28 @@ function formatTime(str: string | undefined): string {
 export default function ChatListPage() {
   const { user } = useAuth();
   const myId = user?._id ?? "";
+  const queryClient = useQueryClient();
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["chat", "list"],
     queryFn: listChats,
     enabled: !!myId,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: ({ chatId }: { chatId: string; conversationKey: unknown[] }) =>
+      deleteChatRoom(chatId),
+    onSuccess: (_res, { chatId, conversationKey }) => {
+      // Patch the list for instant removal, mirroring mobile's local filter.
+      queryClient.setQueryData<{ chats: Chat[] }>(["chat", "list"], (old) =>
+        old ? { ...old, chats: old.chats.filter((c) => c._id !== chatId) } : old
+      );
+      // Drop the conversation's own cache too, so navigating back to that thread
+      // refetches (and 404s) instead of rendering a stale copy of a deleted chat.
+      queryClient.removeQueries({ queryKey: conversationKey });
+      toast.success("Chat deleted");
+    },
+    onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
   });
 
   const chats = data?.chats ?? [];
@@ -112,37 +168,45 @@ export default function ChatListPage() {
               const groupName = cpRef?.name ?? "Group Chat";
               const groupImage = cpRef?.profileImage;
               return (
-                <Link
-                  key={chat._id}
-                  href={`/chat/room/${chat._id}`}
-                  className="flex items-center gap-4 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-premium transition-shadow hover:shadow-premium-hover dark:border-zinc-800/80 dark:bg-zinc-900/90 dark:hover:shadow-premium-hover"
-                >
-                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-primary/10 ring-1 ring-slate-200/80 dark:bg-primary/20 dark:ring-zinc-700/80">
-                    {groupImage ? (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img src={groupImage} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-primary">
-                        <Users className="h-7 w-7" />
+                <div key={chat._id} className={ROW_CARD_CLASS}>
+                  <Link href={`/chat/room/${chat._id}`} className={ROW_LINK_CLASS}>
+                    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-primary/10 ring-1 ring-slate-200/80 dark:bg-primary/20 dark:ring-zinc-700/80">
+                      {groupImage ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={groupImage} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-primary">
+                          <Users className="h-7 w-7" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate text-[15px] font-semibold text-slate-900 dark:text-zinc-50">
+                          {groupName}
+                        </span>
+                        <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                          Connect
+                        </span>
                       </div>
-                    )}
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-[15px] font-semibold text-slate-900 dark:text-zinc-50">
-                        {groupName}
-                      </span>
-                      <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                        Connect
-                      </span>
+                      <div className="text-xs text-slate-400 dark:text-zinc-500">
+                        {(cpRef?.followerCount ?? 0) + 1} members
+                      </div>
+                      <div className="truncate text-sm text-slate-500 dark:text-zinc-400">{preview}</div>
                     </div>
-                    <div className="text-xs text-slate-400 dark:text-zinc-500">
-                      {(cpRef?.followerCount ?? 0) + 1} members
-                    </div>
-                    <div className="truncate text-sm text-slate-500 dark:text-zinc-400">{preview}</div>
-                  </div>
-                  {time ? <span className="shrink-0 text-xs text-slate-400 dark:text-zinc-500">{time}</span> : null}
-                </Link>
+                    {time ? <span className="shrink-0 text-xs text-slate-400 dark:text-zinc-500">{time}</span> : null}
+                  </Link>
+                  <DeleteChatButton
+                    chatName={groupName}
+                    disabled={deleteMutation.isPending}
+                    onConfirm={() =>
+                      deleteMutation.mutate({
+                        chatId: chat._id,
+                        conversationKey: ["chat-room", chat._id],
+                      })
+                    }
+                  />
+                </div>
               );
             }
 
@@ -150,30 +214,39 @@ export default function ChatListPage() {
             const other = getOtherParticipant(chat, myId);
             if (!other) return null;
             const otherId = other._id ?? (other as unknown as { _id?: string })._id ?? "";
+            const otherName = other.fullName ?? other.username ?? "User";
             return (
-              <Link
-                key={chat._id}
-                href={`/chat/${otherId}`}
-                className="flex items-center gap-4 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-premium transition-shadow hover:shadow-premium-hover dark:border-zinc-800/80 dark:bg-zinc-900/90 dark:hover:shadow-premium-hover"
-              >
-                <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/80 dark:bg-zinc-800 dark:ring-zinc-700/80">
-                  {other.profilePic ? (
-                    /* eslint-disable-next-line @next/next/no-img-element */
-                    <img src={other.profilePic} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <div className="flex h-full w-full items-center justify-center text-slate-400 dark:text-zinc-500">
-                      <User className="h-7 w-7" />
-                    </div>
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[15px] font-semibold text-slate-900 dark:text-zinc-50">
-                    {other.fullName ?? other.username ?? "User"}
+              <div key={chat._id} className={ROW_CARD_CLASS}>
+                <Link href={`/chat/${otherId}`} className={ROW_LINK_CLASS}>
+                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/80 dark:bg-zinc-800 dark:ring-zinc-700/80">
+                    {other.profilePic ? (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img src={other.profilePic} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-slate-400 dark:text-zinc-500">
+                        <User className="h-7 w-7" />
+                      </div>
+                    )}
                   </div>
-                  <div className="truncate text-sm text-slate-500 dark:text-zinc-400">{preview}</div>
-                </div>
-                {time ? <span className="shrink-0 text-xs text-slate-400 dark:text-zinc-500">{time}</span> : null}
-              </Link>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[15px] font-semibold text-slate-900 dark:text-zinc-50">
+                      {otherName}
+                    </div>
+                    <div className="truncate text-sm text-slate-500 dark:text-zinc-400">{preview}</div>
+                  </div>
+                  {time ? <span className="shrink-0 text-xs text-slate-400 dark:text-zinc-500">{time}</span> : null}
+                </Link>
+                <DeleteChatButton
+                  chatName={otherName}
+                  disabled={deleteMutation.isPending}
+                  onConfirm={() =>
+                    deleteMutation.mutate({
+                      chatId: chat._id,
+                      conversationKey: ["chat", otherId],
+                    })
+                  }
+                />
+              </div>
             );
           })}
         </div>

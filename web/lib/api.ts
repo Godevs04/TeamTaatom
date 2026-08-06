@@ -681,6 +681,19 @@ export async function sendRoomMessage(
   return res.data as { message: ChatMessage };
 }
 
+/**
+ * Deletes an entire chat conversation for every participant.
+ *
+ * Despite the `/room/` path segment this is not group-only: the backend looks the
+ * chat up by its Chat document `_id`, checks the caller is a participant and
+ * deletes it, with no branching on chat type. So it applies to 1:1 chats too, and
+ * `chatId` is always the chat's `_id` — never the other user's id.
+ */
+export async function deleteChatRoom(chatId: string) {
+  const res = await api.delete(`/chat/room/${chatId}`);
+  return res.data as { success?: boolean; message?: string };
+}
+
 export async function markRoomMessagesSeen(roomId: string) {
   const res = await api.post(`/chat/room/${roomId}/mark-all-seen`);
   return res.data as { success?: boolean };
