@@ -1,7 +1,7 @@
 import { api } from "./axios";
 import type { Post } from "../types/post";
 import type { User } from "../types/user";
-import type { Chat, ChatMessage } from "../types/chat";
+import type { Chat, ChatAttachment, ChatMessage } from "../types/chat";
 import type { Notification } from "../types/notification";
 import type { PaginationCursor, PaginationOffset } from "../types/api";
 
@@ -620,8 +620,35 @@ export async function getChatMessages(otherUserId: string, page = 1, limit = 50)
   return res.data as { messages: ChatMessage[] };
 }
 
-export async function sendChatMessage(otherUserId: string, text: string) {
-  const res = await api.post(`/chat/${otherUserId}/messages`, { text });
+/**
+ * Uploads chat attachments and returns their metadata. Sending is a separate
+ * second call: pass the returned attachments to sendChatMessage/sendRoomMessage.
+ *
+ * Backend limits (multer `chatUpload`): max 5 files, 10MB each, restricted to the
+ * mimetypes in CHAT_ATTACHMENT_ACCEPT. Uploads get a long timeout since the
+ * shared client's 30s default is not enough for several large files.
+ */
+export async function uploadChatMedia(files: File[]) {
+  const form = new FormData();
+  for (const file of files) form.append("files", file);
+  form.append("metadata", JSON.stringify(files.map((f) => ({ name: f.name }))));
+  const res = await api.post("/chat/upload", form, {
+    // Leave Content-Type unset so the browser adds the multipart boundary.
+    headers: { "Content-Type": undefined } as unknown as Record<string, string>,
+    timeout: 600_000,
+  });
+  return res.data as { attachments: ChatAttachment[] };
+}
+
+export async function sendChatMessage(
+  otherUserId: string,
+  text: string,
+  attachments?: ChatAttachment[]
+) {
+  const body: { text?: string; attachments?: ChatAttachment[] } = {};
+  if (text) body.text = text;
+  if (attachments && attachments.length > 0) body.attachments = attachments;
+  const res = await api.post(`/chat/${otherUserId}/messages`, body);
   return res.data as { message: ChatMessage };
 }
 
@@ -642,8 +669,15 @@ export async function getRoomMessages(roomId: string, page = 1, limit = 50) {
   return res.data as { messages: ChatMessage[] };
 }
 
-export async function sendRoomMessage(roomId: string, text: string) {
-  const res = await api.post(`/chat/room/${roomId}/messages`, { text });
+export async function sendRoomMessage(
+  roomId: string,
+  text: string,
+  attachments?: ChatAttachment[]
+) {
+  const body: { text?: string; attachments?: ChatAttachment[] } = {};
+  if (text) body.text = text;
+  if (attachments && attachments.length > 0) body.attachments = attachments;
+  const res = await api.post(`/chat/room/${roomId}/messages`, body);
   return res.data as { message: ChatMessage };
 }
 
