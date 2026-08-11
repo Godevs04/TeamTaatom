@@ -35,10 +35,16 @@ export default function FollowRequestsSettingsPage() {
     load();
   };
 
-  const handleApprove = async (requestId: string) => {
+  /**
+   * `requesterUserId` (the requester's user id) is what the backend actually
+   * matches against — see the comment on approveFollowRequest/rejectFollowRequest
+   * in lib/api.ts. `requestId` (the followRequests subdocument id) is only used
+   * here, locally, to track the acting row and filter it out of the list.
+   */
+  const handleApprove = async (requesterUserId: string, requestId: string) => {
     setActingId(requestId);
     try {
-      await approveFollowRequest(requestId);
+      await approveFollowRequest(requesterUserId);
       setFollowRequests((prev) => prev.filter((r) => r._id !== requestId));
       toast.success("Request approved");
     } catch {
@@ -48,10 +54,10 @@ export default function FollowRequestsSettingsPage() {
     }
   };
 
-  const handleReject = async (requestId: string) => {
+  const handleReject = async (requesterUserId: string, requestId: string) => {
     setActingId(requestId);
     try {
-      await rejectFollowRequest(requestId);
+      await rejectFollowRequest(requesterUserId);
       setFollowRequests((prev) => prev.filter((r) => r._id !== requestId));
       toast.success("Request declined");
     } catch {
@@ -105,6 +111,7 @@ export default function FollowRequestsSettingsPage() {
           <ul className="space-y-3">
             {followRequests.map((req) => {
               const u = req.user;
+              const requesterId = u?._id;
               const isActing = actingId === req._id;
               return (
                 <li
@@ -135,16 +142,16 @@ export default function FollowRequestsSettingsPage() {
                   <div className="flex shrink-0 items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => handleApprove(req._id)}
-                      disabled={isActing}
+                      onClick={() => requesterId && handleApprove(requesterId, req._id)}
+                      disabled={isActing || !requesterId}
                       className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-on-primary shadow-sm hover:opacity-95 disabled:opacity-60"
                     >
                       {isActing ? "…" : "Approve"}
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleReject(req._id)}
-                      disabled={isActing}
+                      onClick={() => requesterId && handleReject(requesterId, req._id)}
+                      disabled={isActing || !requesterId}
                       className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-slate-200 dark:hover:bg-zinc-700 disabled:opacity-60"
                     >
                       Decline

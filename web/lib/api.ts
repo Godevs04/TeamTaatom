@@ -281,13 +281,21 @@ export async function getFollowRequests() {
   return res.data as { followRequests: import("../types/user").FollowRequest[] };
 }
 
-export async function approveFollowRequest(requestId: string) {
-  const res = await api.post(`/profile/follow-requests/${requestId}/approve`);
+/**
+ * Despite the `:requestId` route segment and this being "approve a request",
+ * the backend matches on the *requester's user id*, not the followRequests
+ * subdocument's own `_id` (see profileController.js's own comment on
+ * approveFollowRequest: "requestId is actually the requester's user ID").
+ * Pass `FollowRequest.user._id`, never `FollowRequest._id`.
+ */
+export async function approveFollowRequest(requesterUserId: string) {
+  const res = await api.post(`/profile/follow-requests/${requesterUserId}/approve`);
   return res.data as { message?: string; followersCount?: number; alreadyProcessed?: boolean };
 }
 
-export async function rejectFollowRequest(requestId: string) {
-  const res = await api.post(`/profile/follow-requests/${requestId}/reject`);
+/** Same requester-id-not-subdocument-id quirk as approveFollowRequest above. */
+export async function rejectFollowRequest(requesterUserId: string) {
+  const res = await api.post(`/profile/follow-requests/${requesterUserId}/reject`);
   return res.data as { message?: string };
 }
 

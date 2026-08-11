@@ -9,6 +9,7 @@ import type { Notification } from "../../../types/notification";
 import { Button } from "../../../components/ui/button";
 import { Bell, ImageIcon, User } from "lucide-react";
 import { Skeleton } from "../../../components/ui/skeleton";
+import { FollowRequestModal } from "../../../components/notifications/follow-request-modal";
 
 function getNotificationLabel(n: Notification): string {
   const fromName = n.fromUser && typeof n.fromUser === "object" && "fullName" in n.fromUser
@@ -45,6 +46,7 @@ function formatTime(createdAt: string | undefined): string {
 
 export default function NotificationsPage() {
   const queryClient = useQueryClient();
+  const [activeRequest, setActiveRequest] = React.useState<Notification | null>(null);
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["notifications"],
     queryFn: () => getNotifications(1, 50),
@@ -153,6 +155,21 @@ export default function NotificationsPage() {
                       </div>
                     </div>
                   );
+                  if (n.type === "follow_request") {
+                    // No profile or settings page has an accept/decline UI reachable
+                    // by a link — open the inline approve/decline modal instead of
+                    // navigating anywhere, matching mobile's in-app notification tap.
+                    return (
+                      <button
+                        key={n._id}
+                        type="button"
+                        onClick={() => setActiveRequest(n)}
+                        className="block w-full text-left"
+                      >
+                        {content}
+                      </button>
+                    );
+                  }
                   if (link?.href) {
                     return (
                       <Link key={n._id} href={link.href}>
@@ -167,6 +184,12 @@ export default function NotificationsPage() {
           ))}
         </div>
       )}
+
+      <FollowRequestModal
+        open={activeRequest !== null}
+        notification={activeRequest}
+        onClose={() => setActiveRequest(null)}
+      />
     </div>
   );
 }
