@@ -111,67 +111,87 @@ const getProfile = async (req, res) => {
       return sendError(res, 'RES_3001', 'User does not exist');
     }
 
-    // Apple Guideline 1.2: Blocked users cannot view each other's profiles
-    if (req.user && req.user._id.toString() !== id) {
-      const currentUserId = req.user._id.toString();
-      const targetUserDoc = await User.findById(id).select('blockedUsers').lean();
-      const currentUserDoc = await User.findById(currentUserId).select('blockedUsers').lean();
-      const targetBlockedIds = (targetUserDoc?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
-      const currentBlockedIds = (currentUserDoc?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
-      if (targetBlockedIds.includes(currentUserId) || currentBlockedIds.includes(id)) {
-        return sendError(res, 'AUTH_1006', 'You cannot view this profile');
-      }
-    }
-    
     // Defensive: Ensure user has required fields
     if (!user._id || !user.fullName) {
       logger.error(`Invalid user data structure for userId: ${id}`, { hasId: !!user._id, hasFullName: !!user.fullName });
       return sendError(res, 'ERR_5001', 'Invalid user data');
     }
 
-    // Get user's posts count and locations (optimized query)
-    // Filter out hidden, archived, and non-active status posts to match profile tabs
-    const posts = await Post.find({
-      user: id,
-      isActive: true,
-      isHidden: { $ne: true },
-      isArchived: { $ne: true },
-      type: { $in: ['photo', 'short'] },
-      $or: [{ status: 'active' }, { status: { $exists: false } }]
-    })
-      .select('location createdAt likes')
-      .lean()
-      .limit(1000); // Limit for performance
+    const currentUserId = req.user ? req.user._id.toString() : null;
+    const isViewingOtherProfile = !!(req.user && currentUserId !== id);
 
-    // Group visits by country and place using database aggregation pipeline
-    const stats = await TripVisit.aggregate([
-      {
-        $match: {
-          user: new mongoose.Types.ObjectId(id),
-          isActive: true,
-          verificationStatus: { $in: VERIFIED_STATUSES },
-          isPostDeleted: { $ne: true }
-        }
-      },
-      {
-        $facet: {
-          countries: [
-            { $group: { _id: '$country' } }
-          ],
-          places: [
-            {
-              $group: {
-                _id: {
-                  lat: { $round: ['$lat', 3] },
-                  lng: { $round: ['$lng', 3] }
+    // These four lookups are independent of each other — none needs another's
+    // result as input, they were only sequential before because of imperative
+    // await ordering. Run them concurrently instead of one round trip at a time.
+    // The blocked-user check runs "optimistically" alongside the rest even
+    // though its result may make the others' work moot: it's a rare path and
+    // these are all cheap reads with no side effects, so the wasted query in
+    // that case is a good trade for not serializing the common (not-blocked) case.
+    const [blockedCheck, posts, stats, isFollowingDoc] = await Promise.all([
+      // Apple Guideline 1.2: Blocked users cannot view each other's profiles
+      isViewingOtherProfile
+        ? Promise.all([
+            User.findById(id).select('blockedUsers').lean(),
+            User.findById(currentUserId).select('blockedUsers').lean()
+          ])
+        : Promise.resolve(null),
+
+      // Get user's posts count and locations (optimized query)
+      // Filter out hidden, archived, and non-active status posts to match profile tabs
+      Post.find({
+        user: id,
+        isActive: true,
+        isHidden: { $ne: true },
+        isArchived: { $ne: true },
+        type: { $in: ['photo', 'short'] },
+        $or: [{ status: 'active' }, { status: { $exists: false } }]
+      })
+        .select('location createdAt likes')
+        .lean()
+        .limit(1000), // Limit for performance
+
+      // Group visits by country and place using database aggregation pipeline
+      TripVisit.aggregate([
+        {
+          $match: {
+            user: new mongoose.Types.ObjectId(id),
+            isActive: true,
+            verificationStatus: { $in: VERIFIED_STATUSES },
+            isPostDeleted: { $ne: true }
+          }
+        },
+        {
+          $facet: {
+            countries: [
+              { $group: { _id: '$country' } }
+            ],
+            places: [
+              {
+                $group: {
+                  _id: {
+                    lat: { $round: ['$lat', 3] },
+                    lng: { $round: ['$lng', 3] }
+                  }
                 }
-              }
-            },
-            { $count: 'count' }
-          ]
+              },
+              { $count: 'count' }
+            ]
+          }
         }
-      }
+      ]),
+
+      // Check if current user is following this profile
+      req.user ? Follow.exists({ follower: req.user._id, following: id }) : Promise.resolve(null)
     ]);
+
+    if (blockedCheck) {
+      const [targetUserDoc, currentUserDoc] = blockedCheck;
+      const targetBlockedIds = (targetUserDoc?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+      const currentBlockedIds = (currentUserDoc?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+      if (targetBlockedIds.includes(currentUserId) || currentBlockedIds.includes(id)) {
+        return sendError(res, 'AUTH_1006', 'You cannot view this profile');
+      }
+    }
 
     const countries = {};
     if (stats[0]?.countries) {
@@ -188,10 +208,9 @@ const getProfile = async (req, res) => {
       areas: []
     };
 
-    // Check if current user is following this profile
-    const isFollowing = req.user
-      ? !!(await Follow.exists({ follower: req.user._id, following: id }))
-      : false;
+    // Follow.exists resolves to a document or null; coerce to a real boolean
+    // since it's returned directly in the JSON response below.
+    const isFollowing = !!isFollowingDoc;
 
     // Check if current user has sent a follow request
     const hasSentFollowRequest = req.user && user.followRequests ? 
@@ -286,7 +305,6 @@ const getProfile = async (req, res) => {
 
     // Check route access request status
     let routeAccessStatus = 'none';
-    const currentUserId = req.user ? req.user._id.toString() : null;
     if (currentUserId && !isOwnProfile) {
       const isApproved = user.routeAccessApprovedUsers && 
         user.routeAccessApprovedUsers.some(uid => uid.toString() === currentUserId);
@@ -552,21 +570,24 @@ const toggleFollow = async (req, res) => {
       return sendError(res, 'BIZ_7001', 'You cannot follow yourself');
     }
 
-    const targetUser = await User.findById(id);
+    // None of these three depends on another's result — fetch concurrently
+    // instead of one round trip at a time.
+    const [targetUser, currentUser, isFollowing] = await Promise.all([
+      User.findById(id),
+      User.findById(currentUserId),
+      Follow.exists({ follower: currentUserId, following: id })
+    ]);
     if (!targetUser) {
       logger.warn(`Target user not found in toggleFollow: ${id}`);
       return sendError(res, 'RES_3001', 'User does not exist');
     }
-
     // Defensive: Guard against missing current user
-    const currentUser = await User.findById(currentUserId);
     if (!currentUser) {
       logger.error(`Current user not found in toggleFollow: ${currentUserId}`);
       return sendError(res, 'AUTH_1001', 'Authentication error');
     }
     // Mongoose stores ObjectIds; req.params.id is a string — `.includes(id)` is always false.
     const targetIdStr = id.toString();
-    const isFollowing = await Follow.exists({ follower: currentUserId, following: id });
 
     const notifyFollowUpdated = () => {
       void (async () => {
@@ -1404,7 +1425,13 @@ const approveFollowRequest = async (req, res) => {
     logger.debug('Request ID type:', typeof requestId);
     logger.debug('Current User ID type:', typeof currentUserId);
 
-    let user = await User.findById(currentUserId);
+    // These two are independent of each other (isAlreadyFollower needs only
+    // requestId/currentUserId, not the user doc), so fetch them concurrently
+    // instead of one round trip at a time.
+    let [user, isAlreadyFollower] = await Promise.all([
+      User.findById(currentUserId),
+      Follow.exists({ follower: requestId, following: currentUserId })
+    ]);
     if (!user) {
       logger.debug('❌ User not found');
       return sendError(res, 'RES_3001', 'Current user not found');
@@ -1416,9 +1443,6 @@ const approveFollowRequest = async (req, res) => {
     user.followRequests.forEach((req, index) => {
       logger.debug(`  [${index}] User ID: ${req.user}, Status: ${req.status}, RequestedAt: ${req.requestedAt}`);
     });
-
-    // Check if requester is already a follower (idempotency - allow re-approval)
-    const isAlreadyFollower = await Follow.exists({ follower: requestId, following: currentUserId });
 
     // Find the pending follow request by requester ID (since requestId is actually the requester's user ID)
     const request = user.followRequests.find(req => 
@@ -2875,12 +2899,14 @@ const toggleBlockUser = async (req, res) => {
       return sendError(res, 'BIZ_7001', 'You cannot block yourself');
     }
 
-    const targetUser = await User.findById(id);
+    // Independent of each other — fetch concurrently instead of sequentially.
+    const [targetUser, currentUser] = await Promise.all([
+      User.findById(id),
+      User.findById(currentUserId)
+    ]);
     if (!targetUser) {
       return sendError(res, 'RES_3001', 'User does not exist');
     }
-
-    const currentUser = await User.findById(currentUserId);
     const isBlocked = currentUser.blockedUsers && currentUser.blockedUsers.includes(id);
 
     if (isBlocked) {
@@ -2997,11 +3023,13 @@ const getSuggestedUsers = async (req, res) => {
     const userId = req.user._id || req.user.id;
     const limit = parseInt(req.query.limit) || 6;
 
-    const currentUser = await User.findById(userId).select('interests').lean();
+    // follows only needs userId, not currentUser's data — fetch both concurrently.
+    const [currentUser, follows] = await Promise.all([
+      User.findById(userId).select('interests').lean(),
+      Follow.find({ follower: userId }).select('following').lean()
+    ]);
     if (!currentUser) return sendError(res, 'RES_3001', 'User does not exist');
     const userInterests = Array.isArray(currentUser.interests) ? currentUser.interests : [];
-
-    const follows = await Follow.find({ follower: userId }).select('following').lean();
     const followingIds = follows.map(f => f.following.toString());
     followingIds.push(userId.toString());
 

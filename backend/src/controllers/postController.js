@@ -155,10 +155,14 @@ async function getAllowedPostAuthorIds(viewerId) {
   const viewerObjId = mongoose.Types.ObjectId.isValid(viewerId) ? new mongoose.Types.ObjectId(viewerId) : null;
   if (!viewerObjId) return [];
 
-  const publicUsers = await User.find(publicQuery).select('_id').lean();
+  // publicUsers and follows are independent of each other — only restrictedAuthors
+  // genuinely depends on follows' result (followingIds), so only that one stays
+  // after the first two.
+  const [publicUsers, follows] = await Promise.all([
+    User.find(publicQuery).select('_id').lean(),
+    Follow.find({ follower: viewerObjId }).select('following').lean()
+  ]);
   const publicIds = publicUsers.map(u => u._id);
-
-  const follows = await Follow.find({ follower: viewerObjId }).select('following').lean();
   const followingIds = follows.map(f => f.following);
   const restrictedAuthors = await User.find({
     _id: { $in: followingIds },
