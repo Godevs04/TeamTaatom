@@ -33,7 +33,9 @@ export async function generateMetadata({ params }: { params: { id: string } }): 
 }
 
 export default async function ProfilePage({ params }: { params: { id: string } }) {
-  const profileRes = await getProfile(params.id);
+  // getPosts doesn't depend on the profile fetch's result — only needs params.id —
+  // so run them concurrently instead of waiting on the profile before starting posts.
+  const [profileRes, postsRes] = await Promise.all([getProfile(params.id), getPosts(params.id)]);
   if (!profileRes?.profile) {
     return (
       <div className="mx-auto max-w-3xl">
@@ -45,7 +47,6 @@ export default async function ProfilePage({ params }: { params: { id: string } }
   }
 
   const u = profileRes.profile;
-  const postsRes = await getPosts(params.id);
   const posts: Post[] = postsRes.posts || [];
   const avatarName = u.fullName || u.username || "Traveler";
   const avatarInitial = avatarName.trim().charAt(0).toUpperCase();
