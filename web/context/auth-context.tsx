@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { authLogout, authMe, authSignIn, getProfile, getGlobalSubscriptionStatus } from "../lib/api";
 import { applyWebAuthSession, clearWebAuthSession } from "../lib/auth-session";
 import { getLoginLocationHint } from "../lib/login-location";
+import { useFeatureFlags } from "../lib/feature-flags";
 import type { User } from "../types/user";
 import { PROFILE_ONBOARDING_VERSION } from "../lib/profile-onboarding-version";
 
@@ -53,6 +54,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const isPremium = premiumQuery.data?.isPremium ?? false;
   const isPremiumLoading = !!authUser && premiumQuery.isLoading;
+
+  // Infrastructure only: primes the feature-flags cache once per session so
+  // it's warm by the time anything needs it. Nothing reads flags yet — no
+  // gated feature exists on web — so the result is intentionally unused here.
+  useFeatureFlags(!!authUser);
 
   const user: User | null = React.useMemo(() => {
     if (!authUser) return null;

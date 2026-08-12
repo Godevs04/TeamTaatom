@@ -926,3 +926,21 @@ export async function getGlobalSubscriptionStatus(): Promise<{ isPremium: boolea
   return res.data as { isPremium: boolean; subscription: unknown };
 }
 
+export type FeatureFlag = {
+  name: string;
+  enabled: boolean;
+  variant?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+/**
+ * Mirrors mobile's featureFlags.ts fetch, but sends platform: 'web' — the
+ * backend models targetPlatforms as ['ios', 'android', 'web'], a real
+ * distinct value, not a guess.
+ */
+export async function getFeatureFlags(): Promise<FeatureFlag[]> {
+  const res = await api.get("/feature-flags", { params: { platform: "web" } });
+  const data = res.data as { flags?: FeatureFlag[] };
+  return data.flags ?? [];
+}
+
