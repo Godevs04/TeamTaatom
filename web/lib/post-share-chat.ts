@@ -63,6 +63,22 @@ export function getDefaultTripShareUrl(postId: string): string {
 }
 
 /**
+ * Full journey URL for the current web origin (used before the short URL
+ * resolves, or if it fails). Points at /journeys/:id directly rather than
+ * /journey/:id — middleware.ts already redirects the singular path to this
+ * one, so linking straight here skips that hop, matching how the post
+ * version above points at /trip/:id rather than /post/:id.
+ */
+export function getDefaultJourneyShareUrl(journeyId: string): string {
+  const origin =
+    typeof window !== "undefined"
+      ? window.location.origin
+      : (typeof process !== "undefined" && process.env.NEXT_PUBLIC_WEB_URL) || "";
+  const base = origin.replace(/\/$/, "");
+  return base ? `${base}/journeys/${journeyId}` : `/journeys/${journeyId}`;
+}
+
+/**
  * Build the same chat payload the mobile app sends (frontend/components/ShareModal.tsx).
  * `shareUrl` should be the public link (short URL preferred, else trip URL).
  */

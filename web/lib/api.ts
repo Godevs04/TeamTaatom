@@ -429,6 +429,18 @@ export async function createPostShortUrl(postId: string): Promise<string | null>
   }
 }
 
+/** Same endpoint as createPostShortUrl, branching server-side on journeyId vs postId. */
+export async function createJourneyShortUrl(journeyId: string): Promise<string | null> {
+  try {
+    const res = await api.post("/short-url/create", { journeyId });
+    const body = res.data as { data?: { shortUrl?: string } };
+    const url = body.data?.shortUrl;
+    return typeof url === "string" && url.length > 0 ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function createPost(form: FormData, onUploadProgress?: (pct: number) => void) {
   const res = await api.post("/posts", form, {
     headers: { "Content-Type": undefined } as unknown as Record<string, string>,
