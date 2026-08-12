@@ -7,6 +7,7 @@ import { deleteChatRoom, listChats } from "../../../lib/api";
 import { formatChatMessagePreview } from "../../../lib/post-share-chat";
 import { getFriendlyErrorMessage } from "../../../lib/auth-errors";
 import { useAuth } from "../../../context/auth-context";
+import { subscribeSocket, unsubscribeSocket } from "../../../lib/socket";
 import type { Chat, ChatParticipant, ConnectPageRef } from "../../../types/chat";
 import { MessageCircle, Trash2, User, Users } from "lucide-react";
 import { Skeleton } from "../../../components/ui/skeleton";
@@ -77,6 +78,18 @@ export default function ChatListPage() {
     queryFn: listChats,
     enabled: !!myId,
   });
+
+  // Live-update the list on any new message (sent or received) — refetch rather
+  // than patch in place so the server's sort order (most recent first) and the
+  // full lastMessage shape (used by formatChatMessagePreview below) stay correct.
+  React.useEffect(() => {
+    if (!myId) return;
+    const onChatUpdate = () => {
+      queryClient.invalidateQueries({ queryKey: ["chat", "list"] });
+    };
+    subscribeSocket("chat:update", onChatUpdate);
+    return () => unsubscribeSocket("chat:update", onChatUpdate);
+  }, [myId, queryClient]);
 
   const deleteMutation = useMutation({
     mutationFn: ({ chatId }: { chatId: string; conversationKey: unknown[] }) =>

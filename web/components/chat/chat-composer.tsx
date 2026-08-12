@@ -22,10 +22,13 @@ export function ChatComposer({
   onSend,
   isSending,
   placeholder = "Type a message…",
+  onTyping,
 }: {
   onSend: (text: string, files: File[]) => Promise<unknown>;
   isSending: boolean;
   placeholder?: string;
+  /** Called on every draft-text change, mirroring mobile's unthrottled per-keystroke emit. */
+  onTyping?: () => void;
 }) {
   const [input, setInput] = React.useState("");
   const [files, setFiles] = React.useState<File[]>([]);
@@ -146,7 +149,10 @@ export function ChatComposer({
         </Button>
         <Input
           value={input}
-          onChange={(e) => setInput(e.target.value)}
+          onChange={(e) => {
+            setInput(e.target.value);
+            onTyping?.();
+          }}
           placeholder={placeholder}
           className="flex-1 rounded-xl border-slate-200/80 bg-background dark:border-zinc-700"
           maxLength={2000}

@@ -20,6 +20,7 @@ import { Skeleton } from "../../../../../components/ui/skeleton";
 import { toast } from "sonner";
 import { ChatComposer } from "../../../../../components/chat/chat-composer";
 import { MessageAttachments } from "../../../../../components/chat/message-attachments";
+import { subscribeSocket, unsubscribeSocket } from "../../../../../lib/socket";
 
 function normalizeSenderId(sender: ChatMessage["sender"]): string {
   if (typeof sender === "string") return sender;
@@ -51,6 +52,47 @@ export default function GroupChatRoomPage() {
     if (!roomId || !myId) return;
     markRoomMessagesSeen(roomId).catch(() => {});
   }, [roomId, myId]);
+
+  // Live message delivery + seen receipts for the group/room chat. Sending is
+  // unchanged (still the REST call below); this only subscribes. Typing and
+  // online/offline presence are intentionally not wired here: the backend's
+  // `typing` socket handler only supports a single `to` recipient (no
+  // room/broadcast form), and there's no single "other user" for a group
+  // chat's presence dot the way there is on the 1:1 thread page.
+  React.useEffect(() => {
+    if (!roomId || !myId) return;
+
+    const onMessageNew = (payload: { chatId?: string; message?: ChatMessage }) => {
+      if (!payload?.message || payload.chatId !== roomId) return;
+      queryClient.setQueryData<{ messages: ChatMessage[] }>(["chat-room", roomId, "messages"], (old) => {
+        if (!old) return old;
+        if (old.messages.some((m) => m._id === payload.message!._id)) return old;
+        return { ...old, messages: [...old.messages, payload.message!] };
+      });
+      queryClient.invalidateQueries({ queryKey: ["chat", "list"] });
+    };
+
+    const onSeen = (payload: { messageId?: string; chatId?: string; seenBy?: string[] }) => {
+      if (payload?.chatId !== roomId || !payload.messageId) return;
+      queryClient.setQueryData<{ messages: ChatMessage[] }>(["chat-room", roomId, "messages"], (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          messages: old.messages.map((m) =>
+            m._id === payload.messageId ? { ...m, seenBy: payload.seenBy ?? m.seenBy } : m
+          ),
+        };
+      });
+    };
+
+    subscribeSocket("message:new", onMessageNew);
+    subscribeSocket("seen", onSeen);
+
+    return () => {
+      unsubscribeSocket("message:new", onMessageNew);
+      unsubscribeSocket("seen", onSeen);
+    };
+  }, [roomId, myId, queryClient]);
 
   const sendMutation = useMutation({
     mutationFn: async ({ text, files }: { text: string; files: File[] }) => {

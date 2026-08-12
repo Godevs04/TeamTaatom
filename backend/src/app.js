@@ -109,94 +109,25 @@ app.use(helmet({
 
 // CORS configuration - environment-aware
 const isProduction = process.env.NODE_ENV === 'production';
-const isDevelopment = process.env.NODE_ENV === 'development';
-
-const normalizeOrigin = (value) => {
-  if (!value || typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  return trimmed.replace(/\/+$/, '').toLowerCase();
-};
-
-const withApexAndWwwVariants = (origins) => {
-  const out = new Set();
-  origins.forEach((origin) => {
-    const normalized = normalizeOrigin(origin);
-    if (!normalized) return;
-    out.add(normalized);
-    if (normalized.startsWith('https://www.')) {
-      out.add(normalized.replace('https://www.', 'https://'));
-    } else if (normalized.startsWith('https://')) {
-      const host = normalized.replace('https://', '');
-      if (!host.startsWith('admin.')) {
-        out.add(`https://www.${host}`);
-      }
-    }
-  });
-  return [...out];
-};
+const { isOriginAllowed, normalizeOrigin, getProductionOrigins } = require('./utils/corsOrigins');
 
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
-    const normalizedOrigin = normalizeOrigin(origin);
-    
-    // Production: Only allow specific domains (FRONTEND_URL, WEB_FRONTEND_URL, SUPERADMIN_URL)
+
+    if (isOriginAllowed(origin)) {
+      return callback(null, true);
+    }
+
     if (isProduction) {
-      const productionOrigins = withApexAndWwwVariants([
-        process.env.FRONTEND_URL,
-        process.env.WEB_FRONTEND_URL,
-        process.env.SUPERADMIN_URL,
-      ]);
-      
-      if (normalizedOrigin && productionOrigins.includes(normalizedOrigin)) {
-        return callback(null, true);
-      }
       logger.warn('CORS blocked origin in production', {
-        blockedOrigin: normalizedOrigin || origin,
-        allowedOrigins: productionOrigins,
+        blockedOrigin: normalizeOrigin(origin) || origin,
+        allowedOrigins: getProductionOrigins(),
         hint: 'Set FRONTEND_URL, WEB_FRONTEND_URL, or SUPERADMIN_URL in backend env to the allowed origin (no trailing slash).'
       });
-      return callback(new Error('Not allowed by CORS'));
     }
-    
-    // Development: Allow localhost and local network (development-only fallbacks)
-    const devOrigins = withApexAndWwwVariants([
-      process.env.FRONTEND_URL,
-      process.env.WEB_FRONTEND_URL,
-      process.env.SUPERADMIN_URL,
-      // Development-only fallbacks (never used in production)
-      ...(isDevelopment ? [
-        'http://localhost:5003',
-        'http://localhost:8081',
-        'http://localhost:3001',
-        'http://x:8081',
-        'http://x:3000',
-        'file://',
-        'null'
-      ] : [])
-    ]);
-    
-    // In development, also allow localhost with any port and local network IPs
-    const devPatterns = [
-      /^http:\/\/localhost:\d+$/,
-      /^http:\/\/192\.168\.\d+\.\d+:\d+$/,
-      /^http:\/\/10\.\d+\.\d+\.\d+:\d+$/,
-    ];
-    
-    // Check exact matches first
-    if (normalizedOrigin && devOrigins.includes(normalizedOrigin)) {
-      return callback(null, true);
-    }
-    
-    // Check patterns in development only
-    if (isDevelopment && devPatterns.some(pattern => pattern.test(origin))) {
-      return callback(null, true);
-    }
-    
-    // Default: reject
-    callback(new Error('Not allowed by CORS'));
+    return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],

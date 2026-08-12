@@ -7,6 +7,7 @@ import { authLogout, authMe, authSignIn, getProfile, getGlobalSubscriptionStatus
 import { applyWebAuthSession, clearWebAuthSession } from "../lib/auth-session";
 import { getLoginLocationHint } from "../lib/login-location";
 import { useFeatureFlags } from "../lib/feature-flags";
+import { connectSocket, disconnectSocket } from "../lib/socket";
 import type { User } from "../types/user";
 import { PROFILE_ONBOARDING_VERSION } from "../lib/profile-onboarding-version";
 
@@ -60,6 +61,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // gated feature exists on web — so the result is intentionally unused here.
   useFeatureFlags(!!authUser);
 
+  // Connect the chat/presence socket once per authenticated session, and
+  // disconnect when the session ends for any reason (explicit sign-out,
+  // cookie/session expiry causing authMe to stop returning a user, etc.) —
+  // not just the explicit signOut() path below, which additionally
+  // disconnects immediately rather than waiting for this effect to react.
+  React.useEffect(() => {
+    if (authUser) {
+      connectSocket();
+    } else {
+      disconnectSocket();
+    }
+  }, [authUser]);
+
   const user: User | null = React.useMemo(() => {
     if (!authUser) return null;
     const profilePic =
@@ -109,6 +123,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Still sign out locally if backend fails (e.g. session already expired, network error)
     } finally {
       clearWebAuthSession();
+      disconnectSocket();
       qc.removeQueries({ queryKey: ["auth"] });
       qc.removeQueries({ queryKey: ["profile"] });
       router.replace("/auth/login");

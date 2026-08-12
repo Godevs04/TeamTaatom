@@ -1,7 +1,9 @@
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
+const cookie = require('cookie');
 const chatController = require('../controllers/chat.controller');
 const logger = require('../utils/logger');
+const { isOriginAllowed, normalizeOrigin } = require('../utils/corsOrigins');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const WS_PATH = process.env.WS_PATH || '/socket.io';
@@ -10,6 +12,18 @@ const isProduction = process.env.NODE_ENV === 'production';
 const WS_ALLOWED_ORIGIN = process.env.WS_ALLOWED_ORIGIN || (isProduction ? null : 'http://localhost:19006');
 if (isProduction && !WS_ALLOWED_ORIGIN) {
   throw new Error('WS_ALLOWED_ORIGIN environment variable is required for production');
+}
+const normalizedWsAllowedOrigin = normalizeOrigin(WS_ALLOWED_ORIGIN);
+
+/**
+ * Same allow-list the REST API's CORS middleware uses (app.js), plus
+ * WS_ALLOWED_ORIGIN as an always-allowed extra (e.g. Expo web dev) --
+ * additive on top of the REST allow-list, not a replacement for it.
+ */
+function isSocketOriginAllowed(origin) {
+  if (!origin) return true;
+  if (normalizedWsAllowedOrigin && normalizeOrigin(origin) === normalizedWsAllowedOrigin) return true;
+  return isOriginAllowed(origin);
 }
 
 let io;
@@ -20,7 +34,10 @@ function setupSocket(server) {
   io = new Server(server, {
     path: WS_PATH,
     cors: {
-      origin: WS_ALLOWED_ORIGIN,
+      origin: (origin, callback) => {
+        if (isSocketOriginAllowed(origin)) return callback(null, true);
+        return callback(new Error('Not allowed by CORS'));
+      },
       credentials: true,
     },
   });
@@ -43,6 +60,14 @@ function setupSocket(server) {
       if (!token && socket.handshake.headers?.authorization) {
         const parts = socket.handshake.headers.authorization.split(' ');
         if (parts[0] === 'Bearer') token = parts[1];
+      }
+      // Web (production): the JWT is never given to browser JS, only set as an
+      // httpOnly `authToken` cookie -- fall back to reading it from the
+      // handshake's Cookie header. Bearer/query paths above are untouched, so
+      // mobile (which sends auth.token) keeps working exactly as before.
+      if (!token && socket.handshake.headers?.cookie) {
+        const parsed = cookie.parse(socket.handshake.headers.cookie);
+        token = parsed.authToken;
       }
       if (!token) return next(new Error('Auth required'));
       const payload = jwt.verify(token, JWT_SECRET);

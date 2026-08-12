@@ -23,6 +23,10 @@ import { parsePostShareMessage } from "../../../../lib/post-share-chat";
 import { PostShareCard } from "../../../../components/chat/post-share-card";
 import { ChatComposer } from "../../../../components/chat/chat-composer";
 import { MessageAttachments } from "../../../../components/chat/message-attachments";
+import { subscribeSocket, unsubscribeSocket, emitSocket } from "../../../../lib/socket";
+
+/** Matches mobile's frontend/app/chat/thread.tsx: auto-clear 2s after the last received typing event. */
+const TYPING_CLEAR_MS = 2000;
 
 function normalizeSenderId(sender: ChatMessage["sender"]): string {
   if (typeof sender === "string") return sender;
@@ -60,6 +64,86 @@ export default function ChatConversationPage() {
     if (!userId || !myId) return;
     markChatMessagesSeen(userId).catch(() => {});
   }, [userId, myId]);
+
+  const chatId = chatData?.chat?._id;
+  const [isTyping, setIsTyping] = React.useState(false);
+  const [isOnline, setIsOnline] = React.useState(false);
+  const typingClearTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Live message delivery + typing + seen receipts + presence. Sending itself is
+  // unchanged (still the REST call below) — sendChatMessage already makes the
+  // backend emit message:new/message:sent/chat:update server-side, so this effect
+  // only needs to subscribe, not change how sends work.
+  React.useEffect(() => {
+    if (!userId || !myId) return;
+
+    const onMessageNew = (payload: { chatId?: string; message?: ChatMessage }) => {
+      if (!payload?.message || !chatId || payload.chatId !== chatId) return;
+      queryClient.setQueryData<{ messages: ChatMessage[] }>(["chat", userId, "messages"], (old) => {
+        if (!old) return old;
+        if (old.messages.some((m) => m._id === payload.message!._id)) return old;
+        return { ...old, messages: [...old.messages, payload.message!] };
+      });
+      queryClient.invalidateQueries({ queryKey: ["chat", "list"] });
+    };
+
+    const onSeen = (payload: { from?: string; messageId?: string }) => {
+      if (payload?.from !== userId || !payload.messageId) return;
+      queryClient.setQueryData<{ messages: ChatMessage[] }>(["chat", userId, "messages"], (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          messages: old.messages.map((m) => (m._id === payload.messageId ? { ...m, seen: true } : m)),
+        };
+      });
+    };
+
+    const onTyping = (payload: { from?: string }) => {
+      if (payload?.from !== userId) return;
+      setIsTyping(true);
+      if (typingClearTimeoutRef.current) clearTimeout(typingClearTimeoutRef.current);
+      typingClearTimeoutRef.current = setTimeout(() => setIsTyping(false), TYPING_CLEAR_MS);
+    };
+
+    const onOnline = (payload: { userId?: string }) => {
+      if (payload?.userId === userId) setIsOnline(true);
+    };
+    const onOffline = (payload: { userId?: string }) => {
+      if (payload?.userId === userId) setIsOnline(false);
+    };
+
+    subscribeSocket("message:new", onMessageNew);
+    subscribeSocket("seen", onSeen);
+    subscribeSocket("typing", onTyping);
+    subscribeSocket("user:online", onOnline);
+    subscribeSocket("user:offline", onOffline);
+
+    return () => {
+      unsubscribeSocket("message:new", onMessageNew);
+      unsubscribeSocket("seen", onSeen);
+      unsubscribeSocket("typing", onTyping);
+      unsubscribeSocket("user:online", onOnline);
+      unsubscribeSocket("user:offline", onOffline);
+      if (typingClearTimeoutRef.current) clearTimeout(typingClearTimeoutRef.current);
+    };
+  }, [userId, myId, chatId, queryClient]);
+
+  // Emit the socket 'seen' receipt alongside the durable REST markChatMessagesSeen
+  // call above (mobile's pattern), not instead of it — one emit per currently-
+  // unseen message from the other user, guarded so it only runs once per thread.
+  const seenEmittedForRef = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (!userId || !myId || !chatId) return;
+    if (seenEmittedForRef.current === chatId) return;
+    const unseen = (messagesData?.messages ?? []).filter(
+      (m) => normalizeSenderId(m.sender) === userId && !m.seen
+    );
+    if (unseen.length === 0) return;
+    seenEmittedForRef.current = chatId;
+    for (const msg of unseen) {
+      emitSocket("seen", { to: userId, messageId: msg._id, chatId });
+    }
+  }, [userId, myId, chatId, messagesData?.messages]);
 
   const sendMutation = useMutation({
     mutationFn: async ({ text, files }: { text: string; files: File[] }) => {
@@ -112,8 +196,19 @@ export default function ChatConversationPage() {
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate font-semibold text-slate-900 dark:text-zinc-50">{displayName}</h1>
-          <p className="truncate text-xs text-slate-500 dark:text-zinc-400">@{otherUser?.username ?? "user"}</p>
+          <div className="flex items-center gap-1.5">
+            <h1 className="truncate font-semibold text-slate-900 dark:text-zinc-50">{displayName}</h1>
+            {isOnline && (
+              <span
+                className="h-2 w-2 shrink-0 rounded-full bg-emerald-500"
+                title="Online"
+                aria-label="Online"
+              />
+            )}
+          </div>
+          <p className="truncate text-xs text-slate-500 dark:text-zinc-400">
+            {isTyping ? "typing…" : `@${otherUser?.username ?? "user"}`}
+          </p>
         </div>
         <Button variant="outline" size="sm" className="rounded-xl" asChild>
           <Link href={`/profile/${userId}`}>Profile</Link>
@@ -184,6 +279,7 @@ export default function ChatConversationPage() {
       <ChatComposer
         onSend={(text, files) => sendMutation.mutateAsync({ text, files })}
         isSending={sendMutation.isPending}
+        onTyping={() => emitSocket("typing", { to: userId })}
       />
     </div>
   );
