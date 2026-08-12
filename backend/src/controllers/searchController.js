@@ -4,6 +4,7 @@ const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { cacheWrapper, CACHE_TTL } = require('../utils/cache');
 const { generateSignedUrl, generateSignedUrls } = require('../services/mediaService');
+const { escapeRegex } = require('../utils/regexEscape');
 
 // @desc    Advanced search for posts
 // @route   GET /api/v1/search/posts
@@ -35,7 +36,7 @@ const searchPosts = async (req, res) => {
 
     // Text search in caption (support both q and query params)
     if (searchText && String(searchText).trim().length > 0) {
-      matchQuery.caption = { $regex: String(searchText).trim(), $options: 'i' };
+      matchQuery.caption = { $regex: escapeRegex(String(searchText).trim()), $options: 'i' };
     }
 
     // Hashtag filter
@@ -45,7 +46,7 @@ const searchPosts = async (req, res) => {
 
     // Location filter (address search)
     if (location) {
-      matchQuery['location.address'] = { $regex: location, $options: 'i' };
+      matchQuery['location.address'] = { $regex: escapeRegex(location), $options: 'i' };
     }
 
     // Date range filter
@@ -222,7 +223,7 @@ const searchByLocation = async (req, res) => {
       isActive: true,
       isArchived: { $ne: true },
       isHidden: { $ne: true },
-      'location.address': { $regex: location.trim(), $options: 'i' }
+      'location.address': { $regex: escapeRegex(location.trim()), $options: 'i' }
     };
 
     const cacheKey = `search:location:${location}:page:${page}:limit:${limit}`;

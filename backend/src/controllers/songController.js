@@ -4,6 +4,7 @@ const { buildMediaKey, uploadObject, deleteObject } = require('../services/stora
 const { generateSignedUrl } = require('../services/mediaService');
 const { sendSuccess, sendError } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
+const { escapeRegex } = require('../utils/regexEscape');
 
 // @desc    Get all active songs (for user selection)
 // @route   GET /api/v1/songs
@@ -22,7 +23,7 @@ const getSongs = async (req, res) => {
     
     // Handle search - use regex search (case-insensitive, combined title + artist)
     if (search && typeof search === 'string' && search.trim().length > 0) {
-      const searchTerm = search.trim().substring(0, 100); // Cap search length
+      const searchTerm = escapeRegex(search.trim().substring(0, 100)); // Cap search length
       query.$or = [
         { title: { $regex: searchTerm, $options: 'i' } },
         { artist: { $regex: searchTerm, $options: 'i' } }

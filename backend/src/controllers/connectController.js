@@ -12,6 +12,7 @@ const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { uploadObject, buildMediaKey } = require('../services/storage');
 const { generateSignedUrl, isSignedUrl, extractStorageKeyFromUrl } = require('../services/mediaService');
+const { escapeRegex } = require('../utils/regexEscape');
 
 
 /**
@@ -846,7 +847,7 @@ const searchByName = async (req, res) => {
     const query = {
       status: 'active',
       type: 'public',
-      name: { $regex: q.trim(), $options: 'i' }
+      name: { $regex: escapeRegex(q.trim()), $options: 'i' }
     };
 
     const [pages, total] = await Promise.all([

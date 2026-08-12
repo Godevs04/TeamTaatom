@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { escapeRegex } = require('../utils/regexEscape');
 
 const hashtagSchema = new mongoose.Schema({
   name: {
@@ -56,8 +57,8 @@ hashtagSchema.statics.search = async function(query, limit = 20) {
     return [];
   }
 
-  const searchQuery = query.toLowerCase().trim();
-  
+  const searchQuery = escapeRegex(query.toLowerCase().trim());
+
   return this.find({
     name: { $regex: `^${searchQuery}`, $options: 'i' },
   })
