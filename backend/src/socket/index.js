@@ -54,6 +54,24 @@ function setupSocket(server) {
     for (const sid of sockets) nsp.to(sid).emit(event, payload);
   }
 
+  // Distinct set of other participants across every chat this user is in --
+  // the same broad lookup listChats uses (chat.controller.js), no chat-type
+  // filter. This is who presence (user:online/user:offline) actually needs
+  // to reach; `user:${userId}` is the user's own room (their own other
+  // devices), never a chat partner's.
+  async function getChatPartnerIds(userId) {
+    const Chat = require('../models/Chat');
+    const chats = await Chat.find({ participants: userId }).select('participants').lean();
+    const partnerIds = new Set();
+    for (const chat of chats) {
+      for (const pId of chat.participants) {
+        const pidStr = pId.toString();
+        if (pidStr !== userId) partnerIds.add(pidStr);
+      }
+    }
+    return [...partnerIds];
+  }
+
   nsp.use(async (socket, next) => {
     try {
       let token = socket.handshake.auth?.token || socket.handshake.query?.auth;
@@ -77,8 +95,13 @@ function setupSocket(server) {
       // Add this socket to the user's set
       if (!onlineUsers.has(socket.userId)) onlineUsers.set(socket.userId, new Set());
       onlineUsers.get(socket.userId).add(socket.id);
-      // Notify chat partners this user is online
-      nsp.to(`user:${socket.userId}`).emit('user:online', { userId: socket.userId });
+      // Notify actual chat partners this user is online -- only on the
+      // user's first tracked socket, so opening a second tab/device doesn't
+      // re-notify partners who already know the user is online.
+      if (onlineUsers.get(socket.userId).size === 1) {
+        const partnerIds = await getChatPartnerIds(socket.userId);
+        partnerIds.forEach((pId) => nsp.to(`user:${pId}`).emit('user:online', { userId: socket.userId }));
+      }
       return next();
     } catch (err) {
       return next(new Error('Invalid token'));
@@ -329,12 +352,18 @@ function setupSocket(server) {
       });
     });
     // Presence
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
       if (onlineUsers.has(socket.userId)) {
         onlineUsers.get(socket.userId).delete(socket.id);
-        if (onlineUsers.get(socket.userId).size === 0) onlineUsers.delete(socket.userId);
+        if (onlineUsers.get(socket.userId).size === 0) {
+          onlineUsers.delete(socket.userId);
+          // Only notify partners once the user's last socket has disconnected --
+          // otherwise closing one of several open tabs/devices would incorrectly
+          // tell partners the user went offline while still connected elsewhere.
+          const partnerIds = await getChatPartnerIds(socket.userId);
+          partnerIds.forEach((pId) => nsp.to(`user:${pId}`).emit('user:offline', { userId: socket.userId }));
+        }
       }
-      nsp.to(`user:${socket.userId}`).emit('user:offline', { userId: socket.userId });
     });
   });
 
