@@ -56,7 +56,14 @@ const getFeatureFlags = async (req, res) => {
         name: flag.name,
         enabled: flag.enabled,
         variant: flag.variant,
-        metadata: flag.metadata ? Object.fromEntries(flag.metadata) : {},
+        // metadata is schema-typed as Map, but .find().lean() returns Map-typed
+        // fields as a plain object, not a Map instance (confirmed live on
+        // mongoose 8.22.1: typeof 'object', instanceof Map === false,
+        // constructor.name 'Object') -- it's already the right shape to return
+        // as-is. Object.fromEntries() expects an iterable of [key, value]
+        // pairs, which a plain object is not, so it threw on any flag with a
+        // real (non-empty-truthy) metadata value.
+        metadata: flag.metadata ?? {},
       }));
 
     res.json({
