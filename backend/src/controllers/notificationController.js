@@ -1,7 +1,6 @@
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const Post = require('../models/Post');
-const { getIO } = require('../socket');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { generateSignedUrl, generateSignedUrls } = require('../services/mediaService');
@@ -258,23 +257,9 @@ const createNotification = async (req, res) => {
       metadata
     });
 
-    // Send real-time notification
-    const io = getIO();
-    if (io) {
-      const nsp = io.of('/app');
-      nsp.emit('notification', {
-        userId: toUser,
-        notification: {
-          _id: notification._id,
-          type: notification.type,
-          fromUser: notification.fromUser,
-          post: notification.post,
-          comment: notification.comment,
-          isRead: notification.isRead,
-          createdAt: notification.createdAt
-        }
-      });
-    }
+    // Real-time socket emit is handled by Notification.createNotification
+    // itself now (backend/src/models/Notification.js) -- no manual emit
+    // needed here.
 
     return sendSuccess(res, 201, 'Notification created', { notification });
   } catch (error) {
