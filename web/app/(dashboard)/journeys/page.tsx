@@ -2,20 +2,32 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { Loader2, Footprints } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Loader2, Footprints, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import { useAuth } from "@/context/auth-context";
-import { journeyListForUser } from "@/lib/journey-api";
+import { journeyListForUser, journeyDelete } from "@/lib/journey-api";
+import { getFriendlyErrorMessage } from "@/lib/auth-errors";
 import type { Journey } from "@/types/journey";
 
 export default function JourneysListPage() {
   const { user } = useAuth();
   const userId = user?._id ?? "";
+  const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
     queryKey: ["journeys-user", userId],
     queryFn: () => journeyListForUser(userId, 1, 30),
     enabled: !!userId,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (journeyId: string) => journeyDelete(journeyId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["journeys-user", userId] });
+      toast.success("Journey deleted");
+    },
+    onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
   });
 
   const journeys = data?.journeys ?? [];
@@ -48,11 +60,11 @@ export default function JourneysListPage() {
       )}
       <ul className="space-y-2">
         {(journeys as Journey[]).map((j) => (
-          <li key={j._id}>
-            <Link
-              href={`/journeys/${j._id}`}
-              className="flex items-center gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 transition hover:border-primary/25 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900/70"
-            >
+          <li
+            key={j._id}
+            className="flex items-center gap-2 rounded-2xl border border-slate-200/80 bg-white pr-2 transition hover:border-primary/25 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900/70"
+          >
+            <Link href={`/journeys/${j._id}`} className="flex min-w-0 flex-1 items-center gap-3 p-4">
               <Footprints className="h-8 w-8 shrink-0 text-primary" />
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold text-slate-900 dark:text-white">
@@ -67,6 +79,20 @@ export default function JourneysListPage() {
               </div>
               <span className="text-xs text-primary">View →</span>
             </Link>
+            <button
+              type="button"
+              aria-label="Delete journey"
+              title="Delete journey"
+              disabled={deleteMutation.isPending}
+              onClick={() => {
+                if (window.confirm(`Delete "${j.title || "this journey"}"? This cannot be undone.`)) {
+                  deleteMutation.mutate(j._id);
+                }
+              }}
+              className="shrink-0 rounded-xl p-2.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
           </li>
         ))}
       </ul>

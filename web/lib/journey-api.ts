@@ -46,6 +46,17 @@ export async function journeyGetDetail(journeyId: string) {
   return d.journey as Journey;
 }
 
+export async function journeyUpdateTitle(journeyId: string, title: string) {
+  const res = await api.patch(`/journey/${journeyId}/title`, { title });
+  const d = res.data as { journey?: Journey };
+  return d.journey as Journey;
+}
+
+export async function journeyDelete(journeyId: string) {
+  const res = await api.delete(`/journey/${journeyId}`);
+  return res.data as { success?: boolean; message?: string };
+}
+
 export async function journeyListForUser(userId: string, page = 1, limit = 20) {
   const res = await api.get(`/journey/user/${userId}`, {
     params: { page, limit },

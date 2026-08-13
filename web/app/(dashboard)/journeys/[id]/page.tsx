@@ -6,22 +6,10 @@ import JourneyDetailClient from "./journey-detail-client";
 
 import type { Journey } from "../../../../types/journey";
 
-interface JourneyWaypoint {
-  post?: {
-    imageUrl?: string;
-    thumbnailUrl?: string;
-    mediaUrl?: string;
-  };
-}
-
-interface ServerJourney extends Journey {
-  waypoints?: JourneyWaypoint[];
-}
-
-async function fetchJourney(id: string): Promise<ServerJourney | null> {
+async function fetchJourney(id: string): Promise<Journey | null> {
   const res = await fetchWithAuth(`${API_V1_ABS}/journey/${id}`);
   if (!res.ok) return null;
-  const data = (await res.json()) as { journey?: ServerJourney };
+  const data = (await res.json()) as { journey?: Journey };
   return data.journey ?? null;
 }
 
@@ -43,8 +31,8 @@ export async function generateMetadata({ params }: { params: { id?: string } }):
   let image = null;
   if (journey?.waypoints && journey.waypoints.length > 0) {
     for (const wp of journey.waypoints) {
-      if (wp?.post && (wp.post.imageUrl || wp.post.thumbnailUrl || wp.post.mediaUrl)) {
-        image = wp.post.imageUrl || wp.post.thumbnailUrl || wp.post.mediaUrl;
+      if (wp?.post && (wp.post.imageUrl || wp.post.thumbnailUrl)) {
+        image = wp.post.imageUrl || wp.post.thumbnailUrl;
         break;
       }
     }
