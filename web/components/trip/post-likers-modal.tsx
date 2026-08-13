@@ -9,6 +9,9 @@ import { getFriendlyErrorMessage } from "../../lib/auth-errors";
 import { Button } from "../ui/button";
 import { Skeleton } from "../ui/skeleton";
 import { cn } from "../../lib/utils";
+import { subscribeSocket, unsubscribeSocket } from "../../lib/socket";
+
+type PostLikeUpdate = { postId?: string; likesCount?: number };
 
 /** Mobile loads a single large page rather than paginating this list; match that. */
 const LIKERS_PAGE_SIZE = 100;
@@ -126,16 +129,48 @@ export function PostLikesCount({
   likesCount,
   className,
   children,
+  suffix,
+  live = false,
 }: {
   postId: string;
   likesCount: number;
   className?: string;
   children?: React.ReactNode;
+  /** Text appended after the live count (e.g. " likes"). Ignored if `children` is passed. */
+  suffix?: string;
+  /**
+   * Subscribe to `post:like:update` and keep the count live. Off by default:
+   * this component is also used per-card on list/grid pages (post-card.tsx,
+   * rendered many-at-once on the feed), and post:like:update is a global
+   * broadcast for every like on every post app-wide -- turning every rendered
+   * card into its own socket listener there would be exactly the feed-wide
+   * live-patching effort that's a separate, bigger pass. Opt in only where a
+   * live count is actually wanted (currently just the single-post detail page).
+   */
+  live?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
-  const label = children ?? likesCount;
+  const [count, setCount] = React.useState(likesCount);
 
-  if (likesCount <= 0) {
+  // Stay in sync with the prop (e.g. navigating between posts, or a parent
+  // refetch bringing a fresh server-rendered value).
+  React.useEffect(() => {
+    setCount(likesCount);
+  }, [likesCount]);
+
+  React.useEffect(() => {
+    if (!live) return;
+    const onLikeUpdate = (payload: PostLikeUpdate) => {
+      if (payload?.postId !== postId || typeof payload.likesCount !== "number") return;
+      setCount(payload.likesCount);
+    };
+    subscribeSocket<PostLikeUpdate>("post:like:update", onLikeUpdate);
+    return () => unsubscribeSocket<PostLikeUpdate>("post:like:update", onLikeUpdate);
+  }, [live, postId]);
+
+  const label = children ?? (suffix ? `${count}${suffix}` : count);
+
+  if (count <= 0) {
     return <span className={className}>{label}</span>;
   }
 
@@ -145,7 +180,7 @@ export function PostLikesCount({
         type="button"
         className={cn("hover:underline", className)}
         onClick={() => setOpen(true)}
-        aria-label={`View who liked this post (${likesCount})`}
+        aria-label={`View who liked this post (${count})`}
       >
         {label}
       </button>

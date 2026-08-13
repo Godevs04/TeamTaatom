@@ -13,6 +13,9 @@ import { toast } from "sonner";
 import type { Comment } from "../../types/post";
 import { useMentionAutocomplete } from "../../hooks/useMentionAutocomplete";
 import { MentionSuggestions, mentionOptionId } from "../mention-suggestions";
+import { subscribeSocket, unsubscribeSocket } from "../../lib/socket";
+
+type PostCommentUpdate = { postId?: string };
 
 export function TripComments({ postId }: { postId: string }) {
   const qc = useQueryClient();
@@ -30,6 +33,20 @@ export function TripComments({ postId }: { postId: string }) {
     queryFn: () => getPostById(postId),
     enabled: validId,
   });
+
+  // Live comment updates (add/delete, from any user, any client). Global
+  // broadcast -- filter to this post -- then refetch rather than hand-patch,
+  // since comment payloads/threading are more complex to patch correctly than
+  // a simple counter (mirrors chat:update's invalidate-not-patch choice).
+  React.useEffect(() => {
+    if (!validId) return;
+    const onCommentUpdate = (payload: PostCommentUpdate) => {
+      if (payload?.postId !== postId) return;
+      qc.invalidateQueries({ queryKey: ["post", postId] });
+    };
+    subscribeSocket<PostCommentUpdate>("post:comment:update", onCommentUpdate);
+    return () => unsubscribeSocket<PostCommentUpdate>("post:comment:update", onCommentUpdate);
+  }, [validId, postId, qc]);
 
   const m = useMutation({
     mutationFn: async () => {

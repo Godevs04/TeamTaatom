@@ -93,9 +93,7 @@ export default async function TripDetailPage({ params }: { params: { id: string 
             </div>
             <div className="flex-1" />
             <div className="text-xs font-semibold text-muted-foreground">
-              <PostLikesCount postId={id} likesCount={post.likesCount ?? 0}>
-                {post.likesCount ?? 0} likes
-              </PostLikesCount>{" "}
+              <PostLikesCount postId={id} likesCount={post.likesCount ?? 0} suffix=" likes" live />{" "}
               · {post.commentsCount ?? 0} comments
             </div>
           </div>
