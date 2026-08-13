@@ -2449,25 +2449,6 @@ const toggleLike = async (req, res) => {
                 senderId: req.user._id.toString() // Keep for backward compatibility
               }
             }).catch(err => logger.error('Error sending push notification for like:', err));
-
-            // Emit real-time notification to recipient only
-            const io = getIO();
-            if (io) {
-              const nsp = io.of('/app');
-              nsp.to(`user:${post.user}`).emit('notification', {
-                type: 'like',
-                fromUser: {
-                  _id: req.user._id,
-                  fullName: req.user.fullName,
-                  profilePic: req.user.profilePic
-                },
-                post: {
-                  _id: post._id,
-                  imageUrl: post.imageUrl
-                },
-                createdAt: new Date()
-              });
-            }
           } catch (notificationError) {
             logger.error('Error creating like notification:', notificationError);
           }
@@ -2657,29 +2638,6 @@ const addComment = async (req, res) => {
             senderId: req.user._id.toString() // Keep for backward compatibility
           }
         }).catch(err => logger.error('Error sending push notification for comment:', err));
-
-        // Emit real-time notification to recipient only
-        const io = getIO();
-        if (io) {
-          const nsp = io.of('/app');
-          nsp.to(`user:${post.user._id}`).emit('notification', {
-            type: 'comment',
-            fromUser: {
-              _id: req.user._id,
-              fullName: req.user.fullName,
-              profilePic: req.user.profilePic
-            },
-            post: {
-              _id: post._id,
-              imageUrl: post.imageUrl
-            },
-            comment: {
-              _id: newComment._id,
-              text: text
-            },
-            createdAt: new Date()
-          });
-        }
       } catch (notificationError) {
         logger.error('❌ Error creating comment notification:', notificationError);
       }

@@ -744,23 +744,6 @@ const toggleFollow = async (req, res) => {
           deleteCacheByPattern('search:*')
         ]).catch(err => logger.warn('Failed to delete follow cache:', err));
 
-        // Send notification to target user
-        const io = getIO();
-        if (io && targetUser.expoPushToken && targetUser.settings.notifications.followRequestNotifications) {
-          const nsp = io.of('/app');
-          nsp.emit('notification', {
-            userId: id,
-            type: 'follow_request',
-            title: 'New Follow Request',
-            message: `${currentUser.fullName} wants to follow you`,
-            data: {
-              requesterId: currentUserId.toString(),
-              requesterName: currentUser.fullName,
-              requesterProfilePic: currentUser.profilePic
-            }
-          });
-        }
-
         // Delete any old follow-related notifications from this user to target user
         await Notification.deleteMany({
           type: { $in: ['follow', 'follow_request', 'follow_approved', 'follow_request_accepted', 'follow_request_rejected'] },
@@ -768,7 +751,9 @@ const toggleFollow = async (req, res) => {
           toUser: id
         });
 
-        // Create notification in database
+        // Create notification in database (Notification.createNotification emits
+        // the real-time socket event itself, targeted to the recipient only --
+        // see backend/src/models/Notification.js)
         await Notification.createNotification({
           type: 'follow_request',
           fromUser: currentUserId,
@@ -830,23 +815,6 @@ const toggleFollow = async (req, res) => {
           isPublic: shareActivity
         }).catch(err => logger.error('Error creating activity:', err));
 
-        // Send notification to target user
-        const io = getIO();
-        if (io && targetUser.expoPushToken && targetUser.settings.notifications.followsNotifications) {
-          const nsp = io.of('/app');
-          nsp.emit('notification', {
-            userId: id,
-            type: 'follow',
-            title: 'New Follower',
-            message: `${currentUser.fullName} started following you`,
-            data: {
-              followerId: currentUserId.toString(),
-              followerName: currentUser.fullName,
-              followerProfilePic: currentUser.profilePic
-            }
-          });
-        }
-
         // Delete any old follow-related notifications from this user to target user
         await Notification.deleteMany({
           type: { $in: ['follow', 'follow_request', 'follow_approved', 'follow_request_accepted', 'follow_request_rejected'] },
@@ -854,7 +822,9 @@ const toggleFollow = async (req, res) => {
           toUser: id
         });
 
-        // Create notification in database
+        // Create notification in database (Notification.createNotification emits
+        // the real-time socket event itself, targeted to the recipient only --
+        // see backend/src/models/Notification.js)
         await Notification.createNotification({
           type: 'follow',
           fromUser: currentUserId,
@@ -1570,24 +1540,9 @@ const approveFollowRequest = async (req, res) => {
       deleteCacheByPattern('search:*')
     ]).catch(err => logger.warn('Failed to delete approve follow request cache:', err));
 
-    // Send notification to requester
-    const io = getIO();
-    if (io && requester.expoPushToken && requester.settings?.notifications?.followApprovalNotifications) {
-      const nsp = io.of('/app');
-      nsp.emit('notification', {
-        userId: requesterId.toString(),
-        type: 'follow_approved',
-        title: 'Follow Request Approved',
-        message: `${user.fullName} approved your follow request`,
-        data: {
-          approvedBy: currentUserId.toString(),
-          approvedByName: user.fullName,
-          approvedByProfilePic: user.profilePic
-        }
-      });
-    }
-
-        // Create notification in database
+        // Create notification in database (Notification.createNotification emits
+        // the real-time socket event itself, targeted to the recipient only --
+        // see backend/src/models/Notification.js)
         try {
           await Notification.createNotification({
             type: 'follow_approved',
@@ -3296,23 +3251,8 @@ const requestRouteAccess = async (req, res) => {
 
     await targetUser.save();
 
-    // Send push notification & socket notification
-    const io = getIO();
-    if (io && targetUser.expoPushToken && targetUser.settings?.notifications?.pushNotifications) {
-      const nsp = io.of('/app');
-      nsp.emit('notification', {
-        userId: targetUser._id.toString(),
-        type: 'route_access_request',
-        title: 'Route Access Request',
-        message: `${req.user.fullName} requested access to view your traveling routes`,
-        data: {
-          requestedBy: currentUserId.toString(),
-          requestedByName: req.user.fullName,
-          requestedByProfilePic: req.user.profilePic
-        }
-      });
-    }
-
+    // Notification.createNotification emits the real-time socket event itself,
+    // targeted to the recipient only -- see backend/src/models/Notification.js
     try {
       await Notification.createNotification({
         type: 'route_access_request',
@@ -3393,23 +3333,8 @@ const approveRouteAccess = async (req, res) => {
     await deleteCache(CacheKeys.user(currentUserId.toString())).catch(() => {});
     await deleteCache(CacheKeys.user(requesterId.toString())).catch(() => {});
 
-    // Send notifications
-    const io = getIO();
-    if (io && requester.expoPushToken && requester.settings?.notifications?.pushNotifications) {
-      const nsp = io.of('/app');
-      nsp.emit('notification', {
-        userId: requesterId.toString(),
-        type: 'route_access_approved',
-        title: 'Route Access Approved',
-        message: `${user.fullName} approved your request to view their traveling routes`,
-        data: {
-          approvedBy: currentUserId.toString(),
-          approvedByName: user.fullName,
-          approvedByProfilePic: user.profilePic
-        }
-      });
-    }
-
+    // Notification.createNotification emits the real-time socket event itself,
+    // targeted to the recipient only -- see backend/src/models/Notification.js
     try {
       await Notification.createNotification({
         type: 'route_access_approved',
