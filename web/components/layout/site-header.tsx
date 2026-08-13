@@ -40,7 +40,7 @@ export function SiteHeader() {
     >
       <div className="mx-auto flex h-14 min-h-[3.5rem] max-w-6xl items-center justify-between gap-2 px-3 sm:px-4 md:px-6">
         <div className="flex min-w-0 flex-shrink items-center gap-3 sm:gap-6">
-          <Link href="/" className="flex items-center gap-2.5 font-semibold tracking-tight text-slate-900 dark:text-zinc-50">
+          <Link href={mounted && user ? "/feed" : "/"} className="flex items-center gap-2.5 font-semibold tracking-tight text-slate-900 dark:text-zinc-50">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/icon.png?v=2" alt="Taatom" className="h-8 w-8 rounded-xl object-contain" />
             <span className="text-sm sm:text-base">Taatom</span>

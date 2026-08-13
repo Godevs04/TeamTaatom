@@ -5,6 +5,11 @@ import { BACKEND_ORIGIN } from "./lib/constants";
 // Auth routes that logged-in users should not see (redirect to feed)
 const AUTH_ROUTES = ["/auth/login", "/auth/register"];
 
+// Public landing route -- redirect to feed when already logged in, same as
+// the auth routes above, but matched by exact pathname only (never a prefix)
+// since "/" is the app's root and every other route also starts with "/".
+const LANDING_ROUTE = "/";
+
 // Protect routes that require auth; redirect to landing (login) when not authenticated
 const PROTECTED_PREFIXES = [
   "/onboarding",
@@ -130,8 +135,8 @@ export async function middleware(req: NextRequest) {
   const hasDevAuth = !!req.cookies.get("devAuth")?.value;
   const isLoggedIn = hasCookieToken || hasDevAuth;
 
-  // If already logged in and trying to access login/register, redirect to feed
-  if (isAuthRoute(pathname) && isLoggedIn) {
+  // If already logged in and trying to access login/register/landing, redirect to feed
+  if ((isAuthRoute(pathname) || pathname === LANDING_ROUTE) && isLoggedIn) {
     const url = req.nextUrl.clone();
     const next = url.searchParams.get("next");
     url.pathname = next && next.startsWith("/") && !next.startsWith("//") ? next : "/feed";
@@ -154,6 +159,7 @@ export async function middleware(req: NextRequest) {
 // Keep in sync with PROTECTED_PREFIXES and AUTH_ROUTES (Next.js requires static matcher)
 export const config = {
   matcher: [
+    "/",
     "/download",
     "/download/:path*",
     "/s/:path*",
