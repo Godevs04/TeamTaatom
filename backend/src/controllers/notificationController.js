@@ -1,3 +1,4 @@
+const mongoose = require('mongoose');
 const Notification = require('../models/Notification');
 const User = require('../models/User');
 const Post = require('../models/Post');
@@ -246,7 +247,24 @@ const getUnreadCount = async (req, res) => {
 // @access  Private
 const createNotification = async (req, res) => {
   try {
-    const { type, fromUser, toUser, post, comment, metadata } = req.body;
+    const { type, toUser, post, comment, metadata } = req.body;
+    // fromUser is always the authenticated caller -- never trust client input
+    // here, or any user could impersonate any other user in a notification
+    // another user actually receives in real time.
+    const fromUser = req.user._id;
+
+    if (!toUser || !mongoose.Types.ObjectId.isValid(toUser)) {
+      return sendError(res, 'RES_3001', 'toUser must be a valid user id');
+    }
+
+    if (toUser.toString() === fromUser.toString()) {
+      return sendError(res, 'BIZ_7001', 'You cannot send a notification to yourself');
+    }
+
+    const toUserExists = await User.exists({ _id: toUser });
+    if (!toUserExists) {
+      return sendError(res, 'RES_3001', 'User does not exist');
+    }
 
     const notification = await Notification.createNotification({
       type,
