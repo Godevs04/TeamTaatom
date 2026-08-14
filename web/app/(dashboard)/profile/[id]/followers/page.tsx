@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getProfile,
   getProfileFollowers,
@@ -34,16 +34,31 @@ export default function ProfileFollowersPage() {
   });
   const profile = profileQ.data?.profile;
 
-  const listQ = useQuery({
-    queryKey: ["profile", id, type, 1],
-    queryFn: () =>
+  const listQ = useInfiniteQuery({
+    queryKey: ["profile", id, type],
+    queryFn: ({ pageParam = 1 }) =>
       type === "followers"
-        ? getProfileFollowers(id, 1, LIMIT)
-        : getProfileFollowing(id, 1, LIMIT),
+        ? getProfileFollowers(id, pageParam, LIMIT)
+        : getProfileFollowing(id, pageParam, LIMIT),
+    getNextPageParam: (lastPage) => {
+      const p = lastPage.pagination;
+      if (!p) return undefined;
+      return p.hasNextPage ? p.currentPage + 1 : undefined;
+    },
+    initialPageParam: 1,
     enabled: !!id,
   });
-  const users = listQ.data?.users ?? [];
-  const pagination = listQ.data?.pagination;
+  // De-duplicate by _id across pages -- defensive against any overlap/race
+  // between pages, mirroring mobile's followers.tsx.
+  const users = React.useMemo(() => {
+    const flat = listQ.data?.pages.flatMap((p) => p.users) ?? [];
+    const seen = new Set<string>();
+    return flat.filter((u) => {
+      if (seen.has(u._id)) return false;
+      seen.add(u._id);
+      return true;
+    });
+  }, [listQ.data]);
 
   const followMutation = useMutation({
     mutationFn: (userId: string) => followProfile(userId),
@@ -163,10 +178,18 @@ export default function ProfileFollowersPage() {
         </ul>
       )}
 
-      {pagination?.hasNextPage && (
-        <p className="text-center text-sm text-slate-500 dark:text-zinc-400">
-          More results available; pagination can be added later.
-        </p>
+      {listQ.hasNextPage && (
+        <div className="flex justify-center pt-2">
+          <button
+            type="button"
+            onClick={() => listQ.fetchNextPage()}
+            disabled={listQ.isFetchingNextPage}
+            className="flex items-center gap-2 rounded-xl border border-slate-200/80 px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-60 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800/60"
+          >
+            {listQ.isFetchingNextPage && <Loader2 className="h-4 w-4 animate-spin" />}
+            {listQ.isFetchingNextPage ? "Loading…" : "Load more"}
+          </button>
+        </div>
       )}
     </div>
   );
