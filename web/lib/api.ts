@@ -835,9 +835,25 @@ export async function reorderCollectionPosts(collectionId: string, postIds: stri
 }
 
 // Activity
-export async function getActivity(page = 1, limit = 20) {
-  const res = await api.get("/activity", { params: { page, limit } });
-  return res.data as { activities: Array<{ _id: string; type: string; user?: User; post?: Post; createdAt?: string; [k: string]: unknown }>; pagination?: PaginationOffset };
+export type ActivityType = "post_created" | "post_liked" | "comment_added" | "user_followed" | "collection_created";
+
+export async function getActivity(page = 1, limit = 20, type?: ActivityType) {
+  const params: Record<string, string | number> = { page, limit };
+  if (type) params.type = type;
+  const res = await api.get("/activity", { params });
+  return res.data as {
+    activities: Array<{
+      _id: string;
+      type: ActivityType | string;
+      user?: User;
+      targetUser?: User;
+      post?: Post;
+      collection?: Pick<Collection, "_id" | "name" | "coverImage">;
+      createdAt?: string;
+      [k: string]: unknown;
+    }>;
+    pagination?: PaginationOffset;
+  };
 }
 
 /** Search for a place (Google Places) - for detect place on create post/short */
