@@ -1,10 +1,27 @@
 "use client";
 
 import * as React from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
-import { getShorts } from "../../../lib/api";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { motion } from "framer-motion";
+import { toast } from "sonner";
+import { getShorts, toggleLike, getPostById } from "../../../lib/api";
 import { Skeleton } from "../../../components/ui/skeleton";
 import { Button } from "../../../components/ui/button";
+import { TripComments } from "../../../components/trip/comments";
+import { SharePostModal } from "../../../components/trip/share-post-modal";
+import { useAuth } from "../../../context/auth-context";
+import { useMounted } from "../../../hooks/use-mounted";
+import {
+  cn,
+  getLikedPostIds,
+  setLikedPostIds,
+  getSavedPostIds,
+  setSavedPostIds,
+  mergeLikedIntoPosts,
+  mergeSavedIntoPosts,
+} from "../../../lib/utils";
+import { getFriendlyErrorMessage } from "../../../lib/auth-errors";
+import type { Post } from "../../../types/post";
 import {
   Bookmark,
   Check,
@@ -19,23 +36,10 @@ import {
   UserPlus,
   Volume2,
   VolumeX,
-} from "lucide-react";  
+  X,
+} from "lucide-react";
 
-type ShortItem = {
-  _id: string;
-  imageUrl?: string | null;
-  thumbnailUrl?: string | null;
-  mediaUrl?: string | null;
-  videoUrl?: string | null;
-  images?: string[];
-  caption?: string;
-  user?: { _id?: string; fullName?: string; username?: string; profilePic?: string; isFollowing?: boolean };
-  likesCount?: number;
-  commentsCount?: number;
-  viewsCount?: number;
-};
-
-function getThumbnailUrl(short: ShortItem): string {  
+function getThumbnailUrl(short: Post): string {
   const raw =
     short.imageUrl ||
     short.thumbnailUrl ||
@@ -48,7 +52,7 @@ function getThumbnailUrl(short: ShortItem): string {
   return raw;
 }
 
-function getVideoUrl(short: ShortItem): string {
+function getVideoUrl(short: Post): string {
   const raw = short.mediaUrl || short.videoUrl || "";
   if (!raw || typeof raw !== "string") return "";
   if (typeof window !== "undefined" && raw.startsWith("/")) {
@@ -57,12 +61,29 @@ function getVideoUrl(short: ShortItem): string {
   return raw;
 }
 
+type ShortsPage = { shorts: Post[]; pagination?: unknown };
+type ShortsData = { pages: ShortsPage[]; pageParams: unknown[] };
+
+/** Patches every loaded page of the shorts infinite query in place -- mirrors
+ * post-card.tsx's patchAllFeedQueries pattern for ["feed"]. */
+function patchShortsQueries(
+  qc: ReturnType<typeof useQueryClient>,
+  updater: (old: ShortsData | undefined) => ShortsData | undefined
+) {
+  qc.setQueriesData<ShortsData>({ queryKey: ["shorts"] }, updater);
+}
+
 export default function ShortsPage() {
+  const qc = useQueryClient();
+  const { user } = useAuth();
+  const mounted = useMounted();
   const [activeIndex, setActiveIndex] = React.useState(0);
   const [muted, setMuted] = React.useState(true);
   const [manuallyPaused, setManuallyPaused] = React.useState<Set<string>>(() => new Set());
   const [failedVideoIds, setFailedVideoIds] = React.useState<Set<string>>(() => new Set());
   const [tapFeedbackId, setTapFeedbackId] = React.useState<string | null>(null);
+  const [commentsShort, setCommentsShort] = React.useState<Post | null>(null);
+  const [shareShort, setShareShort] = React.useState<Post | null>(null);
   const feedRef = React.useRef<HTMLDivElement | null>(null);
   const videoRefs = React.useRef<Map<string, HTMLVideoElement>>(new Map());
 
@@ -82,9 +103,18 @@ export default function ShortsPage() {
     initialPageParam: 1,
   });
 
-  const shorts = React.useMemo<ShortItem[]>(
-    () => q.data?.pages.flatMap((p) => (p as { shorts?: ShortItem[] }).shorts ?? []) ?? [],
+  const rawShorts = React.useMemo<Post[]>(
+    () => q.data?.pages.flatMap((p) => (p as { shorts?: Post[] }).shorts ?? []) ?? [],
     [q.data]
+  );
+  // getShorts never sets isLiked, and isSaved is never server-side on either
+  // platform (mobile's save is also purely local AsyncStorage) -- so both
+  // are merged in from localStorage here, same as feed/page.tsx does.
+  const likedIds = React.useMemo(() => (mounted ? getLikedPostIds() : []), [mounted]);
+  const savedIds = React.useMemo(() => (mounted ? getSavedPostIds() : []), [mounted]);
+  const shorts = React.useMemo<Post[]>(
+    () => mergeSavedIntoPosts(mergeLikedIntoPosts(rawShorts, likedIds), savedIds),
+    [rawShorts, likedIds, savedIds]
   );
 
   React.useEffect(() => {
@@ -173,6 +203,115 @@ export default function ShortsPage() {
       setTapFeedbackId((prev) => (prev === shortId ? null : prev));
     }, 220);
   }, [togglePause]);
+
+  const likeMutation = useMutation({
+    mutationFn: (postId: string) => toggleLike(postId),
+    onMutate: async (postId: string) => {
+      await qc.cancelQueries({ queryKey: ["shorts"] });
+      const previous = qc.getQueriesData<ShortsData>({ queryKey: ["shorts"] });
+      patchShortsQueries(qc, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page) => ({
+            ...page,
+            shorts: page.shorts.map((s) => {
+              if (s._id !== postId) return s;
+              const nextLiked = !s.isLiked;
+              return {
+                ...s,
+                isLiked: nextLiked,
+                likesCount: Math.max((s.likesCount ?? 0) + (nextLiked ? 1 : -1), 0),
+              };
+            }),
+          })),
+        };
+      });
+      return { previous };
+    },
+    onSuccess: (data, postId) => {
+      const nextLiked = data?.isLiked;
+      const likesCount = data?.likesCount;
+      if (typeof nextLiked === "boolean" && typeof likesCount === "number") {
+        patchShortsQueries(qc, (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page) => ({
+              ...page,
+              shorts: page.shorts.map((s) => (s._id === postId ? { ...s, isLiked: nextLiked, likesCount } : s)),
+            })),
+          };
+        });
+      }
+      const liked = nextLiked ?? false;
+      const ids = getLikedPostIds();
+      const idSet = new Set(ids);
+      if (liked) idSet.add(postId);
+      else idSet.delete(postId);
+      setLikedPostIds(Array.from(idSet));
+    },
+    onError: (e: unknown, _postId, ctx) => {
+      ctx?.previous?.forEach(([key, data]) => {
+        qc.setQueryData(key, data);
+      });
+      toast.error(getFriendlyErrorMessage(e));
+    },
+  });
+
+  const handleSave = React.useCallback(
+    (short: Post) => {
+      const ids = getSavedPostIds();
+      const idSet = new Set(ids);
+      const nextSaved = !short.isSaved;
+      if (nextSaved) idSet.add(short._id);
+      else idSet.delete(short._id);
+      setSavedPostIds(Array.from(idSet));
+      patchShortsQueries(qc, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page) => ({
+            ...page,
+            shorts: page.shorts.map((s) => (s._id === short._id ? { ...s, isSaved: nextSaved } : s)),
+          })),
+        };
+      });
+      toast.success(nextSaved ? "Saved" : "Removed from saved");
+    },
+    [qc]
+  );
+
+  // TripComments manages its own ["post", id] query and doesn't notify the
+  // parent when a comment is posted, so the commentsCount badge on this page
+  // would otherwise go stale until the next full ["shorts"] refetch (the
+  // same is true of feed/page.tsx's comment sheet). Refetching the whole
+  // ["shorts"] infinite query on close isn't safe here -- getShorts is a
+  // personalized, session-deduped ranking, not a stable page list, so a
+  // refetch could reorder or drop already-visible shorts. Fetching just this
+  // one post and patching its count in-place avoids that.
+  const handleCloseComments = React.useCallback(async () => {
+    const short = commentsShort;
+    setCommentsShort(null);
+    if (!short) return;
+    try {
+      const fresh = await getPostById(short._id);
+      patchShortsQueries(qc, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page) => ({
+            ...page,
+            shorts: page.shorts.map((s) =>
+              s._id === short._id ? { ...s, commentsCount: fresh.commentsCount } : s
+            ),
+          })),
+        };
+      });
+    } catch {
+      // best-effort refresh only
+    }
+  }, [commentsShort, qc]);
 
   return (
     <div className="h-full bg-transparent">
@@ -337,8 +476,17 @@ export default function ShortsPage() {
                           size="icon"
                           variant="ghost"
                           className="h-11 w-11 rounded-full border border-zinc-900/20 bg-white/75 text-slate-700 backdrop-blur hover:bg-primary/20 dark:border-white/15 dark:bg-black/35 dark:text-white dark:hover:bg-primary/30"
+                          onClick={() => likeMutation.mutate(short._id)}
+                          aria-label={short.isLiked ? "Unlike" : "Like"}
                         >
-                          <Heart className="h-5 w-5" />
+                          <motion.span whileTap={{ scale: 0.9 }}>
+                            <Heart
+                              className={cn(
+                                "h-5 w-5",
+                                short.isLiked ? "fill-red-500 text-red-500" : undefined
+                              )}
+                            />
+                          </motion.span>
                         </Button>
                         <p className="text-xs text-slate-700 dark:text-zinc-300">{short.likesCount ?? 0}</p>
                         <Button
@@ -346,6 +494,8 @@ export default function ShortsPage() {
                           size="icon"
                           variant="ghost"
                           className="h-11 w-11 rounded-full border border-zinc-900/20 bg-white/75 text-slate-700 backdrop-blur hover:bg-primary/20 dark:border-white/15 dark:bg-black/35 dark:text-white dark:hover:bg-primary/30"
+                          onClick={() => setCommentsShort(short)}
+                          aria-label="Comments"
                         >
                           <MessageCircle className="h-5 w-5" />
                         </Button>
@@ -355,6 +505,7 @@ export default function ShortsPage() {
                           size="icon"
                           variant="ghost"
                           className="h-11 w-11 rounded-full border border-zinc-900/20 bg-white/75 text-slate-700 backdrop-blur hover:bg-primary/20 dark:border-white/15 dark:bg-black/35 dark:text-white dark:hover:bg-primary/30"
+                          onClick={() => setShareShort(short)}
                           aria-label="Share short"
                         >
                           <Share2 className="h-5 w-5" />
@@ -365,9 +516,15 @@ export default function ShortsPage() {
                           size="icon"
                           variant="ghost"
                           className="h-11 w-11 rounded-full border border-zinc-900/20 bg-white/75 text-slate-700 backdrop-blur hover:bg-primary/20 dark:border-white/15 dark:bg-black/35 dark:text-white dark:hover:bg-primary/30"
-                          aria-label="Save short"
+                          onClick={() => handleSave(short)}
+                          aria-label={short.isSaved ? "Remove from saved" : "Save short"}
                         >
-                          <Bookmark className="h-5 w-5" />
+                          <Bookmark
+                            className={cn(
+                              "h-5 w-5",
+                              short.isSaved ? "fill-sky-500 text-sky-500" : undefined
+                            )}
+                          />
                         </Button>
                         <div className="mt-1 flex flex-col gap-2">
                           <Button
@@ -410,6 +567,57 @@ export default function ShortsPage() {
           </div>
         </div>
       )}
+
+      {commentsShort && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
+          role="presentation"
+          onClick={handleCloseComments}
+        >
+          <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Comments"
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            exit={{ y: "100%" }}
+            transition={{ type: "spring", stiffness: 340, damping: 36 }}
+            className="flex max-h-[80vh] w-full max-w-lg flex-col rounded-t-3xl border border-zinc-800 bg-zinc-950 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-4 py-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-zinc-50">
+                  {commentsShort.caption || "Comments"}
+                </p>
+                <p className="text-xs text-zinc-400">
+                  {commentsShort.user?.fullName || commentsShort.user?.username || "Traveler"}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 shrink-0 rounded-xl text-zinc-200 hover:bg-zinc-800 hover:text-white"
+                aria-label="Close comments"
+                onClick={handleCloseComments}
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              <TripComments postId={commentsShort._id} />
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      <SharePostModal
+        open={!!shareShort}
+        onClose={() => setShareShort(null)}
+        post={shareShort ?? ({} as Post)}
+        currentUserId={user?._id}
+      />
     </div>
   );
 }
