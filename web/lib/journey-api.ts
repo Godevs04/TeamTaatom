@@ -61,9 +61,11 @@ export async function journeyListForUser(userId: string, page = 1, limit = 20) {
   const res = await api.get(`/journey/user/${userId}`, {
     params: { page, limit },
   });
+  // Backend (getUserJourneys) returns { page, limit, total } -- not the
+  // currentPage/totalPages/totalJourneys shape this used to claim.
   const d = res.data as {
     journeys?: Journey[];
-    pagination?: { currentPage?: number; totalPages?: number; totalJourneys?: number };
+    pagination?: { page?: number; limit?: number; total?: number };
   };
   return {
     journeys: d.journeys ?? [],

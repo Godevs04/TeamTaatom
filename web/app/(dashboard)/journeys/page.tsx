@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Footprints, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/auth-context";
@@ -10,14 +10,31 @@ import { journeyListForUser, journeyDelete } from "@/lib/journey-api";
 import { getFriendlyErrorMessage } from "@/lib/auth-errors";
 import type { Journey } from "@/types/journey";
 
+const PAGE_SIZE = 20;
+
 export default function JourneysListPage() {
   const { user } = useAuth();
   const userId = user?._id ?? "";
   const queryClient = useQueryClient();
 
-  const { data, isLoading } = useQuery({
+  const {
+    data,
+    isLoading,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+  } = useInfiniteQuery({
     queryKey: ["journeys-user", userId],
-    queryFn: () => journeyListForUser(userId, 1, 30),
+    queryFn: ({ pageParam = 1 }) => journeyListForUser(userId, pageParam, PAGE_SIZE),
+    getNextPageParam: (lastPage) => {
+      const p = lastPage.pagination;
+      if (!p || typeof p.page !== "number" || typeof p.limit !== "number" || typeof p.total !== "number") {
+        return undefined;
+      }
+      const totalPages = Math.ceil(p.total / p.limit);
+      return p.page < totalPages ? p.page + 1 : undefined;
+    },
+    initialPageParam: 1,
     enabled: !!userId,
   });
 
@@ -30,7 +47,7 @@ export default function JourneysListPage() {
     onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
   });
 
-  const journeys = data?.journeys ?? [];
+  const journeys = data?.pages.flatMap((p) => p.journeys) ?? [];
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 pb-24 lg:pb-10">
@@ -96,6 +113,19 @@ export default function JourneysListPage() {
           </li>
         ))}
       </ul>
+      {hasNextPage && (
+        <div className="flex justify-center pt-2">
+          <button
+            type="button"
+            onClick={() => fetchNextPage()}
+            disabled={isFetchingNextPage}
+            className="flex items-center gap-2 rounded-xl border border-slate-200/80 px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-60 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800/60"
+          >
+            {isFetchingNextPage && <Loader2 className="h-4 w-4 animate-spin" />}
+            {isFetchingNextPage ? "Loading…" : "Load more"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
