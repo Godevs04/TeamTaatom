@@ -812,58 +812,66 @@ const getPostById = async (req, res) => {
     logger.info(finalMsg);
     logger.debug(finalMsg);
 
-    // Generate dynamic image URLs from storage keys (same logic as getPosts)
-    if (post.storageKeys && post.storageKeys.length > 0) {
-      // Multiple images - generate URLs for all
-      try {
-        const imageUrls = await generateSignedUrls(post.storageKeys, 'IMAGE');
-        post.imageUrl = imageUrls[0] || null;
-        post.images = imageUrls;
-      } catch (error) {
-        logger.warn('Failed to generate image URLs for post:', { 
-          postId: post._id, 
-          error: error.message 
-        });
-        post.imageUrl = null;
-        post.images = [];
-      }
-    } else if (post.storageKey) {
-      // Fallback for single storage key
-      try {
-        const imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE');
-        post.imageUrl = imageUrl;
-        post.images = imageUrl ? [imageUrl] : [];
-      } catch (error) {
-        logger.warn('Failed to generate image URL for post:', { 
-          postId: post._id, 
-          error: error.message 
-        });
-        post.imageUrl = null;
-        post.images = [];
-      }
-    } else {
-      // Legacy: try to use existing imageUrl if no storage key
-      // This is for backward compatibility with old posts
-      if (!post.imageUrl) {
-        post.imageUrl = null;
-        post.images = [];
-      }
-      // For legacy Cloudinary URLs, optimize them
-      if (post.imageUrl && post.imageUrl.includes('cloudinary.com')) {
+    // Generate dynamic image URLs from storage keys (same logic as getPosts).
+    // Skipped for shorts: storageKeys[0] there is the video file, not an
+    // image, so signing it with 'IMAGE' here would just populate
+    // imageUrl/images with a non-image URL that the short-specific block
+    // below either overwrites or (correctly) leaves alone -- running this
+    // first was redundant work and the source of the video-signed-as-image
+    // bug when a short had no dedicated thumbnail file.
+    if (post.type !== 'short') {
+      if (post.storageKeys && post.storageKeys.length > 0) {
+        // Multiple images - generate URLs for all
         try {
-          const urlParts = post.imageUrl.split('/');
-          const publicIdWithExtension = urlParts[urlParts.length - 1];
-          const publicId = publicIdWithExtension.split('.')[0];
-          
-          post.imageUrl = getOptimizedImageUrl(`taatom/posts/${publicId}`, {
-            width: 1200,
-            height: 1200,
-            quality: 'auto:good',
-            format: 'auto',
-            flags: 'progressive'
-          });
+          const imageUrls = await generateSignedUrls(post.storageKeys, 'IMAGE');
+          post.imageUrl = imageUrls[0] || null;
+          post.images = imageUrls;
         } catch (error) {
-          logger.warn('Failed to optimize Cloudinary URL:', error);
+          logger.warn('Failed to generate image URLs for post:', {
+            postId: post._id,
+            error: error.message
+          });
+          post.imageUrl = null;
+          post.images = [];
+        }
+      } else if (post.storageKey) {
+        // Fallback for single storage key
+        try {
+          const imageUrl = await generateSignedUrl(post.storageKey, 'IMAGE');
+          post.imageUrl = imageUrl;
+          post.images = imageUrl ? [imageUrl] : [];
+        } catch (error) {
+          logger.warn('Failed to generate image URL for post:', {
+            postId: post._id,
+            error: error.message
+          });
+          post.imageUrl = null;
+          post.images = [];
+        }
+      } else {
+        // Legacy: try to use existing imageUrl if no storage key
+        // This is for backward compatibility with old posts
+        if (!post.imageUrl) {
+          post.imageUrl = null;
+          post.images = [];
+        }
+        // For legacy Cloudinary URLs, optimize them
+        if (post.imageUrl && post.imageUrl.includes('cloudinary.com')) {
+          try {
+            const urlParts = post.imageUrl.split('/');
+            const publicIdWithExtension = urlParts[urlParts.length - 1];
+            const publicId = publicIdWithExtension.split('.')[0];
+
+            post.imageUrl = getOptimizedImageUrl(`taatom/posts/${publicId}`, {
+              width: 1200,
+              height: 1200,
+              quality: 'auto:good',
+              format: 'auto',
+              flags: 'progressive'
+            });
+          } catch (error) {
+            logger.warn('Failed to optimize Cloudinary URL:', error);
+          }
         }
       }
     }
@@ -922,11 +930,14 @@ const getPostById = async (req, res) => {
           try {
             const freshVideoUrl = await generateSignedUrl(videoKey, 'VIDEO');
             post.videoUrl = freshVideoUrl;
-            // Also generate thumbnail URL
+            // Only use a real second file as the thumbnail. Signing the
+            // video's own key as 'IMAGE' (the old fallback here) doesn't
+            // produce a viewable image -- it's still the video byte stream,
+            // just re-signed -- so leave imageUrl alone (null/unset) rather
+            // than hand the client a URL that will never render as an
+            // image. The frontend renders a posterless <video> in that case.
             if (post.storageKeys && post.storageKeys.length > 1) {
               post.imageUrl = await generateSignedUrl(post.storageKeys[1], 'IMAGE');
-            } else {
-              post.imageUrl = await generateSignedUrl(videoKey, 'IMAGE');
             }
             logger.debug(`Generated fresh signed URLs for short ${post._id}`);
           } catch (error) {

@@ -1029,10 +1029,15 @@ const signPostMedia = async (post) => {
     try {
       if (post.type === 'short') {
         if (post.storageKeys.length > 1) {
+          // A real second file exists -- use it as the thumbnail.
           post.imageUrl = await generateSignedUrl(post.storageKeys[1], 'IMAGE') || post.imageUrl || null;
           post.videoUrl = await generateSignedUrl(post.storageKeys[0], 'VIDEO') || post.videoUrl || null;
         } else {
-          post.imageUrl = await generateSignedUrl(post.storageKeys[0], 'IMAGE') || post.imageUrl || null;
+          // No dedicated thumbnail file. Signing the video's own key as
+          // 'IMAGE' (the old behavior here) doesn't produce a viewable
+          // image -- same bug as getPostById's identical mistake -- so
+          // leave imageUrl alone rather than hand back a URL that will
+          // never render as an image.
           post.videoUrl = await generateSignedUrl(post.storageKeys[0], 'VIDEO') || post.videoUrl || null;
         }
       } else {

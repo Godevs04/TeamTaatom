@@ -24,7 +24,11 @@ export async function generateMetadata({ params }: { params: { id?: string } }):
   const post = await fetchPost(id);
   const title = post?.caption ? post.caption.slice(0, 60) : "Trip";
   const description = getPostDisplayLocation(post) !== "Unknown location" ? getPostDisplayLocation(post) : "Trip on Taatom";
-  const image = post?.imageUrl || post?.thumbnailUrl || post?.mediaUrl;
+  // Never fall back to mediaUrl here -- for a short post that's the video's
+  // own URL (see getPostById), which is not a valid OG image. createMetadata
+  // already falls back to the app icon when image is null, so omitting it
+  // for a short with no dedicated thumbnail is the correct degradation.
+  const image = post?.imageUrl || post?.thumbnailUrl;
   return createMetadata({
     title,
     description,
@@ -58,6 +62,11 @@ export default async function TripDetailPage({ params }: { params: { id: string 
     );
   }
 
+  const isShort = post.type === "short";
+  const videoUrl = post.videoUrl || post.mediaUrl || "";
+  // Only ever a genuine image -- never mediaUrl, which for a short with no
+  // dedicated thumbnail file is the video's own URL (see getPostById).
+  const posterUrl = post.imageUrl || post.thumbnailUrl || undefined;
   const media = post.imageUrl || post.thumbnailUrl || post.mediaUrl || "";
   const user = post.user;
   const imagesArray = post.images ?? post.imageUrls;
@@ -102,7 +111,16 @@ export default async function TripDetailPage({ params }: { params: { id: string 
 
       <div className="overflow-hidden rounded-3xl border bg-card shadow-card">
         <div className="aspect-[16/10] w-full bg-muted">
-          {primaryImageUrl ? (
+          {isShort && videoUrl ? (
+            <video
+              src={videoUrl}
+              poster={posterUrl}
+              controls
+              playsInline
+              preload="metadata"
+              className="h-full w-full bg-black object-contain"
+            />
+          ) : primaryImageUrl ? (
             /* eslint-disable-next-line @next/next/no-img-element */
             <img src={primaryImageUrl} alt={post.caption || "Trip"} className="h-full w-full object-cover" />
           ) : (
