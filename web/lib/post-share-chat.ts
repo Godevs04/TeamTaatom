@@ -1,7 +1,11 @@
 import type { Post } from "../types/post";
+import type { Journey } from "../types/journey";
 
 /** Payload format from mobile ShareModal (must stay in sync with frontend/components/ShareModal.tsx). */
 export const POST_SHARE_PREFIX = "[POST_SHARE]" as const;
+
+/** Payload format from mobile ShareModal (must stay in sync with frontend/components/ShareModal.tsx). */
+export const JOURNEY_SHARE_PREFIX = "[JOURNEY_SHARE]" as const;
 
 export type ParsedPostShare = {
   postId: string;
@@ -9,6 +13,14 @@ export type ParsedPostShare = {
   shareUrl: string;
   caption: string;
   authorName: string;
+};
+
+export type ParsedJourneyShare = {
+  journeyId: string;
+  shareUrl: string;
+  title: string;
+  distance: string;
+  status: string;
 };
 
 /**
@@ -27,6 +39,29 @@ export function parsePostShareMessage(text: string): ParsedPostShare | null {
       shareUrl: (parts[2] || "").trim(),
       caption: (parts[3] || "").trim(),
       authorName: (parts[4] || "").trim(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Parse chat text like: [JOURNEY_SHARE]journeyId|shareUrl|title|distance|status
+ * Mirrors mobile's frontend/app/chat/thread.tsx's parseJourneyShare exactly,
+ * including its `>= 3` part threshold and per-field fallbacks.
+ */
+export function parseJourneyShareMessage(text: string): ParsedJourneyShare | null {
+  if (!text || !text.startsWith(JOURNEY_SHARE_PREFIX)) return null;
+  try {
+    const data = text.slice(JOURNEY_SHARE_PREFIX.length);
+    const parts = data.split("|");
+    if (parts.length < 3) return null;
+    return {
+      journeyId: (parts[0] || "").trim(),
+      shareUrl: (parts[1] || "").trim(),
+      title: (parts[2] || "Journey").trim() || "Journey",
+      distance: (parts[3] || "").trim(),
+      status: (parts[4] || "completed").trim() || "completed",
     };
   } catch {
     return null;
@@ -101,15 +136,43 @@ export function buildPostShareChatMessage(
   return `${POST_SHARE_PREFIX}${postData}`;
 }
 
+/**
+ * Build the same chat payload the mobile app sends (frontend/components/ShareModal.tsx).
+ * `shareUrl` should be the public link (short URL preferred, else journey URL).
+ */
+export function buildJourneyShareChatMessage(
+  journey: Pick<Journey, "_id" | "title" | "distanceTraveled" | "status">,
+  shareUrl: string
+): string {
+  const distanceTraveled = journey.distanceTraveled;
+  const distance = distanceTraveled
+    ? distanceTraveled >= 1000
+      ? `${(distanceTraveled / 1000).toFixed(1)} km`
+      : `${Math.round(distanceTraveled)} m`
+    : "";
+  const journeyData = [
+    journey._id,
+    shareUrl,
+    journey.title || "Journey",
+    distance,
+    journey.status || "completed",
+  ].join("|");
+  return `${JOURNEY_SHARE_PREFIX}${journeyData}`;
+}
+
 export function formatChatMessagePreview(text: string): string {
   const trimmed = (text ?? "").trim();
-  const shared = parsePostShareMessage(trimmed);
-  if (shared) {
-    if (shared.caption) {
-      const cap = shared.caption.length > 72 ? `${shared.caption.slice(0, 72)}…` : shared.caption;
+  const sharedPost = parsePostShareMessage(trimmed);
+  if (sharedPost) {
+    if (sharedPost.caption) {
+      const cap = sharedPost.caption.length > 72 ? `${sharedPost.caption.slice(0, 72)}…` : sharedPost.caption;
       return `Shared a post: ${cap}`;
     }
     return "Shared a post";
+  }
+  const sharedJourney = parseJourneyShareMessage(trimmed);
+  if (sharedJourney) {
+    return `Shared a journey: ${sharedJourney.title}`;
   }
   return trimmed;
 }

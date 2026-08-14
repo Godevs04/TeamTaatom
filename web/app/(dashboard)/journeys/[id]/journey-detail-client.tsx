@@ -8,9 +8,9 @@ import { Loader2, Share2, Trash2, Pencil, Check, X, Video, Images } from "lucide
 import { toast } from "sonner";
 import { JourneyRouteMap } from "@/components/maps/journey-route-map";
 import { journeyGetDetail, journeyDelete, journeyUpdateTitle } from "@/lib/journey-api";
-import { createJourneyShortUrl } from "@/lib/api";
-import { getDefaultJourneyShareUrl } from "@/lib/post-share-chat";
 import { getFriendlyErrorMessage } from "@/lib/auth-errors";
+import { useAuth } from "@/context/auth-context";
+import { ShareJourneyModal } from "@/components/journeys/share-journey-modal";
 import type { Journey, JourneyWaypointPost } from "@/types/journey";
 
 function getWaypointThumbnail(post: JourneyWaypointPost): string | null {
@@ -23,12 +23,13 @@ function getWaypointThumbnail(post: JourneyWaypointPost): string | null {
 export default function JourneyDetailClient({ id }: { id: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { user: currentUser } = useAuth();
   const { data: journey, isLoading, isError } = useQuery({
     queryKey: ["journey-detail", id],
     queryFn: () => journeyGetDetail(id),
     enabled: !!id,
   });
-  const [sharing, setSharing] = React.useState(false);
+  const [shareModalOpen, setShareModalOpen] = React.useState(false);
   const [isEditingTitle, setIsEditingTitle] = React.useState(false);
   const [titleDraft, setTitleDraft] = React.useState("");
 
@@ -38,19 +39,6 @@ export default function JourneyDetailClient({ id }: { id: string }) {
   const waypointPosts = waypoints.filter(
     (w): w is typeof w & { post: JourneyWaypointPost } => !!w.post
   );
-
-  const handleShare = async () => {
-    setSharing(true);
-    try {
-      const shortUrl = await createJourneyShortUrl(id);
-      await navigator.clipboard.writeText(shortUrl ?? getDefaultJourneyShareUrl(id));
-      toast.success("Link copied");
-    } catch {
-      toast.error("Could not copy link");
-    } finally {
-      setSharing(false);
-    }
-  };
 
   const deleteMutation = useMutation({
     mutationFn: () => journeyDelete(id),
@@ -163,10 +151,9 @@ export default function JourneyDetailClient({ id }: { id: string }) {
             <div className="flex shrink-0 items-center gap-2">
               <button
                 type="button"
-                onClick={handleShare}
-                disabled={sharing}
-                aria-label="Copy journey share link"
-                title="Copy share link"
+                onClick={() => setShareModalOpen(true)}
+                aria-label="Share journey"
+                title="Share journey"
                 className="mt-1 flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200/80 px-3 py-1.5 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-60 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-800/60"
               >
                 <Share2 className="h-4 w-4" />
@@ -277,6 +264,14 @@ export default function JourneyDetailClient({ id }: { id: string }) {
           </div>
         </>
       )}
+      {journey ? (
+        <ShareJourneyModal
+          open={shareModalOpen}
+          onClose={() => setShareModalOpen(false)}
+          journey={journey}
+          currentUserId={currentUser?._id}
+        />
+      ) : null}
     </div>
   );
 }

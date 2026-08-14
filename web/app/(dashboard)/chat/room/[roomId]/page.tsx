@@ -21,6 +21,9 @@ import { toast } from "sonner";
 import { ChatComposer } from "../../../../../components/chat/chat-composer";
 import { MessageAttachments } from "../../../../../components/chat/message-attachments";
 import { subscribeSocket, unsubscribeSocket } from "../../../../../lib/socket";
+import { parsePostShareMessage, parseJourneyShareMessage } from "../../../../../lib/post-share-chat";
+import { PostShareCard } from "../../../../../components/chat/post-share-card";
+import { JourneyShareCard } from "../../../../../components/chat/journey-share-card";
 
 function normalizeSenderId(sender: ChatMessage["sender"]): string {
   if (typeof sender === "string") return sender;
@@ -177,7 +180,11 @@ export default function GroupChatRoomPage() {
             const isMe = normalizeSenderId(msg.sender) === myId;
             const senderName = msg.senderName ?? "";
             const senderPic = msg.senderProfilePic;
+            const text = msg.text ?? "";
+            const postShare = parsePostShareMessage(text);
+            const journeyShare = !postShare ? parseJourneyShareMessage(text) : null;
             const hasAttachments = (msg.attachments?.length ?? 0) > 0;
+            const tightPadding = !!postShare || !!journeyShare || hasAttachments;
             return (
               <div
                 key={msg._id}
@@ -197,7 +204,7 @@ export default function GroupChatRoomPage() {
                 )}
                 <div
                   className={`max-w-[min(80%,360px)] rounded-2xl px-2 py-2 sm:px-3 sm:py-2.5 ${
-                    hasAttachments
+                    tightPadding
                       ? isMe
                         ? "bg-primary text-on-primary"
                         : "bg-slate-100 text-slate-900 dark:bg-zinc-800 dark:text-zinc-100"
@@ -209,12 +216,20 @@ export default function GroupChatRoomPage() {
                   {!isMe && senderName && (
                     <p className="mb-0.5 text-xs font-semibold text-primary">{senderName}</p>
                   )}
-                  <MessageAttachments attachments={msg.attachments} isMe={isMe} />
-                  {msg.text ? (
-                    <p className={`text-[15px] leading-snug${hasAttachments ? " mt-2 px-1" : ""}`}>
-                      {msg.text}
-                    </p>
-                  ) : null}
+                  {postShare ? (
+                    <PostShareCard share={postShare} isSent={isMe} />
+                  ) : journeyShare ? (
+                    <JourneyShareCard share={journeyShare} isSent={isMe} />
+                  ) : (
+                    <>
+                      <MessageAttachments attachments={msg.attachments} isMe={isMe} />
+                      {text ? (
+                        <p className={`text-[15px] leading-snug${hasAttachments ? " mt-2 px-1" : ""}`}>
+                          {text}
+                        </p>
+                      ) : null}
+                    </>
+                  )}
                   {(msg.createdAt || msg.timestamp) && (
                     <p className={`mt-1.5 text-xs ${isMe ? "text-white/80" : "text-slate-500 dark:text-zinc-400"}`}>
                       {new Date(msg.createdAt || msg.timestamp || "").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}

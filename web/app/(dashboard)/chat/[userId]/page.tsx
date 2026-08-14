@@ -19,8 +19,9 @@ import { Button } from "../../../../components/ui/button";
 import { ArrowLeft, User } from "lucide-react";
 import { Skeleton } from "../../../../components/ui/skeleton";
 import { toast } from "sonner";
-import { parsePostShareMessage } from "../../../../lib/post-share-chat";
+import { parsePostShareMessage, parseJourneyShareMessage } from "../../../../lib/post-share-chat";
 import { PostShareCard } from "../../../../components/chat/post-share-card";
+import { JourneyShareCard } from "../../../../components/chat/journey-share-card";
 import { ChatComposer } from "../../../../components/chat/chat-composer";
 import { MessageAttachments } from "../../../../components/chat/message-attachments";
 import { subscribeSocket, unsubscribeSocket, emitSocket } from "../../../../lib/socket";
@@ -232,8 +233,9 @@ export default function ChatConversationPage() {
             const isMe = normalizeSenderId(msg.sender) === myId;
             const text = msg.text ?? "";
             const postShare = parsePostShareMessage(text);
+            const journeyShare = !postShare ? parseJourneyShareMessage(text) : null;
             const hasAttachments = (msg.attachments?.length ?? 0) > 0;
-            const tightPadding = !!postShare || hasAttachments;
+            const tightPadding = !!postShare || !!journeyShare || hasAttachments;
             return (
               <div
                 key={msg._id}
@@ -252,6 +254,8 @@ export default function ChatConversationPage() {
                 >
                   {postShare ? (
                     <PostShareCard share={postShare} isSent={isMe} />
+                  ) : journeyShare ? (
+                    <JourneyShareCard share={journeyShare} isSent={isMe} />
                   ) : (
                     <>
                       <MessageAttachments attachments={msg.attachments} isMe={isMe} />
