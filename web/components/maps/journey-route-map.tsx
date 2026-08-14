@@ -19,6 +19,10 @@ type JourneyRouteMapProps = {
   polyline?: Array<{ lat: number; lng: number }>;
   startCoords?: { lat: number; lng: number } | null;
   waypoints?: JourneyRouteMapWaypoint[];
+  /** Latest known position while actively tracking -- renders a distinct marker. */
+  currentPosition?: { lat: number; lng: number } | null;
+  /** Whether currentPosition should render as a pulsing "live" indicator vs a static dot (default true). */
+  live?: boolean;
   className?: string;
 };
 
@@ -35,6 +39,8 @@ export function JourneyRouteMap({
   polyline,
   startCoords,
   waypoints,
+  currentPosition,
+  live = true,
   className = "h-72 w-full",
 }: JourneyRouteMapProps) {
   const route = React.useMemo(() => decodePolylineToLngLat(polyline), [polyline]);
@@ -51,13 +57,17 @@ export function JourneyRouteMap({
     [waypoints]
   );
   const waypointPoints: LngLat[] = validWaypoints.map((w) => [w.lng, w.lat]);
-  const fitPoints = route.length > 0 || waypointPoints.length > 0
-    ? [...route, ...waypointPoints]
+  const current: LngLat | null =
+    currentPosition && typeof currentPosition.lat === "number" && typeof currentPosition.lng === "number"
+      ? [currentPosition.lng, currentPosition.lat]
+      : null;
+  const fitPoints = route.length > 0 || waypointPoints.length > 0 || current
+    ? [...route, ...waypointPoints, ...(current ? [current] : [])]
     : start
       ? [start]
       : [];
 
-  if (!start && route.length === 0 && waypointPoints.length === 0) {
+  if (!start && route.length === 0 && waypointPoints.length === 0 && !current) {
     return (
       <div className={`flex items-center justify-center rounded-2xl border bg-muted text-sm text-muted-foreground ${className}`}>
         No route data for this journey yet.
@@ -67,7 +77,7 @@ export function JourneyRouteMap({
 
   return (
     <div className={`overflow-hidden rounded-2xl border bg-muted ${className}`}>
-      <Map center={start ?? waypointPoints[0] ?? [0, 20]} zoom={12} className="h-full w-full">
+      <Map center={start ?? waypointPoints[0] ?? current ?? [0, 20]} zoom={12} className="h-full w-full">
         <MapControls position="bottom-right" showZoom showLocate />
         <MapFitBounds points={fitPoints} maxZoom={14} padding={40} />
 
@@ -91,11 +101,26 @@ export function JourneyRouteMap({
           </MapMarker>
         )}
 
-        {end && route.length > 1 && (
+        {/* Suppress "End" while a live current-position marker is shown --
+            the route hasn't actually ended, that marker would be misleading. */}
+        {end && route.length > 1 && !current && (
           <MapMarker longitude={end[0]} latitude={end[1]}>
             <MarkerContent>
               <div className="rounded-full border-2 border-white bg-primary px-2 py-0.5 text-[10px] font-bold text-white shadow-md">
                 End
+              </div>
+            </MarkerContent>
+          </MapMarker>
+        )}
+
+        {current && (
+          <MapMarker longitude={current[0]} latitude={current[1]}>
+            <MarkerContent>
+              <div className="relative flex h-5 w-5 items-center justify-center">
+                {live && (
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sky-400 opacity-75" />
+                )}
+                <span className="relative inline-flex h-3.5 w-3.5 rounded-full border-2 border-white bg-sky-500 shadow-md" />
               </div>
             </MarkerContent>
           </MapMarker>
