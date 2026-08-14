@@ -99,7 +99,11 @@ export type MapLocation = {
   score: number;
   date: string;
   caption?: string;
+  imageUrl?: string;
   coordinates?: { latitude: number; longitude: number };
+  postId?: string | null;
+  isPostDeleted?: boolean;
+  postType?: "photo" | "short";
 };
 
 function hashString(str: string): number {
