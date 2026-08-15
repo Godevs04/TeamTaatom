@@ -9,6 +9,7 @@ import { Button } from "../ui/button";
 import { useAuth } from "../../context/auth-context";
 import { useMounted } from "../../hooks/use-mounted";
 import { SocialConnect } from "./social-connect";
+import { NotificationBadge } from "./notification-badge";
 
 const nav = [
   { href: "/feed", label: "Feed" },
@@ -90,10 +91,11 @@ export function SiteHeader() {
                   <span className="hidden sm:inline">Create</span>
                 </Button>
               </Link>
-              <Link href="/notifications">
+              <Link href="/notifications" className="relative">
                 <Button variant="ghost" size="icon" aria-label="Notifications">
                   <Bell className="h-5 w-5" />
                 </Button>
+                <NotificationBadge />
               </Link>
               <Link href="/search">
                 <Button variant="ghost" size="icon" aria-label="Search">

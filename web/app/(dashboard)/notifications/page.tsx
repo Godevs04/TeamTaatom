@@ -5,11 +5,14 @@ import Link from "next/link";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getNotifications, markAllNotificationsAsRead } from "../../../lib/api";
 import { groupNotificationsByTime, getNotificationLink } from "../../../lib/notifications";
-import type { Notification } from "../../../types/notification";
+import { subscribeSocket, unsubscribeSocket } from "../../../lib/socket";
+import type { Notification, NotificationResponse } from "../../../types/notification";
 import { Button } from "../../../components/ui/button";
 import { Bell, ImageIcon, User } from "lucide-react";
 import { Skeleton } from "../../../components/ui/skeleton";
 import { FollowRequestModal } from "../../../components/notifications/follow-request-modal";
+
+type NotificationSocketPayload = { userId?: string; notification?: Notification };
 
 function getNotificationLabel(n: Notification): string {
   const fromName = n.fromUser && typeof n.fromUser === "object" && "fullName" in n.fromUser
@@ -56,8 +59,34 @@ export default function NotificationsPage() {
     mutationFn: markAllNotificationsAsRead,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      // Reset the bell badge too — it's a separate cache entry
+      // (["notificationsUnreadCount"]) from this page's own list+count.
+      queryClient.setQueryData(["notificationsUnreadCount"], { unreadCount: 0 });
     },
   });
+
+  // Live-update the list as new notifications arrive while this page is open.
+  // The socket payload wraps the real notification under `.notification` (see
+  // Notification.createNotification's emit) -- unlike mobile's notifications.tsx,
+  // which treats the raw payload as the notification itself and renders
+  // type/fromUser/post as undefined as a result. Read the nested field here.
+  React.useEffect(() => {
+    const onNotification = (payload: NotificationSocketPayload) => {
+      const incoming = payload?.notification;
+      if (!incoming?._id) return;
+      queryClient.setQueriesData<NotificationResponse>({ queryKey: ["notifications"] }, (old) => {
+        if (!old) return old;
+        if (old.notifications.some((n) => n._id === incoming._id)) return old;
+        return {
+          ...old,
+          notifications: [incoming, ...old.notifications],
+          unreadCount: (old.unreadCount ?? 0) + 1,
+        };
+      });
+    };
+    subscribeSocket<NotificationSocketPayload>("notification", onNotification);
+    return () => unsubscribeSocket<NotificationSocketPayload>("notification", onNotification);
+  }, [queryClient]);
 
   const notifications = data?.notifications ?? [];
   const unreadCount = data?.unreadCount ?? notifications.filter((n) => !n.isRead).length;

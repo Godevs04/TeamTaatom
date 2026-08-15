@@ -22,6 +22,7 @@ import {
 import { cn } from "../../lib/utils";
 import { useAuth } from "../../context/auth-context";
 import { useMounted } from "../../hooks/use-mounted";
+import { NotificationBadge } from "./notification-badge";
 
 const mainNav = [
   { href: "/feed", label: "Feed", icon: LayoutDashboard },
@@ -76,6 +77,11 @@ export function MobileBottomNav() {
               {item.href === "/create" ? (
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg shadow-primary/25 sm:h-10 sm:w-10">
                   <PlusSquare className="h-4 w-4 sm:h-5 sm:w-5" />
+                </span>
+              ) : item.href === "/notifications" ? (
+                <span className="relative inline-flex">
+                  <Icon className="h-5 w-5 shrink-0 sm:h-6 sm:w-6" />
+                  <NotificationBadge />
                 </span>
               ) : (
                 <Icon className="h-5 w-5 shrink-0 sm:h-6 sm:w-6" />

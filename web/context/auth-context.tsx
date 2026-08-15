@@ -7,9 +7,11 @@ import { authLogout, authMe, authSignIn, getProfile, getGlobalSubscriptionStatus
 import { applyWebAuthSession, clearWebAuthSession } from "../lib/auth-session";
 import { getLoginLocationHint } from "../lib/login-location";
 import { useFeatureFlags } from "../lib/feature-flags";
-import { connectSocket, disconnectSocket } from "../lib/socket";
+import { connectSocket, disconnectSocket, subscribeSocket, unsubscribeSocket } from "../lib/socket";
 import type { User } from "../types/user";
 import { PROFILE_ONBOARDING_VERSION } from "../lib/profile-onboarding-version";
+
+type NotificationSocketPayload = { userId?: string; notification?: { _id: string } };
 
 type AuthState = {
   user: User | null;
@@ -73,6 +75,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       disconnectSocket();
     }
   }, [authUser]);
+
+  // Bell-badge unread count, shared (by query key, not props) between
+  // site-header.tsx and mobile-bottom-nav.tsx. Seeded via
+  // getNotificationsUnreadCount by whichever of those mounts first; this
+  // effect only owns the live +1 on each `notification` socket event, mirroring
+  // mobile's profile.tsx badge (any event means one more unread, no need to
+  // read the payload's fields for the count itself). Query key is
+  // ["notificationsUnreadCount"], not ["notifications", "unreadCount"] --
+  // see notification-badge.tsx for why a shared "notifications" prefix
+  // collides with existing fuzzy setQueriesData({queryKey: ["notifications"]})
+  // callers elsewhere in the app.
+  React.useEffect(() => {
+    if (!authUser) return;
+    const onNotification = (payload: NotificationSocketPayload) => {
+      if (!payload?.notification?._id) return;
+      qc.setQueryData<{ unreadCount: number }>(["notificationsUnreadCount"], (old) => ({
+        unreadCount: (old?.unreadCount ?? 0) + 1,
+      }));
+    };
+    subscribeSocket<NotificationSocketPayload>("notification", onNotification);
+    return () => unsubscribeSocket<NotificationSocketPayload>("notification", onNotification);
+  }, [authUser, qc]);
 
   const user: User | null = React.useMemo(() => {
     if (!authUser) return null;
