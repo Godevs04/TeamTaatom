@@ -23,12 +23,15 @@ export function ChatComposer({
   isSending,
   placeholder = "Type a message…",
   onTyping,
+  disabled = false,
 }: {
   onSend: (text: string, files: File[]) => Promise<unknown>;
   isSending: boolean;
   placeholder?: string;
   /** Called on every draft-text change, mirroring mobile's unthrottled per-keystroke emit. */
   onTyping?: () => void;
+  /** Disables the whole composer (e.g. the other party is blocked). Defaults to false. */
+  disabled?: boolean;
 }) {
   const [input, setInput] = React.useState("");
   const [files, setFiles] = React.useState<File[]>([]);
@@ -69,7 +72,7 @@ export function ChatComposer({
     setFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const canSend = (input.trim().length > 0 || files.length > 0) && !isSending;
+  const canSend = (input.trim().length > 0 || files.length > 0) && !isSending && !disabled;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -137,7 +140,7 @@ export function ChatComposer({
           variant="ghost"
           className="shrink-0 rounded-xl"
           onClick={() => fileInputRef.current?.click()}
-          disabled={isSending || files.length >= CHAT_MAX_FILES}
+          disabled={disabled || isSending || files.length >= CHAT_MAX_FILES}
           aria-label="Attach files"
           title={
             files.length >= CHAT_MAX_FILES
@@ -154,6 +157,7 @@ export function ChatComposer({
             onTyping?.();
           }}
           placeholder={placeholder}
+          disabled={disabled}
           className="flex-1 rounded-xl border-slate-200/80 bg-background dark:border-zinc-700"
           maxLength={2000}
         />

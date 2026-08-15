@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   getChat,
@@ -11,12 +11,17 @@ import {
   uploadChatMedia,
   markChatMessagesSeen,
   getProfile,
+  clearChat,
+  toggleChatMute,
+  getChatMuteStatus,
+  blockUser,
+  getBlockStatus,
 } from "../../../../lib/api";
 import { getFriendlyErrorMessage } from "../../../../lib/auth-errors";
 import { useAuth } from "../../../../context/auth-context";
 import type { ChatMessage, ChatParticipant } from "../../../../types/chat";
 import { Button } from "../../../../components/ui/button";
-import { ArrowLeft, User } from "lucide-react";
+import { ArrowLeft, User, MoreHorizontal, Trash2, Bell, BellOff, Ban } from "lucide-react";
 import { Skeleton } from "../../../../components/ui/skeleton";
 import { toast } from "sonner";
 import { parsePostShareMessage, parseJourneyShareMessage } from "../../../../lib/post-share-chat";
@@ -37,11 +42,25 @@ function normalizeSenderId(sender: ChatMessage["sender"]): string {
 
 export default function ChatConversationPage() {
   const params = useParams();
+  const router = useRouter();
   const userId = params.userId as string;
   const queryClient = useQueryClient();
   const { user: me } = useAuth();
   const myId = me?._id ?? "";
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const menuRef = React.useRef<HTMLDivElement>(null);
+
+  React.useEffect(() => {
+    if (!menuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [menuOpen]);
 
   const { data: chatData } = useQuery({
     queryKey: ["chat", userId],
@@ -60,6 +79,22 @@ export default function ChatConversationPage() {
     queryFn: () => getProfile(userId),
     enabled: !!userId,
   });
+
+  const muteQ = useQuery({
+    queryKey: ["chat", userId, "mute-status"],
+    queryFn: () => getChatMuteStatus(userId),
+    enabled: !!userId && !!myId,
+  });
+  const isMuted = muteQ.data?.muted ?? false;
+
+  // Shared cache key with profile-actions.tsx's block query — both surfaces
+  // reflect the same block state instead of diverging.
+  const blockQ = useQuery({
+    queryKey: ["block-status", userId],
+    queryFn: () => getBlockStatus(userId),
+    enabled: !!userId && !!myId,
+  });
+  const isBlocked = blockQ.data?.isBlocked ?? false;
 
   React.useEffect(() => {
     if (!userId || !myId) return;
@@ -161,6 +196,60 @@ export default function ChatConversationPage() {
     },
   });
 
+  const clearMutation = useMutation({
+    mutationFn: () => clearChat(userId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["chat", userId, "messages"] });
+      queryClient.invalidateQueries({ queryKey: ["chat", "list"] });
+      toast.success("Chat cleared");
+      setMenuOpen(false);
+    },
+    onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
+  });
+
+  const muteMutation = useMutation({
+    mutationFn: () => toggleChatMute(userId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["chat", userId, "mute-status"] });
+      toast.success(data.muted ? "Notifications muted" : "Notifications unmuted");
+      setMenuOpen(false);
+    },
+    onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
+  });
+
+  const blockMutation = useMutation({
+    mutationFn: () => blockUser(userId),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["block-status", userId] });
+      queryClient.invalidateQueries({ queryKey: ["chat"] });
+      toast.success(data.isBlocked ? "User blocked" : "User unblocked");
+      setMenuOpen(false);
+      // Staying in a thread with someone you just blocked doesn't make sense.
+      if (data.isBlocked) router.push("/chat");
+    },
+    onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
+  });
+
+  const handleClearClick = () => {
+    if (
+      window.confirm(
+        "Are you sure you want to clear all messages in this chat? This action cannot be undone."
+      )
+    ) {
+      clearMutation.mutate();
+    }
+  };
+
+  const handleBlockClick = () => {
+    const name = displayName;
+    const msg = isBlocked
+      ? `Unblock ${name}? You will be able to message and interact again.`
+      : `Block ${name}? They won't be able to message you or see your profile.`;
+    if (window.confirm(msg)) {
+      blockMutation.mutate();
+    }
+  };
+
   React.useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messagesData?.messages?.length]);
@@ -214,6 +303,49 @@ export default function ChatConversationPage() {
         <Button variant="outline" size="sm" className="rounded-xl" asChild>
           <Link href={`/profile/${userId}`}>Profile</Link>
         </Button>
+        <div className="relative" ref={menuRef}>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="rounded-xl"
+            onClick={() => setMenuOpen((o) => !o)}
+            aria-label="More actions"
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+          {menuOpen && (
+            <div className="absolute right-0 top-full z-20 mt-1 min-w-[200px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                onClick={handleClearClick}
+                disabled={clearMutation.isPending}
+              >
+                <Trash2 className="h-4 w-4" />
+                Clear chat
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                onClick={() => muteMutation.mutate()}
+                disabled={muteMutation.isPending}
+              >
+                {isMuted ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
+                {isMuted ? "Unmute notifications" : "Mute notifications"}
+              </button>
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                onClick={handleBlockClick}
+                disabled={blockMutation.isPending}
+              >
+                <Ban className="h-4 w-4" />
+                {isBlocked ? "Unblock user" : "Block user"}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Messages */}
@@ -284,6 +416,8 @@ export default function ChatConversationPage() {
         onSend={(text, files) => sendMutation.mutateAsync({ text, files })}
         isSending={sendMutation.isPending}
         onTyping={() => emitSocket("typing", { to: userId })}
+        disabled={isBlocked}
+        placeholder={isBlocked ? "You've blocked this user" : undefined}
       />
     </div>
   );
