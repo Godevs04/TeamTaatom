@@ -27,4 +27,6 @@ export const STORAGE_KEYS = {
   webOnboardingAfterVerify: "taatom_web_onboarding_after_verify",
   /** Set after web onboarding funnel completes (welcome → interests → suggested users). */
   onboardingCompletedWeb: "taatom_web_onboarding_completed",
+  /** Recent search queries for the search page, mirroring mobile's AsyncStorage 'searchHistory'. */
+  recentSearches: "taatom_recent_searches",
 } as const;
