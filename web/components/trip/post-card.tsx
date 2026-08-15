@@ -333,6 +333,11 @@ export function PostCard({
   });
 
   const media = post.imageUrl || post.thumbnailUrl || post.mediaUrl || "";
+  const isShort = post.type === "short";
+  const videoUrl = post.videoUrl || post.mediaUrl || "";
+  // Only ever a genuine image -- never mediaUrl, which for a short with no
+  // dedicated thumbnail file is the video's own URL (see getPostById).
+  const posterUrl = post.imageUrl || post.thumbnailUrl || undefined;
   const isOwnPost = !!currentUser && post.user?._id === currentUser._id;
   const displayName = post.user?.fullName || post.user?.username || "Traveler";
   const avatarInitial = displayName.trim().charAt(0).toUpperCase();
@@ -491,13 +496,24 @@ export function PostCard({
       {/* Media */}
       <Link href={`/trip/${post._id}`} className="block bg-slate-100/50 dark:bg-zinc-950/80">
         <div className="relative aspect-[4/3] w-full overflow-hidden">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={media}
-            alt={post.caption || "Trip"}
-            className="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.02]"
-            loading="lazy"
-          />
+          {isShort && videoUrl ? (
+            <video
+              src={videoUrl}
+              poster={posterUrl}
+              controls
+              playsInline
+              preload="metadata"
+              className="h-full w-full bg-black object-contain"
+            />
+          ) : (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={media}
+              alt={post.caption || "Trip"}
+              className="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.02]"
+              loading="lazy"
+            />
+          )}
         </div>
       </Link>
 
