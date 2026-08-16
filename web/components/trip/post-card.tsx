@@ -222,6 +222,18 @@ export function PostCard({
     toast.success(nextSaved ? "Saved" : "Removed from saved");
   };
 
+  const handleCopyLink = async () => {
+    try {
+      const url = `${window.location.origin}/trip/${post._id}`;
+      await navigator.clipboard.writeText(url);
+      toast.success("Post link copied to clipboard");
+    } catch {
+      toast.error("Failed to copy link");
+    } finally {
+      setMenuOpen(false);
+    }
+  };
+
   const openAddToCollection = () => {
     setMenuOpen(false);
     setCollectionModalOpen(true);
@@ -404,6 +416,14 @@ export function PostCard({
                       <button
                         type="button"
                         className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        onClick={handleCopyLink}
+                      >
+                        <Share2 className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
+                        Copy Link
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
                         onClick={openEditPost}
                       >
                         <Pencil className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
@@ -447,7 +467,7 @@ export function PostCard({
                         onClick={handleShare}
                       >
                         <Share2 className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
-                        Share
+                        Share to Chat
                       </button>
                       <button
                         type="button"
@@ -460,6 +480,14 @@ export function PostCard({
                     </>
                   ) : (
                     <>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        onClick={handleCopyLink}
+                      >
+                        <Share2 className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
+                        Copy Link
+                      </button>
                       <button
                         type="button"
                         className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
@@ -482,7 +510,7 @@ export function PostCard({
                         onClick={handleShare}
                       >
                         <Share2 className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
-                        Share
+                        Share to Chat
                       </button>
                     </>
                   )}

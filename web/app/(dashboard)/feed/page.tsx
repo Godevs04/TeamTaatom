@@ -6,10 +6,10 @@ import { useSearchParams } from "next/navigation";
 import { motion } from "framer-motion";
 import { useFeed } from "../../../hooks/useFeed";
 import { PostCard } from "../../../components/trip/post-card";
-import { TripComments } from "../../../components/trip/comments";
+import { CommentsDrawer } from "../../../components/trip/comments-drawer";
 import { Skeleton } from "../../../components/ui/skeleton";
 import { Button } from "../../../components/ui/button";
-import { PenLine, ImagePlus, MapPin, Send, Compass, RefreshCw, X } from "lucide-react";
+import { PenLine, ImagePlus, MapPin, Send, Compass, RefreshCw } from "lucide-react";
 import { useAuth } from "../../../context/auth-context";
 import { useMounted } from "../../../hooks/use-mounted";
 import { getLikedPostIds, getSavedPostIds, mergeLikedIntoPosts, mergeSavedIntoPosts } from "../../../lib/utils";
@@ -494,49 +494,7 @@ function FeedContent() {
         </div>
       </div>
 
-      {commentsPost && (
-        <div
-          className="fixed inset-0 z-50 bg-slate-950/55 backdrop-blur-sm"
-          role="presentation"
-          onClick={() => setCommentsPost(null)}
-        >
-          <motion.aside
-            role="dialog"
-            aria-modal="true"
-            aria-label="Comments"
-            initial={{ x: "100%" }}
-            animate={{ x: 0 }}
-            exit={{ x: "100%" }}
-            transition={{ type: "spring", stiffness: 340, damping: 36 }}
-            className="absolute right-0 top-0 h-full w-full max-w-xl border-l border-slate-200/80 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex h-full flex-col">
-              <div className="flex items-center justify-between border-b border-slate-200/80 px-4 py-3 dark:border-zinc-800 sm:px-5">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900 dark:text-zinc-50">
-                    {commentsPost.caption || "Trip comments"}
-                  </p>
-                  <p className="text-xs text-slate-500 dark:text-zinc-400">{commentsPost.user?.fullName || commentsPost.user?.username || "Traveler"}</p>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 rounded-xl"
-                  aria-label="Close comments"
-                  onClick={() => setCommentsPost(null)}
-                >
-                  <X className="h-5 w-5" />
-                </Button>
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
-                <TripComments postId={commentsPost._id} />
-              </div>
-            </div>
-          </motion.aside>
-        </div>
-      )}
+      <CommentsDrawer post={commentsPost} onClose={() => setCommentsPost(null)} />
     </div>
   );
 }

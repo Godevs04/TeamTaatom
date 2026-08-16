@@ -4,11 +4,10 @@ import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { motion } from "framer-motion";
-import { ArrowLeft, Hash, X } from "lucide-react";
+import { ArrowLeft, Hash } from "lucide-react";
 import { getHashtagPosts } from "../../../../lib/api";
 import { PostCard } from "../../../../components/trip/post-card";
-import { TripComments } from "../../../../components/trip/comments";
+import { CommentsDrawer } from "../../../../components/trip/comments-drawer";
 import { Button } from "../../../../components/ui/button";
 import { Card } from "../../../../components/ui/card";
 import { Skeleton } from "../../../../components/ui/skeleton";
@@ -123,50 +122,7 @@ export default function HashtagPage() {
         </div>
       ) : null}
 
-      {commentsPost ? (
-        <div
-          className="fixed inset-0 z-50 bg-slate-950/55 backdrop-blur-sm"
-          role="presentation"
-          onClick={() => setCommentsPost(null)}
-        >
-          <motion.aside
-            role="dialog"
-            aria-modal="true"
-            aria-label="Comments"
-            initial={{ x: "100%" }}
-            animate={{ x: 0 }}
-            transition={{ type: "spring", stiffness: 340, damping: 36 }}
-            className="absolute right-0 top-0 h-full w-full max-w-xl border-l border-slate-200/80 bg-white shadow-2xl dark:border-zinc-800 dark:bg-zinc-900"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex h-full flex-col">
-              <div className="flex items-center justify-between border-b border-slate-200/80 px-4 py-3 dark:border-zinc-800 sm:px-5">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900 dark:text-zinc-50">
-                    {commentsPost.caption || "Trip comments"}
-                  </p>
-                  <p className="text-xs text-slate-500 dark:text-zinc-400">
-                    {commentsPost.user?.fullName || commentsPost.user?.username || "Traveler"}
-                  </p>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 rounded-xl"
-                  aria-label="Close comments"
-                  onClick={() => setCommentsPost(null)}
-                >
-                  <X className="h-5 w-5" />
-                </Button>
-              </div>
-              <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
-                <TripComments postId={commentsPost._id} />
-              </div>
-            </div>
-          </motion.aside>
-        </div>
-      ) : null}
+      <CommentsDrawer post={commentsPost} onClose={() => setCommentsPost(null)} />
     </div>
   );
 }

@@ -10,6 +10,7 @@ import type { User } from "../../../../types/user";
 import type { Post } from "../../../../types/post";
 import { createMetadata } from "../../../../lib/seo";
 import { Compass, MapPin } from "lucide-react";
+import { ExpandableText } from "../../../../components/ui/expandable-text";
 
 async function getProfile(id: string) {
   const res = await fetchWithAuth(`${API_V1_ABS}/profile/${id}`);
@@ -71,8 +72,28 @@ export default async function ProfilePage({ params }: { params: { id: string } }
             </h1>
             <p className="truncate text-sm text-slate-500 dark:text-zinc-400">@{u.username || "user"}</p>
             {u.bio ? (
-              <p className="mt-2 max-w-xl text-sm leading-6 text-slate-700 dark:text-zinc-300">{u.bio}</p>
+              <ExpandableText
+                text={u.bio}
+                maxLines={3}
+                charLimit={150}
+                className="mt-2 max-w-xl text-sm leading-6 text-slate-700 dark:text-zinc-300"
+              />
             ) : null}
+            {(u.currentLocation || u.nationality) && (
+              <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500 dark:text-zinc-400">
+                {u.currentLocation && (
+                  <span className="inline-flex items-center gap-1">
+                    <MapPin className="h-3.5 w-3.5 text-primary" />
+                    {u.currentLocation}
+                  </span>
+                )}
+                {u.nationality && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 dark:bg-zinc-800">
+                    🌍 {u.nationality}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

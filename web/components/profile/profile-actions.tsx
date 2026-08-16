@@ -24,6 +24,7 @@ import {
   MoreHorizontal,
   Ban,
   Flag,
+  Share2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "../../lib/utils";
@@ -127,6 +128,18 @@ export function ProfileActions({ profile }: ProfileActionsProps) {
     onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
   });
 
+  const handleCopyLink = async () => {
+    try {
+      const url = `${window.location.origin}/profile/${profile._id}`;
+      await navigator.clipboard.writeText(url);
+      toast.success("Profile link copied to clipboard");
+    } catch {
+      toast.error("Failed to copy link");
+    } finally {
+      setMenuOpen(false);
+    }
+  };
+
   const handleBlockClick = () => {
     const name = profile.fullName || profile.username || "this user";
     const msg = isBlocked
@@ -139,7 +152,7 @@ export function ProfileActions({ profile }: ProfileActionsProps) {
 
   if (isSelf) {
     return (
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2">
         <Button asChild variant="outline" size="sm" className="rounded-xl gap-2">
           <Link href="/settings/account#profile">
             <UserPen className="h-4 w-4" />
@@ -152,6 +165,30 @@ export function ProfileActions({ profile }: ProfileActionsProps) {
             Settings
           </Link>
         </Button>
+        <div className="relative" ref={menuRef}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="rounded-xl px-2.5"
+            onClick={() => setMenuOpen((o) => !o)}
+            aria-label="More actions"
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+          {menuOpen && (
+            <div className="absolute right-0 top-full z-20 mt-1 min-w-[180px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                onClick={handleCopyLink}
+              >
+                <Share2 className="h-4 w-4" />
+                Copy profile link
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -195,6 +232,14 @@ export function ProfileActions({ profile }: ProfileActionsProps) {
         </Button>
         {menuOpen && (
           <div className="absolute right-0 top-full z-20 mt-1 min-w-[180px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              onClick={handleCopyLink}
+            >
+              <Share2 className="h-4 w-4" />
+              Copy profile link
+            </button>
             <button
               type="button"
               className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
