@@ -6,6 +6,7 @@ import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-q
 import { Loader2, Footprints, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/context/auth-context";
+import { useConfirm } from "@/context/confirm-context";
 import { journeyListForUser, journeyDelete } from "@/lib/journey-api";
 import { getFriendlyErrorMessage } from "@/lib/auth-errors";
 import type { Journey } from "@/types/journey";
@@ -16,6 +17,7 @@ export default function JourneysListPage() {
   const { user } = useAuth();
   const userId = user?._id ?? "";
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
 
   const {
     data,
@@ -39,70 +41,78 @@ export default function JourneysListPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (journeyId: string) => journeyDelete(journeyId),
+    mutationFn: (id: string) => journeyDelete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["journeys-user", userId] });
+      queryClient.invalidateQueries({ queryKey: ["journeys-user"] });
       toast.success("Journey deleted");
     },
-    onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
+    onError: (e) => toast.error(getFriendlyErrorMessage(e)),
   });
 
-  const journeys = data?.pages.flatMap((p) => p.journeys) ?? [];
+  const items: Journey[] =
+    data?.pages.flatMap((page) => (page.journeys as Journey[]) || []) ?? [];
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 pb-24 lg:pb-10">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-display text-2xl font-semibold text-slate-900 dark:text-white md:text-3xl">
-          Journeys
-        </h1>
-        <Link
-          href="/navigate"
-          className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-on-primary shadow-lg shadow-primary/25 hover:opacity-95"
-        >
-          Live navigate
-        </Link>
+    <div className="mx-auto max-w-lg space-y-6 pb-24 lg:pb-10">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-zinc-50">My journeys</h1>
+          <p className="text-xs text-slate-500 dark:text-zinc-400">Routes and trips you created</p>
+        </div>
       </div>
-      {!userId && (
-        <p className="text-sm text-slate-500 dark:text-zinc-400">Sign in to see your journeys.</p>
-      )}
-      {userId && isLoading && (
+
+      {isLoading && (
         <div className="flex justify-center py-16">
           <Loader2 className="h-9 w-9 animate-spin text-primary" />
         </div>
       )}
-      {userId && !isLoading && journeys.length === 0 && (
-        <p className="text-sm text-slate-500 dark:text-zinc-400">
-          No journeys yet. Start one from Navigate while exploring.
-        </p>
+
+      {!isLoading && items.length === 0 && (
+        <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 py-16 text-center dark:border-zinc-800">
+          <Footprints className="h-10 w-10 text-slate-300 dark:text-zinc-600" />
+          <p className="mt-3 text-sm font-medium text-slate-700 dark:text-zinc-300">No journeys yet</p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">Create one from the Navigate tab</p>
+          <Link
+            href="/navigate"
+            className="mt-4 inline-flex items-center rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90"
+          >
+            Start a journey
+          </Link>
+        </div>
       )}
-      <ul className="space-y-2">
-        {(journeys as Journey[]).map((j) => (
+
+      <ul className="space-y-3">
+        {items.map((j) => (
           <li
             key={j._id}
-            className="flex items-center gap-2 rounded-2xl border border-slate-200/80 bg-white pr-2 transition hover:border-primary/25 hover:shadow-md dark:border-zinc-800 dark:bg-zinc-900/70"
+            className="flex items-center justify-between gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900"
           >
-            <Link href={`/journeys/${j._id}`} className="flex min-w-0 flex-1 items-center gap-3 p-4">
-              <Footprints className="h-8 w-8 shrink-0 text-primary" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate font-semibold text-slate-900 dark:text-white">
-                  {j.title || "Untitled journey"}
-                </p>
-                <p className="text-xs text-slate-500">
-                  {j.status ?? "—"}
-                  {typeof j.distanceTraveled === "number"
-                    ? ` · ${(j.distanceTraveled / 1000).toFixed(2)} km`
-                    : ""}
-                </p>
-              </div>
-              <span className="text-xs text-primary">View →</span>
+            <Link href={`/journeys/${j._id}`} className="min-w-0 flex-1">
+              <p className="truncate font-semibold text-slate-900 dark:text-zinc-100">{j.title || "Untitled journey"}</p>
+              <p className="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">
+                {j.startedAt
+                  ? new Date(j.startedAt).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })
+                  : "Recent"}
+                {j.polyline && ` · ${j.polyline.length} points`}
+              </p>
             </Link>
             <button
               type="button"
               aria-label="Delete journey"
               title="Delete journey"
               disabled={deleteMutation.isPending}
-              onClick={() => {
-                if (window.confirm(`Delete "${j.title || "this journey"}"? This cannot be undone.`)) {
+              onClick={async () => {
+                const ok = await confirm({
+                  title: "Delete Journey",
+                  description: `Are you sure you want to delete "${j.title || "this journey"}"? This action cannot be undone.`,
+                  confirmText: "Delete",
+                  variant: "destructive",
+                });
+                if (ok) {
                   deleteMutation.mutate(j._id);
                 }
               }}

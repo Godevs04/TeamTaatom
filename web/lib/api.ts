@@ -749,6 +749,21 @@ export async function clearChat(otherUserId: string) {
   return res.data as { success?: boolean };
 }
 
+export async function editChatMessage(chatId: string, messageId: string, text: string) {
+  const res = await api.patch(`/chat/${chatId}/messages/${messageId}`, { text });
+  return res.data as { message: ChatMessage };
+}
+
+export async function deleteChatMessage(chatId: string, messageId: string) {
+  const res = await api.delete(`/chat/${chatId}/messages/${messageId}`);
+  return res.data as { success?: boolean; messageId: string; isDeleted: boolean };
+}
+
+export async function markMessageDelivered(chatId: string, messageId: string) {
+  const res = await api.post(`/chat/${chatId}/messages/${messageId}/delivered`);
+  return res.data as { success?: boolean };
+}
+
 export async function toggleChatMute(otherUserId: string) {
   const res = await api.post(`/chat/${otherUserId}/mute`);
   return res.data as { muted: boolean };

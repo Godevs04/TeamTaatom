@@ -24,6 +24,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 5,
   themeColor: "#2563eb",
+  viewportFit: "cover",
 };
 
 export const metadata: Metadata = {
@@ -35,6 +36,11 @@ export const metadata: Metadata = {
   icons: {
     icon: "/icon.png?v=2",
     apple: "/icon.png?v=2",
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Taatom",
   },
 };
 

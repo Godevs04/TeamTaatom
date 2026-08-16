@@ -36,6 +36,13 @@ export type ChatMessage = {
   timestamp?: string;
   createdAt?: string;
   seen?: boolean;
+  status?: "sent" | "delivered" | "read";
+  deliveredAt?: string | null;
+  readAt?: string | null;
+  isEdited?: boolean;
+  editedAt?: string | null;
+  isDeleted?: boolean;
+  deletedAt?: string | null;
   /** Group chat: sender display name (populated by backend for connect_page chats) */
   senderName?: string;
   /** Group chat: sender profile picture URL */
@@ -55,8 +62,9 @@ export type Chat = {
   participants: ChatParticipant[];
   messages?: ChatMessage[];
   lastMessage?: ChatMessage;
+  unreadCount?: number;
   updatedAt?: string;
   createdAt?: string;
   type?: "user_chat" | "admin_support" | "connect_page";
-  connectPageId?: ConnectPageRef | string | null;
+  connectPageId?: string | ConnectPageRef;
 };

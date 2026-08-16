@@ -53,10 +53,10 @@ const authMiddleware = async (req, res, next) => {
       });
     }
     
-    // Find user and check if still exists
-    const user = await User.findById(decoded.userId).select('-password -otp -otpExpires');
+    const userId = decoded.userId || decoded.id || decoded._id;
+    const user = await User.findById(userId).select('-password -otp -otpExpires');
     if (!user) {
-      logger.warn('User not found for token:', decoded.userId);
+      logger.warn('User not found for token:', userId);
       return res.status(401).json({ 
         error: 'Access denied',
         message: 'User not found' 
@@ -95,7 +95,8 @@ const optionalAuth = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.userId).select('-password -otp -otpExpires');
+    const userId = decoded.userId || decoded.id || decoded._id;
+    const user = await User.findById(userId).select('-password -otp -otpExpires');
     
     if (user && user.isVerified) {
       req.user = user;

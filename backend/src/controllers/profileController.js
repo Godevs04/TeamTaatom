@@ -586,8 +586,14 @@ const toggleFollow = async (req, res) => {
       logger.error(`Current user not found in toggleFollow: ${currentUserId}`);
       return sendError(res, 'AUTH_1001', 'Authentication error');
     }
-    // Mongoose stores ObjectIds; req.params.id is a string — `.includes(id)` is always false.
     const targetIdStr = id.toString();
+
+    // Block check: cannot follow if either party has blocked the other
+    const targetBlocked = (targetUser.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+    const currentBlocked = (currentUser.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+    if (!isFollowing && (targetBlocked.includes(currentUserId.toString()) || currentBlocked.includes(targetIdStr))) {
+      return sendError(res, 'AUTH_1006', 'You cannot follow this user');
+    }
 
     const notifyFollowUpdated = () => {
       void (async () => {
@@ -904,13 +910,20 @@ const searchUsers = async (req, res) => {
         currentUserId
       });
       
-      // Build base query - exclude current user
+      // Build base query - exclude current user and mutual blocked users
       const baseMatch = {
         isVerified: true
       };
       
       if (currentUserId) {
-        baseMatch._id = { $ne: new mongoose.Types.ObjectId(currentUserId) };
+        const [currentUserDoc, whoBlockedMe] = await Promise.all([
+          User.findById(currentUserId).select('blockedUsers').lean(),
+          User.find({ blockedUsers: new mongoose.Types.ObjectId(currentUserId) }).select('_id').lean()
+        ]);
+        const myBlocked = (currentUserDoc?.blockedUsers || []).map(b => new mongoose.Types.ObjectId(b.toString()));
+        const blockedMeIds = whoBlockedMe.map(u => u._id);
+        const excludeIds = [new mongoose.Types.ObjectId(currentUserId), ...myBlocked, ...blockedMeIds];
+        baseMatch._id = { $nin: excludeIds };
       }
       
       // Build match query - prioritize username search

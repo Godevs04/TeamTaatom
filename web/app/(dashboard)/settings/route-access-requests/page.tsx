@@ -24,6 +24,7 @@ import { Skeleton } from "../../../../components/ui/skeleton";
 import { Button } from "../../../../components/ui/button";
 import { toast } from "sonner";
 import { cn } from "../../../../lib/utils";
+import { useConfirm } from "../../../../context/confirm-context";
 
 function formatRelativeDate(dateString?: string) {
   if (!dateString) return "";
@@ -37,6 +38,7 @@ function formatRelativeDate(dateString?: string) {
 }
 
 export default function RouteAccessRequestsPage() {
+  const confirm = useConfirm();
   const [requests, setRequests] = useState<RouteAccessRequest[]>([]);
   const [approvedUsers, setApprovedUsers] = useState<RouteAccessApprovedUser[]>([]);
   const [loading, setLoading] = useState(true);
@@ -94,13 +96,14 @@ export default function RouteAccessRequestsPage() {
 
   const handleRevoke = async (approved: RouteAccessApprovedUser) => {
     const name = approved.fullName || approved.username || "this person";
-    if (
-      !window.confirm(
-        `Revoke route access for ${name}? They will no longer be able to view your traveling routes.`
-      )
-    ) {
-      return;
-    }
+    const ok = await confirm({
+      title: "Revoke Route Access?",
+      description: `Revoke route access for ${name}? They will no longer be able to view your traveling routes.`,
+      confirmText: "Revoke Access",
+      cancelText: "Cancel",
+      variant: "destructive",
+    });
+    if (!ok) return;
     setActingId(approved._id);
     try {
       await revokeRouteAccess(approved._id);

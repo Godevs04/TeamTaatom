@@ -23,19 +23,58 @@ export function ChatComposer({
   isSending,
   placeholder = "Type a message…",
   onTyping,
+  onStopTyping,
   disabled = false,
+  initialText = "",
+  editing = false,
+  onCancelEdit,
 }: {
   onSend: (text: string, files: File[]) => Promise<unknown>;
   isSending: boolean;
   placeholder?: string;
-  /** Called on every draft-text change, mirroring mobile's unthrottled per-keystroke emit. */
   onTyping?: () => void;
+  onStopTyping?: () => void;
   /** Disables the whole composer (e.g. the other party is blocked). Defaults to false. */
   disabled?: boolean;
+  initialText?: string;
+  editing?: boolean;
+  onCancelEdit?: () => void;
 }) {
-  const [input, setInput] = React.useState("");
+  const [input, setInput] = React.useState(initialText);
   const [files, setFiles] = React.useState<File[]>([]);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+
+  const lastTypingEmitRef = React.useRef<number>(0);
+  const stopTypingTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  React.useEffect(() => {
+    setInput(initialText);
+  }, [initialText]);
+
+  const handleInputChange = (val: string) => {
+    setInput(val);
+    if (!val.trim()) {
+      if (stopTypingTimerRef.current) clearTimeout(stopTypingTimerRef.current);
+      onStopTyping?.();
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastTypingEmitRef.current > 1500) {
+      lastTypingEmitRef.current = now;
+      onTyping?.();
+    }
+
+    if (stopTypingTimerRef.current) clearTimeout(stopTypingTimerRef.current);
+    stopTypingTimerRef.current = setTimeout(() => {
+      onStopTyping?.();
+    }, 2500);
+  };
+
+  const handleBlur = () => {
+    if (stopTypingTimerRef.current) clearTimeout(stopTypingTimerRef.current);
+    onStopTyping?.();
+  };
 
   const previews = React.useMemo(
     () =>
@@ -52,12 +91,12 @@ export function ChatComposer({
       for (const p of previews) {
         if (p.objectUrl) URL.revokeObjectURL(p.objectUrl);
       }
+      if (stopTypingTimerRef.current) clearTimeout(stopTypingTimerRef.current);
     };
   }, [previews]);
 
   const handlePick = (e: React.ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files ?? []);
-    // Let the same file be picked again after being removed.
     e.target.value = "";
     if (picked.length === 0) return;
 
@@ -77,6 +116,8 @@ export function ChatComposer({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canSend) return;
+    if (stopTypingTimerRef.current) clearTimeout(stopTypingTimerRef.current);
+    onStopTyping?.();
     try {
       await onSend(input.trim(), files);
       setInput("");
@@ -134,27 +175,32 @@ export function ChatComposer({
           onChange={handlePick}
           className="hidden"
         />
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          className="shrink-0 rounded-xl"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={disabled || isSending || files.length >= CHAT_MAX_FILES}
-          aria-label="Attach files"
-          title={
-            files.length >= CHAT_MAX_FILES
-              ? `Up to ${CHAT_MAX_FILES} files per message`
-              : "Attach files"
-          }
-        >
-          <Paperclip className="h-4 w-4" />
-        </Button>
+        {!editing ? (
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            className="shrink-0 rounded-xl"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={disabled || isSending || files.length >= CHAT_MAX_FILES}
+            aria-label="Attach files"
+            title={
+              files.length >= CHAT_MAX_FILES
+                ? `Up to ${CHAT_MAX_FILES} files per message`
+                : "Attach files"
+            }
+          >
+            <Paperclip className="h-4 w-4" />
+          </Button>
+        ) : null}
         <Input
           value={input}
-          onChange={(e) => {
-            setInput(e.target.value);
-            onTyping?.();
+          onChange={(e) => handleInputChange(e.target.value)}
+          onBlur={handleBlur}
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && editing) {
+              onCancelEdit?.();
+            }
           }}
           placeholder={placeholder}
           disabled={disabled}
@@ -166,7 +212,7 @@ export function ChatComposer({
           size="icon"
           className="shrink-0 rounded-xl"
           disabled={!canSend}
-          aria-label="Send"
+          aria-label={editing ? "Save edit" : "Send"}
         >
           <Send className="h-4 w-4" />
         </Button>

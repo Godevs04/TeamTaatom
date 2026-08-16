@@ -11,6 +11,7 @@ import { motion } from "framer-motion";
 import { Input } from "../../components/ui/input";
 import { Button } from "../../components/ui/button";
 import { useAuth } from "../../context/auth-context";
+import { useConfirm } from "../../context/confirm-context";
 import { getFriendlyAuthErrorMessage, isVerifyRequiredError } from "../../lib/auth-errors";
 import { getPostSignInPath } from "../../lib/auth-routing";
 import { Camera, Compass, Eye, EyeOff, MapPin, Music2 } from "lucide-react";
@@ -75,6 +76,7 @@ const headlineVariant = {
 
 export function LandingLoginClient({ nextUrl = "/feed" }: { nextUrl?: string }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const { user, isLoading: authLoading, signIn } = useAuth();
   const [showPassword, setShowPassword] = React.useState(false);
   const form = useForm<FormValues>({
@@ -101,7 +103,14 @@ export function LandingLoginClient({ nextUrl = "/feed" }: { nextUrl?: string }) 
     } catch (e: unknown) {
       if (isVerifyRequiredError(e)) {
         const msg = getFriendlyAuthErrorMessage(e);
-        if (window.confirm(`${msg}\n\nGo to verification now?`)) {
+        const ok = await confirm({
+          title: "Verification Required",
+          description: `${msg}. Would you like to go to email verification now?`,
+          confirmText: "Verify Now",
+          cancelText: "Cancel",
+          variant: "default",
+        });
+        if (ok) {
           router.push(`/auth/verify-otp?email=${encodeURIComponent(values.email)}`);
         }
         return;

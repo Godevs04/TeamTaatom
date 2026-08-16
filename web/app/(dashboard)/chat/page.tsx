@@ -13,9 +13,9 @@ import { MessageCircle, Trash2, User, Users } from "lucide-react";
 import { Skeleton } from "../../../components/ui/skeleton";
 import { toast } from "sonner";
 
-/** Shared card chrome, so the delete button can sit beside the link instead of inside it. */
-const ROW_CARD_CLASS =
-  "flex items-center gap-1 rounded-2xl border border-slate-200/80 bg-white pr-2 shadow-premium transition-shadow hover:shadow-premium-hover dark:border-zinc-800/80 dark:bg-zinc-900/90 dark:hover:shadow-premium-hover";
+import { useConfirm } from "../../../context/confirm-context";
+
+/** Shared link chrome inside chat row card. */
 const ROW_LINK_CLASS = "flex min-w-0 flex-1 items-center gap-4 p-4";
 
 function DeleteChatButton({
@@ -27,6 +27,7 @@ function DeleteChatButton({
   disabled: boolean;
   onConfirm: () => void;
 }) {
+  const confirm = useConfirm();
   return (
     <button
       type="button"
@@ -34,15 +35,16 @@ function DeleteChatButton({
       aria-label={`Delete chat with ${chatName}`}
       title="Delete chat"
       className="shrink-0 rounded-xl p-2 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:text-zinc-500 dark:hover:bg-red-950/50 dark:hover:text-red-400"
-      onClick={() => {
-        if (
-          !window.confirm(
-            `Are you sure you want to delete the chat with "${chatName}"? This action cannot be undone.`
-          )
-        ) {
-          return;
+      onClick={async () => {
+        const ok = await confirm({
+          title: "Delete Conversation",
+          description: `Are you sure you want to delete the chat with "${chatName}"? This action cannot be undone.`,
+          confirmText: "Delete",
+          variant: "destructive",
+        });
+        if (ok) {
+          onConfirm();
         }
-        onConfirm();
       }}
     >
       <Trash2 className="h-4 w-4" />
@@ -79,16 +81,37 @@ export default function ChatListPage() {
     enabled: !!myId,
   });
 
-  // Live-update the list on any new message (sent or received) — refetch rather
-  // than patch in place so the server's sort order (most recent first) and the
-  // full lastMessage shape (used by formatChatMessagePreview below) stay correct.
+  // Live-update the list on any new message, seen receipt, or unread count update
   React.useEffect(() => {
     if (!myId) return;
     const onChatUpdate = () => {
       queryClient.invalidateQueries({ queryKey: ["chat", "list"] });
     };
+    const onUnreadUpdate = (data?: { chatId?: string; unreadCount?: number }) => {
+      if (data?.chatId && typeof data.unreadCount === "number") {
+        queryClient.setQueryData<{ chats: Chat[] }>(["chat", "list"], (old) => {
+          if (!old?.chats) return old;
+          return {
+            ...old,
+            chats: old.chats.map((c) => (c._id === data.chatId ? { ...c, unreadCount: data.unreadCount } : c)),
+          };
+        });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["chat", "list"] });
+      }
+    };
+
     subscribeSocket("chat:update", onChatUpdate);
-    return () => unsubscribeSocket("chat:update", onChatUpdate);
+    subscribeSocket("message:new", onChatUpdate);
+    subscribeSocket("chat:seen", onChatUpdate);
+    subscribeSocket("chat:unread_count_updated", onUnreadUpdate);
+
+    return () => {
+      unsubscribeSocket("chat:update", onChatUpdate);
+      unsubscribeSocket("message:new", onChatUpdate);
+      unsubscribeSocket("chat:seen", onChatUpdate);
+      unsubscribeSocket("chat:unread_count_updated", onUnreadUpdate);
+    };
   }, [myId, queryClient]);
 
   const deleteMutation = useMutation({
@@ -168,9 +191,17 @@ export default function ChatListPage() {
         <div className="space-y-2">
           {chats.map((chat) => {
             const lastMsg = chat.lastMessage ?? chat.messages?.[chat.messages.length - 1];
-            const rawPreview = lastMsg?.text ?? "No messages yet";
+            const rawPreview = lastMsg?.text ?? (lastMsg?.isDeleted ? "This message was deleted" : "No messages yet");
             const preview = rawPreview === "No messages yet" ? rawPreview : formatChatMessagePreview(rawPreview);
             const time = formatTime(lastMsg?.timestamp ?? lastMsg?.createdAt ?? chat.updatedAt);
+            const unreadCount = chat.unreadCount ?? 0;
+            const isUnread = unreadCount > 0;
+
+            const cardClass = `flex items-center gap-1 rounded-2xl border transition-all duration-200 pr-2 shadow-premium hover:shadow-premium-hover ${
+              isUnread
+                ? "border-primary/40 bg-primary/[0.03] dark:border-primary/30 dark:bg-primary/[0.06] ring-1 ring-primary/20"
+                : "border-slate-200/80 bg-white dark:border-zinc-800/80 dark:bg-zinc-900/90"
+            }`;
 
             // Connect page group chats
             if (chat.type === "connect_page") {
@@ -181,9 +212,9 @@ export default function ChatListPage() {
               const groupName = cpRef?.name ?? "Group Chat";
               const groupImage = cpRef?.profileImage;
               return (
-                <div key={chat._id} className={ROW_CARD_CLASS}>
+                <div key={chat._id} className={cardClass}>
                   <Link href={`/chat/room/${chat._id}`} className={ROW_LINK_CLASS}>
-                    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-primary/10 ring-1 ring-slate-200/80 dark:bg-primary/20 dark:ring-zinc-700/80">
+                    <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-primary/10 ring-1 ring-slate-200/80 dark:bg-primary/20 dark:ring-zinc-700/80 relative">
                       {groupImage ? (
                         /* eslint-disable-next-line @next/next/no-img-element */
                         <img src={groupImage} alt="" className="h-full w-full object-cover" />
@@ -192,10 +223,19 @@ export default function ChatListPage() {
                           <Users className="h-7 w-7" />
                         </div>
                       )}
+                      {isUnread ? (
+                        <span className="absolute top-1 right-1 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-white dark:ring-zinc-900" />
+                      ) : null}
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="truncate text-[15px] font-semibold text-slate-900 dark:text-zinc-50">
+                        <span
+                          className={`truncate text-[15px] ${
+                            isUnread
+                              ? "font-bold text-slate-900 dark:text-zinc-50"
+                              : "font-semibold text-slate-900 dark:text-zinc-50"
+                          }`}
+                        >
                           {groupName}
                         </span>
                         <span className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
@@ -205,9 +245,32 @@ export default function ChatListPage() {
                       <div className="text-xs text-slate-400 dark:text-zinc-500">
                         {(cpRef?.followerCount ?? 0) + 1} members
                       </div>
-                      <div className="truncate text-sm text-slate-500 dark:text-zinc-400">{preview}</div>
+                      <div
+                        className={`truncate text-sm ${
+                          isUnread
+                            ? "font-medium text-slate-900 dark:text-zinc-100"
+                            : "text-slate-500 dark:text-zinc-400"
+                        }`}
+                      >
+                        {preview}
+                      </div>
                     </div>
-                    {time ? <span className="shrink-0 text-xs text-slate-400 dark:text-zinc-500">{time}</span> : null}
+                    <div className="flex flex-col items-end gap-1.5 shrink-0">
+                      {time ? (
+                        <span
+                          className={`text-xs ${
+                            isUnread ? "font-semibold text-primary" : "text-slate-400 dark:text-zinc-500"
+                          }`}
+                        >
+                          {time}
+                        </span>
+                      ) : null}
+                      {unreadCount > 0 ? (
+                        <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-on-primary shadow-sm animate-in zoom-in-50 duration-200">
+                          {unreadCount > 99 ? "99+" : unreadCount}
+                        </span>
+                      ) : null}
+                    </div>
                   </Link>
                   <DeleteChatButton
                     chatName={groupName}
@@ -229,9 +292,9 @@ export default function ChatListPage() {
             const otherId = other._id ?? (other as unknown as { _id?: string })._id ?? "";
             const otherName = other.fullName ?? other.username ?? "User";
             return (
-              <div key={chat._id} className={ROW_CARD_CLASS}>
+              <div key={chat._id} className={cardClass}>
                 <Link href={`/chat/${otherId}`} className={ROW_LINK_CLASS}>
-                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/80 dark:bg-zinc-800 dark:ring-zinc-700/80">
+                  <div className="h-14 w-14 shrink-0 overflow-hidden rounded-2xl bg-slate-100 ring-1 ring-slate-200/80 dark:bg-zinc-800 dark:ring-zinc-700/80 relative">
                     {other.profilePic ? (
                       /* eslint-disable-next-line @next/next/no-img-element */
                       <img src={other.profilePic} alt="" className="h-full w-full object-cover" />
@@ -240,14 +303,46 @@ export default function ChatListPage() {
                         <User className="h-7 w-7" />
                       </div>
                     )}
+                    {isUnread ? (
+                      <span className="absolute top-1 right-1 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-white dark:ring-zinc-900" />
+                    ) : null}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[15px] font-semibold text-slate-900 dark:text-zinc-50">
+                    <div
+                      className={`truncate text-[15px] ${
+                        isUnread
+                          ? "font-bold text-slate-900 dark:text-zinc-50"
+                          : "font-semibold text-slate-900 dark:text-zinc-50"
+                      }`}
+                    >
                       {otherName}
                     </div>
-                    <div className="truncate text-sm text-slate-500 dark:text-zinc-400">{preview}</div>
+                    <div
+                      className={`truncate text-sm ${
+                        isUnread
+                          ? "font-medium text-slate-900 dark:text-zinc-100"
+                          : "text-slate-500 dark:text-zinc-400"
+                      }`}
+                    >
+                      {preview}
+                    </div>
                   </div>
-                  {time ? <span className="shrink-0 text-xs text-slate-400 dark:text-zinc-500">{time}</span> : null}
+                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                    {time ? (
+                      <span
+                        className={`text-xs ${
+                          isUnread ? "font-semibold text-primary" : "text-slate-400 dark:text-zinc-500"
+                        }`}
+                      >
+                        {time}
+                      </span>
+                    ) : null}
+                    {unreadCount > 0 ? (
+                      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-on-primary shadow-sm animate-in zoom-in-50 duration-200">
+                        {unreadCount > 99 ? "99+" : unreadCount}
+                      </span>
+                    ) : null}
+                  </div>
                 </Link>
                 <DeleteChatButton
                   chatName={otherName}

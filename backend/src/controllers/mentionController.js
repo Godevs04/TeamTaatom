@@ -27,17 +27,36 @@ const searchUsersForMention = async (req, res) => {
     // in a username only matches a literal dot.
     const escapedQuery = escapeRegex(searchQuery);
 
+    const currentUserId = req.user?._id;
+    const excludeIds = [];
+    if (currentUserId) {
+      excludeIds.push(currentUserId);
+      const [currentUserDoc, whoBlockedMe] = await Promise.all([
+        User.findById(currentUserId).select('blockedUsers').lean(),
+        User.find({ blockedUsers: currentUserId }).select('_id').lean()
+      ]);
+      const myBlocked = currentUserDoc?.blockedUsers || [];
+      const blockedMeIds = whoBlockedMe.map(u => u._id);
+      excludeIds.push(...myBlocked, ...blockedMeIds);
+    }
+
     // Search users by username or fullName
+    const matchConditions = [
+      { isVerified: true },
+      {
+        $or: [
+          { username: { $regex: `^${escapedQuery}`, $options: 'i' } },
+          { fullName: { $regex: escapedQuery, $options: 'i' } }
+        ]
+      }
+    ];
+
+    if (excludeIds.length > 0) {
+      matchConditions.push({ _id: { $nin: excludeIds } });
+    }
+
     const users = await User.find({
-      $and: [
-        { isVerified: true },
-        {
-          $or: [
-            { username: { $regex: `^${escapedQuery}`, $options: 'i' } },
-            { fullName: { $regex: escapedQuery, $options: 'i' } }
-          ]
-        }
-      ]
+      $and: matchConditions
     })
     .select('username fullName profilePic')
     .limit(parseInt(limit))

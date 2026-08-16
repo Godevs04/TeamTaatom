@@ -28,6 +28,18 @@ export function PostDetailActionBar({ post }: { post: Post }) {
   const [shareOpen, setShareOpen] = React.useState(false);
   const [collectionOpen, setCollectionOpen] = React.useState(false);
 
+  React.useEffect(() => {
+    if (typeof post.likesCount === "number") {
+      setLikesCount(post.likesCount);
+    }
+    if (typeof post.isLiked === "boolean") {
+      setLiked(post.isLiked);
+    }
+    if (typeof post.isSaved === "boolean") {
+      setSaved(post.isSaved);
+    }
+  }, [post.likesCount, post.isLiked, post.isSaved]);
+
   const likeMutation = useMutation({
     mutationFn: () => toggleLike(post._id),
     onMutate: async () => {

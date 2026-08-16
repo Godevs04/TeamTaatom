@@ -15,6 +15,7 @@ import { getFriendlyAuthErrorMessage, isVerifyRequiredError } from "@/lib/auth-e
 import { getPostSignInPath } from "@/lib/auth-routing";
 import { AuthPageShell } from "@/components/auth/auth-page-shell";
 import { Eye, EyeOff } from "lucide-react";
+import { useConfirm } from "@/context/confirm-context";
 
 const schema = z.object({
   email: z.string().min(1, "Email is required"),
@@ -24,6 +25,7 @@ type FormValues = z.infer<typeof schema>;
 
 export default function LoginClient({ nextUrl, initialEmail }: { nextUrl?: string; initialEmail?: string }) {
   const router = useRouter();
+  const confirm = useConfirm();
   const next = nextUrl || "/feed";
   const { user, isLoading: authLoading, signIn } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
@@ -54,7 +56,14 @@ export default function LoginClient({ nextUrl, initialEmail }: { nextUrl?: strin
     } catch (e: unknown) {
       if (isVerifyRequiredError(e)) {
         const msg = getFriendlyAuthErrorMessage(e);
-        if (window.confirm(`${msg}\n\nGo to verification now?`)) {
+        const ok = await confirm({
+          title: "Verification Required",
+          description: `${msg}. Would you like to go to email verification now?`,
+          confirmText: "Verify Now",
+          cancelText: "Cancel",
+          variant: "default",
+        });
+        if (ok) {
           router.push(`/auth/verify-otp?email=${encodeURIComponent(values.email)}`);
         }
         return;

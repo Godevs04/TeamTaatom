@@ -4,6 +4,7 @@ import * as React from "react";
 import QueryProvider from "./query-provider";
 import ThemeProvider from "./theme-provider";
 import { AuthProvider } from "../context/auth-context";
+import { ConfirmProvider } from "../context/confirm-context";
 import { ForceLightTheme } from "../components/force-light-theme";
 import { Toaster } from "sonner";
 
@@ -20,8 +21,10 @@ export default function AppProviders({ children }: { children: React.ReactNode }
       <ForceLightTheme />
       <QueryProvider>
         <AuthProvider>
-          {children}
-          <ToasterAfterMount />
+          <ConfirmProvider>
+            {children}
+            <ToasterAfterMount />
+          </ConfirmProvider>
         </AuthProvider>
       </QueryProvider>
     </ThemeProvider>

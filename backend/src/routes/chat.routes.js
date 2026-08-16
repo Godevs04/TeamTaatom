@@ -222,6 +222,15 @@ router.post('/:otherUserId/mark-all-seen', authMiddleware, chatController.markAl
  *         description: Chat cleared
  */
 router.delete('/:otherUserId/messages', authMiddleware, chatController.clearChat);
+
+// Message edit and delete
+router.patch('/room/:chatId/messages/:messageId', authMiddleware, chatController.editMessage);
+router.patch('/:chatId/messages/:messageId', authMiddleware, chatController.editMessage);
+router.delete('/room/:chatId/messages/:messageId', authMiddleware, chatController.deleteMessage);
+router.delete('/:chatId/messages/:messageId', authMiddleware, chatController.deleteMessage);
+router.post('/room/:chatId/messages/:messageId/delivered', authMiddleware, chatController.markMessageDelivered);
+router.post('/:chatId/messages/:messageId/delivered', authMiddleware, chatController.markMessageDelivered);
+
 /**
  * @swagger
  * /api/v1/chat/{otherUserId}/mute:

@@ -18,20 +18,23 @@ import { useMounted } from "../../../../hooks/use-mounted";
 export default function HashtagPage() {
   const params = useParams();
   const raw = typeof params?.tag === "string" ? params.tag : "";
-  const tagSlug = React.useMemo(() => decodeURIComponent(raw).replace(/^#/, "").toLowerCase(), [raw]);
+  const tagSlug = React.useMemo(() => decodeURIComponent(raw).replace(/^#+/, "").trim().toLowerCase(), [raw]);
   const mounted = useMounted();
   const [commentsPost, setCommentsPost] = React.useState<Post | null>(null);
 
   const q = useInfiniteQuery({
     queryKey: ["hashtag-posts", tagSlug],
     queryFn: async ({ pageParam = 1 }) => getHashtagPosts(tagSlug, pageParam, 15),
-    getNextPageParam: (last) => (last.pagination.hasNextPage ? last.pagination.currentPage + 1 : undefined),
+    getNextPageParam: (last) => (last?.pagination?.hasNextPage ? last.pagination.currentPage + 1 : undefined),
     initialPageParam: 1,
     enabled: tagSlug.length > 0,
   });
 
-  const meta = q.data?.pages[0]?.hashtag;
-  const rawPosts = React.useMemo(() => q.data?.pages.flatMap((p) => p.posts) ?? [], [q.data?.pages]);
+  const meta = q.data?.pages?.[0]?.hashtag;
+  const rawPosts = React.useMemo(
+    () => q.data?.pages?.flatMap((p) => (Array.isArray(p?.posts) ? p.posts : [])) ?? [],
+    [q.data?.pages]
+  );
   const likedIds = React.useMemo(() => (mounted ? getLikedPostIds() : []), [mounted]);
   const savedIds = React.useMemo(() => (mounted ? getSavedPostIds() : []), [mounted]);
   const posts: Post[] = React.useMemo(

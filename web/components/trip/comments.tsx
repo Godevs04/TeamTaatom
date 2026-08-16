@@ -6,6 +6,7 @@ import { Lock, Trash2 } from "lucide-react";
 import { addComment, deleteComment, getPostById } from "../../lib/api";
 import { getFriendlyErrorMessage } from "../../lib/auth-errors";
 import { useAuth } from "../../context/auth-context";
+import { useConfirm } from "../../context/confirm-context";
 import { Input } from "../ui/input";
 import { Button } from "../ui/button";
 import { Skeleton } from "../ui/skeleton";
@@ -20,8 +21,8 @@ type PostCommentUpdate = { postId?: string };
 export function TripComments({ postId }: { postId: string }) {
   const qc = useQueryClient();
   const { user } = useAuth();
+  const confirm = useConfirm();
   const [text, setText] = React.useState("");
-  const [confirmDeleteId, setConfirmDeleteId] = React.useState<string | null>(null);
   const mentions = useMentionAutocomplete<HTMLInputElement>();
   const validId =
     typeof postId === "string" &&
@@ -96,14 +97,17 @@ export function TripComments({ postId }: { postId: string }) {
   const canDelete = (c: Comment) =>
     !!user && (c.user?._id === user._id || postOwnerId === user._id);
 
-  const handleDelete = (commentId: string) => {
-    setConfirmDeleteId(commentId);
-  };
-
-  const confirmDelete = () => {
-    if (!confirmDeleteId) return;
-    del.mutate(confirmDeleteId);
-    setConfirmDeleteId(null);
+  const handleDelete = async (commentId: string) => {
+    if (del.isPending) return;
+    const ok = await confirm({
+      title: "Delete this comment?",
+      description: "This action cannot be undone.",
+      confirmText: "Delete",
+      cancelText: "Cancel",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    del.mutate(commentId);
   };
 
   return (
@@ -211,33 +215,6 @@ export function TripComments({ postId }: { postId: string }) {
               )}
             </div>
           ))}
-        </div>
-      )}
-
-      {confirmDeleteId && (
-        <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center"
-          onClick={() => setConfirmDeleteId(null)}
-          role="presentation"
-        >
-          <div
-            className="w-full max-w-sm rounded-t-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-zinc-700 dark:bg-zinc-900 sm:rounded-2xl"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Delete comment"
-          >
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-zinc-50">Delete this comment?</h3>
-            <p className="mt-1 text-sm text-slate-500 dark:text-zinc-400">This action cannot be undone.</p>
-            <div className="mt-4 flex justify-end gap-2">
-              <Button variant="outline" className="rounded-xl" onClick={() => setConfirmDeleteId(null)}>
-                Cancel
-              </Button>
-              <Button variant="destructive" className="rounded-xl" onClick={confirmDelete}>
-                Delete
-              </Button>
-            </div>
-          </div>
         </div>
       )}
     </div>

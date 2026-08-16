@@ -31,6 +31,8 @@ import { SharePostModal } from "./share-post-modal";
 import { AddToCollectionModal } from "./AddToCollectionModal";
 import { cn } from "../../lib/utils";
 
+import { useConfirm } from "../../context/confirm-context";
+
 const REPORT_REASONS: { id: ReportReason; label: string }[] = [
   { id: "spam", label: "Spam" },
   { id: "abuse", label: "Abuse" },
@@ -43,6 +45,7 @@ export function PostDetailMenu({ post }: { post: Post }) {
   const router = useRouter();
   const qc = useQueryClient();
   const { user: currentUser } = useAuth();
+  const confirm = useConfirm();
 
   const isOwner = !!currentUser && (
     (typeof post.user === "string" ? post.user : post.user?._id) === currentUser._id
@@ -80,9 +83,16 @@ export function PostDetailMenu({ post }: { post: Post }) {
   };
 
   const handleDelete = async () => {
-    if (!window.confirm("Are you sure you want to delete this post? This cannot be undone.")) return;
-    setLoading(true);
     setMenuOpen(false);
+    const ok = await confirm({
+      title: "Delete Post",
+      description: "Are you sure you want to delete this post? This action cannot be undone.",
+      confirmText: "Delete",
+      variant: "destructive",
+    });
+    if (!ok) return;
+
+    setLoading(true);
     try {
       await deletePost(post._id);
       invalidatePostListQueries(qc);
@@ -96,9 +106,16 @@ export function PostDetailMenu({ post }: { post: Post }) {
   };
 
   const handleArchive = async () => {
-    if (!window.confirm("Archive this post? It will be hidden from your public profile.")) return;
-    setLoading(true);
     setMenuOpen(false);
+    const ok = await confirm({
+      title: "Archive Post",
+      description: "Archive this post? It will be hidden from your public profile.",
+      confirmText: "Archive",
+      variant: "warning",
+    });
+    if (!ok) return;
+
+    setLoading(true);
     try {
       await archivePost(post._id);
       invalidatePostListQueries(qc);
@@ -134,6 +151,12 @@ export function PostDetailMenu({ post }: { post: Post }) {
       return blockUser(authorId);
     },
     onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["posts"] });
+      qc.invalidateQueries({ queryKey: ["posts", "feed"] });
+      qc.invalidateQueries({ queryKey: ["feed"] });
+      qc.invalidateQueries({ queryKey: ["chat"] });
+      qc.invalidateQueries({ queryKey: ["journeys"] });
+      qc.invalidateQueries({ queryKey: ["search"] });
       toast.success("User blocked");
       setMenuOpen(false);
       router.push("/");
@@ -141,9 +164,16 @@ export function PostDetailMenu({ post }: { post: Post }) {
     onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
   });
 
-  const handleBlockClick = () => {
+  const handleBlockClick = async () => {
+    setMenuOpen(false);
     const authorName = typeof post.user === "object" && post.user ? (post.user.fullName || post.user.username) : "this user";
-    if (window.confirm(`Block ${authorName}? You won't see their posts or profile.`)) {
+    const ok = await confirm({
+      title: `Block ${authorName}?`,
+      description: "They will not be able to view your profile, posts, or message you.",
+      confirmText: "Block",
+      variant: "destructive",
+    });
+    if (ok) {
       blockMutation.mutate();
     }
   };

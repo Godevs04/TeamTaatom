@@ -82,6 +82,7 @@ backend/scripts/check_locales.js
 backend/scripts/check_specific_locales.js
 
 # Scratch and test setup directories
+scratch/
 backend/scratch/
 SuperAdmin/setups/
 Bugs-recent-description.md

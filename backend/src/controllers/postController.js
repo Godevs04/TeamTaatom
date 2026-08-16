@@ -761,8 +761,14 @@ const getPostById = async (req, res) => {
                 else: null
               }
             },
-            likesCount: { $size: { $ifNull: ['$likes', []] } },
-            commentsCount: { $size: { $ifNull: ['$comments', []] } },
+            likesCount: { $ifNull: ['$likesCount', 0] },
+            commentsCount: {
+              $cond: {
+                if: { $isArray: '$comments' },
+                then: { $size: '$comments' },
+                else: { $ifNull: ['$commentsCount', 0] }
+              }
+            },
             viewsCount: { $ifNull: ['$views', 0] } // Include views count
           }
         },
@@ -792,6 +798,18 @@ const getPostById = async (req, res) => {
 
     // Privacy check: ensure viewer is allowed to see this post based on author's profileVisibility
     const postAuthorId = post.user?._id?.toString();
+    if (userId && postAuthorId && userId !== postAuthorId) {
+      const [authorDoc, viewerDoc] = await Promise.all([
+        User.findById(postAuthorId).select('blockedUsers').lean(),
+        User.findById(userId).select('blockedUsers').lean()
+      ]);
+      const authorBlocked = (authorDoc?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+      const viewerBlocked = (viewerDoc?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+      if (authorBlocked.includes(userId) || viewerBlocked.includes(postAuthorId)) {
+        return sendError(res, 'AUTH_1006', 'This post is not available');
+      }
+    }
+
     const visibility = post.user?.settings?.privacy?.profileVisibility || 'public';
     if (visibility !== 'public' && postAuthorId !== userId) {
       // Check follow status in Follow collection
@@ -958,7 +976,8 @@ const getPostById = async (req, res) => {
     let isLiked = false;
     let isFollowing = false;
     if (userId) {
-      isLiked = post.likes && post.likes.some(like => like.toString() === userId);
+      const hasLikeDoc = await Like.exists({ post: id, user: userId });
+      isLiked = !!hasLikeDoc || (Array.isArray(post.likes) && post.likes.some(like => like.toString() === userId));
       
       // Check follow status in Follow collection
       if (post.user && post.user._id) {
@@ -972,11 +991,12 @@ const getPostById = async (req, res) => {
       ...post,
       imageUrl: optimizedImageUrl,
       isLiked,
+      likesCount: typeof post.likesCount === 'number' ? post.likesCount : (post.likes ? post.likes.length : 0),
+      commentsCount: typeof post.commentsCount === 'number' ? post.commentsCount : (Array.isArray(post.comments) ? post.comments.length : 0),
       viewsCount: finalViewsCount, // Always include views count
       views: finalViewsCount, // Also include views field for consistency
       location: hideLocation ? null : post.location,
       detectedPlace: hideLocation ? null : post.detectedPlace,
-      // likesCount and commentsCount already added by aggregation
       user: {
         ...post.user,
         isFollowing,
@@ -2009,7 +2029,7 @@ const getUserPosts = async (req, res) => {
     const skip = (page - 1) * limit;
 
     // Check if user exists and get privacy settings
-    const user = await User.findById(userId).select('fullName profilePic settings.privacy.profileVisibility settings.privacy.showLocation');
+    const user = await User.findById(userId).select('fullName profilePic blockedUsers settings.privacy.profileVisibility settings.privacy.showLocation');
     if (!user) {
       return res.status(404).json({
         error: 'User not found',
@@ -2017,9 +2037,26 @@ const getUserPosts = async (req, res) => {
       });
     }
 
+    const requesterId = req.user ? req.user._id.toString() : null;
+    const isOwnProfile = requesterId === userId;
+
+    // Block boundary check: blocked users cannot view each other's posts
+    if (requesterId && !isOwnProfile) {
+      const requesterUserDoc = await User.findById(requesterId).select('blockedUsers').lean();
+      const targetBlocked = (user.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+      const requesterBlocked = (requesterUserDoc?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+      if (targetBlocked.includes(requesterId) || requesterBlocked.includes(userId)) {
+        return sendSuccess(res, 200, 'Posts fetched successfully', {
+          posts: [],
+          totalPosts: 0,
+          currentPage: page,
+          totalPages: 0
+        });
+      }
+    }
+
     // Check privacy settings for "followers only" profile
     const profileVisibility = user.settings?.privacy?.profileVisibility || 'public';
-    const isOwnProfile = req.user ? req.user._id.toString() === userId : false;
 
     // For "followers only" and "private" profiles, requester must follow profile owner
     if (!isOwnProfile && (profileVisibility === 'followers' || profileVisibility === 'private')) {
@@ -2313,12 +2350,19 @@ const toggleLike = async (req, res) => {
       return sendError(res, 'RES_3001', 'Post does not exist');
     }
 
-    // Privacy check: ensure viewer is allowed to interact with this post
+    // Privacy & block check: ensure viewer is allowed to interact with this post
     const postOwnerId = post.user?.toString();
     if (postOwnerId && postOwnerId !== req.user._id.toString()) {
-      const postAuthor = await User.findById(postOwnerId)
-        .select('settings.privacy.profileVisibility')
-        .lean();
+      const [postAuthor, currentUserDoc] = await Promise.all([
+        User.findById(postOwnerId).select('settings.privacy.profileVisibility blockedUsers').lean(),
+        User.findById(req.user._id).select('blockedUsers').lean()
+      ]);
+      const authorBlocked = (postAuthor?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+      const userBlocked = (currentUserDoc?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+      if (authorBlocked.includes(req.user._id.toString()) || userBlocked.includes(postOwnerId)) {
+        return sendError(res, 'AUTH_1006', 'You cannot interact with this post');
+      }
+
       const vis = postAuthor?.settings?.privacy?.profileVisibility || 'public';
       if (vis !== 'public') {
         const isFollower = await Follow.exists({ follower: req.user._id, following: postOwnerId });
@@ -2471,11 +2515,19 @@ const toggleLike = async (req, res) => {
 
       // Emit real-time post like update to all connected users
       try {
-        const io = getIO();
+        const io = getIO ? getIO() : global.socketIO;
         if (io) {
           const nsp = io.of('/app');
           // Emit the new real-time post like update with correct final state
-          nsp.emitPostLike(post._id.toString(), finalIsLiked, updatedLikesCount, req.user._id.toString());
+          if (typeof nsp.emitPostLike === 'function') {
+            nsp.emitPostLike(post._id.toString(), finalIsLiked, updatedLikesCount, req.user._id.toString());
+          }
+          nsp.emit('post:stats_updated', {
+            postId: post._id.toString(),
+            likesCount: updatedLikesCount,
+            userId: req.user._id.toString(),
+            action: finalIsLiked ? 'liked' : 'unliked'
+          });
           // Also emit the legacy notification event (only for likes, not unlikes)
           if (finalIsLiked) {
             nsp.emitEvent('post:liked', [post.user.toString()], { postId: post._id });
@@ -2512,12 +2564,19 @@ const addComment = async (req, res) => {
       return sendError(res, 'RES_3001', 'Post does not exist');
     }
 
-    // Privacy check: ensure viewer is allowed to interact with this post
+    // Privacy & block check: ensure viewer is allowed to interact with this post
     const commentPostOwnerId = post.user?._id?.toString();
     if (commentPostOwnerId && commentPostOwnerId !== req.user._id.toString()) {
-      const commentPostAuthor = await User.findById(commentPostOwnerId)
-        .select('settings.privacy.profileVisibility')
-        .lean();
+      const [commentPostAuthor, currentUserDoc] = await Promise.all([
+        User.findById(commentPostOwnerId).select('settings.privacy.profileVisibility blockedUsers').lean(),
+        User.findById(req.user._id).select('blockedUsers').lean()
+      ]);
+      const authorBlocked = (commentPostAuthor?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+      const userBlocked = (currentUserDoc?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+      if (authorBlocked.includes(req.user._id.toString()) || userBlocked.includes(commentPostOwnerId)) {
+        return sendError(res, 'AUTH_1006', 'You cannot interact with this post');
+      }
+
       const commentVis = commentPostAuthor?.settings?.privacy?.profileVisibility || 'public';
       if (commentVis !== 'public') {
         const isCommentFollower = await Follow.exists({ follower: req.user._id, following: commentPostOwnerId });
@@ -2655,11 +2714,18 @@ const addComment = async (req, res) => {
     }
 
     // Emit real-time post comment update to all connected users
-    const io = getIO();
+    const io = getIO ? getIO() : global.socketIO;
     if (io) {
       const nsp = io.of('/app');
       // Emit the new real-time post comment update
-      nsp.emitPostComment(post._id.toString(), populatedComment, post.comments.length, req.user._id.toString());
+      if (typeof nsp.emitPostComment === 'function') {
+        nsp.emitPostComment(post._id.toString(), populatedComment, post.comments.length, req.user._id.toString());
+      }
+      nsp.emit('post:stats_updated', {
+        postId: post._id.toString(),
+        commentsCount: post.comments.length,
+        action: 'comment_added'
+      });
       
       // Also emit legacy events in background (non-blocking)
       getFollowers(post.user).then(followers => {
@@ -2714,11 +2780,18 @@ const deleteComment = async (req, res) => {
     await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
 
     // Emit real-time post comment update to all connected users
-    const io = getIO();
-    if (io) {
-      const nsp = io.of('/app');
+    const ioDelete = getIO ? getIO() : global.socketIO;
+    if (ioDelete) {
+      const nsp = ioDelete.of('/app');
       // Emit the delete real-time post comment update (with isDeleted flag)
-      nsp.emitPostComment(postId, { _id: commentId, isDeleted: true }, post.comments.length, req.user._id.toString());
+      if (typeof nsp.emitPostComment === 'function') {
+        nsp.emitPostComment(postId, { _id: commentId, isDeleted: true }, post.comments.length, req.user._id.toString());
+      }
+      nsp.emit('post:stats_updated', {
+        postId: postId.toString(),
+        commentsCount: post.comments.length,
+        action: 'comment_deleted'
+      });
       
       // Also emit legacy events
       const followers = await getFollowers(post.user);

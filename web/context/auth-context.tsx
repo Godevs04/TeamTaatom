@@ -9,6 +9,7 @@ import { getLoginLocationHint } from "../lib/login-location";
 import { useFeatureFlags } from "../lib/feature-flags";
 import { connectSocket, disconnectSocket, subscribeSocket, unsubscribeSocket } from "../lib/socket";
 import type { User } from "../types/user";
+import type { Post } from "../types/post";
 import { PROFILE_ONBOARDING_VERSION } from "../lib/profile-onboarding-version";
 
 type NotificationSocketPayload = { userId?: string; notification?: { _id: string } };
@@ -94,8 +95,86 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         unreadCount: (old?.unreadCount ?? 0) + 1,
       }));
     };
+
+    const onPostStatsUpdated = (data: { postId?: string; likesCount?: number; commentsCount?: number }) => {
+      if (!data?.postId) return;
+      const { postId, likesCount, commentsCount } = data;
+
+      // 1. Update single post query if active
+      qc.setQueryData<{ post?: Post } | Post>(["post", postId], (old) => {
+        if (!old) return old;
+        if ("post" in old && old.post) {
+          return {
+            ...old,
+            post: {
+              ...old.post,
+              ...(typeof likesCount === "number" ? { likesCount } : {}),
+              ...(typeof commentsCount === "number" ? { commentsCount } : {}),
+            },
+          };
+        }
+        return {
+          ...old,
+          ...(typeof likesCount === "number" ? { likesCount } : {}),
+          ...(typeof commentsCount === "number" ? { commentsCount } : {}),
+        } as Post;
+      });
+
+      // 2. Update infinite feed queries
+      qc.setQueriesData({ queryKey: ["feed"] }, (old: any) => {
+        if (!old?.pages) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page: any) => ({
+            ...page,
+            posts: Array.isArray(page?.posts)
+              ? page.posts.map((p: Post) =>
+                  p._id === postId
+                    ? {
+                        ...p,
+                        ...(typeof likesCount === "number" ? { likesCount } : {}),
+                        ...(typeof commentsCount === "number" ? { commentsCount } : {}),
+                      }
+                    : p
+                )
+              : page.posts,
+          })),
+        };
+      });
+
+      // 3. Update hashtag queries
+      qc.setQueriesData({ queryKey: ["hashtag-posts"] }, (old: any) => {
+        if (!old?.pages) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page: any) => ({
+            ...page,
+            posts: Array.isArray(page?.posts)
+              ? page.posts.map((p: Post) =>
+                  p._id === postId
+                    ? {
+                        ...p,
+                        ...(typeof likesCount === "number" ? { likesCount } : {}),
+                        ...(typeof commentsCount === "number" ? { commentsCount } : {}),
+                      }
+                    : p
+                )
+              : page.posts,
+          })),
+        };
+      });
+
+      // 4. Invalidate likers list
+      qc.invalidateQueries({ queryKey: ["post-likers", postId] });
+    };
+
     subscribeSocket<NotificationSocketPayload>("notification", onNotification);
-    return () => unsubscribeSocket<NotificationSocketPayload>("notification", onNotification);
+    subscribeSocket<{ postId?: string; likesCount?: number; commentsCount?: number }>("post:stats_updated", onPostStatsUpdated);
+
+    return () => {
+      unsubscribeSocket<NotificationSocketPayload>("notification", onNotification);
+      unsubscribeSocket<{ postId?: string; likesCount?: number; commentsCount?: number }>("post:stats_updated", onPostStatsUpdated);
+    };
   }, [authUser, qc]);
 
   const user: User | null = React.useMemo(() => {

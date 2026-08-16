@@ -998,25 +998,40 @@ const addWaypoint = async (req, res) => {
 
 const checkRouteAccess = async (owner, viewerId) => {
   // owner is the user object of the journey owner. viewerId is the logged-in user's ID
-  const isOwner = viewerId && owner._id.toString() === viewerId.toString();
+  const ownerIdStr = typeof owner === 'object' && owner?._id ? owner._id.toString() : (owner ? owner.toString() : '');
+  const viewerIdStr = typeof viewerId === 'object' && viewerId?._id ? viewerId._id.toString() : (viewerId ? viewerId.toString() : '');
+
+  const isOwner = viewerIdStr && ownerIdStr && ownerIdStr === viewerIdStr;
   if (isOwner) return true;
 
-  const routeVisibility = owner.settings?.privacy?.routeVisibility || 'everyone';
+  if (viewerIdStr && ownerIdStr) {
+    const [ownerDoc, viewerDoc] = await Promise.all([
+      User.findById(ownerIdStr).select('blockedUsers').lean(),
+      User.findById(viewerIdStr).select('blockedUsers').lean()
+    ]);
+    const ownerBlocked = (ownerDoc?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+    const viewerBlocked = (viewerDoc?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+    if (ownerBlocked.includes(viewerIdStr) || viewerBlocked.includes(ownerIdStr)) {
+      return false;
+    }
+  }
+
+  const routeVisibility = owner?.settings?.privacy?.routeVisibility || 'everyone';
 
   if (routeVisibility === 'private') {
     return false;
   }
 
   if (routeVisibility === 'approved_only') {
-    if (!viewerId) return false;
-    const approvedUsers = owner.routeAccessApprovedUsers || [];
-    return approvedUsers.some(id => id.toString() === viewerId.toString());
+    if (!viewerIdStr) return false;
+    const approvedUsers = owner?.routeAccessApprovedUsers || [];
+    return approvedUsers.some(id => id.toString() === viewerIdStr);
   }
 
   // If routeVisibility is 'everyone', follow standard profileVisibility rules
-  const profileVisibility = owner.settings?.privacy?.profileVisibility || 'public';
+  const profileVisibility = owner?.settings?.privacy?.profileVisibility || 'public';
   if (profileVisibility === 'private' || profileVisibility === 'followers') {
-    return viewerId ? await Follow.exists({ follower: viewerId, following: owner._id }) : false;
+    return viewerIdStr ? await Follow.exists({ follower: viewerIdStr, following: ownerIdStr }) : false;
   }
 
   return true;
@@ -1157,7 +1172,23 @@ const getUserJourneys = async (req, res) => {
 
     // Privacy check
     const viewerId = req.user ? req.user._id : null;
-    const isOwner = viewerId && targetUser._id.toString() === userId;
+    const isOwner = viewerId ? viewerId.toString() === userId.toString() : false;
+
+    // Block boundary check: blocked users cannot view each other's journeys
+    if (viewerId && !isOwner) {
+      const [targetDoc, viewerDoc] = await Promise.all([
+        User.findById(userId).select('blockedUsers').lean(),
+        User.findById(viewerId).select('blockedUsers').lean()
+      ]);
+      const targetBlocked = (targetDoc?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+      const viewerBlocked = (viewerDoc?.blockedUsers || []).map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()));
+      if (targetBlocked.includes(viewerId.toString()) || viewerBlocked.includes(userId.toString())) {
+        return sendSuccess(res, 200, 'Journeys retrieved (privacy filtered)', {
+          journeys: [],
+          pagination: { page, limit, total: 0 }
+        });
+      }
+    }
 
     // Check route privacy access
     if (!isOwner && !(await checkRouteAccess(targetUser, viewerId))) {

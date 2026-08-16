@@ -80,15 +80,10 @@ const getHashtagPosts = async (req, res) => {
     }
 
     const hashtagName = hashtag.toLowerCase().trim().replace(/^#/, '');
+    const tagMatch = { $in: [hashtagName, `#${hashtagName}`, new RegExp(`^#?${hashtagName}$`, 'i')] };
 
-    // Find hashtag to verify it exists
-    const hashtagDoc = await Hashtag.findOne({ name: hashtagName });
-    if (!hashtagDoc) {
-      return res.status(404).json({
-        error: 'Hashtag not found',
-        message: 'This hashtag does not exist'
-      });
-    }
+    // Find hashtag doc if it exists
+    let hashtagDoc = await Hashtag.findOne({ name: hashtagName });
 
     // Get allowed author IDs based on privacy settings
     const viewerId = req.user?._id?.toString();
@@ -99,15 +94,32 @@ const getHashtagPosts = async (req, res) => {
       isActive: true,
       isArchived: { $ne: true },
       isHidden: { $ne: true },
-      tags: hashtagName,
+      tags: tagMatch,
       user: { $in: allowedAuthorIds }
     })
-      .populate('user', 'fullName profilePic profilePicStorageKey settings.privacy.showLocation')
-      .populate('comments.user', 'fullName profilePic profilePicStorageKey')
+      .populate('user', 'fullName username profilePic profilePicStorageKey settings.privacy.showLocation')
+      .populate('comments.user', 'fullName username profilePic profilePicStorageKey')
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
+
+    const totalPosts = await Post.countDocuments({
+      isActive: true,
+      isArchived: { $ne: true },
+      isHidden: { $ne: true },
+      tags: tagMatch,
+      user: { $in: allowedAuthorIds }
+    });
+
+    if (!hashtagDoc && totalPosts === 0) {
+      return res.status(404).json({
+        error: 'Hashtag not found',
+        message: 'This hashtag does not exist'
+      });
+    }
+
+    const effectivePostCount = hashtagDoc ? Math.max(hashtagDoc.postCount, totalPosts) : totalPosts;
 
     // Generate signed URLs dynamically for posts
     const postsWithFreshUrls = await Promise.all(posts.map(async (post) => {
@@ -163,27 +175,9 @@ const getHashtagPosts = async (req, res) => {
       return post;
     }));
 
-    // Filter out posts with missing media or author data
-    const validPosts = postsWithFreshUrls.filter(post => {
-      const hasStorageKey = post.storageKey || (post.storageKeys && post.storageKeys.length > 0);
-      const hasImageUrl = post.imageUrl && post.imageUrl.trim() !== '';
-      
-      if (!hasStorageKey && !hasImageUrl) {
-        logger.warn(`Post ${post._id} missing both storageKey and imageUrl, filtering out`);
-        return false;
-      }
-      
-      if (!post.user || !post.user._id || !post.user.fullName) {
-        logger.warn(`Post ${post._id} missing author data, filtering out`);
-        return false;
-      }
-      
-      return true;
-    });
-
     // Add isLiked field if user is authenticated and optimize image URLs
     const userId = req.user?._id?.toString();
-    const postsWithLikeStatus = validPosts.map(post => {
+    const postsWithLikeStatus = postsWithFreshUrls.map(post => {
       let optimizedImageUrl = post.imageUrl;
       if (post.imageUrl && post.imageUrl.includes('cloudinary.com')) {
         try {
@@ -217,26 +211,20 @@ const getHashtagPosts = async (req, res) => {
         location: hideLocation ? null : post.location,
         detectedPlace: hideLocation ? null : post.detectedPlace,
         user: userWithoutSettings,
-        likesCount: post.likes ? post.likes.length : 0,
-        commentsCount: post.comments ? post.comments.length : 0
+        likesCount: typeof post.likesCount === 'number' ? post.likesCount : (post.likes ? post.likes.length : 0),
+        commentsCount: typeof post.commentsCount === 'number' ? post.commentsCount : (Array.isArray(post.comments) ? post.comments.length : 0)
       };
     });
 
-    const totalPosts = await Post.countDocuments({
-      isActive: true,
-      isArchived: { $ne: true },
-      isHidden: { $ne: true },
-      tags: hashtagName
-    });
     const totalPages = Math.ceil(totalPosts / limit);
     const hasNextPage = page < totalPages;
     const hasPrevPage = page > 1;
 
     res.status(200).json({
       hashtag: {
-        name: hashtagDoc.name,
-        postCount: hashtagDoc.postCount,
-        lastUsedAt: hashtagDoc.lastUsedAt,
+        name: hashtagDoc?.name || hashtagName,
+        postCount: effectivePostCount,
+        lastUsedAt: hashtagDoc?.lastUsedAt || new Date(),
       },
       posts: postsWithLikeStatus,
       pagination: {

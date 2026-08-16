@@ -22,6 +22,7 @@ import { Button } from "../ui/button";
 import { cn, getLikedPostIds, setLikedPostIds, getSavedPostIds, setSavedPostIds } from "../../lib/utils";
 import { toast } from "sonner";
 import { useAuth } from "../../context/auth-context";
+import { useConfirm } from "../../context/confirm-context";
 import { AddToCollectionModal } from "./AddToCollectionModal";
 import { SharePostModal } from "./share-post-modal";
 import { PostLikesCount } from "./post-likers-modal";
@@ -43,7 +44,6 @@ type FeedData = {
 
 type SavedPostsCache = { posts: Post[]; savedIds: string[] };
 
-/** Feed uses `["feed", feedMode]`; updating only `["feed"]` never touched the real cache. */
 function patchAllFeedQueries(
   qc: ReturnType<typeof useQueryClient>,
   updater: (old: FeedData | undefined) => FeedData | undefined
@@ -76,6 +76,7 @@ export function PostCard({
 }) {
   const qc = useQueryClient();
   const { user: currentUser } = useAuth();
+  const confirm = useConfirm();
   const [menuOpen, setMenuOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [collectionModalOpen, setCollectionModalOpen] = useState(false);
@@ -91,13 +92,13 @@ export function PostCard({
         setMenuOpen(false);
       }
     };
-    document.addEventListener("click", close);
-    return () => document.removeEventListener("click", close);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
   }, [menuOpen]);
 
   const removeFromFeed = () => {
-    patchAllFeedQueries(qc, (old) => {
-      if (!old) return old;
+    qc.setQueriesData<FeedData>({ queryKey: ["posts", "feed"] }, (old) => {
+      if (!old?.pages) return old;
       return {
         ...old,
         pages: old.pages.map((page) => ({
@@ -113,12 +114,16 @@ export function PostCard({
   };
 
   const handleDelete = async () => {
-    if (
-      !window.confirm("Are you sure you want to delete this post? This action cannot be undone.")
-    )
-      return;
-    setMenuLoading(true);
     setMenuOpen(false);
+    const ok = await confirm({
+      title: "Delete Post",
+      description: "Are you sure you want to delete this post? This action cannot be undone.",
+      confirmText: "Delete",
+      variant: "destructive",
+    });
+    if (!ok) return;
+
+    setMenuLoading(true);
     try {
       await deletePost(post._id);
       toast.success("Post deleted");
@@ -131,14 +136,16 @@ export function PostCard({
   };
 
   const handleArchive = async () => {
-    if (
-      !window.confirm(
-        "Archive this post? It will be hidden from your profile but can be restored later."
-      )
-    )
-      return;
-    setMenuLoading(true);
     setMenuOpen(false);
+    const ok = await confirm({
+      title: "Archive Post",
+      description: "Archive this post? It will be hidden from your profile but can be restored later.",
+      confirmText: "Archive",
+      variant: "warning",
+    });
+    if (!ok) return;
+
+    setMenuLoading(true);
     try {
       await archivePost(post._id);
       toast.success("Post archived");
@@ -151,9 +158,16 @@ export function PostCard({
   };
 
   const handleHide = async () => {
-    if (!window.confirm("Hide this post? It will be hidden from your feed.")) return;
-    setMenuLoading(true);
     setMenuOpen(false);
+    const ok = await confirm({
+      title: "Hide Post",
+      description: "Hide this post? It will be hidden from your feed.",
+      confirmText: "Hide",
+      variant: "warning",
+    });
+    if (!ok) return;
+
+    setMenuLoading(true);
     try {
       await hidePost(post._id);
       toast.success("Post hidden");

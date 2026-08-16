@@ -13,9 +13,11 @@ import { SettingsCard } from "./settings-card";
 import { SettingsAction } from "./settings-action";
 import { DangerZoneCard } from "./danger-zone-card";
 import { SettingsSection } from "./settings-section";
+import { useConfirm } from "@/context/confirm-context";
 
 export function AccountSecuritySection({ user }: { user: User }) {
   const { signOut } = useAuth();
+  const confirm = useConfirm();
   const [resending, setResending] = React.useState(false);
   const [exporting, setExporting] = React.useState(false);
   const [showDelete, setShowDelete] = React.useState(false);
@@ -64,10 +66,13 @@ export function AccountSecuritySection({ user }: { user: User }) {
       toast.error("Please enter your password");
       return;
     }
-    const confirmed = window.confirm(
-      "Are you absolutely sure? This will permanently delete your account and all data. This cannot be undone."
-    );
-    if (!confirmed) return;
+    const ok = await confirm({
+      title: "Delete Account Permanently",
+      description: "Are you absolutely sure? This will permanently delete your account, posts, trips, and all associated data. This action cannot be undone.",
+      confirmText: "Delete My Account",
+      variant: "destructive",
+    });
+    if (!ok) return;
 
     setDeleting(true);
     try {

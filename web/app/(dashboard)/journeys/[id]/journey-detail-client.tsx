@@ -11,7 +11,8 @@ import { journeyGetDetail, journeyDelete, journeyUpdateTitle } from "@/lib/journ
 import { getFriendlyErrorMessage } from "@/lib/auth-errors";
 import { useAuth } from "@/context/auth-context";
 import { ShareJourneyModal } from "@/components/journeys/share-journey-modal";
-import type { Journey, JourneyWaypointPost } from "@/types/journey";
+import type { JourneyWaypointPost } from "@/types/journey";
+import { useConfirm } from "@/context/confirm-context";
 
 function getWaypointThumbnail(post: JourneyWaypointPost): string | null {
   if (post.images && post.images.length > 0) return post.images[0];
@@ -24,6 +25,7 @@ export default function JourneyDetailClient({ id }: { id: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
+  const confirm = useConfirm();
   const { data: journey, isLoading, isError } = useQuery({
     queryKey: ["journey-detail", id],
     queryFn: () => journeyGetDetail(id),
@@ -43,27 +45,26 @@ export default function JourneyDetailClient({ id }: { id: string }) {
   const deleteMutation = useMutation({
     mutationFn: () => journeyDelete(id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["journeys-user"] });
+      queryClient.invalidateQueries({ queryKey: ["journeys"] });
       toast.success("Journey deleted");
       router.push("/journeys");
     },
-    onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
+    onError: (e) => toast.error(getFriendlyErrorMessage(e)),
   });
 
   const updateTitleMutation = useMutation({
-    mutationFn: (title: string) => journeyUpdateTitle(id, title),
-    onSuccess: (updated) => {
-      queryClient.setQueryData(["journey-detail", id], (prev: Journey | undefined) =>
-        prev ? { ...prev, title: updated?.title ?? prev.title } : prev
-      );
+    mutationFn: (newTitle: string) => journeyUpdateTitle(id, newTitle),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["journey-detail", id] });
+      queryClient.invalidateQueries({ queryKey: ["journeys"] });
+      toast.success("Title updated");
       setIsEditingTitle(false);
-      toast.success("Journey renamed");
     },
-    onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
+    onError: (e) => toast.error(getFriendlyErrorMessage(e)),
   });
 
   const startEditingTitle = () => {
-    setTitleDraft(journey?.title ?? "");
+    setTitleDraft(journey?.title || "");
     setIsEditingTitle(true);
   };
 
@@ -76,8 +77,14 @@ export default function JourneyDetailClient({ id }: { id: string }) {
     updateTitleMutation.mutate(trimmed);
   };
 
-  const handleDelete = () => {
-    if (window.confirm(`Delete "${journey?.title || "this journey"}"? This cannot be undone.`)) {
+  const handleDelete = async () => {
+    const ok = await confirm({
+      title: "Delete Journey",
+      description: `Are you sure you want to delete "${journey?.title || "this journey"}"? This action cannot be undone.`,
+      confirmText: "Delete",
+      variant: "destructive",
+    });
+    if (ok) {
       deleteMutation.mutate();
     }
   };

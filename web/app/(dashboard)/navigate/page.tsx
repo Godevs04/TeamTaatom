@@ -19,10 +19,12 @@ import { getFriendlyErrorMessage } from "@/lib/auth-errors";
 import type { JourneyCoord } from "@/types/journey";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/auth-context";
+import { useConfirm } from "@/context/confirm-context";
 import { JourneyRouteMap } from "@/components/maps/journey-route-map";
 
 export default function NavigatePage() {
   const { user } = useAuth();
+  const confirm = useConfirm();
   const qc = useQueryClient();
   const router = useRouter();
   const watchIdRef = React.useRef<number | null>(null);
@@ -196,7 +198,14 @@ export default function NavigatePage() {
 
   const onComplete = async () => {
     if (!journeyId) return;
-    if (!confirm("End this journey and save your route?")) return;
+    const ok = await confirm({
+      title: "End Journey?",
+      description: "Are you ready to end this journey and save your recorded route?",
+      confirmText: "End & Save",
+      cancelText: "Cancel",
+      variant: "default",
+    });
+    if (!ok) return;
     try {
       await flushBuffer();
       await journeyComplete(journeyId);
@@ -211,7 +220,14 @@ export default function NavigatePage() {
 
   const onDiscard = async () => {
     if (!journeyId) return;
-    if (!window.confirm(`Discard "${journey?.title || "this journey"}"? This will not be saved.`)) return;
+    const ok = await confirm({
+      title: "Discard Journey?",
+      description: `Discard "${journey?.title || "this journey"}"? This will not be saved.`,
+      confirmText: "Discard",
+      cancelText: "Cancel",
+      variant: "destructive",
+    });
+    if (!ok) return;
     try {
       stopTracking();
       await journeyDelete(journeyId);
