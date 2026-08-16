@@ -1202,7 +1202,7 @@ if (enableSwagger) {
     app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, swaggerOptions));
     
     const port = process.env.PORT || 3000;
-    const swaggerUrl = process.env.API_PUBLIC_URL || process.env.API_BASE_URL_PROD || (isDevelopment ? `http://localhost:${port}` : '');
+    const swaggerUrl = process.env.API_PUBLIC_URL || process.env.API_BASE_URL_PROD || (process.env.NODE_ENV !== 'production' ? `http://localhost:${port}` : '');
     if (swaggerUrl) {
       logger.log(`📚 Swagger docs available at ${swaggerUrl}/api-docs`);
     } else {
