@@ -51,6 +51,12 @@ async function refreshAttachmentUrls(attachments) {
   }));
 }
 
+function isChatMuted(user, chatId) {
+  if (!user || !chatId || !Array.isArray(user.mutedChats)) return false;
+  const id = chatId.toString();
+  return user.mutedChats.some((m) => m && m.chatId && m.chatId.toString() === id);
+}
+
 // Function to get socket instance - will be called when needed
 const getSocketInstance = () => {
   try {
@@ -822,7 +828,7 @@ exports.sendMessageToRoom = async (req, res) => {
     // Push notifications to other participants
     try {
       const otherParticipantIds = participantIds.filter(p => p !== userId.toString());
-      const recipients = await User.find({ _id: { $in: otherParticipantIds }, expoPushToken: { $exists: true, $ne: null } }).select('expoPushToken').lean();
+      const recipients = await User.find({ _id: { $in: otherParticipantIds }, expoPushToken: { $exists: true, $ne: null } }).select('expoPushToken mutedChats').lean();
 
       // Get page name for notification title
       let pageName = 'Group Chat';
@@ -832,6 +838,7 @@ exports.sendMessageToRoom = async (req, res) => {
       }
 
       for (const recipient of recipients) {
+        if (isChatMuted(recipient, chatIdStr)) continue;
         if (recipient.expoPushToken) {
           try {
             await fetch('https://exp.host/--/api/v2/push/send', {
@@ -897,7 +904,7 @@ exports.getMessages = async (req, res) => {
     
     if (!isTaatomOfficialChat && !(await canChat(userId, otherUserId))) {
       logger.warn('❌ [getMessages] Cannot chat - blocked or invalid');
-      return sendError(res, 'AUTH_1006', 'Not allowed');
+      return sendError(res, 'AUTH_1006', 'You cannot chat with this user. One of you may have blocked the other.');
     }
     
     // Convert to ObjectIds for consistent querying
@@ -1112,7 +1119,7 @@ exports.sendMessage = async (req, res) => {
     // For user_chat, check blocking
     if (!isTaatomOfficialRecipient && !(await canChat(userId, otherUserId))) {
       logger.warn('❌ [sendMessage] Cannot chat - blocked');
-      return sendError(res, 'AUTH_1006', 'Not allowed');
+      return sendError(res, 'AUTH_1006', 'You cannot message this user. One of you may have blocked the other.');
     }
     
     // Convert to ObjectIds for consistent querying
@@ -1423,8 +1430,8 @@ exports.sendMessage = async (req, res) => {
 
     // Send push notification to recipient
     try {
-      const recipient = await User.findById(otherUserId);
-      if (recipient && recipient.expoPushToken && fetch && typeof fetch === 'function') {
+      const recipient = await User.findById(otherUserId).select('expoPushToken mutedChats');
+      if (recipient && recipient.expoPushToken && !isChatMuted(recipient, chat._id) && fetch && typeof fetch === 'function') {
         logger.debug('Sending push notification...');
         await fetch('https://exp.host/--/api/v2/push/send', {
           method: 'POST',

@@ -122,7 +122,8 @@ export function PostLikersModal({
 
 /**
  * Renders the like count as a button that opens the likers list, mirroring mobile
- * where the count itself is the tap target. Falls back to plain text at zero likes.
+ * where the count itself is the tap target. Zero likes still opens the list so
+ * testers (and users) see "No likes yet" instead of a dead number.
  */
 export function PostLikesCount({
   postId,
@@ -170,17 +171,13 @@ export function PostLikesCount({
 
   const label = children ?? (suffix ? `${count}${suffix}` : count);
 
-  if (count <= 0) {
-    return <span className={className}>{label}</span>;
-  }
-
   return (
     <>
       <button
         type="button"
         className={cn("hover:underline", className)}
         onClick={() => setOpen(true)}
-        aria-label={`View who liked this post (${count})`}
+        aria-label={count > 0 ? `View who liked this post (${count})` : "View likes"}
       >
         {label}
       </button>

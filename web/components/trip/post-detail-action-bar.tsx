@@ -3,11 +3,12 @@
 import * as React from "react";
 import { Heart, MessageCircle, Bookmark, Share2 } from "lucide-react";
 import { motion } from "framer-motion";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { toggleLike } from "../../lib/api";
+import { getPostById, toggleLike } from "../../lib/api";
 import { getFriendlyErrorMessage } from "../../lib/auth-errors";
 import { getLikedPostIds, setLikedPostIds, getSavedPostIds, setSavedPostIds, cn } from "../../lib/utils";
+import { invalidatePostListQueries } from "../../lib/post-list-queries";
 import type { Post } from "../../types/post";
 import { SharePostModal } from "./share-post-modal";
 import { AddToCollectionModal } from "./AddToCollectionModal";
@@ -15,6 +16,13 @@ import { PostLikesCount } from "./post-likers-modal";
 
 export function PostDetailActionBar({ post }: { post: Post }) {
   const qc = useQueryClient();
+  const livePostQ = useQuery({
+    queryKey: ["post", post._id],
+    queryFn: () => getPostById(post._id),
+    initialData: post,
+  });
+  const live = livePostQ.data ?? post;
+  const commentsCount = live.commentsCount || live.comments?.length || post.commentsCount || 0;
   const [liked, setLiked] = React.useState<boolean>(() => {
     const local = new Set(getLikedPostIds());
     return local.has(post._id) || (post.isLiked ?? false);
@@ -29,16 +37,16 @@ export function PostDetailActionBar({ post }: { post: Post }) {
   const [collectionOpen, setCollectionOpen] = React.useState(false);
 
   React.useEffect(() => {
-    if (typeof post.likesCount === "number") {
-      setLikesCount(post.likesCount);
+    if (typeof live.likesCount === "number") {
+      setLikesCount(live.likesCount);
     }
-    if (typeof post.isLiked === "boolean") {
-      setLiked(post.isLiked);
+    if (typeof live.isLiked === "boolean") {
+      setLiked(live.isLiked);
     }
-    if (typeof post.isSaved === "boolean") {
-      setSaved(post.isSaved);
+    if (typeof live.isSaved === "boolean") {
+      setSaved(live.isSaved);
     }
-  }, [post.likesCount, post.isLiked, post.isSaved]);
+  }, [live.likesCount, live.isLiked, live.isSaved]);
 
   const likeMutation = useMutation({
     mutationFn: () => toggleLike(post._id),
@@ -66,7 +74,17 @@ export function PostDetailActionBar({ post }: { post: Post }) {
     onSuccess: (data) => {
       if (data?.likesCount !== undefined) setLikesCount(data.likesCount);
       if (data?.isLiked !== undefined) setLiked(data.isLiked);
+      qc.setQueryData<Post>(["post", post._id], (old) =>
+        old
+          ? {
+              ...old,
+              likesCount: data?.likesCount ?? old.likesCount,
+              isLiked: data?.isLiked ?? old.isLiked,
+            }
+          : old
+      );
       qc.invalidateQueries({ queryKey: ["post-likers", post._id] });
+      invalidatePostListQueries(qc);
     },
   });
 
@@ -116,7 +134,7 @@ export function PostDetailActionBar({ post }: { post: Post }) {
             aria-label="Jump to comments"
           >
             <MessageCircle className="h-4 w-4" />
-            <span>{post.commentsCount ?? 0}</span>
+            <span>{commentsCount}</span>
           </a>
         </div>
 

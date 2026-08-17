@@ -1158,7 +1158,7 @@ const getUserJourneys = async (req, res) => {
   try {
     const { userId } = req.params;
     const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 20), 50);
+    const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 30), 50);
     const skip = (page - 1) * limit;
 
     if (!mongoose.Types.ObjectId.isValid(userId)) {

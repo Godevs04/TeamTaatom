@@ -6,8 +6,10 @@ import { ArrowLeft, UserX, RefreshCw, User2 } from "lucide-react";
 import { getBlockedUsers, unblockUser } from "../../../../lib/api";
 import type { BlockedUser } from "../../../../types/user";
 import { toast } from "sonner";
+import { useConfirm } from "../../../../context/confirm-context";
 
 export default function BlockedUsersSettingsPage() {
+  const confirm = useConfirm();
   const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -36,6 +38,15 @@ export default function BlockedUsersSettingsPage() {
   };
 
   const handleUnblock = async (userId: string, username?: string) => {
+    const ok = await confirm({
+      title: "Unblock user",
+      description: username
+        ? `Unblock @${username}? They will be able to see your profile and message you again.`
+        : "Unblock this user? They will be able to see your profile and message you again.",
+      confirmText: "Unblock",
+      variant: "warning",
+    });
+    if (!ok) return;
     setUnblockingId(userId);
     try {
       await unblockUser(userId);

@@ -104,12 +104,14 @@ export default function ChatListPage() {
     subscribeSocket("chat:update", onChatUpdate);
     subscribeSocket("message:new", onChatUpdate);
     subscribeSocket("chat:seen", onChatUpdate);
+    subscribeSocket("chat:cleared", onChatUpdate);
     subscribeSocket("chat:unread_count_updated", onUnreadUpdate);
 
     return () => {
       unsubscribeSocket("chat:update", onChatUpdate);
       unsubscribeSocket("message:new", onChatUpdate);
       unsubscribeSocket("chat:seen", onChatUpdate);
+      unsubscribeSocket("chat:cleared", onChatUpdate);
       unsubscribeSocket("chat:unread_count_updated", onUnreadUpdate);
     };
   }, [myId, queryClient]);
@@ -191,7 +193,18 @@ export default function ChatListPage() {
         <div className="space-y-2">
           {chats.map((chat) => {
             const lastMsg = chat.lastMessage ?? chat.messages?.[chat.messages.length - 1];
-            const rawPreview = lastMsg?.text ?? (lastMsg?.isDeleted ? "This message was deleted" : "No messages yet");
+            const attachmentHint = lastMsg?.attachments?.[0];
+            const attachmentPreview =
+              attachmentHint?.type === "image"
+                ? "Photo"
+                : attachmentHint?.type === "video"
+                  ? "Video"
+                  : attachmentHint?.fileName || (attachmentHint ? "Attachment" : "");
+            const rawPreview = lastMsg?.isDeleted
+              ? "This message was deleted"
+              : lastMsg?.text
+                ? lastMsg.text
+                : attachmentPreview || "No messages yet";
             const preview = rawPreview === "No messages yet" ? rawPreview : formatChatMessagePreview(rawPreview);
             const time = formatTime(lastMsg?.timestamp ?? lastMsg?.createdAt ?? chat.updatedAt);
             const unreadCount = chat.unreadCount ?? 0;

@@ -73,9 +73,10 @@ export default function HashtagPage() {
             <Hash className="h-6 w-6 shrink-0 text-primary" aria-hidden />
             <h1 className="truncate text-xl font-bold tracking-tight dark:text-zinc-50 sm:text-2xl">#{tagSlug}</h1>
           </div>
-          {meta ? (
+          {meta || q.data?.pages?.[0]?.pagination ? (
             <p className="mt-1 text-sm text-muted-foreground">
-              {meta.postCount.toLocaleString()} {meta.postCount === 1 ? "post" : "posts"}
+              {(q.data?.pages?.[0]?.pagination?.totalPosts ?? meta?.postCount ?? 0).toLocaleString()}{" "}
+              {(q.data?.pages?.[0]?.pagination?.totalPosts ?? meta?.postCount ?? 0) === 1 ? "post" : "posts"}
             </p>
           ) : q.isLoading ? (
             <Skeleton className="mt-2 h-4 w-32" />

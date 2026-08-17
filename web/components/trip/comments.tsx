@@ -65,11 +65,28 @@ export function TripComments({ postId }: { postId: string }) {
 
   const del = useMutation({
     mutationFn: (commentId: string) => deleteComment(postId, commentId),
-    onSuccess: async () => {
-      toast.success("Comment deleted");
-      await qc.invalidateQueries({ queryKey: ["post", postId] });
+    onMutate: async (commentId) => {
+      await qc.cancelQueries({ queryKey: ["post", postId] });
+      const prev = qc.getQueryData(["post", postId]);
+      qc.setQueryData(["post", postId], (old: { comments?: Comment[]; commentsCount?: number } | undefined) => {
+        if (!old) return old;
+        const comments = (old.comments ?? []).filter((c) => c._id !== commentId);
+        return {
+          ...old,
+          comments,
+          commentsCount: Math.max(0, (old.commentsCount ?? old.comments?.length ?? 1) - 1),
+        };
+      });
+      return { prev };
     },
-    onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
+    onError: (e: unknown, _id, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["post", postId], ctx.prev);
+      toast.error(getFriendlyErrorMessage(e));
+    },
+    onSuccess: () => toast.success("Comment deleted"),
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: ["post", postId] });
+    },
   });
 
   if (!validId) {
@@ -121,7 +138,7 @@ export function TripComments({ postId }: { postId: string }) {
         {commentsDisabled ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Lock className="h-4 w-4" />
-            Comments are disabled for this post
+            Comments are turned off
           </div>
         ) : !user ? (
           <p className="text-sm text-muted-foreground">Sign in to comment.</p>

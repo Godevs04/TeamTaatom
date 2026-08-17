@@ -44,7 +44,9 @@ export function CaptionWithLinks({ text, as: Tag = "span", className, linkClassN
     [router]
   );
 
-  if (!parts.length) return null;
+  if (!parts.length) {
+    return <Tag className={cn("whitespace-pre-wrap break-words", className)}>{text}</Tag>;
+  }
 
   const linkCn = cn("font-semibold text-primary hover:underline", linkClassName);
   const onlyText = parts.every((p) => p.type === "text");

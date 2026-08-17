@@ -1,19 +1,30 @@
 "use client";
 
 import * as React from "react";
-import { FileText, Download } from "lucide-react";
+import { FileText, Download, X } from "lucide-react";
 import type { ChatAttachment } from "../../types/chat";
 import { formatFileSize } from "../../lib/chat-attachments";
+
+async function saveAttachment(url: string, fileName: string) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error("Download failed");
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objectUrl;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(objectUrl);
+}
 
 /**
  * Renders the attachments on a chat message bubble.
  *
- * `url` is a short-lived signed link that the backend refreshes on every read,
- * so it is used as-is and never cached.
- *
- * Note: `type: "post"` attachments come from the share-a-post flow, which web
- * sends as a [POST_SHARE] text payload instead; they fall through to the file
- * chip here only as a defensive fallback.
+ * Images open in an in-app lightbox so the signed storage URL never appears
+ * in the browser address bar. Files download via a blob with the original
+ * filename for the same reason.
  */
 export function MessageAttachments({
   attachments,
@@ -23,6 +34,18 @@ export function MessageAttachments({
   isMe: boolean;
 }) {
   const items = (attachments ?? []).filter((a) => a.url || a.fileName);
+  const [preview, setPreview] = React.useState<{ url: string; label: string } | null>(null);
+  const [savingKey, setSavingKey] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (!preview) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPreview(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [preview]);
+
   if (items.length === 0) return null;
 
   const chipClass = isMe
@@ -37,13 +60,12 @@ export function MessageAttachments({
 
         if (att.type === "image" && att.url) {
           return (
-            <a
+            <button
               key={key}
-              href={att.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block overflow-hidden rounded-xl"
-              aria-label={`Open image ${label} full size`}
+              type="button"
+              onClick={() => setPreview({ url: att.url!, label })}
+              className="block w-full overflow-hidden rounded-xl text-left"
+              aria-label={`View ${label}`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -52,7 +74,7 @@ export function MessageAttachments({
                 className="max-h-64 w-full object-cover transition-opacity hover:opacity-90"
                 loading="lazy"
               />
-            </a>
+            </button>
           );
         }
 
@@ -70,13 +92,22 @@ export function MessageAttachments({
         }
 
         return (
-          <a
+          <button
             key={key}
-            href={att.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            download={label}
-            className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 transition-colors ${chipClass}`}
+            type="button"
+            disabled={!att.url || savingKey === key}
+            onClick={async () => {
+              if (!att.url) return;
+              setSavingKey(key);
+              try {
+                await saveAttachment(att.url, label);
+              } catch {
+                // Keep the user on this page even if the blob download is blocked.
+              } finally {
+                setSavingKey(null);
+              }
+            }}
+            className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors ${chipClass}`}
           >
             <FileText className="h-5 w-5 shrink-0 opacity-70" />
             <span className="min-w-0 flex-1">
@@ -86,9 +117,35 @@ export function MessageAttachments({
               ) : null}
             </span>
             <Download className="h-4 w-4 shrink-0 opacity-70" />
-          </a>
+          </button>
         );
       })}
+
+      {preview ? (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={preview.label}
+          onClick={() => setPreview(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setPreview(null)}
+            className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={preview.url}
+            alt={preview.label}
+            className="max-h-[90vh] max-w-full object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

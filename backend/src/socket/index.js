@@ -113,8 +113,33 @@ function setupSocket(server) {
     socket.on('test', (_data) => {
     });
     // Typing event
-    socket.on('typing', ({ to }) => {
+    socket.on('typing', ({ to, roomId }) => {
+      if (roomId) {
+        const Chat = require('../models/Chat');
+        Chat.findById(roomId).select('participants').lean().then((chat) => {
+          if (!chat) return;
+          for (const p of chat.participants) {
+            const pid = p.toString();
+            if (pid !== socket.userId) emitToUser(pid, 'typing', { from: socket.userId, roomId: roomId.toString() });
+          }
+        }).catch(() => {});
+        return;
+      }
       if (to) emitToUser(to, 'typing', { from: socket.userId });
+    });
+    socket.on('typing:stop', ({ to, roomId }) => {
+      if (roomId) {
+        const Chat = require('../models/Chat');
+        Chat.findById(roomId).select('participants').lean().then((chat) => {
+          if (!chat) return;
+          for (const p of chat.participants) {
+            const pid = p.toString();
+            if (pid !== socket.userId) emitToUser(pid, 'typing:stop', { from: socket.userId, roomId: roomId.toString() });
+          }
+        }).catch(() => {});
+        return;
+      }
+      if (to) emitToUser(to, 'typing:stop', { from: socket.userId });
     });
     // Seen event
     socket.on('seen', async ({ to, messageId, chatId }) => {

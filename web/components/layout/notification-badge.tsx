@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { getNotificationsUnreadCount } from "../../lib/api";
+import { getNotificationsUnreadCount, listChats } from "../../lib/api";
 import { useAuth } from "../../context/auth-context";
 import { cn } from "../../lib/utils";
 
@@ -38,6 +38,33 @@ export function NotificationBadge({ className }: { className?: string }) {
   return (
     <span
       data-testid="notification-unread-badge"
+      className={cn(
+        "absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none text-on-primary",
+        className
+      )}
+      aria-hidden
+    >
+      {count > 9 ? "9+" : count}
+    </span>
+  );
+}
+
+/** Unread chat count on the Chat icon. Uses the shared ["chat","list"] cache. */
+export function ChatUnreadBadge({ className }: { className?: string }) {
+  const { user } = useAuth();
+  const { data } = useQuery({
+    queryKey: ["chat", "list"],
+    queryFn: listChats,
+    enabled: !!user,
+    staleTime: 30_000,
+  });
+
+  const count = (data?.chats ?? []).reduce((sum, chat) => sum + (chat.unreadCount ?? 0), 0);
+  if (count <= 0) return null;
+
+  return (
+    <span
+      data-testid="chat-unread-badge"
       className={cn(
         "absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none text-on-primary",
         className

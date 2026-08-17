@@ -57,7 +57,7 @@ export async function journeyDelete(journeyId: string) {
   return res.data as { success?: boolean; message?: string };
 }
 
-export async function journeyListForUser(userId: string, page = 1, limit = 20) {
+export async function journeyListForUser(userId: string, page = 1, limit = 30) {
   const res = await api.get(`/journey/user/${userId}`, {
     params: { page, limit },
   });

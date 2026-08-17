@@ -852,7 +852,7 @@ export async function reorderCollectionPosts(collectionId: string, postIds: stri
 // Activity
 export type ActivityType = "post_created" | "post_liked" | "comment_added" | "user_followed" | "collection_created";
 
-export async function getActivity(page = 1, limit = 20, type?: ActivityType) {
+export async function getActivity(page = 1, limit = 30, type?: ActivityType) {
   const params: Record<string, string | number> = { page, limit };
   if (type) params.type = type;
   const res = await api.get("/activity", { params });

@@ -18,21 +18,23 @@ import {
   Link2,
   Footprints,
   Navigation,
+  MessageCircle,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useAuth } from "../../context/auth-context";
 import { useMounted } from "../../hooks/use-mounted";
-import { NotificationBadge } from "./notification-badge";
+import { NotificationBadge, ChatUnreadBadge } from "./notification-badge";
 
 const mainNav = [
   { href: "/feed", label: "Feed", icon: LayoutDashboard },
   { href: "/shorts", label: "Shorts", icon: PlayCircle },
   { href: "/create", label: "Create", icon: PlusSquare },
-  { href: "/notifications", label: "Notifications", icon: Bell },
+  { href: "/chat", label: "Chat", icon: MessageCircle },
   { href: "/profile", label: "Profile", icon: User2 },
 ];
 
 const moreNav = [
+  { href: "/notifications", label: "Notifications", icon: Bell },
   { href: "/locale", label: "Locale", icon: MapPinned },
   { href: "/search", label: "Search", icon: Search },
   { href: "/discover", label: "Discover", icon: Compass },
@@ -78,10 +80,10 @@ export function MobileBottomNav() {
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary text-on-primary shadow-lg shadow-primary/25 sm:h-10 sm:w-10">
                   <PlusSquare className="h-4 w-4 sm:h-5 sm:w-5" />
                 </span>
-              ) : item.href === "/notifications" ? (
+              ) : item.href === "/chat" ? (
                 <span className="relative inline-flex">
                   <Icon className="h-5 w-5 shrink-0 sm:h-6 sm:w-6" />
-                  <NotificationBadge />
+                  <ChatUnreadBadge />
                 </span>
               ) : (
                 <Icon className="h-5 w-5 shrink-0 sm:h-6 sm:w-6" />
@@ -144,7 +146,10 @@ export function MobileBottomNav() {
                           : "text-slate-700 hover:bg-white/40 dark:text-zinc-200 dark:hover:bg-zinc-800/40"
                       )}
                     >
-                      <Icon className="h-5 w-5 shrink-0" />
+                      <span className="relative inline-flex">
+                        <Icon className="h-5 w-5 shrink-0" />
+                        {item.href === "/notifications" ? <NotificationBadge /> : null}
+                      </span>
                       {item.label}
                     </Link>
                   </li>

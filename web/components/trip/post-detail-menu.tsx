@@ -11,6 +11,8 @@ import {
   Bookmark,
   Archive,
   Ban,
+  MessageCircleOff,
+  MessageCircle,
 } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -21,6 +23,7 @@ import {
   archivePost,
   createReport,
   blockUser,
+  toggleComments,
   type ReportReason,
 } from "../../lib/api";
 import { getFriendlyErrorMessage } from "../../lib/auth-errors";
@@ -57,6 +60,7 @@ export function PostDetailMenu({ post }: { post: Post }) {
   const [collectionOpen, setCollectionOpen] = React.useState(false);
   const [reportOpen, setReportOpen] = React.useState(false);
   const [loading, setLoading] = React.useState(false);
+  const [commentsDisabled, setCommentsDisabled] = React.useState(!!post.commentsDisabled);
   const menuRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => {
@@ -69,6 +73,25 @@ export function PostDetailMenu({ post }: { post: Post }) {
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
   }, [menuOpen]);
+
+  const handleToggleComments = async () => {
+    setMenuOpen(false);
+    setLoading(true);
+    try {
+      const { commentsDisabled: next } = await toggleComments(post._id);
+      setCommentsDisabled(next);
+      qc.setQueryData(["post", post._id], (old: Post | undefined) =>
+        old ? { ...old, commentsDisabled: next } : old
+      );
+      invalidatePostListQueries(qc);
+      qc.invalidateQueries({ queryKey: ["post", post._id] });
+      toast.success(next ? "Comments turned off" : "Comments turned on");
+    } catch (e) {
+      toast.error(getFriendlyErrorMessage(e));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleCopyLink = async () => {
     try {
@@ -228,6 +251,14 @@ export function PostDetailMenu({ post }: { post: Post }) {
                 >
                   <Pencil className="h-4 w-4" />
                   Edit post
+                </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2.5 px-4 py-2 text-left text-sm text-slate-700 transition hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                  onClick={() => void handleToggleComments()}
+                >
+                  {commentsDisabled ? <MessageCircle className="h-4 w-4" /> : <MessageCircleOff className="h-4 w-4" />}
+                  {commentsDisabled ? "Turn On Comments" : "Turn Off Comments"}
                 </button>
                 <button
                   type="button"

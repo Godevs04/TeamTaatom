@@ -10,6 +10,7 @@ import { TripComments } from "../../../../components/trip/comments";
 import { ExpandableText } from "../../../../components/ui/expandable-text";
 import { PostDetailMenu } from "../../../../components/trip/post-detail-menu";
 import { PostDetailActionBar } from "../../../../components/trip/post-detail-action-bar";
+import { PostDetailMedia } from "../../../../components/trip/post-detail-media";
 import { createMetadata } from "../../../../lib/seo";
 import { MapPin, Music } from "lucide-react";
 
@@ -72,11 +73,10 @@ export default async function TripDetailPage({ params }: { params: { id: string 
   const coords = getPostCoordinates(post);
   const hasCoords = coords !== null;
   const audioUrl = post.song?.s3Url;
-  const primaryImageUrl = images[0] || "";
   const locationText = getPostDisplayLocation(post);
 
   return (
-    <div className="mx-auto grid w-full max-w-3xl gap-6 pb-16">
+    <div className="mx-auto grid w-full max-w-4xl gap-6 pb-16">
       {/* Top Header Card */}
       <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/80 bg-white p-5 shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90 sm:p-6">
         <div className="flex items-center justify-between gap-4">
@@ -117,70 +117,25 @@ export default async function TripDetailPage({ params }: { params: { id: string 
           <PostDetailMenu post={post} />
         </div>
 
-        {/* Caption */}
-        {post.caption ? (
-          <div className="mt-1">
-            <ExpandableText
-              text={post.caption}
-              maxLines={4}
-              charLimit={220}
-              className="text-base text-slate-800 dark:text-zinc-200"
-              linkClassName="text-primary font-medium"
-            />
-          </div>
-        ) : null}
+        <PostDetailMedia
+          images={images}
+          caption={post.caption}
+          isShort={isShort}
+          videoUrl={videoUrl}
+          posterUrl={posterUrl}
+        />
 
-        {/* Media Player / Image Display with Adaptive Aspect Ratio */}
-        <div className="relative mt-2 overflow-hidden rounded-2xl bg-slate-950 flex items-center justify-center">
-          {isShort && videoUrl ? (
-            <div className="relative w-full max-h-[640px] flex items-center justify-center bg-black">
-              <video
-                src={videoUrl}
-                poster={posterUrl}
-                controls
-                playsInline
-                preload="metadata"
-                className="max-h-[640px] w-full object-contain"
-              />
-            </div>
-          ) : primaryImageUrl ? (
-            <div className="relative w-full max-h-[600px] flex items-center justify-center bg-slate-900/90 overflow-hidden">
-              {/* Blurred background backdrop for non-standard aspect ratios */}
-              <div
-                className="absolute inset-0 bg-cover bg-center opacity-25 blur-xl scale-110"
-                style={{ backgroundImage: `url(${primaryImageUrl})` }}
-                aria-hidden="true"
-              />
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={primaryImageUrl}
-                alt={post.caption || "Trip"}
-                className="relative z-10 max-h-[600px] w-auto max-w-full object-contain"
-                loading="eager"
-              />
-            </div>
-          ) : null}
-        </div>
-
-        {/* Additional Images Carousel / Grid */}
-        {images.length > 1 ? (
-          <div className="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-4">
-            {images.map((src, idx) => (
-              <div key={`${src}-${idx}`} className="group relative aspect-square overflow-hidden rounded-xl bg-slate-100 dark:bg-zinc-800">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={src}
-                  alt={`Trip photo ${idx + 1}`}
-                  className="h-full w-full object-cover transition duration-200 group-hover:scale-105"
-                  loading="lazy"
-                />
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        {/* Action Bar (Like, Comment, Share, Save) */}
         <PostDetailActionBar post={post} />
+
+        {post.caption ? (
+          <ExpandableText
+            text={post.caption}
+            maxLines={4}
+            charLimit={220}
+            className="text-base text-slate-800 dark:text-zinc-200"
+            linkClassName="text-primary font-medium"
+          />
+        ) : null}
       </div>
 
       {/* Audio / Location Details */}

@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Footprints, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -11,11 +12,16 @@ import { journeyListForUser, journeyDelete } from "@/lib/journey-api";
 import { getFriendlyErrorMessage } from "@/lib/auth-errors";
 import type { Journey } from "@/types/journey";
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 30;
 
 export default function JourneysListPage() {
   const { user } = useAuth();
-  const userId = user?._id ?? "";
+  const myId = user?._id ?? "";
+  const searchParams = useSearchParams();
+  const paramUserId = searchParams.get("userId");
+  const paramUserName = searchParams.get("userName");
+  const viewingUserId = paramUserId || myId;
+  const isOwnList = !paramUserId || paramUserId === myId;
   const queryClient = useQueryClient();
   const confirm = useConfirm();
 
@@ -26,8 +32,8 @@ export default function JourneysListPage() {
     isFetchingNextPage,
     fetchNextPage,
   } = useInfiniteQuery({
-    queryKey: ["journeys-user", userId],
-    queryFn: ({ pageParam = 1 }) => journeyListForUser(userId, pageParam, PAGE_SIZE),
+    queryKey: ["journeys-user", viewingUserId],
+    queryFn: ({ pageParam = 1 }) => journeyListForUser(viewingUserId, pageParam, PAGE_SIZE),
     getNextPageParam: (lastPage) => {
       const p = lastPage.pagination;
       if (!p || typeof p.page !== "number" || typeof p.limit !== "number" || typeof p.total !== "number") {
@@ -37,7 +43,7 @@ export default function JourneysListPage() {
       return p.page < totalPages ? p.page + 1 : undefined;
     },
     initialPageParam: 1,
-    enabled: !!userId,
+    enabled: !!viewingUserId,
   });
 
   const deleteMutation = useMutation({
@@ -56,8 +62,12 @@ export default function JourneysListPage() {
     <div className="mx-auto max-w-lg space-y-6 pb-24 lg:pb-10">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-slate-900 dark:text-zinc-50">My journeys</h1>
-          <p className="text-xs text-slate-500 dark:text-zinc-400">Routes and trips you created</p>
+          <h1 className="text-xl font-bold text-slate-900 dark:text-zinc-50">
+            {isOwnList ? "My journeys" : `${paramUserName || "Traveler"}'s journeys`}
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-zinc-400">
+            {isOwnList ? "Routes and trips you created" : "Completed journeys you have access to"}
+          </p>
         </div>
       </div>
 
@@ -71,13 +81,19 @@ export default function JourneysListPage() {
         <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 py-16 text-center dark:border-zinc-800">
           <Footprints className="h-10 w-10 text-slate-300 dark:text-zinc-600" />
           <p className="mt-3 text-sm font-medium text-slate-700 dark:text-zinc-300">No journeys yet</p>
-          <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">Create one from the Navigate tab</p>
-          <Link
-            href="/navigate"
-            className="mt-4 inline-flex items-center rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90"
-          >
-            Start a journey
-          </Link>
+          {isOwnList ? (
+            <>
+              <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">Create one from the Navigate tab</p>
+              <Link
+                href="/navigate"
+                className="mt-4 inline-flex items-center rounded-xl bg-primary px-4 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90"
+              >
+                Start a journey
+              </Link>
+            </>
+          ) : (
+            <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">Nothing to show yet</p>
+          )}
         </div>
       )}
 
@@ -100,6 +116,7 @@ export default function JourneysListPage() {
                 {j.polyline && ` · ${j.polyline.length} points`}
               </p>
             </Link>
+            {isOwnList ? (
             <button
               type="button"
               aria-label="Delete journey"
@@ -120,6 +137,7 @@ export default function JourneysListPage() {
             >
               <Trash2 className="h-4 w-4" />
             </button>
+            ) : null}
           </li>
         ))}
       </ul>

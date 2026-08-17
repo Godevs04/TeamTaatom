@@ -10,7 +10,6 @@ interface ExpandableTextProps {
   charLimit?: number;
   className?: string;
   linkClassName?: string;
-  as?: React.ElementType;
 }
 
 export function ExpandableText({
@@ -19,45 +18,61 @@ export function ExpandableText({
   charLimit = 160,
   className,
   linkClassName = "text-primary hover:underline",
-  as: Component = "div",
 }: ExpandableTextProps) {
   const [expanded, setExpanded] = React.useState(false);
+  const [canExpand, setCanExpand] = React.useState(false);
+  const clampRef = React.useRef<HTMLDivElement>(null);
+
+  // Clamp and the "… more" control are applied only after mount so the
+  // server HTML matches the first client render. Applying -webkit-line-clamp
+  // during SSR rewrites nested spans and causes a hydration mismatch.
+  React.useEffect(() => {
+    if (!text) return;
+    const el = clampRef.current;
+    const charLong = text.length > charLimit || text.split("\n").length > maxLines;
+    const visuallyLong = !!el && el.scrollHeight > el.clientHeight + 2;
+    setCanExpand(charLong || visuallyLong);
+  }, [text, maxLines, charLimit, expanded]);
 
   if (!text || text.trim() === "") {
     return null;
   }
 
-  const isLong = text.length > charLimit || text.split("\n").length > maxLines;
+  const clamped = canExpand && !expanded;
+
+  const toggle = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setExpanded((prev) => !prev);
+  };
 
   return (
     <div className={cn("relative min-w-0 max-w-full break-words [overflow-wrap:anywhere]", className)}>
-      {expanded || !isLong ? (
-        <Component className="whitespace-pre-wrap text-inherit leading-relaxed">
-          <CaptionWithLinks text={text} linkClassName={linkClassName} />
-        </Component>
-      ) : (
-        <Component
-          className="whitespace-pre-wrap text-inherit leading-relaxed"
-          style={{
-            display: "-webkit-box",
-            WebkitLineClamp: maxLines,
-            WebkitBoxOrient: "vertical",
-            overflow: "hidden",
-          }}
-        >
-          <CaptionWithLinks text={text} linkClassName={linkClassName} />
-        </Component>
-      )}
+      <div
+        ref={clampRef}
+        className={cn("whitespace-pre-wrap text-inherit leading-relaxed", clamped && "overflow-hidden")}
+        style={
+          clamped
+            ? {
+                display: "-webkit-box",
+                WebkitLineClamp: maxLines,
+                WebkitBoxOrient: "vertical",
+              }
+            : undefined
+        }
+      >
+        <CaptionWithLinks text={text} linkClassName={linkClassName} />
+      </div>
 
-      {isLong && (
+      {canExpand ? (
         <button
           type="button"
-          onClick={() => setExpanded((prev) => !prev)}
+          onClick={toggle}
           className="mt-1 inline-flex items-center text-xs font-semibold text-primary hover:underline focus:outline-none"
         >
           {expanded ? "Show less" : "… more"}
         </button>
-      )}
+      ) : null}
     </div>
   );
 }

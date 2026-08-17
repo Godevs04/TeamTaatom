@@ -20,7 +20,7 @@ import {
   blockUser,
   getBlockStatus,
 } from "../../../../lib/api";
-import { getFriendlyErrorMessage } from "../../../../lib/auth-errors";
+import { getFriendlyErrorMessage, isForbiddenError } from "../../../../lib/auth-errors";
 import { useAuth } from "../../../../context/auth-context";
 import type { ChatMessage, ChatParticipant } from "../../../../types/chat";
 import { Button } from "../../../../components/ui/button";
@@ -72,16 +72,18 @@ export default function ChatConversationPage() {
     return () => document.removeEventListener("mousedown", onDoc);
   }, [menuOpen]);
 
-  const { data: chatData } = useQuery({
+  const { data: chatData, error: chatLoadError } = useQuery({
     queryKey: ["chat", userId],
     queryFn: () => getChat(userId),
     enabled: !!userId && !!myId,
+    retry: false,
   });
 
-  const { data: messagesData, isLoading: messagesLoading } = useQuery({
+  const { data: messagesData, isLoading: messagesLoading, error: messagesLoadError } = useQuery({
     queryKey: ["chat", userId, "messages"],
     queryFn: () => getChatMessages(userId),
     enabled: !!userId && !!myId,
+    retry: false,
   });
 
   const { data: profileData } = useQuery({
@@ -219,6 +221,14 @@ export default function ChatConversationPage() {
       });
     };
 
+    const onCleared = (payload: { chatId?: string }) => {
+      if (!payload?.chatId || payload.chatId !== chatId) return;
+      queryClient.setQueryData<{ messages: ChatMessage[] }>(["chat", userId, "messages"], (old) =>
+        old ? { ...old, messages: [] } : old
+      );
+      queryClient.invalidateQueries({ queryKey: ["chat", "list"] });
+    };
+
     const onTyping = (payload: { from?: string }) => {
       if (payload?.from !== userId) return;
       setIsTyping(true);
@@ -245,6 +255,7 @@ export default function ChatConversationPage() {
     subscribeSocket("message:status_changed", onStatusChanged);
     subscribeSocket("chat:message_edited", onMessageEdited);
     subscribeSocket("chat:message_deleted", onMessageDeleted);
+    subscribeSocket("chat:cleared", onCleared);
     subscribeSocket("typing", onTyping);
     subscribeSocket("typing:stop", onTypingStop);
     subscribeSocket("user:online", onOnline);
@@ -257,6 +268,7 @@ export default function ChatConversationPage() {
       unsubscribeSocket("message:status_changed", onStatusChanged);
       unsubscribeSocket("chat:message_edited", onMessageEdited);
       unsubscribeSocket("chat:message_deleted", onMessageDeleted);
+      unsubscribeSocket("chat:cleared", onCleared);
       unsubscribeSocket("typing", onTyping);
       unsubscribeSocket("typing:stop", onTypingStop);
       unsubscribeSocket("user:online", onOnline);
@@ -418,6 +430,8 @@ export default function ChatConversationPage() {
   const messages = messagesData?.messages ?? [];
   const otherUser = chatData?.chat?.participants?.find((p: ChatParticipant) => (p._id ?? "").toString() !== myId) || profileData?.profile;
   const displayName = otherUser?.fullName ?? otherUser?.username ?? "User";
+  const cannotChat = isForbiddenError(chatLoadError) || isForbiddenError(messagesLoadError);
+  const composerDisabled = isBlocked || cannotChat;
 
   if (!myId) {
     return (
@@ -523,6 +537,16 @@ export default function ChatConversationPage() {
               <Skeleton key={i} className="h-12 w-3/4 rounded-2xl" />
             ))}
           </div>
+        ) : cannotChat ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <Ban className="mb-3 h-10 w-10 text-slate-300 dark:text-zinc-600" />
+            <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">
+              You cannot chat with this user
+            </p>
+            <p className="mt-1 max-w-sm text-xs text-slate-500 dark:text-zinc-400">
+              One of you may have blocked the other.
+            </p>
+          </div>
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <p className="text-sm text-slate-500 dark:text-zinc-400">No messages yet. Say hello!</p>
@@ -546,7 +570,7 @@ export default function ChatConversationPage() {
               >
                 {/* Actions Trigger for own active messages */}
                 {isMe && !isDeleted && (
-                  <div className="relative mr-1.5 self-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <div className="relative mr-1.5 self-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                     <button
                       type="button"
                       aria-label="Message options"
@@ -684,11 +708,19 @@ export default function ChatConversationPage() {
         isSending={sendMutation.isPending || editMsgMutation.isPending}
         onTyping={() => emitSocket("typing", { to: userId })}
         onStopTyping={() => emitSocket("typing:stop", { to: userId })}
-        disabled={isBlocked}
+        disabled={composerDisabled}
         initialText={editingMessage?.text ?? ""}
         editing={!!editingMessage}
         onCancelEdit={() => setEditingMessage(null)}
-        placeholder={isBlocked ? "You've blocked this user" : editingMessage ? "Edit message…" : undefined}
+        placeholder={
+          isBlocked
+            ? "You've blocked this user"
+            : cannotChat
+              ? "You can't message this user"
+              : editingMessage
+                ? "Edit message…"
+                : undefined
+        }
       />
     </div>
   );

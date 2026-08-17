@@ -32,16 +32,17 @@ export type MentionTrigger = {
  *   "hey @jo"       cursor 7  -> { query: "jo", atIndex: 4 }
  *   "hey @jo there" cursor 13 -> null   (space closed it)
  *   "a@b @jo"       cursor 7  -> { query: "jo", atIndex: 4 }   (last '@', not the first)
+ *   "a@b.com @jo"   cursor 12 -> { query: "jo", atIndex: 9 }   (email '@' ignored)
  *
- * No word-boundary check before the '@': the backend's extractMentions regex
- * doesn't require one either, so "a@bobby" is a mention to the server and
- * suppressing the suggestion here would desync the two.
+ * An '@' immediately after a word character is treated as email, not a mention,
+ * so typing contact@… does not open the suggestion list.
  */
 export function findMentionTrigger(text: string, cursor: number): MentionTrigger | null {
   if (!Number.isInteger(cursor) || cursor < 0 || cursor > text.length) return null;
   const before = text.slice(0, cursor);
   const atIndex = before.lastIndexOf("@");
   if (atIndex === -1) return null;
+  if (atIndex > 0 && /[\w.]/.test(text[atIndex - 1] ?? "")) return null;
   const fragment = before.slice(atIndex + 1);
   if (!MENTION_FRAGMENT_RE.test(fragment)) return null;
   return { query: fragment, atIndex };

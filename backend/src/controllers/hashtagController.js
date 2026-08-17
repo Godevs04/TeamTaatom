@@ -4,6 +4,7 @@ const logger = require('../utils/logger');
 const { getOptimizedImageUrl } = require('../config/cloudinary');
 const { generateSignedUrl, generateSignedUrls, resolveProfilePic } = require('../services/mediaService');
 const { getAllowedPostAuthorIds } = require('./postController');
+const { escapeRegex } = require('../utils/regexEscape');
 
 // @desc    Search hashtags
 // @route   GET /hashtags/search
@@ -80,7 +81,8 @@ const getHashtagPosts = async (req, res) => {
     }
 
     const hashtagName = hashtag.toLowerCase().trim().replace(/^#/, '');
-    const tagMatch = { $in: [hashtagName, `#${hashtagName}`, new RegExp(`^#?${hashtagName}$`, 'i')] };
+    const escaped = escapeRegex(hashtagName);
+    const tagMatch = { $in: [hashtagName, `#${hashtagName}`, new RegExp(`^#?${escaped}$`, 'i')] };
 
     // Find hashtag doc if it exists
     let hashtagDoc = await Hashtag.findOne({ name: hashtagName });
@@ -89,14 +91,19 @@ const getHashtagPosts = async (req, res) => {
     const viewerId = req.user?._id?.toString();
     const allowedAuthorIds = await getAllowedPostAuthorIds(viewerId);
 
-    // Find posts with this hashtag
-    const posts = await Post.find({
+    const postFilter = {
       isActive: true,
       isArchived: { $ne: true },
       isHidden: { $ne: true },
-      tags: tagMatch,
-      user: { $in: allowedAuthorIds }
-    })
+      user: { $in: allowedAuthorIds },
+      $or: [
+        { tags: tagMatch },
+        { caption: { $regex: `#${escaped}(?:\\b|$)`, $options: 'i' } }
+      ]
+    };
+
+    // Find posts with this hashtag (tags field or caption #tag)
+    const posts = await Post.find(postFilter)
       .populate('user', 'fullName username profilePic profilePicStorageKey settings.privacy.showLocation')
       .populate('comments.user', 'fullName username profilePic profilePicStorageKey')
       .sort({ createdAt: -1 })
@@ -104,13 +111,7 @@ const getHashtagPosts = async (req, res) => {
       .limit(limit)
       .lean();
 
-    const totalPosts = await Post.countDocuments({
-      isActive: true,
-      isArchived: { $ne: true },
-      isHidden: { $ne: true },
-      tags: tagMatch,
-      user: { $in: allowedAuthorIds }
-    });
+    const totalPosts = await Post.countDocuments(postFilter);
 
     if (!hashtagDoc && totalPosts === 0) {
       return res.status(404).json({
@@ -119,7 +120,7 @@ const getHashtagPosts = async (req, res) => {
       });
     }
 
-    const effectivePostCount = hashtagDoc ? Math.max(hashtagDoc.postCount, totalPosts) : totalPosts;
+    const effectivePostCount = totalPosts;
 
     // Generate signed URLs dynamically for posts
     const postsWithFreshUrls = await Promise.all(posts.map(async (post) => {

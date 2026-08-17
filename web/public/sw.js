@@ -36,8 +36,20 @@ self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
 
+  let url;
+  try {
+    url = new URL(req.url);
+  } catch {
+    return;
+  }
+
+  // Browser extensions inject chrome-extension:// (and similar) requests.
+  // Cache Storage only accepts http(s); putting those URLs throws.
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return;
+  }
+
   // Don't intercept API requests or socket streams
-  const url = new URL(req.url);
   if (url.pathname.startsWith("/api/") || url.pathname.startsWith("/socket.io/")) {
     return;
   }

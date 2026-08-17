@@ -43,8 +43,11 @@ export function mergeLikedIntoPosts<T extends { _id: string; isLiked?: boolean; 
 ): T[] {
   const set = new Set(likedIds);
   return posts.map((p) => {
-    const isLiked = p.isLiked ?? set.has(p._id);
-    return { ...p, isLiked };
+    const locallyLiked = set.has(p._id);
+    const isLiked = p.isLiked ?? locallyLiked;
+    const likesCount =
+      locallyLiked && !p.isLiked ? Math.max(1, (p.likesCount ?? 0) + 1) : p.likesCount;
+    return { ...p, isLiked, likesCount };
   });
 }
 

@@ -15,9 +15,9 @@ import { FollowRequestModal } from "../../../components/notifications/follow-req
 type NotificationSocketPayload = { userId?: string; notification?: Notification };
 
 function getNotificationLabel(n: Notification): string {
-  const fromName = n.fromUser && typeof n.fromUser === "object" && "fullName" in n.fromUser
-    ? (n.fromUser as { fullName?: string }).fullName
-    : "Someone";
+  const fromUser = n.fromUser && typeof n.fromUser === "object" ? n.fromUser : null;
+  const fromName =
+    (fromUser && (fromUser.fullName || fromUser.username)) || "Someone";
   switch (n.type) {
     case "like":
       return `${fromName} liked your post`;

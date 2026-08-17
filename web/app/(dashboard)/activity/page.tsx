@@ -63,7 +63,7 @@ export default function ActivityPage() {
   const q = useInfiniteQuery({
     queryKey: ["activity", filterType],
     queryFn: ({ pageParam = 1 }) =>
-      getActivity(pageParam, 20, filterType === "all" ? undefined : filterType),
+      getActivity(pageParam, 30, filterType === "all" ? undefined : filterType),
     getNextPageParam: (lastPage) => {
       const p = lastPage.pagination;
       if (!p) return undefined;

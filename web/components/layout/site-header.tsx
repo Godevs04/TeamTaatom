@@ -3,13 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { Search, PlusSquare, User2, Bell, LogOut } from "lucide-react";
+import { Search, PlusSquare, User2, Bell, LogOut, MessageCircle } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { useAuth } from "../../context/auth-context";
 import { useMounted } from "../../hooks/use-mounted";
 import { SocialConnect } from "./social-connect";
-import { NotificationBadge } from "./notification-badge";
+import { NotificationBadge, ChatUnreadBadge } from "./notification-badge";
 
 const nav = [
   { href: "/feed", label: "Feed" },
@@ -90,6 +90,12 @@ export function SiteHeader() {
                   <PlusSquare className="h-4 w-4 shrink-0" />
                   <span className="hidden sm:inline">Create</span>
                 </Button>
+              </Link>
+              <Link href="/chat" className="relative">
+                <Button variant="ghost" size="icon" aria-label="Chat">
+                  <MessageCircle className="h-5 w-5" />
+                </Button>
+                <ChatUnreadBadge />
               </Link>
               <Link href="/notifications" className="relative">
                 <Button variant="ghost" size="icon" aria-label="Notifications">

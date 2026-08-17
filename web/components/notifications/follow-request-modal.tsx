@@ -53,6 +53,11 @@ export function FollowRequestModal({
           : old.unreadCount;
       return { ...old, notifications, unreadCount };
     });
+    if (!notification.isRead) {
+      qc.setQueryData<{ unreadCount: number }>(["notificationsUnreadCount"], (old) => ({
+        unreadCount: Math.max(0, (old?.unreadCount ?? 1) - 1),
+      }));
+    }
   };
 
   const approveMutation = useMutation({

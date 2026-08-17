@@ -27,7 +27,7 @@ import { AddToCollectionModal } from "./AddToCollectionModal";
 import { SharePostModal } from "./share-post-modal";
 import { PostLikesCount } from "./post-likers-modal";
 import { EditPostModal } from "./edit-post-modal";
-import { CaptionWithLinks } from "../caption-with-links";
+import { ExpandableText } from "../ui/expandable-text";
 
 const REPORT_REASONS: { id: ReportReason; label: string }[] = [
   { id: "spam", label: "Spam" },
@@ -536,48 +536,52 @@ export function PostCard({
       </div>
 
       {/* Media */}
-      <Link href={`/trip/${post._id}`} className="block bg-slate-100/50 dark:bg-zinc-950/80">
-        <div className="relative aspect-[4/3] w-full overflow-hidden">
-          {isShort && videoUrl ? (
-            <video
-              src={videoUrl}
-              poster={posterUrl}
-              controls
-              playsInline
-              preload="metadata"
-              className="h-full w-full bg-black object-contain"
-            />
-          ) : (
-            /* eslint-disable-next-line @next/next/no-img-element */
+      {isShort && videoUrl ? (
+        <div className="relative aspect-[4/3] w-full overflow-hidden bg-slate-100/50 dark:bg-zinc-950/80">
+          <video
+            src={videoUrl}
+            poster={posterUrl}
+            controls
+            playsInline
+            preload="metadata"
+            className="h-full w-full bg-black object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+          {/* Picture area opens the post; native controls sit in the bottom strip. */}
+          <Link
+            href={`/trip/${post._id}`}
+            className="absolute inset-x-0 top-0 bottom-12 z-10"
+            aria-label="Open post"
+          />
+        </div>
+      ) : (
+        <Link href={`/trip/${post._id}`} className="block bg-slate-100/50 dark:bg-zinc-950/80">
+          <div className="relative aspect-[4/3] w-full overflow-hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={media}
               alt={post.caption || "Trip"}
               className="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.02]"
               loading="lazy"
             />
-          )}
-        </div>
-      </Link>
+          </div>
+        </Link>
+      )}
 
       {/* Caption & actions */}
       <div className="mt-auto space-y-4 border-t border-slate-100 px-4 py-3 dark:border-zinc-800 sm:px-6 sm:py-4">
         <div className="min-h-[72px]">
-          <p
-            className={cn(
-              "line-clamp-3 text-[15px] leading-6 text-slate-700 dark:text-zinc-200",
-              post.caption ? "opacity-100" : "opacity-0"
-            )}
-          >
-            <span className="font-semibold">
-              {post.user?.username ? `@${post.user.username}` : ""}
-            </span>{" "}
-            <CaptionWithLinks
-              text={post.caption || ""}
-              as="span"
-              className="text-slate-600 dark:text-zinc-400"
+          {post.caption ? (
+            <ExpandableText
+              text={`${post.user?.username ? `@${post.user.username} ` : ""}${post.caption}`}
+              maxLines={3}
+              charLimit={180}
+              className="text-[15px] leading-6 text-slate-700 dark:text-zinc-200"
               linkClassName="text-primary"
             />
-          </p>
+          ) : (
+            <p className="opacity-0 text-[15px] leading-6">placeholder</p>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -600,6 +604,7 @@ export function PostCard({
           <PostLikesCount
             postId={post._id}
             likesCount={post.likesCount ?? 0}
+            live
             className="min-w-[1.25rem] text-sm font-semibold text-slate-700 dark:text-zinc-200"
           />
 

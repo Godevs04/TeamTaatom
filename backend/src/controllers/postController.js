@@ -180,6 +180,18 @@ async function getAllowedPostAuthorIds(viewerId) {
   });
 }
 
+async function getBidirectionalBlockedIds(viewerId) {
+  if (!viewerId || !mongoose.Types.ObjectId.isValid(viewerId)) return [];
+  const viewerObjId = new mongoose.Types.ObjectId(viewerId);
+  const [viewerDoc, whoBlockedMe] = await Promise.all([
+    User.findById(viewerObjId).select('blockedUsers').lean(),
+    User.find({ blockedUsers: viewerObjId }).select('_id').lean()
+  ]);
+  const myBlocked = (viewerDoc?.blockedUsers || []).map((b) => b.toString());
+  const blockedMe = whoBlockedMe.map((u) => u._id.toString());
+  return [...new Set([...myBlocked, ...blockedMe])];
+}
+
 // @desc    Get all posts (only photo type)
 // @route   GET /posts
 // @access  Public
@@ -199,9 +211,7 @@ const getPosts = async (req, res) => {
 
     const result = await cacheWrapper(cacheKey, async () => {
       let allowedAuthorIds = await getAllowedPostAuthorIds(viewerId);
-      const blockedIds = req.user?.blockedUsers?.length
-        ? req.user.blockedUsers.map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()))
-        : [];
+      const blockedIds = viewerId ? await getBidirectionalBlockedIds(viewerId) : [];
       let allowedFiltered = blockedIds.length
         ? allowedAuthorIds.filter(id => !blockedIds.includes(id.toString()))
         : allowedAuthorIds;
@@ -987,12 +997,14 @@ const getPostById = async (req, res) => {
 
     const postOwnerId = post.user?._id?.toString();
     const hideLocation = postOwnerId !== userId && post.user?.settings?.privacy?.showLocation === false;
+    const likeDocCount = await Like.countDocuments({ post: id });
+    const commentsLen = Array.isArray(post.comments) ? post.comments.length : 0;
     const postWithDetails = {
       ...post,
       imageUrl: optimizedImageUrl,
       isLiked,
-      likesCount: typeof post.likesCount === 'number' ? post.likesCount : (post.likes ? post.likes.length : 0),
-      commentsCount: typeof post.commentsCount === 'number' ? post.commentsCount : (Array.isArray(post.comments) ? post.comments.length : 0),
+      likesCount: likeDocCount,
+      commentsCount: commentsLen || (typeof post.commentsCount === 'number' ? post.commentsCount : 0),
       viewsCount: finalViewsCount, // Always include views count
       views: finalViewsCount, // Also include views field for consistency
       location: hideLocation ? null : post.location,
@@ -3139,6 +3151,10 @@ const toggleComments = async (req, res) => {
     post.commentsDisabled = !post.commentsDisabled;
     await post.save();
 
+    await deleteCache(CacheKeys.post(req.params.id));
+    await deleteCacheByPattern('posts:*');
+    await deleteCacheByPattern(`user:${post.user.toString()}:posts:*`);
+
     return sendSuccess(res, 200, post.commentsDisabled ? 'Comments disabled' : 'Comments enabled', {
       commentsDisabled: post.commentsDisabled
     });
@@ -3274,9 +3290,7 @@ const getShorts = async (req, res) => {
 
     const viewerId = req.user?._id?.toString();
     const allowedAuthorIds = await getAllowedPostAuthorIds(viewerId);
-    const blockedIds = req.user?.blockedUsers?.length
-      ? req.user.blockedUsers.map(b => (typeof b === 'object' && b?._id ? b._id.toString() : b.toString()))
-      : [];
+    const blockedIds = viewerId ? await getBidirectionalBlockedIds(viewerId) : [];
     const allowedFiltered = blockedIds.length
       ? allowedAuthorIds.filter(id => !blockedIds.includes(id.toString()))
       : allowedAuthorIds;
@@ -4198,5 +4212,6 @@ module.exports = {
   getHiddenPosts,
   incrementShare,
   getPostLikers,
-  getAllowedPostAuthorIds
+  getAllowedPostAuthorIds,
+  getBidirectionalBlockedIds
 };
