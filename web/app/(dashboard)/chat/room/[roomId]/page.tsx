@@ -20,6 +20,11 @@ import { Skeleton } from "../../../../../components/ui/skeleton";
 import { toast } from "sonner";
 import { ChatComposer } from "../../../../../components/chat/chat-composer";
 import { MessageAttachments } from "../../../../../components/chat/message-attachments";
+import {
+  MessageStatusTicks,
+  getGroupMessageReceiptStatus,
+  messageTime,
+} from "../../../../../components/chat/message-status-ticks";
 import { subscribeSocket, unsubscribeSocket } from "../../../../../lib/socket";
 import { parsePostShareMessage, parseJourneyShareMessage } from "../../../../../lib/post-share-chat";
 import { PostShareCard } from "../../../../../components/chat/post-share-card";
@@ -119,6 +124,9 @@ export default function GroupChatRoomPage() {
   const chat = chatData?.chat;
   const participants = chat?.participants ?? [];
   const messages: ChatMessage[] = messagesData?.messages ?? [];
+  const otherParticipantIds = participants
+    .map((p) => (typeof p === "string" ? p : p._id))
+    .filter((id): id is string => !!id && id !== myId);
 
   // Extract connect page info for the header
   const connectPage =
@@ -185,6 +193,8 @@ export default function GroupChatRoomPage() {
             const journeyShare = !postShare ? parseJourneyShareMessage(text) : null;
             const hasAttachments = (msg.attachments?.length ?? 0) > 0;
             const tightPadding = !!postShare || !!journeyShare || hasAttachments;
+            const timeStr = messageTime(msg);
+            const status = isMe ? getGroupMessageReceiptStatus(msg, otherParticipantIds) : "sent";
             return (
               <div
                 key={msg._id}
@@ -230,10 +240,19 @@ export default function GroupChatRoomPage() {
                       ) : null}
                     </>
                   )}
-                  {(msg.createdAt || msg.timestamp) && (
-                    <p className={`mt-1.5 text-xs ${isMe ? "text-white/80" : "text-slate-500 dark:text-zinc-400"}`}>
-                      {new Date(msg.createdAt || msg.timestamp || "").toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                    </p>
+                  {(timeStr || isMe) && (
+                    <div
+                      className={`mt-1.5 flex items-center justify-end gap-1 px-1 text-xs ${
+                        isMe ? "text-white/80" : "text-slate-500 dark:text-zinc-400"
+                      }`}
+                    >
+                      {timeStr ? (
+                        <span>
+                          {new Date(timeStr).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                        </span>
+                      ) : null}
+                      {isMe ? <MessageStatusTicks status={status} /> : null}
+                    </div>
                   )}
                 </div>
               </div>

@@ -147,7 +147,16 @@ function setupSocket(server) {
           }
         }
         // 1:1 chat: emit to the specific user (existing behavior)
-        if (to) emitToUser(to, 'seen', { from: socket.userId, messageId });
+        if (to) {
+          emitToUser(to, 'seen', { from: socket.userId, messageId });
+          if (chatIdToUse && messageId) {
+            emitToUser(to, 'message:status_changed', {
+              chatId: chatIdToUse.toString(),
+              messageIds: [messageId],
+              status: 'read'
+            });
+          }
+        }
       } catch (err) {
         logger.error('Socket seen event error:', err);
       }

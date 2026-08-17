@@ -8,6 +8,7 @@ import { applyWebAuthSession, clearWebAuthSession } from "../lib/auth-session";
 import { getLoginLocationHint } from "../lib/login-location";
 import { useFeatureFlags } from "../lib/feature-flags";
 import { connectSocket, disconnectSocket, subscribeSocket, unsubscribeSocket } from "../lib/socket";
+import { markMessageDelivered } from "../lib/api";
 import type { User } from "../types/user";
 import type { Post } from "../types/post";
 import { PROFILE_ONBOARDING_VERSION } from "../lib/profile-onboarding-version";
@@ -171,9 +172,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     subscribeSocket<NotificationSocketPayload>("notification", onNotification);
     subscribeSocket<{ postId?: string; likesCount?: number; commentsCount?: number }>("post:stats_updated", onPostStatsUpdated);
 
+    // WhatsApp-style "delivered": the recipient's device got the message while
+    // this session is online, even if they haven't opened the thread yet.
+    const myId = authUser._id;
+    const onChatMessageNew = (payload: {
+      chatId?: string;
+      message?: { _id?: string; sender?: string | { _id?: string } };
+    }) => {
+      const chatId = payload?.chatId;
+      const msg = payload?.message;
+      if (!chatId || !msg?._id) return;
+      const senderId = typeof msg.sender === "string" ? msg.sender : msg.sender?._id;
+      if (!senderId || senderId === myId) return;
+      markMessageDelivered(chatId, msg._id).catch(() => {});
+    };
+    subscribeSocket("message:new", onChatMessageNew);
+
     return () => {
       unsubscribeSocket<NotificationSocketPayload>("notification", onNotification);
       unsubscribeSocket<{ postId?: string; likesCount?: number; commentsCount?: number }>("post:stats_updated", onPostStatsUpdated);
+      unsubscribeSocket("message:new", onChatMessageNew);
     };
   }, [authUser, qc]);
 

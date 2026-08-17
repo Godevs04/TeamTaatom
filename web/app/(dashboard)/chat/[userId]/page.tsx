@@ -12,6 +12,7 @@ import {
   editChatMessage,
   deleteChatMessage,
   markChatMessagesSeen,
+  markMessageDelivered,
   getProfile,
   clearChat,
   toggleChatMute,
@@ -23,7 +24,7 @@ import { getFriendlyErrorMessage } from "../../../../lib/auth-errors";
 import { useAuth } from "../../../../context/auth-context";
 import type { ChatMessage, ChatParticipant } from "../../../../types/chat";
 import { Button } from "../../../../components/ui/button";
-import { ArrowLeft, User, MoreHorizontal, Trash2, Bell, BellOff, Ban, Check, CheckCheck, Edit2, X } from "lucide-react";
+import { ArrowLeft, User, MoreHorizontal, Trash2, Bell, BellOff, Ban, Edit2, X } from "lucide-react";
 import { Skeleton } from "../../../../components/ui/skeleton";
 import { toast } from "sonner";
 import { parsePostShareMessage, parseJourneyShareMessage } from "../../../../lib/post-share-chat";
@@ -31,6 +32,11 @@ import { PostShareCard } from "../../../../components/chat/post-share-card";
 import { JourneyShareCard } from "../../../../components/chat/journey-share-card";
 import { ChatComposer } from "../../../../components/chat/chat-composer";
 import { MessageAttachments } from "../../../../components/chat/message-attachments";
+import {
+  MessageStatusTicks,
+  getMessageReceiptStatus,
+  messageTime,
+} from "../../../../components/chat/message-status-ticks";
 import { subscribeSocket, unsubscribeSocket, emitSocket } from "../../../../lib/socket";
 import { useConfirm } from "../../../../context/confirm-context";
 
@@ -100,11 +106,6 @@ export default function ChatConversationPage() {
   });
   const isBlocked = blockQ.data?.isBlocked ?? false;
 
-  React.useEffect(() => {
-    if (!userId || !myId) return;
-    markChatMessagesSeen(userId).catch(() => {});
-  }, [userId, myId]);
-
   const chatId = chatData?.chat?._id;
   const [isTyping, setIsTyping] = React.useState(false);
   const [isOnline, setIsOnline] = React.useState(false);
@@ -125,16 +126,38 @@ export default function ChatConversationPage() {
       queryClient.invalidateQueries({ queryKey: ["chat", "list"] });
     };
 
-    const onSeen = (payload: { from?: string; messageId?: string; messageIds?: string[] }) => {
-      if (payload?.from !== userId) return;
-      const ids = payload.messageIds ?? (payload.messageId ? [payload.messageId] : []);
+    const markOwnMessagesRead = (ids: string[]) => {
       if (ids.length === 0) return;
       queryClient.setQueryData<{ messages: ChatMessage[] }>(["chat", userId, "messages"], (old) => {
         if (!old) return old;
         return {
           ...old,
           messages: old.messages.map((m) =>
-            ids.includes(m._id) ? { ...m, seen: true, status: "read" as const } : m
+            ids.includes(m._id)
+              ? { ...m, seen: true, status: "read" as const, readAt: m.readAt ?? new Date().toISOString() }
+              : m
+          ),
+        };
+      });
+    };
+
+    const onSeen = (payload: { from?: string; messageId?: string; messageIds?: string[] }) => {
+      if (payload?.from !== userId) return;
+      const ids = payload.messageIds ?? (payload.messageId ? [payload.messageId] : []);
+      markOwnMessagesRead(ids);
+    };
+
+    const onChatSeen = (payload: { chatId?: string; userId?: string }) => {
+      if (!payload?.chatId || payload.chatId !== chatId) return;
+      if (payload.userId && payload.userId !== userId) return;
+      queryClient.setQueryData<{ messages: ChatMessage[] }>(["chat", userId, "messages"], (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          messages: old.messages.map((m) =>
+            normalizeSenderId(m.sender) === myId
+              ? { ...m, seen: true, status: "read" as const, readAt: m.readAt ?? new Date().toISOString() }
+              : m
           ),
         };
       });
@@ -142,13 +165,30 @@ export default function ChatConversationPage() {
 
     const onStatusChanged = (payload: { chatId?: string; messageIds?: string[]; status?: "sent" | "delivered" | "read" }) => {
       if (!payload?.messageIds || !payload.status) return;
+      if (payload.chatId && chatId && payload.chatId !== chatId) return;
       queryClient.setQueryData<{ messages: ChatMessage[] }>(["chat", userId, "messages"], (old) => {
         if (!old) return old;
         return {
           ...old,
-          messages: old.messages.map((m) =>
-            payload.messageIds!.includes(m._id) ? { ...m, status: payload.status } : m
-          ),
+          messages: old.messages.map((m) => {
+            if (!payload.messageIds!.includes(m._id)) return m;
+            // Never downgrade read → delivered/sent
+            if (
+              payload.status !== "read" &&
+              (m.status === "read" || m.seen || m.readAt)
+            ) {
+              return m;
+            }
+            const next: ChatMessage = { ...m, status: payload.status };
+            if (payload.status === "read") {
+              next.seen = true;
+              next.readAt = m.readAt ?? new Date().toISOString();
+            }
+            if (payload.status === "delivered") {
+              next.deliveredAt = m.deliveredAt ?? new Date().toISOString();
+            }
+            return next;
+          }),
         };
       });
     };
@@ -201,6 +241,7 @@ export default function ChatConversationPage() {
 
     subscribeSocket("message:new", onMessageNew);
     subscribeSocket("seen", onSeen);
+    subscribeSocket("chat:seen", onChatSeen);
     subscribeSocket("message:status_changed", onStatusChanged);
     subscribeSocket("chat:message_edited", onMessageEdited);
     subscribeSocket("chat:message_deleted", onMessageDeleted);
@@ -212,6 +253,7 @@ export default function ChatConversationPage() {
     return () => {
       unsubscribeSocket("message:new", onMessageNew);
       unsubscribeSocket("seen", onSeen);
+      unsubscribeSocket("chat:seen", onChatSeen);
       unsubscribeSocket("message:status_changed", onStatusChanged);
       unsubscribeSocket("chat:message_edited", onMessageEdited);
       unsubscribeSocket("chat:message_deleted", onMessageDeleted);
@@ -223,17 +265,42 @@ export default function ChatConversationPage() {
     };
   }, [userId, myId, chatId, queryClient]);
 
-  const seenEmittedForRef = React.useRef<string | null>(null);
+  const seenIdsRef = React.useRef<Set<string>>(new Set());
+  const deliveredIdsRef = React.useRef<Set<string>>(new Set());
+  React.useEffect(() => {
+    seenIdsRef.current = new Set();
+    deliveredIdsRef.current = new Set();
+  }, [chatId]);
+
   React.useEffect(() => {
     if (!userId || !myId || !chatId) return;
-    if (seenEmittedForRef.current === chatId) return;
-    const unseen = (messagesData?.messages ?? []).filter(
-      (m) => normalizeSenderId(m.sender) === userId && !m.seen
+    const incoming = (messagesData?.messages ?? []).filter(
+      (m) => normalizeSenderId(m.sender) === userId && !m.isDeleted
     );
-    if (unseen.length === 0) return;
-    seenEmittedForRef.current = chatId;
-    for (const msg of unseen) {
+    if (incoming.length === 0) return;
+
+    const unread = incoming.filter(
+      (m) => !seenIdsRef.current.has(m._id) && !m.seen && m.status !== "read"
+    );
+    for (const msg of unread) {
+      seenIdsRef.current.add(msg._id);
       emitSocket("seen", { to: userId, messageId: msg._id, chatId });
+    }
+    if (unread.length > 0) {
+      markChatMessagesSeen(userId).catch(() => {});
+    }
+
+    const undelivered = incoming.filter(
+      (m) =>
+        !deliveredIdsRef.current.has(m._id) &&
+        m.status !== "read" &&
+        m.status !== "delivered" &&
+        !m.deliveredAt &&
+        !m.readAt
+    );
+    for (const msg of undelivered) {
+      deliveredIdsRef.current.add(msg._id);
+      markMessageDelivered(chatId, msg._id).catch(() => {});
     }
   }, [userId, myId, chatId, messagesData?.messages]);
 
@@ -469,7 +536,8 @@ export default function ChatConversationPage() {
             const hasAttachments = !msg.isDeleted && (msg.attachments?.length ?? 0) > 0;
             const tightPadding = !!postShare || !!journeyShare || hasAttachments;
             const isDeleted = msg.isDeleted === true;
-            const status = msg.status ?? (msg.seen ? "read" : "sent");
+            const status = getMessageReceiptStatus(msg);
+            const timeStr = messageTime(msg);
 
             return (
               <div
@@ -555,27 +623,19 @@ export default function ChatConversationPage() {
                       ) : null}
                     </>
                   )}
-                  {msg.createdAt && (
+                  {(timeStr || (isMe && !isDeleted)) && (
                     <div
                       className={`mt-1.5 flex items-center justify-end gap-1 px-1 text-xs ${
                         isMe ? "text-white/80" : "text-slate-500 dark:text-zinc-400"
                       }`}
                     >
                       {msg.isEdited && !isDeleted ? <span className="text-[10px] opacity-75">(edited)</span> : null}
-                      <span>
-                        {new Date(msg.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                      </span>
-                      {isMe && !isDeleted && (
-                        <span className="inline-flex items-center ml-0.5" title={`Message ${status}`} aria-label={`Message ${status}`}>
-                          {status === "read" ? (
-                            <CheckCheck className="h-3.5 w-3.5 text-sky-200" />
-                          ) : status === "delivered" ? (
-                            <CheckCheck className="h-3.5 w-3.5 text-white/70" />
-                          ) : (
-                            <Check className="h-3.5 w-3.5 text-white/70" />
-                          )}
+                      {timeStr ? (
+                        <span>
+                          {new Date(timeStr).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </span>
-                      )}
+                      ) : null}
+                      {isMe && !isDeleted ? <MessageStatusTicks status={status} /> : null}
                     </div>
                   )}
                 </div>

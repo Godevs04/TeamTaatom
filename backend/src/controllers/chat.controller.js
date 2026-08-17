@@ -164,7 +164,9 @@ exports.listChats = async (req, res) => {
         }
         return {
           ...msg,
-          status: msg.status || (msg.seen ? 'read' : 'sent'),
+          status: msg.seen || msg.status === 'read' || msg.readAt
+            ? 'read'
+            : (msg.status || (msg.deliveredAt ? 'delivered' : 'sent')),
           seen: typeof msg.seen === 'boolean' ? msg.seen : false,
           attachments: await refreshAttachmentUrls(msg.attachments),
         };
@@ -696,7 +698,13 @@ exports.getMessagesByRoomId = async (req, res) => {
         // Re-sign storage URLs on read — same fix as 1:1 getMessages above.
         attachments: await refreshAttachmentUrls(msg.attachments),
         timestamp: msg.timestamp || new Date(),
+        createdAt: msg.timestamp || new Date(),
         seen: typeof msg.seen === 'boolean' ? msg.seen : false,
+        status: msg.seen || msg.status === 'read' || msg.readAt
+          ? 'read'
+          : (msg.status || (msg.deliveredAt ? 'delivered' : 'sent')),
+        deliveredAt: msg.deliveredAt || null,
+        readAt: msg.readAt || null,
       };
       // Include sender info and seenBy for group chats
       if (isGroupChat) {
@@ -783,6 +791,7 @@ exports.sendMessageToRoom = async (req, res) => {
       attachments: savedMessage.attachments || [],
       timestamp: savedMessage.timestamp,
       seen: savedMessage.seen || false,
+      status: savedMessage.status || 'sent',
       senderName,
       senderProfilePic,
       seenBy: [],
@@ -1016,7 +1025,10 @@ exports.getMessages = async (req, res) => {
         text: isDel ? '' : (msg.text || ''),
         attachments: isDel ? [] : await refreshAttachmentUrls(msg.attachments),
         timestamp: msg.timestamp || new Date(),
-        status: msg.status || (msg.seen ? 'read' : 'sent'),
+        createdAt: msg.timestamp || new Date(),
+        status: msg.seen || msg.status === 'read' || msg.readAt
+          ? 'read'
+          : (msg.status || (msg.deliveredAt ? 'delivered' : 'sent')),
         deliveredAt: msg.deliveredAt || null,
         readAt: msg.readAt || null,
         seen: typeof msg.seen === 'boolean' ? msg.seen : false,
@@ -1336,7 +1348,10 @@ exports.sendMessage = async (req, res) => {
           text: savedMessage.text || '',
           attachments: savedMessage.attachments || [],
           timestamp: savedMessage.timestamp,
-          seen: savedMessage.seen || false
+          seen: savedMessage.seen || false,
+          status: savedMessage.status || 'sent',
+          deliveredAt: savedMessage.deliveredAt || null,
+          readAt: savedMessage.readAt || null
         };
         
         // Emit to recipient (all devices)
@@ -1473,7 +1488,11 @@ exports.markMessageSeen = async (chatId, messageId, userId) => {
         // Mark boolean seen as true when ALL other participants have seen it
         const otherParticipants = participantIds.filter(id => id !== msg.sender.toString());
         const allSeen = otherParticipants.every(pId => msg.seenBy.some(sId => sId.toString() === pId));
-        if (allSeen) msg.seen = true;
+        if (allSeen) {
+          msg.seen = true;
+          msg.status = 'read';
+          msg.readAt = msg.readAt || new Date();
+        }
         await chat.save();
         logger.debug('[markMessageSeen] group message seenBy updated:', { messageId, seenByCount: msg.seenBy.length, allSeen });
       } else {
@@ -1483,8 +1502,13 @@ exports.markMessageSeen = async (chatId, messageId, userId) => {
     }
 
     // For 1:1 chats: use boolean seen (existing behavior)
-    if (!msg.seen) {
+    if (!msg.seen || msg.status !== 'read') {
       msg.seen = true;
+      msg.status = 'read';
+      msg.readAt = msg.readAt || new Date();
+      if (msg.status === 'read' && !msg.deliveredAt) {
+        msg.deliveredAt = msg.readAt;
+      }
       await chat.save();
       logger.debug('[markMessageSeen] message marked as seen:', { messageId });
     } else {
@@ -1502,19 +1526,32 @@ exports.markAllMessagesSeen = async (req, res) => {
   const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] }, type: { $ne: 'connect_page' } });
   if (!chat) return sendSuccess(res, 200, 'No chat found', { message: 'No messages to mark' });
   const seenMessageIds = [];
+  const now = new Date();
   chat.messages.forEach(msg => {
-    if (msg.sender.toString() === otherUserId && !msg.seen) {
+    if (msg.sender.toString() === otherUserId.toString() && (!msg.seen || msg.status !== 'read')) {
       msg.seen = true;
+      msg.status = 'read';
+      msg.readAt = msg.readAt || now;
+      if (!msg.deliveredAt) msg.deliveredAt = msg.readAt;
       seenMessageIds.push(msg._id.toString());
     }
   });
   if (seenMessageIds.length > 0) {
     await chat.save();
     // Notify the sender via socket so their read receipts update in real-time
-    if (global.socketIO) {
-      const nsp = global.socketIO.of('/app');
-      seenMessageIds.forEach(messageId => {
-        nsp.to(`user:${otherUserId}`).emit('seen', { from: userId.toString(), messageId });
+    const io = getSocketInstance();
+    const nsp = io && io.of('/app');
+    if (nsp) {
+      const fromId = userId.toString();
+      nsp.to(`user:${otherUserId}`).emit('seen', { from: fromId, messageIds: seenMessageIds });
+      nsp.to(`user:${otherUserId}`).emit('message:status_changed', {
+        chatId: chat._id.toString(),
+        messageIds: seenMessageIds,
+        status: 'read'
+      });
+      nsp.to(`user:${otherUserId}`).emit('chat:seen', {
+        chatId: chat._id.toString(),
+        userId: fromId
       });
     }
   }
@@ -1566,7 +1603,11 @@ exports.markAllMessagesSeenInRoom = async (req, res) => {
         const allSeen = otherParticipants.every(pId =>
           msg.seenBy.some(sId => sId.toString() === pId)
         );
-        if (allSeen) msg.seen = true;
+        if (allSeen) {
+          msg.seen = true;
+          msg.status = 'read';
+          msg.readAt = msg.readAt || new Date();
+        }
       }
     });
 
