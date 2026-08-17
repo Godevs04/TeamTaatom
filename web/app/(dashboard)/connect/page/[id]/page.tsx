@@ -44,8 +44,9 @@ import { ConnectContentBlocks } from "@/components/connect/connect-content-block
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "@/context/confirm-context";
 
-type Tab = "website" | "subscription";
+type Tab = "website" | "subscription" | "community" | "buy" | "shop";
 
 type PendingBuyOrder = {
   orderId?: string;
@@ -56,6 +57,7 @@ type PendingBuyOrder = {
 const PENDING_BUY_KEY = "taatom_pending_buy_order";
 
 export default function ConnectPageDetailPage() {
+  const confirm = useConfirm();
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -287,7 +289,14 @@ export default function ConnectPageDetailPage() {
   const handleCancelSub = async () => {
     const subId = subQ.data?.subscription?._id;
     if (!subId) return;
-    if (!confirm("Are you sure you want to cancel? You will retain access until the end of the current billing period.")) return;
+    const ok = await confirm({
+      title: "Cancel Subscription?",
+      description: "Are you sure you want to cancel? You will retain access until the end of the current billing period.",
+      confirmText: "Cancel Subscription",
+      cancelText: "Keep Subscription",
+      variant: "warning",
+    });
+    if (!ok) return;
     try {
       await connectCancelSubscription(subId);
       toast.success(isCommunityPage ? "Your purchase has been cancelled." : "Your subscription has been cancelled.");
@@ -299,7 +308,14 @@ export default function ConnectPageDetailPage() {
 
   const handleDelete = async () => {
     if (!page || !isOwner) return;
-    if (!confirm("Delete this Connect page permanently?")) return;
+    const ok = await confirm({
+      title: "Delete Connect Page?",
+      description: "Are you sure you want to delete this Connect page permanently? This action cannot be undone.",
+      confirmText: "Delete Page",
+      cancelText: "Cancel",
+      variant: "destructive",
+    });
+    if (!ok) return;
     try {
       await connectDeletePage(page._id);
       toast.success("Page deleted.");
@@ -311,7 +327,14 @@ export default function ConnectPageDetailPage() {
 
   const handleArchive = async () => {
     if (!page || !isOwner) return;
-    if (!confirm("Archive this page? You can restore it from Archived pages.")) return;
+    const ok = await confirm({
+      title: "Archive Connect Page?",
+      description: "Are you sure you want to archive this page? You can restore it later from Archived pages.",
+      confirmText: "Archive Page",
+      cancelText: "Cancel",
+      variant: "warning",
+    });
+    if (!ok) return;
     setArchiveBusy(true);
     try {
       await connectArchivePage(page._id);

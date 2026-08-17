@@ -1,7 +1,7 @@
 import { api } from "./axios";
 import type { Post } from "../types/post";
 import type { User } from "../types/user";
-import type { Chat, ChatMessage } from "../types/chat";
+import type { Chat, ChatAttachment, ChatMessage } from "../types/chat";
 import type { Notification } from "../types/notification";
 import type { PaginationCursor, PaginationOffset } from "../types/api";
 
@@ -117,9 +117,25 @@ export async function toggleLike(postId: string) {
   return res.data as { isLiked: boolean; likesCount: number; message?: string };
 }
 
+export type PostLiker = Pick<User, "_id" | "fullName" | "username" | "profilePic">;
+
+export async function getPostLikers(postId: string, page = 1, limit = 20) {
+  const res = await api.get(`/posts/${postId}/likes`, { params: { page, limit } });
+  return res.data as {
+    likers: PostLiker[];
+    pagination: { total: number; page: number; limit: number; pages: number };
+  };
+}
+
 export async function addComment(postId: string, text: string) {
   const res = await api.post(`/posts/${postId}/comments`, { text });
   return res.data;
+}
+
+/** Backend allows the comment author or the post owner to delete a comment. */
+export async function deleteComment(postId: string, commentId: string) {
+  const res = await api.delete(`/posts/${postId}/comments/${commentId}`);
+  return res.data as { message?: string; commentsCount?: number };
 }
 
 export async function deletePost(postId: string) {
@@ -130,6 +146,34 @@ export async function deletePost(postId: string) {
 export async function archivePost(postId: string) {
   const res = await api.patch(`/posts/${postId}/archive`);
   return res.data as { message?: string; post?: Post };
+}
+
+/**
+ * Records that a post was shared. Uses optional auth on the backend, so this also
+ * counts shares from logged-out visitors.
+ */
+export async function incrementShareCount(postId: string) {
+  const res = await api.post(`/posts/${postId}/share`);
+  return res.data as { message: string; sharesCount: number };
+}
+
+/**
+ * Edits a published post. The backend controller reads only `caption` from the body
+ * (hashtags are re-extracted from it server-side), so the caption is the only
+ * editable field — sending anything else would be silently ignored.
+ */
+export async function updatePost(postId: string, caption: string) {
+  const res = await api.patch(`/posts/${postId}`, { caption });
+  return res.data as { message?: string; post?: Post };
+}
+
+/**
+ * Flips comments on/off for a post. The backend endpoint is a pure toggle with no
+ * request body and is restricted to the post owner; it returns the resulting state.
+ */
+export async function toggleComments(postId: string) {
+  const res = await api.patch(`/posts/${postId}/toggle-comments`);
+  return res.data as { message?: string; commentsDisabled: boolean };
 }
 
 export async function hidePost(postId: string) {
@@ -237,13 +281,21 @@ export async function getFollowRequests() {
   return res.data as { followRequests: import("../types/user").FollowRequest[] };
 }
 
-export async function approveFollowRequest(requestId: string) {
-  const res = await api.post(`/profile/follow-requests/${requestId}/approve`);
+/**
+ * Despite the `:requestId` route segment and this being "approve a request",
+ * the backend matches on the *requester's user id*, not the followRequests
+ * subdocument's own `_id` (see profileController.js's own comment on
+ * approveFollowRequest: "requestId is actually the requester's user ID").
+ * Pass `FollowRequest.user._id`, never `FollowRequest._id`.
+ */
+export async function approveFollowRequest(requesterUserId: string) {
+  const res = await api.post(`/profile/follow-requests/${requesterUserId}/approve`);
   return res.data as { message?: string; followersCount?: number; alreadyProcessed?: boolean };
 }
 
-export async function rejectFollowRequest(requestId: string) {
-  const res = await api.post(`/profile/follow-requests/${requestId}/reject`);
+/** Same requester-id-not-subdocument-id quirk as approveFollowRequest above. */
+export async function rejectFollowRequest(requesterUserId: string) {
+  const res = await api.post(`/profile/follow-requests/${requesterUserId}/reject`);
   return res.data as { message?: string };
 }
 
@@ -259,6 +311,18 @@ export async function getRouteAccessRequests() {
   return { requests: data.requests ?? [] };
 }
 
+/**
+ * Entries are populated User docs (fullName/username/profilePic/email) — a flat
+ * user, not a RouteAccessRequest wrapper, so there is no requestedAt timestamp.
+ */
+export type RouteAccessApprovedUser = Pick<User, "_id" | "fullName" | "username" | "profilePic" | "email">;
+
+export async function getApprovedUsers() {
+  const res = await api.get("/profile/route-access/approved");
+  const data = res.data as { approvedUsers?: RouteAccessApprovedUser[] };
+  return { approvedUsers: data.approvedUsers ?? [] };
+}
+
 export async function approveRouteAccess(requestId: string) {
   const res = await api.post(`/profile/route-access/requests/${requestId}/approve`);
   return res.data as { message?: string };
@@ -272,6 +336,12 @@ export async function rejectRouteAccess(requestId: string) {
 export async function requestRouteAccess(userId: string) {
   const res = await api.post(`/profile/${userId}/route-access/request`);
   return res.data as { message?: string; status?: "pending" | "approved" };
+}
+
+/** Takes the approved *user's* id — not a request id, unlike approve/reject above. */
+export async function revokeRouteAccess(userId: string) {
+  const res = await api.delete(`/profile/${userId}/route-access`);
+  return res.data as { message?: string };
 }
 
 export type TravelMapLocation = {
@@ -359,6 +429,18 @@ export async function createPostShortUrl(postId: string): Promise<string | null>
   }
 }
 
+/** Same endpoint as createPostShortUrl, branching server-side on journeyId vs postId. */
+export async function createJourneyShortUrl(journeyId: string): Promise<string | null> {
+  try {
+    const res = await api.post("/short-url/create", { journeyId });
+    const body = res.data as { data?: { shortUrl?: string } };
+    const url = body.data?.shortUrl;
+    return typeof url === "string" && url.length > 0 ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function createPost(form: FormData, onUploadProgress?: (pct: number) => void) {
   const res = await api.post("/posts", form, {
     headers: { "Content-Type": undefined } as unknown as Record<string, string>,
@@ -387,6 +469,42 @@ export async function createShort(form: FormData, onUploadProgress?: (pct: numbe
 export async function searchPosts(q: string, page = 1, limit = 20) {
   const res = await api.get(`/search/posts?query=${encodeURIComponent(q)}&page=${page}&limit=${limit}`);
   return res.data as { posts: Post[]; pagination?: PaginationOffset };
+}
+
+/**
+ * Substring match against a post's location.address. Public, like the other
+ * search endpoints. Note the query param is `location`, not `query`/`q`.
+ */
+export async function searchByLocation(location: string, page = 1, limit = 20) {
+  const res = await api.get(
+    `/search/location?location=${encodeURIComponent(location)}&page=${page}&limit=${limit}`
+  );
+  return res.data as { posts: Post[]; pagination?: PaginationOffset };
+}
+
+export type MentionUser = {
+  _id: string;
+  username: string;
+  fullName?: string;
+  profilePic?: string;
+  displayName?: string;
+};
+
+/**
+ * Autocomplete candidates for an @mention.
+ *
+ * Two backend behaviours worth knowing: only `isVerified` users are returned
+ * (mentions are verified-only by design), and a query that fails the server's
+ * username rules — notably anything shorter than 3 characters — comes back as an
+ * empty list rather than an error. An empty result is therefore normal, not a
+ * failure state.
+ */
+export async function searchUsersForMention(query: string, limit = 10): Promise<MentionUser[]> {
+  const q = query.trim();
+  if (q.length === 0) return [];
+  const res = await api.get("/mentions/search", { params: { q, limit } });
+  const data = res.data as { users?: MentionUser[] };
+  return data.users ?? [];
 }
 
 // Hashtags (parity with mobile services/hashtags)
@@ -547,8 +665,35 @@ export async function getChatMessages(otherUserId: string, page = 1, limit = 50)
   return res.data as { messages: ChatMessage[] };
 }
 
-export async function sendChatMessage(otherUserId: string, text: string) {
-  const res = await api.post(`/chat/${otherUserId}/messages`, { text });
+/**
+ * Uploads chat attachments and returns their metadata. Sending is a separate
+ * second call: pass the returned attachments to sendChatMessage/sendRoomMessage.
+ *
+ * Backend limits (multer `chatUpload`): max 5 files, 10MB each, restricted to the
+ * mimetypes in CHAT_ATTACHMENT_ACCEPT. Uploads get a long timeout since the
+ * shared client's 30s default is not enough for several large files.
+ */
+export async function uploadChatMedia(files: File[]) {
+  const form = new FormData();
+  for (const file of files) form.append("files", file);
+  form.append("metadata", JSON.stringify(files.map((f) => ({ name: f.name }))));
+  const res = await api.post("/chat/upload", form, {
+    // Leave Content-Type unset so the browser adds the multipart boundary.
+    headers: { "Content-Type": undefined } as unknown as Record<string, string>,
+    timeout: 600_000,
+  });
+  return res.data as { attachments: ChatAttachment[] };
+}
+
+export async function sendChatMessage(
+  otherUserId: string,
+  text: string,
+  attachments?: ChatAttachment[]
+) {
+  const body: { text?: string; attachments?: ChatAttachment[] } = {};
+  if (text) body.text = text;
+  if (attachments && attachments.length > 0) body.attachments = attachments;
+  const res = await api.post(`/chat/${otherUserId}/messages`, body);
   return res.data as { message: ChatMessage };
 }
 
@@ -569,9 +714,29 @@ export async function getRoomMessages(roomId: string, page = 1, limit = 50) {
   return res.data as { messages: ChatMessage[] };
 }
 
-export async function sendRoomMessage(roomId: string, text: string) {
-  const res = await api.post(`/chat/room/${roomId}/messages`, { text });
+export async function sendRoomMessage(
+  roomId: string,
+  text: string,
+  attachments?: ChatAttachment[]
+) {
+  const body: { text?: string; attachments?: ChatAttachment[] } = {};
+  if (text) body.text = text;
+  if (attachments && attachments.length > 0) body.attachments = attachments;
+  const res = await api.post(`/chat/room/${roomId}/messages`, body);
   return res.data as { message: ChatMessage };
+}
+
+/**
+ * Deletes an entire chat conversation for every participant.
+ *
+ * Despite the `/room/` path segment this is not group-only: the backend looks the
+ * chat up by its Chat document `_id`, checks the caller is a participant and
+ * deletes it, with no branching on chat type. So it applies to 1:1 chats too, and
+ * `chatId` is always the chat's `_id` — never the other user's id.
+ */
+export async function deleteChatRoom(chatId: string) {
+  const res = await api.delete(`/chat/room/${chatId}`);
+  return res.data as { success?: boolean; message?: string };
 }
 
 export async function markRoomMessagesSeen(roomId: string) {
@@ -581,6 +746,21 @@ export async function markRoomMessagesSeen(roomId: string) {
 
 export async function clearChat(otherUserId: string) {
   const res = await api.delete(`/chat/${otherUserId}/messages`);
+  return res.data as { success?: boolean };
+}
+
+export async function editChatMessage(chatId: string, messageId: string, text: string) {
+  const res = await api.patch(`/chat/${chatId}/messages/${messageId}`, { text });
+  return res.data as { message: ChatMessage };
+}
+
+export async function deleteChatMessage(chatId: string, messageId: string) {
+  const res = await api.delete(`/chat/${chatId}/messages/${messageId}`);
+  return res.data as { success?: boolean; messageId: string; isDeleted: boolean };
+}
+
+export async function markMessageDelivered(chatId: string, messageId: string) {
+  const res = await api.post(`/chat/${chatId}/messages/${messageId}/delivered`);
   return res.data as { success?: boolean };
 }
 
@@ -670,9 +850,25 @@ export async function reorderCollectionPosts(collectionId: string, postIds: stri
 }
 
 // Activity
-export async function getActivity(page = 1, limit = 20) {
-  const res = await api.get("/activity", { params: { page, limit } });
-  return res.data as { activities: Array<{ _id: string; type: string; user?: User; post?: Post; createdAt?: string; [k: string]: unknown }>; pagination?: PaginationOffset };
+export type ActivityType = "post_created" | "post_liked" | "comment_added" | "user_followed" | "collection_created";
+
+export async function getActivity(page = 1, limit = 30, type?: ActivityType) {
+  const params: Record<string, string | number> = { page, limit };
+  if (type) params.type = type;
+  const res = await api.get("/activity", { params });
+  return res.data as {
+    activities: Array<{
+      _id: string;
+      type: ActivityType | string;
+      user?: User;
+      targetUser?: User;
+      post?: Post;
+      collection?: Pick<Collection, "_id" | "name" | "coverImage">;
+      createdAt?: string;
+      [k: string]: unknown;
+    }>;
+    pagination?: PaginationOffset;
+  };
 }
 
 /** Search for a place (Google Places) - for detect place on create post/short */
@@ -771,5 +967,23 @@ export async function saveUserInterests(interests: string[]) {
 export async function getGlobalSubscriptionStatus(): Promise<{ isPremium: boolean; subscription: unknown }> {
   const res = await api.get("/subscription/status");
   return res.data as { isPremium: boolean; subscription: unknown };
+}
+
+export type FeatureFlag = {
+  name: string;
+  enabled: boolean;
+  variant?: string | null;
+  metadata?: Record<string, unknown>;
+};
+
+/**
+ * Mirrors mobile's featureFlags.ts fetch, but sends platform: 'web' — the
+ * backend models targetPlatforms as ['ios', 'android', 'web'], a real
+ * distinct value, not a guess.
+ */
+export async function getFeatureFlags(): Promise<FeatureFlag[]> {
+  const res = await api.get("/feature-flags", { params: { platform: "web" } });
+  const data = res.data as { flags?: FeatureFlag[] };
+  return data.flags ?? [];
 }
 

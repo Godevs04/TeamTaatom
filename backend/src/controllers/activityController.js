@@ -11,7 +11,7 @@ const getActivityFeed = async (req, res) => {
   try {
     const { 
       page = 1, 
-      limit = 20, 
+      limit = 30, 
       type,
       includeOwn = true 
     } = req.query;

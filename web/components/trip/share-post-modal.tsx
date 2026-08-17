@@ -13,11 +13,15 @@ import {
 } from "lucide-react";
 import type { Post } from "../../types/post";
 import type { User } from "../../types/user";
+import type { Chat, ConnectPageRef } from "../../types/chat";
 import {
   createPostShortUrl,
   getSuggestedUsers,
+  incrementShareCount,
+  listChats,
   searchUsers,
   sendChatMessage,
+  sendRoomMessage,
 } from "../../lib/api";
 import {
   buildPostShareChatMessage,
@@ -95,6 +99,17 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
     enabled: open && phase === "chat" && debouncedSearch.length >= 2,
   });
 
+  const chatsQuery = useQuery({
+    queryKey: ["chat", "list"],
+    queryFn: listChats,
+    enabled: open && phase === "chat",
+  });
+
+  const groupChats: Chat[] = React.useMemo(
+    () => (chatsQuery.data?.chats ?? []).filter((c) => c.type === "connect_page"),
+    [chatsQuery.data?.chats]
+  );
+
   const listUsers: User[] = React.useMemo(() => {
     if (debouncedSearch.length >= 2) {
       return searchQueryResult.data?.users ?? [];
@@ -114,11 +129,23 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
   const listLoading =
     phase === "chat" && (debouncedSearch.length >= 2 ? searchQueryResult.isLoading : suggestedQuery.isLoading);
 
+  /**
+   * Fire-and-forget share tracking. Called once per *completed* share, never on
+   * modal open or on a cancelled share. Failures stay silent: the share itself
+   * already succeeded and the count is only telemetry.
+   */
+  const trackShare = React.useCallback(() => {
+    void incrementShareCount(post._id).catch(() => {});
+  }, [post._id]);
+
   const sendMutation = useMutation({
-    mutationFn: (userId: string) =>
-      sendChatMessage(userId, buildPostShareChatMessage(post, displayUrl)),
+    mutationFn: (target: { kind: "user" | "room"; id: string }) => {
+      const text = buildPostShareChatMessage(post, displayUrl);
+      return target.kind === "room" ? sendRoomMessage(target.id, text) : sendChatMessage(target.id, text);
+    },
     onSuccess: () => {
       toast.success("Post sent in chat");
+      trackShare();
       void qc.invalidateQueries({ queryKey: ["chat"] });
       onClose();
     },
@@ -129,6 +156,7 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
     try {
       await navigator.clipboard.writeText(displayUrl);
       toast.success("Link copied");
+      trackShare();
     } catch {
       toast.error("Could not copy link");
     }
@@ -142,13 +170,16 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
           text: shareText,
           url: displayUrl,
         });
+        trackShare();
         onClose();
         return;
       } catch (e: unknown) {
         const err = e as { name?: string };
+        // User dismissed the sheet — not a share, and no fallback copy either.
         if (err?.name === "AbortError") return;
       }
     }
+    // Falls through to copyLink, which does its own tracking, so no double count.
     await copyLink();
   };
 
@@ -158,6 +189,7 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
       "_blank",
       "noopener,noreferrer"
     );
+    trackShare();
     onClose();
   };
 
@@ -168,6 +200,7 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
       "_blank",
       "noopener,noreferrer"
     );
+    trackShare();
     onClose();
   };
 
@@ -302,16 +335,51 @@ export function SharePostModal({ open, onClose, post, currentUserId }: SharePost
                 <div className="flex justify-center py-12">
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 </div>
-              ) : visibleUsers.length === 0 ? (
-                <p className="px-4 py-10 text-center text-sm text-slate-500 dark:text-zinc-400">No users found</p>
+              ) : visibleUsers.length === 0 && (debouncedSearch.length >= 2 || groupChats.length === 0) ? (
+                <p className="px-4 py-10 text-center text-sm text-slate-500 dark:text-zinc-400">No chats found</p>
               ) : (
                 <ul className="divide-y divide-slate-100 dark:divide-zinc-800">
+                  {debouncedSearch.length < 2
+                    ? groupChats.map((chat) => {
+                        const cpRef =
+                          chat.connectPageId && typeof chat.connectPageId === "object"
+                            ? (chat.connectPageId as ConnectPageRef)
+                            : null;
+                        const groupName = cpRef?.name ?? "Group Chat";
+                        return (
+                          <li key={chat._id}>
+                            <button
+                              type="button"
+                              disabled={sendMutation.isPending}
+                              onClick={() => sendMutation.mutate({ kind: "room", id: chat._id })}
+                              className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50 disabled:opacity-60 dark:hover:bg-zinc-800/80"
+                            >
+                              <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-primary/10 text-sm font-semibold text-primary">
+                                {cpRef?.profileImage ? (
+                                  /* eslint-disable-next-line @next/next/no-img-element */
+                                  <img src={cpRef.profileImage} alt="" className="h-full w-full object-cover" />
+                                ) : (
+                                  groupName.charAt(0).toUpperCase()
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate font-semibold text-slate-900 dark:text-zinc-50">{groupName}</p>
+                                <p className="truncate text-xs text-slate-500 dark:text-zinc-400">Group</p>
+                              </div>
+                              {sendMutation.isPending ? (
+                                <Loader2 className="h-5 w-5 shrink-0 animate-spin text-primary" />
+                              ) : null}
+                            </button>
+                          </li>
+                        );
+                      })
+                    : null}
                   {visibleUsers.map((u) => (
                     <li key={u._id}>
                       <button
                         type="button"
                         disabled={sendMutation.isPending}
-                        onClick={() => sendMutation.mutate(u._id)}
+                        onClick={() => sendMutation.mutate({ kind: "user", id: u._id })}
                         className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50 disabled:opacity-60 dark:hover:bg-zinc-800/80"
                       >
                         <div className="h-11 w-11 shrink-0 overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800">

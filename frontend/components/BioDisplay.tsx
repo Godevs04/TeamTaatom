@@ -49,15 +49,19 @@ const styles = StyleSheet.create({
   container: {
     marginTop: 8,
     marginBottom: 8,
+    width: '100%',
   },
   bioText: {
     fontSize: 14,
     lineHeight: 20,
     textAlign: 'center',
+    flexShrink: 1,
   },
   moreButton: {
     marginTop: 4,
     alignSelf: 'center',
+    paddingVertical: 2,
+    paddingHorizontal: 4,
   },
   moreText: {
     fontSize: 12,

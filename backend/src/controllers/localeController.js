@@ -5,6 +5,7 @@ const { buildMediaKey, uploadObject, deleteObject } = require('../services/stora
 const { generateSignedUrl } = require('../services/mediaService');
 const { sendSuccess, sendError } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
+const { escapeRegex } = require('../utils/regexEscape');
 
 const MAX_LOCALE_IMAGES = 10;
 
@@ -155,11 +156,12 @@ const getLocales = async (req, res) => {
     // Build search conditions
     const searchConditions = [];
     if (search) {
+      const escapedSearch = escapeRegex(search);
       searchConditions.push(
-        { name: { $regex: search, $options: 'i' } },
-        { city: { $regex: search, $options: 'i' } },
-        { country: { $regex: search, $options: 'i' } },
-        { stateProvince: { $regex: search, $options: 'i' } }
+        { name: { $regex: escapedSearch, $options: 'i' } },
+        { city: { $regex: escapedSearch, $options: 'i' } },
+        { country: { $regex: escapedSearch, $options: 'i' } },
+        { stateProvince: { $regex: escapedSearch, $options: 'i' } }
       );
     }
     

@@ -159,5 +159,17 @@ export function isUnauthorizedError(error: unknown): boolean {
   return isAxiosError(error) && error.response?.status === 401;
 }
 
+/** True when the API forbids the action (blocked chat, missing permission). */
+export function isForbiddenError(error: unknown): boolean {
+  if (!isAxiosError(error)) return false;
+  if (error.response?.status === 403) return true;
+  const data = error.response?.data as { code?: string; error?: { code?: string } | string } | undefined;
+  const nested = data?.error;
+  const code =
+    data?.code ??
+    (typeof nested === "object" && nested !== null ? nested.code : undefined);
+  return code === "AUTH_1006";
+}
+
 /** Alias for getFriendlyErrorMessage — use for any API error (feed, settings, etc.). */
 export const getUserFacingErrorMessage = getFriendlyErrorMessage;

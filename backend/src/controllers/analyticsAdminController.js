@@ -4,6 +4,7 @@ const Post = require('../models/Post');
 const logger = require('../utils/logger');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const { cacheWrapper, CACHE_TTL } = require('../utils/cache');
+const { escapeRegex } = require('../utils/regexEscape');
 
 /**
  * Get analytics summary (KPIs: DAU, MAU, engagement rate, crash count)
@@ -347,9 +348,10 @@ const getRecentEvents = async (req, res) => {
     }
     
     if (search) {
+      const escapedSearch = escapeRegex(search);
       query.$or = [
-        { event: { $regex: search, $options: 'i' } },
-        { 'properties.feature_name': { $regex: search, $options: 'i' } }
+        { event: { $regex: escapedSearch, $options: 'i' } },
+        { 'properties.feature_name': { $regex: escapedSearch, $options: 'i' } }
       ];
     }
     

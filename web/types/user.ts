@@ -20,6 +20,7 @@ export type User = {
   interests?: string[];
   languagesKnown?: string[];
   nationality?: string;
+  currentLocation?: string;
   /** Server-driven: bump when onboarding must run again for all users below this version */
   profileOnboardingVersion?: number;
   /** When viewing another user's profile */

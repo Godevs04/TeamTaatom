@@ -19,13 +19,24 @@ const getFeatureFlags = async (req, res) => {
         if (flag.startDate && now < flag.startDate) return false;
         if (flag.endDate && now > flag.endDate) return false;
 
+        // targetPlatforms/targetUsers are typed Mixed on the schema (an array,
+        // or a convention string like 'all'/'beta'/'premium' that nothing
+        // resolves against a cohort) and some seeded documents never had the
+        // schema's [] default persisted at all (inserted via insertMany(),
+        // which does not apply defaults the way a single .create() does).
+        // Treat anything that isn't a real array as "no restriction" -- the
+        // same effective meaning as [], and the only sane reading of a schema
+        // whose own default is the string 'all'.
+        const targetPlatforms = Array.isArray(flag.targetPlatforms) ? flag.targetPlatforms : [];
+        const targetUsers = Array.isArray(flag.targetUsers) ? flag.targetUsers : [];
+
         // Check platform targeting
-        if (flag.targetPlatforms.length > 0 && !flag.targetPlatforms.includes(platform)) {
+        if (targetPlatforms.length > 0 && !targetPlatforms.includes(platform)) {
           return false;
         }
 
         // Check user targeting
-        if (flag.targetUsers.length > 0 && !flag.targetUsers.includes(userId)) {
+        if (targetUsers.length > 0 && !targetUsers.includes(userId?.toString())) {
           return false;
         }
 
@@ -45,7 +56,14 @@ const getFeatureFlags = async (req, res) => {
         name: flag.name,
         enabled: flag.enabled,
         variant: flag.variant,
-        metadata: flag.metadata ? Object.fromEntries(flag.metadata) : {},
+        // metadata is schema-typed as Map, but .find().lean() returns Map-typed
+        // fields as a plain object, not a Map instance (confirmed live on
+        // mongoose 8.22.1: typeof 'object', instanceof Map === false,
+        // constructor.name 'Object') -- it's already the right shape to return
+        // as-is. Object.fromEntries() expects an iterable of [key, value]
+        // pairs, which a plain object is not, so it threw on any flag with a
+        // real (non-empty-truthy) metadata value.
+        metadata: flag.metadata ?? {},
       }));
 
     res.json({

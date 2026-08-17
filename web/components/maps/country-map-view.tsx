@@ -84,22 +84,43 @@ export function CountryMapView({
               pointColor="#FF5722"
             />
           ) : (
-            locationsToLngLat(locations, countryName).map(({ loc, coord, index }) => (
-              <MapMarker key={`${loc.name}-${index}`} longitude={coord[0]} latitude={coord[1]}>
-                <MarkerContent>
-                  <ScoreMarker score={loc.score} />
-                </MarkerContent>
-                <MarkerPopup closeButton>
-                  <div className="min-w-[140px] rounded-xl border bg-card p-3 shadow-lg">
-                    <p className="font-semibold text-foreground">{loc.name}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">Score: {loc.score}</p>
-                    {loc.caption ? (
-                      <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{loc.caption}</p>
-                    ) : null}
-                  </div>
-                </MarkerPopup>
-              </MapMarker>
-            ))
+            locationsToLngLat(locations, countryName).map(({ loc, coord, index }) => {
+              const isLinkable = Boolean(loc.postId) && !loc.isPostDeleted;
+              return (
+                <MapMarker key={`${loc.name}-${index}`} longitude={coord[0]} latitude={coord[1]}>
+                  <MarkerContent>
+                    <ScoreMarker score={loc.score} />
+                  </MarkerContent>
+                  <MarkerPopup closeButton>
+                    <div className="min-w-[140px] max-w-[200px] rounded-xl border bg-card p-3 shadow-lg">
+                      {loc.imageUrl ? (
+                        <div className="mb-2 h-20 w-full overflow-hidden rounded-lg bg-muted">
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={loc.imageUrl}
+                            alt={loc.name}
+                            className="h-full w-full object-cover"
+                          />
+                        </div>
+                      ) : null}
+                      <p className="font-semibold text-foreground">{loc.name}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">Score: {loc.score}</p>
+                      {loc.caption ? (
+                        <p className="mt-1 text-xs text-muted-foreground line-clamp-2">{loc.caption}</p>
+                      ) : null}
+                      {isLinkable ? (
+                        <Link
+                          href={`/trip/${loc.postId}`}
+                          className="mt-2 inline-block text-xs font-medium text-sky-600 hover:underline dark:text-sky-400"
+                        >
+                          View post →
+                        </Link>
+                      ) : null}
+                    </div>
+                  </MarkerPopup>
+                </MapMarker>
+              );
+            })
           )}
         </Map>
       </div>

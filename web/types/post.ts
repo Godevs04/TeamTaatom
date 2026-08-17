@@ -35,6 +35,8 @@ export type Post = {
   likesCount?: number;
   commentsCount?: number;
   viewsCount?: number;
+  /** Post owner has turned commenting off */
+  commentsDisabled?: boolean;
 
   // location (backend stores in location + detectedPlace; some APIs may flatten to address/latitude/longitude)
   address?: string;

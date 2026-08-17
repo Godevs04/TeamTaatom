@@ -1,6 +1,5 @@
 const { projectPointToSegment } = require('../utils/projection');
 const Road = require('../models/Road');
-const mongoose = require('mongoose');
 const ImportedRegion = require('../models/ImportedRegion');
 
 let mockReadyState = 0;

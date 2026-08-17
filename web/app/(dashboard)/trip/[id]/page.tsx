@@ -7,8 +7,12 @@ import { getPostDisplayLocation, getPostCoordinates } from "../../../../lib/post
 import { TripLocationMap } from "../../../../components/maps/trip-location-map";
 import { fetchWithAuth } from "../../../../lib/server-fetch";
 import { TripComments } from "../../../../components/trip/comments";
-import { CaptionWithLinks } from "../../../../components/caption-with-links";
+import { ExpandableText } from "../../../../components/ui/expandable-text";
+import { PostDetailMenu } from "../../../../components/trip/post-detail-menu";
+import { PostDetailActionBar } from "../../../../components/trip/post-detail-action-bar";
+import { PostDetailMedia } from "../../../../components/trip/post-detail-media";
 import { createMetadata } from "../../../../lib/seo";
+import { MapPin, Music } from "lucide-react";
 
 async function fetchPost(id: string): Promise<Post | null> {
   const res = await fetchWithAuth(`${API_V1_ABS}/posts/${id}`);
@@ -23,7 +27,7 @@ export async function generateMetadata({ params }: { params: { id?: string } }):
   const post = await fetchPost(id);
   const title = post?.caption ? post.caption.slice(0, 60) : "Trip";
   const description = getPostDisplayLocation(post) !== "Unknown location" ? getPostDisplayLocation(post) : "Trip on Taatom";
-  const image = post?.imageUrl || post?.thumbnailUrl || post?.mediaUrl;
+  const image = post?.imageUrl || post?.thumbnailUrl;
   return createMetadata({
     title,
     description,
@@ -57,6 +61,9 @@ export default async function TripDetailPage({ params }: { params: { id: string 
     );
   }
 
+  const isShort = post.type === "short";
+  const videoUrl = post.videoUrl || post.mediaUrl || "";
+  const posterUrl = post.imageUrl || post.thumbnailUrl || undefined;
   const media = post.imageUrl || post.thumbnailUrl || post.mediaUrl || "";
   const user = post.user;
   const imagesArray = post.images ?? post.imageUrls;
@@ -66,82 +73,104 @@ export default async function TripDetailPage({ params }: { params: { id: string 
   const coords = getPostCoordinates(post);
   const hasCoords = coords !== null;
   const audioUrl = post.song?.s3Url;
-  const primaryImageUrl = images[0] || "";
+  const locationText = getPostDisplayLocation(post);
 
   return (
-    <div className="mx-auto grid w-full max-w-3xl gap-4 md:gap-8">
-      <div className="flex flex-col items-start gap-4 sm:flex-row sm:justify-between sm:gap-6">
-        <div className="min-w-0 flex-1">
-          <CaptionWithLinks
-            text={post.caption || "Trip"}
-            as="h1"
-            className="text-balance text-2xl font-semibold tracking-tight text-slate-900 dark:text-zinc-50 sm:text-3xl"
-            linkClassName="text-primary"
-          />
-          <p className="mt-2 text-sm text-muted-foreground">{getPostDisplayLocation(post)}</p>
-          <div className="mt-4 flex flex-wrap items-center gap-3">
-            <div className="h-10 w-10 overflow-hidden rounded-full bg-muted">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={user?.profilePic || ""} alt={user?.fullName || "User"} className="h-full w-full object-cover" />
-            </div>
-            <div className="leading-tight">
-              <Link href={`/profile/${user?._id}`} className="text-sm font-semibold hover:underline">
+    <div className="mx-auto grid w-full max-w-4xl gap-6 pb-16">
+      {/* Top Header Card */}
+      <div className="flex flex-col gap-4 rounded-3xl border border-slate-200/80 bg-white p-5 shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90 sm:p-6">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <Link href={`/profile/${user?._id}`} className="group relative block h-12 w-12 shrink-0 overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-200/80 dark:bg-zinc-800 dark:ring-zinc-700/80">
+              {user?.profilePic ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img
+                  src={user.profilePic}
+                  alt={user.fullName || "User"}
+                  className="h-full w-full object-cover transition group-hover:scale-105"
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center font-semibold text-primary">
+                  {(user?.fullName || user?.username || "T").charAt(0).toUpperCase()}
+                </div>
+              )}
+            </Link>
+            <div className="min-w-0">
+              <Link href={`/profile/${user?._id}`} className="truncate block font-semibold text-slate-900 hover:underline dark:text-zinc-50">
                 {user?.fullName || user?.username || "Traveler"}
               </Link>
-              <div className="text-xs text-muted-foreground">@{user?.username || "user"}</div>
-            </div>
-            <div className="flex-1" />
-            <div className="text-xs font-semibold text-muted-foreground">
-              {post.likesCount ?? 0} likes · {post.commentsCount ?? 0} comments
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="overflow-hidden rounded-3xl border bg-card shadow-card">
-        <div className="aspect-[16/10] w-full bg-muted">
-          {primaryImageUrl ? (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img src={primaryImageUrl} alt={post.caption || "Trip"} className="h-full w-full object-cover" />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-muted-foreground">
-              <span className="text-sm">{post.caption || "Trip"}</span>
-            </div>
-          )}
-        </div>
-        {images.length > 1 ? (
-          <div className="grid grid-cols-2 gap-2 p-2 sm:grid-cols-4 sm:p-3">
-            {images.slice(0, 8).map((src) => (
-              <div key={src} className="aspect-square overflow-hidden rounded-xl bg-muted">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={src} alt="Trip media" className="h-full w-full object-cover" loading="lazy" />
+              <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
+                <span>@{user?.username || "user"}</span>
+                {locationText && locationText !== "Unknown location" && (
+                  <>
+                    <span>·</span>
+                    <span className="inline-flex items-center gap-0.5 truncate text-primary font-medium">
+                      <MapPin className="h-3 w-3" />
+                      {locationText}
+                    </span>
+                  </>
+                )}
               </div>
-            ))}
+            </div>
           </div>
+
+          <PostDetailMenu post={post} />
+        </div>
+
+        <PostDetailMedia
+          images={images}
+          caption={post.caption}
+          isShort={isShort}
+          videoUrl={videoUrl}
+          posterUrl={posterUrl}
+        />
+
+        <PostDetailActionBar post={post} />
+
+        {post.caption ? (
+          <ExpandableText
+            text={post.caption}
+            maxLines={4}
+            charLimit={220}
+            className="text-base text-slate-800 dark:text-zinc-200"
+            linkClassName="text-primary font-medium"
+          />
         ) : null}
       </div>
 
+      {/* Audio / Location Details */}
       {(audioUrl || hasCoords) && (
-        <div className="grid gap-4 md:grid-cols-2 md:gap-6">
+        <div className="grid gap-4 md:grid-cols-2">
           {audioUrl ? (
-            <div className="rounded-3xl border bg-card p-4 shadow-card sm:p-5">
-              <h2 className="text-lg font-semibold">Audio</h2>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {post.song?.title ? `${post.song.title}${post.song.artist ? ` · ${post.song.artist}` : ""}` : "Attached track"}
-              </p>
+            <div className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
+              <div className="flex items-center gap-2 text-primary font-medium text-sm">
+                <Music className="h-4 w-4" />
+                Attached Soundtrack
+              </div>
+              <h3 className="mt-1 font-semibold text-slate-900 dark:text-zinc-50">
+                {post.song?.title || "Track"}
+              </h3>
+              {post.song?.artist && (
+                <p className="text-xs text-slate-500 dark:text-zinc-400">{post.song.artist}</p>
+              )}
               <audio className="mt-4 w-full" controls preload="none" src={audioUrl} />
             </div>
           ) : null}
 
           {coords ? (
-            <div className="rounded-3xl border bg-card p-4 shadow-card sm:p-5">
-              <h2 className="text-lg font-semibold">Location</h2>
-              <p className="mt-1 text-sm text-muted-foreground">{getPostDisplayLocation(post)}</p>
-              <div className="mt-4">
+            <div className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
+              <div className="flex items-center gap-2 text-primary font-medium text-sm">
+                <MapPin className="h-4 w-4" />
+                Location
+              </div>
+              <h3 className="mt-1 font-semibold text-slate-900 dark:text-zinc-50 truncate">
+                {locationText}
+              </h3>
+              <div className="mt-4 overflow-hidden rounded-2xl border border-slate-100 dark:border-zinc-800">
                 <TripLocationMap
                   latitude={coords.lat}
                   longitude={coords.lng}
-                  label={getPostDisplayLocation(post)}
+                  label={locationText}
                 />
               </div>
             </div>
@@ -149,8 +178,14 @@ export default async function TripDetailPage({ params }: { params: { id: string 
         </div>
       )}
 
-      <section id="comments" className="space-y-3">
-        <TripComments postId={id} />
+      {/* Comments Section */}
+      <section id="comments" className="space-y-4">
+        <div className="rounded-3xl border border-slate-200/80 bg-white p-5 shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90 sm:p-6">
+          <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-zinc-50">
+            Comments
+          </h2>
+          <TripComments postId={id} />
+        </div>
       </section>
     </div>
   );

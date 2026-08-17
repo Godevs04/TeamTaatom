@@ -30,23 +30,31 @@ const ATTACHMENT_URL_TTL_SECONDS = 3600;
 async function refreshAttachmentUrls(attachments) {
   if (!Array.isArray(attachments) || attachments.length === 0) return attachments || [];
   return Promise.all(attachments.map(async (att) => {
-    if (!att || typeof att !== 'object') return att;
-    const type = att.type;
-    // Storage-backed types only — shared posts use a different shape.
-    if ((type === 'image' || type === 'video' || type === 'file') && att.storageKey) {
+    if (!att) return att;
+    const item = typeof att.toObject === 'function' ? att.toObject() : { ...att };
+    const type = item.type;
+    // Storage-backed types only
+    if ((type === 'image' || type === 'video' || type === 'file' || type === 'audio') && item.storageKey) {
       try {
-        const url = await getDownloadUrl(att.storageKey, ATTACHMENT_URL_TTL_SECONDS);
-        return { ...att, url };
+        const mediaType = type === 'image' ? 'IMAGE' : type === 'video' ? 'VIDEO' : type === 'audio' ? 'AUDIO' : 'DEFAULT';
+        const url = await generateSignedUrl(item.storageKey, mediaType) || await getDownloadUrl(item.storageKey, ATTACHMENT_URL_TTL_SECONDS);
+        return { ...item, url: url || item.url };
       } catch (err) {
         logger.warn('[chat] Failed to refresh attachment URL', {
-          storageKey: att.storageKey,
+          storageKey: item.storageKey,
           error: err && err.message,
         });
-        return att;
+        return item;
       }
     }
-    return att;
+    return item;
   }));
+}
+
+function isChatMuted(user, chatId) {
+  if (!user || !chatId || !Array.isArray(user.mutedChats)) return false;
+  const id = chatId.toString();
+  return user.mutedChats.some((m) => m && m.chatId && m.chatId.toString() === id);
 }
 
 // Function to get socket instance - will be called when needed
@@ -119,25 +127,62 @@ exports.listChats = async (req, res) => {
   logger.debug('Fetching chats for user:', userId, 'at', new Date().toISOString());
 
   // Get all chats (user_chat, admin_support, connect_page)
-  const chats = await Chat.find({ participants: userId })
-    .populate('participants', 'fullName username profilePic profilePicStorageKey isVerified')
-    .populate('connectPageId', 'name profileImage followerCount')
-    .sort('-updatedAt')
-    .lean();
+  const [allChats, currentUserDoc, whoBlockedMe] = await Promise.all([
+    Chat.find({ participants: userId })
+      .populate('participants', 'fullName username profilePic profilePicStorageKey isVerified')
+      .populate('connectPageId', 'name profileImage followerCount')
+      .sort('-updatedAt')
+      .lean(),
+    User.findById(userId).select('blockedUsers').lean(),
+    User.find({ blockedUsers: userId }).select('_id').lean()
+  ]);
+
+  const blockedIds = (currentUserDoc?.blockedUsers || []).map(b => b.toString());
+  const whoBlockedMeIds = whoBlockedMe.map(u => u._id.toString());
+  const allBlockedIds = new Set([...blockedIds, ...whoBlockedMeIds]);
+
+  const chats = allChats.filter(chat => {
+    if (chat.type === 'user_chat') {
+      const otherParticipant = (chat.participants || []).find(p => p && p._id && p._id.toString() !== userId.toString());
+      if (otherParticipant && allBlockedIds.has(otherParticipant._id.toString())) {
+        return false;
+      }
+    }
+    return true;
+  });
   
-  // Ensure every message has a 'seen' property (for backward compatibility)
+  // Ensure every message has status, unreadCount, and signed attachments
   // Generate signed URLs for profile pictures
   for (const chat of chats) {
+    let unreadCount = 0;
     if (Array.isArray(chat.messages)) {
-      // Re-sign attachment URLs for the last-message preview shown in the chat
-      // list. Stored URLs are signed at upload time and 403 after 7 days; without
-      // this, the chat list shows broken thumbnails for old conversations.
-      chat.messages = await Promise.all(chat.messages.map(async (msg) => ({
-        ...msg,
-        seen: typeof msg.seen === 'boolean' ? msg.seen : false,
-        attachments: await refreshAttachmentUrls(msg.attachments),
-      })));
+      // Re-sign attachment URLs for the last-message preview shown in the chat list.
+      chat.messages = await Promise.all(chat.messages.map(async (msg) => {
+        const isMsgFromOther = msg.sender && msg.sender.toString() !== userId.toString();
+        if (isMsgFromOther && !msg.isDeleted) {
+          if (chat.type === 'connect_page' && Array.isArray(msg.seenBy)) {
+            if (!msg.seenBy.some(id => id.toString() === userId.toString())) {
+              unreadCount++;
+            }
+          } else if (msg.seen !== true && msg.status !== 'read') {
+            unreadCount++;
+          }
+        }
+        return {
+          ...msg,
+          status: msg.seen || msg.status === 'read' || msg.readAt
+            ? 'read'
+            : (msg.status || (msg.deliveredAt ? 'delivered' : 'sent')),
+          seen: typeof msg.seen === 'boolean' ? msg.seen : false,
+          attachments: await refreshAttachmentUrls(msg.attachments),
+        };
+      }));
+
+      if (chat.messages.length > 0) {
+        chat.lastMessage = chat.messages[chat.messages.length - 1];
+      }
     }
+    chat.unreadCount = unreadCount;
     
     // Generate signed URLs for participant profile pictures
     if (chat.participants && Array.isArray(chat.participants)) {
@@ -659,7 +704,13 @@ exports.getMessagesByRoomId = async (req, res) => {
         // Re-sign storage URLs on read — same fix as 1:1 getMessages above.
         attachments: await refreshAttachmentUrls(msg.attachments),
         timestamp: msg.timestamp || new Date(),
+        createdAt: msg.timestamp || new Date(),
         seen: typeof msg.seen === 'boolean' ? msg.seen : false,
+        status: msg.seen || msg.status === 'read' || msg.readAt
+          ? 'read'
+          : (msg.status || (msg.deliveredAt ? 'delivered' : 'sent')),
+        deliveredAt: msg.deliveredAt || null,
+        readAt: msg.readAt || null,
       };
       // Include sender info and seenBy for group chats
       if (isGroupChat) {
@@ -746,6 +797,7 @@ exports.sendMessageToRoom = async (req, res) => {
       attachments: savedMessage.attachments || [],
       timestamp: savedMessage.timestamp,
       seen: savedMessage.seen || false,
+      status: savedMessage.status || 'sent',
       senderName,
       senderProfilePic,
       seenBy: [],
@@ -776,7 +828,7 @@ exports.sendMessageToRoom = async (req, res) => {
     // Push notifications to other participants
     try {
       const otherParticipantIds = participantIds.filter(p => p !== userId.toString());
-      const recipients = await User.find({ _id: { $in: otherParticipantIds }, expoPushToken: { $exists: true, $ne: null } }).select('expoPushToken').lean();
+      const recipients = await User.find({ _id: { $in: otherParticipantIds }, expoPushToken: { $exists: true, $ne: null } }).select('expoPushToken mutedChats').lean();
 
       // Get page name for notification title
       let pageName = 'Group Chat';
@@ -786,6 +838,7 @@ exports.sendMessageToRoom = async (req, res) => {
       }
 
       for (const recipient of recipients) {
+        if (isChatMuted(recipient, chatIdStr)) continue;
         if (recipient.expoPushToken) {
           try {
             await fetch('https://exp.host/--/api/v2/push/send', {
@@ -851,7 +904,7 @@ exports.getMessages = async (req, res) => {
     
     if (!isTaatomOfficialChat && !(await canChat(userId, otherUserId))) {
       logger.warn('❌ [getMessages] Cannot chat - blocked or invalid');
-      return sendError(res, 'AUTH_1006', 'Not allowed');
+      return sendError(res, 'AUTH_1006', 'You cannot chat with this user. One of you may have blocked the other.');
     }
     
     // Convert to ObjectIds for consistent querying
@@ -927,17 +980,69 @@ exports.getMessages = async (req, res) => {
       } : null
     });
     
+    // Auto-mark unread messages as read when recipient opens conversation
+    const unreadMessageIds = [];
+    rawMessages.forEach(msg => {
+      const senderId = msg.sender ? (msg.sender._id ? msg.sender._id.toString() : msg.sender.toString()) : null;
+      if (senderId && senderId !== userId.toString() && (!msg.seen || msg.status !== 'read')) {
+        unreadMessageIds.push(msg._id);
+        msg.seen = true;
+        msg.status = 'read';
+        msg.readAt = new Date();
+      }
+    });
+
+    if (unreadMessageIds.length > 0) {
+      Chat.updateOne(
+        { _id: chat._id },
+        {
+          $set: {
+            'messages.$[elem].seen': true,
+            'messages.$[elem].status': 'read',
+            'messages.$[elem].readAt': new Date()
+          }
+        },
+        { arrayFilters: [{ 'elem._id': { $in: unreadMessageIds } }] }
+      ).catch(err => logger.warn('Failed to update seen in getMessages:', err));
+
+      const io = getSocketInstance();
+      if (io && io.of('/app')) {
+        const nsp = io.of('/app');
+        nsp.to(`user:${otherUserId}`).emit('chat:seen', {
+          chatId: chat._id.toString(),
+          userId: userId.toString()
+        });
+        nsp.to(`user:${otherUserId}`).emit('message:status_changed', {
+          chatId: chat._id.toString(),
+          messageIds: unreadMessageIds.map(id => id.toString()),
+          status: 'read'
+        });
+        nsp.to(`user:${userId}`).emit('chat:unread_count_updated', {
+          chatId: chat._id.toString(),
+          unreadCount: 0
+        });
+      }
+    }
+
     const messages = await Promise.all(rawMessages.map(async (msg, index) => {
+      const isDel = msg.isDeleted === true;
       const formatted = {
         _id: msg._id ? msg._id.toString() : null,
         sender: msg.sender ? (msg.sender._id ? msg.sender._id.toString() : msg.sender.toString()) : null,
-        text: msg.text || '',
-        // Re-sign storage URLs from the persisted storageKey on every read.
-        // The URL stored at upload time expires after 7 days; without this,
-        // older chat images/videos return 403 and won't load.
-        attachments: await refreshAttachmentUrls(msg.attachments),
+        text: isDel ? '' : (msg.text || ''),
+        attachments: isDel ? [] : await refreshAttachmentUrls(msg.attachments),
         timestamp: msg.timestamp || new Date(),
-        seen: typeof msg.seen === 'boolean' ? msg.seen : false
+        createdAt: msg.timestamp || new Date(),
+        status: msg.seen || msg.status === 'read' || msg.readAt
+          ? 'read'
+          : (msg.status || (msg.deliveredAt ? 'delivered' : 'sent')),
+        deliveredAt: msg.deliveredAt || null,
+        readAt: msg.readAt || null,
+        seen: typeof msg.seen === 'boolean' ? msg.seen : false,
+        isEdited: msg.isEdited === true,
+        editedAt: msg.editedAt || null,
+        isDeleted: isDel,
+        deletedAt: msg.deletedAt || null
       };
 
       if (index < 3) {
@@ -1014,7 +1119,7 @@ exports.sendMessage = async (req, res) => {
     // For user_chat, check blocking
     if (!isTaatomOfficialRecipient && !(await canChat(userId, otherUserId))) {
       logger.warn('❌ [sendMessage] Cannot chat - blocked');
-      return sendError(res, 'AUTH_1006', 'Not allowed');
+      return sendError(res, 'AUTH_1006', 'You cannot message this user. One of you may have blocked the other.');
     }
     
     // Convert to ObjectIds for consistent querying
@@ -1250,7 +1355,10 @@ exports.sendMessage = async (req, res) => {
           text: savedMessage.text || '',
           attachments: savedMessage.attachments || [],
           timestamp: savedMessage.timestamp,
-          seen: savedMessage.seen || false
+          seen: savedMessage.seen || false,
+          status: savedMessage.status || 'sent',
+          deliveredAt: savedMessage.deliveredAt || null,
+          readAt: savedMessage.readAt || null
         };
         
         // Emit to recipient (all devices)
@@ -1322,8 +1430,8 @@ exports.sendMessage = async (req, res) => {
 
     // Send push notification to recipient
     try {
-      const recipient = await User.findById(otherUserId);
-      if (recipient && recipient.expoPushToken && fetch && typeof fetch === 'function') {
+      const recipient = await User.findById(otherUserId).select('expoPushToken mutedChats');
+      if (recipient && recipient.expoPushToken && !isChatMuted(recipient, chat._id) && fetch && typeof fetch === 'function') {
         logger.debug('Sending push notification...');
         await fetch('https://exp.host/--/api/v2/push/send', {
           method: 'POST',
@@ -1387,7 +1495,11 @@ exports.markMessageSeen = async (chatId, messageId, userId) => {
         // Mark boolean seen as true when ALL other participants have seen it
         const otherParticipants = participantIds.filter(id => id !== msg.sender.toString());
         const allSeen = otherParticipants.every(pId => msg.seenBy.some(sId => sId.toString() === pId));
-        if (allSeen) msg.seen = true;
+        if (allSeen) {
+          msg.seen = true;
+          msg.status = 'read';
+          msg.readAt = msg.readAt || new Date();
+        }
         await chat.save();
         logger.debug('[markMessageSeen] group message seenBy updated:', { messageId, seenByCount: msg.seenBy.length, allSeen });
       } else {
@@ -1397,8 +1509,13 @@ exports.markMessageSeen = async (chatId, messageId, userId) => {
     }
 
     // For 1:1 chats: use boolean seen (existing behavior)
-    if (!msg.seen) {
+    if (!msg.seen || msg.status !== 'read') {
       msg.seen = true;
+      msg.status = 'read';
+      msg.readAt = msg.readAt || new Date();
+      if (msg.status === 'read' && !msg.deliveredAt) {
+        msg.deliveredAt = msg.readAt;
+      }
       await chat.save();
       logger.debug('[markMessageSeen] message marked as seen:', { messageId });
     } else {
@@ -1416,19 +1533,32 @@ exports.markAllMessagesSeen = async (req, res) => {
   const chat = await Chat.findOne({ participants: { $all: [userId, otherUserId] }, type: { $ne: 'connect_page' } });
   if (!chat) return sendSuccess(res, 200, 'No chat found', { message: 'No messages to mark' });
   const seenMessageIds = [];
+  const now = new Date();
   chat.messages.forEach(msg => {
-    if (msg.sender.toString() === otherUserId && !msg.seen) {
+    if (msg.sender.toString() === otherUserId.toString() && (!msg.seen || msg.status !== 'read')) {
       msg.seen = true;
+      msg.status = 'read';
+      msg.readAt = msg.readAt || now;
+      if (!msg.deliveredAt) msg.deliveredAt = msg.readAt;
       seenMessageIds.push(msg._id.toString());
     }
   });
   if (seenMessageIds.length > 0) {
     await chat.save();
     // Notify the sender via socket so their read receipts update in real-time
-    if (global.socketIO) {
-      const nsp = global.socketIO.of('/app');
-      seenMessageIds.forEach(messageId => {
-        nsp.to(`user:${otherUserId}`).emit('seen', { from: userId.toString(), messageId });
+    const io = getSocketInstance();
+    const nsp = io && io.of('/app');
+    if (nsp) {
+      const fromId = userId.toString();
+      nsp.to(`user:${otherUserId}`).emit('seen', { from: fromId, messageIds: seenMessageIds });
+      nsp.to(`user:${otherUserId}`).emit('message:status_changed', {
+        chatId: chat._id.toString(),
+        messageIds: seenMessageIds,
+        status: 'read'
+      });
+      nsp.to(`user:${otherUserId}`).emit('chat:seen', {
+        chatId: chat._id.toString(),
+        userId: fromId
       });
     }
   }
@@ -1480,7 +1610,11 @@ exports.markAllMessagesSeenInRoom = async (req, res) => {
         const allSeen = otherParticipants.every(pId =>
           msg.seenBy.some(sId => sId.toString() === pId)
         );
-        if (allSeen) msg.seen = true;
+        if (allSeen) {
+          msg.seen = true;
+          msg.status = 'read';
+          msg.readAt = msg.readAt || new Date();
+        }
       }
     });
 
@@ -1900,5 +2034,175 @@ exports.sharePost = async (req, res) => {
   } catch (error) {
     logger.error('Error in sharePost:', error);
     return sendError(res, 'SRV_6001', 'Failed to share post');
+  }
+};
+
+/**
+ * Edit message text
+ * PATCH /api/v1/chat/:chatId/messages/:messageId
+ */
+exports.editMessage = async (req, res) => {
+  try {
+    const userId = req.user._id.toString();
+    const { chatId, messageId } = req.params;
+    const { text } = req.body;
+
+    if (!text || typeof text !== 'string' || !text.trim()) {
+      return sendError(res, 'VAL_2001', 'Message text is required');
+    }
+
+    const chat = await Chat.findOne({
+      _id: chatId,
+      participants: req.user._id
+    });
+
+    if (!chat) {
+      return sendError(res, 'RES_4004', 'Chat not found or access denied');
+    }
+
+    const message = chat.messages.id(messageId);
+    if (!message) {
+      return sendError(res, 'RES_4004', 'Message not found');
+    }
+
+    if (message.sender.toString() !== userId) {
+      return sendError(res, 'AUTH_1006', 'You can only edit your own messages');
+    }
+
+    if (message.isDeleted) {
+      return sendError(res, 'VAL_2001', 'Cannot edit a deleted message');
+    }
+
+    message.text = text.trim();
+    message.isEdited = true;
+    message.editedAt = new Date();
+
+    await chat.save();
+
+    const nsp = global.socketIO?.of?.('/app');
+    if (nsp) {
+      chat.participants.forEach(pId => {
+        nsp.to(`user:${pId.toString()}`).emit('chat:message_edited', {
+          chatId: chat._id.toString(),
+          messageId: message._id.toString(),
+          text: message.text,
+          isEdited: true,
+          editedAt: message.editedAt
+        });
+      });
+    }
+
+    return sendSuccess(res, 200, 'Message edited successfully', {
+      message: {
+        _id: message._id.toString(),
+        text: message.text,
+        isEdited: true,
+        editedAt: message.editedAt
+      }
+    });
+  } catch (error) {
+    logger.error('Error in editMessage:', error);
+    return sendError(res, 'SRV_6001', 'Failed to edit message');
+  }
+};
+
+/**
+ * Delete a message (soft delete)
+ * DELETE /api/v1/chat/:chatId/messages/:messageId
+ */
+exports.deleteMessage = async (req, res) => {
+  try {
+    const userId = req.user._id.toString();
+    const { chatId, messageId } = req.params;
+
+    const chat = await Chat.findOne({
+      _id: chatId,
+      participants: req.user._id
+    });
+
+    if (!chat) {
+      return sendError(res, 'RES_4004', 'Chat not found or access denied');
+    }
+
+    const message = chat.messages.id(messageId);
+    if (!message) {
+      return sendError(res, 'RES_4004', 'Message not found');
+    }
+
+    if (message.sender.toString() !== userId) {
+      return sendError(res, 'AUTH_1006', 'You can only delete your own messages');
+    }
+
+    message.isDeleted = true;
+    message.deletedAt = new Date();
+    message.text = '';
+    message.attachments = [];
+
+    await chat.save();
+
+    const nsp = global.socketIO?.of?.('/app');
+    if (nsp) {
+      chat.participants.forEach(pId => {
+        nsp.to(`user:${pId.toString()}`).emit('chat:message_deleted', {
+          chatId: chat._id.toString(),
+          messageId: message._id.toString(),
+          isDeleted: true,
+          deletedAt: message.deletedAt
+        });
+      });
+    }
+
+    return sendSuccess(res, 200, 'Message deleted successfully', {
+      messageId: message._id.toString(),
+      isDeleted: true
+    });
+  } catch (error) {
+    logger.error('Error in deleteMessage:', error);
+    return sendError(res, 'SRV_6001', 'Failed to delete message');
+  }
+};
+
+/**
+ * Mark message as delivered
+ * POST /api/v1/chat/:chatId/messages/:messageId/delivered
+ */
+exports.markMessageDelivered = async (req, res) => {
+  try {
+    const userId = req.user._id.toString();
+    const { chatId, messageId } = req.params;
+
+    const chat = await Chat.findOne({
+      _id: chatId,
+      participants: req.user._id
+    });
+
+    if (!chat) {
+      return sendError(res, 'RES_4004', 'Chat not found');
+    }
+
+    const message = chat.messages.id(messageId);
+    if (!message) {
+      return sendError(res, 'RES_4004', 'Message not found');
+    }
+
+    if (message.sender.toString() !== userId && message.status === 'sent') {
+      message.status = 'delivered';
+      message.deliveredAt = new Date();
+      await chat.save();
+
+      const nsp = global.socketIO?.of?.('/app');
+      if (nsp) {
+        nsp.to(`user:${message.sender.toString()}`).emit('message:status_changed', {
+          chatId: chat._id.toString(),
+          messageIds: [message._id.toString()],
+          status: 'delivered'
+        });
+      }
+    }
+
+    return sendSuccess(res, 200, 'Message marked as delivered');
+  } catch (error) {
+    logger.error('Error in markMessageDelivered:', error);
+    return sendError(res, 'SRV_6001', 'Failed to mark delivered');
   }
 };

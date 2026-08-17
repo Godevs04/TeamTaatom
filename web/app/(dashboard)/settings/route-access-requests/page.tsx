@@ -8,18 +8,23 @@ import {
   GitPullRequest,
   RefreshCw,
   User2,
+  Users,
   X,
 } from "lucide-react";
 import {
   approveRouteAccess,
+  getApprovedUsers,
   getRouteAccessRequests,
   rejectRouteAccess,
+  revokeRouteAccess,
+  type RouteAccessApprovedUser,
   type RouteAccessRequest,
 } from "../../../../lib/api";
 import { Skeleton } from "../../../../components/ui/skeleton";
 import { Button } from "../../../../components/ui/button";
 import { toast } from "sonner";
 import { cn } from "../../../../lib/utils";
+import { useConfirm } from "../../../../context/confirm-context";
 
 function formatRelativeDate(dateString?: string) {
   if (!dateString) return "";
@@ -33,22 +38,36 @@ function formatRelativeDate(dateString?: string) {
 }
 
 export default function RouteAccessRequestsPage() {
+  const confirm = useConfirm();
   const [requests, setRequests] = useState<RouteAccessRequest[]>([]);
+  const [approvedUsers, setApprovedUsers] = useState<RouteAccessApprovedUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [actingId, setActingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    try {
-      const res = await getRouteAccessRequests();
-      setRequests(res.requests ?? []);
-    } catch {
+    // Settled rather than all: one list failing shouldn't blank out the other.
+    const [requestsRes, approvedRes] = await Promise.allSettled([
+      getRouteAccessRequests(),
+      getApprovedUsers(),
+    ]);
+
+    if (requestsRes.status === "fulfilled") {
+      setRequests(requestsRes.value.requests ?? []);
+    } else {
       toast.error("Failed to load route access requests");
       setRequests([]);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
     }
+
+    if (approvedRes.status === "fulfilled") {
+      setApprovedUsers(approvedRes.value.approvedUsers ?? []);
+    } else {
+      toast.error("Failed to load people with access");
+      setApprovedUsers([]);
+    }
+
+    setLoading(false);
+    setRefreshing(false);
   }, []);
 
   useEffect(() => {
@@ -70,6 +89,28 @@ export default function RouteAccessRequestsPage() {
       );
     } catch {
       toast.error("Failed to approve request");
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  const handleRevoke = async (approved: RouteAccessApprovedUser) => {
+    const name = approved.fullName || approved.username || "this person";
+    const ok = await confirm({
+      title: "Revoke Route Access?",
+      description: `Revoke route access for ${name}? They will no longer be able to view your traveling routes.`,
+      confirmText: "Revoke Access",
+      cancelText: "Cancel",
+      variant: "destructive",
+    });
+    if (!ok) return;
+    setActingId(approved._id);
+    try {
+      await revokeRouteAccess(approved._id);
+      setApprovedUsers((prev) => prev.filter((u) => u._id !== approved._id));
+      toast.success(`${name} can no longer view your traveling routes`);
+    } catch {
+      toast.error("Failed to revoke access");
     } finally {
       setActingId(null);
     }
@@ -201,6 +242,83 @@ export default function RouteAccessRequestsPage() {
                   </li>
                 );
               })}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <div className="overflow-hidden rounded-[1.75rem] border border-slate-200/80 ui-panel shadow-premium dark:border-zinc-800/80">
+        <div className="border-b border-slate-200/70 bg-gradient-to-b from-slate-50/80 to-transparent px-5 py-6 md:px-8 md:py-7 dark:border-zinc-800/70 dark:from-zinc-800/40">
+          <h2 className="font-display text-2xl font-semibold tracking-tight text-slate-900 dark:text-white md:text-3xl">
+            People with access
+          </h2>
+          <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
+            These people can view your completed traveling routes.
+          </p>
+        </div>
+
+        <div className="px-5 py-6 md:px-8 md:py-7">
+          {loading ? (
+            <div className="space-y-3">
+              {Array.from({ length: 2 }).map((_, i) => (
+                <Skeleton key={i} className="h-20 rounded-2xl" />
+              ))}
+            </div>
+          ) : approvedUsers.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 py-12 text-center dark:border-zinc-700">
+              <Users className="mx-auto h-10 w-10 text-slate-300 dark:text-zinc-600" />
+              <p className="mt-3 text-sm font-medium text-slate-700 dark:text-zinc-300">
+                No one has access yet
+              </p>
+              <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
+                People you approve will appear here, and you can remove their access at any time
+              </p>
+            </div>
+          ) : (
+            <ul className="space-y-3">
+              {approvedUsers.map((approved) => (
+                <li
+                  key={approved._id}
+                  className="flex flex-wrap items-center gap-4 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/80 sm:flex-nowrap"
+                >
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800">
+                      {approved.profilePic ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={approved.profilePic}
+                          alt=""
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center">
+                          <User2 className="h-6 w-6 text-slate-400" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-slate-900 dark:text-zinc-100">
+                        {approved.fullName || "Traveler"}
+                      </p>
+                      <p className="truncate text-sm text-slate-500 dark:text-zinc-400">
+                        @{approved.username || "user"}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="rounded-xl text-destructive hover:bg-destructive/10"
+                      disabled={actingId === approved._id}
+                      onClick={() => handleRevoke(approved)}
+                    >
+                      Revoke
+                    </Button>
+                  </div>
+                </li>
+              ))}
             </ul>
           )}
         </div>

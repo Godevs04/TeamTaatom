@@ -99,14 +99,16 @@ export default function ProfilePremiumView({
         subtle={false}
         blur={true}
       >
-        {/* Phase 4: Absolute positioned Edit Button */}
-        <Pressable 
-          style={styles.editProfileAbsolute} 
-          onPress={onEditProfile}
-          hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-        >
-          <Ionicons name="create-outline" size={18} color={isDark ? '#7AB3D6' : '#1C73B4'} />
-        </Pressable>
+        {/* Phase 4: Absolute positioned Edit Button (Only when onEditProfile callback is provided) */}
+        {onEditProfile ? (
+          <Pressable 
+            style={styles.editProfileAbsolute} 
+            onPress={onEditProfile}
+            hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+          >
+            <Ionicons name="create-outline" size={18} color={isDark ? '#7AB3D6' : '#1C73B4'} />
+          </Pressable>
+        ) : null}
 
         {/* Phase 2: Top Row (Avatar & Telemetry Stats) */}
         <View style={styles.topRow}>

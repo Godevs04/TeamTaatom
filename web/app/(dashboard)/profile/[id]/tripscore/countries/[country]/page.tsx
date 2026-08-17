@@ -12,6 +12,9 @@ type LocationEntry = {
   caption?: string;
   imageUrl?: string;
   coordinates?: { latitude: number; longitude: number };
+  postId?: string | null;
+  isPostDeleted?: boolean;
+  postType?: "photo" | "short";
 };
 
 type TripScoreCountryResponse = {
@@ -132,39 +135,65 @@ export default async function ProfileTripScoreCountryPage({
           </Card>
         ) : (
           <ul className="space-y-3">
-            {data.locations.map((loc, idx) => (
-              <li key={`${loc.name}-${idx}`}>
-                <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
-                  <div className="flex gap-4">
-                    {loc.imageUrl ? (
-                      <div className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100 dark:bg-zinc-800">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={loc.imageUrl}
-                          alt={loc.name}
-                          className="h-full w-full object-cover"
-                        />
-                      </div>
-                    ) : null}
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium text-slate-900 dark:text-zinc-50">{loc.name}</p>
-                      {loc.date ? (
-                        <p className="text-xs text-slate-500 dark:text-zinc-400">
-                          {new Date(loc.date).toLocaleDateString(undefined, {
-                            year: "numeric",
-                            month: "short",
-                            day: "numeric",
-                          })}
-                        </p>
-                      ) : null}
-                      {loc.caption ? (
-                        <p className="mt-1 line-clamp-2 text-sm text-slate-600 dark:text-zinc-400">{loc.caption}</p>
-                      ) : null}
+            {data.locations.map((loc, idx) => {
+              const isLinkable = Boolean(loc.postId) && !loc.isPostDeleted;
+              const cardInner = (
+                <div className="flex gap-4">
+                  {loc.imageUrl ? (
+                    <div className="h-20 w-20 shrink-0 overflow-hidden rounded-lg bg-slate-100 dark:bg-zinc-800">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={loc.imageUrl}
+                        alt={loc.name}
+                        className="h-full w-full object-cover"
+                      />
                     </div>
+                  ) : null}
+                  <div className="min-w-0 flex-1">
+                    <p className="font-medium text-slate-900 dark:text-zinc-50">{loc.name}</p>
+                    {loc.date ? (
+                      <p className="text-xs text-slate-500 dark:text-zinc-400">
+                        {new Date(loc.date).toLocaleDateString(undefined, {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </p>
+                    ) : null}
+                    {loc.caption ? (
+                      <p className="mt-1 line-clamp-2 text-sm text-slate-600 dark:text-zinc-400">{loc.caption}</p>
+                    ) : null}
                   </div>
+                  {isLinkable ? (
+                    <svg
+                      className="h-5 w-5 shrink-0 self-center text-slate-400 dark:text-zinc-500"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                      aria-hidden
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                  ) : null}
                 </div>
-              </li>
-            ))}
+              );
+              return (
+                <li key={`${loc.name}-${idx}`}>
+                  {isLinkable ? (
+                    <Link
+                      href={`/trip/${loc.postId}`}
+                      className="block rounded-xl border border-slate-200/80 bg-white p-4 shadow-premium transition hover:border-sky-200 hover:bg-slate-50 dark:border-zinc-800/80 dark:bg-zinc-900/90 dark:hover:border-sky-700 dark:hover:bg-zinc-800/80"
+                    >
+                      {cardInner}
+                    </Link>
+                  ) : (
+                    <div className="rounded-xl border border-slate-200/80 bg-white p-4 shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
+                      {cardInner}
+                    </div>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Eye, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
@@ -19,8 +19,11 @@ import { ConnectContentBlocks } from "@/components/connect/connect-content-block
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useConfirm } from "@/context/confirm-context";
 
 export default function ConnectEditContentPage() {
+  const router = useRouter();
+  const confirm = useConfirm();
   const searchParams = useSearchParams();
   const pageId = searchParams.get("pageId") ?? "";
   const section = (searchParams.get("section") ?? "website") as "website" | "subscription";
@@ -107,18 +110,26 @@ export default function ConnectEditContentPage() {
   return (
     <div className="mx-auto max-w-4xl space-y-6 pb-24 lg:pb-10">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Link
-          href={`/connect/page/${pageId}`}
+        <button
+          type="button"
           className="inline-flex items-center gap-2 text-sm font-medium text-primary hover:underline"
-          onClick={(e) => {
-            if (dirty && !window.confirm("You have unsaved changes. Leave anyway?")) {
-              e.preventDefault();
+          onClick={async () => {
+            if (dirty) {
+              const ok = await confirm({
+                title: "Unsaved Changes",
+                description: "You have unsaved changes that will be lost. Leave anyway?",
+                confirmText: "Leave",
+                cancelText: "Stay",
+                variant: "warning",
+              });
+              if (!ok) return;
             }
+            router.push(`/connect/page/${pageId}`);
           }}
         >
           <ArrowLeft className="h-4 w-4" />
           Back to page
-        </Link>
+        </button>
         <div className="flex flex-wrap gap-2">
           <Button
             type="button"

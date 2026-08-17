@@ -1,9 +1,12 @@
 const Post = require('../models/Post');
 const Like = require('../models/Like');
+const mongoose = require('mongoose');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { cacheWrapper, CACHE_TTL } = require('../utils/cache');
 const { generateSignedUrl, generateSignedUrls } = require('../services/mediaService');
+const { escapeRegex } = require('../utils/regexEscape');
+const { getBidirectionalBlockedIds } = require('./postController');
 
 // @desc    Advanced search for posts
 // @route   GET /api/v1/search/posts
@@ -35,7 +38,7 @@ const searchPosts = async (req, res) => {
 
     // Text search in caption (support both q and query params)
     if (searchText && String(searchText).trim().length > 0) {
-      matchQuery.caption = { $regex: String(searchText).trim(), $options: 'i' };
+      matchQuery.caption = { $regex: escapeRegex(String(searchText).trim()), $options: 'i' };
     }
 
     // Hashtag filter
@@ -45,7 +48,7 @@ const searchPosts = async (req, res) => {
 
     // Location filter (address search)
     if (location) {
-      matchQuery['location.address'] = { $regex: location, $options: 'i' };
+      matchQuery['location.address'] = { $regex: escapeRegex(location), $options: 'i' };
     }
 
     // Date range filter
@@ -64,8 +67,15 @@ const searchPosts = async (req, res) => {
       matchQuery.type = type;
     }
 
+    if (userId) {
+      const blockedIds = await getBidirectionalBlockedIds(userId);
+      if (blockedIds.length > 0) {
+        matchQuery.user = { $nin: blockedIds.map((id) => new mongoose.Types.ObjectId(id)) };
+      }
+    }
+
     // Cache key
-    const cacheKey = `search:posts:${JSON.stringify(matchQuery)}:page:${page}:limit:${limit}`;
+    const cacheKey = `search:posts:${userId || 'anon'}:${JSON.stringify(matchQuery)}:page:${page}:limit:${limit}`;
 
     const result = await cacheWrapper(cacheKey, async () => {
       // Use aggregation pipeline for efficient search
@@ -222,10 +232,17 @@ const searchByLocation = async (req, res) => {
       isActive: true,
       isArchived: { $ne: true },
       isHidden: { $ne: true },
-      'location.address': { $regex: location.trim(), $options: 'i' }
+      'location.address': { $regex: escapeRegex(location.trim()), $options: 'i' }
     };
 
-    const cacheKey = `search:location:${location}:page:${page}:limit:${limit}`;
+    if (userId) {
+      const blockedIds = await getBidirectionalBlockedIds(userId);
+      if (blockedIds.length > 0) {
+        matchQuery.user = { $nin: blockedIds.map((id) => new mongoose.Types.ObjectId(id)) };
+      }
+    }
+
+    const cacheKey = `search:location:${userId || 'anon'}:${location}:page:${page}:limit:${limit}`;
 
     const result = await cacheWrapper(cacheKey, async () => {
       const posts = await Post.aggregate([

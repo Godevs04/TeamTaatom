@@ -5,7 +5,6 @@ const User = require('../models/User');
 const Notification = require('../models/Notification');
 const cashfreeService = require('../services/cashfreeService');
 const { sendNotificationToUser } = require('../utils/sendNotification');
-const { getIO } = require('../socket');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 
@@ -78,23 +77,9 @@ const notifyOwnerOfSubscription = async (subscription) => {
       },
     }).catch((err) => logger.error('Push notification failed for subscription_active:', err));
 
-    try {
-      const io = getIO();
-      if (io) {
-        io.of('/app').to(`user:${ownerId}`).emit('notification', {
-          type: 'subscription_active',
-          fromUser: {
-            _id: subscriber._id,
-            fullName: subscriber.fullName,
-            profilePic: subscriber.profilePic,
-          },
-          metadata,
-          createdAt: new Date(),
-        });
-      }
-    } catch (socketErr) {
-      logger.warn('Socket emit failed for subscription_active:', socketErr.message);
-    }
+    // Real-time socket emit is handled by Notification.createNotification
+    // itself now (backend/src/models/Notification.js) -- no manual emit
+    // needed here.
 
     subscription.ownerNotifiedAt = new Date();
     await subscription.save();

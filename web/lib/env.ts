@@ -24,6 +24,8 @@ const clientEnvSchema = z.object({
   NEXT_PUBLIC_CDN_IMAGE_BASE: z.string().url().optional(),
   /** Google Maps API key for map embeds, geocode, etc. (optional) */
   NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: z.string().optional(),
+  /** Backend origin for the browser's direct WebSocket connection (see lib/socket.ts). Required in production. */
+  NEXT_PUBLIC_SOCKET_ORIGIN: z.string().url().optional(),
 });
 
 function parseServerEnv() {
@@ -48,6 +50,7 @@ function parseClientEnv() {
     NEXT_PUBLIC_GTM_ID: process.env.NEXT_PUBLIC_GTM_ID,
     NEXT_PUBLIC_CDN_IMAGE_BASE: process.env.NEXT_PUBLIC_CDN_IMAGE_BASE,
     NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY,
+    NEXT_PUBLIC_SOCKET_ORIGIN: process.env.NEXT_PUBLIC_SOCKET_ORIGIN,
   };
   return clientEnvSchema.safeParse(raw);
 }

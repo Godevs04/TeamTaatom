@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { ArrowLeft, Play } from "lucide-react";
+import { ArrowLeft, Play, Heart, MessageCircle } from "lucide-react";
 import { getUserShorts } from "../../../../../lib/api";
 import { Button } from "../../../../../components/ui/button";
 import { Card } from "../../../../../components/ui/card";
@@ -106,6 +106,16 @@ export default function ProfileShortsPage() {
                   </div>
                 )}
                 <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-2">
+                  <div className="mb-1 flex items-center gap-3 text-[11px] font-semibold text-white">
+                    <span className="inline-flex items-center gap-1">
+                      <Heart className="h-3 w-3" />
+                      {s.likesCount ?? 0}
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <MessageCircle className="h-3 w-3" />
+                      {s.commentsCount ?? 0}
+                    </span>
+                  </div>
                   <p className="line-clamp-2 text-xs font-medium text-white">{s.caption || "Short"}</p>
                 </div>
               </Link>

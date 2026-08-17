@@ -2,7 +2,6 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "../ui/button";
 import {
@@ -24,8 +23,10 @@ import {
   MoreHorizontal,
   Ban,
   Flag,
+  Share2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useConfirm } from "../../context/confirm-context";
 import { cn } from "../../lib/utils";
 
 const REPORT_REASONS: { id: ReportReason; label: string }[] = [
@@ -38,13 +39,14 @@ const REPORT_REASONS: { id: ReportReason; label: string }[] = [
 
 type ProfileActionsProps = {
   profile: User;
+  isSelf?: boolean;
 };
 
-export function ProfileActions({ profile }: ProfileActionsProps) {
+export function ProfileActions({ profile, isSelf }: ProfileActionsProps) {
   const queryClient = useQueryClient();
-  const router = useRouter();
   const { user: me } = useAuth();
-  const isSelf = !!me && me._id === profile._id;
+  const confirm = useConfirm();
+  const resolvedIsSelf = isSelf ?? (!!me && me._id === profile._id);
 
   const [isFollowing, setIsFollowing] = React.useState(profile.isFollowing ?? false);
   const [followRequestSent, setFollowRequestSent] = React.useState(
@@ -73,7 +75,7 @@ export function ProfileActions({ profile }: ProfileActionsProps) {
   const blockQ = useQuery({
     queryKey: ["block-status", profile._id],
     queryFn: () => getBlockStatus(profile._id),
-    enabled: !isSelf && !!me,
+    enabled: !resolvedIsSelf && !!me,
   });
 
   const isBlocked = blockQ.data?.isBlocked ?? false;
@@ -88,12 +90,7 @@ export function ProfileActions({ profile }: ProfileActionsProps) {
         setIsFollowing(data.isFollowing);
       }
       queryClient.invalidateQueries({ queryKey: ["profile", profile._id] });
-      router.refresh();
-      if (data?.followRequestSent) {
-        toast.success("Follow request sent");
-      } else {
-        toast.success(data?.isFollowing ? "Following" : "Unfollowed");
-      }
+      queryClient.invalidateQueries({ queryKey: ["posts", "feed"] });
     },
     onError: (e: unknown) => {
       toast.error(getFriendlyErrorMessage(e));
@@ -105,9 +102,18 @@ export function ProfileActions({ profile }: ProfileActionsProps) {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["block-status", profile._id] });
       queryClient.invalidateQueries({ queryKey: ["profile", profile._id] });
+      queryClient.invalidateQueries({ queryKey: ["posts"] });
+      queryClient.invalidateQueries({ queryKey: ["posts", "feed"] });
+      queryClient.invalidateQueries({ queryKey: ["feed"] });
       queryClient.invalidateQueries({ queryKey: ["chat"] });
+      queryClient.invalidateQueries({ queryKey: ["journeys"] });
+      queryClient.invalidateQueries({ queryKey: ["search"] });
       toast.success(data.isBlocked ? "User blocked" : "User unblocked");
       setMenuOpen(false);
+      if (data.isBlocked) {
+        setIsFollowing(false);
+        setFollowRequestSent(false);
+      }
     },
     onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
   });
@@ -127,19 +133,38 @@ export function ProfileActions({ profile }: ProfileActionsProps) {
     onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
   });
 
-  const handleBlockClick = () => {
+  const handleCopyLink = async () => {
+    try {
+      const url = `${window.location.origin}/profile/${profile._id}`;
+      await navigator.clipboard.writeText(url);
+      toast.success("Profile link copied to clipboard");
+    } catch {
+      toast.error("Failed to copy link");
+    } finally {
+      setMenuOpen(false);
+    }
+  };
+
+  const handleBlockClick = async () => {
+    setMenuOpen(false);
     const name = profile.fullName || profile.username || "this user";
-    const msg = isBlocked
-      ? `Unblock ${name}? You will be able to message and interact again.`
-      : `Block ${name}? They won't be able to message you or see your profile.`;
-    if (window.confirm(msg)) {
+    const action = isBlocked ? "Unblock" : "Block";
+    const ok = await confirm({
+      title: `${action} ${name}?`,
+      description: isBlocked
+        ? "You will be able to view their profile and interact again."
+        : "They will not be able to view your profile, posts, or message you.",
+      confirmText: action,
+      variant: isBlocked ? "default" : "destructive",
+    });
+    if (ok) {
       blockMutation.mutate();
     }
   };
 
-  if (isSelf) {
+  if (resolvedIsSelf) {
     return (
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2">
         <Button asChild variant="outline" size="sm" className="rounded-xl gap-2">
           <Link href="/settings/account#profile">
             <UserPen className="h-4 w-4" />
@@ -152,6 +177,30 @@ export function ProfileActions({ profile }: ProfileActionsProps) {
             Settings
           </Link>
         </Button>
+        <div className="relative" ref={menuRef}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="rounded-xl px-2.5"
+            onClick={() => setMenuOpen((o) => !o)}
+            aria-label="More actions"
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+          {menuOpen && (
+            <div className="absolute right-0 top-full z-20 mt-1 min-w-[180px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                onClick={handleCopyLink}
+              >
+                <Share2 className="h-4 w-4" />
+                Copy profile link
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -195,6 +244,14 @@ export function ProfileActions({ profile }: ProfileActionsProps) {
         </Button>
         {menuOpen && (
           <div className="absolute right-0 top-full z-20 mt-1 min-w-[180px] rounded-xl border border-slate-200 bg-white py-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+              onClick={handleCopyLink}
+            >
+              <Share2 className="h-4 w-4" />
+              Copy profile link
+            </button>
             <button
               type="button"
               className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"

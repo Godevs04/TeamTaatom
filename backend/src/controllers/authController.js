@@ -307,7 +307,7 @@ const getMe = async (req, res) => {
     const Follow = require('../models/Follow');
     const [user, followingDocs] = await Promise.all([
       User.findById(req.user._id)
-        .select('username fullName bio email profilePic profilePicStorageKey totalLikes followersCount followingCount isVerified createdAt lastLogin interests languagesKnown nationality profileOnboardingVersion')
+        .select('username fullName bio email profilePic profilePicStorageKey totalLikes followersCount followingCount isVerified createdAt lastLogin interests languagesKnown nationality currentLocation profileOnboardingVersion')
         .lean(),
       Follow.find({ follower: req.user._id }).select('following').lean()
     ]);
@@ -352,6 +352,7 @@ const getMe = async (req, res) => {
       interests: user.interests ?? [],
       languagesKnown: user.languagesKnown ?? [],
       nationality: user.nationality ?? '',
+      currentLocation: user.currentLocation ?? '',
       profileOnboardingVersion: user.profileOnboardingVersion ?? 0,
     };
 

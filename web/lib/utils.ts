@@ -43,8 +43,11 @@ export function mergeLikedIntoPosts<T extends { _id: string; isLiked?: boolean; 
 ): T[] {
   const set = new Set(likedIds);
   return posts.map((p) => {
-    const isLiked = p.isLiked ?? set.has(p._id);
-    return { ...p, isLiked };
+    const locallyLiked = set.has(p._id);
+    const isLiked = p.isLiked ?? locallyLiked;
+    const likesCount =
+      locallyLiked && !p.isLiked ? Math.max(1, (p.likesCount ?? 0) + 1) : p.likesCount;
+    return { ...p, isLiked, likesCount };
   });
 }
 
@@ -68,6 +71,42 @@ export function setSavedPostIds(ids: string[]): void {
   } catch {
     // ignore
   }
+}
+
+/** Recent search queries for the search page (mirrors mobile's AsyncStorage 'searchHistory'). */
+export function getRecentSearches(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.recentSearches);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((q): q is string => typeof q === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setRecentSearches(queries: string[]): void {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(STORAGE_KEYS.recentSearches, JSON.stringify(queries));
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Prepend a query to recent searches, de-duped and capped to the last 10 —
+ * mirrors mobile's saveSearchHistory. Only meaningful (>= 3 char) queries are
+ * kept; shorter ones are silently ignored rather than saved.
+ */
+export function addRecentSearch(query: string): string[] {
+  const trimmed = query.trim();
+  if (trimmed.length < 3) return getRecentSearches();
+  const existing = getRecentSearches().filter((q) => q !== trimmed);
+  const updated = [trimmed, ...existing].slice(0, 10);
+  setRecentSearches(updated);
+  return updated;
 }
 
 /** Merge persisted saved IDs into posts so UI shows correct bookmark state. */

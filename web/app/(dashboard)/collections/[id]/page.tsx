@@ -10,11 +10,13 @@ import { Button } from "../../../../components/ui/button";
 import { ArrowLeft, ImageIcon, Trash2 } from "lucide-react";
 import { Skeleton } from "../../../../components/ui/skeleton";
 import { toast } from "sonner";
+import { useConfirm } from "../../../../context/confirm-context";
 
 export default function CollectionDetailPage() {
   const params = useParams();
   const id = params.id as string;
   const queryClient = useQueryClient();
+  const confirm = useConfirm();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["collection", id],
@@ -40,15 +42,12 @@ export default function CollectionDetailPage() {
     onError: (e: unknown) => toast.error(getFriendlyErrorMessage(e)),
   });
 
-  const collection = data?.collection;
-  const posts = collection?.posts ?? [];
-
   if (isLoading) {
     return (
-      <div className="space-y-6">
-        <Skeleton className="h-10 w-64" />
-        <Skeleton className="aspect-[3/1] w-full rounded-2xl" />
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+      <div className="mx-auto max-w-4xl space-y-6">
+        <Skeleton className="h-8 w-48 rounded-xl" />
+        <Skeleton className="h-48 w-full rounded-2xl" />
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
           {[1, 2, 3, 4, 5, 6].map((i) => (
             <Skeleton key={i} className="aspect-square rounded-2xl" />
           ))}
@@ -57,24 +56,38 @@ export default function CollectionDetailPage() {
     );
   }
 
-  if (isError || !collection) {
+  if (isError || !data?.collection) {
     return (
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-12 text-center shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
+      <div className="mx-auto max-w-4xl rounded-2xl border border-slate-200/80 bg-white p-12 text-center shadow-premium dark:border-zinc-800/80 dark:bg-zinc-900/90">
         <p className="text-slate-600 dark:text-zinc-400">Collection not found.</p>
-        <Button asChild className="mt-4 rounded-xl">
+        <Button className="mt-4 rounded-xl" asChild>
           <Link href="/collections">Back to Collections</Link>
         </Button>
       </div>
     );
   }
 
-  const coverUrl = collection.coverImage ?? posts[0]?.imageUrl ?? posts[0]?.thumbnailUrl;
+  const collection = data.collection;
+  const posts = collection.posts ?? [];
+  const coverUrl = collection.coverImage || posts[0]?.images?.[0] || posts[0]?.imageUrl || posts[0]?.thumbnailUrl;
+
+  const handleDeleteCollection = async () => {
+    const ok = await confirm({
+      title: "Delete Collection",
+      description: `Are you sure you want to delete "${collection.name}"? This action cannot be undone.`,
+      confirmText: "Delete",
+      variant: "destructive",
+    });
+    if (ok) {
+      deleteCol.mutate();
+    }
+  };
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-4">
-          <Button variant="ghost" size="icon" className="rounded-xl" asChild>
+    <div className="mx-auto max-w-4xl space-y-6">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" className="rounded-xl shrink-0" asChild>
             <Link href="/collections">
               <ArrowLeft className="h-5 w-5" />
             </Link>
@@ -90,7 +103,7 @@ export default function CollectionDetailPage() {
           variant="outline"
           size="sm"
           className="rounded-xl text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/40 dark:hover:text-red-300"
-          onClick={() => window.confirm("Delete this collection?") && deleteCol.mutate()}
+          onClick={handleDeleteCollection}
           disabled={deleteCol.isPending}
         >
           <Trash2 className="h-4 w-4 mr-2" />

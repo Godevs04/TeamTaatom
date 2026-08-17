@@ -2,6 +2,7 @@ const User = require('../models/User');
 const { sendError, sendSuccess } = require('../utils/errorCodes');
 const logger = require('../utils/logger');
 const { isValidUsername } = require('../utils/mentionExtractor');
+const { escapeRegex } = require('../utils/regexEscape');
 
 // @desc    Search users for mention autocomplete
 // @route   GET /api/v1/mentions/search
@@ -15,23 +16,47 @@ const searchUsersForMention = async (req, res) => {
     }
 
     const searchQuery = q.trim().toLowerCase();
-    
+
     // Validate username format
     if (!isValidUsername(searchQuery)) {
       return sendSuccess(res, 200, 'Users fetched successfully', { users: [] });
     }
 
+    // isValidUsername restricts searchQuery to [a-z0-9_.], but "." is itself a
+    // regex metacharacter (matches any character) -- escape so a literal dot
+    // in a username only matches a literal dot.
+    const escapedQuery = escapeRegex(searchQuery);
+
+    const currentUserId = req.user?._id;
+    const excludeIds = [];
+    if (currentUserId) {
+      excludeIds.push(currentUserId);
+      const [currentUserDoc, whoBlockedMe] = await Promise.all([
+        User.findById(currentUserId).select('blockedUsers').lean(),
+        User.find({ blockedUsers: currentUserId }).select('_id').lean()
+      ]);
+      const myBlocked = currentUserDoc?.blockedUsers || [];
+      const blockedMeIds = whoBlockedMe.map(u => u._id);
+      excludeIds.push(...myBlocked, ...blockedMeIds);
+    }
+
     // Search users by username or fullName
+    const matchConditions = [
+      { isVerified: true },
+      {
+        $or: [
+          { username: { $regex: `^${escapedQuery}`, $options: 'i' } },
+          { fullName: { $regex: escapedQuery, $options: 'i' } }
+        ]
+      }
+    ];
+
+    if (excludeIds.length > 0) {
+      matchConditions.push({ _id: { $nin: excludeIds } });
+    }
+
     const users = await User.find({
-      $and: [
-        { isVerified: true },
-        {
-          $or: [
-            { username: { $regex: `^${searchQuery}`, $options: 'i' } },
-            { fullName: { $regex: searchQuery, $options: 'i' } }
-          ]
-        }
-      ]
+      $and: matchConditions
     })
     .select('username fullName profilePic')
     .limit(parseInt(limit))

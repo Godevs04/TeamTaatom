@@ -3,12 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion } from "framer-motion";
-import { Search, PlusSquare, User2, Bell, LogOut } from "lucide-react";
+import { Search, PlusSquare, User2, Bell, LogOut, MessageCircle } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Button } from "../ui/button";
 import { useAuth } from "../../context/auth-context";
 import { useMounted } from "../../hooks/use-mounted";
 import { SocialConnect } from "./social-connect";
+import { NotificationBadge, ChatUnreadBadge } from "./notification-badge";
 
 const nav = [
   { href: "/feed", label: "Feed" },
@@ -40,7 +41,7 @@ export function SiteHeader() {
     >
       <div className="mx-auto flex h-14 min-h-[3.5rem] max-w-6xl items-center justify-between gap-2 px-3 sm:px-4 md:px-6">
         <div className="flex min-w-0 flex-shrink items-center gap-3 sm:gap-6">
-          <Link href="/" className="flex items-center gap-2.5 font-semibold tracking-tight text-slate-900 dark:text-zinc-50">
+          <Link href={mounted && user ? "/feed" : "/"} className="flex items-center gap-2.5 font-semibold tracking-tight text-slate-900 dark:text-zinc-50">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/icon.png?v=2" alt="Taatom" className="h-8 w-8 rounded-xl object-contain" />
             <span className="text-sm sm:text-base">Taatom</span>
@@ -90,10 +91,17 @@ export function SiteHeader() {
                   <span className="hidden sm:inline">Create</span>
                 </Button>
               </Link>
-              <Link href="/notifications">
+              <Link href="/chat" className="relative">
+                <Button variant="ghost" size="icon" aria-label="Chat">
+                  <MessageCircle className="h-5 w-5" />
+                </Button>
+                <ChatUnreadBadge />
+              </Link>
+              <Link href="/notifications" className="relative">
                 <Button variant="ghost" size="icon" aria-label="Notifications">
                   <Bell className="h-5 w-5" />
                 </Button>
+                <NotificationBadge />
               </Link>
               <Link href="/search">
                 <Button variant="ghost" size="icon" aria-label="Search">

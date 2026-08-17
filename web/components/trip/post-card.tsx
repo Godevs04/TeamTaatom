@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRef, useState, useEffect } from "react";
-import { Heart, MessageCircle, Share2, MoreHorizontal, Archive, EyeOff, Trash2, Flag, X, Bookmark, FolderPlus } from "lucide-react";
+import { Heart, MessageCircle, MessageCircleOff, Share2, MoreHorizontal, Archive, EyeOff, Pencil, Trash2, Flag, X, Bookmark, FolderPlus } from "lucide-react";
 import { motion } from "framer-motion";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -10,19 +10,24 @@ import {
   deletePost,
   archivePost,
   hidePost,
+  toggleComments,
   createReport,
   type ReportReason,
 } from "../../lib/api";
 import { getFriendlyErrorMessage } from "../../lib/auth-errors";
+import { invalidatePostListQueries } from "../../lib/post-list-queries";
 import { getPostDisplayLocation } from "../../lib/post-utils";
 import type { Post } from "../../types/post";
 import { Button } from "../ui/button";
 import { cn, getLikedPostIds, setLikedPostIds, getSavedPostIds, setSavedPostIds } from "../../lib/utils";
 import { toast } from "sonner";
 import { useAuth } from "../../context/auth-context";
+import { useConfirm } from "../../context/confirm-context";
 import { AddToCollectionModal } from "./AddToCollectionModal";
 import { SharePostModal } from "./share-post-modal";
-import { CaptionWithLinks } from "../caption-with-links";
+import { PostLikesCount } from "./post-likers-modal";
+import { EditPostModal } from "./edit-post-modal";
+import { ExpandableText } from "../ui/expandable-text";
 
 const REPORT_REASONS: { id: ReportReason; label: string }[] = [
   { id: "spam", label: "Spam" },
@@ -39,7 +44,6 @@ type FeedData = {
 
 type SavedPostsCache = { posts: Post[]; savedIds: string[] };
 
-/** Feed uses `["feed", feedMode]`; updating only `["feed"]` never touched the real cache. */
 function patchAllFeedQueries(
   qc: ReturnType<typeof useQueryClient>,
   updater: (old: FeedData | undefined) => FeedData | undefined
@@ -72,10 +76,12 @@ export function PostCard({
 }) {
   const qc = useQueryClient();
   const { user: currentUser } = useAuth();
+  const confirm = useConfirm();
   const [menuOpen, setMenuOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [collectionModalOpen, setCollectionModalOpen] = useState(false);
   const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
   const [menuLoading, setMenuLoading] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -86,13 +92,13 @@ export function PostCard({
         setMenuOpen(false);
       }
     };
-    document.addEventListener("click", close);
-    return () => document.removeEventListener("click", close);
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
   }, [menuOpen]);
 
   const removeFromFeed = () => {
-    patchAllFeedQueries(qc, (old) => {
-      if (!old) return old;
+    qc.setQueriesData<FeedData>({ queryKey: ["posts", "feed"] }, (old) => {
+      if (!old?.pages) return old;
       return {
         ...old,
         pages: old.pages.map((page) => ({
@@ -101,16 +107,23 @@ export function PostCard({
         })),
       };
     });
+    // The feed patch is only an instant local removal; other post lists (hashtag
+    // pages, saved posts) need a refetch or they keep rendering the gone post.
+    invalidatePostListQueries(qc);
     onPostRemoved?.();
   };
 
   const handleDelete = async () => {
-    if (
-      !window.confirm("Are you sure you want to delete this post? This action cannot be undone.")
-    )
-      return;
-    setMenuLoading(true);
     setMenuOpen(false);
+    const ok = await confirm({
+      title: "Delete Post",
+      description: "Are you sure you want to delete this post? This action cannot be undone.",
+      confirmText: "Delete",
+      variant: "destructive",
+    });
+    if (!ok) return;
+
+    setMenuLoading(true);
     try {
       await deletePost(post._id);
       toast.success("Post deleted");
@@ -123,14 +136,16 @@ export function PostCard({
   };
 
   const handleArchive = async () => {
-    if (
-      !window.confirm(
-        "Archive this post? It will be hidden from your profile but can be restored later."
-      )
-    )
-      return;
-    setMenuLoading(true);
     setMenuOpen(false);
+    const ok = await confirm({
+      title: "Archive Post",
+      description: "Archive this post? It will be hidden from your profile but can be restored later.",
+      confirmText: "Archive",
+      variant: "warning",
+    });
+    if (!ok) return;
+
+    setMenuLoading(true);
     try {
       await archivePost(post._id);
       toast.success("Post archived");
@@ -143,13 +158,47 @@ export function PostCard({
   };
 
   const handleHide = async () => {
-    if (!window.confirm("Hide this post? It will be hidden from your feed.")) return;
-    setMenuLoading(true);
     setMenuOpen(false);
+    const ok = await confirm({
+      title: "Hide Post",
+      description: "Hide this post? It will be hidden from your feed.",
+      confirmText: "Hide",
+      variant: "warning",
+    });
+    if (!ok) return;
+
+    setMenuLoading(true);
     try {
       await hidePost(post._id);
       toast.success("Post hidden");
       removeFromFeed();
+    } catch (e) {
+      toast.error(getFriendlyErrorMessage(e));
+    } finally {
+      setMenuLoading(false);
+    }
+  };
+
+  const handleToggleComments = async () => {
+    setMenuLoading(true);
+    setMenuOpen(false);
+    try {
+      const { commentsDisabled } = await toggleComments(post._id);
+      patchAllFeedQueries(qc, (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page) => ({
+            ...page,
+            posts: page.posts.map((p: Post) =>
+              p._id === post._id ? { ...p, commentsDisabled } : p
+            ),
+          })),
+        };
+      });
+      invalidatePostListQueries(qc);
+      qc.invalidateQueries({ queryKey: ["post", post._id] });
+      toast.success(commentsDisabled ? "Comments turned off" : "Comments turned on");
     } catch (e) {
       toast.error(getFriendlyErrorMessage(e));
     } finally {
@@ -187,9 +236,26 @@ export function PostCard({
     toast.success(nextSaved ? "Saved" : "Removed from saved");
   };
 
+  const handleCopyLink = async () => {
+    try {
+      const url = `${window.location.origin}/trip/${post._id}`;
+      await navigator.clipboard.writeText(url);
+      toast.success("Post link copied to clipboard");
+    } catch {
+      toast.error("Failed to copy link");
+    } finally {
+      setMenuOpen(false);
+    }
+  };
+
   const openAddToCollection = () => {
     setMenuOpen(false);
     setCollectionModalOpen(true);
+  };
+
+  const openEditPost = () => {
+    setMenuOpen(false);
+    setEditModalOpen(true);
   };
 
   const handleReportSubmit = async (reason: ReportReason) => {
@@ -288,12 +354,16 @@ export function PostCard({
       toast.error(getFriendlyErrorMessage(e));
     },
     onSettled: () => {
-      qc.invalidateQueries({ queryKey: ["feed"] });
-      qc.invalidateQueries({ queryKey: ["saved-posts"] });
+      invalidatePostListQueries(qc);
     },
   });
 
   const media = post.imageUrl || post.thumbnailUrl || post.mediaUrl || "";
+  const isShort = post.type === "short";
+  const videoUrl = post.videoUrl || post.mediaUrl || "";
+  // Only ever a genuine image -- never mediaUrl, which for a short with no
+  // dedicated thumbnail file is the video's own URL (see getPostById).
+  const posterUrl = post.imageUrl || post.thumbnailUrl || undefined;
   const isOwnPost = !!currentUser && post.user?._id === currentUser._id;
   const displayName = post.user?.fullName || post.user?.username || "Traveler";
   const avatarInitial = displayName.trim().charAt(0).toUpperCase();
@@ -360,6 +430,22 @@ export function PostCard({
                       <button
                         type="button"
                         className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        onClick={handleCopyLink}
+                      >
+                        <Share2 className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
+                        Copy Link
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        onClick={openEditPost}
+                      >
+                        <Pencil className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
                         onClick={handleArchive}
                       >
                         <Archive className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
@@ -384,10 +470,18 @@ export function PostCard({
                       <button
                         type="button"
                         className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        onClick={handleToggleComments}
+                      >
+                        <MessageCircleOff className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
+                        {post.commentsDisabled ? "Turn On Comments" : "Turn Off Comments"}
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
                         onClick={handleShare}
                       >
                         <Share2 className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
-                        Share
+                        Share to Chat
                       </button>
                       <button
                         type="button"
@@ -400,6 +494,14 @@ export function PostCard({
                     </>
                   ) : (
                     <>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
+                        onClick={handleCopyLink}
+                      >
+                        <Share2 className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
+                        Copy Link
+                      </button>
                       <button
                         type="button"
                         className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-zinc-200 dark:hover:bg-zinc-800"
@@ -422,7 +524,7 @@ export function PostCard({
                         onClick={handleShare}
                       >
                         <Share2 className="h-4 w-4 text-slate-500 dark:text-zinc-400" />
-                        Share
+                        Share to Chat
                       </button>
                     </>
                   )}
@@ -434,37 +536,52 @@ export function PostCard({
       </div>
 
       {/* Media */}
-      <Link href={`/trip/${post._id}`} className="block bg-slate-100/50 dark:bg-zinc-950/80">
-        <div className="relative aspect-[4/3] w-full overflow-hidden">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={media}
-            alt={post.caption || "Trip"}
-            className="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.02]"
-            loading="lazy"
+      {isShort && videoUrl ? (
+        <div className="relative aspect-[4/3] w-full overflow-hidden bg-slate-100/50 dark:bg-zinc-950/80">
+          <video
+            src={videoUrl}
+            poster={posterUrl}
+            controls
+            playsInline
+            preload="metadata"
+            className="h-full w-full bg-black object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+          {/* Picture area opens the post; native controls sit in the bottom strip. */}
+          <Link
+            href={`/trip/${post._id}`}
+            className="absolute inset-x-0 top-0 bottom-12 z-10"
+            aria-label="Open post"
           />
         </div>
-      </Link>
+      ) : (
+        <Link href={`/trip/${post._id}`} className="block bg-slate-100/50 dark:bg-zinc-950/80">
+          <div className="relative aspect-[4/3] w-full overflow-hidden">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={media}
+              alt={post.caption || "Trip"}
+              className="h-full w-full object-cover transition-transform duration-300 hover:scale-[1.02]"
+              loading="lazy"
+            />
+          </div>
+        </Link>
+      )}
 
       {/* Caption & actions */}
       <div className="mt-auto space-y-4 border-t border-slate-100 px-4 py-3 dark:border-zinc-800 sm:px-6 sm:py-4">
         <div className="min-h-[72px]">
-          <p
-            className={cn(
-              "line-clamp-3 text-[15px] leading-6 text-slate-700 dark:text-zinc-200",
-              post.caption ? "opacity-100" : "opacity-0"
-            )}
-          >
-            <span className="font-semibold">
-              {post.user?.username ? `@${post.user.username}` : ""}
-            </span>{" "}
-            <CaptionWithLinks
-              text={post.caption || ""}
-              as="span"
-              className="text-slate-600 dark:text-zinc-400"
+          {post.caption ? (
+            <ExpandableText
+              text={`${post.user?.username ? `@${post.user.username} ` : ""}${post.caption}`}
+              maxLines={3}
+              charLimit={180}
+              className="text-[15px] leading-6 text-slate-700 dark:text-zinc-200"
               linkClassName="text-primary"
             />
-          </p>
+          ) : (
+            <p className="opacity-0 text-[15px] leading-6">placeholder</p>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -484,9 +601,12 @@ export function PostCard({
               />
             </motion.span>
           </Button>
-          <span className="min-w-[1.25rem] text-sm font-semibold text-slate-700 dark:text-zinc-200">
-            {post.likesCount ?? 0}
-          </span>
+          <PostLikesCount
+            postId={post._id}
+            likesCount={post.likesCount ?? 0}
+            live
+            className="min-w-[1.25rem] text-sm font-semibold text-slate-700 dark:text-zinc-200"
+          />
 
           {onOpenComments ? (
             <Button
@@ -559,6 +679,8 @@ export function PostCard({
         post={post}
         currentUserId={currentUser?._id}
       />
+
+      <EditPostModal open={editModalOpen} post={post} onClose={() => setEditModalOpen(false)} />
 
       {/* Report reason modal */}
       {reportOpen && (

@@ -2,7 +2,7 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Taatom",
+    name: "Taatom — Travel stories that feel alive",
     short_name: "Taatom",
     description: "Discover trips, stories, and travelers. Share your journey with photos, location, and music.",
     start_url: "/feed",
@@ -11,8 +11,11 @@ export default function manifest(): MetadataRoute.Manifest {
     orientation: "portrait",
     background_color: "#ffffff",
     theme_color: "#2563eb",
+    categories: ["travel", "social", "photography"],
     icons: [
+      { src: "/icon.png", sizes: "192x192", type: "image/png", purpose: "any" },
       { src: "/icon.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
+      { src: "/icon.png", sizes: "512x512", type: "image/png", purpose: "any" },
       { src: "/icon.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
   };

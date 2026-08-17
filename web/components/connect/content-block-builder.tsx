@@ -18,6 +18,7 @@ import { getFriendlyErrorMessage } from "@/lib/auth-errors";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { cn } from "@/lib/utils";
+import { useConfirm } from "@/context/confirm-context";
 
 const BLOCK_TYPES: { type: ContentBlockType; label: string }[] = [
   { type: "heading", label: "Heading" },
@@ -58,6 +59,7 @@ export function ContentBlockBuilder({
   pageId,
   maxBlocks = 20,
 }: ContentBlockBuilderProps) {
+  const confirm = useConfirm();
   const [uploadingIndex, setUploadingIndex] = React.useState<number | null>(null);
   const fileRefs = React.useRef<Record<number, HTMLInputElement | null>>({});
 
@@ -65,8 +67,15 @@ export function ContentBlockBuilder({
     onChange(blocks.map((b, i) => (i === index ? { ...b, ...patch } : b)));
   };
 
-  const removeBlock = (index: number) => {
-    if (!window.confirm("Remove this block?")) return;
+  const removeBlock = async (index: number) => {
+    const ok = await confirm({
+      title: "Remove Content Block?",
+      description: "Are you sure you want to remove this block from your page?",
+      confirmText: "Remove",
+      cancelText: "Cancel",
+      variant: "destructive",
+    });
+    if (!ok) return;
     onChange(blocks.filter((_, i) => i !== index).map((b, i) => ({ ...b, order: i })));
   };
 

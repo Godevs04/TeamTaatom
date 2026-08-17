@@ -7,6 +7,7 @@ const Order = require('../models/Order')
 const logger = require('../utils/logger')
 const { sendError, sendSuccess } = require('../utils/errorCodes')
 const { generateCSRF } = require('../middleware/csrfProtection')
+const { escapeRegex } = require('../utils/regexEscape')
 
 // Multer configuration for avatar uploads
 const storage = multer.memoryStorage()
@@ -761,10 +762,11 @@ router.get('/users', checkPermission('canManageUsers'), async (req, res) => {
     }
     
     if (search) {
+      const escapedSearch = escapeRegex(search)
       query.$or = [
-        { fullName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { username: { $regex: search, $options: 'i' } }
+        { fullName: { $regex: escapedSearch, $options: 'i' } },
+        { email: { $regex: escapedSearch, $options: 'i' } },
+        { username: { $regex: escapedSearch, $options: 'i' } }
       ]
     }
     
@@ -1203,7 +1205,7 @@ router.get('/travel-content', checkPermission('canManageContent'), async (req, r
     let query = {}
     
     if (search && typeof search === 'string' && search.trim().length > 0) {
-      const searchTerm = search.trim().substring(0, 100) // Cap search length
+      const searchTerm = escapeRegex(search.trim().substring(0, 100)) // Cap search length, then escape
       query.$or = [
         { caption: { $regex: searchTerm, $options: 'i' } },
         { 'location.address': { $regex: searchTerm, $options: 'i' } }
@@ -2451,9 +2453,10 @@ router.get('/feature-flags', async (req, res) => {
     }
     
     if (search) {
+      const escapedSearch = escapeRegex(search)
       query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
+        { name: { $regex: escapedSearch, $options: 'i' } },
+        { description: { $regex: escapedSearch, $options: 'i' } }
       ]
     }
     
@@ -2905,25 +2908,27 @@ router.get('/search', async (req, res) => {
       posts: [],
       total: 0
     }
-    
+
+    const escapedQ = escapeRegex(q)
+
     if (type === 'all' || type === 'users') {
       const users = await User.find({
         $or: [
-          { fullName: { $regex: q, $options: 'i' } },
-          { email: { $regex: q, $options: 'i' } }
+          { fullName: { $regex: escapedQ, $options: 'i' } },
+          { email: { $regex: escapedQ, $options: 'i' } }
         ]
       })
       .select('fullName email createdAt')
       .limit(parseInt(limit))
-      
+
       searchResults.users = users
     }
-    
+
     if (type === 'all' || type === 'posts') {
       const posts = await Post.find({
         $or: [
-          { content: { $regex: q, $options: 'i' } },
-          { location: { $regex: q, $options: 'i' } }
+          { content: { $regex: escapedQ, $options: 'i' } },
+          { location: { $regex: escapedQ, $options: 'i' } }
         ]
       })
       .populate('user', 'fullName')
@@ -3271,10 +3276,11 @@ router.get('/moderators', checkPermission('canManageModerators'), async (req, re
     
     // Add search functionality
     if (search) {
+      const escapedSearch = escapeRegex(search)
       query.$or = [
-        { email: { $regex: search, $options: 'i' } },
-        { 'profile.firstName': { $regex: search, $options: 'i' } },
-        { 'profile.lastName': { $regex: search, $options: 'i' } }
+        { email: { $regex: escapedSearch, $options: 'i' } },
+        { 'profile.firstName': { $regex: escapedSearch, $options: 'i' } },
+        { 'profile.lastName': { $regex: escapedSearch, $options: 'i' } }
       ]
     }
     
@@ -4453,6 +4459,7 @@ router.get('/search/advanced', authenticateSuperAdmin, async (req, res) => {
     }
     
     const searchQuery = q.trim();
+    const escapedSearchQuery = escapeRegex(searchQuery);
     const searchLimit = Math.min(parseInt(limit) || 20, 100); // Cap at 100
     
     const User = require('../models/User');
@@ -4472,9 +4479,9 @@ router.get('/search/advanced', authenticateSuperAdmin, async (req, res) => {
     if (type === 'all' || type === 'users') {
       const users = await User.find({
         $or: [
-          { fullName: { $regex: searchQuery, $options: 'i' } },
-          { email: { $regex: searchQuery, $options: 'i' } },
-          { username: { $regex: searchQuery, $options: 'i' } }
+          { fullName: { $regex: escapedSearchQuery, $options: 'i' } },
+          { email: { $regex: escapedSearchQuery, $options: 'i' } },
+          { username: { $regex: escapedSearchQuery, $options: 'i' } }
         ]
       })
       .select('fullName email username profilePic isVerified createdAt')
@@ -4488,8 +4495,8 @@ router.get('/search/advanced', authenticateSuperAdmin, async (req, res) => {
     if (type === 'all' || type === 'posts') {
       const posts = await Post.find({
         $or: [
-          { caption: { $regex: searchQuery, $options: 'i' } },
-          { 'location.address': { $regex: searchQuery, $options: 'i' } }
+          { caption: { $regex: escapedSearchQuery, $options: 'i' } },
+          { 'location.address': { $regex: escapedSearchQuery, $options: 'i' } }
         ]
       })
       .select('caption imageUrl videoUrl location createdAt type')
@@ -4504,10 +4511,10 @@ router.get('/search/advanced', authenticateSuperAdmin, async (req, res) => {
     if (type === 'all' || type === 'locales') {
       const locales = await Locale.find({
         $or: [
-          { name: { $regex: searchQuery, $options: 'i' } },
-          { address: { $regex: searchQuery, $options: 'i' } },
-          { city: { $regex: searchQuery, $options: 'i' } },
-          { country: { $regex: searchQuery, $options: 'i' } }
+          { name: { $regex: escapedSearchQuery, $options: 'i' } },
+          { address: { $regex: escapedSearchQuery, $options: 'i' } },
+          { city: { $regex: escapedSearchQuery, $options: 'i' } },
+          { country: { $regex: escapedSearchQuery, $options: 'i' } }
         ]
       })
       .select('name address city country continent coordinates')
@@ -4521,8 +4528,8 @@ router.get('/search/advanced', authenticateSuperAdmin, async (req, res) => {
     if (type === 'all' || type === 'songs') {
       const songs = await Song.find({
         $or: [
-          { title: { $regex: searchQuery, $options: 'i' } },
-          { artist: { $regex: searchQuery, $options: 'i' } }
+          { title: { $regex: escapedSearchQuery, $options: 'i' } },
+          { artist: { $regex: escapedSearchQuery, $options: 'i' } }
         ]
       })
       .select('title artist duration url isActive')
@@ -4980,7 +4987,7 @@ router.get('/connect-pages', checkPermission('canManageContent'), async (req, re
 
     const match = { isAdminPage: { $ne: true } }
     if (status && status !== 'all') match.status = status
-    if (search) match.name = { $regex: search, $options: 'i' }
+    if (search) match.name = { $regex: escapeRegex(search), $options: 'i' }
 
     const [pages, total] = await Promise.all([
       ConnectPage.aggregate([
@@ -5683,12 +5690,13 @@ router.get('/orders', authenticateSuperAdmin, async (req, res) => {
     if (paymentStatus && paymentStatus !== 'all') match.paymentStatus = paymentStatus
     if (deliveryStatus && deliveryStatus !== 'all') match.deliveryStatus = deliveryStatus
     if (search) {
+      const escapedSearch = escapeRegex(search)
       const orConditions = [
-        { buyerName: { $regex: search, $options: 'i' } },
-        { buyerPhone: { $regex: search, $options: 'i' } },
-        { itemName: { $regex: search, $options: 'i' } },
-        { cashfreeOrderId: { $regex: search, $options: 'i' } },
-        { cashfreePaymentId: { $regex: search, $options: 'i' } }
+        { buyerName: { $regex: escapedSearch, $options: 'i' } },
+        { buyerPhone: { $regex: escapedSearch, $options: 'i' } },
+        { itemName: { $regex: escapedSearch, $options: 'i' } },
+        { cashfreeOrderId: { $regex: escapedSearch, $options: 'i' } },
+        { cashfreePaymentId: { $regex: escapedSearch, $options: 'i' } }
       ]
 
       const mongoose = require('mongoose')
@@ -5699,8 +5707,8 @@ router.get('/orders', authenticateSuperAdmin, async (req, res) => {
       const User = require('../models/User')
       const matchingUsers = await User.find({
         $or: [
-          { username: { $regex: search, $options: 'i' } },
-          { fullName: { $regex: search, $options: 'i' } }
+          { username: { $regex: escapedSearch, $options: 'i' } },
+          { fullName: { $regex: escapedSearch, $options: 'i' } }
         ]
       }).select('_id').lean()
 

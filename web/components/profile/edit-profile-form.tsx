@@ -10,6 +10,8 @@ import { useAuth } from "../../context/auth-context";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { ImageCropModal } from "../create/image-crop-modal";
+import { LanguagePicker } from "./language-picker";
+import { NationalityPicker } from "./nationality-picker";
 import type { User } from "../../types/user";
 
 type EditProfileFormProps = {
@@ -21,6 +23,9 @@ export function EditProfileForm({ user }: EditProfileFormProps) {
   const { refresh } = useAuth();
   const [fullName, setFullName] = React.useState(user.fullName ?? "");
   const [bio, setBio] = React.useState(user.bio ?? "");
+  const [nationality, setNationality] = React.useState(user.nationality ?? "");
+  const [currentLocation, setCurrentLocation] = React.useState(user.currentLocation ?? "");
+  const [languagesKnown, setLanguagesKnown] = React.useState<string[]>(user.languagesKnown ?? []);
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
   const [pendingFile, setPendingFile] = React.useState<File | null>(null);
   const [cropSrc, setCropSrc] = React.useState<string | null>(null);
@@ -31,7 +36,10 @@ export function EditProfileForm({ user }: EditProfileFormProps) {
   React.useEffect(() => {
     setFullName(user.fullName ?? "");
     setBio(user.bio ?? "");
-  }, [user._id, user.fullName, user.bio]);
+    setNationality(user.nationality ?? "");
+    setCurrentLocation(user.currentLocation ?? "");
+    setLanguagesKnown(user.languagesKnown ?? []);
+  }, [user._id, user.fullName, user.bio, user.nationality, user.currentLocation, user.languagesKnown]);
 
   React.useEffect(() => {
     return () => {
@@ -83,6 +91,9 @@ export function EditProfileForm({ user }: EditProfileFormProps) {
       const fd = new FormData();
       fd.append("fullName", fullName.trim());
       fd.append("bio", bio.trim());
+      fd.append("nationality", nationality.trim());
+      fd.append("currentLocation", currentLocation.trim());
+      fd.append("languagesKnown", JSON.stringify(languagesKnown));
       if (pendingFile) fd.append("profilePic", pendingFile);
 
       const res = await updateProfile(user._id, fd);
@@ -157,6 +168,31 @@ export function EditProfileForm({ user }: EditProfileFormProps) {
             </div>
           </div>
         </div>
+
+        <div className="space-y-4 border-t border-slate-200/80 pt-5 dark:border-zinc-800">
+          <div>
+            <label htmlFor="currentLocation" className="mb-1.5 block text-sm font-medium text-foreground">
+              Current location
+            </label>
+            <Input
+              id="currentLocation"
+              value={currentLocation}
+              onChange={(e) => setCurrentLocation(e.target.value)}
+              placeholder="e.g. New York, London, Tokyo"
+              className="rounded-xl"
+              maxLength={200}
+            />
+          </div>
+          <div>
+            <p className="mb-1.5 text-sm font-medium text-foreground">Nationality / country</p>
+            <NationalityPicker key={user._id} value={nationality} onChange={setNationality} />
+          </div>
+          <div>
+            <p className="mb-1.5 text-sm font-medium text-foreground">Languages you speak</p>
+            <LanguagePicker key={user._id} value={languagesKnown} onChange={setLanguagesKnown} />
+          </div>
+        </div>
+
         <div className="flex justify-end">
           <Button type="submit" disabled={saving} className="rounded-xl gap-2">
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}

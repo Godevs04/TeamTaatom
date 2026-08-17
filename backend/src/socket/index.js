@@ -1,7 +1,9 @@
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
+const cookie = require('cookie');
 const chatController = require('../controllers/chat.controller');
 const logger = require('../utils/logger');
+const { isOriginAllowed, normalizeOrigin } = require('../utils/corsOrigins');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 const WS_PATH = process.env.WS_PATH || '/socket.io';
@@ -10,6 +12,18 @@ const isProduction = process.env.NODE_ENV === 'production';
 const WS_ALLOWED_ORIGIN = process.env.WS_ALLOWED_ORIGIN || (isProduction ? null : 'http://localhost:19006');
 if (isProduction && !WS_ALLOWED_ORIGIN) {
   throw new Error('WS_ALLOWED_ORIGIN environment variable is required for production');
+}
+const normalizedWsAllowedOrigin = normalizeOrigin(WS_ALLOWED_ORIGIN);
+
+/**
+ * Same allow-list the REST API's CORS middleware uses (app.js), plus
+ * WS_ALLOWED_ORIGIN as an always-allowed extra (e.g. Expo web dev) --
+ * additive on top of the REST allow-list, not a replacement for it.
+ */
+function isSocketOriginAllowed(origin) {
+  if (!origin) return true;
+  if (normalizedWsAllowedOrigin && normalizeOrigin(origin) === normalizedWsAllowedOrigin) return true;
+  return isOriginAllowed(origin);
 }
 
 let io;
@@ -20,7 +34,10 @@ function setupSocket(server) {
   io = new Server(server, {
     path: WS_PATH,
     cors: {
-      origin: WS_ALLOWED_ORIGIN,
+      origin: (origin, callback) => {
+        if (isSocketOriginAllowed(origin)) return callback(null, true);
+        return callback(new Error('Not allowed by CORS'));
+      },
       credentials: true,
     },
   });
@@ -37,12 +54,38 @@ function setupSocket(server) {
     for (const sid of sockets) nsp.to(sid).emit(event, payload);
   }
 
+  // Distinct set of other participants across every chat this user is in --
+  // the same broad lookup listChats uses (chat.controller.js), no chat-type
+  // filter. This is who presence (user:online/user:offline) actually needs
+  // to reach; `user:${userId}` is the user's own room (their own other
+  // devices), never a chat partner's.
+  async function getChatPartnerIds(userId) {
+    const Chat = require('../models/Chat');
+    const chats = await Chat.find({ participants: userId }).select('participants').lean();
+    const partnerIds = new Set();
+    for (const chat of chats) {
+      for (const pId of chat.participants) {
+        const pidStr = pId.toString();
+        if (pidStr !== userId) partnerIds.add(pidStr);
+      }
+    }
+    return [...partnerIds];
+  }
+
   nsp.use(async (socket, next) => {
     try {
       let token = socket.handshake.auth?.token || socket.handshake.query?.auth;
       if (!token && socket.handshake.headers?.authorization) {
         const parts = socket.handshake.headers.authorization.split(' ');
         if (parts[0] === 'Bearer') token = parts[1];
+      }
+      // Web (production): the JWT is never given to browser JS, only set as an
+      // httpOnly `authToken` cookie -- fall back to reading it from the
+      // handshake's Cookie header. Bearer/query paths above are untouched, so
+      // mobile (which sends auth.token) keeps working exactly as before.
+      if (!token && socket.handshake.headers?.cookie) {
+        const parsed = cookie.parse(socket.handshake.headers.cookie);
+        token = parsed.authToken;
       }
       if (!token) return next(new Error('Auth required'));
       const payload = jwt.verify(token, JWT_SECRET);
@@ -52,8 +95,13 @@ function setupSocket(server) {
       // Add this socket to the user's set
       if (!onlineUsers.has(socket.userId)) onlineUsers.set(socket.userId, new Set());
       onlineUsers.get(socket.userId).add(socket.id);
-      // Notify chat partners this user is online
-      nsp.to(`user:${socket.userId}`).emit('user:online', { userId: socket.userId });
+      // Notify actual chat partners this user is online -- only on the
+      // user's first tracked socket, so opening a second tab/device doesn't
+      // re-notify partners who already know the user is online.
+      if (onlineUsers.get(socket.userId).size === 1) {
+        const partnerIds = await getChatPartnerIds(socket.userId);
+        partnerIds.forEach((pId) => nsp.to(`user:${pId}`).emit('user:online', { userId: socket.userId }));
+      }
       return next();
     } catch (err) {
       return next(new Error('Invalid token'));
@@ -65,8 +113,33 @@ function setupSocket(server) {
     socket.on('test', (_data) => {
     });
     // Typing event
-    socket.on('typing', ({ to }) => {
+    socket.on('typing', ({ to, roomId }) => {
+      if (roomId) {
+        const Chat = require('../models/Chat');
+        Chat.findById(roomId).select('participants').lean().then((chat) => {
+          if (!chat) return;
+          for (const p of chat.participants) {
+            const pid = p.toString();
+            if (pid !== socket.userId) emitToUser(pid, 'typing', { from: socket.userId, roomId: roomId.toString() });
+          }
+        }).catch(() => {});
+        return;
+      }
       if (to) emitToUser(to, 'typing', { from: socket.userId });
+    });
+    socket.on('typing:stop', ({ to, roomId }) => {
+      if (roomId) {
+        const Chat = require('../models/Chat');
+        Chat.findById(roomId).select('participants').lean().then((chat) => {
+          if (!chat) return;
+          for (const p of chat.participants) {
+            const pid = p.toString();
+            if (pid !== socket.userId) emitToUser(pid, 'typing:stop', { from: socket.userId, roomId: roomId.toString() });
+          }
+        }).catch(() => {});
+        return;
+      }
+      if (to) emitToUser(to, 'typing:stop', { from: socket.userId });
     });
     // Seen event
     socket.on('seen', async ({ to, messageId, chatId }) => {
@@ -99,7 +172,16 @@ function setupSocket(server) {
           }
         }
         // 1:1 chat: emit to the specific user (existing behavior)
-        if (to) emitToUser(to, 'seen', { from: socket.userId, messageId });
+        if (to) {
+          emitToUser(to, 'seen', { from: socket.userId, messageId });
+          if (chatIdToUse && messageId) {
+            emitToUser(to, 'message:status_changed', {
+              chatId: chatIdToUse.toString(),
+              messageIds: [messageId],
+              status: 'read'
+            });
+          }
+        }
       } catch (err) {
         logger.error('Socket seen event error:', err);
       }
@@ -304,12 +386,18 @@ function setupSocket(server) {
       });
     });
     // Presence
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
       if (onlineUsers.has(socket.userId)) {
         onlineUsers.get(socket.userId).delete(socket.id);
-        if (onlineUsers.get(socket.userId).size === 0) onlineUsers.delete(socket.userId);
+        if (onlineUsers.get(socket.userId).size === 0) {
+          onlineUsers.delete(socket.userId);
+          // Only notify partners once the user's last socket has disconnected --
+          // otherwise closing one of several open tabs/devices would incorrectly
+          // tell partners the user went offline while still connected elsewhere.
+          const partnerIds = await getChatPartnerIds(socket.userId);
+          partnerIds.forEach((pId) => nsp.to(`user:${pId}`).emit('user:offline', { userId: socket.userId }));
+        }
       }
-      nsp.to(`user:${socket.userId}`).emit('user:offline', { userId: socket.userId });
     });
   });
 
