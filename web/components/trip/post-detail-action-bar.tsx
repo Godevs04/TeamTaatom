@@ -88,21 +88,26 @@ export function PostDetailActionBar({ post }: { post: Post }) {
     <>
       <div className="flex flex-wrap items-center justify-between border-y border-slate-200/80 py-3 dark:border-zinc-800/80">
         <div className="flex items-center gap-1 sm:gap-2">
-          {/* Like Button */}
-          <motion.button
-            whileTap={{ scale: 0.85 }}
-            onClick={() => likeMutation.mutate()}
+          {/* Like control: heart likes, count opens likers — never nest buttons. */}
+          <div
             className={cn(
-              "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition",
+              "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium",
               liked
                 ? "bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400"
-                : "text-slate-700 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                : "text-slate-700 dark:text-zinc-300"
             )}
-            aria-label={liked ? "Unlike post" : "Like post"}
           >
-            <Heart className={cn("h-4 w-4", liked && "fill-current")} />
+            <motion.button
+              type="button"
+              whileTap={{ scale: 0.85 }}
+              onClick={() => likeMutation.mutate()}
+              className="-m-1 rounded-full p-1 transition hover:bg-black/5 dark:hover:bg-white/5"
+              aria-label={liked ? "Unlike post" : "Like post"}
+            >
+              <Heart className={cn("h-4 w-4", liked && "fill-current")} />
+            </motion.button>
             <PostLikesCount postId={post._id} likesCount={likesCount} live />
-          </motion.button>
+          </div>
 
           {/* Comment Button */}
           <a
